@@ -5836,6 +5836,32 @@ async function ensureTaxExempt(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _tax_exempt (customer TEXT PRIMARY KEY, certificate TEXT, region TEXT, note TEXT, added_by INTEGER, created_at TEXT, expires TEXT)");
   _taxExemptReady.add(uuid);
 }
+// Account hierarchy — a parent/child tree of org nodes (companies, departments). One row per key; `parent` points
+// at another key (null = a root). Cycles are refused at write time. Ensured once.
+const _orgNodesReady = new Set();
+async function ensureOrgNodes(env, uuid) {
+  if (_orgNodesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _org_nodes (key TEXT PRIMARY KEY, name TEXT, parent TEXT, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_org_parent ON _org_nodes (parent)"); } catch {}
+  _orgNodesReady.add(uuid);
+}
+// Rolling uniques — an exact distinct-value counter per stream (unique visitors / devices / whatever). One row
+// per (stream, value); the distinct count is the row count, optionally windowed by `seen_at`. Ensured once.
+const _uniquesReady = new Set();
+async function ensureUniques(env, uuid) {
+  if (_uniquesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _uniques (stream TEXT NOT NULL, value TEXT NOT NULL, seen_at TEXT, PRIMARY KEY (stream, value))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_uniques_stream ON _uniques (stream, seen_at)"); } catch {}
+  _uniquesReady.add(uuid);
+}
+// Comparison sets — a member builds named sets of item references to compare side-by-side. One row per
+// (user_id, name); `items` is a JSON array of strings. Ensured once.
+const _comparisonsReady = new Set();
+async function ensureComparisons(env, uuid) {
+  if (_comparisonsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _comparisons (user_id INTEGER NOT NULL, name TEXT NOT NULL, items TEXT NOT NULL DEFAULT '[]', updated_at TEXT, PRIMARY KEY (user_id, name))");
+  _comparisonsReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -5858,6 +5884,7 @@ const DATA_EXPORT_TABLES = [
   ["_reservations", "user_id"], ["_queue_tickets", "user_id"], ["_loyalty_spend", "user_id"],
   ["_store_credit", "user_id"], ["_activity", "author_id"], ["_shifts", "user_id"], ["_timeoff", "user_id"],
   ["_subscriptions", "user_id"], ["_room_bookings", "user_id"], ["_access_log", "actor_id"],
+  ["_comparisons", "user_id"],
 ];
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
@@ -10700,6 +10727,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _access_log WHERE actor_id=?", [u.id]],                            // access-view log
             ["DELETE FROM _credit_limits WHERE user_id=?", [u.id]],                          // per-customer credit limit
             ["UPDATE _tax_exempt SET added_by=NULL WHERE added_by=?", [u.id]],               // keep the cert, drop the admin link
+            ["DELETE FROM _comparisons WHERE user_id=?", [u.id]],                            // saved comparison sets
             ["UPDATE _content_hashes SET first_by=NULL WHERE first_by=?", [u.id]],           // keep the shared dedup entry, drop the link
             ["UPDATE _bans SET banned_by=NULL WHERE banned_by=?", [u.id]],                   // keep the ban, drop the admin link
             ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
@@ -23464,6 +23492,200 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported tax-exempt request" }, { status: 405 });
         } catch (e) { console.error("tax-exempt failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "tax-exempt failed" }, { status: 502 }); }
+      }
+      // ACCOUNT HIERARCHY — a parent/child tree of org nodes (companies, departments, cost centers). An admin
+      // defines nodes; reads return a node's ancestors + direct children, its full descendant subtree, or the whole
+      // forest. Cycles are refused at write time; deleting a node reparents its children to its own parent.
+      //   POST   /api/db/<slug>/account-hierarchy {key, name?, parent?}     (ADMIN)  → upsert a node
+      //   GET    /api/db/<slug>/account-hierarchy/<key>                     (public) → {node, ancestors, children}
+      //   GET    /api/db/<slug>/account-hierarchy/<key>/descendants         (public) → flattened subtree
+      //   GET    /api/db/<slug>/account-hierarchy                           (public) → nested forest (roots)
+      //   DELETE /api/db/<slug>/account-hierarchy/<key>                     (ADMIN)  → remove (reparent children)
+      const orgm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/account-hierarchy(?:\/([A-Za-z0-9_.:-]{1,60})(?:\/(descendants))?)?$/i);
+      if (orgm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = orgm[1].toLowerCase(), key = orgm[2] || null, act = orgm[3] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureOrgNodes(env, uuid);
+          // UPSERT (admin).
+          if (!key && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const k = String(body.key || "").trim();
+            if (!/^[A-Za-z0-9_.:-]{1,60}$/.test(k)) return Response.json({ ok: false, error: "a valid key is required" }, { status: 400 });
+            let parent = body.parent != null && String(body.parent).trim() !== "" ? String(body.parent).trim() : null;
+            if (parent) {
+              if (parent === k) return Response.json({ ok: false, error: "a node can't be its own parent" }, { status: 400 });
+              if (!(await cfD1Query(env, uuid, "SELECT 1 FROM _org_nodes WHERE key=?", [parent]))[0]) return Response.json({ ok: false, error: "parent does not exist" }, { status: 400 });
+              // Cycle check: walk up from the parent; if we reach k, this would loop.
+              const all = await cfD1Query(env, uuid, "SELECT key, parent FROM _org_nodes");
+              const pmap = new Map(all.map((n) => [n.key, n.parent]));
+              let cur = parent, hops = 0;
+              while (cur != null && hops++ < 10000) { if (cur === k) return Response.json({ ok: false, error: "that parent would create a cycle" }, { status: 400 }); cur = pmap.get(cur); }
+            }
+            const r = await cfD1Query(env, uuid, "INSERT INTO _org_nodes (key, name, parent, created_at) VALUES (?,?,?,?) ON CONFLICT(key) DO UPDATE SET name=excluded.name, parent=excluded.parent RETURNING key, name, parent", [k, body.name != null ? String(body.name).slice(0, 200) : null, parent, new Date().toISOString()]);
+            return Response.json({ ok: true, node: r[0] });
+          }
+          // DESCENDANTS (public).
+          if (key && act === "descendants" && request.method === "GET") {
+            const node = (await cfD1Query(env, uuid, "SELECT key, name, parent FROM _org_nodes WHERE key=?", [key]))[0];
+            if (!node) return Response.json({ ok: false, error: "no such node" }, { status: 404 });
+            const all = await cfD1Query(env, uuid, "SELECT key, name, parent FROM _org_nodes");
+            const byParent = new Map(); for (const n of all) { if (!byParent.has(n.parent)) byParent.set(n.parent, []); byParent.get(n.parent).push(n); }
+            const out = []; const stack = [...(byParent.get(key) || [])]; let guard = 0;
+            while (stack.length && guard++ < 100000) { const n = stack.shift(); out.push(n); for (const c of byParent.get(n.key) || []) stack.push(c); }
+            return Response.json({ ok: true, key, descendants: out });
+          }
+          // NODE detail (public).
+          if (key && !act && request.method === "GET") {
+            const node = (await cfD1Query(env, uuid, "SELECT key, name, parent FROM _org_nodes WHERE key=?", [key]))[0];
+            if (!node) return Response.json({ ok: false, error: "no such node" }, { status: 404 });
+            const all = await cfD1Query(env, uuid, "SELECT key, name, parent FROM _org_nodes");
+            const pmap = new Map(all.map((n) => [n.key, n]));
+            const ancestors = []; let cur = node.parent, hops = 0;
+            while (cur != null && hops++ < 10000) { const p = pmap.get(cur); if (!p) break; ancestors.push({ key: p.key, name: p.name }); cur = p.parent; }
+            const children = all.filter((n) => n.parent === key).map((n) => ({ key: n.key, name: n.name }));
+            return Response.json({ ok: true, node, ancestors, children });
+          }
+          // FOREST (public).
+          if (!key && request.method === "GET") {
+            const all = await cfD1Query(env, uuid, "SELECT key, name, parent FROM _org_nodes LIMIT 5000");
+            const byParent = new Map(); for (const n of all) { if (!byParent.has(n.parent)) byParent.set(n.parent, []); byParent.get(n.parent).push(n); }
+            const build = (p, depth) => (byParent.get(p) || []).map((n) => ({ key: n.key, name: n.name, children: depth < 50 ? build(n.key, depth + 1) : [] }));
+            return Response.json({ ok: true, tree: build(null, 0), count: all.length });
+          }
+          // DELETE (admin) — reparent children to this node's parent.
+          if (key && !act && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const node = (await cfD1Query(env, uuid, "SELECT parent FROM _org_nodes WHERE key=?", [key]))[0];
+            if (!node) return Response.json({ ok: false, error: "no such node" }, { status: 404 });
+            await cfD1Exec(env, uuid, "UPDATE _org_nodes SET parent=? WHERE parent=?", [node.parent, key]);
+            await cfD1Exec(env, uuid, "DELETE FROM _org_nodes WHERE key=?", [key]);
+            return Response.json({ ok: true, deleted: true, key, reparented_to: node.parent });
+          }
+          return Response.json({ ok: false, error: "unsupported account-hierarchy request" }, { status: 405 });
+        } catch (e) { console.error("account-hierarchy failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "account-hierarchy failed" }, { status: 502 }); }
+      }
+      // ROLLING UNIQUES — an exact distinct-value counter per stream (unique visitors, devices, coupon uses…). A
+      // signed-in member records a value (deduped); anyone can read the distinct count, optionally within a window.
+      //   POST   /api/db/<slug>/rolling-uniques/<stream> {value}          (member) → {added, distinct}
+      //   GET    /api/db/<slug>/rolling-uniques/<stream>[?since=]         (public) → {distinct}
+      //   DELETE /api/db/<slug>/rolling-uniques/<stream>                  (ADMIN)  → reset the stream
+      const runm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rolling-uniques\/([A-Za-z0-9_.:-]{1,60})$/i);
+      if (runm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = runm[1].toLowerCase(), stream = runm[2];
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          await ensureUniques(env, uuid);
+          // RECORD (member).
+          if (request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|runiq", 600)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const value = String(body.value == null ? "" : body.value).trim();
+            if (!value || value.length > 200) return Response.json({ ok: false, error: "a value (1..200 chars) is required" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "INSERT INTO _uniques (stream, value, seen_at) VALUES (?,?,?) ON CONFLICT(stream, value) DO NOTHING", [stream, value, new Date().toISOString()]);
+            const cnt = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _uniques WHERE stream=?", [stream]))[0].n;
+            return Response.json({ ok: true, added: (ex.changes || 0) > 0, distinct: cnt });
+          }
+          // READ (public), optional window.
+          if (request.method === "GET") {
+            const since = url.searchParams.get("since");
+            let cnt;
+            if (since) { const s = Date.parse(since); if (!Number.isFinite(s)) return Response.json({ ok: false, error: "since is invalid" }, { status: 400 }); cnt = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _uniques WHERE stream=? AND seen_at >= ?", [stream, new Date(s).toISOString()]))[0].n; }
+            else cnt = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _uniques WHERE stream=?", [stream]))[0].n;
+            return Response.json({ ok: true, stream, distinct: cnt });
+          }
+          // RESET (admin).
+          if (request.method === "DELETE") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _uniques WHERE stream=?", [stream]);
+            return Response.json({ ok: true, reset: true, stream, removed: ex.changes || 0 });
+          }
+          return Response.json({ ok: false, error: "unsupported rolling-uniques request" }, { status: 405 });
+        } catch (e) { console.error("rolling-uniques failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "rolling-uniques failed" }, { status: 502 }); }
+      }
+      // COMPARISON SETS — a member builds named sets of item references to compare side-by-side (a "compare tray").
+      //   POST   /api/db/<slug>/comparison {name, items}          (member) → create/replace a set
+      //   POST   /api/db/<slug>/comparison/<name>/add {item}      (member) → add one item (deduped, capped)
+      //   POST   /api/db/<slug>/comparison/<name>/remove {item}   (member) → remove one item
+      //   GET    /api/db/<slug>/comparison/<name>                 (member) → one set
+      //   GET    /api/db/<slug>/comparison                        (member) → my sets
+      //   DELETE /api/db/<slug>/comparison/<name>                 (member) → delete a set
+      const cmpm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/comparison(?:\/([A-Za-z0-9_.:-]{1,60})(?:\/(add|remove))?)?$/i);
+      if (cmpm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = cmpm[1].toLowerCase(), name = cmpm[2] || null, act = cmpm[3] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const CAP = 24;
+        const parseItems = (raw) => { try { const a = JSON.parse(raw); return Array.isArray(a) ? a : []; } catch { return []; } };
+        const cleanItems = (arr) => { const out = []; const seen = new Set(); for (const v of arr) { const s = String(v).slice(0, 120); if (s && !seen.has(s)) { seen.add(s); out.push(s); } if (out.length >= CAP) break; } return out; };
+        try {
+          if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+          await ensureComparisons(env, uuid);
+          // CREATE / REPLACE.
+          if (!name && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const nm = String(body.name || "").trim();
+            if (!/^[A-Za-z0-9_.:-]{1,60}$/.test(nm)) return Response.json({ ok: false, error: "a valid name is required" }, { status: 400 });
+            if (!Array.isArray(body.items)) return Response.json({ ok: false, error: "items must be an array" }, { status: 400 });
+            const items = cleanItems(body.items);
+            await cfD1Query(env, uuid, "INSERT INTO _comparisons (user_id, name, items, updated_at) VALUES (?,?,?,?) ON CONFLICT(user_id, name) DO UPDATE SET items=excluded.items, updated_at=excluded.updated_at", [userId, nm, JSON.stringify(items), new Date().toISOString()]);
+            return Response.json({ ok: true, name: nm, items });
+          }
+          // ADD / REMOVE one item.
+          if (name && (act === "add" || act === "remove") && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const item = String(body.item == null ? "" : body.item).slice(0, 120);
+            if (!item) return Response.json({ ok: false, error: "an item is required" }, { status: 400 });
+            const row = (await cfD1Query(env, uuid, "SELECT items FROM _comparisons WHERE user_id=? AND name=?", [userId, name]))[0];
+            if (!row && act === "remove") return Response.json({ ok: false, error: "no such set" }, { status: 404 });
+            let items = row ? parseItems(row.items) : [];
+            if (act === "add") { if (!items.includes(item)) { if (items.length >= CAP) return Response.json({ ok: false, error: "the set is full (max " + CAP + ")" }, { status: 409 }); items.push(item); } }
+            else items = items.filter((v) => v !== item);
+            await cfD1Query(env, uuid, "INSERT INTO _comparisons (user_id, name, items, updated_at) VALUES (?,?,?,?) ON CONFLICT(user_id, name) DO UPDATE SET items=excluded.items, updated_at=excluded.updated_at", [userId, name, JSON.stringify(items), new Date().toISOString()]);
+            return Response.json({ ok: true, name, items });
+          }
+          // READ one.
+          if (name && !act && request.method === "GET") {
+            const row = (await cfD1Query(env, uuid, "SELECT name, items, updated_at FROM _comparisons WHERE user_id=? AND name=?", [userId, name]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such set" }, { status: 404 });
+            return Response.json({ ok: true, name: row.name, items: parseItems(row.items), updated_at: row.updated_at });
+          }
+          // LIST mine.
+          if (!name && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT name, items, updated_at FROM _comparisons WHERE user_id=? ORDER BY updated_at DESC LIMIT 200", [userId]);
+            return Response.json({ ok: true, sets: rows.map((r) => ({ name: r.name, items: parseItems(r.items), updated_at: r.updated_at })) });
+          }
+          // DELETE.
+          if (name && !act && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _comparisons WHERE user_id=? AND name=?", [userId, name]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such set" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, name });
+          }
+          return Response.json({ ok: false, error: "unsupported comparison request" }, { status: 405 });
+        } catch (e) { console.error("comparison failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "comparison failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
