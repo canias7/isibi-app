@@ -6666,6 +6666,17 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — gift registry · currency format · luhn (data API, round 2)
+- **`/gift-registry`** — an owner lists wanted items (qty); others atomically claim so nothing's bought twice.
+  Claim guard is a single conditional `INSERT…SELECT…WHERE SUM(claims)+qty ≤ item.qty AND NOT EXISTS(...)` — no
+  counter column, so unclaim/erase self-correct. Owner sees remaining, not who claimed. `_registry_items` +
+  `_registry_claims`, both erased by user (+ claims on the erased user's items). batch346 (19/19).
+- **`/currency-format`** — stateless `Intl` money formatter: `{amount, currency?, locale?}` → `{formatted,
+  symbol}` (JPY zero-decimal, de-DE grouping, etc.). Public. batch347 (10/10).
+- **`/luhn`** — stateless mod-10 validator + check digit for card/ID numbers (formatting tolerated). Public.
+  batch348 (10/10).
+- Full suite 331 green. (51/100 of round 2 shipped.)
+
 ## 2026-07-23 — string similarity · mask · sentiment (data API, round 2)
 - **`/string-similarity`** — stateless fuzzy match: Levenshtein edit distance (case-sensitive), a 0–1 similarity,
   and the Sørensen–Dice bigram coefficient (case-insensitive). For dedupe/typo tolerance. Public. batch343 (14/14).
