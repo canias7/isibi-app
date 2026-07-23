@@ -6666,6 +6666,17 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — inventory lots (FEFO) · ranked-choice vote · color convert (data API, round 2)
+- **`/inventory-lots`** — batch stock with expiry; `/issue {sku, qty}` consumes earliest-expiring lots first
+  (FEFO), each a guarded `UPDATE…qty-? WHERE id=? AND qty>=? RETURNING`, pre-checking the total and refunding
+  the taken lots on a mid-issue race. receive/list(+total)/expiring/delete. `_inv_lots`. batch349 (17/17).
+- **`/ranked-vote`** — instant-runoff (RCV): member submits an ordered `ranking`; `/results` eliminates the
+  lowest first-choice each round, transferring to the next preference, until a majority — tabulated in JS.
+  create/ballot(re-rank replaces)/close/delete. `_rv_ballots` erased by user. batch350 (16/16).
+- **`/color-convert`** — stateless hex/rgb/hsl converter (accepts `#hex`/`rgb()`/`hsl()`) → all three + css
+  strings. Public. batch351 (16/16).
+- Full suite 334 green. (54/100 of round 2 shipped.)
+
 ## 2026-07-23 — gift registry · currency format · luhn (data API, round 2)
 - **`/gift-registry`** — an owner lists wanted items (qty); others atomically claim so nothing's bought twice.
   Claim guard is a single conditional `INSERT…SELECT…WHERE SUM(claims)+qty ≤ item.qty AND NOT EXISTS(...)` — no
