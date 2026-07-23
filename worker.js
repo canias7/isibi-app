@@ -5179,6 +5179,38 @@ async function ensureSubscriptions(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_subs_user ON _subscriptions (user_id)"); } catch {}
   _subscriptionsReady.add(uuid);
 }
+// Resource / room double-book calendar — book a resource for a time window; overlapping bookings for the
+// same resource are rejected atomically. `_room_bookings` = one row per booking. Ensured once per isolate.
+const _roomBookingsReady = new Set();
+async function ensureRoomBookings(env, uuid) {
+  if (_roomBookingsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _room_bookings (id INTEGER PRIMARY KEY AUTOINCREMENT, resource TEXT NOT NULL, user_id INTEGER, starts_at TEXT NOT NULL, ends_at TEXT NOT NULL, note TEXT, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_room_res ON _room_bookings (resource, starts_at, ends_at)"); } catch {}
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_room_user ON _room_bookings (user_id)"); } catch {}
+  _roomBookingsReady.add(uuid);
+}
+// Publish scheduling queue — an admin schedules a content item (by ref) to go live at a time; a due-list
+// surfaces items past their publish_at. `_publish_queue` = one row per scheduled item. Ensured once.
+const _publishQueueReady = new Set();
+async function ensurePublishQueue(env, uuid) {
+  if (_publishQueueReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _publish_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, ref TEXT NOT NULL, kind TEXT, publish_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'scheduled', published_at TEXT, created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_pubq ON _publish_queue (status, publish_at)"); } catch {}
+  _publishQueueReady.add(uuid);
+}
+// The user-scoped tables a member can export their own rows from (GDPR data portability) — kept in sync with
+// the erase list. Each entry is [table, ownerColumn]; a missing table is skipped at read time.
+const DATA_EXPORT_TABLES = [
+  ["_reviews", "user_id"], ["_comments", "author_id"], ["_reactions", "user_id"], ["_bookings", "user_id"],
+  ["_addresses", "user_id"], ["_user_settings", "user_id"], ["_recent_views", "user_id"],
+  ["_badge_awards", "user_id"], ["_tickets", "requester_id"], ["_help_votes", "user_id"],
+  ["_feedback", "author_id"], ["_feedback_votes", "user_id"], ["_points_ledger", "user_id"],
+  ["_leaderboard_scores", "user_id"], ["_daily_claims", "user_id"], ["_challenge_progress", "user_id"],
+  ["_dashboards", "user_id"], ["_terms_accept", "user_id"], ["_agegate", "user_id"],
+  ["_reservations", "user_id"], ["_queue_tickets", "user_id"], ["_loyalty_spend", "user_id"],
+  ["_store_credit", "user_id"], ["_activity", "author_id"], ["_shifts", "user_id"], ["_timeoff", "user_id"],
+  ["_subscriptions", "user_id"], ["_room_bookings", "user_id"],
+];
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -9985,6 +10017,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _shifts WHERE user_id=?", [u.id]],                                 // staff shifts assigned to them
             ["DELETE FROM _timeoff WHERE user_id=?", [u.id]],                                // time-off requests they made
             ["DELETE FROM _subscriptions WHERE user_id=?", [u.id]],                          // recurring-order subscriptions
+            ["DELETE FROM _room_bookings WHERE user_id=?", [u.id]],                          // resource/room reservations
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -16328,6 +16361,161 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported subscriptions request" }, { status: 405 });
         } catch (e) { console.error("subscriptions failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "subscriptions failed" }, { status: 502 }); }
+      }
+      // RESOURCE / ROOM DOUBLE-BOOK CALENDAR — book a resource for a window; overlapping bookings for the
+      // same resource are rejected atomically.
+      //   POST   /api/db/<slug>/rooms/<resource>/book {starts, ends, note?}  (member) → {id} · 409 on clash
+      //   GET    /api/db/<slug>/rooms/<resource>[?from=&to=]  (public) → bookings in a window
+      //   GET    /api/db/<slug>/rooms/<resource>/free?starts=&ends=  (public) → {free}
+      //   DELETE /api/db/<slug>/rooms/<resource>/book/<id>   (owner or ADMIN) → cancel
+      const roomm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rooms\/([A-Za-z0-9_.-]{1,60})(?:\/(book|free)(?:\/(\d+))?)?$/i);
+      if (roomm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = roomm[1].toLowerCase(), resource = roomm[2], seg = roomm[3] || null, bookId = roomm[4] ? parseInt(roomm[4], 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const parseWindow = (a, b) => { const s = Date.parse(String(a || "")), e = Date.parse(String(b || "")); if (Number.isNaN(s) || Number.isNaN(e) || e <= s) return null; return { s: new Date(s).toISOString(), e: new Date(e).toISOString() }; };
+        try {
+          await ensureRoomBookings(env, uuid);
+          // BOOK (member) — atomic no-overlap guard.
+          if (seg === "book" && bookId == null && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|roomw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const win = parseWindow(body.starts, body.ends);
+            if (!win) return Response.json({ ok: false, error: "valid starts and ends (ends after starts) are required" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "INSERT INTO _room_bookings (resource, user_id, starts_at, ends_at, note, created_at) SELECT ?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM _room_bookings WHERE resource=? AND starts_at < ? AND ends_at > ?)", [resource, userId, win.s, win.e, body.note != null ? String(body.note).slice(0, 500) : null, new Date().toISOString(), resource, win.e, win.s]);
+            if (!ex.changes) return Response.json({ ok: false, error: "that time overlaps an existing booking", clash: true }, { status: 409 });
+            const row = (await cfD1Query(env, uuid, "SELECT id FROM _room_bookings WHERE resource=? AND user_id=? AND starts_at=? AND ends_at=? ORDER BY id DESC LIMIT 1", [resource, userId, win.s, win.e]))[0];
+            return Response.json({ ok: true, id: row && row.id, resource, starts_at: win.s, ends_at: win.e });
+          }
+          // FREE check (public).
+          if (seg === "free" && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|roomf", 600)) return tooMany();
+            const win = parseWindow(url.searchParams.get("starts"), url.searchParams.get("ends"));
+            if (!win) return Response.json({ ok: false, error: "valid ?starts= and ?ends= are required" }, { status: 400 });
+            const clash = (await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _room_bookings WHERE resource=? AND starts_at < ? AND ends_at > ? LIMIT 1", [resource, win.e, win.s]))[0];
+            return Response.json({ ok: true, resource, free: !clash });
+          }
+          // CANCEL (owner or admin).
+          if (seg === "book" && bookId != null && request.method === "DELETE") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const row = (await cfD1Query(env, uuid, "SELECT user_id FROM _room_bookings WHERE id=? AND resource=?", [bookId, resource]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such booking" }, { status: 404 });
+            let isAdmin = false; const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); isAdmin = !!(rr[0] && rr[0].role === "admin");
+            if (row.user_id !== userId && !isAdmin) return Response.json({ ok: false, error: "not yours" }, { status: 403 });
+            await cfD1Exec(env, uuid, "DELETE FROM _room_bookings WHERE id=?", [bookId]);
+            return Response.json({ ok: true, cancelled: true, id: bookId });
+          }
+          // LIST bookings for a resource (public).
+          if (!seg && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|rooml", 300)) return tooMany();
+            const where = ["resource=?"], params = [resource];
+            if (url.searchParams.get("from")) { where.push("ends_at >= ?"); params.push(String(url.searchParams.get("from"))); }
+            if (url.searchParams.get("to")) { where.push("starts_at <= ?"); params.push(String(url.searchParams.get("to"))); }
+            const rows = await cfD1Query(env, uuid, "SELECT id, user_id, starts_at, ends_at, note FROM _room_bookings WHERE " + where.join(" AND ") + " ORDER BY starts_at ASC LIMIT 1000", params);
+            return Response.json({ ok: true, resource, bookings: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported rooms request" }, { status: 405 });
+        } catch (e) { console.error("rooms failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "rooms failed" }, { status: 502 }); }
+      }
+      // DATA EXPORT — a member downloads a bundle of all their OWN data across the site's user-scoped tables
+      // (GDPR data portability). Only the caller's own rows are ever returned.
+      //   GET /api/db/<slug>/data-export   (member) → {user, data:{table: rows}}
+      const dexm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/data-export$/i);
+      if (dexm && (request.method === "GET" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = dexm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          if (!rateOk(slug + "|" + ip + "|dex", 10)) return tooMany();
+          const me = (await cfD1Query(env, uuid, "SELECT id, email, role, created_at FROM _users WHERE id=?", [userId]))[0] || { id: userId };
+          const data = {};
+          for (const [table, col] of DATA_EXPORT_TABLES) {
+            try {
+              const rows = await cfD1Query(env, uuid, "SELECT * FROM " + sqlIdent(table) + " WHERE " + sqlIdent(col) + "=? LIMIT 5000", [userId]);
+              if (rows && rows.length) data[table] = rows;
+            } catch {}
+          }
+          return Response.json({ ok: true, user: { id: me.id, email: me.email, created_at: me.created_at }, tables: Object.keys(data).length, data });
+        } catch (e) { console.error("data-export failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "data-export failed" }, { status: 502 }); }
+      }
+      // PUBLISH SCHEDULING QUEUE — an admin schedules a content item (by ref) to go live at a time; a
+      // due-list surfaces items past their publish_at to actually publish.
+      //   POST   /api/db/<slug>/publish-queue {ref, publish_at, kind?}  (ADMIN) → {id}
+      //   GET    /api/db/<slug>/publish-queue/due           (ADMIN) → scheduled items whose time has passed
+      //   GET    /api/db/<slug>/publish-queue[?status=]     (ADMIN) → list
+      //   POST   /api/db/<slug>/publish-queue/<id>/publish  (ADMIN) → mark published
+      //   DELETE /api/db/<slug>/publish-queue/<id>          (ADMIN)
+      const pqm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/publish-queue(?:\/(due|\d+)(?:\/(publish))?)?$/i);
+      if (pqm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = pqm[1].toLowerCase(), seg = pqm[2] || null, pqId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null, isPub = pqm[3] === "publish";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensurePublishQueue(env, uuid);
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          // SCHEDULE.
+          if (!seg && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|pqw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const ref = String(body.ref || "").trim().slice(0, 200);
+            if (!ref) return Response.json({ ok: false, error: "a ref is required" }, { status: 400 });
+            const at = Date.parse(String(body.publish_at || "")); if (Number.isNaN(at)) return Response.json({ ok: false, error: "a valid publish_at is required" }, { status: 400 });
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _publish_queue (ref, kind, publish_at, status, created_at, updated_at) VALUES (?,?,?, 'scheduled', ?,?) RETURNING id", [ref, body.kind != null ? String(body.kind).slice(0, 60) : null, new Date(at).toISOString(), now, now]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, publish_at: new Date(at).toISOString() });
+          }
+          // DUE.
+          if (seg === "due" && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT id, ref, kind, publish_at FROM _publish_queue WHERE status='scheduled' AND datetime(publish_at) <= datetime('now') ORDER BY publish_at ASC LIMIT 1000");
+            return Response.json({ ok: true, due: rows });
+          }
+          // MARK published.
+          if (pqId != null && isPub && request.method === "POST") {
+            const item = (await cfD1Query(env, uuid, "SELECT status FROM _publish_queue WHERE id=?", [pqId]))[0];
+            if (!item) return Response.json({ ok: false, error: "no such item" }, { status: 404 });
+            if (item.status === "published") return Response.json({ ok: true, id: pqId, status: "published", already: true });
+            await cfD1Exec(env, uuid, "UPDATE _publish_queue SET status='published', published_at=?, updated_at=? WHERE id=?", [new Date().toISOString(), new Date().toISOString(), pqId]);
+            return Response.json({ ok: true, id: pqId, status: "published" });
+          }
+          // DELETE.
+          if (pqId != null && !isPub && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _publish_queue WHERE id=?", [pqId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such item" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: pqId });
+          }
+          // LIST.
+          if (!seg && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|pql", 300)) return tooMany();
+            const st = String(url.searchParams.get("status") || "").toLowerCase();
+            const where = ["scheduled", "published"].includes(st) ? " WHERE status=?" : "";
+            const params = where ? [st] : [];
+            const rows = await cfD1Query(env, uuid, "SELECT id, ref, kind, publish_at, status, published_at FROM _publish_queue" + where + " ORDER BY publish_at ASC LIMIT 1000", params);
+            return Response.json({ ok: true, items: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported publish-queue request" }, { status: 405 });
+        } catch (e) { console.error("publish-queue failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "publish-queue failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
