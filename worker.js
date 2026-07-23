@@ -5432,6 +5432,24 @@ async function ensureHandles(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_handles_user ON _handles (user_id)"); } catch {}
   _handlesReady.add(uuid);
 }
+// UTM campaign links — an admin registers a tracked outbound link (target + campaign/source/medium); each hit
+// atomically bumps a click counter, and a report rolls the counts up by campaign. `_utm_links`. Ensured once.
+const _utmReady = new Set();
+async function ensureUtm(env, uuid) {
+  if (_utmReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _utm_links (id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT UNIQUE, target TEXT NOT NULL, campaign TEXT, source TEXT, medium TEXT, term TEXT, content TEXT, clicks INTEGER NOT NULL DEFAULT 0, created_at TEXT)");
+  _utmReady.add(uuid);
+}
+// Return / RMA flow — a member requests a return against an order; an admin moves it through
+// requested → approved | rejected, and approved → refunded, each transition an atomic state-guarded UPDATE.
+// `_rma`. Ensured once.
+const _rmaReady = new Set();
+async function ensureRma(env, uuid) {
+  if (_rmaReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _rma (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, order_ref TEXT NOT NULL, reason TEXT, items TEXT, status TEXT NOT NULL DEFAULT 'requested', note TEXT, refund_amount INTEGER, created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_rma_user ON _rma (user_id)"); } catch {}
+  _rmaReady.add(uuid);
+}
 // The user-scoped tables a member can export their own rows from (GDPR data portability) — kept in sync with
 // the erase list. Each entry is [table, ownerColumn]; a missing table is skipped at read time.
 const DATA_EXPORT_TABLES = [
@@ -10264,6 +10282,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _onboarding_done WHERE user_id=?", [u.id]],                        // onboarding step completions
             ["DELETE FROM _cohort_days WHERE user_id=?", [u.id]],                            // cohort activity days
             ["DELETE FROM _handles WHERE user_id=?", [u.id]],                                // reserved slugs / handles
+            ["DELETE FROM _rma WHERE user_id=?", [u.id]],                                    // return / RMA requests
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -18562,6 +18581,194 @@ async function handleRequest(request, env, ctx) {
           });
           return Response.json({ ok: true, total: rows.length, valid, invalid: rows.length - valid, results });
         } catch (e) { console.error("import-preview failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "import-preview failed" }, { status: 502 }); }
+      }
+      // UTM CAMPAIGN LINKS — an admin registers a tracked outbound link (target URL + campaign/source/medium);
+      // the returned tracking URL carries the utm_* params, each hit bumps a counter, and a report rolls the
+      // clicks up by campaign/source/medium.
+      //   POST   /api/db/<slug>/utm {target, campaign?, source?, medium?, term?, content?, slug?}  (ADMIN)
+      //   POST   /api/db/<slug>/utm/<slug>/click   (public) → {clicks, target}
+      //   GET    /api/db/<slug>/utm/report         (ADMIN)  → rolled-up counts
+      //   GET    /api/db/<slug>/utm                (ADMIN)  → all links
+      //   DELETE /api/db/<slug>/utm/<slug>         (ADMIN)
+      const utmm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/utm(?:\/(report|[A-Za-z0-9_-]{1,40})(?:\/(click))?)?$/i);
+      if (utmm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = utmm[1].toLowerCase(), seg = utmm[2] || null, sub = utmm[3] || null;
+        const isReport = seg === "report", linkSlug = (seg && seg !== "report") ? seg.toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureUtm(env, uuid);
+          // CLICK (public) — atomic increment.
+          if (linkSlug && sub === "click" && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|utmc", 1200)) return tooMany();
+            const r = await cfD1Query(env, uuid, "UPDATE _utm_links SET clicks = clicks + 1 WHERE slug=? RETURNING clicks, target", [linkSlug]);
+            if (!r.length) return Response.json({ ok: false, error: "no such link" }, { status: 404 });
+            return Response.json({ ok: true, clicks: r[0].clicks, target: r[0].target });
+          }
+          // CREATE (admin).
+          if (!seg && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|utmw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const target = String(body.target || "").trim();
+            if (!/^https?:\/\/[^\s]+$/i.test(target) || target.length > 2000) return Response.json({ ok: false, error: "a valid http(s) target URL is required" }, { status: 400 });
+            const clean = (v, n) => v == null ? null : String(v).slice(0, n);
+            const campaign = clean(body.campaign, 120), source = clean(body.source, 120), medium = clean(body.medium, 120), term = clean(body.term, 120), content = clean(body.content, 120);
+            let want = body.slug != null ? String(body.slug).trim().toLowerCase() : "";
+            if (want) { if (!/^[a-z0-9][a-z0-9_-]{0,38}$/.test(want)) return Response.json({ ok: false, error: "bad slug" }, { status: 400 }); }
+            else { want = ((campaign || "link").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24) || "link") + "-" + crypto.randomUUID().slice(0, 6); }
+            const now = new Date().toISOString();
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _utm_links (slug, target, campaign, source, medium, term, content, clicks, created_at) VALUES (?,?,?,?,?,?,?,0,?) ON CONFLICT(slug) DO NOTHING RETURNING id", [want, target, campaign, source, medium, term, content, now]);
+            if (!ins.length) return Response.json({ ok: false, error: "that slug is already taken", taken: true }, { status: 409 });
+            // Build the tracking URL with utm_* params appended.
+            const u = new URL(target);
+            if (source) u.searchParams.set("utm_source", source);
+            if (medium) u.searchParams.set("utm_medium", medium);
+            if (campaign) u.searchParams.set("utm_campaign", campaign);
+            if (term) u.searchParams.set("utm_term", term);
+            if (content) u.searchParams.set("utm_content", content);
+            return Response.json({ ok: true, id: ins[0].id, slug: want, target, url: u.toString() });
+          }
+          // REPORT (admin).
+          if (isReport && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            const rows = await cfD1Query(env, uuid, "SELECT campaign, source, medium, SUM(clicks) AS clicks, COUNT(*) AS links FROM _utm_links GROUP BY campaign, source, medium ORDER BY clicks DESC LIMIT 1000");
+            const total = rows.reduce((s, r) => s + (r.clicks || 0), 0);
+            return Response.json({ ok: true, total_clicks: total, groups: rows.map((r) => ({ campaign: r.campaign, source: r.source, medium: r.medium, clicks: r.clicks || 0, links: r.links })) });
+          }
+          // DELETE (admin).
+          if (linkSlug && !sub && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _utm_links WHERE slug=?", [linkSlug]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such link" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, slug: linkSlug });
+          }
+          // LIST (admin).
+          if (!seg && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            const rows = await cfD1Query(env, uuid, "SELECT id, slug, target, campaign, source, medium, term, content, clicks, created_at FROM _utm_links ORDER BY id DESC LIMIT 1000");
+            return Response.json({ ok: true, links: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported utm request" }, { status: 405 });
+        } catch (e) { console.error("utm failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "utm failed" }, { status: 502 }); }
+      }
+      // SPAM / HONEYPOT SCORE — a stateless heuristic scorer for a form submission: a filled honeypot field, a
+      // suspiciously fast submit, too many links, shouting, and known spam words each add to a 0–100 score.
+      //   POST /api/db/<slug>/spam-check {honeypot?, elapsed_ms?, text?, links_max?}  (public)
+      //     → {score, verdict: 'ham'|'suspect'|'spam', reasons:[...]}
+      const spmm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/spam-check$/i);
+      if (spmm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = spmm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|spm", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const reasons = []; let score = 0;
+          // Honeypot: a hidden field only a bot fills.
+          if (body.honeypot != null && String(body.honeypot).trim() !== "") { score += 60; reasons.push("honeypot filled"); }
+          // Too fast: humans take a couple seconds to fill a form.
+          const elapsed = Number(body.elapsed_ms);
+          if (Number.isFinite(elapsed) && elapsed >= 0 && elapsed < 2000) { score += 25; reasons.push("submitted too fast"); }
+          const text = typeof body.text === "string" ? body.text : "";
+          if (text) {
+            let linksMax = Math.floor(Number(body.links_max)); if (!(linksMax >= 0)) linksMax = 2;
+            const links = (text.match(/https?:\/\/|www\./gi) || []).length;
+            if (links > linksMax) { score += 20; reasons.push("too many links"); }
+            const letters = text.replace(/[^A-Za-z]/g, "");
+            if (letters.length > 20) { const caps = (text.match(/[A-Z]/g) || []).length; if (caps / letters.length > 0.6) { score += 10; reasons.push("all caps"); } }
+            if (/\b(viagra|cialis|casino|lottery|bitcoin|crypto|forex|payday|escort|porn|nude|weight\s*loss|make\s*money)\b/i.test(text)) { score += 15; reasons.push("spam keywords"); }
+            if (/(.)\1{6,}/.test(text)) { score += 8; reasons.push("repeated characters"); }
+          }
+          if (score > 100) score = 100;
+          const verdict = score >= 60 ? "spam" : (score >= 30 ? "suspect" : "ham");
+          return Response.json({ ok: true, score, verdict, reasons });
+        } catch (e) { console.error("spam-check failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "spam-check failed" }, { status: 502 }); }
+      }
+      // RETURN / RMA FLOW — a member requests a return against an order; an admin moves it through
+      // requested → approved | rejected, and approved → refunded. Each transition is an atomic state-guarded UPDATE.
+      //   POST /api/db/<slug>/rma {order_ref, reason?, items?}   (member) → open a request
+      //   GET  /api/db/<slug>/rma/mine                           (member) → own requests
+      //   GET  /api/db/<slug>/rma[?status=]                      (ADMIN)  → all
+      //   GET  /api/db/<slug>/rma/<id>                           (owner or admin)
+      //   POST /api/db/<slug>/rma/<id>/approve                   (ADMIN)  requested → approved
+      //   POST /api/db/<slug>/rma/<id>/reject {note?}            (ADMIN)  requested → rejected
+      //   POST /api/db/<slug>/rma/<id>/refund {amount?}          (ADMIN)  approved  → refunded
+      const rmam = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rma(?:\/(mine|\d+)(?:\/(approve|reject|refund))?)?$/i);
+      if (rmam && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = rmam[1].toLowerCase(), seg = rmam[2] || null, action = rmam[3] || null;
+        const rmaId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureRma(env, uuid);
+          const isAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return !!(rr[0] && rr[0].role === "admin"); };
+          const shape = (r) => ({ id: r.id, order_ref: r.order_ref, reason: r.reason, items: r.items, status: r.status, note: r.note, refund_amount: r.refund_amount, created_at: r.created_at, updated_at: r.updated_at });
+          // CREATE (member).
+          if (!seg && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|rmaw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const orderRef = String(body.order_ref || "").trim().slice(0, 120);
+            if (!orderRef) return Response.json({ ok: false, error: "an order_ref is required" }, { status: 400 });
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _rma (user_id, order_ref, reason, items, status, created_at, updated_at) VALUES (?,?,?,?, 'requested', ?, ?) RETURNING id", [userId, orderRef, body.reason != null ? String(body.reason).slice(0, 1000) : null, body.items != null ? String(body.items).slice(0, 4000) : null, now, now]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, status: "requested" });
+          }
+          // MINE (member).
+          if (seg === "mine" && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT * FROM _rma WHERE user_id=? ORDER BY id DESC LIMIT 1000", [userId]);
+            return Response.json({ ok: true, rma: rows.map(shape) });
+          }
+          // LIST ALL (admin).
+          if (!seg && request.method === "GET") {
+            if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const st = url.searchParams.get("status");
+            const rows = st ? await cfD1Query(env, uuid, "SELECT * FROM _rma WHERE status=? ORDER BY id DESC LIMIT 2000", [String(st).slice(0, 20)]) : await cfD1Query(env, uuid, "SELECT * FROM _rma ORDER BY id DESC LIMIT 2000");
+            return Response.json({ ok: true, rma: rows.map((r) => ({ ...shape(r), user_id: r.user_id })) });
+          }
+          // GET one (owner or admin).
+          if (rmaId != null && !action && request.method === "GET") {
+            const row = (await cfD1Query(env, uuid, "SELECT * FROM _rma WHERE id=?", [rmaId]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such request" }, { status: 404 });
+            if (row.user_id !== userId && !(await isAdmin())) return Response.json({ ok: false, error: "not yours" }, { status: 403 });
+            return Response.json({ ok: true, rma: { ...shape(row), user_id: row.user_id } });
+          }
+          // TRANSITIONS (admin) — atomic state guards.
+          if (rmaId != null && action && request.method === "POST") {
+            if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const now = new Date().toISOString();
+            let from, to, extraSql = "", extraParams = [];
+            if (action === "approve") { from = "requested"; to = "approved"; }
+            else if (action === "reject") { from = "requested"; to = "rejected"; extraSql = ", note=?"; extraParams = [body.note != null ? String(body.note).slice(0, 1000) : null]; }
+            else { from = "approved"; to = "refunded"; const amt = toCents(body.amount); extraSql = ", refund_amount=?"; extraParams = [amt]; }
+            const r = await cfD1Query(env, uuid, "UPDATE _rma SET status=?, updated_at=?" + extraSql + " WHERE id=? AND status=? RETURNING id", [to, now, ...extraParams, rmaId, from]);
+            if (!r.length) {
+              const row = (await cfD1Query(env, uuid, "SELECT status FROM _rma WHERE id=?", [rmaId]))[0];
+              if (!row) return Response.json({ ok: false, error: "no such request" }, { status: 404 });
+              return Response.json({ ok: false, error: "can't " + action + " from '" + row.status + "'", status: row.status }, { status: 409 });
+            }
+            return Response.json({ ok: true, id: rmaId, status: to });
+          }
+          return Response.json({ ok: false, error: "unsupported rma request" }, { status: 405 });
+        } catch (e) { console.error("rma failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "rma failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
