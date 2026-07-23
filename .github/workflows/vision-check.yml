@@ -4,14 +4,9 @@
 name: vision-check
 
 on:
+  # Manual only. (It was validated once via a temporary push trigger — passed: good 78, broken 15/critical.
+  # Re-run from the Actions tab when you want to re-check the live vision call; each run costs ~2 model calls.)
   workflow_dispatch: {}
-  # Also runs on a push to main that touches the vision files (so it can be triggered without dispatch perms).
-  push:
-    branches: [main]
-    paths:
-      - "test/fixtures/vision/**"
-      - "test/vision-live-check.mjs"
-      - ".github/workflows/vision-check.yml"
 
 jobs:
   vision-check:

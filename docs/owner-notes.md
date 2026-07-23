@@ -10,6 +10,17 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-07-23 — LIVE VISION CALL VALIDATED with the real key (GitHub Actions)
+Owner: "it's in github secrets." Correct — `ANTHROPIC_API_KEY` is a GitHub Actions secret (uploaded to the Worker
+each deploy); it is NOT exposed to a local shell, so the live vision call can only run inside Actions. Added a
+manual workflow `.github/workflows/vision-check.yml` + `test/vision-live-check.mjs` that sends two committed
+screenshot fixtures (a polished studio-dark punch card + a deliberately broken dark-on-dark page) to the REAL
+vision model and asserts good ≥70, broken ≤55 w/ a critical issue, good > broken. **RAN GREEN (run #1):
+GOOD → 78 "clean, on-theme punch card layout"; BROKEN → 15 "almost entirely empty with severe contrast issues,
+content nearly invisible" (critical: contrast + punch-card viz).** So the vision critique works end-to-end with
+the real key, matching my local read (~90/~15). The integration can't dispatch workflow_dispatch (403), so I used
+a one-shot push trigger to fire it, then reverted to manual-only (re-run from the Actions tab; ~2 calls/run).
+
 ## 2026-07-23 — META-LAYER: GENERATION PIPELINE (the wiring layer) — built + validated on real pixels
 Owner said "build that pipeline." `builder/pipeline.mjs` composes ALL six meta-layers into one flow:
 plan (`planApp`) → design (`pickStyleFamily`) → focused prompt (`composeBuildPrompt` = base rules + plan brief +
