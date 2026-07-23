@@ -6661,6 +6661,21 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — cohort retention · handle reservation · import-preview (data API, next-100)
+- **`/cohorts`** — `/track {day?,user?}` records a member active on a day (per user+day dedup via
+  `INSERT…ON CONFLICT DO NOTHING`; admin may pass `user`). `/retention?period=day|week|month&size=8` (admin)
+  buckets users by the period of their first activity and reports, per cohort, the fraction who returned in
+  each following period (computed in JS over the day rows). `/cohorts` (admin) → totals. `_cohort_days`
+  erased by user. batch277 (19/19).
+- **`/handles`** — atomic slug/handle reservation in a namespace: `/reserve {handle,ns?}` claims via
+  `INSERT…ON CONFLICT(ns,handle) DO NOTHING RETURNING` (idempotent for the owner, 409 for anyone else),
+  `/check` (public availability + owner_is_me), `/mine`, admin list, DELETE `/handles/<handle>?ns=` (owner or
+  admin). Handles/ns normalized to lowercase `[a-z0-9][a-z0-9_-]{0,38}`. `_handles` erased by user. batch278 (24/24).
+- **`/import-preview`** — stateless dry-run validator: `{fields:[{name,type,required}], rows:[…]}` → per-row
+  errors (required / wrong-type / unknown-column) with nothing written. Types string/number/integer/boolean/
+  email/date; ≤100 fields, ≤1000 rows. Member-gated. batch279 (17/17).
+- Full suite 262 green. (81/100 of the next-100 list shipped.)
+
 ## 2026-07-23 — rewards catalog · onboarding checklist · spotlight (data API, next-100)
 - **`/rewards-catalog`** — spend `/points` on rewards. Redeem = claim stock (`stock = CASE WHEN stock<0
   THEN stock ELSE stock-1 WHERE stock!=0`) THEN atomic points deduct (`INSERT…SELECT…WHERE SUM>=cost`),
