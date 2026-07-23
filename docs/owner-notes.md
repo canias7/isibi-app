@@ -26,6 +26,22 @@ is the next step for each).
   registry capability (guards drift; the test enforces it). Adoption = have `planApp` seed from `applyBundle` when a
   bundle matches. Every capability id verified against the 279-capability registry.
 
+## 2026-07-23 — Builder: RAISED the generation token ceiling 16k→32k (fixes the truncation the eval exposed)
+The full 25-prompt eval's headline finding: apps **truncate at the 16k output ceiling** (avg output 17.5k, 0% first-pass
+complete, only 46% compile). Owner's call: raise the max tokens now (the cheap unblock) while multi-agent + a model
+picker get designed. Sonnet 5 / Opus 4.8 both support up to **128k** output; `max_tokens` is a ceiling, not a target
+(unused tokens aren't billed), so raising it only costs more when an app genuinely needs the room.
+- **BOTH levers raised together — critical.** The real production ceiling was the **180s stream timeout**, not
+  `max_tokens`: at Sonnet's streaming speed 180s only yields ~15-18k tokens, so raising `max_tokens` alone would've
+  done nothing live. Raised `RB_MAX_OUT` 16000→**32000** AND the react build/revise stream `AbortSignal.timeout`
+  180000→**300000** (5 min) at both `/api/site/react` (build) and `/api/site/react-revise` (revise). The eval harness
+  `makeAnthropicGenerate` also bumped 16000→32000 so a re-run measures the real new ceiling.
+- **Side effect (minor):** the pre-build credit gate `rbCredits(4000, RB_MAX_OUT)` rises 32→**62 credits** (worst-case
+  32k-out build ≈ $0.50). Free users (20 credits) already couldn't build; this only nudges the gate for paid users.
+- Game builder (`GB_MAX_OUT`, kaplay) left at 16k — out of scope (website builder only).
+- `node --check` clean. **Next: re-run the 25-prompt eval to measure the compile-rate lift against the same baseline**
+  (spends ~$8 again — owner's go needed), then the multi-agent + Auto/Sonnet/Opus picker design.
+
 ## 2026-07-23 — Builder upgrade #6: PERSISTENT PER-PROJECT MEMORY — flag `PROJECT_MEMORY` (OFF by default)
 Second of the "doable now" builder upgrades (owner picked #6→#8→#11 in sequence). Pairs with #4: #4 picks WHICH
 files to send on an edit; #6 tells the model the project-level constraints those edits must respect.
