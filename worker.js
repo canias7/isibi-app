@@ -5125,6 +5125,33 @@ async function ensureStoreCredit(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_store_credit_user ON _store_credit (user_id)"); } catch {}
   _storeCreditReady.add(uuid);
 }
+// Activity / notes timeline — a team logs activities (note/call/email/meeting/task) against any entity
+// (a contact, a deal, a project) and reads the timeline. `_activity` = one row per entry. Ensured once.
+const _activityReady = new Set();
+async function ensureActivity(env, uuid) {
+  if (_activityReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _activity (id INTEGER PRIMARY KEY AUTOINCREMENT, entity TEXT NOT NULL, ref TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'note', body TEXT, author_id INTEGER, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_activity_entity ON _activity (entity, ref, id)"); } catch {}
+  _activityReady.add(uuid);
+}
+// Staff shifts — an admin schedules staff shifts (who, when, role); a coverage check counts who is on during
+// a window. `_shifts` = one row per shift. Ensured once.
+const _shiftsReady = new Set();
+async function ensureShifts(env, uuid) {
+  if (_shiftsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _shifts (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, role TEXT, starts_at TEXT NOT NULL, ends_at TEXT NOT NULL, note TEXT, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_shifts_time ON _shifts (starts_at, ends_at)"); } catch {}
+  _shiftsReady.add(uuid);
+}
+// Time-off requests — a member requests time off; an admin approves/denies. Distinct from the /leave balance
+// ledger — this is the request→decision workflow. `_timeoff` = one row per request. Ensured once.
+const _timeoffReady = new Set();
+async function ensureTimeoff(env, uuid) {
+  if (_timeoffReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _timeoff (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, starts_at TEXT NOT NULL, ends_at TEXT NOT NULL, reason TEXT, status TEXT NOT NULL DEFAULT 'pending', decided_by INTEGER, decided_at TEXT, decision_note TEXT, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_timeoff_user ON _timeoff (user_id, status)"); } catch {}
+  _timeoffReady.add(uuid);
+}
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -9927,6 +9954,9 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _slot_bookings WHERE user_id=?", [u.id]],                          // capacity-slot seat bookings
             ["DELETE FROM _loyalty_spend WHERE user_id=?", [u.id]],                          // loyalty spend total
             ["DELETE FROM _store_credit WHERE user_id=?", [u.id]],                           // store-credit ledger
+            ["DELETE FROM _activity WHERE author_id=?", [u.id]],                             // CRM activity/notes they logged
+            ["DELETE FROM _shifts WHERE user_id=?", [u.id]],                                 // staff shifts assigned to them
+            ["DELETE FROM _timeoff WHERE user_id=?", [u.id]],                                // time-off requests they made
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -15863,6 +15893,208 @@ async function handleRequest(request, env, ctx) {
           scored.sort((a, b) => b.shared - a.shared || b.score - a.score);
           return Response.json({ ok: true, target: targetId, related: scored.slice(0, limit) });
         } catch (e) { console.error("related failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "related failed" }, { status: 502 }); }
+      }
+      // ACTIVITY / NOTES TIMELINE — a signed-in team member logs activities (note/call/email/meeting/task)
+      // against any entity (a contact, a deal) and reads the timeline. Team-internal (member auth required).
+      //   POST   /api/db/<slug>/activity {entity, ref, type?, body}  (member) → {id}
+      //   GET    /api/db/<slug>/activity?entity=&ref=[&type=]        (member) → the timeline
+      //   DELETE /api/db/<slug>/activity/<id>                        (author or ADMIN)
+      const actm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/activity(?:\/(\d+))?$/i);
+      if (actm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = actm[1].toLowerCase(), aid = actm[2] ? parseInt(actm[2], 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const TYPES = ["note", "call", "email", "meeting", "task"];
+        try {
+          await ensureActivity(env, uuid);
+          // LOG (member).
+          if (aid == null && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|actw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const entity = String(body.entity || "").trim().slice(0, 80);
+            const ref = String(body.ref == null ? "" : body.ref).trim().slice(0, 200);
+            if (!entity || !ref) return Response.json({ ok: false, error: "entity and ref are required" }, { status: 400 });
+            const bodyText = String(body.body || "").trim().slice(0, 5000);
+            let type = String(body.type || "note").toLowerCase(); if (!TYPES.includes(type)) type = "note";
+            if (!bodyText && type === "note") return Response.json({ ok: false, error: "a body is required for a note" }, { status: 400 });
+            const r = await cfD1Query(env, uuid, "INSERT INTO _activity (entity, ref, type, body, author_id, created_at) VALUES (?,?,?,?,?,?) RETURNING id", [entity, ref, type, bodyText || null, userId, new Date().toISOString()]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, type });
+          }
+          // TIMELINE (member).
+          if (aid == null && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|actl", 300)) return tooMany();
+            const entity = String(url.searchParams.get("entity") || "").trim().slice(0, 80);
+            const ref = String(url.searchParams.get("ref") || "").trim().slice(0, 200);
+            if (!entity || !ref) return Response.json({ ok: false, error: "entity and ref query params are required" }, { status: 400 });
+            const where = ["entity=?", "ref=?"], params = [entity, ref];
+            const type = String(url.searchParams.get("type") || "").toLowerCase();
+            if (TYPES.includes(type)) { where.push("type=?"); params.push(type); }
+            const rows = await cfD1Query(env, uuid, "SELECT id, type, body, author_id, created_at FROM _activity WHERE " + where.join(" AND ") + " ORDER BY id DESC LIMIT 500", params);
+            return Response.json({ ok: true, entity, ref, activity: rows });
+          }
+          // DELETE (author or admin).
+          if (aid != null && request.method === "DELETE") {
+            const row = (await cfD1Query(env, uuid, "SELECT author_id FROM _activity WHERE id=?", [aid]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such activity" }, { status: 404 });
+            let isAdmin = false; const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); isAdmin = !!(rr[0] && rr[0].role === "admin");
+            if (row.author_id !== userId && !isAdmin) return Response.json({ ok: false, error: "not yours" }, { status: 403 });
+            await cfD1Exec(env, uuid, "DELETE FROM _activity WHERE id=?", [aid]);
+            return Response.json({ ok: true, deleted: true, id: aid });
+          }
+          return Response.json({ ok: false, error: "unsupported activity request" }, { status: 405 });
+        } catch (e) { console.error("activity failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "activity failed" }, { status: 502 }); }
+      }
+      // STAFF SHIFTS — an admin schedules staff shifts (who, when, role); a coverage check counts who is on
+      // during a window.
+      //   POST   /api/db/<slug>/shifts {user, starts, ends, role?, note?}  (ADMIN) → {id}
+      //   GET    /api/db/<slug>/shifts[?user=&from=&to=]    (ADMIN) → list
+      //   GET    /api/db/<slug>/shifts/mine[?from=&to=]     (member) → my shifts
+      //   GET    /api/db/<slug>/shifts/coverage?from=&to=   (ADMIN) → who's on during the window
+      //   DELETE /api/db/<slug>/shifts/<id>                 (ADMIN)
+      const shfm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/shifts(?:\/(mine|coverage|\d+))?$/i);
+      if (shfm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = shfm[1].toLowerCase(), seg = shfm[2] || null, shiftId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const isAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return !!(rr[0] && rr[0].role === "admin"); };
+        try {
+          await ensureShifts(env, uuid);
+          // MY shifts (member).
+          if (seg === "mine" && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|shfm", 300)) return tooMany();
+            const where = ["user_id=?"], params = [userId];
+            if (url.searchParams.get("from")) { where.push("ends_at >= ?"); params.push(String(url.searchParams.get("from"))); }
+            if (url.searchParams.get("to")) { where.push("starts_at <= ?"); params.push(String(url.searchParams.get("to"))); }
+            const rows = await cfD1Query(env, uuid, "SELECT id, role, starts_at, ends_at, note FROM _shifts WHERE " + where.join(" AND ") + " ORDER BY starts_at ASC LIMIT 1000", params);
+            return Response.json({ ok: true, shifts: rows });
+          }
+          // Everything else admin.
+          if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          // CREATE.
+          if (!seg && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|shfw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const target = parseInt(body.user, 10);
+            const startMs = Date.parse(String(body.starts || "")), endMs = Date.parse(String(body.ends || ""));
+            if (!(target > 0)) return Response.json({ ok: false, error: "user (staff member id) is required" }, { status: 400 });
+            if (Number.isNaN(startMs) || Number.isNaN(endMs)) return Response.json({ ok: false, error: "valid starts and ends are required" }, { status: 400 });
+            if (endMs <= startMs) return Response.json({ ok: false, error: "ends must be after starts" }, { status: 400 });
+            if (!(await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _users WHERE id=?", [target]))[0]) return Response.json({ ok: false, error: "no such user" }, { status: 404 });
+            const r = await cfD1Query(env, uuid, "INSERT INTO _shifts (user_id, role, starts_at, ends_at, note, created_at) VALUES (?,?,?,?,?,?) RETURNING id", [target, body.role != null ? String(body.role).slice(0, 80) : null, new Date(startMs).toISOString(), new Date(endMs).toISOString(), body.note != null ? String(body.note).slice(0, 500) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null });
+          }
+          // COVERAGE.
+          if (seg === "coverage" && request.method === "GET") {
+            const from = String(url.searchParams.get("from") || ""), to = String(url.searchParams.get("to") || "");
+            if (!from || !to) return Response.json({ ok: false, error: "from and to are required" }, { status: 400 });
+            // Shifts that overlap the [from,to] window.
+            const rows = await cfD1Query(env, uuid, "SELECT id, user_id, role, starts_at, ends_at FROM _shifts WHERE starts_at < ? AND ends_at > ? ORDER BY starts_at ASC LIMIT 1000", [to, from]);
+            const staff = [...new Set(rows.map((r) => r.user_id))];
+            return Response.json({ ok: true, from, to, on_shift: rows.length, staff_count: staff.length, staff, shifts: rows });
+          }
+          // LIST.
+          if (!seg && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|shfl", 300)) return tooMany();
+            const where = [], params = [];
+            const u = parseInt(url.searchParams.get("user"), 10); if (u > 0) { where.push("user_id=?"); params.push(u); }
+            if (url.searchParams.get("from")) { where.push("ends_at >= ?"); params.push(String(url.searchParams.get("from"))); }
+            if (url.searchParams.get("to")) { where.push("starts_at <= ?"); params.push(String(url.searchParams.get("to"))); }
+            const rows = await cfD1Query(env, uuid, "SELECT id, user_id, role, starts_at, ends_at, note FROM _shifts" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY starts_at ASC LIMIT 1000", params);
+            return Response.json({ ok: true, shifts: rows });
+          }
+          // DELETE.
+          if (shiftId != null && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _shifts WHERE id=?", [shiftId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such shift" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: shiftId });
+          }
+          return Response.json({ ok: false, error: "unsupported shifts request" }, { status: 405 });
+        } catch (e) { console.error("shifts failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "shifts failed" }, { status: 502 }); }
+      }
+      // TIME-OFF REQUESTS — a member requests time off; an admin approves/denies. Distinct from the /leave
+      // balance ledger — this is the request→decision workflow.
+      //   POST   /api/db/<slug>/timeoff {starts, ends, reason?}  (member) → request → {id}
+      //   GET    /api/db/<slug>/timeoff/mine                (member) → my requests
+      //   GET    /api/db/<slug>/timeoff[?status=&user=]     (ADMIN) → all requests
+      //   POST   /api/db/<slug>/timeoff/<id>/decide {approve, note?}  (ADMIN) → approve/deny
+      //   DELETE /api/db/<slug>/timeoff/<id>                (owner while pending, or ADMIN)
+      const tofm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/timeoff(?:\/(mine|\d+)(?:\/(decide))?)?$/i);
+      if (tofm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = tofm[1].toLowerCase(), seg = tofm[2] || null, isMine = seg === "mine", toId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null, isDecide = tofm[3] === "decide";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const isAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return !!(rr[0] && rr[0].role === "admin"); };
+        try {
+          await ensureTimeoff(env, uuid);
+          // REQUEST (member).
+          if (!seg && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|tofw", 60)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const startMs = Date.parse(String(body.starts || "")), endMs = Date.parse(String(body.ends || ""));
+            if (Number.isNaN(startMs) || Number.isNaN(endMs)) return Response.json({ ok: false, error: "valid starts and ends are required" }, { status: 400 });
+            if (endMs < startMs) return Response.json({ ok: false, error: "ends can't be before starts" }, { status: 400 });
+            const r = await cfD1Query(env, uuid, "INSERT INTO _timeoff (user_id, starts_at, ends_at, reason, status, created_at) VALUES (?,?,?,?, 'pending', ?) RETURNING id", [userId, new Date(startMs).toISOString(), new Date(endMs).toISOString(), body.reason != null ? String(body.reason).slice(0, 500) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, status: "pending" });
+          }
+          // MINE (member).
+          if (isMine && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT id, starts_at, ends_at, reason, status, decided_at, decision_note FROM _timeoff WHERE user_id=? ORDER BY created_at DESC LIMIT 500", [userId]);
+            return Response.json({ ok: true, requests: rows });
+          }
+          // DECIDE (admin).
+          if (toId != null && isDecide && request.method === "POST") {
+            if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const req = (await cfD1Query(env, uuid, "SELECT status FROM _timeoff WHERE id=?", [toId]))[0];
+            if (!req) return Response.json({ ok: false, error: "no such request" }, { status: 404 });
+            if (req.status !== "pending") return Response.json({ ok: false, error: "already " + req.status }, { status: 409 });
+            let body = {}; try { body = await request.json(); } catch {}
+            if (typeof body.approve !== "boolean") return Response.json({ ok: false, error: "approve (true/false) is required" }, { status: 400 });
+            const status = body.approve ? "approved" : "denied";
+            await cfD1Exec(env, uuid, "UPDATE _timeoff SET status=?, decided_by=?, decided_at=?, decision_note=? WHERE id=?", [status, userId, new Date().toISOString(), body.note != null ? String(body.note).slice(0, 500) : null, toId]);
+            return Response.json({ ok: true, id: toId, status });
+          }
+          // LIST all (admin).
+          if (!seg && request.method === "GET") {
+            if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const where = [], params = [];
+            const st = String(url.searchParams.get("status") || "").toLowerCase();
+            if (["pending", "approved", "denied"].includes(st)) { where.push("status=?"); params.push(st); }
+            const u = parseInt(url.searchParams.get("user"), 10); if (u > 0) { where.push("user_id=?"); params.push(u); }
+            const rows = await cfD1Query(env, uuid, "SELECT id, user_id, starts_at, ends_at, reason, status, decided_by, decided_at FROM _timeoff" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY created_at DESC LIMIT 1000", params);
+            return Response.json({ ok: true, requests: rows });
+          }
+          // DELETE (owner while pending, or admin).
+          if (toId != null && !isDecide && request.method === "DELETE") {
+            const req = (await cfD1Query(env, uuid, "SELECT user_id, status FROM _timeoff WHERE id=?", [toId]))[0];
+            if (!req) return Response.json({ ok: false, error: "no such request" }, { status: 404 });
+            const admin = await isAdmin();
+            if (!admin && !(req.user_id === userId && req.status === "pending")) return Response.json({ ok: false, error: "can only cancel your own pending request" }, { status: 403 });
+            await cfD1Exec(env, uuid, "DELETE FROM _timeoff WHERE id=?", [toId]);
+            return Response.json({ ok: true, deleted: true, id: toId });
+          }
+          return Response.json({ ok: false, error: "unsupported timeoff request" }, { status: 405 });
+        } catch (e) { console.error("timeoff failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "timeoff failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
