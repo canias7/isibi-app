@@ -4637,6 +4637,23 @@ async function ensureNotifyPrefs(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _notify_prefs (user_id INTEGER PRIMARY KEY, channels TEXT, types TEXT, quiet_start INTEGER, quiet_end INTEGER, tz_offset INTEGER NOT NULL DEFAULT 0, updated_at TEXT)");
   _notifyPrefsReady.add(uuid);
 }
+// Idempotency keys — a caller stamps a write with a key; the FIRST call executes + stores its result,
+// a REPLAY returns the stored result without re-running. `_idempotency` is per (user_id, key). Ensured once.
+const _idempotencyReady = new Set();
+async function ensureIdempotency(env, uuid) {
+  if (_idempotencyReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _idempotency (user_id INTEGER NOT NULL, key TEXT NOT NULL, response TEXT, created_at TEXT, PRIMARY KEY (user_id, key))");
+  _idempotencyReady.add(uuid);
+}
+// Announcements — an admin broadcasts a message to all members; each member sees it until they DISMISS
+// it. `_announcements` = the posts, `_announcement_dismissals` = who dismissed what. Ensured once.
+const _announcementsReady = new Set();
+async function ensureAnnouncements(env, uuid) {
+  if (_announcementsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _announcements (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, body TEXT, level TEXT, starts_at TEXT, ends_at TEXT, created_by INTEGER, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _announcement_dismissals (announcement_id INTEGER NOT NULL, user_id INTEGER NOT NULL, dismissed_at TEXT, PRIMARY KEY (announcement_id, user_id))");
+  _announcementsReady.add(uuid);
+}
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -9405,6 +9422,8 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _event_regs WHERE user_id=?", [u.id]],                             // event registrations
             ["DELETE FROM _goal_contribs WHERE user_id=?", [u.id]],                          // fundraising contributions
             ["DELETE FROM _notify_prefs WHERE user_id=?", [u.id]],                           // notification preferences
+            ["DELETE FROM _idempotency WHERE user_id=?", [u.id]],                            // idempotency keys
+            ["DELETE FROM _announcement_dismissals WHERE user_id=?", [u.id]],                // announcement dismissals
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -10158,8 +10177,8 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: true, inserted, skipped });
         } catch (e) { console.error("import failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "import failed" }, { status: 502 }); }
       }
-      // Audit trail (ADMIN) — the write history of `audit:true` tables.
-      //   GET /api/db/<slug>/audit[?table=<t>&action=insert|update|delete&limit=N]
+      // Audit trail (ADMIN) — the write history of `audit:true` tables (+ impersonation events).
+      //   GET /api/db/<slug>/audit[?table=<t>&action=<a>&actor=<id>&since=&until=&limit=N&offset=N]
       const aum = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/audit$/i);
       if (aum && (request.method === "GET" || request.method === "OPTIONS")) {
         if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
@@ -10177,13 +10196,18 @@ async function handleRequest(request, env, ctx) {
           if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
           if (!rateOk(slug + "|" + ip + "|audr", 300)) return tooMany();
           const table = (url.searchParams.get("table") || "").toLowerCase().replace(/[^a-z0-9_]/g, "");
-          const action = (url.searchParams.get("action") || "").toLowerCase().replace(/[^a-z]/g, "");
-          const lim = Math.min(500, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+          const action = (url.searchParams.get("action") || "").toLowerCase().replace(/[^a-z_]/g, ""); // insert/update/delete/impersonate/…
+          const actorRaw = url.searchParams.get("actor"), since = url.searchParams.get("since"), until = url.searchParams.get("until");
+          const lim = Math.min(1000, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+          const off = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10) || 0);
           const conds = [], params = [];
           if (table) { conds.push("row_table=?"); params.push(table); }
-          if (["insert", "update", "delete"].includes(action)) { conds.push("action=?"); params.push(action); }
+          if (action) { conds.push("action=?"); params.push(action); }
+          if (actorRaw && /^\d+$/.test(actorRaw)) { conds.push("actor_id=?"); params.push(parseInt(actorRaw, 10)); }
+          if (since) { conds.push("datetime(at) >= datetime(?)"); params.push(String(since).slice(0, 40)); }
+          if (until) { conds.push("datetime(at) <= datetime(?)"); params.push(String(until).slice(0, 40)); }
           let rows = [];
-          try { rows = await cfD1Query(env, uuid, "SELECT id,row_table,row_id,action,actor_id,at FROM _audit" + (conds.length ? " WHERE " + conds.join(" AND ") : "") + " ORDER BY id DESC LIMIT ?", params.concat([lim])); } catch {}
+          try { rows = await cfD1Query(env, uuid, "SELECT id,row_table,row_id,action,actor_id,at FROM _audit" + (conds.length ? " WHERE " + conds.join(" AND ") : "") + " ORDER BY id DESC LIMIT ? OFFSET ?", params.concat([lim, off])); } catch {}
           return Response.json({ ok: true, audit: rows });
         } catch (e) { console.error("audit read failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "audit failed" }, { status: 502 }); }
       }
@@ -11484,6 +11508,116 @@ async function handleRequest(request, env, ctx) {
           await cfD1Query(env, uuid, "INSERT INTO _notify_prefs (user_id, channels, types, quiet_start, quiet_end, tz_offset, updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET channels=excluded.channels, types=excluded.types, quiet_start=excluded.quiet_start, quiet_end=excluded.quiet_end, tz_offset=excluded.tz_offset, updated_at=excluded.updated_at", [userId, JSON.stringify(channels), JSON.stringify(types), qs, qe, tz, new Date().toISOString()]);
           return Response.json({ ok: true, channels, types, quiet_start: qs, quiet_end: qe, tz_offset: tz });
         } catch (e) { console.error("notify-prefs failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "notify-prefs failed" }, { status: 502 }); }
+      }
+      // IDEMPOTENCY KEYS — safe retries. A caller stamps a write with a key; the FIRST call stores its
+      // result, a REPLAY returns the stored result without re-running. Per (user_id, key), atomic claim.
+      //   POST   /api/db/<slug>/idempotency/<key> {response?}  → {first:true, response} · replay {first:false, response:<stored>}
+      //   GET    /api/db/<slug>/idempotency/<key>              → {found, response?}
+      //   DELETE /api/db/<slug>/idempotency/<key>              → clear mine
+      const idm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/idempotency\/([A-Za-z0-9_.:-]{1,120})$/i);
+      if (idm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = idm[1].toLowerCase(), key = idm[2];
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const parse = (s) => { if (s == null) return null; try { return JSON.parse(s); } catch { return null; } };
+        try {
+          await ensureIdempotency(env, uuid);
+          if (request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|idw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            let response = body.response !== undefined ? JSON.stringify(body.response) : null;
+            if (response != null && response.length > 16000) return Response.json({ ok: false, error: "response too large (max 16000 chars)" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "INSERT INTO _idempotency (user_id, key, response, created_at) SELECT ?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM _idempotency WHERE user_id=? AND key=?)", [userId, key, response, new Date().toISOString(), userId, key]);
+            if (ex.changes) return Response.json({ ok: true, first: true, key, response: body.response !== undefined ? body.response : null });
+            const stored = (await cfD1Query(env, uuid, "SELECT response FROM _idempotency WHERE user_id=? AND key=?", [userId, key]))[0];
+            return Response.json({ ok: true, first: false, key, response: parse(stored && stored.response) });
+          }
+          if (request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _idempotency WHERE user_id=? AND key=?", [userId, key]);
+            return Response.json({ ok: true, deleted: (ex.changes || 0) > 0, key });
+          }
+          if (!rateOk(slug + "|" + ip + "|idr", 300)) return tooMany();
+          const row = (await cfD1Query(env, uuid, "SELECT response, created_at FROM _idempotency WHERE user_id=? AND key=?", [userId, key]))[0];
+          if (!row) return Response.json({ ok: true, found: false, key });
+          return Response.json({ ok: true, found: true, key, response: parse(row.response), created_at: row.created_at });
+        } catch (e) { console.error("idempotency failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "idempotency failed" }, { status: 502 }); }
+      }
+      // ANNOUNCEMENTS — an admin broadcasts a message; each member sees the ACTIVE ones until they dismiss.
+      //   POST   /api/db/<slug>/announcements {title?, body, level?, starts_at?, ends_at?}  (ADMIN) → {id}
+      //   GET    /api/db/<slug>/announcements            (member) → my active, undismissed announcements
+      //   GET    /api/db/<slug>/announcements/all        (ADMIN)  → every announcement
+      //   POST   /api/db/<slug>/announcements/<id>/dismiss  (member) → dismiss one
+      //   DELETE /api/db/<slug>/announcements/<id>       (ADMIN)  → delete it
+      const annm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/announcements(?:\/(all|\d+))?(?:\/(dismiss))?$/i);
+      if (annm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = annm[1].toLowerCase(), tail = annm[2] ? annm[2].toLowerCase() : null, act = annm[3] ? annm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const aid = tail && /^\d+$/.test(tail) ? parseInt(tail, 10) : null;
+        const needAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureAnnouncements(env, uuid);
+          // POST a new announcement (admin).
+          if (!tail && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|annw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const text = body.body != null ? String(body.body).trim().slice(0, 4000) : "";
+            if (!text) return Response.json({ ok: false, error: "a body is required" }, { status: 400 });
+            const title = body.title != null && body.title !== "" ? String(body.title).slice(0, 200) : null;
+            let level = String(body.level || "info").toLowerCase(); if (!/^[a-z]{1,16}$/.test(level)) level = "info";
+            const startsAt = body.starts_at != null && body.starts_at !== "" && !isNaN(new Date(body.starts_at).getTime()) ? new Date(body.starts_at).toISOString() : null;
+            const endsAt = body.ends_at != null && body.ends_at !== "" && !isNaN(new Date(body.ends_at).getTime()) ? new Date(body.ends_at).toISOString() : null;
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _announcements (title, body, level, starts_at, ends_at, created_by, created_at) VALUES (?,?,?,?,?,?,?) RETURNING id", [title, text, level, startsAt, endsAt, userId, new Date().toISOString()]);
+            return Response.json({ ok: true, id: ins[0] && ins[0].id });
+          }
+          // GET all (admin).
+          if (tail === "all") {
+            const a = await needAdmin(); if (a) return a;
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|anna", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT id, title, body, level, starts_at, ends_at, created_by, created_at FROM _announcements ORDER BY id DESC LIMIT 500");
+            return Response.json({ ok: true, announcements: rows });
+          }
+          // DISMISS one (member).
+          if (aid != null && act === "dismiss") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|annd", 300)) return tooMany();
+            const ex = await cfD1Exec(env, uuid, "INSERT INTO _announcement_dismissals (announcement_id, user_id, dismissed_at) SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM _announcements WHERE id=?) AND NOT EXISTS(SELECT 1 FROM _announcement_dismissals WHERE announcement_id=? AND user_id=?)", [aid, userId, new Date().toISOString(), aid, aid, userId]);
+            const exists = (await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _announcements WHERE id=?", [aid]))[0];
+            if (!exists) return Response.json({ ok: false, error: "no such announcement" }, { status: 404 });
+            return Response.json({ ok: true, dismissed: true, id: aid, already: !ex.changes });
+          }
+          // DELETE one (admin).
+          if (aid != null && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _announcements WHERE id=?", [aid]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such announcement" }, { status: 404 });
+            try { await cfD1Exec(env, uuid, "DELETE FROM _announcement_dismissals WHERE announcement_id=?", [aid]); } catch {}
+            return Response.json({ ok: true, deleted: true, id: aid });
+          }
+          // GET my active, undismissed announcements (member).
+          if (!tail && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|anng", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT id, title, body, level, starts_at, ends_at, created_at FROM _announcements a WHERE (starts_at IS NULL OR datetime(starts_at) <= datetime('now')) AND (ends_at IS NULL OR datetime(ends_at) > datetime('now')) AND NOT EXISTS(SELECT 1 FROM _announcement_dismissals d WHERE d.announcement_id=a.id AND d.user_id=?) ORDER BY id DESC LIMIT 100", [userId]);
+            return Response.json({ ok: true, announcements: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported announcements request" }, { status: 405 });
+        } catch (e) { console.error("announcements failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "announcements failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
