@@ -11840,6 +11840,61 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, error: "unsupported lists request" }, { status: 405 });
         } catch (e) { console.error("lists failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "lists failed" }, { status: 502 }); }
       }
+      // ONE-TIME CODES (OTP) — verify a short code for a purpose+identifier (confirm a phone/email, approve
+      // a sensitive action). /generate makes a code (returned ONCE so the APP can send it via SMS/email),
+      // stores it HASHED with an expiry + attempt cap; /verify checks it (single-use). One active code per
+      // (purpose, identifier). Any signed-in member; the app is responsible for sending it to the right place.
+      //   POST /api/db/<slug>/otp/generate {purpose, identifier, ttl?, length?, max_attempts?}  → {code, expires_at}
+      //   POST /api/db/<slug>/otp/verify   {purpose, identifier, code}  → {verified} · 400 expired · 429 locked
+      const otpm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/otp\/(generate|verify)$/i);
+      if (otpm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = otpm[1].toLowerCase(), mode = otpm[2].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureOtp(env, uuid);
+          let body = {}; try { body = await request.json(); } catch {}
+          const purpose = String(body.purpose || "").trim().slice(0, 40);
+          const identifier = String(body.identifier || "").trim().slice(0, 160);
+          if (!/^[a-z0-9_.:-]{1,40}$/i.test(purpose)) return Response.json({ ok: false, error: "a purpose is required" }, { status: 400 });
+          if (!identifier) return Response.json({ ok: false, error: "an identifier is required" }, { status: 400 });
+          const hashOf = (code) => sha256hex(purpose + ":" + identifier + ":" + code);
+          if (mode === "generate") {
+            if (!rateOk(slug + "|" + ip + "|otpg", 20) || !rateOk(slug + "|" + ip + "|" + identifier + "|otpg", 5)) return tooMany("Too many code requests — please wait a moment.");
+            let length = Math.floor(Number(body.length)); if (!Number.isFinite(length) || length < 4 || length > 10) length = 6;
+            let ttl = Math.floor(Number(body.ttl)); if (!Number.isFinite(ttl) || ttl < 60 || ttl > 86400) ttl = 600;
+            let maxAttempts = Math.floor(Number(body.max_attempts)); if (!Number.isFinite(maxAttempts) || maxAttempts < 1 || maxAttempts > 10) maxAttempts = 5;
+            const rnd = new Uint32Array(length); crypto.getRandomValues(rnd);
+            let code = ""; for (let i = 0; i < length; i++) code += (rnd[i] % 10);
+            const codeHash = await hashOf(code);
+            const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _otp (purpose, identifier, code_hash, expires_at, attempts, max_attempts, created_at) VALUES (?,?,?,?,0,?,?) ON CONFLICT(purpose, identifier) DO UPDATE SET code_hash=excluded.code_hash, expires_at=excluded.expires_at, attempts=0, max_attempts=excluded.max_attempts, created_at=excluded.created_at", [purpose, identifier, codeHash, expiresAt, maxAttempts, new Date().toISOString()]);
+            return Response.json({ ok: true, code, expires_at: expiresAt, purpose, identifier }); // code returned once — the app sends it
+          }
+          // VERIFY.
+          if (!rateOk(slug + "|" + ip + "|otpv", 60)) return tooMany();
+          const code = String(body.code == null ? "" : body.code).trim();
+          if (!code) return Response.json({ ok: false, error: "a code is required" }, { status: 400 });
+          const row = (await cfD1Query(env, uuid, "SELECT code_hash, expires_at, attempts, max_attempts FROM _otp WHERE purpose=? AND identifier=?", [purpose, identifier]))[0];
+          if (!row) return Response.json({ ok: false, error: "no active code — request a new one", verified: false }, { status: 404 });
+          if (row.attempts >= row.max_attempts) { try { await cfD1Exec(env, uuid, "DELETE FROM _otp WHERE purpose=? AND identifier=?", [purpose, identifier]); } catch {} return Response.json({ ok: false, error: "too many attempts — request a new code", verified: false }, { status: 429 }); }
+          if (new Date(row.expires_at).getTime() < Date.now()) { try { await cfD1Exec(env, uuid, "DELETE FROM _otp WHERE purpose=? AND identifier=?", [purpose, identifier]); } catch {} return Response.json({ ok: false, error: "code expired — request a new one", verified: false }, { status: 400 }); }
+          if ((await hashOf(code)) === row.code_hash) {
+            await cfD1Exec(env, uuid, "DELETE FROM _otp WHERE purpose=? AND identifier=?", [purpose, identifier]); // single-use
+            return Response.json({ ok: true, verified: true });
+          }
+          await cfD1Exec(env, uuid, "UPDATE _otp SET attempts=attempts+1 WHERE purpose=? AND identifier=?", [purpose, identifier]);
+          const left = Math.max(0, row.max_attempts - (row.attempts + 1));
+          return Response.json({ ok: true, verified: false, attempts_left: left });
+        } catch (e) { console.error("otp failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "otp failed" }, { status: 502 }); }
+      }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
       //   POST   /api/db/<slug>/webhooks {url, events?, secret?}   → register (admin; url must be https)
