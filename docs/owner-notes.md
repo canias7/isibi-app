@@ -10,6 +10,22 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-07-23 — INCIDENT + FIX: build-container crash risk from the vision wiring (caught + hardened)
+PR #783 (vision wiring) added `import { renderRoutes } from "./vision-render.mjs"` to build-server.mjs but the
+Dockerfile only `COPY build-server.mjs` — so the container would `ERR_MODULE_NOT_FOUND` on startup and crash-loop,
+breaking ALL site builds (not just vision). #783 deployed "success" (docker build succeeds; the crash is at
+RUNTIME), so the crashing image did roll out. Fixed across two fast PRs:
+- **#784** — build-server loads vision-render LAZILY (`await import()` inside /critique, never at startup) + the
+  Dockerfile now `COPY vision-render.mjs` + `playwright install --with-deps chromium`. Container startup no longer
+  depends on the vision stack at all.
+- **#786** — made the chromium install BEST-EFFORT (`… || echo`) so an apt/network hiccup can't fail the image
+  build (a failed build would keep the previous, crashing image live). Now every deploy ordering ends up-and-safe.
+- Note: another session is concurrently pushing to main (landing-page 3D-logo work, #785 etc.) — deploys interleave;
+  all recent commits include the crash fix, so ordering is safe.
+- LESSON for next time: when a container-run module (build-server.mjs) gains an import, the Dockerfile MUST COPY it
+  (or lazy-import it). node runs it un-bundled, so a missing file = startup crash. Grep the Dockerfile's COPY list
+  whenever adding a builder/ module.
+
 ## 2026-07-23 — VISION REPAIR wired end-to-end (container /critique + worker loop), flag `VISION_REPAIR`
 Built the container half of the vision loop so `PIPELINE_V2` can get full render→critique→repair, not just
 prompt-enrichment+lint.
