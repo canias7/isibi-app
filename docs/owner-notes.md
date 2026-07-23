@@ -6666,6 +6666,16 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — dunning · geofence · slot check (data API, round 2)
+- **`/dunning`** — failed-payment retry state machine (active→recovered|failed|canceled). Admin open/attempt
+  (recovers or schedules next retry to max_attempts)/cancel; `?due=1` surfaces retry-ready cases. Atomic
+  state-guarded transitions. `_dunning` user_id nulled on erase. batch381 (25/25).
+- **`/geofence`** — stateless point-in-region (circle+distance / bbox / polygon ray-casting). Public. batch382 (12/12).
+- **`/slot-check`** — stateless appointment-availability: proposed slot vs busy intervals + a both-sides buffer →
+  available + conflicts. Public. batch383 (12/12).
+- Full suite 364 green. (84/100 of round 2 shipped.)
+- Skipped `/amortization` — `/finance/amortization` (+ `/finance/commission`, `/finance/tax`, etc.) already exist.
+
 ## 2026-07-23 — territory rules · read receipts · broadcast log (data API, round 2)
 - **`/territory`** — named territories with JSON match rules (per-field allowed values, `postal_prefix` prefix-
   match, empty = catch-all); `/match` routes an input to the highest-priority fitting territory. Admin-only.

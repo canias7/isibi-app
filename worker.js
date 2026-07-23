@@ -5923,6 +5923,16 @@ async function ensureBroadcasts(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _broadcasts (id INTEGER PRIMARY KEY AUTOINCREMENT, channel TEXT, subject TEXT, recipients INTEGER NOT NULL DEFAULT 0, sent INTEGER NOT NULL DEFAULT 0, failed INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'sending', created_at TEXT, updated_at TEXT)");
   _broadcastsReady.add(uuid);
 }
+// Dunning — a failed-payment retry state machine. A case opens 'active' after a failed charge; each recorded
+// attempt either recovers it or schedules the next retry until max_attempts is hit ('failed'). One row per ref.
+// `_dunning`. Ensured once.
+const _dunningReady = new Set();
+async function ensureDunning(env, uuid) {
+  if (_dunningReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _dunning (ref TEXT PRIMARY KEY, user_id INTEGER, amount_cents INTEGER, attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 4, status TEXT NOT NULL DEFAULT 'active', next_retry TEXT, last_error TEXT, created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_dunning_status ON _dunning (status, next_retry)"); } catch {}
+  _dunningReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -10791,6 +10801,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _comparisons WHERE user_id=?", [u.id]],                            // saved comparison sets
             ["UPDATE _deposit_holds SET user_id=NULL WHERE user_id=?", [u.id]],              // keep the financial record, drop the link
             ["DELETE FROM _read_receipts WHERE user_id=?", [u.id]],                          // read receipts
+            ["UPDATE _dunning SET user_id=NULL WHERE user_id=?", [u.id]],                    // keep the dunning record, drop the link
             ["UPDATE _content_hashes SET first_by=NULL WHERE first_by=?", [u.id]],           // keep the shared dedup entry, drop the link
             ["UPDATE _bans SET banned_by=NULL WHERE banned_by=?", [u.id]],                   // keep the ban, drop the admin link
             ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
@@ -24256,6 +24267,179 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported broadcast-log request" }, { status: 405 });
         } catch (e) { console.error("broadcast-log failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "broadcast-log failed" }, { status: 502 }); }
+      }
+      // DUNNING — a failed-payment retry state machine. A case opens 'active' after a failed charge; each recorded
+      // attempt recovers it (success) or schedules the next retry until max_attempts is hit ('failed'). Amount cents.
+      //   POST   /api/db/<slug>/dunning {ref, amount?, user?, max_attempts?, retry_days?}  (ADMIN) → open a case
+      //   POST   /api/db/<slug>/dunning/<ref>/attempt {success, error?, retry_days?}        (ADMIN) → record a retry
+      //   POST   /api/db/<slug>/dunning/<ref>/cancel                                        (ADMIN) → stop dunning
+      //   GET    /api/db/<slug>/dunning/<ref>                                               (ADMIN) → one
+      //   GET    /api/db/<slug>/dunning[?status=&due=1]                                     (ADMIN) → list (due = retry-ready)
+      //   DELETE /api/db/<slug>/dunning/<ref>                                               (ADMIN)
+      const dunm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/dunning(?:\/([A-Za-z0-9_.:-]{1,80})(?:\/(attempt|cancel))?)?$/i);
+      if (dunm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = dunm[1].toLowerCase(), ref = dunm[2] || null, act = dunm[3] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const DAY = 86400000;
+        const cols = "ref, user_id, amount_cents, attempts, max_attempts, status, next_retry, last_error";
+        try {
+          const a = await needAdmin(); if (a) return a;
+          await ensureDunning(env, uuid);
+          // OPEN (admin).
+          if (!ref && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const rf = String(body.ref || "").trim();
+            if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(rf)) return Response.json({ ok: false, error: "a valid ref is required" }, { status: 400 });
+            const amt = body.amount != null ? toCents(body.amount) : null;
+            if (body.amount != null && (amt == null || amt < 0)) return Response.json({ ok: false, error: "amount must be a non-negative number" }, { status: 400 });
+            let target = null;
+            if (body.user != null) { target = Math.floor(Number(body.user)); if (!Number.isFinite(target) || !(await cfD1Query(env, uuid, "SELECT 1 FROM _users WHERE id=?", [target]))[0]) return Response.json({ ok: false, error: "no such user" }, { status: 404 }); }
+            const maxAtt = body.max_attempts != null ? Math.floor(Number(body.max_attempts)) : 4;
+            if (!(maxAtt >= 1 && maxAtt <= 20)) return Response.json({ ok: false, error: "max_attempts must be 1..20" }, { status: 400 });
+            const retryDays = body.retry_days != null ? Number(body.retry_days) : 3;
+            if (!(retryDays >= 0 && retryDays <= 365)) return Response.json({ ok: false, error: "retry_days must be 0..365" }, { status: 400 });
+            const now = Date.now();
+            const nextRetry = new Date(now + retryDays * DAY).toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _dunning (ref, user_id, amount_cents, attempts, max_attempts, status, next_retry, created_at, updated_at) VALUES (?,?,?,0,?, 'active', ?,?,?) ON CONFLICT(ref) DO UPDATE SET user_id=excluded.user_id, amount_cents=excluded.amount_cents, max_attempts=excluded.max_attempts, attempts=0, status='active', next_retry=excluded.next_retry, last_error=NULL, updated_at=excluded.updated_at RETURNING " + cols, [rf, target, amt, maxAtt, nextRetry, new Date(now).toISOString(), new Date(now).toISOString()]);
+            return Response.json({ ok: true, case: r[0] });
+          }
+          // ATTEMPT (admin) — record a retry outcome.
+          if (ref && act === "attempt" && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            if (typeof body.success !== "boolean") return Response.json({ ok: false, error: "success (boolean) is required" }, { status: 400 });
+            const cur = (await cfD1Query(env, uuid, "SELECT attempts, max_attempts, status FROM _dunning WHERE ref=?", [ref]))[0];
+            if (!cur) return Response.json({ ok: false, error: "no such case" }, { status: 404 });
+            if (cur.status !== "active") return Response.json({ ok: false, error: "this case is already " + cur.status }, { status: 409 });
+            const attempts = cur.attempts + 1;
+            const now = Date.now();
+            let status, nextRetry = null;
+            if (body.success) status = "recovered";
+            else if (attempts >= cur.max_attempts) status = "failed";
+            else { status = "active"; const retryDays = body.retry_days != null ? Number(body.retry_days) : 3; nextRetry = new Date(now + (Number.isFinite(retryDays) ? retryDays : 3) * DAY).toISOString(); }
+            const r = await cfD1Query(env, uuid, "UPDATE _dunning SET attempts=?, status=?, next_retry=?, last_error=?, updated_at=? WHERE ref=? AND status='active' RETURNING " + cols, [attempts, status, nextRetry, body.error != null ? String(body.error).slice(0, 300) : null, new Date(now).toISOString(), ref]);
+            if (!r.length) return Response.json({ ok: false, error: "case is no longer active" }, { status: 409 });
+            return Response.json({ ok: true, case: r[0] });
+          }
+          // CANCEL (admin).
+          if (ref && act === "cancel" && request.method === "POST") {
+            const r = await cfD1Query(env, uuid, "UPDATE _dunning SET status='canceled', next_retry=NULL, updated_at=? WHERE ref=? AND status='active' RETURNING " + cols, [new Date().toISOString(), ref]);
+            if (!r.length) { const ex = (await cfD1Query(env, uuid, "SELECT status FROM _dunning WHERE ref=?", [ref]))[0]; if (!ex) return Response.json({ ok: false, error: "no such case" }, { status: 404 }); return Response.json({ ok: false, error: "this case is already " + ex.status }, { status: 409 }); }
+            return Response.json({ ok: true, case: r[0] });
+          }
+          // READ one (admin).
+          if (ref && !act && request.method === "GET") {
+            const row = (await cfD1Query(env, uuid, "SELECT " + cols + ", created_at, updated_at FROM _dunning WHERE ref=?", [ref]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such case" }, { status: 404 });
+            return Response.json({ ok: true, case: row });
+          }
+          // LIST (admin).
+          if (!ref && request.method === "GET") {
+            const where = [], params = [];
+            const st = url.searchParams.get("status"); if (st && ["active", "recovered", "failed", "canceled"].includes(st)) { where.push("status=?"); params.push(st); }
+            if (url.searchParams.get("due") === "1") { where.push("status='active' AND next_retry IS NOT NULL AND next_retry <= ?"); params.push(new Date().toISOString()); }
+            const wsql = where.length ? " WHERE " + where.join(" AND ") : "";
+            const rows = await cfD1Query(env, uuid, "SELECT " + cols + " FROM _dunning" + wsql + " ORDER BY next_retry LIMIT 1000", params);
+            return Response.json({ ok: true, cases: rows });
+          }
+          // DELETE (admin).
+          if (ref && !act && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _dunning WHERE ref=?", [ref]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such case" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, ref });
+          }
+          return Response.json({ ok: false, error: "unsupported dunning request" }, { status: 405 });
+        } catch (e) { console.error("dunning failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "dunning failed" }, { status: 502 }); }
+      }
+      // GEOFENCE — a stateless point-in-region test. The fence is a circle {center,radius_m}, a bounding box
+      // {min_lat,min_lon,max_lat,max_lon}, or a polygon {points:[{lat,lon}]}. Returns whether the point is inside
+      // (and, for a circle, the distance to the center).
+      //   POST /api/db/<slug>/geofence {point:{lat,lon}, fence:{type, ...}}   (public) → {inside, distance_m?}
+      const gfm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/geofence$/i);
+      if (gfm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = gfm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|gfen", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const pt = body.point || {}, lat = Number(pt.lat), lon = Number(pt.lon);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return Response.json({ ok: false, error: "a valid point {lat,lon} is required" }, { status: 400 });
+          const fence = body.fence || {};
+          const type = String(fence.type || "").toLowerCase();
+          const toRad = (d) => d * Math.PI / 180;
+          const haversine = (aLat, aLon, bLat, bLon) => { const R = 6371000; const dLat = toRad(bLat - aLat), dLon = toRad(bLon - aLon); const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLon / 2) ** 2; return 2 * R * Math.asin(Math.min(1, Math.sqrt(s))); };
+          if (type === "circle") {
+            const cen = fence.center || {}, cLat = Number(cen.lat), cLon = Number(cen.lon), radius = Number(fence.radius_m);
+            if (!Number.isFinite(cLat) || !Number.isFinite(cLon) || !Number.isFinite(radius) || radius < 0) return Response.json({ ok: false, error: "a circle needs center {lat,lon} and radius_m" }, { status: 400 });
+            const dist = haversine(lat, lon, cLat, cLon);
+            return Response.json({ ok: true, inside: dist <= radius, distance_m: Math.round(dist) });
+          }
+          if (type === "bbox") {
+            const { min_lat, min_lon, max_lat, max_lon } = fence;
+            const vals = [min_lat, min_lon, max_lat, max_lon].map(Number);
+            if (vals.some((v) => !Number.isFinite(v))) return Response.json({ ok: false, error: "a bbox needs min_lat/min_lon/max_lat/max_lon" }, { status: 400 });
+            const inside = lat >= vals[0] && lat <= vals[2] && lon >= vals[1] && lon <= vals[3];
+            return Response.json({ ok: true, inside });
+          }
+          if (type === "polygon") {
+            const pts = Array.isArray(fence.points) ? fence.points : null;
+            if (!pts || pts.length < 3) return Response.json({ ok: false, error: "a polygon needs at least 3 points" }, { status: 400 });
+            const poly = pts.map((p) => [Number(p.lat), Number(p.lon)]);
+            if (poly.some(([a2, b2]) => !Number.isFinite(a2) || !Number.isFinite(b2))) return Response.json({ ok: false, error: "polygon points must be {lat,lon}" }, { status: 400 });
+            // Ray casting.
+            let inside = false;
+            for (let i4 = 0, j = poly.length - 1; i4 < poly.length; j = i4++) {
+              const [yi, xi] = poly[i4], [yj, xj] = poly[j];
+              const intersect = ((yi > lat) !== (yj > lat)) && (lon < (xj - xi) * (lat - yi) / ((yj - yi) || 1e-12) + xi);
+              if (intersect) inside = !inside;
+            }
+            return Response.json({ ok: true, inside });
+          }
+          return Response.json({ ok: false, error: "fence.type must be circle | bbox | polygon" }, { status: 400 });
+        } catch (e) { console.error("geofence failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "geofence failed" }, { status: 502 }); }
+      }
+      // SLOT CHECK — a stateless appointment-availability test. Given a proposed slot, a list of busy intervals, and
+      // an optional buffer, it reports whether the slot is free (the buffer is added on BOTH sides of the proposal)
+      // and lists any conflicts.
+      //   POST /api/db/<slug>/slot-check {proposed:{start,end}, busy:[{start,end}], buffer_minutes?}  (public)
+      const sckm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/slot-check$/i);
+      if (sckm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = sckm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|slchk", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const prop = body.proposed || {};
+          const ps = Date.parse(prop.start), pe = Date.parse(prop.end);
+          if (!Number.isFinite(ps) || !Number.isFinite(pe) || pe <= ps) return Response.json({ ok: false, error: "a valid proposed {start,end} is required" }, { status: 400 });
+          const buffer = body.buffer_minutes != null ? Number(body.buffer_minutes) : 0;
+          if (!Number.isFinite(buffer) || buffer < 0 || buffer > 100000) return Response.json({ ok: false, error: "buffer_minutes must be 0..100000" }, { status: 400 });
+          const bufMs = buffer * 60000;
+          const lo = ps - bufMs, hi = pe + bufMs;
+          if (!Array.isArray(body.busy)) return Response.json({ ok: false, error: "busy must be an array" }, { status: 400 });
+          if (body.busy.length > 5000) return Response.json({ ok: false, error: "too many busy intervals (max 5000)" }, { status: 400 });
+          const conflicts = [];
+          for (const b of body.busy) {
+            const bs = Date.parse(b.start), be = Date.parse(b.end);
+            if (!Number.isFinite(bs) || !Number.isFinite(be)) continue;
+            if (bs < hi && be > lo) conflicts.push({ start: new Date(bs).toISOString(), end: new Date(be).toISOString() });
+          }
+          return Response.json({ ok: true, available: conflicts.length === 0, conflicts, buffer_minutes: buffer });
+        } catch (e) { console.error("slot-check failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "slot-check failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
