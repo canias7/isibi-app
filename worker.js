@@ -4654,6 +4654,34 @@ async function ensureAnnouncements(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _announcement_dismissals (announcement_id INTEGER NOT NULL, user_id INTEGER NOT NULL, dismissed_at TEXT, PRIMARY KEY (announcement_id, user_id))");
   _announcementsReady.add(uuid);
 }
+// Categories — a hierarchical taxonomy tree (blog/product categories, folders). parent_id builds the
+// tree; slug is unique. Admin-managed, public read. Ensured once per isolate.
+const _categoriesReady = new Set();
+async function ensureCategories(env, uuid) {
+  if (_categoriesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _categories (id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT UNIQUE, name TEXT NOT NULL, parent_id INTEGER, sort INTEGER NOT NULL DEFAULT 0, created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_categories_parent ON _categories (parent_id, sort)"); } catch {}
+  _categoriesReady.add(uuid);
+}
+// Named lists / collections — a member curates named lists (wishlist, watchlist, playlist) of items that
+// reference rows in any table. `_lists` = the lists, `_list_items` = their items. Ensured once.
+const _listsReady = new Set();
+async function ensureLists(env, uuid) {
+  if (_listsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _lists (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, kind TEXT, is_public INTEGER NOT NULL DEFAULT 0, created_at TEXT, updated_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _list_items (id INTEGER PRIMARY KEY AUTOINCREMENT, list_id INTEGER NOT NULL, ref_table TEXT, ref_id INTEGER, note TEXT, sort INTEGER NOT NULL DEFAULT 0, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_list_items ON _list_items (list_id, sort)"); } catch {}
+  _listsReady.add(uuid);
+}
+// One-time codes (OTP) — verify a short code for a purpose+identifier (confirm a phone/email, approve an
+// action). The code is stored HASHED; generate returns it once (the app sends it), verify checks it with
+// an expiry + a max-attempts lockout + single-use. One active code per (purpose, identifier). Ensured once.
+const _otpReady = new Set();
+async function ensureOtp(env, uuid) {
+  if (_otpReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _otp (purpose TEXT NOT NULL, identifier TEXT NOT NULL, code_hash TEXT, expires_at TEXT, attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 5, created_at TEXT, PRIMARY KEY (purpose, identifier))");
+  _otpReady.add(uuid);
+}
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -11618,6 +11646,103 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported announcements request" }, { status: 405 });
         } catch (e) { console.error("announcements failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "announcements failed" }, { status: 502 }); }
+      }
+      // CATEGORIES — a hierarchical taxonomy tree (blog/product categories, folders). An admin manages
+      // nodes; anyone reads the tree. parent_id builds the hierarchy; reparenting is cycle-guarded.
+      //   POST   /api/db/<slug>/categories {name, slug?, parent?, sort?}  (ADMIN) → {id}
+      //   GET    /api/db/<slug>/categories            (public) → {flat, tree}
+      //   GET    /api/db/<slug>/categories/<id>       (public) → {category, path (breadcrumb), children}
+      //   PATCH  /api/db/<slug>/categories/<id> {name?, slug?, parent?, sort?}  (ADMIN)
+      //   DELETE /api/db/<slug>/categories/<id>       (ADMIN) → delete; children reparent to its parent
+      const ctm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/categories(?:\/(\d+))?$/i);
+      if (ctm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = ctm[1].toLowerCase(), cid = ctm[2] ? parseInt(ctm[2], 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const slugify = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+        try {
+          await ensureCategories(env, uuid);
+          // CREATE (admin).
+          if (!cid && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|catw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const name = String(body.name || "").trim().slice(0, 120);
+            if (!name) return Response.json({ ok: false, error: "a name is required" }, { status: 400 });
+            let cslug = body.slug ? slugify(body.slug) : slugify(name); if (!cslug) cslug = "c";
+            let parent = null;
+            if (body.parent != null && body.parent !== "") { parent = parseInt(body.parent, 10); if (!Number.isFinite(parent) || !(await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _categories WHERE id=?", [parent]))[0]) return Response.json({ ok: false, error: "parent category not found" }, { status: 400 }); }
+            const sort = Math.floor(Number(body.sort)) || 0;
+            const now = new Date().toISOString();
+            try {
+              const ins = await cfD1Query(env, uuid, "INSERT INTO _categories (slug, name, parent_id, sort, created_at, updated_at) VALUES (?,?,?,?,?,?) RETURNING id", [cslug, name, parent, sort, now, now]);
+              return Response.json({ ok: true, id: ins[0] && ins[0].id, slug: cslug, name, parent_id: parent });
+            } catch (e2) { return Response.json({ ok: false, error: "that slug is taken" }, { status: 409 }); }
+          }
+          // Load the whole tree once (small taxonomies; capped).
+          const all = await cfD1Query(env, uuid, "SELECT id, slug, name, parent_id, sort FROM _categories ORDER BY sort ASC, id ASC LIMIT 5000");
+          const byId = new Map(all.map((r) => [r.id, r]));
+          // GET one + breadcrumb + children (public).
+          if (cid && request.method === "GET") {
+            const row = byId.get(cid);
+            if (!row) return Response.json({ ok: false, error: "no such category" }, { status: 404 });
+            const path = []; let cur = row, guard = 0;
+            while (cur && guard++ < 100) { path.unshift({ id: cur.id, slug: cur.slug, name: cur.name }); cur = cur.parent_id != null ? byId.get(cur.parent_id) : null; }
+            const children = all.filter((r) => r.parent_id === cid);
+            return Response.json({ ok: true, category: row, path, children });
+          }
+          // PATCH (admin) — cycle-guarded reparent.
+          if (cid && request.method === "PATCH") {
+            const a = await needAdmin(); if (a) return a;
+            const row = byId.get(cid);
+            if (!row) return Response.json({ ok: false, error: "no such category" }, { status: 404 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const sets = [], params = [];
+            if (body.name !== undefined) { const n = String(body.name || "").trim().slice(0, 120); if (!n) return Response.json({ ok: false, error: "name can't be empty" }, { status: 400 }); sets.push("name=?"); params.push(n); }
+            if (body.slug !== undefined) { const s = slugify(body.slug) || "c"; sets.push("slug=?"); params.push(s); }
+            if (body.sort !== undefined) { sets.push("sort=?"); params.push(Math.floor(Number(body.sort)) || 0); }
+            if (body.parent !== undefined) {
+              let parent = (body.parent === null || body.parent === "") ? null : parseInt(body.parent, 10);
+              if (parent != null) {
+                if (parent === cid) return Response.json({ ok: false, error: "a category can't be its own parent" }, { status: 400 });
+                if (!byId.get(parent)) return Response.json({ ok: false, error: "parent category not found" }, { status: 400 });
+                // reject if `parent` is a descendant of `cid` (would create a cycle)
+                const desc = new Set(); const stack = [cid];
+                while (stack.length) { const p = stack.pop(); for (const r of all) if (r.parent_id === p && !desc.has(r.id)) { desc.add(r.id); stack.push(r.id); } }
+                if (desc.has(parent)) return Response.json({ ok: false, error: "can't move a category under its own descendant" }, { status: 400 });
+              }
+              sets.push("parent_id=?"); params.push(parent);
+            }
+            if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+            sets.push("updated_at=?"); params.push(new Date().toISOString());
+            try { await cfD1Exec(env, uuid, "UPDATE _categories SET " + sets.join(", ") + " WHERE id=?", params.concat([cid])); }
+            catch (e3) { return Response.json({ ok: false, error: "that slug is taken" }, { status: 409 }); }
+            return Response.json({ ok: true, id: cid, updated: true });
+          }
+          // DELETE (admin) — children reparent to the deleted node's parent.
+          if (cid && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const row = byId.get(cid);
+            if (!row) return Response.json({ ok: false, error: "no such category" }, { status: 404 });
+            await cfD1Exec(env, uuid, "UPDATE _categories SET parent_id=? WHERE parent_id=?", [row.parent_id, cid]);
+            await cfD1Exec(env, uuid, "DELETE FROM _categories WHERE id=?", [cid]);
+            return Response.json({ ok: true, deleted: true, id: cid, reparented_to: row.parent_id });
+          }
+          // GET the whole tree (public).
+          if (request.method !== "GET") return Response.json({ ok: false, error: "unsupported categories request" }, { status: 405 });
+          if (!rateOk(slug + "|" + ip + "|catr", 300)) return tooMany();
+          const nodes = new Map(all.map((r) => [r.id, { id: r.id, slug: r.slug, name: r.name, parent_id: r.parent_id, sort: r.sort, children: [] }]));
+          const tree = [];
+          for (const n of nodes.values()) { if (n.parent_id != null && nodes.has(n.parent_id)) nodes.get(n.parent_id).children.push(n); else tree.push(n); }
+          return Response.json({ ok: true, flat: all, tree });
+        } catch (e) { console.error("categories failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "categories failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
