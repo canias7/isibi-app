@@ -4973,21 +4973,12 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .mkt.mkt-crt{position:relative}
 .mkt-crt .crtl-stage{position:relative;z-index:1}
 .mkt-crt .mkt-logobg{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden;
-  background-image:
-    radial-gradient(68% 52% at 50% 16%, rgba(0,0,0,.02), transparent 72%),
-    url(/logo-tile.png);
-  background-repeat:no-repeat, repeat;
-  background-size:cover, 120px 120px;
-  background-position:center top, center}
-/* Real dark contrast blocks bleeding off the edges (Clerk-style light/dark split),
-   framing the light center — clear of the nav (top) and footer (bottom-right). */
-.mkt-crt .mkt-dblock{position:absolute;background:#0c0c10;border-radius:36px;
-  box-shadow:0 40px 90px rgba(0,0,0,.30),inset 0 1px 0 rgba(255,255,255,.04)}
-.mkt-crt .mkt-dblock-a{left:-8vw;bottom:-13vh;width:min(42vw,640px);height:min(50vh,520px)}
-.mkt-crt .mkt-dblock-b{right:-5vw;top:14vh;width:min(22vw,340px);height:min(58vh,600px)}
-/* the single isibi mark — white, watermarked faint on the big dark block */
-.mkt-crt .mkt-bigmark{position:absolute;right:10%;top:13%;width:52%;height:52%;
-  background:url(/logo.png) center/contain no-repeat;filter:invert(1);opacity:.08}
+  background:radial-gradient(70% 58% at 50% 42%, rgba(0,0,0,.022), transparent 72%)}
+/* the logo itself as a single 3D-extruded block, sitting in the lower backdrop
+   so the headline + chatbox stay clear on the light field above it */
+.mkt-crt .mkt-logo3d{position:absolute;left:50%;bottom:-16vh;transform:translateX(-50%);
+  width:min(56vh,560px);height:min(60vh,600px);
+  background:url(/logo3d.png) center/contain no-repeat;opacity:.92}
 
 /* ── Gradient Halo chatbox (owner 2026-07-23): the ONE colored element on the
    black-and-white platform. Pinned to the old dark glass + pink→amber halo so it
