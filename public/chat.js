@@ -2300,6 +2300,39 @@ function toggleDirMenu(e) {
   renderEffortLock();
 })();
 
+// ── Website-builder model picker (Auto / Sonnet 5 / Opus 4.8) — lives in the SITE-BUILDER composer (st-comp),
+// sent as `picker` on a react-build. Auto routes per agent (Opus plans, Sonnet builds); Sonnet/Opus pin every agent.
+// The site composer re-renders, so the menu markup is emitted inline (buildPickerHTML) and wired per render.
+const BUILD_PICKERS = {
+  auto:   { label: 'Auto',     desc: 'Opus plans, Sonnet builds — best mix' },
+  sonnet: { label: 'Sonnet 5', desc: 'Every agent on Sonnet — fast' },
+  opus:   { label: 'Opus 4.8', desc: 'Every agent on Opus — most capable, slower' },
+};
+const BUILD_PICKER_KEY = 'zephyr_build_picker_v1';
+let buildPicker = localStorage.getItem(BUILD_PICKER_KEY) || 'auto';
+if (!BUILD_PICKERS[buildPicker]) buildPicker = 'auto';
+function buildPickerHTML() {
+  return '<span class="st-buildsel-wrap">' +
+    '<button type="button" class="st-buildsel" id="stBuildSel" title="Website-builder model — Auto: Opus plans, Sonnet builds">Builder: <b id="stBuildLabel">' + BUILD_PICKERS[buildPicker].label + '</b> ▾</button>' +
+    '<div class="model-menu drop-up build-menu" id="stBuildMenu">' +
+      ['auto', 'sonnet', 'opus'].map((k) => { const m = BUILD_PICKERS[k]; return '<div class="model-item build-item' + (k === buildPicker ? ' selected' : '') + '" data-pick="' + k + '"><span class="txt"><b>' + m.label + '</b><small>' + m.desc + '</small></span><span class="check">✓</span></div>'; }).join('') +
+    '</div></span>';
+}
+function setBuildPicker(p) {
+  if (!BUILD_PICKERS[p]) return;
+  buildPicker = p;
+  localStorage.setItem(BUILD_PICKER_KEY, p);
+  const lbl = document.getElementById('stBuildLabel'); if (lbl) lbl.textContent = BUILD_PICKERS[p].label;
+  const menu = document.getElementById('stBuildMenu');
+  if (menu) { menu.classList.remove('open'); menu.querySelectorAll('.build-item').forEach((it) => it.classList.toggle('selected', it.dataset.pick === p)); }
+}
+function wireBuildPicker() {
+  const sel = document.getElementById('stBuildSel'), menu = document.getElementById('stBuildMenu');
+  if (!sel || !menu) return;
+  sel.onclick = (e) => { e.stopPropagation(); document.querySelectorAll('.model-menu.open').forEach((m) => { if (m !== menu) m.classList.remove('open'); }); menu.classList.toggle('open'); };
+  menu.querySelectorAll('.build-item').forEach((it) => { it.onclick = () => setBuildPicker(it.dataset.pick); });
+}
+
 
 // An edit of attached media — a clip in video mode (video-to-video) or a
 // source image in image mode (image editing). The effort ladder applies to
@@ -9947,7 +9980,7 @@ function renderSiteWorkspace(view, site) {
                 '<div class="st-attach" id="stAttach"></div>' +
                 '<div class="st-comp-row">' +
                   '<button type="button" class="st-plus" id="stPlus" title="Attach a logo or reference image" aria-label="Attach image">+</button>' +
-                  '<span class="st-buildsel">Build ▾</span>' +
+                  buildPickerHTML() +
                   (siteBusy
                     ? '<button type="button" class="st-sendc st-stopc" id="stStop" title="Stop" aria-label="Stop generating">■</button>'
                     : '<button type="button" class="st-sendc" id="stSend" title="Send" aria-label="Send">↑</button>') +
@@ -10138,6 +10171,7 @@ function renderSiteWorkspace(view, site) {
     ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBtn.onclick(); } };
     ta.focus();
   }
+  wireBuildPicker();
 }
 // #4 — LIVE build activity (Claude-Code-style running log). The server only
 // speaks at a few checkpoints (plan done, each page done, photos), which leaves
@@ -10152,7 +10186,7 @@ const ST_TICK = {
   finish: ['Reviewing the code', 'Final touches', 'Wrapping up'],
 };
 function siteBuildStart(react) {
-  siteBuild = { phase: 'plan', pages: [], done: [], tick: 0, react: !!react, code: '', file: '', rphase: 'generating', images: [], filesSeen: [] };
+  siteBuild = { phase: 'plan', pages: [], done: [], tick: 0, react: !!react, code: '', file: '', rphase: 'generating', images: [], filesSeen: [], agents: {} };
   if (siteTicker) clearInterval(siteTicker);
   // React builds repaint on stream events, not on a timer — the timer only drives
   // the classic rotating activity log.
@@ -10171,6 +10205,17 @@ function stStepRow(o) { // {label, meta, state:'run'|'done'|'wait', body, open}
 function stFilesBody(files) { return '<div class="st-fchips">' + (files || []).map((f) => '<span class="st-fchip">' + esc(String(f).split('/').pop()) + '</span>').join('') + '</div>'; }
 function stImgsBody(imgs) { return '<div class="st-ithumbs">' + (imgs || []).map((im) => '<span class="st-ithumb"><img src="' + esc(im.url) + '" alt="" loading="lazy"><em>' + esc(String(im.prompt || '').slice(0, 70)) + '</em></span>').join('') + '</div>'; }
 function stCodeBody(txt, cursor) { return '<pre class="st-lc">' + stHlCode(txt) + (cursor ? '<span class="st-lc-cur"></span>' : '') + '</pre>'; }
+// Multi-agent fan-out: one chip per agent with its model + running/done state (shown when MULTI_AGENT streams).
+function stAgentsBody(agents) {
+  const keys = Object.keys(agents || {});
+  if (!keys.length) return '';
+  const short = (m) => /opus/i.test(m || '') ? 'Opus' : /sonnet/i.test(m || '') ? 'Sonnet' : (m || '');
+  const nice = (k) => k === 'shell' ? 'shell' : k === 'design' ? 'design' : k === 'backend' ? 'backend' : k.replace(/^page:/, '');
+  return '<div class="st-agents">' + keys.map((k) => {
+    const a = agents[k]; const done = a.status === 'done';
+    return '<span class="st-agent' + (done ? ' done' : ' run') + '">' + (done ? '✓' : '<span class="st-agent-run"></span>') + ' ' + esc(nice(k)) + ' <em>' + esc(short(a.model)) + '</em></span>';
+  }).join('') + '</div>';
+}
 // Finished build, stored on an assistant message — collapsed by default.
 function reactStepsHTML(b) {
   const rows = [];
@@ -10187,7 +10232,7 @@ function reactLiveStepsHTML() {
   const idx = Math.max(0, order.indexOf(sb.rphase || 'generating'));
   const st = (name) => { const i = order.indexOf(name); return i < idx ? 'done' : i === idx ? 'run' : 'wait'; };
   const rows = [];
-  rows.push(stStepRow({ label: idx > 0 ? 'Wrote the code' : 'Writing the code', meta: sb.file || '', state: st('generating'), open: true, body: stCodeBody((sb.code || '').slice(-2600), st('generating') === 'run') }));
+  rows.push(stStepRow({ label: idx > 0 ? 'Wrote the code' : 'Writing the code', meta: sb.file || '', state: st('generating'), open: true, body: stAgentsBody(sb.agents) + stCodeBody((sb.code || '').slice(-2600), st('generating') === 'run') }));
   rows.push(stStepRow({ label: idx > 1 ? 'Generated images' : 'Generating images', meta: (sb.images && sb.images.length ? sb.images.length + ' photos' : ''), state: st('images'), body: (sb.images && sb.images.length) ? stImgsBody(sb.images) : '' }));
   if (sb.rphase === 'fixing') rows.push(stStepRow({ label: 'Fixing a build error', state: 'run' }));
   else rows.push(stStepRow({ label: idx > 2 ? 'Compiled React' : 'Compiling React', state: st('compiling') }));
@@ -10225,6 +10270,8 @@ async function readReactStream(r, origin) {
         if (mm) { const f = mm[mm.length - 1].replace(/===FILE:\s*/, '').replace(/\s*===/, '').trim(); siteBuild.file = f; if (siteBuild.filesSeen.indexOf(f) < 0) siteBuild.filesSeen.push(f); }
         paintReactLive();
       } else if (ev.ev === 'phase') { siteBuild.rphase = ev.phase; paintReactLive(); }
+      else if (ev.ev === 'agent') { (siteBuild.agents = siteBuild.agents || {})[ev.key] = { model: ev.model, status: ev.status }; paintReactLive(); }
+      else if (ev.ev === 'agents') { siteBuild.picker = ev.picker; paintReactLive(); }
       else if (ev.ev === 'image') { (siteBuild.images = siteBuild.images || []).push({ prompt: ev.prompt, url: ev.url }); paintReactLive(); }
       else if (ev.ev === 'done') final = ev;
       else if (ev.ev === 'error') final = { error: true, msg: ev.msg, code: ev.code, need: ev.need };
@@ -10246,7 +10293,7 @@ function siteFinishBuild(origin, reply, build) {
 // /api/site/react-revise (same slug/URL). Streams live steps; charge-after.
 function reactSend(site, t, origin, mode, imgs, finish) {
   const endpoint = mode === 'build' ? '/api/site/react-build' : '/api/site/react-revise';
-  const body = mode === 'build' ? { brief: t, images: imgs } : { slug: site.slug, instruction: t, images: imgs };
+  const body = mode === 'build' ? { brief: t, images: imgs, picker: buildPicker } : { slug: site.slug, instruction: t, images: imgs };
   siteAbort = new AbortController();
   apiFetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: siteAbort.signal }).then(async (r) => {
     const ct = r.headers.get('content-type') || '';

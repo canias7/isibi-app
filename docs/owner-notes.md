@@ -51,8 +51,15 @@ Opus-vs-Sonnet binary). Built the foundation as two pure worker-safe libraries (
   so the flag is never worse than off. Credits charged on the summed agent tokens. New request param `picker`
   (auto/sonnet/opus, default auto) + stream events `{ev:"agent",key,model,status}` / `{ev:"agents",models,picker}`.
   Flag OFF → the single-shot path byte-for-byte. `node --check` clean.
-- **Still to do:** the picker UI in the chatbox (send `picker`, render the `{ev:"agent"}` fan-out), then flip
-  `MULTI_AGENT=1` and re-run the 25-prompt eval to compare single-shot-32k vs multi-agent.
+- **Picker UI built** — the Auto / Sonnet 5 / Opus 4.8 selector lives in the **website-builder composer** (`.st-comp`,
+  the "Ask isibi…" box), NOT the media composer. It replaced the previously-unwired `st-buildsel` "Build ▾"
+  placeholder: `buildPickerHTML()` renders the chip + drop-up menu inline (composer re-renders), `wireBuildPicker()`
+  wires it per render, choice persisted in `zephyr_build_picker_v1`, sent as `picker` on the build. The live
+  `{ev:"agent"}` fan-out renders as chips (one per parallel agent + its model) under "Writing the code". Reviewed via
+  headless screenshot — matches the current **black-and-white** theme (NOTE: the app is now white bg / near-black ink,
+  owner 2026-07-23 — CLAUDE.md's "dark studio" description is stale).
+- **Still to do:** flip `MULTI_AGENT=1` (needs a live test build first) + re-run the 25-prompt eval to compare
+  single-shot-32k vs multi-agent.
 
 ## 2026-07-23 — Builder: RAISED the generation token ceiling 16k→32k (fixes the truncation the eval exposed)
 The full 25-prompt eval's headline finding: apps **truncate at the 16k output ceiling** (avg output 17.5k, 0% first-pass
