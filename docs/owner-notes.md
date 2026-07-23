@@ -6666,6 +6666,17 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — unit converter · text diff · price lists (data API, round 2)
+- **`/convert`** — stateless: `{value, from, to}` → converts across length/mass/volume/time/data/temperature
+  (category auto-detected from the units; temperature special-cased through Celsius). Public. batch301 (16/16).
+- **`/diff`** — stateless line-level LCS diff: `{a, b}` → `{changes:[{type:'eq'|'add'|'del', line}], added,
+  removed}`. Public. batch302 (15/15).
+- **`/price-lists`** — tiered/customer-group pricing with volume breaks (covers backlog #1 + #2). Admin upserts
+  `{list, item, price, currency?, min_qty?}` (unique per list+item+min_qty); public `/lookup?list=&item=&qty=`
+  returns the best price whose `min_qty ≤ qty` (`ORDER BY min_qty DESC LIMIT 1`). list/delete. `_price_lists`
+  (org-level, no erase). batch303 (18/18).
+- Full suite 286 green. (6/100 of round 2 shipped.)
+
 ## 2026-07-23 — analytics sessions · QR payload builder · percentile (data API, round 2)
 - **`/sessions`** — member `/sessions/start` (uuid id), `/sessions/<id>/beat` (owner, bumps last_seen +
   page_views via `UPDATE…page_views+1 WHERE id=? AND user_id=? AND ended_at IS NULL RETURNING`),
