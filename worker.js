@@ -22001,6 +22001,106 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, error: "unsupported frequency-cap request" }, { status: 405 });
         } catch (e) { console.error("frequency-cap failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "frequency-cap failed" }, { status: 502 }); }
       }
+      // BUSINESS DAYS — a stateless working-day calculator: count business days between two dates (inclusive,
+      // skipping weekends + a holiday list), or find the date N business days after a start.
+      //   POST /api/db/<slug>/business-days {from, to, holidays?}   (public) → {business_days, calendar_days}
+      //   POST /api/db/<slug>/business-days {from, add, holidays?}  (public) → {date}  (N business days later)
+      const bdm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/business-days$/i);
+      if (bdm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = bdm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|bd", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const fromTs = Date.parse(String(body.from));
+          if (isNaN(fromTs)) return Response.json({ ok: false, error: "a valid from date is required" }, { status: 400 });
+          const DAY = 86400000, floorDay = (ts) => { const d = new Date(ts); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); };
+          const holidays = new Set((Array.isArray(body.holidays) ? body.holidays : []).map((x) => String(x).slice(0, 10)));
+          const isBiz = (ts) => { const wd = new Date(ts).getUTCDay(); if (wd === 0 || wd === 6) return false; return !holidays.has(new Date(ts).toISOString().slice(0, 10)); };
+          const start = floorDay(fromTs);
+          if (body.add != null) {
+            let n = Math.floor(Number(body.add));
+            if (!Number.isFinite(n) || Math.abs(n) > 100000) return Response.json({ ok: false, error: "add must be an integer within range" }, { status: 400 });
+            let cur = start, step = n >= 0 ? DAY : -DAY, remaining = Math.abs(n), guard = 0;
+            while (remaining > 0 && guard++ < 1000000) { cur += step; if (isBiz(cur)) remaining--; }
+            return Response.json({ ok: true, date: new Date(cur).toISOString().slice(0, 10) });
+          }
+          const toTs = Date.parse(String(body.to));
+          if (isNaN(toTs)) return Response.json({ ok: false, error: "a valid to date (or add) is required" }, { status: 400 });
+          let a = start, b = floorDay(toTs); if (a > b) { const tmp = a; a = b; b = tmp; }
+          if ((b - a) / DAY > 366 * 50) return Response.json({ ok: false, error: "range too large" }, { status: 400 });
+          let biz = 0, cal = 0;
+          for (let ts = a; ts <= b; ts += DAY) { cal++; if (isBiz(ts)) biz++; }
+          return Response.json({ ok: true, business_days: biz, calendar_days: cal });
+        } catch (e) { console.error("business-days failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "business-days failed" }, { status: 502 }); }
+      }
+      // CHECKSUM — a stateless hash of a text payload (sha-256 default, sha-1, sha-512) for integrity checks or
+      // content de-duplication.
+      //   POST /api/db/<slug>/checksum {text, algo?}   (public) → {algo, hash, length}
+      const cksm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/checksum$/i);
+      if (cksm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = cksm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|cks", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const text = typeof body.text === "string" ? body.text : "";
+          if (!text) return Response.json({ ok: false, error: "text is required" }, { status: 400 });
+          if (text.length > 5000000) return Response.json({ ok: false, error: "text too large" }, { status: 400 });
+          const ALGOS = { "sha-256": "SHA-256", "sha256": "SHA-256", "sha-1": "SHA-1", "sha1": "SHA-1", "sha-512": "SHA-512", "sha512": "SHA-512" };
+          const algo = ALGOS[String(body.algo || "sha-256").toLowerCase()];
+          if (!algo) return Response.json({ ok: false, error: "algo must be sha-256 | sha-1 | sha-512" }, { status: 400 });
+          const buf = await crypto.subtle.digest(algo, new TextEncoder().encode(text));
+          const hash = [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+          return Response.json({ ok: true, algo: algo.toLowerCase(), hash, length: hash.length });
+        } catch (e) { console.error("checksum failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "checksum failed" }, { status: 502 }); }
+      }
+      // SPLIT AMOUNT — a stateless fair money splitter: divide an amount into N equal shares (or by weights)
+      // with cents distributed by largest-remainder, so the shares sum EXACTLY to the amount.
+      //   POST /api/db/<slug>/split-amount {amount, ways?}       (public) → {shares:[...], total}
+      //   POST /api/db/<slug>/split-amount {amount, weights:[...]}  (public) → weighted shares
+      const spm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/split-amount$/i);
+      if (spm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = spm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|spl", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const amount = Number(body.amount);
+          if (!Number.isFinite(amount) || amount < 0) return Response.json({ ok: false, error: "a non-negative amount is required" }, { status: 400 });
+          const cents = Math.round(amount * 100);
+          let centShares;
+          if (Array.isArray(body.weights) && body.weights.length) {
+            const weights = body.weights.map(Number);
+            if (weights.some((w) => !Number.isFinite(w) || w < 0) || weights.length > 1000) return Response.json({ ok: false, error: "weights must be non-negative numbers (≤1000)" }, { status: 400 });
+            const totalW = weights.reduce((a, b) => a + b, 0);
+            if (totalW <= 0) return Response.json({ ok: false, error: "weights must sum to > 0" }, { status: 400 });
+            const raw = weights.map((w) => cents * w / totalW);
+            centShares = raw.map((x) => Math.floor(x));
+            let rem = cents - centShares.reduce((a, b) => a + b, 0);
+            const order = raw.map((x, i) => [x - Math.floor(x), i]).sort((p, q) => q[0] - p[0]);
+            for (let i = 0; i < rem; i++) centShares[order[i % order.length][1]]++;
+          } else {
+            let ways = Math.floor(Number(body.ways)); if (!(ways >= 1 && ways <= 100000)) return Response.json({ ok: false, error: "ways must be 1..100000 (or provide weights)" }, { status: 400 });
+            const base = Math.floor(cents / ways), rem = cents - base * ways;
+            centShares = Array.from({ length: ways }, (_, i) => base + (i < rem ? 1 : 0));
+          }
+          const shares = centShares.map((c2) => Math.round(c2) / 100);
+          return Response.json({ ok: true, shares, total: Math.round(cents) / 100, count: shares.length });
+        } catch (e) { console.error("split-amount failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "split-amount failed" }, { status: 502 }); }
+      }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
       //   GET  /api/db/<slug>/webhooks/dead-letter[?hook=&limit=]        (ADMIN) → failed deliveries (ok=0)

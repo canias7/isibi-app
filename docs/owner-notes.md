@@ -6666,6 +6666,15 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — business days · checksum · split amount (data API, round 2)
+- **`/business-days`** — stateless working-day calc: count business days in a range (skip weekends + a
+  `holidays` list) OR find the date N business days after a start (`add`, negative ok). Public. batch340 (11/11).
+- **`/checksum`** — stateless hash of a text payload (sha-256 default, sha-1, sha-512) via `crypto.subtle`, hex
+  out. For integrity/dedup. Public. batch341 (10/10).
+- **`/split-amount`** — stateless fair money splitter: equal N-way or by `weights`, cents distributed by
+  largest-remainder so shares sum EXACTLY to the amount. Public. batch342 (15/15).
+- Full suite 325 green. (45/100 of round 2 shipped.)
+
 ## 2026-07-23 — geo distance · rrule expansion · frequency cap (data API, round 2)
 - **`/geo-distance`** — stateless haversine distance + initial bearing between two `{lat,lng}` points (km/mi).
   Public. (The existing table `geo` feature does nearby-row search; this is a pure calculator.) batch337 (8/8).
