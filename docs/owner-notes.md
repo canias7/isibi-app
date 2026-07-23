@@ -6661,6 +6661,17 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — iCal feed · CSV converter · vCard (data API, next-100)
+- **`/ical`** — stateless: `{events:[{title,start,end?,description?,location?,allDay?,uid?}], name?}` → a
+  downloadable `.ics` (VCALENDAR). UTC-basic DTSTART/DTEND, `VALUE=DATE` for all-day, ICS `\ ; ,` escaping,
+  supplied-or-generated UID. Sibling to the RSS/sitemap generators. Public. batch292 (15/15).
+- **`/csv`** — stateless two-way JSON↔CSV. `/csv/to {rows, columns?, delimiter?}` → RFC-4180-quoted csv
+  (auto columns from first-seen keys), `/csv/from {csv, delimiter?, headers?}` → parsed rows (handles quoted
+  fields, doubled quotes, custom delimiter, no-headers synthesizes col1.. names). Member-gated. batch293 (18/18).
+- **`/vcard`** — stateless: `{name|first/last, email?, phone?, org?, title?, url?, note?}` → a `.vcf` (vCard
+  3.0) for a 'save my details' button; N split from name when parts absent. Public. batch294 (14/14).
+- Full suite 277 green. (96/100 of the next-100 list shipped.)
+
 ## 2026-07-23 — NPS surveys · testimonials wall · ticket merge/link (data API, next-100)
 - **`/nps`** — member submits 0–10 once per campaign (upsert PK campaign+user); `/nps` (admin) buckets
   promoters 9-10 / passives 7-8 / detractors 0-6 → NPS = round((%prom−%det)·100); `/nps/me`, `/nps/responses`
