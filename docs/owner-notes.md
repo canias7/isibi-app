@@ -6661,6 +6661,17 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — drip sequences · escalation rules · tax rates (data API, next-100)
+- **`/sequences`** — automated drip flows. Admin defines day-offset steps (auto-sorted); enroll a subject
+  (next_due=start+step0.day); `/due` surfaces the due step; `/advance` schedules the next (or completes);
+  `/cancel`. Enrollments erased by subject email. batch262 (21/21).
+- **`/escalation-rules`** — time-based escalation ladder. `/evaluate?elapsed_mins=` returns the highest rule
+  whose threshold passed + next_at_mins. Admin config. batch263 (22/22).
+- **`/tax-rates/<region>`** — per-region tax rate (stored bp); public `/compute?region=&subtotal=` →
+  {rate,tax,total} (to the cent). Fixed the `toCents(null)===0` gotcha for a missing ?subtotal. Distinct
+  from `/documents/tax-summary` (a report). Admin config. batch264 (20/20).
+- Note: reminders already existed (skipped). Full suite 247 green. (66/100 of the next-100 list shipped.)
+
 ## 2026-07-23 — wishlist · glossary · star ratings (data API, next-100)
 - **`/wishlist/<item>`** — member saves items (idempotent add — fixed `already` since ON CONFLICT DO UPDATE
   always counts as a change, so pre-check existence), my-list, remove, public per-item `/count` (+mine).
