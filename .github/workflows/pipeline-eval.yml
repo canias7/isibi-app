@@ -1,0 +1,38 @@
+# Manually-triggered LIVE evaluation of PIPELINE_V2. Runs only on demand (workflow_dispatch), where the
+# ANTHROPIC_API_KEY secret is available, and pushes N diverse prompts through plan → focused prompt → generate →
+# lint (→ optional repair), then prints a scorecard: capabilities chosen, backend routes real, forms wired, lint
+# clean, repair success, and est. cost. SPENDS CREDITS — one full generation per prompt (~$0.02–0.05 each), so the
+# default run is capped and the full sweep is opt-in via the `limit` input.
+name: pipeline-eval
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "How many prompts to run (0 = all 25). Each is one live generation (~$0.02–0.05)."
+        required: false
+        default: "6"
+      model:
+        description: "Model for the generate step."
+        required: false
+        default: "claude-sonnet-5"
+      repair:
+        description: "Run one lint-gate repair pass on failures (1 = yes). Doubles cost on failing prompts."
+        required: false
+        default: "0"
+
+jobs:
+  pipeline-eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run the eval
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EVAL_LIMIT: ${{ github.event.inputs.limit }}
+          EVAL_MODEL: ${{ github.event.inputs.model }}
+          EVAL_REPAIR: ${{ github.event.inputs.repair }}
+        run: node test/pipeline-eval.mjs

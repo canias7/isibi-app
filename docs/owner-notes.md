@@ -10,6 +10,30 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-07-23 — PIPELINE_V2 eval harness (dormant, $0 to build; live run spends credits — owner's go needed)
+Built the "enable it in a controlled run, test 20–30 diverse prompts, then measure" step ChatGPT asked for. It maps
+each of their checklist questions to an auto-computed metric so we can prove PIPELINE_V2 end-to-end and get a number,
+not a vibe.
+- **`test/pipeline-eval.mjs`** — for each prompt: `planApp` → `pickStyleFamily` → `composeBuildPrompt` → `generate`
+  → `parseGeneratedFiles` → `lintGeneratedApp` (+ optional lint-gate `revise`, optional `build`, optional
+  render+`critiqueOne`). Scores: **chose capabilities / generated a valid app / backend routes all real (registry
+  cross-check) / forms wired to a write / lint clean / compiled / avg design score / repair success / avg tokens +
+  est. cost.** `runEval(prompts, deps)` aggregates; `formatScorecard` prints a markdown table + per-prompt rows.
+  Orchestration is pure + injectable (`generate/build/render/critiqueOne/revise` are deps) so it's unit-tested at $0.
+- **25 diverse prompt archetypes** baked in (`PROMPTS`) — salon booking, e-comm, CRM, restaurant, social, property
+  mgmt, church, marketplace, ops dashboard, SaaS, ticketing, fitness, real-estate, job board, recipes, invoicing,
+  help desk, inventory, nonprofit, podcast, portfolio, courses, dental scheduler, loyalty, forum.
+- **`makeAnthropicGenerate(key, model, fetch)`** — the real generate; `runEvalCLI()` (runs when the file is executed
+  directly with `ANTHROPIC_API_KEY`) drives a live sweep. Env knobs: `EVAL_LIMIT` (0=all 25), `EVAL_MODEL`,
+  `EVAL_REPAIR=1`.
+- **`test/backend/eval.test.mjs`** (24/24) — proves the scorecard with a MOCK generate: clean app scores well, a
+  fake API route fails the route check + lint, a repair fixes it, `runEval` aggregates %s correctly, build+vision
+  metrics surface when those deps are supplied, `makeAnthropicGenerate` builds the right request.
+- **`.github/workflows/pipeline-eval.yml`** — manual (`workflow_dispatch`) live run where the key exists; inputs
+  `limit` (default 6, capped so a stray click isn't expensive), `model`, `repair`. Default 6 prompts ≈ $0.15–0.30.
+- **Status: the harness is committed and dormant — costs nothing.** The LIVE run (real generations, ~$0.02–0.05 per
+  prompt) is gated on the owner's explicit go. A 6-prompt smoke is ~$0.30; the full 25 is ~$0.75–1.25.
+
 ## 2026-07-23 — INCIDENT + FIX: build-container crash risk from the vision wiring (caught + hardened)
 PR #783 (vision wiring) added `import { renderRoutes } from "./vision-render.mjs"` to build-server.mjs but the
 Dockerfile only `COPY build-server.mjs` — so the container would `ERR_MODULE_NOT_FOUND` on startup and crash-loop,
