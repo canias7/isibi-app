@@ -4979,10 +4979,15 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   background-repeat:no-repeat, repeat;
   background-size:cover, 120px 120px;
   background-position:center top, center}
-.mkt-crt .mkt-logobg::before,
-.mkt-crt .mkt-logobg::after{content:"";position:absolute;background:url(/logo.png) center/contain no-repeat}
-.mkt-crt .mkt-logobg::before{width:46vmin;height:46vmin;top:-9vmin;left:-8vmin;opacity:.05}
-.mkt-crt .mkt-logobg::after{width:56vmin;height:56vmin;bottom:-13vmin;right:-10vmin;opacity:.04}
+/* Real dark contrast blocks bleeding off the edges (Clerk-style light/dark split),
+   framing the light center — clear of the nav (top) and footer (bottom-right). */
+.mkt-crt .mkt-dblock{position:absolute;background:#0c0c10;border-radius:36px;
+  box-shadow:0 40px 90px rgba(0,0,0,.30),inset 0 1px 0 rgba(255,255,255,.04)}
+.mkt-crt .mkt-dblock-a{left:-8vw;bottom:-13vh;width:min(42vw,640px);height:min(50vh,520px)}
+.mkt-crt .mkt-dblock-b{right:-5vw;top:14vh;width:min(22vw,340px);height:min(58vh,600px)}
+/* the single isibi mark — white, watermarked faint on the big dark block */
+.mkt-crt .mkt-bigmark{position:absolute;right:10%;top:13%;width:52%;height:52%;
+  background:url(/logo.png) center/contain no-repeat;filter:invert(1);opacity:.08}
 
 /* ── Gradient Halo chatbox (owner 2026-07-23): the ONE colored element on the
    black-and-white platform. Pinned to the old dark glass + pink→amber halo so it
