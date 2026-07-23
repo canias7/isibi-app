@@ -5786,6 +5786,32 @@ async function ensurePunchCards(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _punch_cards (program_key TEXT NOT NULL, user_id INTEGER NOT NULL, total INTEGER NOT NULL DEFAULT 0, redeemed INTEGER NOT NULL DEFAULT 0, updated_at TEXT, PRIMARY KEY (program_key, user_id))");
   _punchCardsReady.add(uuid);
 }
+// Content-hash dedup store — a SHA-256 fingerprint of submitted content; the first submission is recorded and
+// later identical content is flagged as a duplicate (with when + who first saw it). `_content_hashes`. Ensured once.
+const _contentHashReady = new Set();
+async function ensureContentHashes(env, uuid) {
+  if (_contentHashReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _content_hashes (hash TEXT PRIMARY KEY, label TEXT, first_by INTEGER, size INTEGER, first_seen TEXT, hits INTEGER NOT NULL DEFAULT 1)");
+  _contentHashReady.add(uuid);
+}
+// Temporary ban list — an admin bans a key (an id, ip-hash, email, whatever) until a time; a public check reports
+// whether it's currently banned + seconds remaining. Expired bans read as not-banned. `_bans`. Ensured once.
+const _bansReady = new Set();
+async function ensureBans(env, uuid) {
+  if (_bansReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _bans (key TEXT PRIMARY KEY, reason TEXT, banned_by INTEGER, banned_at TEXT, until TEXT)");
+  _bansReady.add(uuid);
+}
+// Access-view log — record that an actor viewed a resource (append-only); an admin queries who viewed what + counts.
+// `_access_log`. Ensured once.
+const _accessLogReady = new Set();
+async function ensureAccessLog(env, uuid) {
+  if (_accessLogReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _access_log (id INTEGER PRIMARY KEY AUTOINCREMENT, resource TEXT NOT NULL, actor_id INTEGER, note TEXT, viewed_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_access_resource ON _access_log (resource)"); } catch {}
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_access_actor ON _access_log (actor_id)"); } catch {}
+  _accessLogReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -5807,7 +5833,7 @@ const DATA_EXPORT_TABLES = [
   ["_dashboards", "user_id"], ["_terms_accept", "user_id"], ["_agegate", "user_id"],
   ["_reservations", "user_id"], ["_queue_tickets", "user_id"], ["_loyalty_spend", "user_id"],
   ["_store_credit", "user_id"], ["_activity", "author_id"], ["_shifts", "user_id"], ["_timeoff", "user_id"],
-  ["_subscriptions", "user_id"], ["_room_bookings", "user_id"],
+  ["_subscriptions", "user_id"], ["_room_bookings", "user_id"], ["_access_log", "actor_id"],
 ];
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
@@ -10647,6 +10673,9 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _rv_ballots WHERE user_id=?", [u.id]],                             // ranked-choice ballots
             ["DELETE FROM _expense_claims WHERE user_id=?", [u.id]],                         // expense claims
             ["DELETE FROM _punch_cards WHERE user_id=?", [u.id]],                            // loyalty punch cards
+            ["DELETE FROM _access_log WHERE actor_id=?", [u.id]],                            // access-view log
+            ["UPDATE _content_hashes SET first_by=NULL WHERE first_by=?", [u.id]],           // keep the shared dedup entry, drop the link
+            ["UPDATE _bans SET banned_by=NULL WHERE banned_by=?", [u.id]],                   // keep the ban, drop the admin link
             ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
             ["DELETE FROM _testimonials WHERE user_id=?", [u.id]],                           // user-submitted testimonials
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
@@ -22894,6 +22923,177 @@ async function handleRequest(request, env, ctx) {
           } else return Response.json({ ok: false, error: "mode must be encode | decode" }, { status: 400 });
           return Response.json({ ok: true, mode, result });
         } catch (e) { console.error("base64 failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "base64 failed" }, { status: 502 }); }
+      }
+      // CONTENT-HASH DEDUP — a SHA-256 fingerprint of submitted content; the first submission is recorded,
+      // later identical content is flagged as a duplicate (with when + who first saw it, and a running hit count).
+      //   POST   /api/db/<slug>/content-hash {content|hash, label?}   (member) → {hash, duplicate, first_seen, hits}
+      //   GET    /api/db/<slug>/content-hash/<hash>                   (member) → {known, first_seen, hits, label}
+      //   GET    /api/db/<slug>/content-hash                          (ADMIN)  → recent fingerprints
+      //   DELETE /api/db/<slug>/content-hash/<hash>                   (ADMIN)  → forget a fingerprint
+      const chshm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/content-hash(?:\/([a-f0-9]{64}))?$/i);
+      if (chshm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = chshm[1].toLowerCase(), pathHash = chshm[2] ? chshm[2].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureContentHashes(env, uuid);
+          // RECORD (member) — hashes `content`, or takes a precomputed `hash`.
+          if (!pathHash && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|chash", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            let hash, size = null;
+            if (typeof body.content === "string" && body.content.length) {
+              if (body.content.length > 2000000) return Response.json({ ok: false, error: "content too large" }, { status: 400 });
+              hash = await sha256hex(body.content); size = body.content.length;
+            } else if (typeof body.hash === "string" && /^[a-f0-9]{64}$/i.test(body.hash.trim())) {
+              hash = body.hash.trim().toLowerCase();
+            } else return Response.json({ ok: false, error: "content or a 64-hex hash is required" }, { status: 400 });
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _content_hashes (hash, label, first_by, size, first_seen, hits) VALUES (?,?,?,?,?,1) ON CONFLICT(hash) DO UPDATE SET hits=hits+1 RETURNING first_seen, hits, first_by", [hash, body.label != null ? String(body.label).slice(0, 200) : null, userId, size, now]);
+            return Response.json({ ok: true, hash, duplicate: r[0].hits > 1, first_seen: r[0].first_seen, hits: r[0].hits });
+          }
+          // LOOKUP (member).
+          if (pathHash && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const row = (await cfD1Query(env, uuid, "SELECT label, first_seen, hits FROM _content_hashes WHERE hash=?", [pathHash]))[0];
+            if (!row) return Response.json({ ok: true, known: false, hash: pathHash });
+            return Response.json({ ok: true, known: true, hash: pathHash, label: row.label, first_seen: row.first_seen, hits: row.hits });
+          }
+          // LIST (admin).
+          if (!pathHash && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            const limit = Math.min(1000, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+            const rows = await cfD1Query(env, uuid, "SELECT hash, label, first_by, size, first_seen, hits FROM _content_hashes ORDER BY first_seen DESC LIMIT ?", [limit]);
+            return Response.json({ ok: true, fingerprints: rows });
+          }
+          // FORGET (admin).
+          if (pathHash && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _content_hashes WHERE hash=?", [pathHash]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such fingerprint" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, hash: pathHash });
+          }
+          return Response.json({ ok: false, error: "unsupported content-hash request" }, { status: 405 });
+        } catch (e) { console.error("content-hash failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "content-hash failed" }, { status: 502 }); }
+      }
+      // TEMPORARY BAN LIST — an admin bans an arbitrary key (a user id, ip-hash, email…) until a time; a public
+      // check reports whether it's currently banned + seconds remaining. Expired bans read as not-banned.
+      //   POST   /api/db/<slug>/bans {key, seconds?, reason?}   (ADMIN)  → ban (no seconds = permanent) → {until}
+      //   GET    /api/db/<slug>/bans/<key>                      (public) → {banned, until, remaining, reason}
+      //   DELETE /api/db/<slug>/bans/<key>                      (ADMIN)  → lift a ban
+      //   GET    /api/db/<slug>/bans                            (ADMIN)  → active bans
+      const bansm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/bans(?:\/([A-Za-z0-9_.:@-]{1,120}))?$/i);
+      if (bansm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = bansm[1].toLowerCase(), key = bansm[2] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureBans(env, uuid);
+          const now = Date.now();
+          // BAN (admin).
+          if (!key && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const k = String(body.key || "").trim();
+            if (!/^[A-Za-z0-9_.:@-]{1,120}$/.test(k)) return Response.json({ ok: false, error: "a valid key is required" }, { status: 400 });
+            let until = null;
+            if (body.seconds != null) {
+              const secs = Math.floor(Number(body.seconds));
+              if (!(secs >= 1 && secs <= 31536000)) return Response.json({ ok: false, error: "seconds must be 1..31536000" }, { status: 400 });
+              until = new Date(now + secs * 1000).toISOString();
+            }
+            await cfD1Query(env, uuid, "INSERT INTO _bans (key, reason, banned_by, banned_at, until) VALUES (?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET reason=excluded.reason, banned_by=excluded.banned_by, banned_at=excluded.banned_at, until=excluded.until", [k, body.reason != null ? String(body.reason).slice(0, 300) : null, userId, new Date(now).toISOString(), until]);
+            return Response.json({ ok: true, key: k, until, permanent: until === null });
+          }
+          // CHECK (public).
+          if (key && request.method === "GET") {
+            const row = (await cfD1Query(env, uuid, "SELECT reason, until FROM _bans WHERE key=?", [key]))[0];
+            if (!row) return Response.json({ ok: true, key, banned: false });
+            const active = row.until === null || Date.parse(row.until) > now;
+            const remaining = row.until === null ? null : Math.max(0, Math.floor((Date.parse(row.until) - now) / 1000));
+            return Response.json({ ok: true, key, banned: active, until: row.until, remaining, reason: active ? row.reason : null });
+          }
+          // LIFT (admin).
+          if (key && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _bans WHERE key=?", [key]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such ban" }, { status: 404 });
+            return Response.json({ ok: true, lifted: true, key });
+          }
+          // LIST active (admin).
+          if (!key && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            const rows = await cfD1Query(env, uuid, "SELECT key, reason, banned_at, until FROM _bans WHERE until IS NULL OR until > ? ORDER BY banned_at DESC LIMIT 1000", [new Date(now).toISOString()]);
+            return Response.json({ ok: true, bans: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported bans request" }, { status: 405 });
+        } catch (e) { console.error("bans failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "bans failed" }, { status: 502 }); }
+      }
+      // ACCESS-VIEW LOG — record that a signed-in actor viewed a resource (append-only); an admin queries the
+      // trail (who viewed what, when) or a per-resource summary (views + distinct viewers).
+      //   POST /api/db/<slug>/access-log {resource, note?}                 (member) → {logged:true}
+      //   GET  /api/db/<slug>/access-log?resource=&actor=&limit=           (ADMIN)  → recent events
+      //   GET  /api/db/<slug>/access-log/summary[?resource=]               (ADMIN)  → per-resource {views, viewers}
+      const axlm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/access-log(?:\/(summary))?$/i);
+      if (axlm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = axlm[1].toLowerCase(), isSummary = !!axlm[2];
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureAccessLog(env, uuid);
+          // RECORD a view (member).
+          if (!isSummary && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|axlog", 600)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const resource = String(body.resource || "").trim();
+            if (!resource || resource.length > 300) return Response.json({ ok: false, error: "a resource is required" }, { status: 400 });
+            await cfD1Query(env, uuid, "INSERT INTO _access_log (resource, actor_id, note, viewed_at) VALUES (?,?,?,?)", [resource, userId, body.note != null ? String(body.note).slice(0, 300) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, logged: true });
+          }
+          // SUMMARY (admin).
+          if (isSummary && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            const resource = url.searchParams.get("resource");
+            let rows;
+            if (resource) rows = await cfD1Query(env, uuid, "SELECT resource, COUNT(*) AS views, COUNT(DISTINCT actor_id) AS viewers FROM _access_log WHERE resource=? GROUP BY resource", [resource]);
+            else rows = await cfD1Query(env, uuid, "SELECT resource, COUNT(*) AS views, COUNT(DISTINCT actor_id) AS viewers FROM _access_log GROUP BY resource ORDER BY views DESC LIMIT 1000");
+            return Response.json({ ok: true, summary: rows });
+          }
+          // TRAIL (admin).
+          if (!isSummary && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            const where = [], params = [];
+            const resource = url.searchParams.get("resource"); if (resource) { where.push("resource=?"); params.push(resource); }
+            const actor = url.searchParams.get("actor"); if (actor != null && actor !== "" && Number.isFinite(Number(actor))) { where.push("actor_id=?"); params.push(Math.floor(Number(actor))); }
+            const limit = Math.min(1000, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+            const sql = "SELECT id, resource, actor_id, note, viewed_at FROM _access_log" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY id DESC LIMIT ?";
+            const rows = await cfD1Query(env, uuid, sql, [...params, limit]);
+            return Response.json({ ok: true, events: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported access-log request" }, { status: 405 });
+        } catch (e) { console.error("access-log failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "access-log failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
