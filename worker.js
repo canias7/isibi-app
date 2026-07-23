@@ -5198,6 +5198,32 @@ async function ensurePublishQueue(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_pubq ON _publish_queue (status, publish_at)"); } catch {}
   _publishQueueReady.add(uuid);
 }
+// Recycle bin — a soft-delete store: an admin stashes a JSON snapshot of a deleted record so it can be
+// restored or purged later. `_recycle` = one row per trashed item. Ensured once per isolate.
+const _recycleReady = new Set();
+async function ensureRecycle(env, uuid) {
+  if (_recycleReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _recycle (id INTEGER PRIMARY KEY AUTOINCREMENT, entity TEXT NOT NULL, ref TEXT, data TEXT, deleted_by INTEGER, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_recycle ON _recycle (entity, created_at)"); } catch {}
+  _recycleReady.add(uuid);
+}
+// Event log / stream — an append-only stream of typed events with a monotonic id; readers tail it with an
+// `after` cursor. Distinct from the CRUD-focused audit log. `_eventlog`. Ensured once.
+const _eventlogReady = new Set();
+async function ensureEventlog(env, uuid) {
+  if (_eventlogReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _eventlog (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, data TEXT, actor_id INTEGER, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_eventlog_type ON _eventlog (type, id)"); } catch {}
+  _eventlogReady.add(uuid);
+}
+// Currency conversion snapshot — an admin stores exchange rates (relative to a base); the app converts an
+// amount between currencies at the stored rates. `_fx_rates` = one row per currency. Ensured once.
+const _fxRatesReady = new Set();
+async function ensureFxRates(env, uuid) {
+  if (_fxRatesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _fx_rates (code TEXT PRIMARY KEY, rate REAL NOT NULL, base TEXT, updated_at TEXT)");
+  _fxRatesReady.add(uuid);
+}
 // The user-scoped tables a member can export their own rows from (GDPR data portability) — kept in sync with
 // the erase list. Each entry is [table, ownerColumn]; a missing table is skipped at read time.
 const DATA_EXPORT_TABLES = [
@@ -10018,6 +10044,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _timeoff WHERE user_id=?", [u.id]],                                // time-off requests they made
             ["DELETE FROM _subscriptions WHERE user_id=?", [u.id]],                          // recurring-order subscriptions
             ["DELETE FROM _room_bookings WHERE user_id=?", [u.id]],                          // resource/room reservations
+            ["DELETE FROM _eventlog WHERE actor_id=?", [u.id]],                              // event-stream entries they authored
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -16516,6 +16543,178 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported publish-queue request" }, { status: 405 });
         } catch (e) { console.error("publish-queue failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "publish-queue failed" }, { status: 502 }); }
+      }
+      // RECYCLE BIN — a soft-delete store: an admin stashes a JSON snapshot of a deleted record, then restores
+      // or purges it. Restore returns the snapshot AND removes it from the bin (the app re-inserts the data).
+      //   POST   /api/db/<slug>/recycle-bin {entity, ref?, data}  (ADMIN) → {id}
+      //   GET    /api/db/<slug>/recycle-bin[?entity=]       (ADMIN) → the bin
+      //   POST   /api/db/<slug>/recycle-bin/<id>/restore    (ADMIN) → {entity, ref, data} + removes it
+      //   DELETE /api/db/<slug>/recycle-bin/<id>            (ADMIN) → purge one
+      //   DELETE /api/db/<slug>/recycle-bin?before=<iso>    (ADMIN) → purge everything older than a date
+      const rbm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/recycle-bin(?:\/(\d+)(?:\/(restore))?)?$/i);
+      if (rbm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = rbm[1].toLowerCase(), rid = rbm[2] ? parseInt(rbm[2], 10) : null, isRestore = rbm[3] === "restore";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureRecycle(env, uuid);
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          const parse = (r) => { let d = null; try { d = r.data ? JSON.parse(r.data) : null; } catch {} return { id: r.id, entity: r.entity, ref: r.ref, data: d, deleted_by: r.deleted_by, created_at: r.created_at }; };
+          // STASH.
+          if (!rid && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|rbw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const entity = String(body.entity || "").trim().slice(0, 80);
+            if (!entity) return Response.json({ ok: false, error: "an entity is required" }, { status: 400 });
+            if (body.data === undefined) return Response.json({ ok: false, error: "data (a snapshot) is required" }, { status: 400 });
+            const json = JSON.stringify(body.data);
+            if (json.length > 200000) return Response.json({ ok: false, error: "snapshot too large (200k max)" }, { status: 400 });
+            const r = await cfD1Query(env, uuid, "INSERT INTO _recycle (entity, ref, data, deleted_by, created_at) VALUES (?,?,?,?,?) RETURNING id", [entity, body.ref != null ? String(body.ref).slice(0, 200) : null, json, userId, new Date().toISOString()]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null });
+          }
+          // RESTORE (returns the snapshot + removes it).
+          if (rid != null && isRestore && request.method === "POST") {
+            const row = (await cfD1Query(env, uuid, "SELECT id, entity, ref, data, deleted_by, created_at FROM _recycle WHERE id=?", [rid]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such item" }, { status: 404 });
+            await cfD1Exec(env, uuid, "DELETE FROM _recycle WHERE id=?", [rid]);
+            return Response.json({ ok: true, restored: parse(row) });
+          }
+          // PURGE one.
+          if (rid != null && !isRestore && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _recycle WHERE id=?", [rid]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such item" }, { status: 404 });
+            return Response.json({ ok: true, purged: true, id: rid });
+          }
+          // PURGE old (?before=).
+          if (!rid && request.method === "DELETE") {
+            const before = String(url.searchParams.get("before") || "");
+            if (!before || Number.isNaN(Date.parse(before))) return Response.json({ ok: false, error: "a valid ?before= date is required" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _recycle WHERE created_at < ?", [new Date(Date.parse(before)).toISOString()]);
+            return Response.json({ ok: true, purged: ex.changes || 0 });
+          }
+          // LIST.
+          if (!rid && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|rbl", 300)) return tooMany();
+            const ent = url.searchParams.get("entity");
+            const rows = ent
+              ? await cfD1Query(env, uuid, "SELECT id, entity, ref, data, deleted_by, created_at FROM _recycle WHERE entity=? ORDER BY id DESC LIMIT 1000", [String(ent).slice(0, 80)])
+              : await cfD1Query(env, uuid, "SELECT id, entity, ref, data, deleted_by, created_at FROM _recycle ORDER BY id DESC LIMIT 1000");
+            return Response.json({ ok: true, items: rows.map(parse) });
+          }
+          return Response.json({ ok: false, error: "unsupported recycle-bin request" }, { status: 405 });
+        } catch (e) { console.error("recycle-bin failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "recycle-bin failed" }, { status: 502 }); }
+      }
+      // EVENT LOG / STREAM — an append-only stream of typed events with a monotonic id; readers tail it with
+      // an `after` cursor. Distinct from the CRUD-focused audit log.
+      //   POST   /api/db/<slug>/eventlog {type, data?}      (member) → {id}
+      //   GET    /api/db/<slug>/eventlog[?after=&type=&limit=]  (ADMIN) → events (+ a `cursor` to resume)
+      const elm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/eventlog$/i);
+      if (elm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = elm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          await ensureEventlog(env, uuid);
+          // APPEND (member).
+          if (request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|elw", 600)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const type = String(body.type || "").trim().slice(0, 80);
+            if (!type) return Response.json({ ok: false, error: "a type is required" }, { status: 400 });
+            let dataJson = null; if (body.data !== undefined) { dataJson = JSON.stringify(body.data); if (dataJson.length > 20000) return Response.json({ ok: false, error: "data too large (20k max)" }, { status: 400 }); }
+            const r = await cfD1Query(env, uuid, "INSERT INTO _eventlog (type, data, actor_id, created_at) VALUES (?,?,?,?) RETURNING id", [type, dataJson, userId, new Date().toISOString()]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null });
+          }
+          // TAIL (admin) — cursor-based.
+          if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          if (!rateOk(slug + "|" + ip + "|elr", 600)) return tooMany();
+          const after = parseInt(url.searchParams.get("after"), 10) || 0;
+          let limit = parseInt(url.searchParams.get("limit"), 10); if (!(limit > 0) || limit > 500) limit = 100;
+          const where = ["id > ?"], params = [after];
+          const type = url.searchParams.get("type"); if (type) { where.push("type=?"); params.push(String(type).slice(0, 80)); }
+          params.push(limit);
+          const rows = await cfD1Query(env, uuid, "SELECT id, type, data, actor_id, created_at FROM _eventlog WHERE " + where.join(" AND ") + " ORDER BY id ASC LIMIT ?", params);
+          const events = rows.map((r) => { let d = null; try { d = r.data ? JSON.parse(r.data) : null; } catch {} return { id: r.id, type: r.type, data: d, actor_id: r.actor_id, created_at: r.created_at }; });
+          return Response.json({ ok: true, events, cursor: events.length ? events[events.length - 1].id : after });
+        } catch (e) { console.error("eventlog failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "eventlog failed" }, { status: 502 }); }
+      }
+      // CURRENCY CONVERSION SNAPSHOT — an admin stores exchange rates (relative to a base); the app converts
+      // an amount between currencies at the stored rates.
+      //   PUT/POST /api/db/<slug>/fx {base?, rates:{USD:1, EUR:0.92, …}}  (ADMIN) → replace the rate table
+      //   GET    /api/db/<slug>/fx                          (public) → {base, rates}
+      //   GET    /api/db/<slug>/fx/convert?amount=&from=&to=  (public) → {result}
+      const fxrm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/fx(?:\/(convert))?$/i);
+      if (fxrm && (request.method === "GET" || request.method === "POST" || request.method === "PUT" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = fxrm[1].toLowerCase(), isConvert = fxrm[2] === "convert";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const normCode = (x) => String(x || "").trim().toUpperCase().replace(/[^A-Z]/g, "").slice(0, 8);
+        try {
+          await ensureFxRates(env, uuid);
+          // REPLACE rates (admin).
+          if (!isConvert && (request.method === "POST" || request.method === "PUT")) {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            let body = {}; try { body = await request.json(); } catch {}
+            if (!body.rates || typeof body.rates !== "object") return Response.json({ ok: false, error: "rates {CODE: rate} is required" }, { status: 400 });
+            const base = normCode(body.base) || "USD";
+            const rows = [];
+            for (const [k, v] of Object.entries(body.rates).slice(0, 300)) { const code = normCode(k); const rate = Number(v); if (!code || !Number.isFinite(rate) || rate <= 0) return Response.json({ ok: false, error: "each rate must be a positive number" }, { status: 400 }); rows.push([code, rate]); }
+            if (!rows.length) return Response.json({ ok: false, error: "at least one rate is required" }, { status: 400 });
+            const now = new Date().toISOString();
+            await cfD1Exec(env, uuid, "DELETE FROM _fx_rates");
+            for (const [code, rate] of rows) await cfD1Exec(env, uuid, "INSERT INTO _fx_rates (code, rate, base, updated_at) VALUES (?,?,?,?)", [code, rate, base, now]);
+            return Response.json({ ok: true, base, count: rows.length });
+          }
+          // CONVERT (public).
+          if (isConvert && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|fxc", 600)) return tooMany();
+            const amountRaw = url.searchParams.get("amount");
+            const amount = Number(amountRaw);
+            const from = normCode(url.searchParams.get("from")), to = normCode(url.searchParams.get("to"));
+            if (amountRaw == null || amountRaw === "" || !Number.isFinite(amount)) return Response.json({ ok: false, error: "a numeric ?amount= is required" }, { status: 400 });
+            if (!from || !to) return Response.json({ ok: false, error: "?from= and ?to= currency codes are required" }, { status: 400 });
+            const rows = await cfD1Query(env, uuid, "SELECT code, rate FROM _fx_rates WHERE code IN (?,?)", [from, to]);
+            const rmap = {}; for (const r of rows) rmap[r.code] = r.rate;
+            if (rmap[from] == null) return Response.json({ ok: false, error: "no rate for " + from }, { status: 400 });
+            if (rmap[to] == null) return Response.json({ ok: false, error: "no rate for " + to }, { status: 400 });
+            // amount in `from` → base → `to`. rate is units-per-base, so base = amount / rate[from].
+            const result = amount / rmap[from] * rmap[to];
+            return Response.json({ ok: true, amount, from, to, rate: rmap[to] / rmap[from], result: Math.round(result * 1e6) / 1e6 });
+          }
+          // GET rates (public).
+          if (!isConvert && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|fxr", 600)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT code, rate, base, updated_at FROM _fx_rates ORDER BY code ASC LIMIT 500");
+            const rates = {}; let base = null, updated_at = null; for (const r of rows) { rates[r.code] = r.rate; base = r.base; updated_at = r.updated_at; }
+            return Response.json({ ok: true, base, rates, updated_at });
+          }
+          return Response.json({ ok: false, error: "unsupported fx request" }, { status: 405 });
+        } catch (e) { console.error("fx failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "fx failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.

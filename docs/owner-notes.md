@@ -6661,6 +6661,18 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — recycle bin · event stream · currency converter (data API, next-100)
+- **`/recycle-bin`** — soft-delete snapshot store (admin). Stash {entity,ref,data-JSON}, list (+entity
+  filter), `/restore` (returns the snapshot AND removes it), purge one, `?before=` bulk purge. Admin
+  governance, no erase line. batch253 (19/19).
+- **`/eventlog`** — append-only typed event stream. Member appends {type,data}; admin tails with `?after=`
+  cursor (monotonic id) + type filter + limit; response carries a resume `cursor`. Distinct from `/audit`
+  (CRUD log). `_eventlog` erased by actor. batch254 (16/16, fixed a test `.json.id`-on-already-json bug).
+- **`/fx`** — currency snapshot. Admin PUTs {base, rates:{CODE:rate}}, public `/convert?amount=&from=&to=`
+  does cross-rate math via the base (fixed `Number(null)===0` letting a missing ?amount through). No user
+  scope. batch255 (18/18).
+- Full suite 238 green. (57/100 of the next-100 list shipped.)
+
 ## 2026-07-23 — resource booking · data export (GDPR) · publish scheduling (data API, next-100)
 - **`/rooms/<resource>`** — double-book-proof reservations via atomic `INSERT…SELECT…WHERE NOT EXISTS(overlap)`
   (overlap = `starts<newEnd AND ends>newStart`; touching bookings allowed). `/free` check, window list,
