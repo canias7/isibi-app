@@ -5812,6 +5812,14 @@ async function ensureAccessLog(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_access_actor ON _access_log (actor_id)"); } catch {}
   _accessLogReady.add(uuid);
 }
+// Per-customer credit limit — an admin sets a limit for a member; charges draw down available credit (guarded so
+// the balance never exceeds the limit), payments pay it back. One row per user, balance kept in cents. Ensured once.
+const _creditLimitReady = new Set();
+async function ensureCreditLimits(env, uuid) {
+  if (_creditLimitReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _credit_limits (user_id INTEGER PRIMARY KEY, limit_cents INTEGER NOT NULL DEFAULT 0, balance_cents INTEGER NOT NULL DEFAULT 0, updated_at TEXT)");
+  _creditLimitReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -10674,6 +10682,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _expense_claims WHERE user_id=?", [u.id]],                         // expense claims
             ["DELETE FROM _punch_cards WHERE user_id=?", [u.id]],                            // loyalty punch cards
             ["DELETE FROM _access_log WHERE actor_id=?", [u.id]],                            // access-view log
+            ["DELETE FROM _credit_limits WHERE user_id=?", [u.id]],                          // per-customer credit limit
             ["UPDATE _content_hashes SET first_by=NULL WHERE first_by=?", [u.id]],           // keep the shared dedup entry, drop the link
             ["UPDATE _bans SET banned_by=NULL WHERE banned_by=?", [u.id]],                   // keep the ban, drop the admin link
             ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
@@ -23094,6 +23103,184 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported access-log request" }, { status: 405 });
         } catch (e) { console.error("access-log failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "access-log failed" }, { status: 502 }); }
+      }
+      // MARKDOWN → SANITIZED HTML — a stateless renderer for a safe Markdown subset. ALL input is HTML-escaped
+      // first, so no raw HTML/script can pass through; only a known set of tags is emitted. Supports headings,
+      // bold/italic, inline + fenced code, links (http/https/mailto only), ul/ol lists, blockquotes, hr, paragraphs.
+      //   POST /api/db/<slug>/markdown {text}   (public) → {html}
+      const mdrm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/markdown$/i);
+      if (mdrm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = mdrm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|md", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          if (typeof body.text !== "string") return Response.json({ ok: false, error: "text is required" }, { status: 400 });
+          if (body.text.length > 200000) return Response.json({ ok: false, error: "text too large" }, { status: 400 });
+          const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+          const safeUrl = (u) => /^(https?:\/\/|mailto:)/i.test(u.trim()) ? u.trim() : null;
+          // Inline: code spans first (so their contents aren't further formatted), then links, bold, italic.
+          const inline = (raw) => {
+            const codes = [];
+            let s = raw.replace(/`([^`]+)`/g, (m, c) => { codes.push("<code>" + esc(c) + "</code>"); return " " + (codes.length - 1) + " "; });
+            s = esc(s);
+            s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, txt, u) => { const safe = safeUrl(u.replace(/&amp;/g, "&")); return safe ? '<a href="' + esc(safe) + '" rel="nofollow noopener" target="_blank">' + txt + "</a>" : txt; });
+            s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/__([^_]+)__/g, "<strong>$1</strong>");
+            s = s.replace(/(^|[^*])\*([^*\s][^*]*?)\*/g, "$1<em>$2</em>").replace(/(^|[^_])_([^_\s][^_]*?)_/g, "$1<em>$2</em>");
+            s = s.replace(/ (\d+) /g, (m, i) => codes[+i]);
+            return s;
+          };
+          const lines = body.text.replace(/\r\n?/g, "\n").split("\n");
+          const out = [];
+          let i2 = 0, para = [], listType = null;
+          const flushPara = () => { if (para.length) { out.push("<p>" + inline(para.join(" ")) + "</p>"); para = []; } };
+          const closeList = () => { if (listType) { out.push("</" + listType + ">"); listType = null; } };
+          while (i2 < lines.length) {
+            let ln = lines[i2];
+            // Fenced code block.
+            if (/^```/.test(ln.trim())) {
+              flushPara(); closeList();
+              const buf = []; i2++;
+              while (i2 < lines.length && !/^```/.test(lines[i2].trim())) { buf.push(esc(lines[i2])); i2++; }
+              i2++; out.push("<pre><code>" + buf.join("\n") + "</code></pre>");
+              continue;
+            }
+            const trimmed = ln.trim();
+            if (trimmed === "") { flushPara(); closeList(); i2++; continue; }
+            if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) { flushPara(); closeList(); out.push("<hr>"); i2++; continue; }
+            const hd = trimmed.match(/^(#{1,6})\s+(.*)$/);
+            if (hd) { flushPara(); closeList(); const lvl = hd[1].length; out.push("<h" + lvl + ">" + inline(hd[2]) + "</h" + lvl + ">"); i2++; continue; }
+            if (/^>\s?/.test(trimmed)) { flushPara(); closeList(); out.push("<blockquote>" + inline(trimmed.replace(/^>\s?/, "")) + "</blockquote>"); i2++; continue; }
+            const ul = trimmed.match(/^[-*+]\s+(.*)$/), ol = trimmed.match(/^\d+\.\s+(.*)$/);
+            if (ul || ol) {
+              flushPara();
+              const want = ul ? "ul" : "ol";
+              if (listType !== want) { closeList(); out.push("<" + want + ">"); listType = want; }
+              out.push("<li>" + inline((ul || ol)[1]) + "</li>"); i2++; continue;
+            }
+            para.push(trimmed); i2++;
+          }
+          flushPara(); closeList();
+          return Response.json({ ok: true, html: out.join("\n") });
+        } catch (e) { console.error("markdown failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "markdown failed" }, { status: 502 }); }
+      }
+      // PRORATION — a stateless subscription-change proration calculator. Given the old + new price and the billing
+      // period, it returns the unused credit from the old plan and the prorated charge for the new plan over the
+      // remaining days, and the net amount to charge now (negative = a credit). Money in cents.
+      //   POST /api/db/<slug>/proration {old_price?, new_price, period_start, period_end, change_date?}  (public)
+      const prom = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/proration$/i);
+      if (prom && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = prom[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|prorate", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const newCents = toCents(body.new_price), oldCents = body.old_price == null ? 0 : toCents(body.old_price);
+          if (newCents == null || oldCents == null) return Response.json({ ok: false, error: "new_price (and old_price if given) must be valid amounts" }, { status: 400 });
+          const ps = Date.parse(body.period_start), pe = Date.parse(body.period_end);
+          if (!Number.isFinite(ps) || !Number.isFinite(pe) || pe <= ps) return Response.json({ ok: false, error: "a valid period_start < period_end is required" }, { status: 400 });
+          let cd = body.change_date != null ? Date.parse(body.change_date) : Date.now();
+          if (!Number.isFinite(cd)) return Response.json({ ok: false, error: "change_date is invalid" }, { status: 400 });
+          cd = Math.min(Math.max(cd, ps), pe);
+          const DAY = 86400000;
+          const daysTotal = Math.round((pe - ps) / DAY);
+          const daysRemaining = Math.round((pe - cd) / DAY);
+          const frac = daysTotal > 0 ? daysRemaining / daysTotal : 0;
+          const unusedCredit = Math.round(oldCents * frac);
+          const newCharge = Math.round(newCents * frac);
+          const net = newCharge - unusedCredit;
+          return Response.json({ ok: true, days_total: daysTotal, days_remaining: daysRemaining, fraction: Math.round(frac * 1e6) / 1e6, unused_credit_cents: unusedCredit, new_charge_cents: newCharge, net_cents: net, currency: body.currency ? String(body.currency).slice(0, 8) : undefined });
+        } catch (e) { console.error("proration failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "proration failed" }, { status: 502 }); }
+      }
+      // PER-CUSTOMER CREDIT LIMIT — an admin sets a member's credit line; charges draw it down (never past the
+      // limit), payments pay it back. Balance is kept in cents, one row per user. All admin except a member reading
+      // their own line.
+      //   POST   /api/db/<slug>/credit-limit {user, limit}          (ADMIN)  → set/adjust the limit
+      //   POST   /api/db/<slug>/credit-limit/<user>/charge {amount} (ADMIN)  → add a charge (409 if over limit)
+      //   POST   /api/db/<slug>/credit-limit/<user>/pay {amount}    (ADMIN)  → reduce the outstanding balance
+      //   GET    /api/db/<slug>/credit-limit/<user>                 (admin|self) → {limit, balance, available}
+      //   GET    /api/db/<slug>/credit-limit                        (ADMIN)  → all accounts
+      //   DELETE /api/db/<slug>/credit-limit/<user>                 (ADMIN)  → remove the account
+      const clim = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/credit-limit(?:\/(\d+)(?:\/(charge|pay))?)?$/i);
+      if (clim && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = clim[1].toLowerCase(), target = clim[2] ? parseInt(clim[2], 10) : null, act = clim[3] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const view = (row) => ({ user: row.user_id, limit_cents: row.limit_cents, balance_cents: row.balance_cents, available_cents: row.limit_cents - row.balance_cents });
+        try {
+          await ensureCreditLimits(env, uuid);
+          // SET / ADJUST the limit (admin).
+          if (!target && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const u = Math.floor(Number(body.user));
+            if (!Number.isFinite(u)) return Response.json({ ok: false, error: "a user is required" }, { status: 400 });
+            const lim = toCents(body.limit);
+            if (lim == null || lim < 0) return Response.json({ ok: false, error: "a non-negative limit is required" }, { status: 400 });
+            if (!(await cfD1Query(env, uuid, "SELECT 1 FROM _users WHERE id=?", [u]))[0]) return Response.json({ ok: false, error: "no such user" }, { status: 404 });
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _credit_limits (user_id, limit_cents, balance_cents, updated_at) VALUES (?,?,0,?) ON CONFLICT(user_id) DO UPDATE SET limit_cents=excluded.limit_cents, updated_at=excluded.updated_at RETURNING user_id, limit_cents, balance_cents", [u, lim, now]);
+            return Response.json({ ok: true, ...view(r[0]) });
+          }
+          // CHARGE (admin) — atomic guard so the balance never exceeds the limit.
+          if (target && act === "charge" && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const amt = toCents(body.amount);
+            if (amt == null || amt <= 0) return Response.json({ ok: false, error: "a positive amount is required" }, { status: 400 });
+            const existing = (await cfD1Query(env, uuid, "SELECT 1 FROM _credit_limits WHERE user_id=?", [target]))[0];
+            if (!existing) return Response.json({ ok: false, error: "no credit account for that user" }, { status: 404 });
+            const r = await cfD1Query(env, uuid, "UPDATE _credit_limits SET balance_cents=balance_cents+?, updated_at=? WHERE user_id=? AND balance_cents+? <= limit_cents RETURNING user_id, limit_cents, balance_cents", [amt, new Date().toISOString(), target, amt]);
+            if (!r.length) { const cur = (await cfD1Query(env, uuid, "SELECT user_id, limit_cents, balance_cents FROM _credit_limits WHERE user_id=?", [target]))[0]; return Response.json({ ok: false, error: "would exceed the credit limit", ...view(cur) }, { status: 409 }); }
+            return Response.json({ ok: true, charged_cents: amt, ...view(r[0]) });
+          }
+          // PAY (admin) — never below zero.
+          if (target && act === "pay" && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const amt = toCents(body.amount);
+            if (amt == null || amt <= 0) return Response.json({ ok: false, error: "a positive amount is required" }, { status: 400 });
+            const r = await cfD1Query(env, uuid, "UPDATE _credit_limits SET balance_cents=MAX(0, balance_cents-?), updated_at=? WHERE user_id=? RETURNING user_id, limit_cents, balance_cents", [amt, new Date().toISOString(), target]);
+            if (!r.length) return Response.json({ ok: false, error: "no credit account for that user" }, { status: 404 });
+            return Response.json({ ok: true, paid_cents: amt, ...view(r[0]) });
+          }
+          // READ one (admin or the member themselves).
+          if (target && !act && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (userId !== target) { const a = await needAdmin(); if (a) return a; }
+            const row = (await cfD1Query(env, uuid, "SELECT user_id, limit_cents, balance_cents FROM _credit_limits WHERE user_id=?", [target]))[0];
+            if (!row) return Response.json({ ok: false, error: "no credit account for that user" }, { status: 404 });
+            return Response.json({ ok: true, ...view(row) });
+          }
+          // LIST (admin).
+          if (!target && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            const rows = await cfD1Query(env, uuid, "SELECT user_id, limit_cents, balance_cents FROM _credit_limits ORDER BY user_id LIMIT 1000");
+            return Response.json({ ok: true, accounts: rows.map(view) });
+          }
+          // REMOVE (admin).
+          if (target && !act && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _credit_limits WHERE user_id=?", [target]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no credit account for that user" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, user: target });
+          }
+          return Response.json({ ok: false, error: "unsupported credit-limit request" }, { status: 405 });
+        } catch (e) { console.error("credit-limit failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "credit-limit failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
