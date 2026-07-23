@@ -7747,11 +7747,11 @@ function analyticsChart(series) {
   const area = line + ' L' + xs(vals.length - 1).toFixed(1) + ' ' + (H - padB) + ' L' + xs(0).toFixed(1) + ' ' + (H - padB) + ' Z';
   const last = vals.length - 1;
   return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" preserveAspectRatio="none" style="display:block">' +
-    '<defs><linearGradient id="agL" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ff79c6"/><stop offset="1" stop-color="#ffb84d"/></linearGradient>' +
-    '<linearGradient id="agF" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff79c6" stop-opacity=".28"/><stop offset="1" stop-color="#ff79c6" stop-opacity="0"/></linearGradient></defs>' +
+    '<defs><linearGradient id="agL" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1e1e22"/><stop offset="1" stop-color="#0b0b0e"/></linearGradient>' +
+    '<linearGradient id="agF" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b0b0e" stop-opacity=".18"/><stop offset="1" stop-color="#0b0b0e" stop-opacity="0"/></linearGradient></defs>' +
     '<path d="' + area + '" fill="url(#agF)"/>' +
     '<path d="' + line + '" fill="none" stroke="url(#agL)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' +
-    '<circle cx="' + xs(last).toFixed(1) + '" cy="' + ys(vals[last]).toFixed(1) + '" r="4" fill="#ffb84d"/></svg>';
+    '<circle cx="' + xs(last).toFixed(1) + '" cy="' + ys(vals[last]).toFixed(1) + '" r="4" fill="#0b0b0e"/></svg>';
 }
 
 // ── Posts section (live Instagram media grid) ──
