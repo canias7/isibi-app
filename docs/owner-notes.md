@@ -47,7 +47,20 @@ Building them one PR at a time, $0 (no Claude/fal spend).
   a family; `tokensToCssVars`/`tokensToTailwindTheme` emit; `designBrief(id)` renders the vocabulary for the
   generator. `test/backend/design.test.mjs` (25/25). The vision-based screenshot-critique → automatic-visual-repair
   is the LIVE half (renders + a vision model = credits) and layers on this — follow-up, pairs with #4's live half.
-- Remaining: #5 worker.js refactor.
+- **#5 worker.js refactor — STARTED (proven pattern).** worker.js is 32.5k lines and auto-deploys to live on
+  merge, so NO big-bang split. First safe cut: extracted the pure, request-independent finance/money library
+  (`toCents` + 9 stateless calculators: depreciation/amortization/investment/eoq/breakeven/demand-forecast/
+  installment/tax/commission) into `worker-finance.mjs`, imported back into worker.js. Done PROGRAMMATICALLY
+  (line-precise, no hand-copy) so it's byte-for-byte identical; worker.js 32,549 → 32,235 lines. Full suite 384
+  green proves behavior unchanged (toCents alone is exercised by /finance + dozens of money routes). This
+  establishes the extraction pattern (pure leaf → module → import → suite proves it). The DEEPER work —
+  pulling route handlers out of the one giant fetch() closure — is a much larger, riskier effort (handlers
+  share env/url/request + many helpers) and should be steered incrementally, module by module, each behind a
+  green suite. Not attempting it unprompted given the live-deploy blast radius.
+- **ALL 5 meta-layers now have their offline/safe core shipped.** The remaining pieces all need live Claude/fal
+  credits (wire planner+registry+design into generation; vision screenshot-critique + auto visual repair;
+  in-container vite build/render check) OR are the deeper worker split — will confirm before spending or before
+  a large refactor.
 
 ## 2026-07-21 — BACKEND ROADMAP: building the "100 more" list (AI parked)
 
