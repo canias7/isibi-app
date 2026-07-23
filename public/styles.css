@@ -46,6 +46,27 @@
     }
     button { font-family: inherit; }
 
+    /* ── Micro-interactions (owner 2026-07-23): a gentle spring "press" on click
+       for every control + smooth state transitions. Subtle; reduce-motion safe.
+       Specificity (0,1,1)/(0,2,1) lets it ride over single-class rules while
+       preserving their colour/shadow fades (all common props are included). ── */
+    button:not([disabled]), [role="button"]:not([disabled]), a.st-publish, a.st-share, summary {
+      transition: transform .17s cubic-bezier(.34, 1.5, .5, 1), box-shadow .18s ease,
+        background-color .16s ease, border-color .16s ease, color .13s ease,
+        filter .16s ease, opacity .18s ease;
+    }
+    button:not([disabled]):active, [role="button"]:not([disabled]):active,
+    a.st-publish:active, a.st-share:active { transform: scale(.955); }
+    /* icon-only / round controls press a touch deeper for a tactile feel */
+    .st-icon:not([disabled]):active, .st-dev:not([disabled]):active,
+    .st-plus:not([disabled]):active, .attach-btn:not([disabled]):active,
+    .st-sendc:not([disabled]):active, .send:not([disabled]):active { transform: scale(.9); }
+    @media (prefers-reduced-motion: reduce) {
+      button:not([disabled]):active, [role="button"]:not([disabled]):active,
+      a.st-publish:active, a.st-share:active,
+      .st-icon:active, .st-dev:active, .st-plus:active, .st-sendc:active, .send:active { transform: none; }
+    }
+
     /* ── Top bar ─────────────────────────────── */
     .topbar {
       display: flex; align-items: center; gap: 1.6rem;
