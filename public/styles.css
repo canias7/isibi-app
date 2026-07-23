@@ -4967,6 +4967,23 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .mkt-crt .crt-inbox{top:50%;bottom:auto;transform:translateY(-50%)}
 .mkt-crt .crt-crest{top:calc(50% - 7.5rem)}
 
+/* ── Clerk-style branded backdrop (owner 2026-07-23): a subtle tiled isibi mark
+   + two oversized faint marks bleeding off the corners + a soft gradient wash,
+   sitting behind all landing content. ── */
+.mkt.mkt-crt{position:relative}
+.mkt-crt .crtl-stage{position:relative;z-index:1}
+.mkt-crt .mkt-logobg{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden;
+  background-image:
+    radial-gradient(68% 52% at 50% 16%, rgba(0,0,0,.02), transparent 72%),
+    url(/logo-tile.png);
+  background-repeat:no-repeat, repeat;
+  background-size:cover, 120px 120px;
+  background-position:center top, center}
+.mkt-crt .mkt-logobg::before,
+.mkt-crt .mkt-logobg::after{content:"";position:absolute;background:url(/logo.png) center/contain no-repeat}
+.mkt-crt .mkt-logobg::before{width:46vmin;height:46vmin;top:-9vmin;left:-8vmin;opacity:.05}
+.mkt-crt .mkt-logobg::after{width:56vmin;height:56vmin;bottom:-13vmin;right:-10vmin;opacity:.04}
+
 /* ── Gradient Halo chatbox (owner 2026-07-23): the ONE colored element on the
    black-and-white platform. Pinned to the old dark glass + pink→amber halo so it
    reads as a deliberate island (owner: "leave that chatbox like that"). The ring
