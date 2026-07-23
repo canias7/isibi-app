@@ -10,6 +10,23 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-07-23 — META-LAYER: VISION CRITIQUE + AUTO VISUAL REPAIR (the live half of #3/#4) — built
+Owner picked "build the vision critique" next. `builder/vision-critique.mjs` (a BUILD-CONTAINER Node module —
+Playwright + Anthropic, NOT imported by worker.js; Playwright lazy-loaded): after an app builds, `renderRoutes`
+screenshots each route in headless Chromium, `requestCritique` sends the PNG to a vision model
+(`ANTHROPIC_API_KEY`, same /v1/messages pattern as worker.js; default model claude-sonnet-5) with a structured
+critique prompt → `parseCritique` returns `{score, verdict, issues[{severity,area,message,fix}]}`;
+`visualRepairLoop` renders→critiques→(if below threshold) folds the issues into a revise instruction and calls
+the generator, looping to a round cap. Everything is injectable (render/critiqueOne/generate) so it's fully
+testable offline. `test/backend/vision.test.mjs` (31/31) covers parse (JSON/fenced/garbage), the prompt, the
+Anthropic request via a MOCK fetch, a REAL Playwright screenshot of a fixture ($0), the instruction fold, and the
+loop (passes clean / iterates-then-passes / fails after cap). **No credits spent** — this session has no
+ANTHROPIC_API_KEY, so the live vision call can't run here; it activates in the deployed build container where the
+key exists. NOT yet wired into the live generation loop (the `generate` step = the REVISE credit spend) — the
+module is ready; enabling the loop in build-server.mjs/worker is the wiring step, which spends credits per build.
+Playwright confirmed working here (5.8 KB PNG). No CI runs the backend suite, so the Chromium-dependent test is
+local-only.
+
 ## 2026-07-23 — META-LAYER (ChatGPT's "next priorities") — #1 CAPABILITY REGISTRY shipped
 Owner shared a ChatGPT review naming 5 next priorities ABOVE the raw backend primitives (which are done, 200
 of them). Scorecard at the time: #1 capability registry (prose only), #2 app planner (none), #3 design engine
