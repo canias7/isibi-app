@@ -5152,6 +5152,33 @@ async function ensureTimeoff(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_timeoff_user ON _timeoff (user_id, status)"); } catch {}
   _timeoffReady.add(uuid);
 }
+// Goal / conversion tracking — a named goal counts visits and conversions; the rate is derived. `_conversions`
+// = one row per goal. Ensured once per isolate.
+const _conversionsReady = new Set();
+async function ensureConversions(env, uuid) {
+  if (_conversionsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _conversions (goal TEXT PRIMARY KEY, name TEXT, visits INTEGER NOT NULL DEFAULT 0, conversions INTEGER NOT NULL DEFAULT 0, updated_at TEXT)");
+  _conversionsReady.add(uuid);
+}
+// Two-person approval — a sensitive op needs TWO distinct admins to sign off before it's authorized. One
+// admin proposes, a DIFFERENT admin approves. `_dual_approvals` = one row per op. Ensured once.
+const _dualApprovalReady = new Set();
+async function ensureDualApproval(env, uuid) {
+  if (_dualApprovalReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _dual_approvals (id INTEGER PRIMARY KEY AUTOINCREMENT, op TEXT NOT NULL, ref TEXT, status TEXT NOT NULL DEFAULT 'pending', proposed_by INTEGER, approved_by INTEGER, note TEXT, created_at TEXT, resolved_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_dual_approvals ON _dual_approvals (status, created_at)"); } catch {}
+  _dualApprovalReady.add(uuid);
+}
+// Recurring-order subscriptions — a member subscribes to a cadence; next_run advances by interval_days. The
+// admin processes due ones. `_subscriptions` = one row per subscription. Ensured once.
+const _subscriptionsReady = new Set();
+async function ensureSubscriptions(env, uuid) {
+  if (_subscriptionsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _subscriptions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, plan TEXT NOT NULL, interval_days INTEGER NOT NULL, next_run TEXT, status TEXT NOT NULL DEFAULT 'active', ref TEXT, runs INTEGER NOT NULL DEFAULT 0, created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_subs_next ON _subscriptions (status, next_run)"); } catch {}
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_subs_user ON _subscriptions (user_id)"); } catch {}
+  _subscriptionsReady.add(uuid);
+}
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -9957,6 +9984,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _activity WHERE author_id=?", [u.id]],                             // CRM activity/notes they logged
             ["DELETE FROM _shifts WHERE user_id=?", [u.id]],                                 // staff shifts assigned to them
             ["DELETE FROM _timeoff WHERE user_id=?", [u.id]],                                // time-off requests they made
+            ["DELETE FROM _subscriptions WHERE user_id=?", [u.id]],                          // recurring-order subscriptions
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -16095,6 +16123,211 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported timeoff request" }, { status: 405 });
         } catch (e) { console.error("timeoff failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "timeoff failed" }, { status: 502 }); }
+      }
+      // GOAL / CONVERSION TRACKING — a named goal counts visits and conversions; the rate is derived.
+      //   POST   /api/db/<slug>/conversions/<goal>/hit {converted?}  (public) → {visits, conversions, rate}
+      //   GET    /api/db/<slug>/conversions/<goal>          (public) → {visits, conversions, rate}
+      //   GET    /api/db/<slug>/conversions                 (public) → all goals
+      //   POST   /api/db/<slug>/conversions/<goal> {name}   (ADMIN) → set a display name
+      //   DELETE /api/db/<slug>/conversions/<goal>          (ADMIN)
+      const cnvm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/conversions(?:\/([A-Za-z0-9_.-]{1,80})(?:\/(hit))?)?$/i);
+      if (cnvm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = cnvm[1].toLowerCase(), goal = cnvm[2] || null, isHit = cnvm[3] === "hit";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const rate = (v, c2) => v > 0 ? Math.round(c2 / v * 10000) / 100 : 0;
+        try {
+          await ensureConversions(env, uuid);
+          // HIT (public).
+          if (goal && isHit && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|cnvw", 600)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const conv = body.converted === true || body.converted === 1 ? 1 : 0;
+            const r = await cfD1Query(env, uuid, "INSERT INTO _conversions (goal, visits, conversions, updated_at) VALUES (?,1,?,?) ON CONFLICT(goal) DO UPDATE SET visits = visits + 1, conversions = conversions + ?, updated_at=excluded.updated_at RETURNING visits, conversions", [goal, conv, new Date().toISOString(), conv]);
+            const row = r[0] || { visits: 1, conversions: conv };
+            return Response.json({ ok: true, goal, visits: row.visits, conversions: row.conversions, rate: rate(row.visits, row.conversions) });
+          }
+          // SET name (admin).
+          if (goal && !isHit && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            await cfD1Query(env, uuid, "INSERT INTO _conversions (goal, name, updated_at) VALUES (?,?,?) ON CONFLICT(goal) DO UPDATE SET name=excluded.name, updated_at=excluded.updated_at", [goal, body.name != null ? String(body.name).slice(0, 120) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, goal });
+          }
+          // DELETE (admin).
+          if (goal && !isHit && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _conversions WHERE goal=?", [goal]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such goal" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, goal });
+          }
+          // GET one (public).
+          if (goal && !isHit && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|cnvr", 600)) return tooMany();
+            const r = (await cfD1Query(env, uuid, "SELECT goal, name, visits, conversions FROM _conversions WHERE goal=?", [goal]))[0];
+            if (!r) return Response.json({ ok: true, goal, visits: 0, conversions: 0, rate: 0 });
+            return Response.json({ ok: true, goal: r.goal, name: r.name, visits: r.visits, conversions: r.conversions, rate: rate(r.visits, r.conversions) });
+          }
+          // LIST (public).
+          if (!goal && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|cnvl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT goal, name, visits, conversions FROM _conversions ORDER BY conversions DESC LIMIT 500");
+            return Response.json({ ok: true, goals: rows.map((r) => ({ goal: r.goal, name: r.name, visits: r.visits, conversions: r.conversions, rate: rate(r.visits, r.conversions) })) });
+          }
+          return Response.json({ ok: false, error: "unsupported conversions request" }, { status: 405 });
+        } catch (e) { console.error("conversions failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "conversions failed" }, { status: 502 }); }
+      }
+      // TWO-PERSON APPROVAL — a sensitive op needs TWO distinct admins to sign off. One admin proposes, a
+      // DIFFERENT admin approves (or any admin rejects).
+      //   POST   /api/db/<slug>/dual-approval {op, ref?, note?}  (ADMIN) → propose → {id, status:pending}
+      //   POST   /api/db/<slug>/dual-approval/<id>/approve       (ADMIN ≠ proposer) → authorized
+      //   POST   /api/db/<slug>/dual-approval/<id>/reject {note?}  (ADMIN) → rejected
+      //   GET    /api/db/<slug>/dual-approval[?status=]          (ADMIN) → list
+      //   GET    /api/db/<slug>/dual-approval/<id>               (ADMIN)
+      const dapm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/dual-approval(?:\/(\d+)(?:\/(approve|reject))?)?$/i);
+      if (dapm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = dapm[1].toLowerCase(), daId = dapm[2] ? parseInt(dapm[2], 10) : null, act = dapm[3] ? dapm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureDualApproval(env, uuid);
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          // PROPOSE.
+          if (daId == null && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|dapw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const op = String(body.op || "").trim().slice(0, 120);
+            if (!op) return Response.json({ ok: false, error: "an op is required" }, { status: 400 });
+            const r = await cfD1Query(env, uuid, "INSERT INTO _dual_approvals (op, ref, status, proposed_by, note, created_at) VALUES (?,?, 'pending', ?,?,?) RETURNING id", [op, body.ref != null ? String(body.ref).slice(0, 200) : null, userId, body.note != null ? String(body.note).slice(0, 500) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, status: "pending" });
+          }
+          // APPROVE / REJECT.
+          if (daId != null && act && request.method === "POST") {
+            const da = (await cfD1Query(env, uuid, "SELECT id, status, proposed_by FROM _dual_approvals WHERE id=?", [daId]))[0];
+            if (!da) return Response.json({ ok: false, error: "no such approval" }, { status: 404 });
+            if (da.status !== "pending") return Response.json({ ok: false, error: "already " + da.status }, { status: 409 });
+            if (act === "approve") {
+              if (da.proposed_by === userId) return Response.json({ ok: false, error: "a second, different admin must approve" }, { status: 403 });
+              await cfD1Exec(env, uuid, "UPDATE _dual_approvals SET status='authorized', approved_by=?, resolved_at=? WHERE id=? AND status='pending'", [userId, new Date().toISOString(), daId]);
+              return Response.json({ ok: true, id: daId, status: "authorized" });
+            }
+            let body = {}; try { body = await request.json(); } catch {}
+            await cfD1Exec(env, uuid, "UPDATE _dual_approvals SET status='rejected', approved_by=?, note=COALESCE(?, note), resolved_at=? WHERE id=? AND status='pending'", [userId, body.note != null ? String(body.note).slice(0, 500) : null, new Date().toISOString(), daId]);
+            return Response.json({ ok: true, id: daId, status: "rejected" });
+          }
+          // GET one.
+          if (daId != null && !act && request.method === "GET") {
+            const da = (await cfD1Query(env, uuid, "SELECT id, op, ref, status, proposed_by, approved_by, note, created_at, resolved_at FROM _dual_approvals WHERE id=?", [daId]))[0];
+            if (!da) return Response.json({ ok: false, error: "no such approval" }, { status: 404 });
+            return Response.json({ ok: true, approval: da });
+          }
+          // LIST.
+          if (daId == null && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|dapl", 300)) return tooMany();
+            const st = String(url.searchParams.get("status") || "").toLowerCase();
+            const where = ["pending", "authorized", "rejected"].includes(st) ? " WHERE status=?" : "";
+            const params = where ? [st] : [];
+            const rows = await cfD1Query(env, uuid, "SELECT id, op, ref, status, proposed_by, approved_by, created_at, resolved_at FROM _dual_approvals" + where + " ORDER BY created_at DESC LIMIT 1000", params);
+            return Response.json({ ok: true, approvals: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported dual-approval request" }, { status: 405 });
+        } catch (e) { console.error("dual-approval failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "dual-approval failed" }, { status: 502 }); }
+      }
+      // RECURRING-ORDER SUBSCRIPTIONS — a member subscribes to a cadence; next_run advances by interval_days.
+      //   POST   /api/db/<slug>/subscriptions {plan, interval_days, start?, ref?}  (member) → {id, next_run}
+      //   GET    /api/db/<slug>/subscriptions/mine          (member) → my subscriptions
+      //   GET    /api/db/<slug>/subscriptions/due           (ADMIN) → active subs whose next_run <= now
+      //   GET    /api/db/<slug>/subscriptions[?status=&user=]  (ADMIN) → all
+      //   POST   /api/db/<slug>/subscriptions/<id>/advance  (ADMIN) → bump next_run by interval, count a run
+      //   POST   /api/db/<slug>/subscriptions/<id>/cancel   (owner or ADMIN) → status cancelled
+      const subm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/subscriptions(?:\/(mine|due|\d+)(?:\/(advance|cancel))?)?$/i);
+      if (subm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = subm[1].toLowerCase(), seg = subm[2] || null, subId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null, act = subm[3] ? subm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const isAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return !!(rr[0] && rr[0].role === "admin"); };
+        try {
+          await ensureSubscriptions(env, uuid);
+          // SUBSCRIBE (member).
+          if (!seg && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|subw", 60)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const plan = String(body.plan || "").trim().slice(0, 120);
+            const interval = Math.floor(Number(body.interval_days));
+            if (!plan) return Response.json({ ok: false, error: "a plan is required" }, { status: 400 });
+            if (!Number.isFinite(interval) || interval < 1 || interval > 3650) return Response.json({ ok: false, error: "interval_days must be 1..3650" }, { status: 400 });
+            let startMs = body.start != null && body.start !== "" ? Date.parse(String(body.start)) : Date.now();
+            if (Number.isNaN(startMs)) return Response.json({ ok: false, error: "bad start date" }, { status: 400 });
+            const next_run = new Date(startMs).toISOString();
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _subscriptions (user_id, plan, interval_days, next_run, status, ref, created_at, updated_at) VALUES (?,?,?,?, 'active', ?,?,?) RETURNING id", [userId, plan, interval, next_run, body.ref != null ? String(body.ref).slice(0, 200) : null, now, now]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, next_run, status: "active" });
+          }
+          // MINE (member).
+          if (seg === "mine" && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT id, plan, interval_days, next_run, status, ref, runs FROM _subscriptions WHERE user_id=? ORDER BY created_at DESC LIMIT 500", [userId]);
+            return Response.json({ ok: true, subscriptions: rows });
+          }
+          // DUE (admin).
+          if (seg === "due" && request.method === "GET") {
+            if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const rows = await cfD1Query(env, uuid, "SELECT id, user_id, plan, interval_days, next_run, ref, runs FROM _subscriptions WHERE status='active' AND next_run IS NOT NULL AND datetime(next_run) <= datetime('now') ORDER BY next_run ASC LIMIT 1000");
+            return Response.json({ ok: true, due: rows });
+          }
+          // ADVANCE (admin).
+          if (subId != null && act === "advance" && request.method === "POST") {
+            if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const sub = (await cfD1Query(env, uuid, "SELECT interval_days, next_run, status FROM _subscriptions WHERE id=?", [subId]))[0];
+            if (!sub) return Response.json({ ok: false, error: "no such subscription" }, { status: 404 });
+            if (sub.status !== "active") return Response.json({ ok: false, error: "not active" }, { status: 409 });
+            const base = sub.next_run ? Date.parse(sub.next_run) : Date.now();
+            const next = new Date(base + sub.interval_days * 86400000).toISOString();
+            await cfD1Exec(env, uuid, "UPDATE _subscriptions SET next_run=?, runs = runs + 1, updated_at=? WHERE id=?", [next, new Date().toISOString(), subId]);
+            return Response.json({ ok: true, id: subId, next_run: next });
+          }
+          // CANCEL (owner or admin).
+          if (subId != null && act === "cancel" && request.method === "POST") {
+            const sub = (await cfD1Query(env, uuid, "SELECT user_id, status FROM _subscriptions WHERE id=?", [subId]))[0];
+            if (!sub) return Response.json({ ok: false, error: "no such subscription" }, { status: 404 });
+            const admin = await isAdmin();
+            if (sub.user_id !== userId && !admin) return Response.json({ ok: false, error: "not yours" }, { status: 403 });
+            await cfD1Exec(env, uuid, "UPDATE _subscriptions SET status='cancelled', updated_at=? WHERE id=?", [new Date().toISOString(), subId]);
+            return Response.json({ ok: true, id: subId, status: "cancelled" });
+          }
+          // LIST all (admin).
+          if (!seg && request.method === "GET") {
+            if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const where = [], params = [];
+            const st = String(url.searchParams.get("status") || "").toLowerCase();
+            if (["active", "cancelled"].includes(st)) { where.push("status=?"); params.push(st); }
+            const u = parseInt(url.searchParams.get("user"), 10); if (u > 0) { where.push("user_id=?"); params.push(u); }
+            const rows = await cfD1Query(env, uuid, "SELECT id, user_id, plan, interval_days, next_run, status, ref, runs FROM _subscriptions" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY created_at DESC LIMIT 1000", params);
+            return Response.json({ ok: true, subscriptions: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported subscriptions request" }, { status: 405 });
+        } catch (e) { console.error("subscriptions failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "subscriptions failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.

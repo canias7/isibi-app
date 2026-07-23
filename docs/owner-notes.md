@@ -6661,6 +6661,18 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — conversion tracking · two-person approval · recurring-order subs (data API, next-100)
+- **`/conversions/<goal>`** — visits+conversions counters per goal (atomic `hit` upsert, converted→both++),
+  derived rate; goals auto-create; admin name/delete. Distinct from `/goals` (fundraising) + `/funnel`
+  (multi-step). No user scope. batch247 (16/16).
+- **`/dual-approval`** — four-eyes/maker-checker: propose (admin) → a DIFFERENT admin approves (self-approve
+  403) → authorized; any admin rejects; decided-once (409). `_dual_approvals` KEPT on erase (governance
+  audit, like `_audit`). batch248 (19/19).
+- **`/subscriptions`** — recurring-order cadence. Member subscribes (next_run=start), `/mine`, cancel;
+  admin `/due` (next_run<=now), `/advance` (bump next_run + runs++). `_subscriptions` erased by user.
+  batch249 (21/21).
+- Full suite 232 green.
+
 ## 2026-07-23 — activity timeline · staff shifts · time-off requests (data API, next-100 ops/HR batch)
 - **`/activity`** — team-internal CRM timeline: any signed-in member logs note/call/email/meeting/task vs
   (entity,ref), reads newest-first, type filter; author-or-admin delete. `_activity` erased by author.
