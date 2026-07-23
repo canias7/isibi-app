@@ -6661,6 +6661,17 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — activity timeline · staff shifts · time-off requests (data API, next-100 ops/HR batch)
+- **`/activity`** — team-internal CRM timeline: any signed-in member logs note/call/email/meeting/task vs
+  (entity,ref), reads newest-first, type filter; author-or-admin delete. `_activity` erased by author.
+  batch244 (19/19).
+- **`/shifts`** — admin staff roster; `/coverage?from=&to=` counts who's on via overlap (`starts<to AND
+  ends>from`); member `/mine`. `_shifts` erased by user. batch245 (18/18).
+- **`/timeoff`** — PTO request→decision (distinct from the `/leave` balance ledger). Member requests,
+  `/mine`; admin lists + `/<id>/decide {approve}` (once, 409 if already decided); owner cancels while
+  pending. `_timeoff` erased by user. batch246 (20/20).
+- Full suite 229 green.
+
 ## 2026-07-23 — loyalty tiers · store-credit ledger · related-content (data API, next-100)
 - **`/loyalty`** — admin spend-threshold ladder (`_loyalty_tiers`) + per-member spend (`_loyalty_spend`,
   atomic `MAX(0, spend+amount)` upsert). `/spend` (admin) accrues → resolves tier + to_next; `/me` +
