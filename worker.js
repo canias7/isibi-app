@@ -5450,6 +5450,25 @@ async function ensureRma(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_rma_user ON _rma (user_id)"); } catch {}
   _rmaReady.add(uuid);
 }
+// Contacts (CRM) — an admin-managed address book with dedupe-on-email (a repeat email fills gaps on the
+// existing row instead of duplicating) and a merge that folds one contact into another. `_contacts`; a merged
+// row keeps `merged_into` pointing at its survivor. Ensured once.
+const _contactsReady = new Set();
+async function ensureContacts(env, uuid) {
+  if (_contactsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _contacts (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, name TEXT, phone TEXT, company TEXT, tags TEXT, notes TEXT, merged_into INTEGER, created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_contacts_email ON _contacts (email)"); } catch {}
+  _contactsReady.add(uuid);
+}
+// Order notes / gift messages — a member attaches a note or a gift message to an order reference; staff read
+// them all. `_order_notes` (gift = the gift-message flag). Ensured once.
+const _orderNotesReady = new Set();
+async function ensureOrderNotes(env, uuid) {
+  if (_orderNotesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _order_notes (id INTEGER PRIMARY KEY AUTOINCREMENT, order_ref TEXT NOT NULL, user_id INTEGER NOT NULL, message TEXT NOT NULL, gift INTEGER NOT NULL DEFAULT 0, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_order_notes_ref ON _order_notes (order_ref)"); } catch {}
+  _orderNotesReady.add(uuid);
+}
 // The user-scoped tables a member can export their own rows from (GDPR data portability) — kept in sync with
 // the erase list. Each entry is [table, ownerColumn]; a missing table is skipped at read time.
 const DATA_EXPORT_TABLES = [
@@ -10283,6 +10302,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _cohort_days WHERE user_id=?", [u.id]],                            // cohort activity days
             ["DELETE FROM _handles WHERE user_id=?", [u.id]],                                // reserved slugs / handles
             ["DELETE FROM _rma WHERE user_id=?", [u.id]],                                    // return / RMA requests
+            ["DELETE FROM _order_notes WHERE user_id=?", [u.id]],                            // order notes / gift messages
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -18769,6 +18789,214 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported rma request" }, { status: 405 });
         } catch (e) { console.error("rma failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "rma failed" }, { status: 502 }); }
+      }
+      // CONTACTS (CRM) — an admin-managed address book. Capturing the same email fills gaps on the existing row
+      // instead of creating a duplicate; merge folds one contact into another (the loser keeps merged_into).
+      //   POST   /api/db/<slug>/contacts {email?, name?, phone?, company?, tags?, notes?}  (ADMIN) → dedupe-capture
+      //   GET    /api/db/<slug>/contacts[?q=&all=1]        (ADMIN) → list (merged hidden unless all=1)
+      //   GET    /api/db/<slug>/contacts/<id>              (ADMIN)
+      //   PATCH  /api/db/<slug>/contacts/<id>              (ADMIN)
+      //   POST   /api/db/<slug>/contacts/merge {from, into}(ADMIN) → fold `from` into `into`
+      //   DELETE /api/db/<slug>/contacts/<id>              (ADMIN)
+      const ctcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/contacts(?:\/(merge|\d+))?$/i);
+      if (ctcm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = ctcm[1].toLowerCase(), seg = ctcm[2] || null;
+        const isMerge = seg === "merge", cid = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureContacts(env, uuid);
+          const clean = (v, n) => v == null ? null : String(v).slice(0, n);
+          const shape = (r) => ({ id: r.id, email: r.email, name: r.name, phone: r.phone, company: r.company, tags: r.tags, notes: r.notes, merged_into: r.merged_into, created_at: r.created_at, updated_at: r.updated_at });
+          // MERGE.
+          if (isMerge && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const from = Math.floor(Number(body.from)), into = Math.floor(Number(body.into));
+            if (!Number.isFinite(from) || !Number.isFinite(into) || from === into) return Response.json({ ok: false, error: "distinct from and into ids are required" }, { status: 400 });
+            const a = (await cfD1Query(env, uuid, "SELECT * FROM _contacts WHERE id=?", [from]))[0];
+            const b = (await cfD1Query(env, uuid, "SELECT * FROM _contacts WHERE id=?", [into]))[0];
+            if (!a || !b) return Response.json({ ok: false, error: "no such contact" }, { status: 404 });
+            if (b.merged_into != null) return Response.json({ ok: false, error: "target is itself merged" }, { status: 409 });
+            const now = new Date().toISOString();
+            const mv = await cfD1Query(env, uuid, "UPDATE _contacts SET merged_into=?, updated_at=? WHERE id=? AND merged_into IS NULL RETURNING id", [into, now, from]);
+            if (!mv.length) return Response.json({ ok: false, error: "source already merged" }, { status: 409 });
+            // Fill any gaps on the survivor from the loser.
+            const fills = [], vals = [];
+            for (const f of ["email", "name", "phone", "company", "tags", "notes"]) { if ((b[f] == null || b[f] === "") && a[f] != null && a[f] !== "") { fills.push(f + "=?"); vals.push(a[f]); } }
+            if (fills.length) { await cfD1Exec(env, uuid, "UPDATE _contacts SET " + fills.join(", ") + ", updated_at=? WHERE id=?", [...vals, now, into]); }
+            const merged = (await cfD1Query(env, uuid, "SELECT * FROM _contacts WHERE id=?", [into]))[0];
+            return Response.json({ ok: true, merged: shape(merged), from });
+          }
+          // CAPTURE (dedupe on email).
+          if (!seg && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|ctw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const email = body.email != null ? String(body.email).trim().toLowerCase().slice(0, 200) : null;
+            const fields = { email, name: clean(body.name, 200), phone: clean(body.phone, 60), company: clean(body.company, 200), tags: clean(body.tags, 400), notes: clean(body.notes, 2000) };
+            if (!email && !fields.name && !fields.phone) return Response.json({ ok: false, error: "an email, name or phone is required" }, { status: 400 });
+            const now = new Date().toISOString();
+            if (email) {
+              const ex = (await cfD1Query(env, uuid, "SELECT * FROM _contacts WHERE email=? AND merged_into IS NULL ORDER BY id ASC LIMIT 1", [email]))[0];
+              if (ex) {
+                const fills = [], vals = [];
+                for (const f of ["name", "phone", "company", "tags", "notes"]) { if ((ex[f] == null || ex[f] === "") && fields[f] != null) { fills.push(f + "=?"); vals.push(fields[f]); } }
+                if (fills.length) await cfD1Exec(env, uuid, "UPDATE _contacts SET " + fills.join(", ") + ", updated_at=? WHERE id=?", [...vals, now, ex.id]);
+                return Response.json({ ok: true, id: ex.id, deduped: true });
+              }
+            }
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _contacts (email, name, phone, company, tags, notes, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?) RETURNING id", [fields.email, fields.name, fields.phone, fields.company, fields.tags, fields.notes, now, now]);
+            return Response.json({ ok: true, id: ins[0] ? ins[0].id : null, deduped: false });
+          }
+          // GET one.
+          if (cid != null && request.method === "GET") {
+            const row = (await cfD1Query(env, uuid, "SELECT * FROM _contacts WHERE id=?", [cid]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such contact" }, { status: 404 });
+            return Response.json({ ok: true, contact: shape(row) });
+          }
+          // PATCH.
+          if (cid != null && request.method === "PATCH") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const sets = [], vals = [];
+            for (const f of ["email", "name", "phone", "company", "tags", "notes"]) { if (Object.prototype.hasOwnProperty.call(body, f)) { let v = body[f]; if (f === "email" && v != null) v = String(v).trim().toLowerCase(); sets.push(f + "=?"); vals.push(v == null ? null : String(v).slice(0, 2000)); } }
+            if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "UPDATE _contacts SET " + sets.join(", ") + ", updated_at=? WHERE id=?", [...vals, new Date().toISOString(), cid]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such contact" }, { status: 404 });
+            const row = (await cfD1Query(env, uuid, "SELECT * FROM _contacts WHERE id=?", [cid]))[0];
+            return Response.json({ ok: true, contact: shape(row) });
+          }
+          // DELETE.
+          if (cid != null && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _contacts WHERE id=?", [cid]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such contact" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: cid });
+          }
+          // LIST.
+          if (!seg && request.method === "GET") {
+            const all = url.searchParams.get("all") === "1";
+            const q = (url.searchParams.get("q") || "").trim().toLowerCase();
+            let sql = "SELECT * FROM _contacts WHERE 1=1", params = [];
+            if (!all) sql += " AND merged_into IS NULL";
+            if (q) { sql += " AND (LOWER(email) LIKE ? OR LOWER(name) LIKE ? OR LOWER(company) LIKE ?)"; const like = "%" + q + "%"; params.push(like, like, like); }
+            sql += " ORDER BY id DESC LIMIT 2000";
+            const rows = await cfD1Query(env, uuid, sql, params);
+            return Response.json({ ok: true, contacts: rows.map(shape) });
+          }
+          return Response.json({ ok: false, error: "unsupported contacts request" }, { status: 405 });
+        } catch (e) { console.error("contacts failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "contacts failed" }, { status: 502 }); }
+      }
+      // ORDER NOTES / GIFT MESSAGES — a member attaches a note or a gift message to an order reference; staff
+      // read them all.
+      //   POST   /api/db/<slug>/order-notes {order_ref, message, gift?}   (member) → attach
+      //   GET    /api/db/<slug>/order-notes?order_ref=<ref>               (member: own on that order; admin: all)
+      //   GET    /api/db/<slug>/order-notes/mine                          (member) → own notes
+      //   DELETE /api/db/<slug>/order-notes/<id>                          (owner or admin)
+      const onm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/order-notes(?:\/(mine|\d+))?$/i);
+      if (onm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = onm[1].toLowerCase(), seg = onm[2] || null;
+        const noteId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureOrderNotes(env, uuid);
+          const isAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return !!(rr[0] && rr[0].role === "admin"); };
+          const shape = (r) => ({ id: r.id, order_ref: r.order_ref, message: r.message, gift: !!r.gift, created_at: r.created_at });
+          // ATTACH.
+          if (!seg && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|onw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const orderRef = String(body.order_ref || "").trim().slice(0, 120);
+            const message = String(body.message || "").trim().slice(0, 2000);
+            if (!orderRef || !message) return Response.json({ ok: false, error: "order_ref and message are required" }, { status: 400 });
+            const r = await cfD1Query(env, uuid, "INSERT INTO _order_notes (order_ref, user_id, message, gift, created_at) VALUES (?,?,?,?,?) RETURNING id", [orderRef, userId, message, body.gift ? 1 : 0, new Date().toISOString()]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null });
+          }
+          // MINE.
+          if (seg === "mine" && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT * FROM _order_notes WHERE user_id=? ORDER BY id DESC LIMIT 1000", [userId]);
+            return Response.json({ ok: true, notes: rows.map(shape) });
+          }
+          // LIST for an order.
+          if (!seg && request.method === "GET") {
+            const orderRef = (url.searchParams.get("order_ref") || "").trim();
+            if (!orderRef) return Response.json({ ok: false, error: "an ?order_ref= is required" }, { status: 400 });
+            const admin = await isAdmin();
+            const rows = admin
+              ? await cfD1Query(env, uuid, "SELECT * FROM _order_notes WHERE order_ref=? ORDER BY id DESC LIMIT 1000", [orderRef])
+              : await cfD1Query(env, uuid, "SELECT * FROM _order_notes WHERE order_ref=? AND user_id=? ORDER BY id DESC LIMIT 1000", [orderRef, userId]);
+            return Response.json({ ok: true, notes: rows.map((r) => admin ? { ...shape(r), user_id: r.user_id } : shape(r)) });
+          }
+          // DELETE (owner or admin).
+          if (noteId != null && request.method === "DELETE") {
+            const row = (await cfD1Query(env, uuid, "SELECT user_id FROM _order_notes WHERE id=?", [noteId]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such note" }, { status: 404 });
+            if (row.user_id !== userId && !(await isAdmin())) return Response.json({ ok: false, error: "not yours" }, { status: 403 });
+            await cfD1Exec(env, uuid, "DELETE FROM _order_notes WHERE id=?", [noteId]);
+            return Response.json({ ok: true, deleted: true, id: noteId });
+          }
+          return Response.json({ ok: false, error: "unsupported order-notes request" }, { status: 405 });
+        } catch (e) { console.error("order-notes failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "order-notes failed" }, { status: 502 }); }
+      }
+      // CONFIG VALIDATION — a stateless validator for a single config object against a typed schema (type,
+      // required, default, enum, min/max); returns per-key errors AND a normalized object with defaults applied.
+      //   POST /api/db/<slug>/config-validate {schema:{key:{type,required?,default?,enum?,min?,max?}}, config}  (member)
+      //     → {valid, errors:[{key,message}], normalized}
+      const cfgm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/config-validate$/i);
+      if (cfgm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = cfgm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          if (!rateOk(slug + "|" + ip + "|cfgv", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const schema = (body.schema && typeof body.schema === "object" && !Array.isArray(body.schema)) ? body.schema : null;
+          const config = (body.config && typeof body.config === "object" && !Array.isArray(body.config)) ? body.config : {};
+          if (!schema || !Object.keys(schema).length) return Response.json({ ok: false, error: "a non-empty schema object is required" }, { status: 400 });
+          const TYPES = new Set(["string", "number", "integer", "boolean"]);
+          const errors = [], normalized = {};
+          const keys = Object.keys(schema).slice(0, 200);
+          const allowed = new Set(keys);
+          const coerce = (type, v) => { if (type === "number" || type === "integer") return Number(v); if (type === "boolean") { if (typeof v === "boolean") return v; const s = String(v).toLowerCase(); if (["true", "1"].includes(s)) return true; if (["false", "0"].includes(s)) return false; return v; } return v; };
+          const typeOk = (type, v) => { switch (type) { case "number": return Number.isFinite(Number(v)); case "integer": return Number.isFinite(Number(v)) && Number.isInteger(Number(v)); case "boolean": return typeof v === "boolean" || ["true", "false", "0", "1"].includes(String(v).toLowerCase()); default: return typeof v === "string" || typeof v === "number" || typeof v === "boolean"; } };
+          for (const key of keys) {
+            const spec = schema[key] && typeof schema[key] === "object" ? schema[key] : {};
+            let type = String(spec.type || "string").toLowerCase(); if (!TYPES.has(type)) type = "string";
+            const has = Object.prototype.hasOwnProperty.call(config, key);
+            let v = has ? config[key] : undefined;
+            const empty = v == null || v === "";
+            if (empty) { if (spec.required) errors.push({ key, message: "required" }); else if (Object.prototype.hasOwnProperty.call(spec, "default")) normalized[key] = spec.default; continue; }
+            if (!typeOk(type, v)) { errors.push({ key, message: "expected " + type }); continue; }
+            v = coerce(type, v);
+            if (Array.isArray(spec.enum) && spec.enum.length && !spec.enum.map(String).includes(String(v))) { errors.push({ key, message: "must be one of " + spec.enum.map(String).join(", ") }); continue; }
+            if (type === "number" || type === "integer") { if (spec.min != null && Number(v) < Number(spec.min)) errors.push({ key, message: "min " + spec.min }); if (spec.max != null && Number(v) > Number(spec.max)) errors.push({ key, message: "max " + spec.max }); }
+            else if (type === "string") { const len = String(v).length; if (spec.min != null && len < Number(spec.min)) errors.push({ key, message: "min length " + spec.min }); if (spec.max != null && len > Number(spec.max)) errors.push({ key, message: "max length " + spec.max }); }
+            normalized[key] = v;
+          }
+          for (const key of Object.keys(config)) { if (!allowed.has(key)) errors.push({ key, message: "unknown key" }); }
+          return Response.json({ ok: true, valid: errors.length === 0, errors, normalized });
+        } catch (e) { console.error("config-validate failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "config-validate failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
