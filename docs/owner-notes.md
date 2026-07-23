@@ -6666,6 +6666,18 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — job queue · health checks · histogram (data API, round 2)
+- **`/jobs`** — background job queue (admin). Enqueue `{queue?, payload, max_attempts?, delay_sec?}`; `/claim
+  {queue?}` atomically grabs the next due job (`UPDATE…status='running', attempts+1 WHERE id=(SELECT…pending
+  AND run_at<=now ORDER BY run_at LIMIT 1) RETURNING`); `/<id>/done`; `/<id>/fail {error?, backoff_sec?}`
+  re-queues with exponential backoff until max_attempts → 'dead'. list/stats/delete. `_jobs` (infra, no
+  erase). batch304 (19/19).
+- **`/health-checks`** — named checks report up/degraded/down; public GET rolls up an overall (down>degraded>
+  up, unknown when empty). admin upsert/delete. `_health_checks`. batch305 (14/14).
+- **`/stats/histogram`** — stateless: `{values, bins?, min?, max?}` → equal-width bins with counts (max value
+  lands in the last bin). Sibling to percentile/significance. batch306 (14/14).
+- Full suite 289 green. (9/100 of round 2 shipped.)
+
 ## 2026-07-23 — unit converter · text diff · price lists (data API, round 2)
 - **`/convert`** — stateless: `{value, from, to}` → converts across length/mass/volume/time/data/temperature
   (category auto-detected from the units; temperature special-cased through Celsius). Public. batch301 (16/16).
