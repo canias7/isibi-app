@@ -5747,6 +5747,26 @@ async function ensureRegistry(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_registry_owner ON _registry_items (owner_id)"); } catch {}
   _registryReady.add(uuid);
 }
+// Inventory lots — batch/lot stock with expiry; issuing consumes earliest-expiring lots first (FEFO). Each
+// per-lot decrement is a guarded UPDATE; the multi-lot plan pre-checks total + refunds on a mid-issue race.
+// `_inv_lots`. Ensured once.
+const _invLotsReady = new Set();
+async function ensureInvLots(env, uuid) {
+  if (_invLotsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _inv_lots (id INTEGER PRIMARY KEY AUTOINCREMENT, sku TEXT NOT NULL, lot TEXT, qty INTEGER NOT NULL DEFAULT 0, expires TEXT, received_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_inv_lots_sku ON _inv_lots (sku, expires)"); } catch {}
+  _invLotsReady.add(uuid);
+}
+// Ranked-choice (instant-runoff) voting — a member submits an ordered ranking of candidates; results are
+// tabulated by eliminating the lowest first-choice each round until one has a majority. `_rv_polls` +
+// `_rv_ballots`. Ensured once.
+const _rankedVoteReady = new Set();
+async function ensureRankedVote(env, uuid) {
+  if (_rankedVoteReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _rv_polls (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT UNIQUE NOT NULL, title TEXT, candidates TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _rv_ballots (poll_key TEXT NOT NULL, user_id INTEGER NOT NULL, ranking TEXT NOT NULL, at TEXT, PRIMARY KEY (poll_key, user_id))");
+  _rankedVoteReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -10605,6 +10625,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _registry_claims WHERE item_id IN (SELECT id FROM _registry_items WHERE owner_id=?)", [u.id]], // claims on my registry
             ["DELETE FROM _registry_items WHERE owner_id=?", [u.id]],                        // my gift registry
             ["DELETE FROM _registry_claims WHERE user_id=?", [u.id]],                        // gifts I claimed
+            ["DELETE FROM _rv_ballots WHERE user_id=?", [u.id]],                             // ranked-choice ballots
             ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
             ["DELETE FROM _testimonials WHERE user_id=?", [u.id]],                           // user-submitted testimonials
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
@@ -22341,6 +22362,213 @@ async function handleRequest(request, env, ctx) {
           const checkDigit = (10 - (partialSum % 10)) % 10;
           return Response.json({ ok: true, valid, check_digit: checkDigit, length: digits.length });
         } catch (e) { console.error("luhn failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "luhn failed" }, { status: 502 }); }
+      }
+      // INVENTORY LOTS (FEFO) — batch/lot stock with expiry; issuing consumes the earliest-expiring lots first.
+      // Each per-lot decrement is a guarded UPDATE; a multi-lot issue pre-checks the total and refunds on a race.
+      //   POST   /api/db/<slug>/inventory-lots {sku, lot?, qty, expires?}   (ADMIN) → receive a lot
+      //   POST   /api/db/<slug>/inventory-lots/issue {sku, qty}             (ADMIN) → consume FEFO
+      //   GET    /api/db/<slug>/inventory-lots?sku=<sku>                    (public) → lots + total available
+      //   GET    /api/db/<slug>/inventory-lots/expiring?days=30            (ADMIN) → soon-to-expire lots
+      //   DELETE /api/db/<slug>/inventory-lots/<id>                         (ADMIN)
+      const ilm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/inventory-lots(?:\/(issue|expiring|\d+))?$/i);
+      if (ilm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = ilm[1].toLowerCase(), seg = ilm[2] || null;
+        const isIssue = seg === "issue", isExpiring = seg === "expiring", lotId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const isAdmin = async () => { if (!userId) return false; const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return !!(rr[0] && rr[0].role === "admin"); };
+        try {
+          await ensureInvLots(env, uuid);
+          // LIST (public).
+          if (!seg && request.method === "GET") {
+            const sku = String(url.searchParams.get("sku") || "").trim();
+            if (!sku) return Response.json({ ok: false, error: "a ?sku= is required" }, { status: 400 });
+            const rows = await cfD1Query(env, uuid, "SELECT id, lot, qty, expires FROM _inv_lots WHERE sku=? AND qty > 0 ORDER BY (expires IS NULL), expires ASC, id ASC LIMIT 1000", [sku]);
+            const total = rows.reduce((s, r) => s + r.qty, 0);
+            return Response.json({ ok: true, sku, total, lots: rows });
+          }
+          if (!(await isAdmin())) return Response.json({ ok: false, error: userId ? "admins only" : "sign in first" }, { status: userId ? 403 : 401 });
+          // RECEIVE.
+          if (!seg && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const sku = String(body.sku || "").trim().slice(0, 120);
+            const qty = Math.floor(Number(body.qty));
+            if (!sku || !(qty >= 1)) return Response.json({ ok: false, error: "sku and a positive qty are required" }, { status: 400 });
+            let expires = null; if (body.expires != null) { const ts = Date.parse(String(body.expires)); if (isNaN(ts)) return Response.json({ ok: false, error: "bad expires date" }, { status: 400 }); expires = new Date(ts).toISOString(); }
+            const r = await cfD1Query(env, uuid, "INSERT INTO _inv_lots (sku, lot, qty, expires, received_at) VALUES (?,?,?,?,?) RETURNING id", [sku, body.lot != null ? String(body.lot).slice(0, 120) : null, qty, expires, new Date().toISOString()]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, sku, qty });
+          }
+          // ISSUE (FEFO).
+          if (isIssue && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const sku = String(body.sku || "").trim();
+            let need = Math.floor(Number(body.qty));
+            if (!sku || !(need >= 1)) return Response.json({ ok: false, error: "sku and a positive qty are required" }, { status: 400 });
+            const lots = await cfD1Query(env, uuid, "SELECT id, qty FROM _inv_lots WHERE sku=? AND qty > 0 ORDER BY (expires IS NULL), expires ASC, id ASC LIMIT 1000", [sku]);
+            const total = lots.reduce((s, r) => s + r.qty, 0);
+            if (total < need) return Response.json({ ok: false, error: "not enough stock", available: total }, { status: 409 });
+            const applied = []; let remaining = need;
+            for (const lot of lots) { if (remaining <= 0) break; const take = Math.min(remaining, lot.qty); const r = await cfD1Query(env, uuid, "UPDATE _inv_lots SET qty=qty-? WHERE id=? AND qty>=? RETURNING qty", [take, lot.id, take]); if (r.length) { applied.push({ lot_id: lot.id, taken: take }); remaining -= take; } }
+            if (remaining > 0) { for (const a of applied) await cfD1Exec(env, uuid, "UPDATE _inv_lots SET qty=qty+? WHERE id=?", [a.taken, a.lot_id]); return Response.json({ ok: false, error: "stock changed during issue, try again" }, { status: 409 }); }
+            return Response.json({ ok: true, sku, issued: need, from_lots: applied });
+          }
+          // EXPIRING.
+          if (isExpiring && request.method === "GET") {
+            let days = Math.floor(Number(url.searchParams.get("days"))); if (!(days >= 0 && days <= 3650)) days = 30;
+            const until = new Date(Date.now() + days * 86400000).toISOString();
+            const rows = await cfD1Query(env, uuid, "SELECT id, sku, lot, qty, expires FROM _inv_lots WHERE qty > 0 AND expires IS NOT NULL AND expires <= ? ORDER BY expires ASC LIMIT 2000", [until]);
+            return Response.json({ ok: true, days, expiring: rows });
+          }
+          // DELETE.
+          if (lotId != null && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _inv_lots WHERE id=?", [lotId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such lot" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: lotId });
+          }
+          return Response.json({ ok: false, error: "unsupported inventory-lots request" }, { status: 405 });
+        } catch (e) { console.error("inventory-lots failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "inventory-lots failed" }, { status: 502 }); }
+      }
+      // RANKED-CHOICE VOTING (instant runoff) — a member submits an ordered ranking of candidates; results
+      // eliminate the lowest first-choice each round, redistributing to the next preference, until one has a
+      // majority. Admin creates; members rank once (re-rank replaces).
+      //   POST /api/db/<slug>/ranked-vote {key, title?, candidates:[...]}   (ADMIN) → create
+      //   POST /api/db/<slug>/ranked-vote/<key>/ballot {ranking:[...]}      (member) → submit/replace (open only)
+      //   GET  /api/db/<slug>/ranked-vote/<key>/results                     (public) → winner + rounds
+      //   GET  /api/db/<slug>/ranked-vote/<key>                             (public) → config + my ballot
+      //   POST /api/db/<slug>/ranked-vote/<key>/close                       (ADMIN)
+      //   DELETE /api/db/<slug>/ranked-vote/<key>                           (ADMIN)
+      const rnkm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/ranked-vote(?:\/([A-Za-z0-9_.:-]{1,60})(?:\/(ballot|results|close))?)?$/i);
+      if (rnkm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = rnkm[1].toLowerCase(), key = rnkm[2] ? rnkm[2].toLowerCase() : null, act = rnkm[3] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureRankedVote(env, uuid);
+          const getPoll = async () => { const p = (await cfD1Query(env, uuid, "SELECT key, title, candidates, status FROM _rv_polls WHERE key=?", [key]))[0]; if (!p) return null; let candidates = []; try { candidates = JSON.parse(p.candidates) || []; } catch { candidates = []; } return { key: p.key, title: p.title, candidates, status: p.status }; };
+          // CREATE (admin).
+          if (!key && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const k = String(body.key || "").trim().toLowerCase();
+            if (!/^[a-z0-9_.:-]{1,60}$/.test(k)) return Response.json({ ok: false, error: "a valid key is required" }, { status: 400 });
+            const candidates = (Array.isArray(body.candidates) ? body.candidates : []).map((x) => String(x).slice(0, 120)).filter(Boolean).slice(0, 100);
+            if (candidates.length < 2) return Response.json({ ok: false, error: "at least two candidates are required" }, { status: 400 });
+            if (new Set(candidates).size !== candidates.length) return Response.json({ ok: false, error: "candidates must be unique" }, { status: 400 });
+            if ((await cfD1Query(env, uuid, "SELECT 1 FROM _rv_polls WHERE key=?", [k]))[0]) return Response.json({ ok: false, error: "that key already exists" }, { status: 409 });
+            await cfD1Query(env, uuid, "INSERT INTO _rv_polls (key, title, candidates, status, created_at) VALUES (?,?,?, 'open', ?)", [k, body.title != null ? String(body.title).slice(0, 200) : null, JSON.stringify(candidates), new Date().toISOString()]);
+            return Response.json({ ok: true, key: k, candidates });
+          }
+          // BALLOT (member).
+          if (key && act === "ballot" && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|rvb", 300)) return tooMany();
+            const poll = await getPoll(); if (!poll) return Response.json({ ok: false, error: "no such poll" }, { status: 404 });
+            if (poll.status !== "open") return Response.json({ ok: false, error: "poll is closed" }, { status: 409 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const raw = Array.isArray(body.ranking) ? body.ranking.map((x) => String(x)) : [];
+            const seen = new Set(); const ranking = [];
+            for (const cand of raw) { if (poll.candidates.includes(cand) && !seen.has(cand)) { seen.add(cand); ranking.push(cand); } }
+            if (!ranking.length) return Response.json({ ok: false, error: "ranking must list at least one candidate (in preference order)" }, { status: 400 });
+            await cfD1Query(env, uuid, "INSERT INTO _rv_ballots (poll_key, user_id, ranking, at) VALUES (?,?,?,?) ON CONFLICT(poll_key, user_id) DO UPDATE SET ranking=excluded.ranking, at=excluded.at", [key, userId, JSON.stringify(ranking), new Date().toISOString()]);
+            return Response.json({ ok: true, key, ranking });
+          }
+          // RESULTS (public) — instant-runoff tabulation.
+          if (key && act === "results" && request.method === "GET") {
+            const poll = await getPoll(); if (!poll) return Response.json({ ok: false, error: "no such poll" }, { status: 404 });
+            const rows = await cfD1Query(env, uuid, "SELECT ranking FROM _rv_ballots WHERE poll_key=? LIMIT 100000", [key]);
+            const ballots = rows.map((r) => { try { return JSON.parse(r.ranking) || []; } catch { return []; } }).filter((b) => b.length);
+            let remaining = new Set(poll.candidates); const rounds = []; let winner = null;
+            const totalBallots = ballots.length;
+            while (remaining.size > 0 && winner === null) {
+              const counts = {}; for (const cand of remaining) counts[cand] = 0;
+              let active = 0;
+              for (const b of ballots) { const top = b.find((cn) => remaining.has(cn)); if (top != null) { counts[top]++; active++; } }
+              rounds.push({ counts: { ...counts }, active });
+              if (active === 0) break;
+              let leader = null, leadN = -1; for (const [cn, n] of Object.entries(counts)) { if (n > leadN) { leadN = n; leader = cn; } }
+              if (leadN > active / 2 || remaining.size === 1) { winner = leader; break; }
+              let low = null, lowN = Infinity; for (const [cn, n] of Object.entries(counts)) { if (n < lowN) { lowN = n; low = cn; } }
+              remaining.delete(low);
+            }
+            return Response.json({ ok: true, key, status: poll.status, ballots: totalBallots, winner, rounds });
+          }
+          // CLOSE (admin).
+          if (key && act === "close" && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "UPDATE _rv_polls SET status='closed' WHERE key=?", [key]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such poll" }, { status: 404 });
+            return Response.json({ ok: true, key, status: "closed" });
+          }
+          // DELETE (admin).
+          if (key && !act && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _rv_polls WHERE key=?", [key]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such poll" }, { status: 404 });
+            await cfD1Exec(env, uuid, "DELETE FROM _rv_ballots WHERE poll_key=?", [key]);
+            return Response.json({ ok: true, deleted: true, key });
+          }
+          // ONE (public).
+          if (key && !act && request.method === "GET") {
+            const poll = await getPoll(); if (!poll) return Response.json({ ok: false, error: "no such poll" }, { status: 404 });
+            let myBallot = null;
+            if (userId) { const mb = (await cfD1Query(env, uuid, "SELECT ranking FROM _rv_ballots WHERE poll_key=? AND user_id=?", [key, userId]))[0]; if (mb) { try { myBallot = JSON.parse(mb.ranking); } catch { myBallot = null; } } }
+            return Response.json({ ok: true, poll, my_ballot: myBallot });
+          }
+          // LIST (public).
+          if (!key && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT key, title, status FROM _rv_polls ORDER BY id DESC LIMIT 1000");
+            return Response.json({ ok: true, polls: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported ranked-vote request" }, { status: 405 });
+        } catch (e) { console.error("ranked-vote failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "ranked-vote failed" }, { status: 502 }); }
+      }
+      // COLOR CONVERT — a stateless color converter between hex, rgb, and hsl. Accepts #hex, rgb(...), or
+      // hsl(...) and returns all three representations.
+      //   POST /api/db/<slug>/color-convert {color}   (public) → {hex, rgb, hsl}
+      const colm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/color-convert$/i);
+      if (colm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = colm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|col", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const input = String(body.color == null ? "" : body.color).trim();
+          if (!input) return Response.json({ ok: false, error: "a color is required" }, { status: 400 });
+          let rgb = null;
+          let m2;
+          if ((m2 = input.match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i))) { let hx = m2[1]; if (hx.length === 3) hx = hx.split("").map((ch) => ch + ch).join(""); rgb = [parseInt(hx.slice(0, 2), 16), parseInt(hx.slice(2, 4), 16), parseInt(hx.slice(4, 6), 16)]; }
+          else if ((m2 = input.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/i))) { rgb = [+m2[1], +m2[2], +m2[3]].map((v) => Math.min(255, Math.max(0, v))); }
+          else if ((m2 = input.match(/^hsla?\(\s*(\d{1,3})\s*,\s*(\d{1,3})%\s*,\s*(\d{1,3})%/i))) {
+            let hh = (+m2[1] % 360) / 360, ss = Math.min(100, +m2[2]) / 100, ll = Math.min(100, +m2[3]) / 100;
+            const hue2rgb = (p, q, tt) => { if (tt < 0) tt += 1; if (tt > 1) tt -= 1; if (tt < 1 / 6) return p + (q - p) * 6 * tt; if (tt < 1 / 2) return q; if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6; return p; };
+            if (ss === 0) rgb = [ll * 255, ll * 255, ll * 255].map(Math.round);
+            else { const q = ll < 0.5 ? ll * (1 + ss) : ll + ss - ll * ss, p = 2 * ll - q; rgb = [hue2rgb(p, q, hh + 1 / 3), hue2rgb(p, q, hh), hue2rgb(p, q, hh - 1 / 3)].map((v) => Math.round(v * 255)); }
+          }
+          if (!rgb) return Response.json({ ok: false, error: "unrecognized color (use #hex, rgb(), or hsl())" }, { status: 400 });
+          const [r, g, b] = rgb;
+          const hex = "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("");
+          const rn = r / 255, gn = g / 255, bn = b / 255, mx = Math.max(rn, gn, bn), mn = Math.min(rn, gn, bn);
+          let hsl_h = 0, hsl_s = 0, hsl_l = (mx + mn) / 2;
+          if (mx !== mn) { const d = mx - mn; hsl_s = hsl_l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn); if (mx === rn) hsl_h = (gn - bn) / d + (gn < bn ? 6 : 0); else if (mx === gn) hsl_h = (bn - rn) / d + 2; else hsl_h = (rn - gn) / d + 4; hsl_h /= 6; }
+          const hsl = { h: Math.round(hsl_h * 360), s: Math.round(hsl_s * 100), l: Math.round(hsl_l * 100) };
+          return Response.json({ ok: true, hex, rgb: { r, g, b }, hsl, css: { rgb: `rgb(${r}, ${g}, ${b})`, hsl: `hsl(${hsl.h}, ${hsl.s}%, ${hsl.l}%)` } });
+        } catch (e) { console.error("color-convert failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "color-convert failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
