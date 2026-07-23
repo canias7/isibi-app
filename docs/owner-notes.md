@@ -6666,6 +6666,17 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — broken-link registry · RTBF queue · color contrast (data API, round 2)
+- **`/link-check`** — broken-link registry (admin): register URLs, `/report {url, ok, http_status?}` records a
+  crawler's result (ok/broken, auto-registers unseen URLs), `/broken` lists broken, list/delete. Server never
+  fetches; a crawler posts results. `_link_checks`. batch322 (15/15).
+- **`/erasure-requests`** — right-to-be-forgotten queue: member opens one (one open at a time), `/mine`; admin
+  queue + atomic `/process` (open→processing), `/complete` (→done), `/reject`. `_erasure_requests` erased by
+  user. batch323 (15/15).
+- **`/color-contrast`** — stateless WCAG checker: `{fg, bg}` hex → `{ratio, aa, aaa, aa_large, aaa_large}`
+  (relative-luminance ratio, 3-digit hex ok, symmetric). Public. batch324 (13/13).
+- Full suite 307 green. (27/100 of round 2 shipped.)
+
 ## 2026-07-23 — password strength · double opt-in · reputation (data API, round 2)
 - **`/password-strength`** — stateless meter: `{password}` → score 0–4 + label + per-class checks +
   suggestions; commons/repeats/short → 0, sequences penalized. Nothing stored. Public. batch319 (14/14).
