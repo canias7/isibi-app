@@ -5958,6 +5958,15 @@ async function ensureQuorum(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _quorum (key TEXT PRIMARY KEY, title TEXT, needed INTEGER NOT NULL, approvals TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'open', created_at TEXT, updated_at TEXT)");
   _quorumReady.add(uuid);
 }
+// Inventory counts — a stock-take / cycle-count log: each row records a physical count of a SKU vs the expected
+// on-hand, with the variance, and can be reconciled. Independent of the live stock ledger. `_stock_counts`. Ensured once.
+const _stockCountsReady = new Set();
+async function ensureStockCounts(env, uuid) {
+  if (_stockCountsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _stock_counts (id INTEGER PRIMARY KEY AUTOINCREMENT, sku TEXT NOT NULL, expected INTEGER NOT NULL, counted INTEGER NOT NULL, variance INTEGER NOT NULL, note TEXT, counted_by INTEGER, status TEXT NOT NULL DEFAULT 'open', created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_stockcount_sku ON _stock_counts (sku)"); } catch {}
+  _stockCountsReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -10828,6 +10837,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _read_receipts WHERE user_id=?", [u.id]],                          // read receipts
             ["UPDATE _dunning SET user_id=NULL WHERE user_id=?", [u.id]],                    // keep the dunning record, drop the link
             ["DELETE FROM _checklist_state WHERE user_id=?", [u.id]],                        // personal checklist progress
+            ["UPDATE _stock_counts SET counted_by=NULL WHERE counted_by=?", [u.id]],         // keep the count record, drop the link
             ["UPDATE _content_hashes SET first_by=NULL WHERE first_by=?", [u.id]],           // keep the shared dedup entry, drop the link
             ["UPDATE _bans SET banned_by=NULL WHERE banned_by=?", [u.id]],                   // keep the ban, drop the admin link
             ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
@@ -24931,6 +24941,126 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported approval-quorum request" }, { status: 405 });
         } catch (e) { console.error("approval-quorum failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "approval-quorum failed" }, { status: 502 }); }
+      }
+      // ISBN — a stateless ISBN-10 / ISBN-13 validator (check-digit) with cross-conversion. Hyphens/spaces ignored.
+      //   POST /api/db/<slug>/isbn {isbn}   (public) → {valid, type, isbn10, isbn13, check_ok}
+      const isbm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/isbn$/i);
+      if (isbm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = isbm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|isbn", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          if (typeof body.isbn !== "string" || !body.isbn.trim()) return Response.json({ ok: false, error: "isbn is required" }, { status: 400 });
+          const raw = body.isbn.replace(/[\s-]/g, "").toUpperCase();
+          const check10 = (s) => { if (!/^\d{9}[\dX]$/.test(s)) return false; let sum = 0; for (let i = 0; i < 10; i++) { const c = s[i] === "X" ? 10 : +s[i]; sum += (10 - i) * c; } return sum % 11 === 0; };
+          const check13 = (s) => { if (!/^\d{13}$/.test(s)) return false; let sum = 0; for (let i = 0; i < 13; i++) sum += (i % 2 === 0 ? 1 : 3) * +s[i]; return sum % 10 === 0; };
+          const to13 = (s10) => { const core = "978" + s10.slice(0, 9); let sum = 0; for (let i = 0; i < 12; i++) sum += (i % 2 === 0 ? 1 : 3) * +core[i]; const cd = (10 - (sum % 10)) % 10; return core + cd; };
+          const to10 = (s13) => { if (!s13.startsWith("978")) return null; const core = s13.slice(3, 12); let sum = 0; for (let i = 0; i < 9; i++) sum += (10 - i) * +core[i]; let cd = (11 - (sum % 11)) % 11; return core + (cd === 10 ? "X" : String(cd)); };
+          let type = null, checkOk = false, isbn10 = null, isbn13 = null;
+          if (raw.length === 10) { type = "isbn10"; checkOk = check10(raw); if (checkOk) { isbn10 = raw; isbn13 = to13(raw); } }
+          else if (raw.length === 13) { type = "isbn13"; checkOk = check13(raw); if (checkOk) { isbn13 = raw; isbn10 = to10(raw); } }
+          else return Response.json({ ok: false, error: "an ISBN is 10 or 13 characters" }, { status: 400 });
+          if (type === "isbn10" && !/^\d{9}[\dX]$/.test(raw)) return Response.json({ ok: false, error: "invalid ISBN-10 characters" }, { status: 400 });
+          if (type === "isbn13" && !/^\d{13}$/.test(raw)) return Response.json({ ok: false, error: "invalid ISBN-13 characters" }, { status: 400 });
+          return Response.json({ ok: true, valid: checkOk, type, check_ok: checkOk, isbn10, isbn13 });
+        } catch (e) { console.error("isbn failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "isbn failed" }, { status: 502 }); }
+      }
+      // BARCODE — a stateless GTIN check-digit validator (EAN-13, UPC-A/12, EAN-8). The type is auto-detected from
+      // the length; the last digit is a mod-10 check.
+      //   POST /api/db/<slug>/barcode {code}   (public) → {valid, type, check_digit, expected_check}
+      const bcdm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/barcode$/i);
+      if (bcdm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = bcdm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|bcd", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          if (typeof body.code !== "string" || !body.code.trim()) return Response.json({ ok: false, error: "code is required" }, { status: 400 });
+          const code = body.code.replace(/[\s-]/g, "");
+          if (!/^\d+$/.test(code)) return Response.json({ ok: false, error: "a barcode must be digits" }, { status: 400 });
+          const TYPES = { 13: "EAN-13", 12: "UPC-A", 8: "EAN-8" };
+          const type = TYPES[code.length];
+          if (!type) return Response.json({ ok: false, error: "length must be 8, 12, or 13 digits" }, { status: 400 });
+          // GTIN mod-10: from the rightmost of the data digits, weights alternate 3,1,3,1…
+          const digits = code.slice(0, -1).split("").map(Number);
+          let sum = 0; for (let i = 0; i < digits.length; i++) { const fromRight = digits.length - i; sum += digits[i] * (fromRight % 2 === 1 ? 3 : 1); }
+          const expected = (10 - (sum % 10)) % 10;
+          const actual = +code[code.length - 1];
+          return Response.json({ ok: true, valid: expected === actual, type, check_digit: actual, expected_check: expected });
+        } catch (e) { console.error("barcode failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "barcode failed" }, { status: 502 }); }
+      }
+      // INVENTORY COUNT — a stock-take / cycle-count log: record a physical count of a SKU vs the expected on-hand,
+      // capture the variance, and reconcile it. Independent of the live stock ledger. Admin-only.
+      //   POST   /api/db/<slug>/inventory-count {sku, expected, counted, note?}  (ADMIN) → record a count
+      //   POST   /api/db/<slug>/inventory-count/<id>/reconcile                   (ADMIN) → mark reconciled
+      //   GET    /api/db/<slug>/inventory-count/<id>                             (ADMIN) → one
+      //   GET    /api/db/<slug>/inventory-count[?sku=&status=&variance=1]        (ADMIN) → list (variance=1 → non-zero only)
+      //   DELETE /api/db/<slug>/inventory-count/<id>                             (ADMIN)
+      const icm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/inventory-count(?:\/(\d+)(?:\/(reconcile))?)?$/i);
+      if (icm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = icm[1].toLowerCase(), cid = icm[2] ? parseInt(icm[2], 10) : null, act = icm[3] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const cols = "id, sku, expected, counted, variance, note, counted_by, status, created_at, updated_at";
+        try {
+          const a = await needAdmin(); if (a) return a;
+          await ensureStockCounts(env, uuid);
+          // RECORD (admin).
+          if (!cid && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const sku = String(body.sku || "").trim();
+            if (!sku || sku.length > 120) return Response.json({ ok: false, error: "a sku is required" }, { status: 400 });
+            const expected = Math.floor(Number(body.expected)), counted = Math.floor(Number(body.counted));
+            if (!Number.isFinite(expected) || !Number.isFinite(counted)) return Response.json({ ok: false, error: "expected and counted must be numbers" }, { status: 400 });
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _stock_counts (sku, expected, counted, variance, note, counted_by, status, created_at, updated_at) VALUES (?,?,?,?,?,?, 'open', ?,?) RETURNING " + cols, [sku, expected, counted, counted - expected, body.note != null ? String(body.note).slice(0, 300) : null, userId, now, now]);
+            return Response.json({ ok: true, count: r[0] });
+          }
+          // RECONCILE (admin).
+          if (cid && act === "reconcile" && request.method === "POST") {
+            const r = await cfD1Query(env, uuid, "UPDATE _stock_counts SET status='reconciled', updated_at=? WHERE id=? AND status='open' RETURNING " + cols, [new Date().toISOString(), cid]);
+            if (!r.length) { const ex = (await cfD1Query(env, uuid, "SELECT status FROM _stock_counts WHERE id=?", [cid]))[0]; if (!ex) return Response.json({ ok: false, error: "no such count" }, { status: 404 }); return Response.json({ ok: false, error: "this count is already " + ex.status }, { status: 409 }); }
+            return Response.json({ ok: true, count: r[0] });
+          }
+          // READ one (admin).
+          if (cid && !act && request.method === "GET") {
+            const row = (await cfD1Query(env, uuid, "SELECT " + cols + " FROM _stock_counts WHERE id=?", [cid]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such count" }, { status: 404 });
+            return Response.json({ ok: true, count: row });
+          }
+          // LIST (admin).
+          if (!cid && request.method === "GET") {
+            const where = [], params = [];
+            const sku = url.searchParams.get("sku"); if (sku) { where.push("sku=?"); params.push(sku); }
+            const st = url.searchParams.get("status"); if (st && ["open", "reconciled"].includes(st)) { where.push("status=?"); params.push(st); }
+            if (url.searchParams.get("variance") === "1") where.push("variance != 0");
+            const wsql = where.length ? " WHERE " + where.join(" AND ") : "";
+            const rows = await cfD1Query(env, uuid, "SELECT " + cols + " FROM _stock_counts" + wsql + " ORDER BY id DESC LIMIT 1000", params);
+            return Response.json({ ok: true, counts: rows });
+          }
+          // DELETE (admin).
+          if (cid && !act && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _stock_counts WHERE id=?", [cid]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such count" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: cid });
+          }
+          return Response.json({ ok: false, error: "unsupported inventory-count request" }, { status: 405 });
+        } catch (e) { console.error("inventory-count failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "inventory-count failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
