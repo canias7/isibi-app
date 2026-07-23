@@ -6666,6 +6666,18 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — contact enrichment · discount stack · forecast categories (data API, round 2)
+- **`/contact-enrichment`** — side key/value store per contact (merges, not replace); read one, segment by
+  `?field=&value=`, delete a field or whole contact. `_enrichment` (PK contact,field). Business data (no erase).
+  batch375 (20/20).
+- **`/discount-stack`** — stateless coupon-stacking evaluator: stackables compound (percent) / subtract (fixed),
+  non-stackables considered alone, returns the lowest-price combination. Cents. Public. batch376 (14/14).
+- **`/forecast-categories`** — sales deals tagged pipeline/best_case/commit/closed/omitted (upsert by ref);
+  per-category totals + a commit/best-case/pipeline forecast rollup; period filter. `_opportunities` (PK ref).
+  batch377 (18/18).
+- Full suite 358 green. (78/100 of round 2 shipped.)
+- Skipped `/localization-report` — would collide with `/i18n/<key>` route and couple to its table.
+
 ## 2026-07-23 — deposit holds · maintenance schedule · capacity forecast (data API, round 2)
 - **`/deposit-holds`** — refundable deposit, state machine held→captured|released (atomic
   `UPDATE…WHERE status='held' RETURNING`, resolved→409). Amount cents, admin manage + member self-read one,
