@@ -6661,6 +6661,20 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — nav/menu builder · SEO metadata · content snippets (data API, next-100 CMS batch)
+- **`/menus/<menu>/items`** — editable navigation (header/footer/sidebar). Admin adds/patches/deletes
+  ordered, nestable items (`parent` = another item in the same menu; `position` sortable, negatives ok);
+  public `GET /menus/<menu>` returns the whole thing as an already-ordered NESTED tree (recursive JS build
+  off parent_id), `GET /menus` lists menu keys. Delete cascades descendants (JS descendant-walk → single
+  `DELETE … IN (…)`). Reparent guards: no self-parent, parent must be in the same menu. batch202 (20/20).
+- **`/seo`** — per-record SEO/OG metadata. Admin upserts title/description/image/canonical/keywords keyed by
+  (entity,ref) (e.g. product/42 or page//about); public `GET /seo?entity=&ref=` reads it for <head> tags;
+  admin `/seo/all` + delete. batch203 (20/20).
+- **`/snippets/<slug>`** — reusable owner-editable content chunks (promo banner, footer blurb, T&Cs). Admin
+  upserts {title,body,format,published}; public reads a PUBLISHED one (draft → 404) + lists published;
+  admin `/snippets/all` includes drafts. batch204 (18/18).
+- None are user-scoped → no GDPR erase lines (site content, admin-managed). Full suite 187 green.
+
 ## 2026-07-23 — NEXT-100 list started; counters · redirects · badges (data API)
 - Owner: "make a list of 100 things still needed to build, and build them without stopping." Produced
   `docs/backlog-100-next.md` (100 concrete primitives across 10 domains, each route-regex-verified before
