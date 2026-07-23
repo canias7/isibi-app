@@ -6661,6 +6661,20 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — UTM links · spam/honeypot score · RMA returns (data API, next-100)
+- **`/utm`** — admin registers a tracked outbound link (target + campaign/source/medium); the response `url`
+  carries the utm_* params, `POST /utm/<slug>/click` (public) atomically bumps `clicks` (`UPDATE…clicks+1…
+  RETURNING`) and returns the target, `/utm/report` (admin) rolls counts up by campaign/source/medium. Auto
+  slug from campaign + a uuid suffix, or explicit (409 on dup). `_utm_links`. batch280 (19/19).
+- **`/spam-check`** — stateless public heuristic scorer: honeypot filled (+60), sub-2s submit (+25), too many
+  links (+20, `links_max` overridable), all-caps (+10), spam keywords (+15), char-runs (+8); 0–100 →
+  ham/suspect/spam + reasons. No storage. batch281 (15/15).
+- **`/rma`** — return flow. Member `POST /rma {order_ref,reason?,items?}` → requested; admin
+  `/approve` `/reject{note}` `/refund{amount→cents}` are atomic state-guarded UPDATEs (requested→approved|
+  rejected, approved→refunded; wrong state → 409). mine / admin list+`?status` / get-one (owner or admin).
+  `_rma` erased by user. batch282 (21/21).
+- Full suite 265 green. (84/100 of the next-100 list shipped.)
+
 ## 2026-07-23 — cohort retention · handle reservation · import-preview (data API, next-100)
 - **`/cohorts`** — `/track {day?,user?}` records a member active on a day (per user+day dedup via
   `INSERT…ON CONFLICT DO NOTHING`; admin may pass `user`). `/retention?period=day|week|month&size=8` (admin)
