@@ -5414,6 +5414,24 @@ async function ensureSpotlight(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _spotlight (id INTEGER PRIMARY KEY AUTOINCREMENT, item TEXT NOT NULL, label TEXT, weight INTEGER NOT NULL DEFAULT 1, active INTEGER NOT NULL DEFAULT 1, created_at TEXT)");
   _spotlightReady.add(uuid);
 }
+// Cohort retention — records that a user was active on a given day (deduped per user+day); a retention report
+// buckets users by their first-active period and measures how many stayed active in each following period.
+// `_cohort_days` = one row per (user, YYYY-MM-DD). Ensured once.
+const _cohortsReady = new Set();
+async function ensureCohorts(env, uuid) {
+  if (_cohortsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _cohort_days (user_id INTEGER NOT NULL, day TEXT NOT NULL, created_at TEXT, PRIMARY KEY (user_id, day))");
+  _cohortsReady.add(uuid);
+}
+// Slug / handle reservation — atomically claim a unique handle within a namespace, tied to the claiming user,
+// so two people can't grab the same one under concurrency. `_handles` keyed on (ns, handle). Ensured once.
+const _handlesReady = new Set();
+async function ensureHandles(env, uuid) {
+  if (_handlesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _handles (ns TEXT NOT NULL, handle TEXT NOT NULL, user_id INTEGER NOT NULL, created_at TEXT, PRIMARY KEY (ns, handle))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_handles_user ON _handles (user_id)"); } catch {}
+  _handlesReady.add(uuid);
+}
 // The user-scoped tables a member can export their own rows from (GDPR data portability) — kept in sync with
 // the erase list. Each entry is [table, ownerColumn]; a missing table is skipped at read time.
 const DATA_EXPORT_TABLES = [
@@ -10244,6 +10262,8 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _milestone_progress WHERE user_id=?", [u.id]],                     // personal milestone progress
             ["DELETE FROM _reward_redemptions WHERE user_id=?", [u.id]],                     // rewards-catalog redemptions
             ["DELETE FROM _onboarding_done WHERE user_id=?", [u.id]],                        // onboarding step completions
+            ["DELETE FROM _cohort_days WHERE user_id=?", [u.id]],                            // cohort activity days
+            ["DELETE FROM _handles WHERE user_id=?", [u.id]],                                // reserved slugs / handles
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -18371,6 +18391,177 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported spotlight request" }, { status: 405 });
         } catch (e) { console.error("spotlight failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "spotlight failed" }, { status: 502 }); }
+      }
+      // COHORT RETENTION — record that a member was active on a day, then read a retention matrix: users are
+      // bucketed by the period (day/week/month) of their first activity, and each row shows what fraction of
+      // that cohort came back in each following period.
+      //   POST /api/db/<slug>/cohorts/track {day?, user?}   (member; admin may pass user) → record activity
+      //   GET  /api/db/<slug>/cohorts/retention[?period=day|week|month&size=8]  (ADMIN) → the matrix
+      //   GET  /api/db/<slug>/cohorts                        (ADMIN) → totals
+      const cohm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/cohorts(?:\/(track|retention))?$/i);
+      if (cohm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = cohm[1].toLowerCase(), seg = cohm[2] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const roleOf = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return rr[0] ? rr[0].role : null; };
+        try {
+          await ensureCohorts(env, uuid);
+          // TRACK (member).
+          if (seg === "track" && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|coht", 600)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            let target = userId;
+            if (body.user != null) { const role = await roleOf(); if (role !== "admin") return Response.json({ ok: false, error: "admins only may set user" }, { status: 403 }); target = Math.floor(Number(body.user)); if (!Number.isFinite(target)) return Response.json({ ok: false, error: "bad user" }, { status: 400 }); }
+            let day = typeof body.day === "string" ? body.day.trim() : "";
+            if (day) { if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || isNaN(Date.parse(day + "T00:00:00Z"))) return Response.json({ ok: false, error: "day must be YYYY-MM-DD" }, { status: 400 }); }
+            else day = new Date().toISOString().slice(0, 10);
+            const ex = await cfD1Exec(env, uuid, "INSERT INTO _cohort_days (user_id, day, created_at) VALUES (?,?,?) ON CONFLICT(user_id, day) DO NOTHING", [target, day, new Date().toISOString()]);
+            return Response.json({ ok: true, day, tracked: true, first_today: ex.changes > 0 });
+          }
+          // RETENTION (admin).
+          if (seg === "retention" && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if ((await roleOf()) !== "admin") return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            if (!rateOk(slug + "|" + ip + "|cohr", 120)) return tooMany();
+            let period = String(url.searchParams.get("period") || "week").toLowerCase(); if (!["day", "week", "month"].includes(period)) period = "week";
+            let size = Math.floor(Number(url.searchParams.get("size"))); if (!(size >= 1 && size <= 52)) size = 8;
+            const rows = await cfD1Query(env, uuid, "SELECT user_id, day FROM _cohort_days ORDER BY day ASC LIMIT 200000");
+            const bucketIndex = (day) => { const dn = Math.floor(Date.parse(day + "T00:00:00Z") / 86400000); if (period === "week") return Math.floor(dn / 7); if (period === "month") { const d = new Date(day + "T00:00:00Z"); return d.getUTCFullYear() * 12 + d.getUTCMonth(); } return dn; };
+            const bucketLabel = (idx) => { if (period === "week") return new Date(idx * 7 * 86400000).toISOString().slice(0, 10); if (period === "month") { const y = Math.floor(idx / 12), m = ((idx % 12) + 12) % 12; return y + "-" + String(m + 1).padStart(2, "0"); } return new Date(idx * 86400000).toISOString().slice(0, 10); };
+            const byUser = new Map();
+            for (const r of rows) { const bi = bucketIndex(r.day); let s = byUser.get(r.user_id); if (!s) { s = new Set(); byUser.set(r.user_id, s); } s.add(bi); }
+            const cohorts = new Map();
+            for (const buckets of byUser.values()) { let cohortIdx = Infinity; for (const b of buckets) if (b < cohortIdx) cohortIdx = b; let c = cohorts.get(cohortIdx); if (!c) { c = { size: 0, retained: new Map() }; cohorts.set(cohortIdx, c); } c.size++; for (const b of buckets) { const off = b - cohortIdx; if (off >= 0 && off < size) c.retained.set(off, (c.retained.get(off) || 0) + 1); } }
+            const out = [...cohorts.entries()].sort((a, b) => a[0] - b[0]).slice(0, 500).map(([idx, c]) => { const counts = [], rates = []; for (let o = 0; o < size; o++) { const n = c.retained.get(o) || 0; counts.push(n); rates.push(c.size ? Math.round((n / c.size) * 1000) / 1000 : 0); } return { cohort: bucketLabel(idx), size: c.size, counts, retention: rates }; });
+            return Response.json({ ok: true, period, periods: size, cohorts: out });
+          }
+          // TOTALS (admin).
+          if (!seg && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if ((await roleOf()) !== "admin") return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const r = (await cfD1Query(env, uuid, "SELECT COUNT(DISTINCT user_id) AS users, COUNT(*) AS days FROM _cohort_days"))[0] || { users: 0, days: 0 };
+            return Response.json({ ok: true, users: r.users || 0, days: r.days || 0 });
+          }
+          return Response.json({ ok: false, error: "unsupported cohorts request" }, { status: 405 });
+        } catch (e) { console.error("cohorts failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "cohorts failed" }, { status: 502 }); }
+      }
+      // SLUG / HANDLE RESERVATION — atomically claim a unique handle inside a namespace, tied to the member who
+      // claimed it, so no two people can grab the same one under concurrency.
+      //   POST   /api/db/<slug>/handles/reserve {handle, ns?}   (member) → claim; 409 if taken by someone else
+      //   GET    /api/db/<slug>/handles/check?handle=&ns=       (public) → {available}
+      //   GET    /api/db/<slug>/handles/mine                    (member) → my reservations
+      //   GET    /api/db/<slug>/handles                         (ADMIN)  → all
+      //   DELETE /api/db/<slug>/handles/<handle>?ns=            (owner or admin) → release
+      const hndm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/handles(?:\/([A-Za-z0-9_-]{1,40}))?$/i);
+      if (hndm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = hndm[1].toLowerCase(), seg = hndm[2] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const normNs = (v) => { const s = String(v == null || v === "" ? "default" : v).trim().toLowerCase(); return /^[a-z0-9][a-z0-9_-]{0,38}$/.test(s) ? s : null; };
+        const normHandle = (v) => { const s = String(v || "").trim().toLowerCase(); return /^[a-z0-9][a-z0-9_-]{0,38}$/.test(s) ? s : null; };
+        try {
+          await ensureHandles(env, uuid);
+          // RESERVE (member).
+          if (seg === "reserve" && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|hndr", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const ns = normNs(body.ns); const handle = normHandle(body.handle);
+            if (!handle) return Response.json({ ok: false, error: "a handle (letters, digits, - or _) is required" }, { status: 400 });
+            if (!ns) return Response.json({ ok: false, error: "bad namespace" }, { status: 400 });
+            const r = await cfD1Query(env, uuid, "INSERT INTO _handles (ns, handle, user_id, created_at) VALUES (?,?,?,?) ON CONFLICT(ns, handle) DO NOTHING RETURNING user_id", [ns, handle, userId, new Date().toISOString()]);
+            if (r.length) return Response.json({ ok: true, reserved: true, ns, handle });
+            const ex = (await cfD1Query(env, uuid, "SELECT user_id FROM _handles WHERE ns=? AND handle=?", [ns, handle]))[0];
+            if (ex && ex.user_id === userId) return Response.json({ ok: true, reserved: true, already: true, ns, handle });
+            return Response.json({ ok: false, error: "handle already taken", taken: true }, { status: 409 });
+          }
+          // CHECK (public).
+          if (seg === "check" && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|hndc", 600)) return tooMany();
+            const ns = normNs(url.searchParams.get("ns")); const handle = normHandle(url.searchParams.get("handle"));
+            if (!handle || !ns) return Response.json({ ok: false, error: "a valid ?handle= is required" }, { status: 400 });
+            const ex = (await cfD1Query(env, uuid, "SELECT user_id FROM _handles WHERE ns=? AND handle=?", [ns, handle]))[0];
+            return Response.json({ ok: true, ns, handle, available: !ex, owner_is_me: ex ? (ex.user_id === userId) : false });
+          }
+          // MINE (member).
+          if (seg === "mine" && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rows = await cfD1Query(env, uuid, "SELECT ns, handle, created_at FROM _handles WHERE user_id=? ORDER BY created_at DESC LIMIT 1000", [userId]);
+            return Response.json({ ok: true, handles: rows });
+          }
+          // DELETE (owner or admin).
+          if (seg && request.method === "DELETE") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const ns = normNs(url.searchParams.get("ns")); const handle = normHandle(seg);
+            if (!handle || !ns) return Response.json({ ok: false, error: "bad handle" }, { status: 400 });
+            const row = (await cfD1Query(env, uuid, "SELECT user_id FROM _handles WHERE ns=? AND handle=?", [ns, handle]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such handle" }, { status: 404 });
+            if (row.user_id !== userId) { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "not your handle" }, { status: 403 }); }
+            await cfD1Exec(env, uuid, "DELETE FROM _handles WHERE ns=? AND handle=?", [ns, handle]);
+            return Response.json({ ok: true, released: true, ns, handle });
+          }
+          // LIST ALL (admin).
+          if (!seg && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const rows = await cfD1Query(env, uuid, "SELECT ns, handle, user_id, created_at FROM _handles ORDER BY created_at DESC LIMIT 2000");
+            return Response.json({ ok: true, handles: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported handles request" }, { status: 405 });
+        } catch (e) { console.error("handles failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "handles failed" }, { status: 502 }); }
+      }
+      // BULK IMPORT VALIDATION PREVIEW — a stateless dry-run: given a field spec and candidate rows, report
+      // per-row validation errors (missing required, wrong type, unknown column) WITHOUT writing anything, so a
+      // CSV/paste import can be checked before it commits.
+      //   POST /api/db/<slug>/import-preview {fields:[{name,type,required}], rows:[{...}]}   (member)
+      //     → {total, valid, invalid, results:[{index, ok, errors:[{field,message}]}]}
+      const impm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/import-preview$/i);
+      if (impm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = impm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          if (!rateOk(slug + "|" + ip + "|imp", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const TYPES = new Set(["string", "number", "integer", "boolean", "email", "date"]);
+          const rawFields = Array.isArray(body.fields) ? body.fields.slice(0, 100) : [];
+          const fields = [];
+          for (const f of rawFields) { if (!f || typeof f !== "object") continue; const name = String(f.name || "").trim().toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(name)) continue; let type = String(f.type || "string").toLowerCase(); if (!TYPES.has(type)) type = "string"; fields.push({ name, type, required: !!f.required }); }
+          if (!fields.length) return Response.json({ ok: false, error: "at least one valid field {name,type} is required" }, { status: 400 });
+          const rows = Array.isArray(body.rows) ? body.rows.slice(0, 1000) : [];
+          const allowed = new Set(fields.map((f) => f.name));
+          const checkType = (type, v) => { switch (type) { case "number": return Number.isFinite(Number(v)); case "integer": return Number.isFinite(Number(v)) && Number.isInteger(Number(v)); case "boolean": return typeof v === "boolean" || ["true", "false", "0", "1"].includes(String(v).toLowerCase()); case "email": return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(v)); case "date": return !isNaN(Date.parse(String(v))); default: return true; } };
+          let valid = 0; const results = [];
+          rows.forEach((row, index) => {
+            const errors = []; const obj = (row && typeof row === "object" && !Array.isArray(row)) ? row : {};
+            for (const key of Object.keys(obj)) { const k = key.toLowerCase(); if (!allowed.has(k)) errors.push({ field: key, message: "unknown field" }); }
+            for (const f of fields) { const has = Object.prototype.hasOwnProperty.call(obj, f.name); const v = has ? obj[f.name] : (Object.prototype.hasOwnProperty.call(obj, f.name.toUpperCase()) ? obj[f.name.toUpperCase()] : undefined); const empty = v == null || v === ""; if (empty) { if (f.required) errors.push({ field: f.name, message: "required" }); continue; } if (!checkType(f.type, v)) errors.push({ field: f.name, message: "expected " + f.type }); }
+            const ok2 = errors.length === 0; if (ok2) valid++;
+            results.push({ index, ok: ok2, errors });
+          });
+          return Response.json({ ok: true, total: rows.length, valid, invalid: rows.length - valid, results });
+        } catch (e) { console.error("import-preview failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "import-preview failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
