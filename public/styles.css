@@ -4982,13 +4982,12 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   width:min(54vh,560px);height:min(58vh,600px);opacity:.55;
   background:url(/logo3d.png) center/contain no-repeat}
 .mkt-crt .mkt-logo3d::after{content:"";position:absolute;inset:0;pointer-events:none;
-  -webkit-mask:url(/logo3d.png) center/contain no-repeat;mask:url(/logo3d.png) center/contain no-repeat;
+  -webkit-mask:url(/logo3d-edge.png) center/contain no-repeat;mask:url(/logo3d-edge.png) center/contain no-repeat;
   -webkit-mask-size:contain;mask-size:contain;
-  background:linear-gradient(118deg, transparent 0 45%,
-    rgba(255,121,198,.95) 48.5%, rgba(255,180,95,.95) 51.5%, transparent 55% 100%);
+  background:linear-gradient(118deg, transparent 0 44%,
+    rgba(255,121,198,1) 48%, rgba(255,180,95,1) 52%, transparent 56% 100%);
   background-size:300% 100%;
-  mix-blend-mode:screen;
-  filter:drop-shadow(0 0 6px rgba(255,150,110,.5));
+  filter:drop-shadow(0 0 5px rgba(255,140,110,.6));
   animation:mkt-live 4.6s linear infinite}
 @keyframes mkt-live{from{background-position:130% 50%}to{background-position:-30% 50%}}
 @media (prefers-reduced-motion:reduce){.mkt-crt .mkt-logo3d::after{animation:none;background-position:50% 50%}}
