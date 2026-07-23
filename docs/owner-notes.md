@@ -6666,6 +6666,16 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — geo distance · rrule expansion · frequency cap (data API, round 2)
+- **`/geo-distance`** — stateless haversine distance + initial bearing between two `{lat,lng}` points (km/mi).
+  Public. (The existing table `geo` feature does nearby-row search; this is a pure calculator.) batch337 (8/8).
+- **`/rrule`** — stateless recurrence expander: `{start, freq(daily/weekly/monthly/yearly), interval?, count?,
+  until?, byday?}` → next occurrence dates; weekly `byday` supported; iteration-bounded. Public. batch338 (13/13).
+- **`/frequency-cap`** — per-recipient contact-fatigue cap: `/consume {recipient, channel?, max, window_sec}`
+  atomically counts per (recipient|channel, window) and allows only up to `max`; `/check`, admin `/purge`.
+  Cap supplied per call (vs `/rate-policies`' pre-declared named policies). `_freq_hits`. batch339 (14/14).
+- Full suite 322 green. (42/100 of round 2 shipped.)
+
 ## 2026-07-23 — env config · address format · weighted ballots (data API, round 2)
 - **`/env-config`** — key/value config scoped to a named env (dev/staging/prod): set/get one/get all,
   `/promote {from, to, keys?}` copies values env→env (all or a subset, upsert). Admin. `_env_config`. batch334
