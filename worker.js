@@ -5566,6 +5566,23 @@ async function ensureSchedules(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _schedules (name TEXT PRIMARY KEY, interval_sec INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, last_run TEXT, note TEXT, created_at TEXT, updated_at TEXT)");
   _schedulesReady.add(uuid);
 }
+// On-call rotation — an ordered member list that rotates on a fixed interval; the current person is computed
+// deterministically from the anchor time (no stored pointer). `_oncall` keyed by rotation. Ensured once.
+const _oncallReady = new Set();
+async function ensureOncall(env, uuid) {
+  if (_oncallReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _oncall (rotation TEXT PRIMARY KEY, members TEXT NOT NULL, interval_sec INTEGER NOT NULL, anchor TEXT, created_at TEXT, updated_at TEXT)");
+  _oncallReady.add(uuid);
+}
+// Renewals — contract / subscription end-date tracking with an 'upcoming' window and a renew action.
+// `_renewals`. Ensured once.
+const _renewalsReady = new Set();
+async function ensureRenewals(env, uuid) {
+  if (_renewalsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _renewals (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, ref TEXT, end_date TEXT NOT NULL, amount INTEGER, status TEXT NOT NULL DEFAULT 'active', note TEXT, created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_renewals_end ON _renewals (status, end_date)"); } catch {}
+  _renewalsReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -20165,6 +20182,189 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported kudos request" }, { status: 405 });
         } catch (e) { console.error("kudos failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "kudos failed" }, { status: 502 }); }
+      }
+      // ON-CALL ROTATION — an ordered member list that rotates on a fixed interval; `current` is computed
+      // deterministically from the anchor time, so there's no pointer to advance.
+      //   PUT/POST /api/db/<slug>/oncall/<rotation> {members:[...], interval_sec, anchor?}  (ADMIN) → define
+      //   GET      /api/db/<slug>/oncall/<rotation>/current   (public) → {on_call, next, next_handoff}
+      //   GET      /api/db/<slug>/oncall/<rotation>           (public) → config
+      //   GET      /api/db/<slug>/oncall                      (public) → rotations
+      //   DELETE   /api/db/<slug>/oncall/<rotation>           (ADMIN)
+      const ocm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/oncall(?:\/([A-Za-z0-9_.:-]{1,60})(?:\/(current))?)?$/i);
+      if (ocm && (request.method === "GET" || request.method === "POST" || request.method === "PUT" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = ocm[1].toLowerCase(), rotation = ocm[2] ? ocm[2].toLowerCase() : null, isCurrent = ocm[3] === "current";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureOncall(env, uuid);
+          // DEFINE (admin).
+          if (rotation && !isCurrent && (request.method === "POST" || request.method === "PUT")) {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const members = (Array.isArray(body.members) ? body.members : []).map((x) => String(x).slice(0, 200)).filter(Boolean).slice(0, 200);
+            if (!members.length) return Response.json({ ok: false, error: "a non-empty members list is required" }, { status: 400 });
+            const interval = Math.floor(Number(body.interval_sec));
+            if (!(interval >= 60 && interval <= 31536000)) return Response.json({ ok: false, error: "interval_sec must be 60..31536000" }, { status: 400 });
+            let anchor = null;
+            if (body.anchor != null) { const ts = Date.parse(String(body.anchor)); if (isNaN(ts)) return Response.json({ ok: false, error: "bad anchor timestamp" }, { status: 400 }); anchor = new Date(ts).toISOString(); }
+            const now = new Date().toISOString(); if (!anchor) anchor = now;
+            await cfD1Query(env, uuid, "INSERT INTO _oncall (rotation, members, interval_sec, anchor, created_at, updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(rotation) DO UPDATE SET members=excluded.members, interval_sec=excluded.interval_sec, anchor=excluded.anchor, updated_at=excluded.updated_at", [rotation, JSON.stringify(members), interval, anchor, now, now]);
+            return Response.json({ ok: true, rotation, members, interval_sec: interval, anchor });
+          }
+          // CURRENT (public).
+          if (rotation && isCurrent && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|occ", 600)) return tooMany();
+            const r = (await cfD1Query(env, uuid, "SELECT members, interval_sec, anchor FROM _oncall WHERE rotation=?", [rotation]))[0];
+            if (!r) return Response.json({ ok: false, error: "no such rotation" }, { status: 404 });
+            let members = []; try { members = JSON.parse(r.members) || []; } catch { members = []; }
+            if (!members.length) return Response.json({ ok: true, on_call: null });
+            const anchorMs = Date.parse(r.anchor), intervalMs = r.interval_sec * 1000;
+            const periods = Math.floor((Date.now() - anchorMs) / intervalMs);
+            const idx = ((periods % members.length) + members.length) % members.length;
+            const nextIdx = (idx + 1) % members.length;
+            const nextHandoff = new Date(anchorMs + (periods + 1) * intervalMs).toISOString();
+            return Response.json({ ok: true, rotation, on_call: members[idx], next: members[nextIdx], next_handoff: nextHandoff, index: idx });
+          }
+          // CONFIG (public).
+          if (rotation && !isCurrent && request.method === "GET") {
+            const r = (await cfD1Query(env, uuid, "SELECT members, interval_sec, anchor FROM _oncall WHERE rotation=?", [rotation]))[0];
+            if (!r) return Response.json({ ok: false, error: "no such rotation" }, { status: 404 });
+            let members = []; try { members = JSON.parse(r.members) || []; } catch { members = []; }
+            return Response.json({ ok: true, rotation, members, interval_sec: r.interval_sec, anchor: r.anchor });
+          }
+          // DELETE (admin).
+          if (rotation && !isCurrent && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _oncall WHERE rotation=?", [rotation]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such rotation" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, rotation });
+          }
+          // LIST (public).
+          if (!rotation && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT rotation, interval_sec, anchor FROM _oncall ORDER BY rotation ASC LIMIT 1000");
+            return Response.json({ ok: true, rotations: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported oncall request" }, { status: 405 });
+        } catch (e) { console.error("oncall failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "oncall failed" }, { status: 502 }); }
+      }
+      // RENEWALS — contract / subscription end-date tracking with an 'upcoming' window and a renew action. Admin.
+      //   POST   /api/db/<slug>/renewals {name, end_date, ref?, amount?, note?}   (ADMIN) → create
+      //   GET    /api/db/<slug>/renewals/upcoming?days=30   (ADMIN) → active renewals ending within the window
+      //   GET    /api/db/<slug>/renewals[?status=]          (ADMIN) → list
+      //   POST   /api/db/<slug>/renewals/<id>/renew {end_date, amount?}  (ADMIN) → bump the end date
+      //   PATCH  /api/db/<slug>/renewals/<id>               (ADMIN) → edit (e.g. status='cancelled')
+      //   DELETE /api/db/<slug>/renewals/<id>               (ADMIN)
+      const rnm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/renewals(?:\/(upcoming|\d+))?(?:\/(renew))?$/i);
+      if (rnm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = rnm[1].toLowerCase(), seg = rnm[2] || null, act = rnm[3] || null;
+        const isUpcoming = seg === "upcoming", rId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureRenewals(env, uuid);
+          const parseDate = (v) => { const ts = Date.parse(String(v)); return isNaN(ts) ? null : new Date(ts).toISOString(); };
+          // CREATE.
+          if (!seg && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const name = String(body.name || "").trim().slice(0, 200);
+            const endDate = parseDate(body.end_date);
+            if (!name || !endDate) return Response.json({ ok: false, error: "name and a valid end_date are required" }, { status: 400 });
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _renewals (name, ref, end_date, amount, status, note, created_at, updated_at) VALUES (?,?,?,?, 'active', ?, ?, ?) RETURNING id", [name, body.ref != null ? String(body.ref).slice(0, 120) : null, endDate, toCents(body.amount), body.note != null ? String(body.note).slice(0, 1000) : null, now, now]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, end_date: endDate });
+          }
+          // UPCOMING.
+          if (isUpcoming && request.method === "GET") {
+            let days = Math.floor(Number(url.searchParams.get("days"))); if (!(days >= 0 && days <= 3650)) days = 30;
+            const now = new Date().toISOString(), until = new Date(Date.now() + days * 86400000).toISOString();
+            const rows = await cfD1Query(env, uuid, "SELECT id, name, ref, end_date, amount, note FROM _renewals WHERE status='active' AND end_date >= ? AND end_date <= ? ORDER BY end_date ASC LIMIT 1000", [now, until]);
+            return Response.json({ ok: true, days, upcoming: rows });
+          }
+          // RENEW.
+          if (rId != null && act === "renew" && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const endDate = parseDate(body.end_date);
+            if (!endDate) return Response.json({ ok: false, error: "a valid end_date is required" }, { status: 400 });
+            const sets = ["end_date=?", "status='active'", "updated_at=?"], vals = [endDate, new Date().toISOString()];
+            if (body.amount != null) { const a2 = toCents(body.amount); sets.splice(1, 0, "amount=?"); vals.splice(1, 0, a2); }
+            const ex = await cfD1Exec(env, uuid, "UPDATE _renewals SET " + sets.join(", ") + " WHERE id=?", [...vals, rId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such renewal" }, { status: 404 });
+            return Response.json({ ok: true, id: rId, end_date: endDate, status: "active" });
+          }
+          // PATCH.
+          if (rId != null && !act && request.method === "PATCH") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const sets = [], vals = [];
+            if (body.name != null) { sets.push("name=?"); vals.push(String(body.name).slice(0, 200)); }
+            if (body.status != null) { const st = String(body.status).toLowerCase(); if (!["active", "cancelled", "renewed", "lapsed"].includes(st)) return Response.json({ ok: false, error: "bad status" }, { status: 400 }); sets.push("status=?"); vals.push(st); }
+            if (body.end_date != null) { const d = parseDate(body.end_date); if (!d) return Response.json({ ok: false, error: "bad end_date" }, { status: 400 }); sets.push("end_date=?"); vals.push(d); }
+            if (body.amount != null) { sets.push("amount=?"); vals.push(toCents(body.amount)); }
+            if (body.note != null) { sets.push("note=?"); vals.push(String(body.note).slice(0, 1000)); }
+            if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "UPDATE _renewals SET " + sets.join(", ") + ", updated_at=? WHERE id=?", [...vals, new Date().toISOString(), rId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such renewal" }, { status: 404 });
+            return Response.json({ ok: true, id: rId });
+          }
+          // DELETE.
+          if (rId != null && !act && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _renewals WHERE id=?", [rId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such renewal" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: rId });
+          }
+          // LIST.
+          if (!seg && request.method === "GET") {
+            const st = url.searchParams.get("status");
+            const rows = st
+              ? await cfD1Query(env, uuid, "SELECT id, name, ref, end_date, amount, status, note FROM _renewals WHERE status=? ORDER BY end_date ASC LIMIT 2000", [String(st).slice(0, 20)])
+              : await cfD1Query(env, uuid, "SELECT id, name, ref, end_date, amount, status, note FROM _renewals ORDER BY end_date ASC LIMIT 2000");
+            return Response.json({ ok: true, renewals: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported renewals request" }, { status: 405 });
+        } catch (e) { console.error("renewals failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "renewals failed" }, { status: 502 }); }
+      }
+      // SLUGIFY — a stateless URL-slug generator: lowercase, transliterate common accents, replace runs of
+      // non-alphanumerics with a separator, trim, cap length; an optional `existing` list appends -2/-3 on
+      // collision.
+      //   POST /api/db/<slug>/slugify {text, max?, separator?, existing?:[...]}   (public) → {slug, base}
+      const slm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/slugify$/i);
+      if (slm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug2 = slm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug2);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug2 + "|" + ip + "|slg", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const text = String(body.text == null ? "" : body.text);
+          if (!text.trim()) return Response.json({ ok: false, error: "text is required" }, { status: 400 });
+          let sep = typeof body.separator === "string" && /^[-_]$/.test(body.separator) ? body.separator : "-";
+          let max = Math.floor(Number(body.max)); if (!(max >= 1 && max <= 200)) max = 80;
+          let base = text.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+            .replace(/[^a-z0-9]+/g, sep).replace(new RegExp("^" + sep + "+|" + sep + "+$", "g"), "").slice(0, max)
+            .replace(new RegExp(sep + "+$", "g"), "");
+          if (!base) base = "n" + sep + "a";
+          let slug = base;
+          const existing = Array.isArray(body.existing) ? new Set(body.existing.map((x) => String(x).toLowerCase())) : null;
+          if (existing && existing.has(slug)) { let i = 2; while (existing.has(base + sep + i) && i < 10000) i++; slug = base + sep + i; }
+          return Response.json({ ok: true, slug, base });
+        } catch (e) { console.error("slugify failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "slugify failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
