@@ -19405,6 +19405,126 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, error: "unsupported ticket merge/link request" }, { status: 405 });
         } catch (e) { console.error("ticket-merge failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "ticket-merge failed" }, { status: 502 }); }
       }
+      // iCALENDAR FEED — a stateless generator: turn a list of events into a downloadable .ics (VCALENDAR) a
+      // user can subscribe to or import into Google/Apple Calendar. Sibling to the RSS/sitemap generators.
+      //   POST /api/db/<slug>/ical {events:[{uid?, title, start, end?, description?, location?, allDay?}], name?}
+      //     (public) → text/calendar
+      const icalm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/ical$/i);
+      if (icalm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = icalm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|ical", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const events = Array.isArray(body.events) ? body.events.slice(0, 1000) : [];
+          if (!events.length) return Response.json({ ok: false, error: "events[] is required" }, { status: 400 });
+          const esc = (v) => String(v == null ? "" : v).replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+          const fmt = (v, allDay) => { const d = new Date(v); if (isNaN(d.getTime())) return null; if (allDay) return d.toISOString().slice(0, 10).replace(/-/g, ""); return d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z"); };
+          const nowStamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+          const name = esc(body.name != null ? String(body.name).slice(0, 120) : "Calendar");
+          const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//isibi//dataapi//EN", "CALSCALE:GREGORIAN", "X-WR-CALNAME:" + name];
+          for (let i = 0; i < events.length; i++) {
+            const ev = events[i] || {};
+            const title = String(ev.title || "").trim();
+            if (!title) return Response.json({ ok: false, error: "each event needs a title (index " + i + ")" }, { status: 400 });
+            const allDay = !!ev.allDay;
+            const start = fmt(ev.start, allDay);
+            if (!start) return Response.json({ ok: false, error: "each event needs a valid start (index " + i + ")" }, { status: 400 });
+            const uid = (ev.uid != null && String(ev.uid).trim()) ? String(ev.uid).trim().slice(0, 200) : (crypto.randomUUID() + "@isibi");
+            lines.push("BEGIN:VEVENT", "UID:" + esc(uid), "DTSTAMP:" + nowStamp);
+            lines.push((allDay ? "DTSTART;VALUE=DATE:" : "DTSTART:") + start);
+            const end = ev.end != null ? fmt(ev.end, allDay) : null;
+            if (end) lines.push((allDay ? "DTEND;VALUE=DATE:" : "DTEND:") + end);
+            lines.push("SUMMARY:" + esc(title));
+            if (ev.description != null) lines.push("DESCRIPTION:" + esc(String(ev.description).slice(0, 4000)));
+            if (ev.location != null) lines.push("LOCATION:" + esc(String(ev.location).slice(0, 500)));
+            lines.push("END:VEVENT");
+          }
+          lines.push("END:VCALENDAR");
+          return new Response(lines.join("\r\n") + "\r\n", { headers: { "Content-Type": "text/calendar; charset=utf-8", "Content-Disposition": "attachment; filename=calendar.ics", "Access-Control-Allow-Origin": "*" } });
+        } catch (e) { console.error("ical failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "ical failed" }, { status: 502 }); }
+      }
+      // CSV CONVERTER — a stateless two-way converter between JSON rows and CSV text (RFC-4180 quoting), so an
+      // app can build an export or parse a paste without a client-side library.
+      //   POST /api/db/<slug>/csv/to {rows:[{...}], columns?:[...], delimiter?}   (member) → {csv, columns}
+      //   POST /api/db/<slug>/csv/from {csv, delimiter?, headers?:true}           (member) → {rows, columns}
+      const csvm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/csv\/(to|from)$/i);
+      if (csvm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = csvm[1].toLowerCase(), dir = csvm[2].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          if (!rateOk(slug + "|" + ip + "|csv", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          let delim = typeof body.delimiter === "string" && body.delimiter.length === 1 ? body.delimiter : ",";
+          if (dir === "to") {
+            const rows = Array.isArray(body.rows) ? body.rows.slice(0, 5000) : [];
+            let columns = Array.isArray(body.columns) ? body.columns.map(String).slice(0, 200) : null;
+            if (!columns) { const seen = new Set(); columns = []; for (const r of rows) { if (r && typeof r === "object" && !Array.isArray(r)) for (const k of Object.keys(r)) { if (!seen.has(k)) { seen.add(k); columns.push(k); } } } }
+            const esc = (v) => { const s = v == null ? "" : (typeof v === "object" ? JSON.stringify(v) : String(v)); return (s.includes(delim) || /["\n\r]/.test(s)) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+            const lines = [columns.map(esc).join(delim)];
+            for (const r of rows) { const o = (r && typeof r === "object" && !Array.isArray(r)) ? r : {}; lines.push(columns.map((c) => esc(o[c])).join(delim)); }
+            return Response.json({ ok: true, csv: lines.join("\n"), columns, rows: rows.length });
+          }
+          // from
+          const text = typeof body.csv === "string" ? body.csv : "";
+          if (!text) return Response.json({ ok: false, error: "csv text is required" }, { status: 400 });
+          if (text.length > 2000000) return Response.json({ ok: false, error: "csv too large" }, { status: 400 });
+          const withHeaders = body.headers !== false;
+          const grid = []; let row = [], field = "", inQ = false;
+          for (let i = 0; i < text.length; i++) { const ch = text[i]; if (inQ) { if (ch === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQ = false; } else field += ch; continue; } if (ch === '"') { inQ = true; continue; } if (ch === delim) { row.push(field); field = ""; continue; } if (ch === "\n") { row.push(field); grid.push(row); row = []; field = ""; continue; } if (ch === "\r") continue; field += ch; }
+          if (field.length || row.length) { row.push(field); grid.push(row); }
+          if (!grid.length) return Response.json({ ok: true, rows: [], columns: [] });
+          if (grid.length > 10000) grid.length = 10000;
+          let columns, dataRows;
+          if (withHeaders) { columns = grid[0].map((c) => String(c).trim()); dataRows = grid.slice(1); }
+          else { columns = grid[0].map((_, i) => "col" + (i + 1)); dataRows = grid; }
+          const rows = dataRows.map((r) => { const o = {}; for (let i = 0; i < columns.length; i++) o[columns[i] || ("col" + (i + 1))] = r[i] != null ? r[i] : ""; return o; });
+          return Response.json({ ok: true, rows, columns });
+        } catch (e) { console.error("csv failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "csv failed" }, { status: 502 }); }
+      }
+      // vCARD — a stateless generator: turn contact fields into a downloadable .vcf (vCard 3.0) for an
+      // 'add to contacts' / 'save my details' button.
+      //   POST /api/db/<slug>/vcard {name, first?, last?, email?, phone?, org?, title?, url?, note?}
+      //     (public) → text/vcard
+      const vcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/vcard$/i);
+      if (vcm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = vcm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|vcard", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const esc = (v) => String(v == null ? "" : v).replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+          const name = String(body.name || "").trim() || [body.first, body.last].filter(Boolean).join(" ").trim();
+          if (!name) return Response.json({ ok: false, error: "a name (or first/last) is required" }, { status: 400 });
+          const first = body.first != null ? String(body.first) : (name.split(/\s+/)[0] || "");
+          const last = body.last != null ? String(body.last) : (name.split(/\s+/).slice(1).join(" ") || "");
+          const lines = ["BEGIN:VCARD", "VERSION:3.0", "N:" + esc(last) + ";" + esc(first) + ";;;", "FN:" + esc(name)];
+          if (body.org != null) lines.push("ORG:" + esc(String(body.org).slice(0, 200)));
+          if (body.title != null) lines.push("TITLE:" + esc(String(body.title).slice(0, 200)));
+          if (body.email != null) lines.push("EMAIL;TYPE=INTERNET:" + esc(String(body.email).slice(0, 200)));
+          if (body.phone != null) lines.push("TEL:" + esc(String(body.phone).slice(0, 60)));
+          if (body.url != null) lines.push("URL:" + esc(String(body.url).slice(0, 500)));
+          if (body.note != null) lines.push("NOTE:" + esc(String(body.note).slice(0, 2000)));
+          lines.push("END:VCARD");
+          return new Response(lines.join("\r\n") + "\r\n", { headers: { "Content-Type": "text/vcard; charset=utf-8", "Content-Disposition": "attachment; filename=contact.vcf", "Access-Control-Allow-Origin": "*" } });
+        } catch (e) { console.error("vcard failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "vcard failed" }, { status: 502 }); }
+      }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
       //   POST   /api/db/<slug>/webhooks {url, events?, secret?}   → register (admin; url must be https)
