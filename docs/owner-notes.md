@@ -6666,6 +6666,17 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — color palette · roman · word frequency · seat map (data API, round 2) — ROUND 2 COMPLETE 100/100 🎉
+- **`/color-palette`** — stateless palette from a base hex (complementary/analogous/triadic/tetradic/
+  monochromatic via HSL rotation; accepts #rgb/#rrggbb/bare). Public. batch396 (15/15).
+- **`/roman`** — stateless Roman-numeral converter both ways (1..3999, canonical validation). Public. batch397 (15/15).
+- **`/word-frequency`** — stateless top-terms counter (stop-words optional, `top` cap). Public. batch398 (16/16).
+- **`/seat-map`** — reserve seats from a named layout; single/group reserve is ALL-OR-NOTHING (compensating
+  rollback on any conflict; atomic PK claim), owner/admin release, public occupancy, admin clear.
+  `_seat_reservations` erased by user. batch399 (20/20).
+- Full suite 380 green. **(100/100 of round 2 shipped — the "100 new ones" roadmap is DONE.)**
+- Grand total across both rounds: 200 tested/documented per-site Data API primitives.
+
 ## 2026-07-23 — ISBN · barcode · inventory count (data API, round 2)
 - **`/isbn`** — stateless ISBN-10/13 validator (mod-11/mod-10 check, X digit) + cross-conversion. Public. batch393 (13/13).
 - **`/barcode`** — stateless GTIN check-digit validator (EAN-13/UPC-A/EAN-8, length-auto-detected, mod-10),
