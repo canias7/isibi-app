@@ -5,6 +5,13 @@ name: vision-check
 
 on:
   workflow_dispatch: {}
+  # Also runs on a push to main that touches the vision files (so it can be triggered without dispatch perms).
+  push:
+    branches: [main]
+    paths:
+      - "test/fixtures/vision/**"
+      - "test/vision-live-check.mjs"
+      - ".github/workflows/vision-check.yml"
 
 jobs:
   vision-check:
