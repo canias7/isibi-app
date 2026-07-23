@@ -9056,6 +9056,8 @@ function crtSelect() {
 function initCrtStage() {
   const stage = document.getElementById('leadStage');
   if (!stage) return;
+  // Minimal landing hides the media wall — skip building/loading it entirely.
+  if (getComputedStyle(stage).display === 'none') return;
   // 'v' → a real AI-made clip playing on loop in one of the squares, with a
   // tap-to-unmute sound button top-right (autoplay must start muted).
   const soundBtn = '<button class="mkt-vid-sound" type="button" aria-label="Play sound">'
@@ -9135,6 +9137,9 @@ function initCrt() {
   // keyboard: ↑↓ tune (only while the landing is showing); Enter selects when the menu is focused
   const onKey = (e) => {
     if (!mkt || mkt.style.display === 'none') return;
+    // The channel list is hidden on the minimal landing — don't hijack the
+    // chatbox's arrow keys or tune a menu the visitor can't see.
+    if (!menu || menu.offsetParent === null) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); crtMove(1); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); crtMove(-1); }
     else if ((e.key === 'Enter' || e.key === ' ') && document.activeElement === menu) { e.preventDefault(); crtSelect(); }

@@ -4957,6 +4957,14 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .crtl-note.crt-foot-nosig{color:#ff7a6a;letter-spacing:.14em;font-family:ui-monospace,Menlo,monospace;font-size:.78rem}
 @media (max-width:640px){ .mkt-crt .crtl-stage{padding-top:4.5rem} }
 
+/* ── Minimal landing (owner 2026-07-23): drop the channel list + media wall,
+   leaving just the headline and chatbox centered in the screen. Markup is kept
+   in the DOM (hidden) so the channels/demos can be brought back if wanted. ── */
+.mkt-crt .crt-menu,
+.mkt-crt .crt-stage{display:none}
+.mkt-crt .crt-inbox{top:50%;bottom:auto;transform:translateY(-50%)}
+.mkt-crt .crt-crest{top:calc(50% - 7.5rem)}
+
 /* ---- CRT landing: crest (laurel + headline), preview stage, legal ---- */
 .crt-crest{position:absolute;top:clamp(4.6rem,9vh,6.2rem);left:0;right:0;z-index:3;
   display:flex;align-items:center;justify-content:center;gap:.7rem;pointer-events:none}
