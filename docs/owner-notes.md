@@ -6666,6 +6666,17 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — password strength · double opt-in · reputation (data API, round 2)
+- **`/password-strength`** — stateless meter: `{password}` → score 0–4 + label + per-class checks +
+  suggestions; commons/repeats/short → 0, sequences penalized. Nothing stored. Public. batch319 (14/14).
+- **`/opt-in`** — double opt-in: `{email, list?}` → pending + token (email it); `/confirm {token}` flips to
+  confirmed (atomic `UPDATE…WHERE token=? AND status='pending' RETURNING`); admin list/delete. Idempotent
+  re-subscribe/confirm; per (email,list). `_optin`. batch320 (14/14).
+- **`/reputation`** — time-decayed karma: admin `/award {user, points}` logs a timestamped event; `/score`,
+  `/me`, `/leaderboard` compute `Σ points·0.5^(age_days/half_life)` in JS (half_life_days default 90) so old
+  rep fades. `_reputation` erased by user. batch321 (15/15).
+- Full suite 304 green. (24/100 of round 2 shipped.)
+
 ## 2026-07-23 — anomaly detection · equipment checkout · taxonomy (data API, round 2)
 - **`/stats/anomaly`** — stateless z-score outlier check: with `value` → that point's z + flag; without → scan
   the series for `|z| > threshold` (default 3); zero-variance → no anomalies. Public. batch316 (12/12).
