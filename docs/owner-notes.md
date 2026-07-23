@@ -10,6 +10,26 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-07-23 — META-LAYER: GENERATION PIPELINE (the wiring layer) — built + validated on real pixels
+Owner said "build that pipeline." `builder/pipeline.mjs` composes ALL six meta-layers into one flow:
+plan (`planApp`) → design (`pickStyleFamily`) → focused prompt (`composeBuildPrompt` = base rules + plan brief +
+design brief + ONLY the selected capabilities' slice, not the 236 KB catalog) → generate → LINT gate (auto-fix
+loop: a fake API route / structural error triggers a targeted revise) → build (a compile error triggers a revise)
+→ VISION repair (`visualRepairLoop`). Every side-effect (generate/revise/build/render/critiqueOne) is INJECTED,
+so the orchestration is deterministic + testable offline; the real effects are supplied by worker.js /
+build-server.mjs where the keys + browser live. `test/backend/pipeline.test.mjs` (24/24) covers the focused-prompt
+sizing (< ⅓ of the full catalog), happy path, lint auto-fix + hard-fail, build-fail-then-recover, vision repair,
+and the plan/empty short-circuits. **VALIDATED ON REAL PIXELS:** rendered a polished studio-dark punch-card page
+and a deliberately broken (dark-on-dark, blank) one with Playwright, viewed both — the polished one reads as
+~90/intentional, the broken one as ~15/critical (invisible text + button, blank layout), exactly the critical
+case the critique defines. So render→critique→repair works on real output, not just mocks.
+- **Key note:** this session still exposes NO x-api-key ANTHROPIC key to a Node fetch (only my own agent OAuth,
+  which the deployed worker doesn't use) — the prod path stays on `env.ANTHROPIC_API_KEY` (x-api-key). No credits
+  spent. The FINAL enablement step is adapting worker.js's streaming generation + the container to call
+  `runPipeline` with the real effects, gated behind a flag (e.g. `PIPELINE_V2`) — a live-path integration across
+  worker + build-server best validated with a real build in the deployed env. The orchestrator + all six layers
+  are built, tested, and composable; turning it on in prod is that one hookup.
+
 ## 2026-07-23 — META-LAYER: VISION CRITIQUE + AUTO VISUAL REPAIR (the live half of #3/#4) — built
 Owner picked "build the vision critique" next. `builder/vision-critique.mjs` (a BUILD-CONTAINER Node module —
 Playwright + Anthropic, NOT imported by worker.js; Playwright lazy-loaded): after an app builds, `renderRoutes`
