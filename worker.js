@@ -9512,6 +9512,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _addresses WHERE user_id=?", [u.id]],                              // saved addresses
             ["DELETE FROM _user_settings WHERE user_id=?", [u.id]],                          // per-member settings
             ["DELETE FROM _recent_views WHERE user_id=?", [u.id]],                           // recently-viewed
+            ["DELETE FROM _experiment_events WHERE user_id=?", [u.id]],                      // A/B experiment assignments
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -12299,6 +12300,109 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported hours request" }, { status: 405 });
         } catch (e) { console.error("hours failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "hours failed" }, { status: 502 }); }
+      }
+      // A/B EXPERIMENTS — an admin defines an experiment with weighted variants; a member is assigned a
+      // variant DETERMINISTICALLY (sticky, weighted by a hash of key:userId), the exposure + any conversion
+      // are recorded, and the admin reads per-variant results. Complements /flags (on/off) with multi-variant
+      // + conversion measurement.
+      //   POST   /api/db/<slug>/experiments/<key> {variants:[{name,weight?}] | ["a","b"], enabled?}  (ADMIN)
+      //   GET    /api/db/<slug>/experiments/<key>/assign    (member) → {variant} (sticky, records exposure)
+      //   POST   /api/db/<slug>/experiments/<key>/convert   (member) → mark my conversion
+      //   GET    /api/db/<slug>/experiments/<key>/results   (ADMIN)  → per-variant {exposures, conversions, rate}
+      //   GET    /api/db/<slug>/experiments/<key>           (ADMIN)  → the config
+      //   DELETE /api/db/<slug>/experiments/<key>           (ADMIN)
+      const expm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/experiments\/([A-Za-z0-9_.:-]{1,60})(?:\/(assign|convert|results))?$/i);
+      if (expm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = expm[1].toLowerCase(), key = expm[2], sub = expm[3] ? expm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const needAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const parseVariants = (s) => { if (!s) return null; try { const v = JSON.parse(s); return Array.isArray(v) ? v : null; } catch { return null; } };
+        try {
+          await ensureExperiments(env, uuid);
+          // DEFINE (admin).
+          if (!sub && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|expw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const raw = Array.isArray(body.variants) ? body.variants : null;
+            if (!raw || !raw.length) return Response.json({ ok: false, error: "variants[] is required" }, { status: 400 });
+            const variants = [];
+            for (const v of raw.slice(0, 20)) {
+              const name = String((v && typeof v === "object") ? v.name : v).trim().slice(0, 40);
+              if (!/^[A-Za-z0-9_.-]{1,40}$/.test(name)) return Response.json({ ok: false, error: "each variant needs a simple name" }, { status: 400 });
+              let weight = (v && typeof v === "object" && v.weight != null) ? Number(v.weight) : 1;
+              if (!Number.isFinite(weight) || weight <= 0) weight = 1;
+              variants.push({ name, weight: Math.round(weight * 1000) / 1000 });
+            }
+            if (new Set(variants.map((v) => v.name)).size !== variants.length) return Response.json({ ok: false, error: "variant names must be unique" }, { status: 400 });
+            const enabled = (body.enabled === false || body.enabled === 0 || body.enabled === "false") ? 0 : 1;
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _experiments (key, variants, enabled, created_at, updated_at) VALUES (?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET variants=excluded.variants, enabled=excluded.enabled, updated_at=excluded.updated_at", [key, JSON.stringify(variants), enabled, now, now]);
+            return Response.json({ ok: true, key, variants, enabled: !!enabled });
+          }
+          const exp = (await cfD1Query(env, uuid, "SELECT variants, enabled FROM _experiments WHERE key=?", [key]))[0];
+          // ASSIGN (member) — sticky, deterministic, weighted.
+          if (sub === "assign") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|expa", 600)) return tooMany();
+            if (!exp) return Response.json({ ok: false, error: "no such experiment" }, { status: 404 });
+            const variants = parseVariants(exp.variants) || [];
+            if (!variants.length) return Response.json({ ok: false, error: "experiment has no variants" }, { status: 409 });
+            const existing = (await cfD1Query(env, uuid, "SELECT variant FROM _experiment_events WHERE experiment=? AND user_id=?", [key, userId]))[0];
+            if (existing) return Response.json({ ok: true, variant: existing.variant, key });
+            if (!exp.enabled) return Response.json({ ok: true, variant: variants[0].name, key, disabled: true }); // control, not recorded
+            // deterministic weighted pick via FNV-1a(key:userId)
+            const s = key + ":" + userId; let hsh = 2166136261 >>> 0;
+            for (let i = 0; i < s.length; i++) { hsh ^= s.charCodeAt(i); hsh = Math.imul(hsh, 16777619) >>> 0; }
+            const total = variants.reduce((a, v) => a + v.weight, 0);
+            let point = (hsh % 100000) / 100000 * total, acc = 0, chosen = variants[0].name;
+            for (const v of variants) { acc += v.weight; if (point < acc) { chosen = v.name; break; } }
+            await cfD1Exec(env, uuid, "INSERT INTO _experiment_events (experiment, user_id, variant, converted, created_at) SELECT ?, ?, ?, 0, ? WHERE NOT EXISTS (SELECT 1 FROM _experiment_events WHERE experiment=? AND user_id=?)", [key, userId, chosen, new Date().toISOString(), key, userId]);
+            const row = (await cfD1Query(env, uuid, "SELECT variant FROM _experiment_events WHERE experiment=? AND user_id=?", [key, userId]))[0];
+            return Response.json({ ok: true, variant: row ? row.variant : chosen, key });
+          }
+          // CONVERT (member).
+          if (sub === "convert") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|expc", 300)) return tooMany();
+            const ex = await cfD1Exec(env, uuid, "UPDATE _experiment_events SET converted=1, converted_at=? WHERE experiment=? AND user_id=? AND converted=0", [new Date().toISOString(), key, userId]);
+            if (ex.changes) return Response.json({ ok: true, converted: true });
+            const has = (await cfD1Query(env, uuid, "SELECT converted FROM _experiment_events WHERE experiment=? AND user_id=?", [key, userId]))[0];
+            if (!has) return Response.json({ ok: false, error: "not assigned to this experiment yet" }, { status: 404 });
+            return Response.json({ ok: true, converted: true, already: true });
+          }
+          // RESULTS (admin).
+          if (sub === "results") {
+            const a = await needAdmin(); if (a) return a;
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|expr", 300)) return tooMany();
+            if (!exp) return Response.json({ ok: false, error: "no such experiment" }, { status: 404 });
+            const rows = await cfD1Query(env, uuid, "SELECT variant, COUNT(*) AS exposures, SUM(converted) AS conversions FROM _experiment_events WHERE experiment=? GROUP BY variant", [key]);
+            const results = rows.map((r) => ({ variant: r.variant, exposures: r.exposures, conversions: r.conversions || 0, rate: r.exposures ? Math.round(((r.conversions || 0) / r.exposures) * 10000) / 100 : 0 }));
+            return Response.json({ ok: true, key, variants: parseVariants(exp.variants), enabled: !!exp.enabled, results });
+          }
+          // CONFIG (admin) / DELETE (admin).
+          const a = await needAdmin(); if (a) return a;
+          if (request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _experiments WHERE key=?", [key]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such experiment" }, { status: 404 });
+            try { await cfD1Exec(env, uuid, "DELETE FROM _experiment_events WHERE experiment=?", [key]); } catch {}
+            return Response.json({ ok: true, deleted: true, key });
+          }
+          if (request.method === "GET") {
+            if (!exp) return Response.json({ ok: false, error: "no such experiment" }, { status: 404 });
+            return Response.json({ ok: true, key, variants: parseVariants(exp.variants), enabled: !!exp.enabled });
+          }
+          return Response.json({ ok: false, error: "unsupported experiments request" }, { status: 405 });
+        } catch (e) { console.error("experiments failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "experiments failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
