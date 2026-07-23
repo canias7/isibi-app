@@ -5736,6 +5736,17 @@ async function ensureFreqCap(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _freq_hits (key TEXT NOT NULL, window_start INTEGER NOT NULL, hits INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (key, window_start))");
   _freqCapReady.add(uuid);
 }
+// Gift registry — an owner lists items they want; others atomically claim a quantity so no gift is bought
+// twice. `_registry_items` = the wishes, `_registry_claims` = one claim per (item, user); the claimed amount
+// is SUM(claims.qty) so releasing/erasing self-corrects. Ensured once.
+const _registryReady = new Set();
+async function ensureRegistry(env, uuid) {
+  if (_registryReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _registry_items (id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id INTEGER NOT NULL, title TEXT NOT NULL, url TEXT, price INTEGER, qty INTEGER NOT NULL DEFAULT 1, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _registry_claims (item_id INTEGER NOT NULL, user_id INTEGER NOT NULL, qty INTEGER NOT NULL DEFAULT 1, at TEXT, PRIMARY KEY (item_id, user_id))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_registry_owner ON _registry_items (owner_id)"); } catch {}
+  _registryReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -10591,6 +10602,9 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _touchpoints WHERE user_id=?", [u.id]],                            // attribution touchpoints
             ["DELETE FROM _quest_progress WHERE user_id=?", [u.id]],                         // quest progress
             ["DELETE FROM _ballot_votes WHERE user_id=?", [u.id]],                           // weighted ballot votes
+            ["DELETE FROM _registry_claims WHERE item_id IN (SELECT id FROM _registry_items WHERE owner_id=?)", [u.id]], // claims on my registry
+            ["DELETE FROM _registry_items WHERE owner_id=?", [u.id]],                        // my gift registry
+            ["DELETE FROM _registry_claims WHERE user_id=?", [u.id]],                        // gifts I claimed
             ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
             ["DELETE FROM _testimonials WHERE user_id=?", [u.id]],                           // user-submitted testimonials
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
@@ -22194,6 +22208,139 @@ async function handleRequest(request, env, ctx) {
           const label = score > 0 ? "positive" : (score < 0 ? "negative" : "neutral");
           return Response.json({ ok: true, score, comparative, label, words: tokens.length, positive, negative });
         } catch (e) { console.error("sentiment failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "sentiment failed" }, { status: 502 }); }
+      }
+      // GIFT REGISTRY — an owner lists wanted items; others atomically claim a quantity so nothing is bought
+      // twice (the guard is a single conditional INSERT — a would-be over-claim is refused). The owner is not
+      // told who claimed, only how many remain.
+      //   POST   /api/db/<slug>/gift-registry {title, url?, price?, qty?}   (member) → add to my registry
+      //   GET    /api/db/<slug>/gift-registry/mine                         (member) → my items + remaining
+      //   GET    /api/db/<slug>/gift-registry/user/<id>                    (member) → someone's registry
+      //   GET    /api/db/<slug>/gift-registry/claimed                      (member) → items I've claimed
+      //   POST   /api/db/<slug>/gift-registry/<id>/claim {qty?}            (member, not owner) → claim
+      //   POST   /api/db/<slug>/gift-registry/<id>/unclaim                 (claimant) → release
+      //   DELETE /api/db/<slug>/gift-registry/<id>                         (owner)
+      const grm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/gift-registry(?:\/(mine|claimed|user|\d+)(?:\/(claim|unclaim|\d+))?)?$/i);
+      if (grm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = grm[1].toLowerCase(), seg = grm[2] || null, sub = grm[3] || null;
+        const itemId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        const viewUser = seg === "user" && sub && /^\d+$/.test(sub) ? parseInt(sub, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureRegistry(env, uuid);
+          // ADD (member).
+          if (!seg && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|grw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const title = String(body.title || "").trim().slice(0, 300);
+            if (!title) return Response.json({ ok: false, error: "a title is required" }, { status: 400 });
+            let qty = Math.floor(Number(body.qty)); if (!(qty >= 1 && qty <= 10000)) qty = 1;
+            const r = await cfD1Query(env, uuid, "INSERT INTO _registry_items (owner_id, title, url, price, qty, created_at) VALUES (?,?,?,?,?,?) RETURNING id", [userId, title, body.url != null ? String(body.url).slice(0, 1000) : null, toCents(body.price), qty, new Date().toISOString()]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, title, qty });
+          }
+          // MINE (owner view — no claimant identities).
+          if (seg === "mine" && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT i.id, i.title, i.url, i.price, i.qty, COALESCE((SELECT SUM(qty) FROM _registry_claims WHERE item_id=i.id),0) AS claimed FROM _registry_items i WHERE i.owner_id=? ORDER BY i.id DESC LIMIT 1000", [userId]);
+            return Response.json({ ok: true, items: rows.map((r) => ({ id: r.id, title: r.title, url: r.url, price: r.price, qty: r.qty, claimed: r.claimed, remaining: r.qty - r.claimed })) });
+          }
+          // VIEW someone's registry.
+          if (seg === "user" && viewUser != null && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT i.id, i.title, i.url, i.price, i.qty, COALESCE((SELECT SUM(qty) FROM _registry_claims WHERE item_id=i.id),0) AS claimed, (SELECT 1 FROM _registry_claims WHERE item_id=i.id AND user_id=?) AS mine FROM _registry_items i WHERE i.owner_id=? ORDER BY i.id DESC LIMIT 1000", [userId, viewUser]);
+            return Response.json({ ok: true, owner: viewUser, items: rows.map((r) => ({ id: r.id, title: r.title, url: r.url, price: r.price, qty: r.qty, remaining: r.qty - r.claimed, claimed_by_me: !!r.mine })) });
+          }
+          // CLAIMED by me.
+          if (seg === "claimed" && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT c.item_id, c.qty, i.title, i.owner_id FROM _registry_claims c JOIN _registry_items i ON i.id=c.item_id WHERE c.user_id=? ORDER BY c.item_id DESC LIMIT 1000", [userId]);
+            return Response.json({ ok: true, claims: rows });
+          }
+          // CLAIM (member, not owner, atomic).
+          if (itemId != null && sub === "claim" && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|grc", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            let qty = Math.floor(Number(body.qty)); if (!(qty >= 1 && qty <= 10000)) qty = 1;
+            const item = (await cfD1Query(env, uuid, "SELECT owner_id, qty FROM _registry_items WHERE id=?", [itemId]))[0];
+            if (!item) return Response.json({ ok: false, error: "no such item" }, { status: 404 });
+            if (item.owner_id === userId) return Response.json({ ok: false, error: "you can't claim a gift on your own registry" }, { status: 400 });
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _registry_claims (item_id, user_id, qty, at) SELECT ?,?,?,? WHERE (SELECT COALESCE(SUM(qty),0) FROM _registry_claims WHERE item_id=?) + ? <= (SELECT qty FROM _registry_items WHERE id=?) AND NOT EXISTS (SELECT 1 FROM _registry_claims WHERE item_id=? AND user_id=?) RETURNING user_id", [itemId, userId, qty, now, itemId, qty, itemId, itemId, userId]);
+            if (!r.length) { const already = (await cfD1Query(env, uuid, "SELECT 1 FROM _registry_claims WHERE item_id=? AND user_id=?", [itemId, userId]))[0]; return Response.json({ ok: false, error: already ? "you already claimed this item" : "not enough remaining" }, { status: 409 }); }
+            return Response.json({ ok: true, item_id: itemId, qty });
+          }
+          // UNCLAIM.
+          if (itemId != null && sub === "unclaim" && request.method === "POST") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _registry_claims WHERE item_id=? AND user_id=?", [itemId, userId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "you had no claim on this item" }, { status: 404 });
+            return Response.json({ ok: true, item_id: itemId, released: true });
+          }
+          // DELETE (owner).
+          if (itemId != null && !sub && request.method === "DELETE") {
+            const item = (await cfD1Query(env, uuid, "SELECT owner_id FROM _registry_items WHERE id=?", [itemId]))[0];
+            if (!item) return Response.json({ ok: false, error: "no such item" }, { status: 404 });
+            if (item.owner_id !== userId) return Response.json({ ok: false, error: "not your item" }, { status: 403 });
+            await cfD1Exec(env, uuid, "DELETE FROM _registry_items WHERE id=?", [itemId]);
+            await cfD1Exec(env, uuid, "DELETE FROM _registry_claims WHERE item_id=?", [itemId]);
+            return Response.json({ ok: true, deleted: true, id: itemId });
+          }
+          return Response.json({ ok: false, error: "unsupported gift-registry request" }, { status: 405 });
+        } catch (e) { console.error("gift-registry failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "gift-registry failed" }, { status: 502 }); }
+      }
+      // CURRENCY FORMAT — a stateless money formatter using Intl: an amount + ISO currency (+ optional locale)
+      // → the localized string, symbol, and minor-unit digits.
+      //   POST /api/db/<slug>/currency-format {amount, currency?, locale?}   (public) → {formatted, symbol}
+      const curfm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/currency-format$/i);
+      if (curfm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = curfm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|curf", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const amount = Number(body.amount);
+          if (!Number.isFinite(amount)) return Response.json({ ok: false, error: "a numeric amount is required" }, { status: 400 });
+          let currency = String(body.currency || "USD").toUpperCase(); if (!/^[A-Z]{3}$/.test(currency)) return Response.json({ ok: false, error: "currency must be a 3-letter ISO code" }, { status: 400 });
+          let locale = typeof body.locale === "string" && /^[a-z]{2}(-[a-z0-9]{2,8})*$/i.test(body.locale) ? body.locale : "en-US";
+          let formatted, symbol = currency;
+          try {
+            const nf = new Intl.NumberFormat(locale, { style: "currency", currency });
+            formatted = nf.format(amount);
+            const parts = nf.formatToParts(amount); const cp = parts.find((p) => p.type === "currency"); if (cp) symbol = cp.value;
+          } catch { return Response.json({ ok: false, error: "unsupported currency or locale" }, { status: 400 }); }
+          return Response.json({ ok: true, formatted, symbol, currency, locale, amount });
+        } catch (e) { console.error("currency-format failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "currency-format failed" }, { status: 502 }); }
+      }
+      // LUHN — a stateless Luhn (mod-10) checksum validator for card / account / ID numbers, plus the check
+      // digit that would make a partial number valid.
+      //   POST /api/db/<slug>/luhn {number}   (public) → {valid, check_digit, length}
+      const lhnm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/luhn$/i);
+      if (lhnm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = lhnm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|lhn", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const digits = String(body.number == null ? "" : body.number).replace(/\D/g, "");
+          if (!digits || digits.length > 40) return Response.json({ ok: false, error: "a number (up to 40 digits) is required" }, { status: 400 });
+          const luhnSum = (str) => { let sum = 0, alt = false; for (let i = str.length - 1; i >= 0; i--) { let d = str.charCodeAt(i) - 48; if (alt) { d *= 2; if (d > 9) d -= 9; } sum += d; alt = !alt; } return sum; };
+          const valid = luhnSum(digits) % 10 === 0;
+          // Check digit that would complete `digits` (treated as the payload without a check digit).
+          const partialSum = luhnSum(digits + "0"); // shift so the appended slot is doubled-parity aware
+          const checkDigit = (10 - (partialSum % 10)) % 10;
+          return Response.json({ ok: true, valid, check_digit: checkDigit, length: digits.length });
+        } catch (e) { console.error("luhn failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "luhn failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
