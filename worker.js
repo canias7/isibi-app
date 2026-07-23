@@ -5,6 +5,12 @@ import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon"
 import { Container, getContainer } from "@cloudflare/containers";
 import { parseGeneratedFiles, REACT_RULES, REACT_FIX_RULES, REACT_REVISE_RULES, SCHEMA_REPAIR_RULES, WIRING_REPAIR_RULES } from "./builder/react-gen.mjs";
 import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis, eoqCalc, breakevenCalc, demandForecast, installmentPlan, taxCalc, commissionCalc } from "./worker-finance.mjs";
+// Generation meta-layers (Worker-safe: no node:/Playwright imports). Used only behind the PIPELINE_V2 flag to
+// enrich the build prompt (plan + design + the relevant capability slice) and lint the generated app pre-build.
+import { planApp, specToPrompt } from "./builder/app-planner.mjs";
+import { pickStyleFamily, designBrief, tokensToTailwindTheme } from "./builder/design-system.mjs";
+import { capabilityPrompt } from "./builder/capability-registry.mjs";
+import { lintGeneratedApp } from "./builder/app-linter.mjs";
 // Game builder (Phase 3): same generate→build→publish pipeline, engine swapped for
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
@@ -29357,8 +29363,26 @@ async function handleRequest(request, env, ctx) {
         let balAfter = bal0, genCredits = 0, imgCredits = 0;
         try {
           // 1) Generate the whole React project (streamed live).
+          // PIPELINE_V2 (flag-gated): plan the app first, then feed the generator a focused prompt — the app plan
+          // + the design brief + ONLY the capabilities this app needs — instead of relying on the model to recall
+          // the whole catalog. Falls back to the base prompt on any error. Default (flag off) is unchanged.
+          let genUser = "Build this as a polished React app. Output ONLY the file blocks.\n\n" + brief;
+          if (env.PIPELINE_V2 === "1") {
+            try {
+              const plan = planApp(brief);
+              if (plan.ok) {
+                const fam = pickStyleFamily(plan.spec.design_hints);
+                genUser = "Build this as a polished React app. Output ONLY the file blocks.\n\n"
+                  + "=== APP PLAN ===\n" + specToPrompt(plan.spec)
+                  + "\n\n=== DESIGN SYSTEM ===\n" + designBrief(fam) + "\nTailwind theme.extend to emit:\n" + tokensToTailwindTheme(fam)
+                  + "\n\n=== BACKEND CAPABILITIES (call ONLY these endpoints) ===\n" + capabilityPrompt(plan.spec.capabilities)
+                  + "\n\n=== USER REQUEST ===\n" + brief;
+                emit({ ev: "plan", capabilities: plan.spec.capabilities, family: fam });
+              }
+            } catch (e) { console.error("PIPELINE_V2 enrich failed, using base prompt:", e && e.message); }
+          }
           emit({ ev: "phase", phase: "generating" });
-          const g = await streamGen(REACT_RULES, "Build this as a polished React app. Output ONLY the file blocks.\n\n" + brief, onDelta);
+          const g = await streamGen(REACT_RULES, genUser, onDelta);
           flushCode(true);
           let files = parseGeneratedFiles(g.text);
           if (!files["index.html"] || !files["src/main.jsx"] || !files["src/App.jsx"]) { emit({ ev: "error", stage: "generate", msg: "the generated project came out incomplete — try again" }); return; }
@@ -29413,6 +29437,25 @@ async function handleRequest(request, env, ctx) {
                 }
               } catch (e) { console.error("react-build wiring repair failed:", e && (e.status || e.message)); }
             }
+          }
+          // PIPELINE_V2 (flag-gated): a static lint gate BEFORE we spend on images/compile — catches structural
+          // problems the compiler won't (a call to an endpoint that doesn't exist, a disallowed import, a fake
+          // button, a missing required file). Hard errors trigger one targeted revise; warnings are just reported.
+          if (env.PIPELINE_V2 === "1") {
+            try {
+              const lint = lintGeneratedApp(files);
+              emit({ ev: "lint", ok: lint.ok, errors: lint.errors.length, warnings: lint.warnings.length });
+              if (!lint.ok) {
+                const dump = Object.entries(files).map(([p, s]) => "===FILE: " + p + "===\n" + s).join("\n\n").slice(0, 90000);
+                const instr = "A static check found these structural problems — fix them, returning ONLY the corrected file(s), and do NOT change the app's data model or routes:\n- " + lint.errors.map((e) => "[" + e.rule + "] " + e.msg).join("\n- ");
+                const lg = await streamGen(REACT_REVISE_RULES, instr + "\n\nProject files:\n\n" + dump, null);
+                if (lg && lg.text) {
+                  const lf = parseGeneratedFiles(lg.text);
+                  for (const [p, v] of Object.entries(lf)) { if (p !== "isibi.schema.json") files[p] = v; }
+                  const lc = rbCredits(lg.usedIn, lg.usedOut); genCredits += lc; try { const b = await useCredits(auth, lc); if (b >= 0) balAfter = b; } catch {}
+                }
+              }
+            } catch (e) { console.error("PIPELINE_V2 lint gate failed:", e && e.message); }
           }
           // 2) Real images into the SOURCE, budgeted to the remaining balance.
           emit({ ev: "phase", phase: "images" });

@@ -10,6 +10,26 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-07-23 — PIPELINE WIRED INTO LIVE GENERATION (flag-gated `PIPELINE_V2`, dormant by default)
+The React build path in worker.js (`streamGen(REACT_RULES, …)` ~line 29380) now has two flag-gated hooks, both
+skipped entirely unless `env.PIPELINE_V2 === "1"` (so default = byte-identical; full suite 386 green proves it):
+- **(A) Prompt enrichment** — before generating, `planApp(brief)` → a focused prompt: the app PLAN
+  (`specToPrompt`) + the DESIGN brief + tailwind theme (`pickStyleFamily`/`designBrief`/`tokensToTailwindTheme`) +
+  ONLY the needed capability slice (`capabilityPrompt(spec.capabilities)`) + the user request — instead of leaning
+  on the model to recall the whole catalog. Emits an `{ev:'plan', capabilities, family}` SSE event. Falls back to
+  the base prompt on any error.
+- **(B) Static lint gate** — after the existing schema/wiring safety nets and BEFORE images/compile,
+  `lintGeneratedApp(files)` runs; emits `{ev:'lint', ok, errors, warnings}`; hard errors (fake API route, bad
+  import, missing file…) trigger ONE targeted revise via `REACT_REVISE_RULES`. Catches what the compiler can't.
+- **Worker-safety:** worker.js imports ONLY the node-free modules (app-planner, design-system, capability-registry,
+  app-linter) — NOT pipeline.mjs/vision-critique.mjs (those pull `node:module`/Playwright and would break workerd).
+  composeBuildPrompt is inlined from the safe pieces. All four load clean; worker.js parses; wrangler bundles them
+  like the existing react-gen/worker-finance imports.
+- **The VISION repair loop is NOT in this hookup** — it needs Playwright + the build container (worker has neither),
+  so it belongs in build-server.mjs as a follow-up (render the dist → `requestCritique` → revise). Already
+  validated standalone + live (run #1: good 78 / broken 15). To turn the whole thing on: set the Worker var
+  `PIPELINE_V2=1` (wrangler secret/var or dashboard) and run a real build; watch for the `plan`/`lint` SSE events.
+
 ## 2026-07-23 — LIVE VISION CALL VALIDATED with the real key (GitHub Actions)
 Owner: "it's in github secrets." Correct — `ANTHROPIC_API_KEY` is a GitHub Actions secret (uploaded to the Worker
 each deploy); it is NOT exposed to a local shell, so the live vision call can only run inside Actions. Added a
