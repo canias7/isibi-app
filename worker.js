@@ -5862,6 +5862,25 @@ async function ensureComparisons(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _comparisons (user_id INTEGER NOT NULL, name TEXT NOT NULL, items TEXT NOT NULL DEFAULT '[]', updated_at TEXT, PRIMARY KEY (user_id, name))");
   _comparisonsReady.add(uuid);
 }
+// Deposit holds — a refundable deposit placed against a booking/ref, later CAPTURED (kept) or RELEASED (refunded).
+// State machine held -> captured | released. Amount in cents. `_deposit_holds`. Ensured once.
+const _depositHoldsReady = new Set();
+async function ensureDepositHolds(env, uuid) {
+  if (_depositHoldsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _deposit_holds (id INTEGER PRIMARY KEY AUTOINCREMENT, ref TEXT, user_id INTEGER, amount_cents INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'held', reason TEXT, created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_deposit_status ON _deposit_holds (status)"); } catch {}
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_deposit_user ON _deposit_holds (user_id)"); } catch {}
+  _depositHoldsReady.add(uuid);
+}
+// Recurring maintenance schedule — an asset with a service interval; marking it serviced advances the next-due
+// date; a check flags overdue items. One row per key. `_maintenance`. Ensured once.
+const _maintenanceReady = new Set();
+async function ensureMaintenance(env, uuid) {
+  if (_maintenanceReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _maintenance (key TEXT PRIMARY KEY, name TEXT, interval_days INTEGER NOT NULL, last_serviced TEXT, next_due TEXT, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_maintenance_due ON _maintenance (next_due)"); } catch {}
+  _maintenanceReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -10728,6 +10747,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _credit_limits WHERE user_id=?", [u.id]],                          // per-customer credit limit
             ["UPDATE _tax_exempt SET added_by=NULL WHERE added_by=?", [u.id]],               // keep the cert, drop the admin link
             ["DELETE FROM _comparisons WHERE user_id=?", [u.id]],                            // saved comparison sets
+            ["UPDATE _deposit_holds SET user_id=NULL WHERE user_id=?", [u.id]],              // keep the financial record, drop the link
             ["UPDATE _content_hashes SET first_by=NULL WHERE first_by=?", [u.id]],           // keep the shared dedup entry, drop the link
             ["UPDATE _bans SET banned_by=NULL WHERE banned_by=?", [u.id]],                   // keep the ban, drop the admin link
             ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
@@ -23686,6 +23706,172 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported comparison request" }, { status: 405 });
         } catch (e) { console.error("comparison failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "comparison failed" }, { status: 502 }); }
+      }
+      // DEPOSIT HOLDS — a refundable deposit placed against a booking/order, later CAPTURED (kept) or RELEASED
+      // (refunded). State machine held -> captured | released; each transition is atomic (a resolved hold can't
+      // change again). Amount in cents. Admin manages; a member may read their own hold.
+      //   POST   /api/db/<slug>/deposit-holds {amount, ref?, user?, reason?}  (ADMIN)  → place a hold
+      //   POST   /api/db/<slug>/deposit-holds/<id>/capture                    (ADMIN)  → keep the deposit
+      //   POST   /api/db/<slug>/deposit-holds/<id>/release                    (ADMIN)  → refund the deposit
+      //   GET    /api/db/<slug>/deposit-holds/<id>                            (admin|owner) → one hold
+      //   GET    /api/db/<slug>/deposit-holds?status=&ref=&user=              (ADMIN)  → list + totals
+      const dhm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/deposit-holds(?:\/(\d+)(?:\/(capture|release))?)?$/i);
+      if (dhm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = dhm[1].toLowerCase(), holdId = dhm[2] ? parseInt(dhm[2], 10) : null, act = dhm[3] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureDepositHolds(env, uuid);
+          // PLACE (admin).
+          if (!holdId && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const amt = toCents(body.amount);
+            if (amt == null || amt <= 0) return Response.json({ ok: false, error: "a positive amount is required" }, { status: 400 });
+            let target = null;
+            if (body.user != null) { target = Math.floor(Number(body.user)); if (!Number.isFinite(target) || !(await cfD1Query(env, uuid, "SELECT 1 FROM _users WHERE id=?", [target]))[0]) return Response.json({ ok: false, error: "no such user" }, { status: 404 }); }
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _deposit_holds (ref, user_id, amount_cents, status, reason, created_at, updated_at) VALUES (?,?,?,'held',?,?,?) RETURNING id, ref, user_id, amount_cents, status, reason", [body.ref != null ? String(body.ref).slice(0, 120) : null, target, amt, body.reason != null ? String(body.reason).slice(0, 300) : null, now, now]);
+            return Response.json({ ok: true, hold: r[0] });
+          }
+          // CAPTURE / RELEASE (admin) — atomic transition out of 'held'.
+          if (holdId && (act === "capture" || act === "release") && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            const newStatus = act === "capture" ? "captured" : "released";
+            const r = await cfD1Query(env, uuid, "UPDATE _deposit_holds SET status=?, updated_at=? WHERE id=? AND status='held' RETURNING id, ref, user_id, amount_cents, status, reason", [newStatus, new Date().toISOString(), holdId]);
+            if (!r.length) { const ex = (await cfD1Query(env, uuid, "SELECT status FROM _deposit_holds WHERE id=?", [holdId]))[0]; if (!ex) return Response.json({ ok: false, error: "no such hold" }, { status: 404 }); return Response.json({ ok: false, error: "this hold is already " + ex.status }, { status: 409 }); }
+            return Response.json({ ok: true, hold: r[0] });
+          }
+          // READ one (admin or the owning member).
+          if (holdId && !act && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const row = (await cfD1Query(env, uuid, "SELECT id, ref, user_id, amount_cents, status, reason, created_at, updated_at FROM _deposit_holds WHERE id=?", [holdId]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such hold" }, { status: 404 });
+            if (row.user_id !== userId) { const a = await needAdmin(); if (a) return a; }
+            return Response.json({ ok: true, hold: row });
+          }
+          // LIST (admin) + totals.
+          if (!holdId && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            const where = [], params = [];
+            const st = url.searchParams.get("status"); if (st && ["held", "captured", "released"].includes(st)) { where.push("status=?"); params.push(st); }
+            const ref = url.searchParams.get("ref"); if (ref) { where.push("ref=?"); params.push(ref); }
+            const usr = url.searchParams.get("user"); if (usr != null && usr !== "" && Number.isFinite(Number(usr))) { where.push("user_id=?"); params.push(Math.floor(Number(usr))); }
+            const wsql = where.length ? " WHERE " + where.join(" AND ") : "";
+            const rows = await cfD1Query(env, uuid, "SELECT id, ref, user_id, amount_cents, status, reason, created_at, updated_at FROM _deposit_holds" + wsql + " ORDER BY id DESC LIMIT 1000", params);
+            const totals = await cfD1Query(env, uuid, "SELECT status, COUNT(*) AS n, COALESCE(SUM(amount_cents),0) AS total FROM _deposit_holds" + wsql + " GROUP BY status", params);
+            return Response.json({ ok: true, holds: rows, totals });
+          }
+          return Response.json({ ok: false, error: "unsupported deposit-holds request" }, { status: 405 });
+        } catch (e) { console.error("deposit-holds failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "deposit-holds failed" }, { status: 502 }); }
+      }
+      // MAINTENANCE SCHEDULE — an asset with a recurring service interval; marking it serviced advances the
+      // next-due date, and a check flags overdue items. One row per key. `next_due` is computed server-side.
+      //   POST   /api/db/<slug>/maintenance-schedule {key, interval_days, name?, last_serviced?}  (ADMIN) → register
+      //   POST   /api/db/<slug>/maintenance-schedule/<key>/service {date?}                        (ADMIN) → serviced now
+      //   GET    /api/db/<slug>/maintenance-schedule/<key>                                        (public) → {…, overdue, days_until}
+      //   GET    /api/db/<slug>/maintenance-schedule[?overdue=1]                                  (public) → list
+      //   DELETE /api/db/<slug>/maintenance-schedule/<key>                                        (ADMIN)
+      const mntm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/maintenance-schedule(?:\/([A-Za-z0-9_.:-]{1,60})(?:\/(service))?)?$/i);
+      if (mntm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = mntm[1].toLowerCase(), key = mntm[2] || null, act = mntm[3] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const DAY = 86400000;
+        const decorate = (row) => { const due = row.next_due ? Date.parse(row.next_due) : null; return { ...row, overdue: due != null && due < Date.now(), days_until: due != null ? Math.round((due - Date.now()) / DAY) : null }; };
+        try {
+          await ensureMaintenance(env, uuid);
+          // REGISTER (admin).
+          if (!key && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const k = String(body.key || "").trim();
+            if (!/^[A-Za-z0-9_.:-]{1,60}$/.test(k)) return Response.json({ ok: false, error: "a valid key is required" }, { status: 400 });
+            const interval = Math.floor(Number(body.interval_days));
+            if (!(interval >= 1 && interval <= 36500)) return Response.json({ ok: false, error: "interval_days must be 1..36500" }, { status: 400 });
+            let last = null;
+            if (body.last_serviced != null) { const l = Date.parse(body.last_serviced); if (!Number.isFinite(l)) return Response.json({ ok: false, error: "last_serviced is invalid" }, { status: 400 }); last = new Date(l).toISOString(); }
+            const base = last ? Date.parse(last) : Date.now();
+            const nextDue = new Date(base + interval * DAY).toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _maintenance (key, name, interval_days, last_serviced, next_due, created_at) VALUES (?,?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET name=excluded.name, interval_days=excluded.interval_days, last_serviced=excluded.last_serviced, next_due=excluded.next_due RETURNING key, name, interval_days, last_serviced, next_due", [k, body.name != null ? String(body.name).slice(0, 200) : null, interval, last, nextDue, new Date().toISOString()]);
+            return Response.json({ ok: true, item: decorate(r[0]) });
+          }
+          // SERVICE (admin).
+          if (key && act === "service" && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            let when = Date.now();
+            if (body.date != null) { const d = Date.parse(body.date); if (!Number.isFinite(d)) return Response.json({ ok: false, error: "date is invalid" }, { status: 400 }); when = d; }
+            const row = (await cfD1Query(env, uuid, "SELECT interval_days FROM _maintenance WHERE key=?", [key]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such item" }, { status: 404 });
+            const last = new Date(when).toISOString();
+            const nextDue = new Date(when + row.interval_days * DAY).toISOString();
+            const r = await cfD1Query(env, uuid, "UPDATE _maintenance SET last_serviced=?, next_due=? WHERE key=? RETURNING key, name, interval_days, last_serviced, next_due", [last, nextDue, key]);
+            return Response.json({ ok: true, item: decorate(r[0]) });
+          }
+          // READ one (public).
+          if (key && !act && request.method === "GET") {
+            const row = (await cfD1Query(env, uuid, "SELECT key, name, interval_days, last_serviced, next_due FROM _maintenance WHERE key=?", [key]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such item" }, { status: 404 });
+            return Response.json({ ok: true, item: decorate(row) });
+          }
+          // LIST (public).
+          if (!key && request.method === "GET") {
+            const onlyOverdue = url.searchParams.get("overdue") === "1";
+            const rows = onlyOverdue
+              ? await cfD1Query(env, uuid, "SELECT key, name, interval_days, last_serviced, next_due FROM _maintenance WHERE next_due < ? ORDER BY next_due LIMIT 1000", [new Date().toISOString()])
+              : await cfD1Query(env, uuid, "SELECT key, name, interval_days, last_serviced, next_due FROM _maintenance ORDER BY next_due LIMIT 1000");
+            return Response.json({ ok: true, items: rows.map(decorate) });
+          }
+          // DELETE (admin).
+          if (key && !act && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _maintenance WHERE key=?", [key]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such item" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, key });
+          }
+          return Response.json({ ok: false, error: "unsupported maintenance-schedule request" }, { status: 405 });
+        } catch (e) { console.error("maintenance-schedule failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "maintenance-schedule failed" }, { status: 502 }); }
+      }
+      // CAPACITY FORECAST — a stateless capacity-vs-demand roll-up. Given periods of {capacity, demand}, it reports
+      // each period's utilization, shortfall (demand over capacity), and surplus, plus totals + overall utilization.
+      //   POST /api/db/<slug>/capacity-forecast {periods:[{label?, capacity, demand}]}  (public)
+      const capm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/capacity-forecast$/i);
+      if (capm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = capm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|capf", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          if (!Array.isArray(body.periods) || !body.periods.length) return Response.json({ ok: false, error: "periods must be a non-empty array" }, { status: 400 });
+          if (body.periods.length > 1000) return Response.json({ ok: false, error: "too many periods (max 1000)" }, { status: 400 });
+          let totCap = 0, totDem = 0;
+          const periods = [];
+          for (let i3 = 0; i3 < body.periods.length; i3++) {
+            const p = body.periods[i3];
+            const cap = Number(p.capacity), dem = Number(p.demand);
+            if (!Number.isFinite(cap) || cap < 0 || !Number.isFinite(dem) || dem < 0) return Response.json({ ok: false, error: "each period needs non-negative capacity and demand" }, { status: 400 });
+            totCap += cap; totDem += dem;
+            periods.push({ label: p.label != null ? String(p.label).slice(0, 80) : String(i3), capacity: cap, demand: dem, utilization: cap > 0 ? Math.round((dem / cap) * 1000) / 10 : null, shortfall: Math.max(0, dem - cap), surplus: Math.max(0, cap - dem) });
+          }
+          return Response.json({ ok: true, periods, total_capacity: totCap, total_demand: totDem, total_shortfall: Math.max(0, totDem - totCap), total_surplus: Math.max(0, totCap - totDem), overall_utilization: totCap > 0 ? Math.round((totDem / totCap) * 1000) / 10 : null });
+        } catch (e) { console.error("capacity-forecast failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "capacity-forecast failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
