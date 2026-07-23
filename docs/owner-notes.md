@@ -6666,6 +6666,18 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — excerpt · entity fields · usage metering (data API, round 2)
+- **`/excerpt`** — stateless smart truncate: optional HTML strip, whitespace collapse, cut to N words or N
+  chars on a word boundary + ellipsis (custom suffix). Public. batch331 (12/12).
+- **`/entity-fields`** — flexible key/value enrichment keyed by (type, id, field); admin upserts `{fields:{…}}`
+  (objects JSON-stringified), member reads as an object, delete one field or all. Schema-free extra attributes
+  on any record. `_entity_fields` (org, no erase). batch332 (16/16).
+- **`/usage-meter`** — cumulative counters per (meter, period): `/record {meter, period?, amount?}` atomically
+  bumps count + adds to total (`INSERT…ON CONFLICT DO UPDATE count+1, total+? RETURNING`); `/total` sums across
+  periods, list, reset. For billing/usage — distinct from `/rate-policies` (windowed enforcement).
+  `_usage_meter`. batch333 (16/16).
+- Full suite 316 green. (36/100 of round 2 shipped.)
+
 ## 2026-07-23 — phone normalize · attribution · quest chains (data API, round 2)
 - **`/phone-normalize`** — stateless best-effort E.164: a leading `+` is trusted; else a `country` (ISO2 or
   dialing code) prefixes and a national leading 0 is stripped; ~30-country dial map. Not a full validator.

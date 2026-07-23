@@ -5692,6 +5692,23 @@ async function ensureQuests(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _quest_progress (quest_key TEXT NOT NULL, user_id INTEGER NOT NULL, step_index INTEGER NOT NULL DEFAULT 0, updated_at TEXT, PRIMARY KEY (quest_key, user_id))");
   _questsReady.add(uuid);
 }
+// Entity fields — a flexible key/value enrichment store keyed by (entity_type, entity_id, field), so any
+// record can carry extra admin-managed attributes without a schema change. `_entity_fields`. Ensured once.
+const _entityFieldsReady = new Set();
+async function ensureEntityFields(env, uuid) {
+  if (_entityFieldsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _entity_fields (entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, field TEXT NOT NULL, value TEXT, updated_at TEXT, PRIMARY KEY (entity_type, entity_id, field))");
+  _entityFieldsReady.add(uuid);
+}
+// Usage metering — cumulative counters per (meter, period): each record bumps a count and adds to a total, for
+// billing / usage dashboards (distinct from the windowed enforcement of /rate-policies). `_usage_meter`.
+// Ensured once.
+const _usageMeterReady = new Set();
+async function ensureUsageMeter(env, uuid) {
+  if (_usageMeterReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _usage_meter (meter TEXT NOT NULL, period TEXT NOT NULL DEFAULT 'all', count INTEGER NOT NULL DEFAULT 0, total REAL NOT NULL DEFAULT 0, updated_at TEXT, PRIMARY KEY (meter, period))");
+  _usageMeterReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -21504,6 +21521,149 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported quests request" }, { status: 405 });
         } catch (e) { console.error("quests failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "quests failed" }, { status: 502 }); }
+      }
+      // EXCERPT — a stateless smart truncator: optionally strip HTML, collapse whitespace, then cut to N words
+      // or N characters on a word boundary, appending an ellipsis when the text was shortened.
+      //   POST /api/db/<slug>/excerpt {text, chars?, words?, strip_html?, suffix?}   (public) → {excerpt, truncated}
+      const excm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/excerpt$/i);
+      if (excm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = excm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|exc", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          let text = typeof body.text === "string" ? body.text : "";
+          if (!text.trim()) return Response.json({ ok: false, error: "text is required" }, { status: 400 });
+          if (body.strip_html) text = text.replace(/<[^>]*>/g, " ");
+          text = text.replace(/\s+/g, " ").trim();
+          const suffix = typeof body.suffix === "string" ? body.suffix.slice(0, 10) : "…";
+          let excerpt = text, truncated = false;
+          if (body.words != null) {
+            let words = Math.floor(Number(body.words)); if (!(words >= 1 && words <= 100000)) words = 40;
+            const parts = text.split(" ");
+            if (parts.length > words) { excerpt = parts.slice(0, words).join(" "); truncated = true; }
+          } else {
+            let chars = Math.floor(Number(body.chars)); if (!(chars >= 1 && chars <= 100000)) chars = 160;
+            if (text.length > chars) { let cut = text.slice(0, chars); const sp = cut.lastIndexOf(" "); if (sp > chars * 0.5) cut = cut.slice(0, sp); excerpt = cut.replace(/[\s,.;:!?-]+$/, ""); truncated = true; }
+          }
+          if (truncated) excerpt += suffix;
+          return Response.json({ ok: true, excerpt, truncated, length: excerpt.length });
+        } catch (e) { console.error("excerpt failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "excerpt failed" }, { status: 502 }); }
+      }
+      // ENTITY FIELDS — a flexible key/value enrichment store: attach admin-managed extra attributes to any
+      // record identified by (type, id) without a schema change. Admin writes; signed-in members read.
+      //   POST/PUT /api/db/<slug>/entity-fields/<type>/<id> {fields:{k:v,...}}   (ADMIN) → upsert fields
+      //   GET      /api/db/<slug>/entity-fields/<type>/<id>                      (member) → {fields:{...}}
+      //   DELETE   /api/db/<slug>/entity-fields/<type>/<id>[/<field>]            (ADMIN) → delete one or all
+      const entfm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/entity-fields\/([a-z0-9_.:-]{1,60})\/([A-Za-z0-9_.:-]{1,120})(?:\/([a-z0-9_.:-]{1,60}))?$/i);
+      if (entfm && (request.method === "GET" || request.method === "POST" || request.method === "PUT" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = entfm[1].toLowerCase(), etype = entfm[2].toLowerCase(), eid = entfm[3], field = entfm[4] ? entfm[4].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const isAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return !!(rr[0] && rr[0].role === "admin"); };
+        try {
+          await ensureEntityFields(env, uuid);
+          // READ (member).
+          if (request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT field, value FROM _entity_fields WHERE entity_type=? AND entity_id=? ORDER BY field ASC LIMIT 1000", [etype, eid]);
+            const fields = {}; for (const r of rows) fields[r.field] = r.value;
+            return Response.json({ ok: true, type: etype, id: eid, fields });
+          }
+          if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          // UPSERT (admin).
+          if (request.method === "POST" || request.method === "PUT") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const fields = (body.fields && typeof body.fields === "object" && !Array.isArray(body.fields)) ? body.fields : null;
+            if (!fields || !Object.keys(fields).length) return Response.json({ ok: false, error: "a non-empty fields object is required" }, { status: 400 });
+            const now = new Date().toISOString(); let n = 0;
+            for (const [k, v] of Object.entries(fields).slice(0, 200)) {
+              const fk = String(k).trim().toLowerCase(); if (!/^[a-z0-9_.:-]{1,60}$/.test(fk)) continue;
+              const val = v == null ? null : (typeof v === "object" ? JSON.stringify(v) : String(v)).slice(0, 4000);
+              await cfD1Query(env, uuid, "INSERT INTO _entity_fields (entity_type, entity_id, field, value, updated_at) VALUES (?,?,?,?,?) ON CONFLICT(entity_type, entity_id, field) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at", [etype, eid, fk, val, now]);
+              n++;
+            }
+            return Response.json({ ok: true, type: etype, id: eid, saved: n });
+          }
+          // DELETE (admin).
+          if (request.method === "DELETE") {
+            const ex = field
+              ? await cfD1Exec(env, uuid, "DELETE FROM _entity_fields WHERE entity_type=? AND entity_id=? AND field=?", [etype, eid, field])
+              : await cfD1Exec(env, uuid, "DELETE FROM _entity_fields WHERE entity_type=? AND entity_id=?", [etype, eid]);
+            return Response.json({ ok: true, deleted: ex.changes || 0 });
+          }
+          return Response.json({ ok: false, error: "unsupported entity-fields request" }, { status: 405 });
+        } catch (e) { console.error("entity-fields failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "entity-fields failed" }, { status: 502 }); }
+      }
+      // USAGE METERING — cumulative counters per (meter, period): each record bumps a count and adds to a total,
+      // for billing / usage dashboards. Distinct from the windowed enforcement of /rate-policies.
+      //   POST   /api/db/<slug>/usage-meter/record {meter, period?, amount?}   (member) → atomic increment
+      //   GET    /api/db/<slug>/usage-meter?meter=&period=                     (ADMIN) → rows for a meter
+      //   GET    /api/db/<slug>/usage-meter/total?meter=                       (ADMIN) → summed count + total
+      //   DELETE /api/db/<slug>/usage-meter/<meter>                            (ADMIN) → reset a meter
+      const umtm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/usage-meter(?:\/(record|total|[A-Za-z0-9_.:-]{1,60}))?$/i);
+      if (umtm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = umtm[1].toLowerCase(), seg = umtm[2] || null;
+        const isRecord = seg === "record", isTotal = seg === "total", meterName = (seg && !isRecord && !isTotal) ? seg : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const isAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return !!(rr[0] && rr[0].role === "admin"); };
+        try {
+          await ensureUsageMeter(env, uuid);
+          // RECORD (member, atomic).
+          if (isRecord && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|um", 1200)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const meter = String(body.meter || "").trim().toLowerCase().slice(0, 60);
+            if (!/^[a-z0-9_.:-]{1,60}$/.test(meter)) return Response.json({ ok: false, error: "a valid meter is required" }, { status: 400 });
+            let period = String(body.period || "all").trim().toLowerCase().slice(0, 40); if (!/^[a-z0-9_.:-]{1,40}$/.test(period)) period = "all";
+            let amount = Number(body.amount); if (!Number.isFinite(amount)) amount = 1;
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _usage_meter (meter, period, count, total, updated_at) VALUES (?,?,1,?,?) ON CONFLICT(meter, period) DO UPDATE SET count=count+1, total=total+?, updated_at=excluded.updated_at RETURNING count, total", [meter, period, amount, now, amount]);
+            return Response.json({ ok: true, meter, period, count: r[0].count, total: r[0].total });
+          }
+          if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          // TOTAL (admin).
+          if (isTotal && request.method === "GET") {
+            const meter = String(url.searchParams.get("meter") || "").trim().toLowerCase();
+            if (!meter) return Response.json({ ok: false, error: "a ?meter= is required" }, { status: 400 });
+            const r = (await cfD1Query(env, uuid, "SELECT COALESCE(SUM(count),0) AS count, COALESCE(SUM(total),0) AS total FROM _usage_meter WHERE meter=?", [meter]))[0];
+            return Response.json({ ok: true, meter, count: r.count, total: r.total });
+          }
+          // RESET (admin).
+          if (meterName && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _usage_meter WHERE meter=?", [meterName.toLowerCase()]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such meter" }, { status: 404 });
+            return Response.json({ ok: true, reset: true, meter: meterName.toLowerCase(), removed: ex.changes });
+          }
+          // LIST (admin).
+          if (!seg && request.method === "GET") {
+            const meter = url.searchParams.get("meter"), period = url.searchParams.get("period");
+            let sql = "SELECT meter, period, count, total, updated_at FROM _usage_meter WHERE 1=1", params = [];
+            if (meter) { sql += " AND meter=?"; params.push(String(meter).toLowerCase()); }
+            if (period) { sql += " AND period=?"; params.push(String(period).toLowerCase()); }
+            sql += " ORDER BY meter ASC, period ASC LIMIT 5000";
+            const rows = await cfD1Query(env, uuid, sql, params);
+            return Response.json({ ok: true, usage: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported usage-meter request" }, { status: 405 });
+        } catch (e) { console.error("usage-meter failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "usage-meter failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
