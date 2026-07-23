@@ -39,7 +39,15 @@ Building them one PR at a time, $0 (no Claude/fal spend).
   fake caps / no home page / dup paths / missing visitor role) + `specToPrompt` (compact planning brief the
   generator consumes). `test/backend/planner.test.mjs` (25/25). A model refinement pass can layer on later; the
   spec shape stays the same. NOT yet wired into live generation (credits — will ask first).
-- Remaining: #3 design engine (incl. live render/screenshot-critique), #5 worker.js refactor.
+- **#3 Design engine (offline core) — DONE.** `builder/design-system.mjs`: 5 **style families** (studio-dark,
+  minimal-light, warm-editorial, playful, elegant-dark) — each a token set (colors/type/radius/shadow) that is
+  WCAG-AA verified (`critiqueTokens` + `wcagContrast`; all pass, text ≥14:1, accents ≥5:1); a **component
+  registry** (Button/Card/Input/Nav/Table/Modal/EmptyState/Toast/…) + **layout patterns** (hero/dashboard/
+  list-detail/form/gallery/settings) + **responsive rules**. `pickStyleFamily(hints)` maps planner design_hints →
+  a family; `tokensToCssVars`/`tokensToTailwindTheme` emit; `designBrief(id)` renders the vocabulary for the
+  generator. `test/backend/design.test.mjs` (25/25). The vision-based screenshot-critique → automatic-visual-repair
+  is the LIVE half (renders + a vision model = credits) and layers on this — follow-up, pairs with #4's live half.
+- Remaining: #5 worker.js refactor.
 
 ## 2026-07-21 — BACKEND ROADMAP: building the "100 more" list (AI parked)
 
