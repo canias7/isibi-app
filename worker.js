@@ -4903,6 +4903,34 @@ async function ensureNewsletter(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _newsletter (email TEXT PRIMARY KEY, name TEXT, status TEXT NOT NULL DEFAULT 'pending', token TEXT, created_at TEXT, confirmed_at TEXT, unsubscribed_at TEXT)");
   _newsletterReady.add(uuid);
 }
+// Points / karma ledger — a per-member gamification points balance backed by an append-only ledger (award
+// or deduct with a reason). Balance = SUM(delta). Distinct from app billing credits. Ensured once.
+const _pointsReady = new Set();
+async function ensurePoints(env, uuid) {
+  if (_pointsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _points_ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, delta INTEGER NOT NULL, reason TEXT, ref TEXT, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_points_user ON _points_ledger (user_id)"); } catch {}
+  _pointsReady.add(uuid);
+}
+// Generic leaderboards — a named board over any metric; members submit scores under a per-board mode
+// (max = keep best, sum = accumulate, last = latest); reads return the ranked top-N. Ensured once.
+const _leaderboardsReady = new Set();
+async function ensureLeaderboards(env, uuid) {
+  if (_leaderboardsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _leaderboards (board TEXT PRIMARY KEY, title TEXT, mode TEXT NOT NULL DEFAULT 'max', created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _leaderboard_scores (board TEXT NOT NULL, user_id INTEGER NOT NULL, score INTEGER NOT NULL DEFAULT 0, updated_at TEXT, PRIMARY KEY (board, user_id))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_lb_scores ON _leaderboard_scores (board, score)"); } catch {}
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_lb_scores_user ON _leaderboard_scores (user_id)"); } catch {}
+  _leaderboardsReady.add(uuid);
+}
+// Daily-reward claim — a member claims once per UTC day; consecutive-day claims grow a streak (a missed day
+// resets it). One row per member in `_daily_claims`. Ensured once.
+const _dailyReady = new Set();
+async function ensureDaily(env, uuid) {
+  if (_dailyReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _daily_claims (user_id INTEGER PRIMARY KEY, last_claim_date TEXT, streak INTEGER NOT NULL DEFAULT 0, total_claims INTEGER NOT NULL DEFAULT 0, updated_at TEXT)");
+  _dailyReady.add(uuid);
+}
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -9691,6 +9719,9 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _quotes WHERE author_id=?", [u.id]],                               // quotes/estimates they authored
             ["DELETE FROM _leads WHERE lower(email)=lower(?)", [u.email]],                    // a lead record captured about them
             ["DELETE FROM _newsletter WHERE lower(email)=lower(?)", [u.email]],              // newsletter subscription
+            ["DELETE FROM _points_ledger WHERE user_id=?", [u.id]],                          // gamification points ledger
+            ["DELETE FROM _leaderboard_scores WHERE user_id=?", [u.id]],                     // leaderboard scores
+            ["DELETE FROM _daily_claims WHERE user_id=?", [u.id]],                           // daily-reward claim streak
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -13970,6 +14001,185 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported newsletter request" }, { status: 405 });
         } catch (e) { console.error("newsletter failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "newsletter failed" }, { status: 502 }); }
+      }
+      // POINTS / KARMA LEDGER — a per-member gamification points balance backed by an append-only ledger.
+      //   POST   /api/db/<slug>/points/award {user, amount, reason?, ref?}  (ADMIN) → {balance}
+      //   GET    /api/db/<slug>/points/me                   (member) → {balance, history}
+      //   GET    /api/db/<slug>/points/<userId>             (ADMIN) → {balance, history}
+      //   GET    /api/db/<slug>/points/leaderboard[?limit=] (public) → top members by balance
+      const ptm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/points(?:\/(award|me|leaderboard|\d+))?$/i);
+      if (ptm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = ptm[1].toLowerCase(), seg = ptm[2] || null, wantUser = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const balanceOf = async (uid) => (await cfD1Query(env, uuid, "SELECT COALESCE(SUM(delta),0) AS balance FROM _points_ledger WHERE user_id=?", [uid]))[0].balance;
+        try {
+          await ensurePoints(env, uuid);
+          // LEADERBOARD (public).
+          if (seg === "leaderboard") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|ptlb", 300)) return tooMany();
+            let limit = parseInt(url.searchParams.get("limit"), 10); if (!(limit > 0) || limit > 100) limit = 20;
+            const rows = await cfD1Query(env, uuid, "SELECT user_id, SUM(delta) AS balance FROM _points_ledger GROUP BY user_id HAVING balance != 0 ORDER BY balance DESC LIMIT ?", [limit]);
+            return Response.json({ ok: true, leaderboard: rows.map((r, i) => ({ rank: i + 1, user_id: r.user_id, balance: r.balance })) });
+          }
+          // AWARD (admin).
+          if (seg === "award") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            if (!rateOk(slug + "|" + ip + "|ptw", 600)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const target = parseInt(body.user, 10);
+            const amount = Math.floor(Number(body.amount));
+            if (!(target > 0)) return Response.json({ ok: false, error: "user (member id) is required" }, { status: 400 });
+            if (!Number.isFinite(amount) || amount === 0 || amount < -1000000 || amount > 1000000) return Response.json({ ok: false, error: "a non-zero amount is required" }, { status: 400 });
+            if (!(await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _users WHERE id=?", [target]))[0]) return Response.json({ ok: false, error: "no such user" }, { status: 404 });
+            await cfD1Exec(env, uuid, "INSERT INTO _points_ledger (user_id, delta, reason, ref, created_at) VALUES (?,?,?,?,?)", [target, amount, body.reason != null ? String(body.reason).slice(0, 200) : null, body.ref != null ? String(body.ref).slice(0, 120) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, user: target, awarded: amount, balance: await balanceOf(target) });
+          }
+          // MY balance + history (member).
+          if (seg === "me") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const history = await cfD1Query(env, uuid, "SELECT delta, reason, ref, created_at FROM _points_ledger WHERE user_id=? ORDER BY id DESC LIMIT 100", [userId]);
+            return Response.json({ ok: true, balance: await balanceOf(userId), history });
+          }
+          // A member's balance + history (admin).
+          if (wantUser != null) {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const history = await cfD1Query(env, uuid, "SELECT delta, reason, ref, created_at FROM _points_ledger WHERE user_id=? ORDER BY id DESC LIMIT 200", [wantUser]);
+            return Response.json({ ok: true, user: wantUser, balance: await balanceOf(wantUser), history });
+          }
+          return Response.json({ ok: false, error: "use /points/award, /me, /<userId> or /leaderboard" }, { status: 404 });
+        } catch (e) { console.error("points failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "points failed" }, { status: 502 }); }
+      }
+      // GENERIC LEADERBOARDS — a named board over any metric; members submit scores under a per-board mode
+      // (max = keep best · sum = accumulate · last = latest); reads return the ranked top-N (+ my rank).
+      //   POST   /api/db/<slug>/leaderboards/<board> {mode?, title?}  (ADMIN) → define
+      //   POST   /api/db/<slug>/leaderboards/<board>/submit {score}   (member) → submit (applies mode)
+      //   GET    /api/db/<slug>/leaderboards/<board>[?limit=]         (public) → {top, players, mine}
+      //   GET    /api/db/<slug>/leaderboards                          (public) → boards
+      //   DELETE /api/db/<slug>/leaderboards/<board>                  (ADMIN)
+      const lbm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/leaderboards(?:\/([A-Za-z0-9_.-]{1,80})(?:\/(submit))?)?$/i);
+      if (lbm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = lbm[1].toLowerCase(), board = lbm[2] || null, isSubmit = lbm[3] === "submit";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureLeaderboards(env, uuid);
+          // LIST boards (public).
+          if (!board && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|lbl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT board, title, mode, (SELECT COUNT(*) FROM _leaderboard_scores WHERE board=_leaderboards.board) AS players FROM _leaderboards ORDER BY board ASC LIMIT 200");
+            return Response.json({ ok: true, leaderboards: rows });
+          }
+          // DEFINE (admin).
+          if (board && !isSubmit && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|lbw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            let mode = String(body.mode || "").toLowerCase(); if (!["max", "sum", "last"].includes(mode)) mode = "max";
+            await cfD1Query(env, uuid, "INSERT INTO _leaderboards (board, title, mode, created_at) VALUES (?,?,?,?) ON CONFLICT(board) DO UPDATE SET title=excluded.title, mode=excluded.mode", [board, body.title != null ? String(body.title).slice(0, 200) : null, mode, new Date().toISOString()]);
+            return Response.json({ ok: true, board, mode });
+          }
+          // DELETE (admin).
+          if (board && !isSubmit && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _leaderboards WHERE board=?", [board]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such board" }, { status: 404 });
+            try { await cfD1Exec(env, uuid, "DELETE FROM _leaderboard_scores WHERE board=?", [board]); } catch {}
+            return Response.json({ ok: true, deleted: true, board });
+          }
+          // SUBMIT a score (member).
+          if (board && isSubmit && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|lbs", 300)) return tooMany();
+            const def = (await cfD1Query(env, uuid, "SELECT mode FROM _leaderboards WHERE board=?", [board]))[0];
+            if (!def) return Response.json({ ok: false, error: "no such board" }, { status: 404 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const score = Math.floor(Number(body.score));
+            if (!Number.isFinite(score) || score < -1000000000 || score > 1000000000) return Response.json({ ok: false, error: "a numeric score is required" }, { status: 400 });
+            const now = new Date().toISOString();
+            // Atomic upsert per mode: max keeps the higher, sum accumulates, last always overwrites.
+            const setExpr = def.mode === "sum" ? "score = _leaderboard_scores.score + excluded.score" : def.mode === "last" ? "score = excluded.score" : "score = MAX(_leaderboard_scores.score, excluded.score)";
+            await cfD1Query(env, uuid, "INSERT INTO _leaderboard_scores (board, user_id, score, updated_at) VALUES (?,?,?,?) ON CONFLICT(board, user_id) DO UPDATE SET " + setExpr + ", updated_at=excluded.updated_at", [board, userId, score, now]);
+            const mine = (await cfD1Query(env, uuid, "SELECT score FROM _leaderboard_scores WHERE board=? AND user_id=?", [board, userId]))[0];
+            const rank = (await cfD1Query(env, uuid, "SELECT COUNT(*)+1 AS rank FROM _leaderboard_scores WHERE board=? AND score > ?", [board, mine.score]))[0].rank;
+            return Response.json({ ok: true, board, score: mine.score, rank });
+          }
+          // READ ranked (public).
+          if (board && !isSubmit && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|lbr", 600)) return tooMany();
+            const def = (await cfD1Query(env, uuid, "SELECT board, title, mode FROM _leaderboards WHERE board=?", [board]))[0];
+            if (!def) return Response.json({ ok: false, error: "no such board" }, { status: 404 });
+            let limit = parseInt(url.searchParams.get("limit"), 10); if (!(limit > 0) || limit > 100) limit = 20;
+            const rows = await cfD1Query(env, uuid, "SELECT user_id, score FROM _leaderboard_scores WHERE board=? ORDER BY score DESC, updated_at ASC LIMIT ?", [board, limit]);
+            const players = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _leaderboard_scores WHERE board=?", [board]))[0].n;
+            let mine = null;
+            if (userId) { const ms = (await cfD1Query(env, uuid, "SELECT score FROM _leaderboard_scores WHERE board=? AND user_id=?", [board, userId]))[0]; if (ms) { const rk = (await cfD1Query(env, uuid, "SELECT COUNT(*)+1 AS rank FROM _leaderboard_scores WHERE board=? AND score > ?", [board, ms.score]))[0].rank; mine = { score: ms.score, rank: rk }; } }
+            return Response.json({ ok: true, board: def.board, title: def.title, mode: def.mode, players, top: rows.map((r, i) => ({ rank: i + 1, user_id: r.user_id, score: r.score })), mine });
+          }
+          return Response.json({ ok: false, error: "unsupported leaderboards request" }, { status: 405 });
+        } catch (e) { console.error("leaderboards failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "leaderboards failed" }, { status: 502 }); }
+      }
+      // DAILY-REWARD CLAIM — a member claims once per UTC day; consecutive-day claims grow a streak (a
+      // missed day resets it). The response reports the streak + a reward amount (the app grants it).
+      //   POST   /api/db/<slug>/daily/claim   (member) → {claimed, streak, day, reward} · 409 if already today
+      //   GET    /api/db/<slug>/daily          (member) → {streak, canClaim, lastClaim, nextReward}
+      const drm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/daily(?:\/(claim))?$/i);
+      if (drm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = drm[1].toLowerCase(), isClaim = drm[2] === "claim";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        // A day is a UTC date string; reward scales with the streak (capped at 7×).
+        const today = new Date().toISOString().slice(0, 10);
+        const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+        const rewardFor = (streak) => 10 * Math.min(streak, 7);
+        try {
+          await ensureDaily(env, uuid);
+          const row = (await cfD1Query(env, uuid, "SELECT last_claim_date, streak, total_claims FROM _daily_claims WHERE user_id=?", [userId]))[0];
+          if (isClaim && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|drw", 60)) return tooMany();
+            if (row && row.last_claim_date === today) return Response.json({ ok: false, error: "already claimed today", streak: row.streak, day: today }, { status: 409 });
+            const streak = row && row.last_claim_date === yesterday ? (row.streak || 0) + 1 : 1;
+            const total = (row ? row.total_claims || 0 : 0) + 1;
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _daily_claims (user_id, last_claim_date, streak, total_claims, updated_at) VALUES (?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET last_claim_date=excluded.last_claim_date, streak=excluded.streak, total_claims=excluded.total_claims, updated_at=excluded.updated_at", [userId, today, streak, total, now]);
+            return Response.json({ ok: true, claimed: true, streak, day: today, reward: rewardFor(streak), total_claims: total });
+          }
+          if (!isClaim && request.method === "GET") {
+            const claimedToday = !!(row && row.last_claim_date === today);
+            const curStreak = row ? (row.last_claim_date === today || row.last_claim_date === yesterday ? row.streak || 0 : 0) : 0;
+            const nextStreak = claimedToday ? curStreak : (row && row.last_claim_date === yesterday ? curStreak + 1 : 1);
+            return Response.json({ ok: true, streak: curStreak, canClaim: !claimedToday, lastClaim: row ? row.last_claim_date : null, nextReward: rewardFor(nextStreak), total_claims: row ? row.total_claims || 0 : 0 });
+          }
+          return Response.json({ ok: false, error: "use POST /daily/claim or GET /daily" }, { status: 405 });
+        } catch (e) { console.error("daily failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "daily failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
