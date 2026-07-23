@@ -6661,6 +6661,18 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — lead capture · deal pipeline (kanban) · newsletter opt-in (data API, next-100 CRM batch)
+- **`/leads`** — PUBLIC form capture (no auth, hard rate-limit 20/min, needs name|email|phone, email
+  validated) → staff triage. Admin list (status/min_score/sort=score|new), `/leads/<id>/score {by}` atomic
+  RETURNING bump, PATCH (status/owner/fields), delete. Erased by email on account deletion. batch214 (22/22).
+- **`/deals`** — kanban pipeline. Admin-only. Stage is freeform (normalized to a slug); `/deals/board` groups
+  open deals by stage with per-column count+total; PATCH stage/position = drag; status won/lost stamps
+  closed_at + drops off the open board. Business data → no GDPR erase line (owner_id is staff). batch215 (22/22).
+- **`/newsletter`** — double opt-in. `/subscribe {email}` → pending + single-use token (app emails it);
+  `/confirm {token}` (UPDATE…WHERE token AND status='pending' RETURNING); `/unsubscribe {email|token}`; admin
+  list (confirmed default) + `/stats` (SUM(status=…) counts). Erased by email. batch216 (20/20).
+- Full suite 199 green.
+
 ## 2026-07-23 — shipping rates · quote builder · giveaway draw (data API, next-100 commerce batch)
 - Note: NO e-commerce `_orders` table exists (only manufacturing `_work_orders`), so I skipped the
   order-dependent items (#2 RMA, #3 order timeline) and built 3 clean standalone commerce primitives instead.
