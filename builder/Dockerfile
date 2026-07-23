@@ -8,9 +8,10 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install --no-audit --no-fund --loglevel=error
 
-# Chromium for the vision-critique render (/critique). --with-deps pulls the system libs. Baked into the image so
-# no per-build download. If this layer is ever removed, /critique degrades to a no-op (the build service still runs).
-RUN npx playwright install --with-deps chromium
+# Chromium for the vision-critique render (/critique). --with-deps pulls the system libs. BEST-EFFORT: the `|| true`
+# means a Chromium install hiccup (apt/network) can NEVER fail the image build — the build service still starts and
+# serves /build; only /critique (vision, opt-in) degrades to a no-op. So this layer can't cause a build outage.
+RUN npx playwright install --with-deps chromium || echo "WARN: chromium install failed; /critique will no-op"
 
 # A default template so `vite build` always has a valid project shape; the
 # generated source overwrites index.html + src/** + configs per request.
