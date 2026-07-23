@@ -6661,6 +6661,22 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — status-page incidents · feedback board · countdown timers (data API, next-100)
+- **`/incidents`** — a service status page. Admin opens an incident (title/impact/status; body seeds the
+  first timeline entry) and posts updates (`/updates {status?,body}` — a status advances the incident, and
+  `resolved` stamps resolved_at). Public reads `GET /incidents[?active=1]` + one with its full timeline;
+  anyone `POST /incidents/subscribe {email}` (email-validated, dedup) / DELETE `?email=`; admin
+  `/incidents/subscribers`. Admin PATCH title/impact + delete (cascades updates). `_status_subscribers`
+  erased by email on account deletion. batch208 (27/27).
+- **`/feedback`** — a public idea board with upvotes + a roadmap. Member submits (auto-upvotes own post),
+  everyone upvotes (`/vote` POST/DELETE, per-user dedup via PK), `?sort=top|new` + `?status=` filter, `mine`
+  flag per row; admin PATCH sets roadmap status (open/planned/in_progress/done/declined); author OR admin
+  deletes. `_feedback`(author_id)+`_feedback_votes`(user_id) in GDPR erase. batch209 (21/21).
+- **`/countdowns/<key>`** — server-authoritative launch/sale timers. Admin upserts {title,target} (target =
+  any parseable datetime → stored ISO); public `GET` → `{target_at, remaining, expired}` (remaining = whole
+  seconds, floors at 0). List + admin delete. No user scope → no erase line. batch210 (19/19).
+- Full suite 193 green.
+
 ## 2026-07-23 — support tickets · canned responses · help-article votes (data API, next-100 support batch)
 - **`/tickets`** — a real help desk. Member opens (subject+body+priority → seeds the thread's first
   message), lists own; admin sees all with `?status=&assignee=&mine=`. `GET /tickets/<id>` returns the
