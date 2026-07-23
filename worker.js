@@ -5558,6 +5558,24 @@ async function ensureHealth(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _health_checks (name TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'unknown', message TEXT, updated_at TEXT)");
   _healthReady.add(uuid);
 }
+// Schedule registry — declare named recurring schedules (an interval); mark each run, and poll which are due
+// (enabled AND last_run + interval ≤ now). `_schedules`. Ensured once.
+const _schedulesReady = new Set();
+async function ensureSchedules(env, uuid) {
+  if (_schedulesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _schedules (name TEXT PRIMARY KEY, interval_sec INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, last_run TEXT, note TEXT, created_at TEXT, updated_at TEXT)");
+  _schedulesReady.add(uuid);
+}
+// Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
+// top receivers. `_kudos`. Ensured once.
+const _kudosReady = new Set();
+async function ensureKudos(env, uuid) {
+  if (_kudosReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _kudos (id INTEGER PRIMARY KEY AUTOINCREMENT, from_id INTEGER NOT NULL, to_id INTEGER NOT NULL, message TEXT, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_kudos_to ON _kudos (to_id)"); } catch {}
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_kudos_from ON _kudos (from_id)"); } catch {}
+  _kudosReady.add(uuid);
+}
 // The user-scoped tables a member can export their own rows from (GDPR data portability) — kept in sync with
 // the erase list. Each entry is [table, ownerColumn]; a missing table is skipped at read time.
 const DATA_EXPORT_TABLES = [
@@ -10393,6 +10411,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _rma WHERE user_id=?", [u.id]],                                    // return / RMA requests
             ["DELETE FROM _order_notes WHERE user_id=?", [u.id]],                            // order notes / gift messages
             ["DELETE FROM _sessions WHERE user_id=?", [u.id]],                               // analytics sessions
+            ["DELETE FROM _kudos WHERE from_id=? OR to_id=?", [u.id, u.id]],                 // kudos given or received
             ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
             ["DELETE FROM _testimonials WHERE user_id=?", [u.id]],                           // user-submitted testimonials
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
@@ -19997,6 +20016,155 @@ async function handleRequest(request, env, ctx) {
           const out = counts.map((c2, i) => ({ lo: round(lo + i * width), hi: round(lo + (i + 1) * width), count: c2 }));
           return Response.json({ ok: true, count: values.length, min: round(lo), max: round(hi), bins: out });
         } catch (e) { console.error("histogram failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "histogram failed" }, { status: 502 }); }
+      }
+      // READABILITY — a stateless text analyzer: word / sentence / syllable counts, reading time, and Flesch
+      // reading-ease + Flesch-Kincaid grade level.
+      //   POST /api/db/<slug>/readability {text, wpm?}   (public) → stats
+      const rdbm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/readability$/i);
+      if (rdbm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = rdbm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|rd", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const text = typeof body.text === "string" ? body.text : "";
+          if (!text.trim()) return Response.json({ ok: false, error: "text is required" }, { status: 400 });
+          const chars = text.length;
+          const wordsArr = text.trim().split(/\s+/).filter(Boolean);
+          const words = wordsArr.length;
+          const sentences = Math.max(1, (text.match(/[.!?]+(\s|$)/g) || []).length);
+          const syllablesIn = (w) => { const s2 = w.toLowerCase().replace(/[^a-z]/g, ""); if (!s2) return 0; if (s2.length <= 3) return 1; const g = s2.replace(/(?:[^laeiouy]es|ed|[^laeiouy]e)$/, "").replace(/^y/, "").match(/[aeiouy]{1,2}/g); return g ? g.length : 1; };
+          let syllables = 0; for (const w of wordsArr) syllables += syllablesIn(w);
+          let wpm = Math.floor(Number(body.wpm)); if (!(wpm >= 50 && wpm <= 1000)) wpm = 200;
+          const round = (x, d = 2) => Math.round(x * Math.pow(10, d)) / Math.pow(10, d);
+          const wps = words / sentences, spw = syllables / (words || 1);
+          const flesch = words ? round(206.835 - 1.015 * wps - 84.6 * spw) : 0;
+          const grade = words ? round(0.39 * wps + 11.8 * spw - 15.59) : 0;
+          return Response.json({ ok: true, chars, words, sentences, syllables, reading_time_min: round(words / wpm, 2), flesch_reading_ease: flesch, flesch_kincaid_grade: grade });
+        } catch (e) { console.error("readability failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "readability failed" }, { status: 502 }); }
+      }
+      // SCHEDULE REGISTRY — declare named recurring schedules (an interval in seconds); mark each run and poll
+      // which are due (enabled AND last_run + interval ≤ now). A lightweight cron-style registry.
+      //   POST   /api/db/<slug>/schedules {name, interval_sec, enabled?, note?}  (ADMIN) → upsert
+      //   POST   /api/db/<slug>/schedules/<name>/ran     (ADMIN) → stamp last_run=now
+      //   GET    /api/db/<slug>/schedules/due            (ADMIN) → schedules currently due
+      //   GET    /api/db/<slug>/schedules                (ADMIN) → all with next_due
+      //   DELETE /api/db/<slug>/schedules/<name>         (ADMIN)
+      const schm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/schedules(?:\/(due|[A-Za-z0-9_.:-]{1,60}))?(?:\/(ran))?$/i);
+      if (schm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = schm[1].toLowerCase(), seg = schm[2] || null, act = schm[3] || null;
+        const isDue = seg === "due", schedName = (seg && !isDue) ? seg.toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureSchedules(env, uuid);
+          const nextDue = (r) => r.last_run ? new Date(Date.parse(r.last_run) + r.interval_sec * 1000).toISOString() : new Date().toISOString();
+          // UPSERT.
+          if (!seg && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const name = String(body.name || "").trim().toLowerCase().slice(0, 60);
+            if (!/^[a-z0-9_.:-]{1,60}$/.test(name)) return Response.json({ ok: false, error: "a valid name is required" }, { status: 400 });
+            const interval = Math.floor(Number(body.interval_sec));
+            if (!(interval >= 1 && interval <= 31536000)) return Response.json({ ok: false, error: "interval_sec must be 1..31536000" }, { status: 400 });
+            const enabled = body.enabled === false ? 0 : 1, now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _schedules (name, interval_sec, enabled, note, created_at, updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET interval_sec=excluded.interval_sec, enabled=excluded.enabled, note=excluded.note, updated_at=excluded.updated_at", [name, interval, enabled, body.note != null ? String(body.note).slice(0, 500) : null, now, now]);
+            return Response.json({ ok: true, name, interval_sec: interval, enabled: !!enabled });
+          }
+          // RAN.
+          if (schedName && act === "ran" && request.method === "POST") {
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "UPDATE _schedules SET last_run=?, updated_at=? WHERE name=? RETURNING interval_sec, last_run", [now, now, schedName]);
+            if (!r.length) return Response.json({ ok: false, error: "no such schedule" }, { status: 404 });
+            return Response.json({ ok: true, name: schedName, last_run: now, next_due: new Date(Date.now() + r[0].interval_sec * 1000).toISOString() });
+          }
+          // DUE.
+          if (isDue && request.method === "GET") {
+            const now = new Date().toISOString();
+            const rows = await cfD1Query(env, uuid, "SELECT name, interval_sec, last_run FROM _schedules WHERE enabled=1 AND (last_run IS NULL OR datetime(last_run, '+' || interval_sec || ' seconds') <= datetime(?)) ORDER BY name ASC LIMIT 1000", [now]);
+            return Response.json({ ok: true, due: rows.map((r) => ({ name: r.name, interval_sec: r.interval_sec, last_run: r.last_run })) });
+          }
+          // DELETE.
+          if (schedName && !act && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _schedules WHERE name=?", [schedName]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such schedule" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, name: schedName });
+          }
+          // LIST.
+          if (!seg && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT name, interval_sec, enabled, last_run, note FROM _schedules ORDER BY name ASC LIMIT 1000");
+            return Response.json({ ok: true, schedules: rows.map((r) => ({ name: r.name, interval_sec: r.interval_sec, enabled: !!r.enabled, last_run: r.last_run, note: r.note, next_due: r.enabled ? nextDue(r) : null })) });
+          }
+          return Response.json({ ok: false, error: "unsupported schedules request" }, { status: 405 });
+        } catch (e) { console.error("schedules failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "schedules failed" }, { status: 502 }); }
+      }
+      // KUDOS / PEER RECOGNITION — a member gives kudos to another member; a leaderboard ranks top receivers.
+      //   POST /api/db/<slug>/kudos {to, message?}     (member) → give (not to yourself)
+      //   GET  /api/db/<slug>/kudos/leaderboard        (member) → top receivers
+      //   GET  /api/db/<slug>/kudos/received           (member) → kudos I received
+      //   GET  /api/db/<slug>/kudos/given              (member) → kudos I gave
+      //   GET  /api/db/<slug>/kudos                     (ADMIN)  → all
+      const kdm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/kudos(?:\/(leaderboard|received|given))?$/i);
+      if (kdm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = kdm[1].toLowerCase(), seg = kdm[2] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureKudos(env, uuid);
+          // GIVE.
+          if (!seg && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|kd", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const to = Math.floor(Number(body.to));
+            if (!Number.isFinite(to)) return Response.json({ ok: false, error: "a recipient (to) is required" }, { status: 400 });
+            if (to === userId) return Response.json({ ok: false, error: "you can't give yourself kudos" }, { status: 400 });
+            const exists = (await cfD1Query(env, uuid, "SELECT 1 FROM _users WHERE id=?", [to]))[0];
+            if (!exists) return Response.json({ ok: false, error: "no such recipient" }, { status: 404 });
+            const r = await cfD1Query(env, uuid, "INSERT INTO _kudos (from_id, to_id, message, created_at) VALUES (?,?,?,?) RETURNING id", [userId, to, body.message != null ? String(body.message).slice(0, 500) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, to });
+          }
+          // LEADERBOARD.
+          if (seg === "leaderboard" && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT k.to_id AS user_id, COUNT(*) AS kudos, u.email AS email FROM _kudos k LEFT JOIN _users u ON u.id = k.to_id GROUP BY k.to_id ORDER BY kudos DESC LIMIT 100");
+            return Response.json({ ok: true, leaderboard: rows.map((r, i) => ({ rank: i + 1, user_id: r.user_id, email: r.email, kudos: r.kudos })) });
+          }
+          // RECEIVED.
+          if (seg === "received" && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT id, from_id, message, created_at FROM _kudos WHERE to_id=? ORDER BY id DESC LIMIT 500", [userId]);
+            return Response.json({ ok: true, received: rows });
+          }
+          // GIVEN.
+          if (seg === "given" && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT id, to_id, message, created_at FROM _kudos WHERE from_id=? ORDER BY id DESC LIMIT 500", [userId]);
+            return Response.json({ ok: true, given: rows });
+          }
+          // ALL (admin).
+          if (!seg && request.method === "GET") {
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const rows = await cfD1Query(env, uuid, "SELECT id, from_id, to_id, message, created_at FROM _kudos ORDER BY id DESC LIMIT 2000");
+            return Response.json({ ok: true, kudos: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported kudos request" }, { status: 405 });
+        } catch (e) { console.error("kudos failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "kudos failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
