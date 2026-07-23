@@ -5933,6 +5933,14 @@ async function ensureDunning(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_dunning_status ON _dunning (status, next_retry)"); } catch {}
   _dunningReady.add(uuid);
 }
+// Password policy — a singleton row (id=1) holding the site's password rules; a check validates a candidate
+// password against them. `_password_policy`. Ensured once.
+const _passwordPolicyReady = new Set();
+async function ensurePasswordPolicy(env, uuid) {
+  if (_passwordPolicyReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _password_policy (id INTEGER PRIMARY KEY CHECK(id=1), min_length INTEGER NOT NULL DEFAULT 8, require_upper INTEGER NOT NULL DEFAULT 0, require_lower INTEGER NOT NULL DEFAULT 0, require_digit INTEGER NOT NULL DEFAULT 0, require_symbol INTEGER NOT NULL DEFAULT 0, min_classes INTEGER NOT NULL DEFAULT 2, disallow_common INTEGER NOT NULL DEFAULT 1, updated_at TEXT)");
+  _passwordPolicyReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -24440,6 +24448,149 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: true, available: conflicts.length === 0, conflicts, buffer_minutes: buffer });
         } catch (e) { console.error("slot-check failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "slot-check failed" }, { status: 502 }); }
+      }
+      // IBAN — a stateless IBAN validator (length-by-country + the ISO 7064 mod-97 checksum). Spaces are ignored.
+      //   POST /api/db/<slug>/iban {iban}   (public) → {valid, country, length_ok, checksum_ok, formatted}
+      const ibnm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/iban$/i);
+      if (ibnm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = ibnm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|iban", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          if (typeof body.iban !== "string" || !body.iban.trim()) return Response.json({ ok: false, error: "iban is required" }, { status: 400 });
+          const raw = body.iban.replace(/\s+/g, "").toUpperCase();
+          if (!/^[A-Z0-9]{5,34}$/.test(raw)) return Response.json({ ok: false, error: "iban has invalid characters" }, { status: 400 });
+          // Registry of IBAN lengths per country (common set).
+          const LEN = { AD: 24, AE: 23, AT: 20, BE: 16, BG: 22, BH: 22, BR: 29, CH: 21, CY: 28, CZ: 24, DE: 22, DK: 18, EE: 20, ES: 24, FI: 18, FO: 18, FR: 27, GB: 22, GI: 23, GR: 27, HR: 21, HU: 28, IE: 22, IL: 23, IS: 26, IT: 27, KW: 30, LT: 20, LU: 20, LV: 21, MC: 27, MT: 31, MU: 30, NL: 18, NO: 15, PL: 28, PT: 25, QA: 29, RO: 24, RS: 22, SA: 24, SE: 24, SI: 19, SK: 24, SM: 27, TR: 26, UA: 29 };
+          const country = raw.slice(0, 2);
+          const expected = LEN[country];
+          const lengthOk = expected != null && raw.length === expected;
+          // mod-97: move first 4 chars to the end, replace letters with numbers (A=10…Z=35), take mod 97 == 1.
+          const rearranged = raw.slice(4) + raw.slice(0, 4);
+          let expanded = ""; for (const ch of rearranged) expanded += /[A-Z]/.test(ch) ? (ch.charCodeAt(0) - 55).toString() : ch;
+          let rem = 0; for (const d of expanded) rem = (rem * 10 + (d.charCodeAt(0) - 48)) % 97;
+          const checksumOk = rem === 1;
+          const formatted = raw.replace(/(.{4})/g, "$1 ").trim();
+          return Response.json({ ok: true, valid: !!(LEN[country] != null && lengthOk && checksumOk), country: expected != null ? country : null, length_ok: lengthOk, checksum_ok: checksumOk, formatted });
+        } catch (e) { console.error("iban failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "iban failed" }, { status: 502 }); }
+      }
+      // CRON PREVIEW — a stateless "when does this cron next fire?" helper for standard 5-field cron expressions
+      // (minute hour day-of-month month day-of-week; supports * , - and /). Returns the next N fire times (UTC).
+      //   POST /api/db/<slug>/cron-preview {expression, count?, from?}   (public) → {next:[iso,...]}
+      const crpm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/cron-preview$/i);
+      if (crpm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = crpm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|cron", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          if (typeof body.expression !== "string") return Response.json({ ok: false, error: "expression is required" }, { status: 400 });
+          const parts = body.expression.trim().split(/\s+/);
+          if (parts.length !== 5) return Response.json({ ok: false, error: "expression must have 5 fields (min hour dom month dow)" }, { status: 400 });
+          const parseField = (spec, lo, hi) => {
+            const set = new Set();
+            for (const chunk of spec.split(",")) {
+              let step = 1, range = chunk;
+              const sl = chunk.split("/"); if (sl.length === 2) { range = sl[0]; step = parseInt(sl[1], 10); if (!(step >= 1)) return null; }
+              let a, b;
+              if (range === "*") { a = lo; b = hi; }
+              else if (range.includes("-")) { const rr = range.split("-"); a = parseInt(rr[0], 10); b = parseInt(rr[1], 10); }
+              else { a = b = parseInt(range, 10); }
+              if (!Number.isFinite(a) || !Number.isFinite(b) || a < lo || b > hi || a > b) return null;
+              for (let v = a; v <= b; v += step) set.add(v);
+            }
+            return set;
+          };
+          const mins = parseField(parts[0], 0, 59), hours = parseField(parts[1], 0, 23), doms = parseField(parts[2], 1, 31), months = parseField(parts[3], 1, 12), dows = parseField(parts[4], 0, 6);
+          if (!mins || !hours || !doms || !months || !dows) return Response.json({ ok: false, error: "a cron field is out of range or malformed" }, { status: 400 });
+          const domRestricted = parts[2] !== "*", dowRestricted = parts[4] !== "*";
+          const count = Math.min(50, Math.max(1, parseInt(body.count, 10) || 5));
+          let from = body.from != null ? Date.parse(body.from) : Date.now();
+          if (!Number.isFinite(from)) return Response.json({ ok: false, error: "from is invalid" }, { status: 400 });
+          // Step minute-by-minute from the next whole minute, capped so a yearly cron can still resolve.
+          let cursor = new Date(Math.ceil((from + 1) / 60000) * 60000);
+          const next = []; let guard = 0;
+          while (next.length < count && guard++ < 1600000) {
+            const mi = cursor.getUTCMinutes(), hr = cursor.getUTCHours(), dom = cursor.getUTCDate(), mon = cursor.getUTCMonth() + 1, dow = cursor.getUTCDay();
+            const domMatch = doms.has(dom), dowMatch = dows.has(dow);
+            const dayOk = (domRestricted && dowRestricted) ? (domMatch || dowMatch) : (domMatch && dowMatch);
+            if (mins.has(mi) && hours.has(hr) && months.has(mon) && dayOk) next.push(cursor.toISOString());
+            cursor = new Date(cursor.getTime() + 60000);
+          }
+          return Response.json({ ok: true, expression: body.expression.trim(), next });
+        } catch (e) { console.error("cron-preview failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "cron-preview failed" }, { status: 502 }); }
+      }
+      // PASSWORD POLICY — a site-configurable password rule set (a singleton) plus a check. Admin sets the rules;
+      // the current rules are public (so a signup form can show them) and a check validates a candidate password.
+      //   POST /api/db/<slug>/password-policy {min_length?, require_upper?, require_lower?, require_digit?, require_symbol?, min_classes?, disallow_common?}  (ADMIN) → set
+      //   GET  /api/db/<slug>/password-policy         (public) → the current policy
+      //   POST /api/db/<slug>/password-policy/check {password}   (public) → {valid, failures}
+      const ppm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/password-policy(?:\/(check))?$/i);
+      if (ppm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = ppm[1].toLowerCase(), isCheck = !!ppm[2];
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const DEFAULT = { min_length: 8, require_upper: 0, require_lower: 0, require_digit: 0, require_symbol: 0, min_classes: 2, disallow_common: 1 };
+        const getPolicy = async () => (await cfD1Query(env, uuid, "SELECT min_length, require_upper, require_lower, require_digit, require_symbol, min_classes, disallow_common FROM _password_policy WHERE id=1"))[0] || DEFAULT;
+        try {
+          await ensurePasswordPolicy(env, uuid);
+          // SET (admin).
+          if (!isCheck && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const cur = await getPolicy();
+            const minLen = body.min_length != null ? Math.floor(Number(body.min_length)) : cur.min_length;
+            if (!(minLen >= 1 && minLen <= 256)) return Response.json({ ok: false, error: "min_length must be 1..256" }, { status: 400 });
+            const minClasses = body.min_classes != null ? Math.floor(Number(body.min_classes)) : cur.min_classes;
+            if (!(minClasses >= 0 && minClasses <= 4)) return Response.json({ ok: false, error: "min_classes must be 0..4" }, { status: 400 });
+            const bit = (v, d) => v != null ? (v ? 1 : 0) : d;
+            const row = { min_length: minLen, require_upper: bit(body.require_upper, cur.require_upper), require_lower: bit(body.require_lower, cur.require_lower), require_digit: bit(body.require_digit, cur.require_digit), require_symbol: bit(body.require_symbol, cur.require_symbol), min_classes: minClasses, disallow_common: bit(body.disallow_common, cur.disallow_common) };
+            await cfD1Query(env, uuid, "INSERT INTO _password_policy (id, min_length, require_upper, require_lower, require_digit, require_symbol, min_classes, disallow_common, updated_at) VALUES (1,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET min_length=excluded.min_length, require_upper=excluded.require_upper, require_lower=excluded.require_lower, require_digit=excluded.require_digit, require_symbol=excluded.require_symbol, min_classes=excluded.min_classes, disallow_common=excluded.disallow_common, updated_at=excluded.updated_at", [row.min_length, row.require_upper, row.require_lower, row.require_digit, row.require_symbol, row.min_classes, row.disallow_common, new Date().toISOString()]);
+            return Response.json({ ok: true, policy: row });
+          }
+          // GET (public).
+          if (!isCheck && request.method === "GET") {
+            return Response.json({ ok: true, policy: await getPolicy() });
+          }
+          // CHECK (public).
+          if (isCheck && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|ppchk", 600)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            if (typeof body.password !== "string") return Response.json({ ok: false, error: "password is required" }, { status: 400 });
+            if (body.password.length > 512) return Response.json({ ok: false, error: "password too long" }, { status: 400 });
+            const pw = body.password, pol = await getPolicy();
+            const upper = /[A-Z]/.test(pw), lower = /[a-z]/.test(pw), digit = /\d/.test(pw), symbol = /[^A-Za-z0-9]/.test(pw);
+            const classes = [upper, lower, digit, symbol].filter(Boolean).length;
+            const COMMON = new Set(["password", "123456", "123456789", "qwerty", "12345678", "111111", "1234567890", "letmein", "admin", "welcome", "monkey", "abc123", "password1", "iloveyou", "000000", "qwerty123"]);
+            const failures = [];
+            if (pw.length < pol.min_length) failures.push("at least " + pol.min_length + " characters");
+            if (pol.require_upper && !upper) failures.push("an upper-case letter");
+            if (pol.require_lower && !lower) failures.push("a lower-case letter");
+            if (pol.require_digit && !digit) failures.push("a number");
+            if (pol.require_symbol && !symbol) failures.push("a symbol");
+            if (classes < pol.min_classes) failures.push("at least " + pol.min_classes + " character types");
+            if (pol.disallow_common && COMMON.has(pw.toLowerCase())) failures.push("not a common password");
+            return Response.json({ ok: true, valid: failures.length === 0, failures });
+          }
+          return Response.json({ ok: false, error: "unsupported password-policy request" }, { status: 405 });
+        } catch (e) { console.error("password-policy failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "password-policy failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
