@@ -5011,6 +5011,31 @@ async function ensureQueues(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_queue_tickets_user ON _queue_tickets (user_id)"); } catch {}
   _queuesReady.add(uuid);
 }
+// Service catalog — a bookable/sellable service list (name × duration × price × category). One row per
+// service in `_services`. Ensured once.
+const _servicesReady = new Set();
+async function ensureServices(env, uuid) {
+  if (_servicesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _services (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, description TEXT, duration_min INTEGER, price_c INTEGER NOT NULL DEFAULT 0, currency TEXT, category TEXT, active INTEGER NOT NULL DEFAULT 1, position INTEGER NOT NULL DEFAULT 0, created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_services_cat ON _services (category, position)"); } catch {}
+  _servicesReady.add(uuid);
+}
+// Media library metadata — alt text / caption / credit / tags / dimensions for a media asset, keyed by its
+// URL or id, so the descriptive metadata travels with the file. One row per key in `_media_meta`. Ensured once.
+const _mediaMetaReady = new Set();
+async function ensureMediaMeta(env, uuid) {
+  if (_mediaMetaReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _media_meta (key TEXT PRIMARY KEY, alt TEXT, caption TEXT, credit TEXT, tags TEXT, width INTEGER, height INTEGER, updated_at TEXT)");
+  _mediaMetaReady.add(uuid);
+}
+// Social share counters — per-URL per-network share tallies (a "shared 1.2k times" widget). `_share_counts`
+// keyed (url, network). Ensured once.
+const _shareCountsReady = new Set();
+async function ensureShareCounts(env, uuid) {
+  if (_shareCountsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _share_counts (url TEXT NOT NULL, network TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, updated_at TEXT, PRIMARY KEY (url, network))");
+  _shareCountsReady.add(uuid);
+}
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -14842,6 +14867,190 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported queue request" }, { status: 405 });
         } catch (e) { console.error("queue failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "queue failed" }, { status: 502 }); }
+      }
+      // SERVICE CATALOG — a bookable/sellable service list (name × duration × price × category).
+      //   POST   /api/db/<slug>/services {name, description?, duration?, price?, currency?, category?, active?, position?}  (ADMIN) → {id}
+      //   GET    /api/db/<slug>/services[?category=&all=1]  (public: active only · admin ?all=1: incl. inactive)
+      //   GET    /api/db/<slug>/services/<id>               (public)
+      //   PATCH  /api/db/<slug>/services/<id> {…}           (ADMIN)
+      //   DELETE /api/db/<slug>/services/<id>               (ADMIN)
+      const svcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/services(?:\/(\d+))?$/i);
+      if (svcm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = svcm[1].toLowerCase(), sid = svcm[2] ? parseInt(svcm[2], 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const out = (r) => ({ id: r.id, name: r.name, description: r.description, duration_min: r.duration_min, price: (r.price_c || 0) / 100, price_c: r.price_c, currency: r.currency, category: r.category, active: !!r.active, position: r.position });
+        try {
+          await ensureServices(env, uuid);
+          // CREATE (admin).
+          if (sid == null && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|svcw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const name = String(body.name || "").trim().slice(0, 200);
+            if (!name) return Response.json({ ok: false, error: "a name is required" }, { status: 400 });
+            const price_c = body.price == null ? 0 : (toCents(body.price) || 0);
+            const duration = body.duration == null || body.duration === "" ? null : Math.floor(Number(body.duration));
+            if (duration != null && (!Number.isFinite(duration) || duration < 0)) return Response.json({ ok: false, error: "bad duration" }, { status: 400 });
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _services (name, description, duration_min, price_c, currency, category, active, position, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?) RETURNING id", [name, body.description != null ? String(body.description).slice(0, 2000) : null, duration, price_c, body.currency != null ? String(body.currency).slice(0, 10) : null, body.category != null ? String(body.category).slice(0, 80) : null, body.active === false || body.active === 0 ? 0 : 1, Number.isFinite(Number(body.position)) ? Math.floor(Number(body.position)) : 0, now, now]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null });
+          }
+          // LIST.
+          if (sid == null && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|svcl", 300)) return tooMany();
+            let admin = false; if (userId) { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); admin = !!(rr[0] && rr[0].role === "admin"); }
+            const wantAll = admin && url.searchParams.get("all") === "1";
+            const where = [], params = [];
+            if (!wantAll) where.push("active=1");
+            if (url.searchParams.get("category")) { where.push("category=?"); params.push(String(url.searchParams.get("category")).slice(0, 80)); }
+            const rows = await cfD1Query(env, uuid, "SELECT * FROM _services" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY position ASC, name ASC LIMIT 1000", params);
+            return Response.json({ ok: true, services: rows.map(out) });
+          }
+          // GET one (public).
+          if (sid != null && request.method === "GET") {
+            const r = (await cfD1Query(env, uuid, "SELECT * FROM _services WHERE id=?", [sid]))[0];
+            if (!r) return Response.json({ ok: false, error: "no such service" }, { status: 404 });
+            return Response.json({ ok: true, service: out(r) });
+          }
+          // Beyond here admin + the service.
+          const a = await needAdmin(); if (a) return a;
+          const svc = (await cfD1Query(env, uuid, "SELECT * FROM _services WHERE id=?", [sid]))[0];
+          if (!svc) return Response.json({ ok: false, error: "no such service" }, { status: 404 });
+          if (request.method === "PATCH") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const sets = [], params = [];
+            if (body.name != null) { const n = String(body.name).trim().slice(0, 200); if (!n) return Response.json({ ok: false, error: "name can't be blank" }, { status: 400 }); sets.push("name=?"); params.push(n); }
+            if ("description" in body) { sets.push("description=?"); params.push(body.description != null ? String(body.description).slice(0, 2000) : null); }
+            if (body.price != null) { const pc = toCents(body.price); if (pc == null) return Response.json({ ok: false, error: "bad price" }, { status: 400 }); sets.push("price_c=?"); params.push(pc); }
+            if ("duration" in body) { const d = body.duration == null || body.duration === "" ? null : Math.floor(Number(body.duration)); if (d != null && (!Number.isFinite(d) || d < 0)) return Response.json({ ok: false, error: "bad duration" }, { status: 400 }); sets.push("duration_min=?"); params.push(d); }
+            if ("currency" in body) { sets.push("currency=?"); params.push(body.currency != null ? String(body.currency).slice(0, 10) : null); }
+            if ("category" in body) { sets.push("category=?"); params.push(body.category != null ? String(body.category).slice(0, 80) : null); }
+            if (body.active != null) { sets.push("active=?"); params.push(body.active === false || body.active === 0 ? 0 : 1); }
+            if (body.position != null) { sets.push("position=?"); params.push(Math.floor(Number(body.position)) || 0); }
+            if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+            sets.push("updated_at=?"); params.push(new Date().toISOString());
+            params.push(sid);
+            await cfD1Exec(env, uuid, "UPDATE _services SET " + sets.join(", ") + " WHERE id=?", params);
+            return Response.json({ ok: true, id: sid });
+          }
+          if (request.method === "DELETE") { await cfD1Exec(env, uuid, "DELETE FROM _services WHERE id=?", [sid]); return Response.json({ ok: true, deleted: true, id: sid }); }
+          return Response.json({ ok: false, error: "unsupported services request" }, { status: 405 });
+        } catch (e) { console.error("services failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "services failed" }, { status: 502 }); }
+      }
+      // MEDIA LIBRARY METADATA — alt text / caption / credit / tags / dimensions for a media asset, keyed by
+      // its URL or id, so descriptive metadata travels with the file.
+      //   POST   /api/db/<slug>/media-meta {key, alt?, caption?, credit?, tags?, width?, height?}  (ADMIN) → upsert
+      //   GET    /api/db/<slug>/media-meta?key=<k>          (public) → the metadata
+      //   GET    /api/db/<slug>/media-meta[?tag=]           (ADMIN) → list
+      //   DELETE /api/db/<slug>/media-meta?key=<k>          (ADMIN)
+      const mdmm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/media-meta$/i);
+      if (mdmm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = mdmm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const rowOut = (r) => ({ key: r.key, alt: r.alt, caption: r.caption, credit: r.credit, tags: r.tags ? r.tags.split(",").filter(Boolean) : [], width: r.width, height: r.height, updated_at: r.updated_at });
+        try {
+          await ensureMediaMeta(env, uuid);
+          // UPSERT (admin).
+          if (request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|mdmw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const key = String(body.key || "").trim().slice(0, 2000);
+            if (!key) return Response.json({ ok: false, error: "a key (media URL or id) is required" }, { status: 400 });
+            const tags = Array.isArray(body.tags) ? [...new Set(body.tags.map((x) => String(x).trim().toLowerCase()).filter(Boolean))].slice(0, 30).join(",") : (body.tags != null ? String(body.tags).slice(0, 500) : null);
+            const width = body.width == null || body.width === "" ? null : Math.floor(Number(body.width));
+            const height = body.height == null || body.height === "" ? null : Math.floor(Number(body.height));
+            await cfD1Query(env, uuid, "INSERT INTO _media_meta (key, alt, caption, credit, tags, width, height, updated_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET alt=excluded.alt, caption=excluded.caption, credit=excluded.credit, tags=excluded.tags, width=excluded.width, height=excluded.height, updated_at=excluded.updated_at", [key, body.alt != null ? String(body.alt).slice(0, 500) : null, body.caption != null ? String(body.caption).slice(0, 1000) : null, body.credit != null ? String(body.credit).slice(0, 200) : null, tags, Number.isFinite(width) ? width : null, Number.isFinite(height) ? height : null, new Date().toISOString()]);
+            return Response.json({ ok: true, key });
+          }
+          const qKey = url.searchParams.get("key");
+          // READ one (public).
+          if (request.method === "GET" && qKey) {
+            if (!rateOk(slug + "|" + ip + "|mdmr", 600)) return tooMany();
+            const r = (await cfD1Query(env, uuid, "SELECT * FROM _media_meta WHERE key=?", [String(qKey).slice(0, 2000)]))[0];
+            return Response.json({ ok: true, meta: r ? rowOut(r) : null });
+          }
+          // DELETE (admin).
+          if (request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            if (!qKey) return Response.json({ ok: false, error: "a ?key= is required" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _media_meta WHERE key=?", [String(qKey).slice(0, 2000)]);
+            return Response.json({ ok: true, deleted: (ex.changes || 0) > 0 });
+          }
+          // LIST (admin).
+          if (request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|mdml", 300)) return tooMany();
+            const tag = url.searchParams.get("tag");
+            const rows = tag
+              ? await cfD1Query(env, uuid, "SELECT * FROM _media_meta WHERE (','||tags||',') LIKE ? ORDER BY updated_at DESC LIMIT 1000", ["%," + String(tag).toLowerCase().slice(0, 60) + ",%"])
+              : await cfD1Query(env, uuid, "SELECT * FROM _media_meta ORDER BY updated_at DESC LIMIT 1000");
+            return Response.json({ ok: true, media: rows.map(rowOut) });
+          }
+          return Response.json({ ok: false, error: "unsupported media-meta request" }, { status: 405 });
+        } catch (e) { console.error("media-meta failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "media-meta failed" }, { status: 502 }); }
+      }
+      // SOCIAL SHARE COUNTERS — per-URL per-network share tallies (a "shared N times" widget).
+      //   POST   /api/db/<slug>/share-counts/increment {url, network}  (public) → {network, count, total}
+      //   GET    /api/db/<slug>/share-counts?url=<u>        (public) → {total, by_network}
+      //   GET    /api/db/<slug>/share-counts/top[?limit=]   (public) → most-shared URLs
+      const shcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/share-counts(?:\/(increment|top))?$/i);
+      if (shcm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = shcm[1].toLowerCase(), sub = shcm[2] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        const normUrl = (u) => String(u || "").trim().slice(0, 2000);
+        const normNet = (n) => String(n || "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "").slice(0, 40);
+        try {
+          await ensureShareCounts(env, uuid);
+          // INCREMENT (public).
+          if (sub === "increment" && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|shcw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const u = normUrl(body.url), net = normNet(body.network);
+            if (!u) return Response.json({ ok: false, error: "a url is required" }, { status: 400 });
+            if (!net) return Response.json({ ok: false, error: "a network is required" }, { status: 400 });
+            const r = await cfD1Query(env, uuid, "INSERT INTO _share_counts (url, network, count, updated_at) VALUES (?,?,1,?) ON CONFLICT(url, network) DO UPDATE SET count = count + 1, updated_at=excluded.updated_at RETURNING count", [u, net, new Date().toISOString()]);
+            const total = (await cfD1Query(env, uuid, "SELECT COALESCE(SUM(count),0) AS n FROM _share_counts WHERE url=?", [u]))[0].n;
+            return Response.json({ ok: true, url: u, network: net, count: r[0] ? r[0].count : 1, total });
+          }
+          // TOP (public).
+          if (sub === "top" && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|shct", 300)) return tooMany();
+            let limit = parseInt(url.searchParams.get("limit"), 10); if (!(limit > 0) || limit > 100) limit = 20;
+            const rows = await cfD1Query(env, uuid, "SELECT url, SUM(count) AS total FROM _share_counts GROUP BY url ORDER BY total DESC LIMIT ?", [limit]);
+            return Response.json({ ok: true, top: rows });
+          }
+          // READ one URL (public).
+          if (!sub && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|shcr", 600)) return tooMany();
+            const u = normUrl(url.searchParams.get("url"));
+            if (!u) return Response.json({ ok: false, error: "a ?url= is required" }, { status: 400 });
+            const rows = await cfD1Query(env, uuid, "SELECT network, count FROM _share_counts WHERE url=? ORDER BY count DESC", [u]);
+            const by_network = {}; let total = 0; for (const r of rows) { by_network[r.network] = r.count; total += r.count; }
+            return Response.json({ ok: true, url: u, total, by_network });
+          }
+          return Response.json({ ok: false, error: "unsupported share-counts request" }, { status: 405 });
+        } catch (e) { console.error("share-counts failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "share-counts failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
