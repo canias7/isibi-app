@@ -26,6 +26,28 @@ is the next step for each).
   registry capability (guards drift; the test enforces it). Adoption = have `planApp` seed from `applyBundle` when a
   bundle matches. Every capability id verified against the 279-capability registry.
 
+## 2026-07-23 — Builder upgrade #1: MULTI-AGENT orchestrator foundation (owner asked to build this before re-eval)
+Owner's direction: build multi-agent first (with per-agent Opus/Sonnet routing + an Auto/Sonnet/Opus chatbox picker),
+then re-eval. Confirmed with owner it'll be faster for BIG apps (parallel slices, each small enough not to truncate),
+and that Haiku is dropped → Sonnet for tests/repair (reliability > marginal savings; keeps the picker a clean
+Opus-vs-Sonnet binary). Built the foundation as two pure worker-safe libraries (dormant, $0-tested):
+- **`builder/model-router.mjs`** (26/26): the "Auto" brain. `ROLE_ROUTES` — Opus for planner/architecture +
+  repair-hard/integration-hard (the emergency roles), Sonnet for everything generative (design/frontend/backend/
+  tests/repair/vision), and `NO_MODEL` for lint/compile/route/schema (deterministic $0 code we already run).
+  `pickModel(role, {picker, hard})` — picker `sonnet`/`opus` PIN a model; `auto` uses the table and escalates to Opus
+  on `hard`. **No Haiku anywhere** (owner's call). This is exactly the chatbox picker (Auto/Sonnet 5/Opus 4.8).
+- **`builder/multi-agent.mjs`** (26/26): CONTRACT-FIRST fan-out. `buildContract(spec, family)` fixes routes/tables/
+  tokens/shared-component-names up front (from the deterministic planner + design-system) so no agent can invent a
+  name another doesn't expect. `agentPlan` → design + backend + shell + ONE-AGENT-PER-PAGE, each scoped to disjoint
+  files. `runMultiAgent(intent, deps, opts)` resolves each agent's model via the router, fans them out with
+  `Promise.all` (real parallelism in prod), and merges the disjoint slices. Injected `deps.generate` = the model call,
+  so the whole thing is $0-testable with a mock.
+- **Why this shape:** each slice is small → no 16k/32k truncation; slices run concurrently → wall-clock ≈ slowest
+  slice, not the sum; contract-first → integration is a plain merge, not a reconciliation.
+- **NOT YET WIRED into the worker.** Next: a real parallel `deps.generate` (N concurrent streams to the routed
+  models) behind a `MULTI_AGENT` flag, feeding the existing compile→repair, + the picker UI in the chatbox. Then
+  re-run the 25-prompt eval to compare single-shot-32k vs multi-agent.
+
 ## 2026-07-23 — Builder: RAISED the generation token ceiling 16k→32k (fixes the truncation the eval exposed)
 The full 25-prompt eval's headline finding: apps **truncate at the 16k output ceiling** (avg output 17.5k, 0% first-pass
 complete, only 46% compile). Owner's call: raise the max tokens now (the cheap unblock) while multi-agent + a model
