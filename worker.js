@@ -5036,6 +5036,27 @@ async function ensureShareCounts(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _share_counts (url TEXT NOT NULL, network TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, updated_at TEXT, PRIMARY KEY (url, network))");
   _shareCountsReady.add(uuid);
 }
+// Email open/click tracking — a 1×1 pixel logs an open and a click-redirect logs a click, both per
+// (campaign, recipient); the admin reads open/click/CTR stats. `_email_events` = the event log. Ensured once.
+const _emailEventsReady = new Set();
+async function ensureEmailEvents(env, uuid) {
+  if (_emailEventsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _email_events (id INTEGER PRIMARY KEY AUTOINCREMENT, campaign TEXT NOT NULL, recipient TEXT, event TEXT NOT NULL, url TEXT, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_email_events ON _email_events (campaign, event)"); } catch {}
+  _emailEventsReady.add(uuid);
+}
+// Standard normal CDF via the Abramowitz-Stegun erf approximation — used by the A/B significance helper to
+// turn a z-score into a p-value. Accurate to ~1e-7.
+function normalCdf(z) {
+  const t = 1 / (1 + 0.2316419 * Math.abs(z));
+  const d = 0.3989422804014327 * Math.exp(-z * z / 2);
+  let p = d * t * (0.31938153 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+  return z > 0 ? 1 - p : p;
+}
+// Slugify a heading into a URL anchor id: lowercase, non-alnum → dashes, trimmed.
+function slugifyHeading(text) {
+  return String(text || "").toLowerCase().replace(/&[a-z]+;/g, " ").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "section";
+}
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -9833,6 +9854,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _agegate WHERE user_id=?", [u.id]],                                // age-gate verification
             ["DELETE FROM _reservations WHERE user_id=?", [u.id]],                           // slug/handle reservations they hold
             ["DELETE FROM _queue_tickets WHERE user_id=?", [u.id]],                          // queue tickets they took
+            ["DELETE FROM _email_events WHERE lower(recipient)=lower(?)", [u.email]],        // email open/click events about them
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -15051,6 +15073,124 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported share-counts request" }, { status: 405 });
         } catch (e) { console.error("share-counts failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "share-counts failed" }, { status: 502 }); }
+      }
+      // A/B SIGNIFICANCE HELPER — a stateless two-proportion z-test: given each variant's visitors +
+      // conversions, returns the rates, uplift, z-score, two-tailed p-value, and whether it's significant.
+      //   POST /api/db/<slug>/stats/significance {a:{visitors, conversions}, b:{visitors, conversions}, confidence?}
+      const sigm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/stats\/significance$/i);
+      if (sigm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = sigm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|sig", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const parse = (o) => { const n = Math.floor(Number(o && o.visitors)); const c2 = Math.floor(Number(o && o.conversions)); if (!Number.isFinite(n) || !Number.isFinite(c2) || n <= 0 || c2 < 0 || c2 > n) return null; return { n, c: c2, rate: c2 / n }; };
+          const a = parse(body.a), b = parse(body.b);
+          if (!a || !b) return Response.json({ ok: false, error: "a and b each need visitors > 0 and 0 <= conversions <= visitors" }, { status: 400 });
+          let confidence = Number(body.confidence); if (!Number.isFinite(confidence) || confidence <= 0 || confidence >= 1) confidence = 0.95;
+          // Pooled two-proportion z-test.
+          const pPool = (a.c + b.c) / (a.n + b.n);
+          const se = Math.sqrt(pPool * (1 - pPool) * (1 / a.n + 1 / b.n));
+          const z = se === 0 ? 0 : (b.rate - a.rate) / se;
+          const pValue = 2 * (1 - normalCdf(Math.abs(z))); // two-tailed
+          const significant = pValue <= (1 - confidence);
+          const uplift = a.rate === 0 ? null : (b.rate - a.rate) / a.rate;
+          const round = (x, d = 6) => x == null ? null : Math.round(x * Math.pow(10, d)) / Math.pow(10, d);
+          return Response.json({ ok: true, a: { visitors: a.n, conversions: a.c, rate: round(a.rate) }, b: { visitors: b.n, conversions: b.c, rate: round(b.rate) }, uplift: round(uplift), z: round(z, 4), p_value: round(pValue), confidence, significant, winner: significant ? (b.rate > a.rate ? "b" : "a") : null });
+        } catch (e) { console.error("significance failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "significance failed" }, { status: 502 }); }
+      }
+      // TABLE OF CONTENTS / ANCHOR INDEX — a stateless extractor: given HTML or Markdown, pull the headings
+      // into a flat list + a nested tree, each with a slugified anchor id (deduped).
+      //   POST /api/db/<slug>/toc {html} | {markdown} [, min?, max?]  → {headings:[{level,text,id}], tree}
+      const tocm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/toc$/i);
+      if (tocm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = tocm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|toc", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          let min = Math.floor(Number(body.min)); if (!(min >= 1 && min <= 6)) min = 1;
+          let max = Math.floor(Number(body.max)); if (!(max >= 1 && max <= 6)) max = 6;
+          if (min > max) { const tmp = min; min = max; max = tmp; }
+          const headings = [];
+          if (typeof body.html === "string" && body.html) {
+            const re = /<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi; let m2;
+            while ((m2 = re.exec(body.html)) && headings.length < 1000) { const level = parseInt(m2[1], 10); const text = m2[2].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim(); if (text && level >= min && level <= max) headings.push({ level, text }); }
+          } else if (typeof body.markdown === "string" && body.markdown) {
+            for (const line of body.markdown.split("\n")) { const m3 = line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/); if (m3) { const level = m3[1].length; const text = m3[2].trim(); if (text && level >= min && level <= max && headings.length < 1000) headings.push({ level, text }); } }
+          } else {
+            return Response.json({ ok: false, error: "html or markdown text is required" }, { status: 400 });
+          }
+          // Slugify with de-duplication.
+          const seen = new Map();
+          for (const hh of headings) { let base = slugifyHeading(hh.text); let id = base; if (seen.has(base)) { const n = seen.get(base) + 1; seen.set(base, n); id = base + "-" + n; } else seen.set(base, 0); hh.id = id; }
+          // Build a nested tree by heading level.
+          const root = { children: [] }; const stack = [{ level: 0, node: root }];
+          for (const hh of headings) { const node = { level: hh.level, text: hh.text, id: hh.id, children: [] }; while (stack.length > 1 && stack[stack.length - 1].level >= hh.level) stack.pop(); stack[stack.length - 1].node.children.push(node); stack.push({ level: hh.level, node }); }
+          return Response.json({ ok: true, count: headings.length, headings, tree: root.children });
+        } catch (e) { console.error("toc failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "toc failed" }, { status: 502 }); }
+      }
+      // EMAIL OPEN/CLICK TRACKING — a 1×1 pixel logs an open and a click-redirect logs a click, both keyed
+      // by (campaign, recipient); the admin reads open/click/CTR stats.
+      //   GET /api/db/<slug>/track-email/open?c=<campaign>&r=<recipient>   (public) → a 1×1 GIF (logs an open)
+      //   GET /api/db/<slug>/track-email/click?c=&r=&u=<target-url>        (public) → 302 to the target (logs a click)
+      //   GET /api/db/<slug>/track-email/stats?campaign=<c>               (ADMIN) → open/click/CTR stats
+      const etm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/track-email\/(open|click|stats)$/i);
+      if (etm && (request.method === "GET" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = etm[1].toLowerCase(), kind = etm[2].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        // 1×1 transparent GIF.
+        const GIF = Uint8Array.from([71, 73, 70, 56, 57, 97, 1, 0, 1, 0, 128, 0, 0, 0, 0, 0, 255, 255, 255, 33, 249, 4, 1, 0, 0, 0, 0, 44, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 1, 68, 0, 59]);
+        const gifResp = () => new Response(GIF, { status: 200, headers: { "Content-Type": "image/gif", "Cache-Control": "no-store, no-cache, must-revalidate", "Access-Control-Allow-Origin": "*" } });
+        try {
+          await ensureEmailEvents(env, uuid);
+          const campaign = String(url.searchParams.get("c") || url.searchParams.get("campaign") || "").trim().slice(0, 120);
+          const recipient = url.searchParams.get("r") != null ? String(url.searchParams.get("r")).trim().slice(0, 200) : null;
+          // OPEN — always return the pixel (even on bad input, so the email never shows a broken image).
+          if (kind === "open") {
+            if (campaign && rateOk(slug + "|" + ip + "|eto", 600)) {
+              try { await cfD1Exec(env, uuid, "INSERT INTO _email_events (campaign, recipient, event, created_at) VALUES (?,?, 'open', ?)", [campaign, recipient, new Date().toISOString()]); } catch {}
+            }
+            return gifResp();
+          }
+          // CLICK — log then 302 to the target (http/https only).
+          if (kind === "click") {
+            const target = String(url.searchParams.get("u") || "").trim();
+            if (!/^https?:\/\//i.test(target)) return Response.json({ ok: false, error: "a valid http(s) ?u= target is required" }, { status: 400 });
+            if (campaign && rateOk(slug + "|" + ip + "|etc", 600)) {
+              try { await cfD1Exec(env, uuid, "INSERT INTO _email_events (campaign, recipient, event, url, created_at) VALUES (?,?, 'click', ?, ?)", [campaign, recipient, target.slice(0, 2000), new Date().toISOString()]); } catch {}
+            }
+            return new Response(null, { status: 302, headers: { Location: target, "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*" } });
+          }
+          // STATS (admin).
+          if (kind === "stats") {
+            let userId = null;
+            const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+            if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const camp = String(url.searchParams.get("campaign") || "").trim().slice(0, 120);
+            const where = camp ? " WHERE campaign=?" : "";
+            const params = camp ? [camp] : [];
+            const r = (await cfD1Query(env, uuid, "SELECT SUM(event='open') AS opens, SUM(event='click') AS clicks, COUNT(DISTINCT CASE WHEN event='open' THEN recipient END) AS unique_opens, COUNT(DISTINCT CASE WHEN event='click' THEN recipient END) AS unique_clicks FROM _email_events" + where, params))[0] || {};
+            const opens = r.opens || 0, clicks = r.clicks || 0;
+            return Response.json({ ok: true, campaign: camp || null, opens, clicks, unique_opens: r.unique_opens || 0, unique_clicks: r.unique_clicks || 0, ctr: opens > 0 ? Math.round(clicks / opens * 10000) / 100 : 0 });
+          }
+          return Response.json({ ok: false, error: "unsupported track-email request" }, { status: 405 });
+        } catch (e) { console.error("track-email failed:", e && e.message, e && e.detail); if (kind === "open") return gifResp(); return Response.json({ ok: false, error: "track-email failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
