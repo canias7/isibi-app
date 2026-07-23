@@ -5620,6 +5620,23 @@ async function ensureTaxonomy(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_taxonomy_parent ON _taxonomy (parent_id)"); } catch {}
   _taxonomyReady.add(uuid);
 }
+// Double opt-in — an email subscribes (pending + a token), then confirms via the token before it counts.
+// `_optin` keyed by a per-request token. Ensured once.
+const _optinReady = new Set();
+async function ensureOptin(env, uuid) {
+  if (_optinReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _optin (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, list TEXT NOT NULL DEFAULT 'default', token TEXT UNIQUE NOT NULL, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT, confirmed_at TEXT, UNIQUE (email, list))");
+  _optinReady.add(uuid);
+}
+// Reputation / karma with time-decay — each award is a timestamped event; the current score is the sum of
+// points weighted by an exponential half-life, so old reputation fades. `_reputation`. Ensured once.
+const _reputationReady = new Set();
+async function ensureReputation(env, uuid) {
+  if (_reputationReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _reputation (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, points INTEGER NOT NULL, reason TEXT, at TEXT NOT NULL)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_reputation_user ON _reputation (user_id)"); } catch {}
+  _reputationReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -10470,6 +10487,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _content_review WHERE author_id=?", [u.id]],                       // content-review items
             ["UPDATE _equipment SET status='available', holder_id=NULL WHERE holder_id=?", [u.id]], // release held gear
             ["DELETE FROM _equipment_log WHERE user_id=?", [u.id]],                          // equipment history
+            ["DELETE FROM _reputation WHERE user_id=?", [u.id]],                             // reputation events
             ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
             ["DELETE FROM _testimonials WHERE user_id=?", [u.id]],                           // user-submitted testimonials
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
@@ -20774,6 +20792,176 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported taxonomy request" }, { status: 405 });
         } catch (e) { console.error("taxonomy failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "taxonomy failed" }, { status: 502 }); }
+      }
+      // PASSWORD STRENGTH — a stateless meter: score a candidate password 0–4 with a label and actionable
+      // suggestions. Nothing is stored or logged.
+      //   POST /api/db/<slug>/password-strength {password}   (public) → {score, label, checks, suggestions}
+      const pwm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/password-strength$/i);
+      if (pwm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = pwm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|pw", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const pw = typeof body.password === "string" ? body.password : "";
+          if (!pw) return Response.json({ ok: false, error: "password is required" }, { status: 400 });
+          const len = pw.length;
+          const checks = { lower: /[a-z]/.test(pw), upper: /[A-Z]/.test(pw), digit: /[0-9]/.test(pw), symbol: /[^A-Za-z0-9]/.test(pw), length8: len >= 8, length12: len >= 12 };
+          const classes = (checks.lower ? 1 : 0) + (checks.upper ? 1 : 0) + (checks.digit ? 1 : 0) + (checks.symbol ? 1 : 0);
+          const common = /^(?:password|passw0rd|123456|12345678|qwerty|abc123|letmein|admin|welcome|iloveyou|monkey|dragon|football)/i.test(pw);
+          const repeated = /^(.)\1+$/.test(pw) || /^(..)\1+$/.test(pw);
+          const sequential = /(?:0123|1234|2345|3456|4567|5678|6789|abcd|bcde|cdef|qwer|wert)/i.test(pw.toLowerCase());
+          let score = 0;
+          if (len >= 8) score++;
+          if (len >= 12) score++;
+          if (classes >= 3) score++;
+          if (classes >= 4 && len >= 10) score++;
+          if (common || repeated || len < 6) score = 0;
+          else if (sequential && score > 1) score--;
+          if (score > 4) score = 4;
+          const suggestions = [];
+          if (len < 12) suggestions.push("use at least 12 characters");
+          if (!checks.upper || !checks.lower) suggestions.push("mix upper- and lower-case letters");
+          if (!checks.digit) suggestions.push("add a number");
+          if (!checks.symbol) suggestions.push("add a symbol");
+          if (common) suggestions.push("avoid common passwords");
+          if (repeated) suggestions.push("avoid repeated characters");
+          if (sequential) suggestions.push("avoid sequences like 1234 or abcd");
+          const label = ["very weak", "weak", "fair", "good", "strong"][score];
+          return Response.json({ ok: true, score, label, length: len, classes, checks, suggestions });
+        } catch (e) { console.error("password-strength failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "password-strength failed" }, { status: 502 }); }
+      }
+      // DOUBLE OPT-IN — an email subscribes (pending + a token) and must confirm via the token before it counts.
+      //   POST   /api/db/<slug>/opt-in {email, list?}     (public) → {token} to email as a confirm link
+      //   POST   /api/db/<slug>/opt-in/confirm {token}    (public) → confirm
+      //   GET    /api/db/<slug>/opt-in[?list=&status=]    (ADMIN) → subscribers
+      //   DELETE /api/db/<slug>/opt-in/<id>               (ADMIN) → remove
+      const optm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/opt-in(?:\/(confirm|\d+))?$/i);
+      if (optm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = optm[1].toLowerCase(), seg = optm[2] || null;
+        const isConfirm = seg === "confirm", subId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureOptin(env, uuid);
+          // SUBSCRIBE (public).
+          if (!seg && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|optw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const email = String(body.email || "").trim().toLowerCase().slice(0, 200);
+            if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return Response.json({ ok: false, error: "a valid email is required" }, { status: 400 });
+            let list = String(body.list || "default").trim().toLowerCase().slice(0, 60); if (!/^[a-z0-9_.:-]{1,60}$/.test(list)) list = "default";
+            const ex = (await cfD1Query(env, uuid, "SELECT id, status, token FROM _optin WHERE email=? AND list=?", [email, list]))[0];
+            if (ex && ex.status === "confirmed") return Response.json({ ok: true, already: true, status: "confirmed" });
+            const token = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "").slice(0, 8);
+            const now = new Date().toISOString();
+            if (ex) { await cfD1Exec(env, uuid, "UPDATE _optin SET token=?, created_at=? WHERE id=?", [token, now, ex.id]); }
+            else { await cfD1Exec(env, uuid, "INSERT INTO _optin (email, list, token, status, created_at) VALUES (?,?,?, 'pending', ?)", [email, list, token, now]); }
+            return Response.json({ ok: true, token, status: "pending" });
+          }
+          // CONFIRM (public).
+          if (isConfirm && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|optc", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const token = String(body.token || "").trim();
+            if (!token) return Response.json({ ok: false, error: "a token is required" }, { status: 400 });
+            const r = await cfD1Query(env, uuid, "UPDATE _optin SET status='confirmed', confirmed_at=? WHERE token=? AND status='pending' RETURNING email, list", [new Date().toISOString(), token]);
+            if (!r.length) { const done = (await cfD1Query(env, uuid, "SELECT status FROM _optin WHERE token=?", [token]))[0]; if (done && done.status === "confirmed") return Response.json({ ok: true, already: true, status: "confirmed" }); return Response.json({ ok: false, error: "invalid token" }, { status: 404 }); }
+            return Response.json({ ok: true, status: "confirmed", email: r[0].email, list: r[0].list });
+          }
+          // DELETE (admin).
+          if (subId != null && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _optin WHERE id=?", [subId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such subscriber" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: subId });
+          }
+          // LIST (admin).
+          if (!seg && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            const list = url.searchParams.get("list"), status = url.searchParams.get("status");
+            let sql = "SELECT id, email, list, status, created_at, confirmed_at FROM _optin WHERE 1=1", params = [];
+            if (list) { sql += " AND list=?"; params.push(String(list)); }
+            if (status) { sql += " AND status=?"; params.push(String(status).slice(0, 20)); }
+            sql += " ORDER BY id DESC LIMIT 5000";
+            const rows = await cfD1Query(env, uuid, sql, params);
+            return Response.json({ ok: true, subscribers: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported opt-in request" }, { status: 405 });
+        } catch (e) { console.error("opt-in failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "opt-in failed" }, { status: 502 }); }
+      }
+      // REPUTATION / KARMA (time-decayed) — each award is a timestamped event; the score is the sum of points
+      // weighted by an exponential half-life, so old reputation fades. Admin awards; members read.
+      //   POST /api/db/<slug>/reputation/award {user, points, reason?}   (ADMIN) → add an event
+      //   GET  /api/db/<slug>/reputation/score?user=<id>&half_life_days=90   (owner or admin) → decayed score
+      //   GET  /api/db/<slug>/reputation/me                             (member) → own score + events
+      //   GET  /api/db/<slug>/reputation/leaderboard[?half_life_days=]  (public) → top decayed scores
+      const repm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/reputation(?:\/(award|score|me|leaderboard))?$/i);
+      if (repm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = repm[1].toLowerCase(), seg = repm[2] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const isAdmin = async () => { if (!userId) return false; const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return !!(rr[0] && rr[0].role === "admin"); };
+        const halfLife = () => { let hl = Number(url.searchParams.get("half_life_days")); if (!(hl > 0 && hl <= 36500)) hl = 90; return hl; };
+        const decayedScore = (rows, hlDays) => { const now = Date.now(); let total = 0; for (const r of rows) { const ageDays = Math.max(0, (now - Date.parse(r.at)) / 86400000); total += r.points * Math.pow(0.5, ageDays / hlDays); } return Math.round(total * 100) / 100; };
+        try {
+          await ensureReputation(env, uuid);
+          // AWARD (admin).
+          if (seg === "award" && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const target = Math.floor(Number(body.user)), points = Math.floor(Number(body.points));
+            if (!Number.isFinite(target) || !Number.isFinite(points) || points === 0) return Response.json({ ok: false, error: "user and non-zero points are required" }, { status: 400 });
+            const exists = (await cfD1Query(env, uuid, "SELECT 1 FROM _users WHERE id=?", [target]))[0];
+            if (!exists) return Response.json({ ok: false, error: "no such user" }, { status: 404 });
+            await cfD1Exec(env, uuid, "INSERT INTO _reputation (user_id, points, reason, at) VALUES (?,?,?,?)", [target, points, body.reason != null ? String(body.reason).slice(0, 300) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, user: target, points });
+          }
+          // SCORE (owner or admin).
+          if (seg === "score" && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const target = Math.floor(Number(url.searchParams.get("user")));
+            if (!Number.isFinite(target)) return Response.json({ ok: false, error: "a ?user= is required" }, { status: 400 });
+            if (target !== userId && !(await isAdmin())) return Response.json({ ok: false, error: "not yours" }, { status: 403 });
+            const rows = await cfD1Query(env, uuid, "SELECT points, at FROM _reputation WHERE user_id=? LIMIT 50000", [target]);
+            const raw = rows.reduce((a, b) => a + b.points, 0);
+            return Response.json({ ok: true, user: target, score: decayedScore(rows, halfLife()), raw, events: rows.length, half_life_days: halfLife() });
+          }
+          // ME (member).
+          if (seg === "me" && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rows = await cfD1Query(env, uuid, "SELECT points, reason, at FROM _reputation WHERE user_id=? ORDER BY id DESC LIMIT 1000", [userId]);
+            return Response.json({ ok: true, score: decayedScore(rows, halfLife()), events: rows });
+          }
+          // LEADERBOARD (public).
+          if (seg === "leaderboard" && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|repl", 120)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT user_id, points, at FROM _reputation LIMIT 100000");
+            const hl = halfLife(), byUser = new Map();
+            for (const r of rows) { let arr = byUser.get(r.user_id); if (!arr) { arr = []; byUser.set(r.user_id, arr); } arr.push(r); }
+            const board = [...byUser.entries()].map(([uid, evs]) => ({ user_id: uid, score: decayedScore(evs, hl) })).sort((a, b) => b.score - a.score).slice(0, 100).map((x, i) => ({ rank: i + 1, ...x }));
+            return Response.json({ ok: true, half_life_days: hl, leaderboard: board });
+          }
+          return Response.json({ ok: false, error: "unsupported reputation request" }, { status: 405 });
+        } catch (e) { console.error("reputation failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "reputation failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
