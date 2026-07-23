@@ -2333,6 +2333,41 @@ function wireBuildPicker() {
   menu.querySelectorAll('.build-item').forEach((it) => { it.onclick = () => setBuildPicker(it.dataset.pick); });
 }
 
+// ── Effort dial (1→5) — sits next to the model picker in the site-builder composer, sent as `effort`.
+// Levels 1–4 keep the picked model and just raise tokens-out; level 5 ("Max") trips the multi-agent
+// fan-out, which inherits the model picker (Sonnet→all-Sonnet, Opus→all-Opus, Auto→mixed per task).
+const BUILD_EFFORTS = {
+  low:    { lvl: 1, label: 'Low',    desc: 'Smallest output — quick drafts' },
+  medium: { lvl: 2, label: 'Medium', desc: 'More output — simple sites' },
+  high:   { lvl: 3, label: 'High',   desc: 'Big output — most sites' },
+  ultra:  { lvl: 4, label: 'Ultra',  desc: 'Max single-shot output' },
+  max:    { lvl: 5, label: 'Max',    desc: 'Multi-agent fan-out — nothing truncates' },
+};
+const BUILD_EFFORT_KEY = 'zephyr_build_effort_v1';
+let buildEffort = localStorage.getItem(BUILD_EFFORT_KEY) || 'high';
+if (!BUILD_EFFORTS[buildEffort]) buildEffort = 'high';
+function buildEffortHTML() {
+  return '<span class="st-buildsel-wrap">' +
+    '<button type="button" class="st-buildsel" id="stEffSel" title="Effort — how much output; Level 5 (Max) fans out to multi-agent">Effort: <b id="stEffLabel">' + BUILD_EFFORTS[buildEffort].label + '</b> ▾</button>' +
+    '<div class="model-menu drop-up build-menu" id="stEffMenu">' +
+      ['low', 'medium', 'high', 'ultra', 'max'].map((k) => { const m = BUILD_EFFORTS[k]; return '<div class="model-item build-item' + (k === buildEffort ? ' selected' : '') + '" data-eff="' + k + '"><span class="txt"><b>' + m.lvl + ' · ' + m.label + '</b><small>' + m.desc + '</small></span><span class="check">✓</span></div>'; }).join('') +
+    '</div></span>';
+}
+function setBuildEffort(e) {
+  if (!BUILD_EFFORTS[e]) return;
+  buildEffort = e;
+  localStorage.setItem(BUILD_EFFORT_KEY, e);
+  const lbl = document.getElementById('stEffLabel'); if (lbl) lbl.textContent = BUILD_EFFORTS[e].label;
+  const menu = document.getElementById('stEffMenu');
+  if (menu) { menu.classList.remove('open'); menu.querySelectorAll('.build-item').forEach((it) => it.classList.toggle('selected', it.dataset.eff === e)); }
+}
+function wireBuildEffort() {
+  const sel = document.getElementById('stEffSel'), menu = document.getElementById('stEffMenu');
+  if (!sel || !menu) return;
+  sel.onclick = (e) => { e.stopPropagation(); document.querySelectorAll('.model-menu.open').forEach((m) => { if (m !== menu) m.classList.remove('open'); }); menu.classList.toggle('open'); };
+  menu.querySelectorAll('.build-item').forEach((it) => { it.onclick = () => setBuildEffort(it.dataset.eff); });
+}
+
 
 // An edit of attached media — a clip in video mode (video-to-video) or a
 // source image in image mode (image editing). The effort ladder applies to
@@ -9981,6 +10016,7 @@ function renderSiteWorkspace(view, site) {
                 '<div class="st-comp-row">' +
                   '<button type="button" class="st-plus" id="stPlus" title="Attach a logo or reference image" aria-label="Attach image">+</button>' +
                   buildPickerHTML() +
+                  buildEffortHTML() +
                   (siteBusy
                     ? '<button type="button" class="st-sendc st-stopc" id="stStop" title="Stop" aria-label="Stop generating">■</button>'
                     : '<button type="button" class="st-sendc" id="stSend" title="Send" aria-label="Send">↑</button>') +
@@ -10172,6 +10208,7 @@ function renderSiteWorkspace(view, site) {
     ta.focus();
   }
   wireBuildPicker();
+  wireBuildEffort();
 }
 // #4 — LIVE build activity (Claude-Code-style running log). The server only
 // speaks at a few checkpoints (plan done, each page done, photos), which leaves
@@ -10293,7 +10330,7 @@ function siteFinishBuild(origin, reply, build) {
 // /api/site/react-revise (same slug/URL). Streams live steps; charge-after.
 function reactSend(site, t, origin, mode, imgs, finish) {
   const endpoint = mode === 'build' ? '/api/site/react-build' : '/api/site/react-revise';
-  const body = mode === 'build' ? { brief: t, images: imgs, picker: buildPicker } : { slug: site.slug, instruction: t, images: imgs };
+  const body = mode === 'build' ? { brief: t, images: imgs, picker: buildPicker, effort: buildEffort } : { slug: site.slug, instruction: t, images: imgs, effort: buildEffort };
   siteAbort = new AbortController();
   apiFetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: siteAbort.signal }).then(async (r) => {
     const ct = r.headers.get('content-type') || '';

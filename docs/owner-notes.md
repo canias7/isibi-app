@@ -8031,3 +8031,18 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   ground/boundary-walls/platforms/projectiles/pickups. Worker needs NO change (model-ref parse already grabs any
   `.glb`, copyModels copies only referenced props per game). Modelpack now 8.4MB / 48 files (46 props + robot +
   soldier); container rebuild. Next increment ideas: more props per theme, per-genre enemy models, generated 3D.
+
+- **2026-07-23 — BUILDER EFFORT DIAL (1→5), level 5 = multi-agent trip-wire.** Owner's design: two
+  independent dials in the site-builder composer. **Model picker (WHO)** = Auto/Sonnet/Opus (existing).
+  **Effort dial (HOW HARD, new)** = Low/Medium/High/Ultra/Max. Levels 1–4 keep the picked model and just
+  scale tokens-out on the single-shot stream (`RB_EFFORT_OUT` = 8k/14k/22k/32k/32k); **level 5 (Max) is the
+  trip-wire → multi-agent fan-out**, inheriting the model picker (Sonnet→all-Sonnet, Opus→all-Opus,
+  Auto→mixed per task). Worker: `RB_EFFORT_OUT`/`rbEffortKey` module consts; react-build parses `rb.effort`
+  → `reqEffort`/`wantMulti`, `RB_MAX_OUT` is now effort-scaled (drives both the credit-reservation gate and
+  the stream `max_tokens`); the multi-agent branch is now gated `env.MULTI_AGENT==="1" && wantMulti` (was
+  flag-only). react-revise scales its ceiling by effort too (no fan-out on revises). Client (chat.js):
+  `BUILD_EFFORTS`/`buildEffort` (localStorage `zephyr_build_effort_v1`, default `high`), `buildEffortHTML`/
+  `setBuildEffort`/`wireBuildEffort` mirroring the model picker, emitted next to `buildPickerHTML()` in the
+  `.st-comp` row, `effort` added to both build + revise request bodies. **MULTI_AGENT master flag still OFF**
+  — level 5 falls back to the 32k single-shot ceiling until it's flipped for a live (credit-spending) test.
+  Renders clean in B&W; model-router 26/26 + multi-agent 26/26 still green.

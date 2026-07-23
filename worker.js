@@ -22,6 +22,12 @@ import { buildProjectMemory, memoryToPromptLine } from "./builder/project-memory
 // Multi-agent generation — behind MULTI_AGENT, a contract-first parallel fan-out (design/backend/shell/per-page
 // agents, each routed to its model via the Auto/Sonnet/Opus picker) instead of one single-shot stream.
 import { runMultiAgent } from "./builder/multi-agent.mjs";
+// Effort ladder (1→5) for the builder composer. Levels 1–4 are single-shot with a rising
+// tokens-out ceiling; level 5 ("max") is the trip-wire that fans out to multi-agent (routed
+// by the model picker). Keys must match public/chat.js BUILD_EFFORTS. `max`'s 32000 is only
+// the single-shot FALLBACK used when the multi-agent flag is off.
+const RB_EFFORT_OUT = { low: 8000, medium: 14000, high: 22000, ultra: 32000, max: 32000 };
+const rbEffortKey = (v) => (RB_EFFORT_OUT[String(v || "").toLowerCase()] ? String(v).toLowerCase() : "high");
 // Game builder (Phase 3): same generate→build→publish pipeline, engine swapped for
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
@@ -29306,10 +29312,14 @@ async function handleRequest(request, env, ctx) {
       let rb; try { rb = await request.json(); } catch { return Response.json({ ok: false, error: "invalid JSON" }, { status: 400 }); }
       const brief = typeof rb.brief === "string" ? rb.brief.trim().slice(0, 4000) : "";
       if (!brief) return Response.json({ ok: false, error: "no brief" }, { status: 400 });
-      // Chatbox model picker: auto (route per agent) | sonnet | opus. Only used when MULTI_AGENT is on.
+      // Chatbox model picker: auto (route per agent) | sonnet | opus. Drives per-agent routing at max effort.
       const reqPicker = ["auto", "sonnet", "opus"].includes(String(rb.picker || "").toLowerCase()) ? String(rb.picker).toLowerCase() : "auto";
+      // Effort dial (low→max). Levels 1–4 scale tokens-out on the single-shot stream; "max" (level 5) fans out
+      // to multi-agent using the picked model(s). Multi-agent still needs its master flag on to actually run.
+      const reqEffort = rbEffortKey(rb.effort);
+      const wantMulti = reqEffort === "max";
       const auth = request.headers.get("Authorization") || "";
-      const CREDIT_USD = 0.008, RB_MAX_OUT = 32000, RB_MAX_IMAGES = 6;
+      const CREDIT_USD = 0.008, RB_MAX_OUT = RB_EFFORT_OUT[reqEffort], RB_MAX_IMAGES = 6;
       const RB_IMG_CREDITS = Math.max(1, Math.ceil(SITE_IMG_USD / CREDIT_USD));
       // Build model: always Sonnet 5 (owner's call 2026-07-21). Haiku was dropped from
       // the builder — it mis-wired the backend API often enough to ship dead apps, so
@@ -29425,7 +29435,9 @@ async function handleRequest(request, env, ctx) {
           // small → no truncation; concurrent → wall-clock is the slowest slice. Falls back to the single-shot
           // stream on ANY failure, so the flag is never worse than off.
           let files, genIn = 0, genOut = 0;
-          if (env.MULTI_AGENT === "1") {
+          // Level 5 (max effort) is the trip-wire for the parallel fan-out; lower efforts always go single-shot.
+          // The MULTI_AGENT env flag is the master kill-switch — with it off, max effort just uses the 32k ceiling.
+          if (env.MULTI_AGENT === "1" && wantMulti) {
             try {
               const ma = await runMultiAgent(brief, { generate: agentGen }, { picker: reqPicker });
               if (ma.ok) { files = ma.files; genIn = ma.tokens.in; genOut = ma.tokens.out; emit({ ev: "agents", count: ma.agents.length, models: [...new Set(ma.agents.map((a) => a.model))], picker: reqPicker }); }
@@ -29636,13 +29648,15 @@ async function handleRequest(request, env, ctx) {
       const slug = typeof rv.slug === "string" ? rv.slug.replace(/[^a-z0-9-]/gi, "").slice(0, 60) : "";
       const instruction = typeof rv.instruction === "string" ? rv.instruction.trim().slice(0, 2000) : "";
       if (!slug || !instruction) return Response.json({ ok: false, error: "missing slug or instruction" }, { status: 400 });
+      // Effort dial scales the revise stream's tokens-out too (no fan-out on revises — they're incremental).
+      const reqEffort = rbEffortKey(rv.effort);
       // Load the persisted source + verify ownership.
       let srcObj = null;
       try { const o = await env.SITES_BUCKET.get("sitesrc/" + slug + ".json"); if (o) srcObj = JSON.parse(await o.text()); } catch {}
       if (!srcObj || !srcObj.files) return Response.json({ ok: false, error: "this site can't be edited yet — rebuild it first", need: "rebuild" }, { status: 409 });
       if (srcObj.uid && srcObj.uid !== rvUser.id) return UNAUTHED();
       const auth = request.headers.get("Authorization") || "";
-      const CREDIT_USD = 0.008, RB_MAX_OUT = 32000, RB_MAX_IMAGES = 4;
+      const CREDIT_USD = 0.008, RB_MAX_OUT = RB_EFFORT_OUT[reqEffort], RB_MAX_IMAGES = 4;
       const RB_IMG_CREDITS = Math.max(1, Math.ceil(SITE_IMG_USD / CREDIT_USD));
       const rbCredits = (i, o) => Math.max(1, Math.ceil((i * 3e-6 + o * 15e-6) / CREDIT_USD));
       let bal0; try { bal0 = await readCredits(auth); } catch { bal0 = 0; }
