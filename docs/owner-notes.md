@@ -10,6 +10,22 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-07-23 — Builder upgrades #8 (smart repair routing) + #11 (capability bundles) — dormant libraries
+Finished the owner's #6→#8→#11 queue. Both are pure worker-safe libraries (built + tested, not yet wired — adoption
+is the next step for each).
+- **#8 `builder/repair-router.mjs`** (22/22): `classifyFailures(ctx)` + `repairPlan(ctx)` classify a failed
+  generation (compile error / structural break / missing schema / fake route / unwired form / dead control / weak
+  vision score) and route each to the RIGHT existing contract via a small `rulesKey` (fix / schema / wiring /
+  revise) with a FOCUSED instruction naming exactly what's wrong. Priority order fixes the most fundamental thing
+  first (compile > structure > schema > route > wiring > design > vision). Replaces the current one-size-fits-all
+  repair pass. Adoption = have the react-build/revise repair steps call `repairPlan` and dispatch on `rulesKey`.
+- **#11 `builder/capability-bundles.mjs`** (23/23): 10 curated, registry-cross-checked bundles (booking / commerce /
+  social / content / events / CRM / help-desk / directory / loyalty / courses). `matchBundle(intent)` picks the
+  fit; `applyBundle(intent, plannerCaps)` UNIONs the bundle's guaranteed core with the planner's scored picks
+  (bundle first, planner tail after — never drops a planner pick). `validateBundles()` asserts every id is a real
+  registry capability (guards drift; the test enforces it). Adoption = have `planApp` seed from `applyBundle` when a
+  bundle matches. Every capability id verified against the 279-capability registry.
+
 ## 2026-07-23 — Builder upgrade #6: PERSISTENT PER-PROJECT MEMORY — flag `PROJECT_MEMORY` (OFF by default)
 Second of the "doable now" builder upgrades (owner picked #6→#8→#11 in sequence). Pairs with #4: #4 picks WHICH
 files to send on an edit; #6 tells the model the project-level constraints those edits must respect.
