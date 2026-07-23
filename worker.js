@@ -4628,6 +4628,21 @@ async function ensureGoals(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_goal_contribs ON _goal_contribs (goal)"); } catch {}
   _goalsReady.add(uuid);
 }
+// Per-member notification preferences + quiet hours. One row per member: `channels`/`types` are JSON
+// maps (a channel/type is ON unless explicitly false), quiet_start/quiet_end are local hours (0–23,
+// null = none), tz_offset is minutes from UTC. Ensured once per isolate.
+const _notifyPrefsReady = new Set();
+async function ensureNotifyPrefs(env, uuid) {
+  if (_notifyPrefsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _notify_prefs (user_id INTEGER PRIMARY KEY, channels TEXT, types TEXT, quiet_start INTEGER, quiet_end INTEGER, tz_offset INTEGER NOT NULL DEFAULT 0, updated_at TEXT)");
+  _notifyPrefsReady.add(uuid);
+}
+// Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
+// (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
+function inQuietHours(hour, start, end) {
+  if (start == null || end == null || start === end) return false;
+  return start < end ? (hour >= start && hour < end) : (hour >= start || hour < end);
+}
 // The DEFAULT row-visibility suffix for a table (param-free): hide trashed / expired / not-yet-published
 // / archived rows — IDENTICAL to the list read's visClause. ANDed into a saved search's base so a stored
 // query can never re-widen visibility (buildD1List ignores the withTrashed/withScheduled/… params).
@@ -9389,6 +9404,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _mentions WHERE mentioned_user=? OR by_user=?", [u.id, u.id]],     // @mentions (either side)
             ["DELETE FROM _event_regs WHERE user_id=?", [u.id]],                             // event registrations
             ["DELETE FROM _goal_contribs WHERE user_id=?", [u.id]],                          // fundraising contributions
+            ["DELETE FROM _notify_prefs WHERE user_id=?", [u.id]],                           // notification preferences
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -11400,6 +11416,74 @@ async function handleRequest(request, env, ctx) {
           const agg = (await cfD1Query(env, uuid, "SELECT COALESCE(SUM(amount_cents),0) AS raised, COUNT(*) AS n, COUNT(DISTINCT user_id) AS contributors FROM _goal_contribs WHERE goal=?", [goal]))[0];
           return Response.json({ ok: true, goal, title: g.title, target: g.target_cents / 100, raised: agg.raised / 100, progress_pct: pct(agg.raised, g.target_cents), met: agg.raised >= g.target_cents, contributions: agg.n, contributors: agg.contributors, currency: g.currency, deadline: g.deadline });
         } catch (e) { console.error("goals failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "goals failed" }, { status: 502 }); }
+      }
+      // NOTIFICATION PREFERENCES + QUIET HOURS — a member controls which channels/types they receive and
+      // a do-not-disturb window; the app asks /should-send before notifying. Per-member and private (a
+      // member reads/writes their OWN; an admin may check any member's send-eligibility with &user=).
+      //   GET  /api/db/<slug>/notify-prefs                        → my prefs (defaults if unset)
+      //   POST /api/db/<slug>/notify-prefs {channels?, types?, quiet_start?, quiet_end?, tz_offset?}  → update mine
+      //   GET  /api/db/<slug>/notify-prefs/should-send?type=&channel=[&at=&user=]  → {send, reasons}
+      const nprm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/notify-prefs(?:\/(should-send))?$/i);
+      if (nprm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = nprm[1].toLowerCase(), sub = nprm[2] ? nprm[2].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const parse = (s, d) => { if (!s) return d; try { const v = JSON.parse(s); return (v && typeof v === "object" && !Array.isArray(v)) ? v : d; } catch { return d; } };
+        const loadPrefs = async (uid) => {
+          const r = (await cfD1Query(env, uuid, "SELECT channels, types, quiet_start, quiet_end, tz_offset FROM _notify_prefs WHERE user_id=?", [uid]))[0];
+          return { channels: parse(r && r.channels, {}), types: parse(r && r.types, {}), quiet_start: r && r.quiet_start != null ? r.quiet_start : null, quiet_end: r && r.quiet_end != null ? r.quiet_end : null, tz_offset: (r && r.tz_offset) || 0 };
+        };
+        try {
+          await ensureNotifyPrefs(env, uuid);
+          // SHOULD-SEND — the notify gate. Member checks own; admin may check any via &user=.
+          if (sub === "should-send") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|nps", 600)) return tooMany();
+            let target = userId;
+            const other = url.searchParams.get("user");
+            if (other != null && other !== "" && String(other) !== String(userId)) {
+              const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+              if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+              target = parseInt(other, 10);
+              if (!Number.isFinite(target)) return Response.json({ ok: false, error: "bad user id" }, { status: 400 });
+            }
+            const prefs = await loadPrefs(target);
+            const type = url.searchParams.get("type"), channel = url.searchParams.get("channel");
+            const atRaw = url.searchParams.get("at");
+            const at = atRaw && !isNaN(new Date(atRaw).getTime()) ? new Date(atRaw) : new Date();
+            const localHour = Math.floor((((at.getUTCHours() * 60 + at.getUTCMinutes()) + prefs.tz_offset) % 1440 + 1440) % 1440 / 60);
+            const typeOk = !type || prefs.types[type] !== false;
+            const channelOk = !channel || prefs.channels[channel] !== false;
+            const quiet = inQuietHours(localHour, prefs.quiet_start, prefs.quiet_end);
+            return Response.json({ ok: true, send: typeOk && channelOk && !quiet, reasons: { type: typeOk, channel: channelOk, quiet }, local_hour: localHour });
+          }
+          // GET my prefs.
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|npg", 300)) return tooMany();
+            return Response.json(Object.assign({ ok: true }, await loadPrefs(userId)));
+          }
+          // POST — update my prefs (channels/types replace when provided; quiet/tz set when provided).
+          if (!rateOk(slug + "|" + ip + "|npw", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const cur = await loadPrefs(userId);
+          let channels = cur.channels, types = cur.types, qs = cur.quiet_start, qe = cur.quiet_end, tz = cur.tz_offset;
+          const cleanMap = (m) => { const out = {}; if (m && typeof m === "object" && !Array.isArray(m)) for (const [k, v] of Object.entries(m)) { if (/^[a-z0-9_.-]{1,40}$/i.test(k)) out[k] = v === true || v === 1 || v === "true"; } return out; };
+          if (body.channels !== undefined) channels = cleanMap(body.channels);
+          if (body.types !== undefined) types = cleanMap(body.types);
+          const hr = (v) => { if (v === null) return null; const n = Math.floor(Number(v)); return (Number.isFinite(n) && n >= 0 && n <= 23) ? n : undefined; };
+          if (body.quiet_start !== undefined) { const v = hr(body.quiet_start); if (v === undefined) return Response.json({ ok: false, error: "quiet_start must be an hour 0–23 or null" }, { status: 400 }); qs = v; }
+          if (body.quiet_end !== undefined) { const v = hr(body.quiet_end); if (v === undefined) return Response.json({ ok: false, error: "quiet_end must be an hour 0–23 or null" }, { status: 400 }); qe = v; }
+          if (body.tz_offset !== undefined) { const n = Math.floor(Number(body.tz_offset)); if (!Number.isFinite(n) || n < -720 || n > 840) return Response.json({ ok: false, error: "tz_offset must be minutes in -720..840" }, { status: 400 }); tz = n; }
+          await cfD1Query(env, uuid, "INSERT INTO _notify_prefs (user_id, channels, types, quiet_start, quiet_end, tz_offset, updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET channels=excluded.channels, types=excluded.types, quiet_start=excluded.quiet_start, quiet_end=excluded.quiet_end, tz_offset=excluded.tz_offset, updated_at=excluded.updated_at", [userId, JSON.stringify(channels), JSON.stringify(types), qs, qe, tz, new Date().toISOString()]);
+          return Response.json({ ok: true, channels, types, quiet_start: qs, quiet_end: qe, tz_offset: tz });
+        } catch (e) { console.error("notify-prefs failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "notify-prefs failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
