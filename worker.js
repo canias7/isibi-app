@@ -4984,6 +4984,33 @@ async function ensureProfanity(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _profanity (word TEXT PRIMARY KEY, created_at TEXT)");
   _profanityReady.add(uuid);
 }
+// Slug / handle reservation — atomically claim a unique name within a namespace (usernames, vanity URLs,
+// event slugs), first-come-first-served. `_reservations` = one row per (namespace, name). Ensured once.
+const _reservationsReady = new Set();
+async function ensureReservations(env, uuid) {
+  if (_reservationsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _reservations (namespace TEXT NOT NULL, name TEXT NOT NULL, user_id INTEGER, created_at TEXT, PRIMARY KEY (namespace, name))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_reservations_user ON _reservations (user_id)"); } catch {}
+  _reservationsReady.add(uuid);
+}
+// IP allow/deny list — an admin maintains allow/deny rules; a check tells whether an IP is permitted (an
+// explicit deny always blocks; if ANY allow rules exist it becomes an allowlist). `_ip_rules`. Ensured once.
+const _ipRulesReady = new Set();
+async function ensureIpRules(env, uuid) {
+  if (_ipRulesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _ip_rules (ip TEXT PRIMARY KEY, action TEXT NOT NULL, note TEXT, created_at TEXT)");
+  _ipRulesReady.add(uuid);
+}
+// Queue / ticket dispenser (deli counter) — take a monotonic ticket number, an operator calls the next, and
+// anyone sees who's now serving. `_queues` = the counters, `_queue_tickets` = issued tickets. Ensured once.
+const _queuesReady = new Set();
+async function ensureQueues(env, uuid) {
+  if (_queuesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _queues (queue TEXT PRIMARY KEY, now_serving INTEGER NOT NULL DEFAULT 0, last_number INTEGER NOT NULL DEFAULT 0, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _queue_tickets (queue TEXT NOT NULL, number INTEGER NOT NULL, user_id INTEGER, status TEXT NOT NULL DEFAULT 'waiting', created_at TEXT, served_at TEXT, PRIMARY KEY (queue, number))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_queue_tickets_user ON _queue_tickets (user_id)"); } catch {}
+  _queuesReady.add(uuid);
+}
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -9779,6 +9806,8 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _dashboards WHERE user_id=?", [u.id]],                             // their saved dashboard layout
             ["DELETE FROM _terms_accept WHERE user_id=?", [u.id]],                           // terms/privacy acceptances
             ["DELETE FROM _agegate WHERE user_id=?", [u.id]],                                // age-gate verification
+            ["DELETE FROM _reservations WHERE user_id=?", [u.id]],                           // slug/handle reservations they hold
+            ["DELETE FROM _queue_tickets WHERE user_id=?", [u.id]],                          // queue tickets they took
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -14617,6 +14646,202 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported profanity request" }, { status: 405 });
         } catch (e) { console.error("profanity failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "profanity failed" }, { status: 502 }); }
+      }
+      // SLUG / HANDLE RESERVATION — atomically claim a unique name within a namespace, first-come-first-served.
+      //   GET    /api/db/<slug>/reserve/<ns>/<name>         (public) → {available}
+      //   POST   /api/db/<slug>/reserve/<ns> {name}         (member) → claim → {reserved} · 409 if taken
+      //   GET    /api/db/<slug>/reserve/<ns>/mine           (member) → my reservations in this namespace
+      //   DELETE /api/db/<slug>/reserve/<ns>/<name>         (owner or ADMIN) → release
+      const rsvm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/reserve\/([A-Za-z0-9_.-]{1,60})(?:\/(mine|[A-Za-z0-9_.-]{1,80}))?$/i);
+      if (rsvm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = rsvm[1].toLowerCase(), ns = rsvm[2].toLowerCase(), seg = rsvm[3] || null;
+        const isMine = seg === "mine", targetName = seg && !isMine ? seg.toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          await ensureReservations(env, uuid);
+          // MY reservations (member).
+          if (isMine && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rows = await cfD1Query(env, uuid, "SELECT name, created_at FROM _reservations WHERE namespace=? AND user_id=? ORDER BY created_at DESC LIMIT 500", [ns, userId]);
+            return Response.json({ ok: true, namespace: ns, reservations: rows });
+          }
+          // CLAIM (member).
+          if (!seg && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|rsvw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const name = String(body.name || "").trim().toLowerCase().slice(0, 80);
+            if (!name) return Response.json({ ok: false, error: "a name is required" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "INSERT INTO _reservations (namespace, name, user_id, created_at) VALUES (?,?,?,?) ON CONFLICT(namespace, name) DO NOTHING", [ns, name, userId, new Date().toISOString()]);
+            if (!ex.changes) {
+              const owner = (await cfD1Query(env, uuid, "SELECT user_id FROM _reservations WHERE namespace=? AND name=?", [ns, name]))[0];
+              if (owner && owner.user_id === userId) return Response.json({ ok: true, namespace: ns, name, reserved: true, mine: true });
+              return Response.json({ ok: false, error: "that name is taken", name }, { status: 409 });
+            }
+            return Response.json({ ok: true, namespace: ns, name, reserved: true });
+          }
+          // AVAILABILITY (public).
+          if (targetName && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|rsvr", 600)) return tooMany();
+            const taken = !!(await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _reservations WHERE namespace=? AND name=?", [ns, targetName]))[0];
+            return Response.json({ ok: true, namespace: ns, name: targetName, available: !taken });
+          }
+          // RELEASE (owner or admin).
+          if (targetName && request.method === "DELETE") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const row = (await cfD1Query(env, uuid, "SELECT user_id FROM _reservations WHERE namespace=? AND name=?", [ns, targetName]))[0];
+            if (!row) return Response.json({ ok: false, error: "not reserved" }, { status: 404 });
+            let isAdmin = false; const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); isAdmin = !!(rr[0] && rr[0].role === "admin");
+            if (row.user_id !== userId && !isAdmin) return Response.json({ ok: false, error: "not yours" }, { status: 403 });
+            await cfD1Exec(env, uuid, "DELETE FROM _reservations WHERE namespace=? AND name=?", [ns, targetName]);
+            return Response.json({ ok: true, released: true, namespace: ns, name: targetName });
+          }
+          return Response.json({ ok: false, error: "unsupported reserve request" }, { status: 405 });
+        } catch (e) { console.error("reserve failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "reserve failed" }, { status: 502 }); }
+      }
+      // IP ALLOW/DENY LIST — an admin maintains allow/deny rules; a check tells whether an IP is permitted
+      // (an explicit deny always blocks; if ANY allow rules exist it becomes an allowlist).
+      //   POST   /api/db/<slug>/ip-rules {ip, action, note?}  (ADMIN) → add/update a rule (action allow|deny)
+      //   GET    /api/db/<slug>/ip-rules                    (ADMIN) → list rules
+      //   GET    /api/db/<slug>/ip-rules/check[?ip=]        (public) → {allowed} (defaults to the caller IP)
+      //   DELETE /api/db/<slug>/ip-rules/<ip>               (ADMIN)
+      const iprm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/ip-rules(?:\/(check|[0-9A-Fa-f:.]{1,45}))?$/i);
+      if (iprm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = iprm[1].toLowerCase(), seg = iprm[2] || null, isCheck = seg === "check", targetIp = seg && !isCheck ? seg : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureIpRules(env, uuid);
+          // CHECK (public) — deny wins; else allowlist semantics if any allow rule exists.
+          if (isCheck && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|iprc", 600)) return tooMany();
+            const target = String(url.searchParams.get("ip") || ip).trim().slice(0, 45);
+            const rule = (await cfD1Query(env, uuid, "SELECT action FROM _ip_rules WHERE ip=?", [target]))[0];
+            const allowCount = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _ip_rules WHERE action='allow'"))[0].n;
+            let allowed, reason;
+            if (rule && rule.action === "deny") { allowed = false; reason = "denied"; }
+            else if (rule && rule.action === "allow") { allowed = true; reason = "allowed"; }
+            else if (allowCount > 0) { allowed = false; reason = "not on the allowlist"; }
+            else { allowed = true; reason = "default"; }
+            return Response.json({ ok: true, ip: target, allowed, reason });
+          }
+          // ADD/UPDATE (admin).
+          if (!seg && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|iprw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const ruleIp = String(body.ip || "").trim().slice(0, 45);
+            const action = String(body.action || "").toLowerCase();
+            if (!ruleIp) return Response.json({ ok: false, error: "an ip is required" }, { status: 400 });
+            if (action !== "allow" && action !== "deny") return Response.json({ ok: false, error: "action must be allow or deny" }, { status: 400 });
+            await cfD1Query(env, uuid, "INSERT INTO _ip_rules (ip, action, note, created_at) VALUES (?,?,?,?) ON CONFLICT(ip) DO UPDATE SET action=excluded.action, note=excluded.note", [ruleIp, action, body.note != null ? String(body.note).slice(0, 200) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, ip: ruleIp, action });
+          }
+          // DELETE (admin).
+          if (targetIp && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _ip_rules WHERE ip=?", [targetIp]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such rule" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, ip: targetIp });
+          }
+          // LIST (admin).
+          if (!seg && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|iprl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT ip, action, note, created_at FROM _ip_rules ORDER BY created_at DESC LIMIT 2000");
+            return Response.json({ ok: true, rules: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported ip-rules request" }, { status: 405 });
+        } catch (e) { console.error("ip-rules failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "ip-rules failed" }, { status: 502 }); }
+      }
+      // QUEUE / TICKET DISPENSER (deli counter) — take a monotonic ticket number, an operator calls the next,
+      // and anyone sees who's now serving.
+      //   POST   /api/db/<slug>/queue/<q>/take    (member) → {number, ahead}
+      //   GET    /api/db/<slug>/queue/<q>          (public) → {now_serving, last_number, waiting}
+      //   POST   /api/db/<slug>/queue/<q>/call     (ADMIN) → advance to the next waiting ticket
+      //   GET    /api/db/<slug>/queue/<q>/mine      (member) → my active ticket + position
+      //   DELETE /api/db/<slug>/queue/<q>           (ADMIN) → reset the queue
+      const qdm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/queue\/([A-Za-z0-9_.-]{1,60})(?:\/(take|call|mine))?$/i);
+      if (qdm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = qdm[1].toLowerCase(), q = qdm[2].toLowerCase(), act = qdm[3] ? qdm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const state = async () => (await cfD1Query(env, uuid, "SELECT now_serving, last_number FROM _queues WHERE queue=?", [q]))[0] || { now_serving: 0, last_number: 0 };
+        try {
+          await ensureQueues(env, uuid);
+          // TAKE a ticket (member).
+          if (act === "take" && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|qtake", 120)) return tooMany();
+            const now = new Date().toISOString();
+            // Atomically bump the queue's last_number and get the new value.
+            const r = await cfD1Query(env, uuid, "INSERT INTO _queues (queue, now_serving, last_number, created_at) VALUES (?,0,1,?) ON CONFLICT(queue) DO UPDATE SET last_number = last_number + 1 RETURNING now_serving, last_number", [q, now]);
+            const number = r[0].last_number;
+            await cfD1Exec(env, uuid, "INSERT INTO _queue_tickets (queue, number, user_id, status, created_at) VALUES (?,?,?, 'waiting', ?)", [q, number, userId, now]);
+            const ahead = Math.max(0, number - Math.max(r[0].now_serving, 0) - 1);
+            return Response.json({ ok: true, queue: q, number, now_serving: r[0].now_serving, ahead });
+          }
+          // CALL next (admin).
+          if (act === "call" && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            // The next waiting ticket strictly after now_serving.
+            const st = await state();
+            const nextT = (await cfD1Query(env, uuid, "SELECT number FROM _queue_tickets WHERE queue=? AND status='waiting' AND number > ? ORDER BY number ASC LIMIT 1", [q, st.now_serving]))[0];
+            if (!nextT) return Response.json({ ok: true, queue: q, now_serving: st.now_serving, done: true, note: "no one waiting" });
+            await cfD1Exec(env, uuid, "UPDATE _queues SET now_serving=? WHERE queue=?", [nextT.number, q]);
+            await cfD1Exec(env, uuid, "UPDATE _queue_tickets SET status='served', served_at=? WHERE queue=? AND number=?", [new Date().toISOString(), q, nextT.number]);
+            const waiting = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _queue_tickets WHERE queue=? AND status='waiting'", [q]))[0].n;
+            return Response.json({ ok: true, queue: q, now_serving: nextT.number, waiting });
+          }
+          // MINE (member).
+          if (act === "mine" && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const st = await state();
+            const mine = (await cfD1Query(env, uuid, "SELECT number, status FROM _queue_tickets WHERE queue=? AND user_id=? AND status='waiting' ORDER BY number ASC LIMIT 1", [q, userId]))[0];
+            if (!mine) return Response.json({ ok: true, queue: q, ticket: null, now_serving: st.now_serving });
+            const ahead = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _queue_tickets WHERE queue=? AND status='waiting' AND number < ?", [q, mine.number]))[0].n;
+            return Response.json({ ok: true, queue: q, ticket: mine.number, now_serving: st.now_serving, ahead });
+          }
+          // RESET (admin).
+          if (!act && request.method === "DELETE") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            await cfD1Exec(env, uuid, "DELETE FROM _queue_tickets WHERE queue=?", [q]);
+            await cfD1Exec(env, uuid, "DELETE FROM _queues WHERE queue=?", [q]);
+            return Response.json({ ok: true, reset: true, queue: q });
+          }
+          // STATUS (public).
+          if (!act && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|qst", 600)) return tooMany();
+            const st = await state();
+            const waiting = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _queue_tickets WHERE queue=? AND status='waiting'", [q]))[0].n;
+            return Response.json({ ok: true, queue: q, now_serving: st.now_serving, last_number: st.last_number, waiting });
+          }
+          return Response.json({ ok: false, error: "unsupported queue request" }, { status: 405 });
+        } catch (e) { console.error("queue failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "queue failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.

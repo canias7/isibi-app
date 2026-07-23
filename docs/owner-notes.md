@@ -6661,6 +6661,18 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — slug reservation · IP allow/deny · queue dispenser (data API, next-100 platform batch)
+- **`/reserve/<ns>/<name>`** — atomic unique-name claim (usernames/vanity URLs/event slugs), first-come via
+  `INSERT … ON CONFLICT DO NOTHING` + changes check (no SELECT-then-INSERT race). Case-insensitive,
+  namespace-isolated; availability check, /mine, owner-or-admin release. `_reservations` in GDPR erase.
+  batch226 (18/18).
+- **`/ip-rules`** — admin allow/deny list; public `/check?ip=` → deny always wins, ANY allow rule flips to
+  allowlist mode, else default-allow. Admin config, no erase line. batch227 (21/21).
+- **`/queue/<q>`** — deli-counter dispenser. `/take` atomically bumps `last_number` (INSERT…ON CONFLICT DO
+  UPDATE RETURNING) + issues a ticket; admin `/call` advances now_serving to the next waiting ticket + marks
+  it served; `/mine` gives position; DELETE resets. `_queue_tickets` in GDPR erase. batch228 (23/23).
+- Full suite 211 green.
+
 ## 2026-07-23 — terms acceptance · age gate · profanity filter (data API, next-100 trust/safety batch)
 - **`/terms/<doc>`** — versioned consent paper-trail. Admin sets the current version; member `/accept` stamps
   it; `/status` reports up_to_date (flips false on a version bump until re-accept); admin `/acceptances` log.
