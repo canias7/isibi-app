@@ -606,8 +606,8 @@
 .st-switch.locked { opacity: .5; }
 .orch-ctl.locked .orch-name::after { content: " 🔒"; font-size: .72em; opacity: .8; }
 .model-menu.drop-up.dir-menu { min-width: 300px; background: #ffffff; left: auto; right: 0; }
-.dir-item { padding: .6rem .8rem; }
-.dir-item .txt small { display: block; color: var(--muted); font-size: .78rem; margin-top: .15rem; line-height: 1.35; }
+.dir-item, .build-item { padding: .6rem .8rem; }
+.dir-item .txt small, .build-item .txt small { display: block; color: var(--muted); font-size: .78rem; margin-top: .15rem; line-height: 1.35; }
 /* Raw mode: the effort knob has nothing to control — greyed, not clickable. */
 .effort-pick.locked .opt-btn { opacity: .35; cursor: default; }
 .effort-pick.locked .opt-btn:hover { border-color: var(--line-2); color: var(--muted); }
@@ -1500,6 +1500,12 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 @keyframes sbblink { 50% { opacity: 0; } }
 .st-fchips { display: flex; flex-wrap: wrap; gap: 5px; padding: 10px 11px; }
 .st-fchip { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .68rem; color: var(--muted); background: rgba(255,255,255,.04); border: 1px solid var(--line, #211d30); border-radius: 6px; padding: 3px 7px; }
+/* Multi-agent fan-out chips (one per parallel agent, with its model + running/done state). */
+.st-agents { display: flex; flex-wrap: wrap; gap: 5px; padding: 10px 11px 2px; }
+.st-agent { display: inline-flex; align-items: center; gap: 5px; font-size: .68rem; color: var(--muted); background: rgba(255,255,255,.04); border: 1px solid var(--line, #211d30); border-radius: 999px; padding: 3px 9px; }
+.st-agent.done { color: var(--text); border-color: rgba(120,220,150,.35); }
+.st-agent em { font-style: normal; opacity: .6; font-size: .62rem; }
+.st-agent-run { width: 7px; height: 7px; border-radius: 50%; border: 2px solid rgba(255,255,255,.22); border-top-color: var(--accent, #ff79c6); animation: spin .7s linear infinite; display: inline-block; }
 .st-ithumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 10px 11px; }
 .st-ithumb { position: relative; aspect-ratio: 4/3; border-radius: 7px; overflow: hidden; border: 1px solid var(--line, #211d30); background: var(--panel-2); }
 .st-ithumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -1551,7 +1557,10 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-comp-in:focus { outline: none; }
 .st-comp-row { display: flex; align-items: center; gap: .55rem; margin-top: .45rem; }
 .st-plus { font: inherit; font-size: 1.05rem; width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line-2); background: none; color: var(--muted); cursor: pointer; display: grid; place-items: center; }
-.st-buildsel { font-size: .8rem; font-weight: 650; color: var(--muted); border: 1px solid var(--line-2); border-radius: 999px; padding: .3rem .7rem; margin-right: auto; }
+.st-buildsel-wrap { position: relative; margin-right: auto; display: inline-flex; }
+.st-buildsel { font-size: .8rem; font-weight: 650; color: var(--muted); border: 1px solid var(--line-2); border-radius: 999px; padding: .3rem .7rem; background: none; cursor: pointer; }
+.st-buildsel:hover { color: var(--text); border-color: var(--text); }
+.st-buildsel b { color: var(--text); font-weight: 700; }
 .st-comp-price { background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 800; font-size: .82rem; }
 .st-sendc {
   font: inherit; font-size: 1rem; font-weight: 800; width: 34px; height: 34px; border-radius: 50%; color: var(--on-accent); cursor: pointer; display: grid; place-items: center;
