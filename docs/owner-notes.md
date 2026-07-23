@@ -6661,6 +6661,19 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — challenges · levels/XP ladder · per-user dashboard tiles (data API, next-100)
+- **`/challenges/<key>`** — a goal with a target + optional starts/ends window. Member `/progress {by}`
+  (atomic `MAX(0, progress+by)` upsert RETURNING) or `{set}` (absolute); active-window enforced (409 outside
+  it); public read → challenge + participants + ranked board + mine. `_challenge_progress` in GDPR erase.
+  batch220 (24/24).
+- **`/levels`** — an XP ladder. Admin PUT replaces the whole `{tiers:[{level,name,min_xp}]}` ladder (dup/neg
+  guarded); `/levels/for?xp=N` resolves level/next/xp_to_next/progress% (fixed: `Number(null)`→0 slipped a
+  missing ?xp through, now explicit presence check); `/levels/me` reads the caller's points balance. Admin
+  config, no erase line. batch221 (20/20).
+- **`/dashboard`** — per-user layout. Member GET/PUT/DELETE their own tiles blob (arbitrary JSON, 100k cap).
+  `_dashboards` in GDPR erase. batch222 (15/15).
+- Full suite 205 green.
+
 ## 2026-07-23 — points ledger · generic leaderboards · daily-reward claim (data API, next-100 gamification)
 - **`/points`** — per-member karma/XP/coin balance backed by an APPEND-ONLY ledger (balance = SUM(delta),
   never overwritten). Admin `/award {user,amount,reason}` (amount may be negative), member `/me`, admin
