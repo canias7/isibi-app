@@ -6661,6 +6661,17 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — capacity slots · product bundles · win/loss analytics (data API, next-100)
+- **`/slots`** — fixed-capacity class-size booking (distinct from 1:1 `/bookings`). Atomic seat book via
+  `INSERT…SELECT…WHERE (COUNT<capacity) AND NOT EXISTS(dup)` (overbook-proof under concurrency), 409 when
+  full, cancel frees a seat, detail carries `mine`. `_slot_bookings` in GDPR erase. batch238 (24/24).
+- **`/bundles`** — component line items rolled up server-side (subtotal=Σqty×unit, total=subtotal−discount
+  floored at 0). Public active list (fixed a bug where a non-admin `?active=0` could reveal inactive),
+  get+items, PATCH re-rolls. No user scope. batch239 (21/21).
+- **`/winloss`** — log won/lost deals w/ reason+amount; `/summary` rolls up win_rate, won/lost value, and a
+  by_reason breakdown (SUM(outcome=…) + GROUP BY). Admin-only. No user scope. batch240 (21/21).
+- Full suite 223 green.
+
 ## 2026-07-23 — content syndication (sitemap+RSS) · back-in-stock notify · recurring expander (data API, next-100)
 - **`/syndication` + `/sitemap.xml` + `/rss.xml`** — admin registers URLs (`_syndication`, upsert by url);
   public `/sitemap.xml` (urlset/loc/lastmod/priority) + `/rss.xml` (RSS 2.0, `?title=&link=&desc=`), both via
