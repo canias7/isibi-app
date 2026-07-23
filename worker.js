@@ -5637,6 +5637,24 @@ async function ensureReputation(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_reputation_user ON _reputation (user_id)"); } catch {}
   _reputationReady.add(uuid);
 }
+// Broken-link registry — track URLs and the last check result an external checker reported (ok / broken).
+// `_link_checks` keyed by url. Ensured once.
+const _linkChecksReady = new Set();
+async function ensureLinkChecks(env, uuid) {
+  if (_linkChecksReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _link_checks (id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT UNIQUE NOT NULL, status TEXT NOT NULL DEFAULT 'unchecked', http_status INTEGER, source TEXT, last_checked TEXT, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_link_checks_status ON _link_checks (status)"); } catch {}
+  _linkChecksReady.add(uuid);
+}
+// Right-to-be-forgotten queue — a member opens a data-erasure request; an admin moves it open → processing →
+// done | rejected. `_erasure_requests`. Ensured once.
+const _erasureReady = new Set();
+async function ensureErasure(env, uuid) {
+  if (_erasureReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _erasure_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, email TEXT, reason TEXT, status TEXT NOT NULL DEFAULT 'open', note TEXT, created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_erasure_status ON _erasure_requests (status)"); } catch {}
+  _erasureReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -10488,6 +10506,7 @@ async function handleRequest(request, env, ctx) {
             ["UPDATE _equipment SET status='available', holder_id=NULL WHERE holder_id=?", [u.id]], // release held gear
             ["DELETE FROM _equipment_log WHERE user_id=?", [u.id]],                          // equipment history
             ["DELETE FROM _reputation WHERE user_id=?", [u.id]],                             // reputation events
+            ["DELETE FROM _erasure_requests WHERE user_id=?", [u.id]],                       // RTBF requests
             ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
             ["DELETE FROM _testimonials WHERE user_id=?", [u.id]],                           // user-submitted testimonials
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
@@ -20962,6 +20981,161 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported reputation request" }, { status: 405 });
         } catch (e) { console.error("reputation failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "reputation failed" }, { status: 502 }); }
+      }
+      // BROKEN-LINK REGISTRY — track URLs and record the last result an external checker reported (ok / broken).
+      // The server does NOT fetch the URLs; a crawler posts results. Admin-only.
+      //   POST   /api/db/<slug>/link-check {url, source?}          (ADMIN) → register a URL
+      //   POST   /api/db/<slug>/link-check/report {url, ok, http_status?}  (ADMIN) → record a result
+      //   GET    /api/db/<slug>/link-check/broken                  (ADMIN) → broken URLs
+      //   GET    /api/db/<slug>/link-check[?status=]               (ADMIN) → list
+      //   DELETE /api/db/<slug>/link-check/<id>                    (ADMIN)
+      const lchkm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/link-check(?:\/(report|broken|\d+))?$/i);
+      if (lchkm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = lchkm[1].toLowerCase(), seg = lchkm[2] || null;
+        const isReport = seg === "report", isBroken = seg === "broken", lcId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureLinkChecks(env, uuid);
+          // REGISTER.
+          if (!seg && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const u2 = String(body.url || "").trim().slice(0, 2000);
+            if (!/^https?:\/\/[^\s]+$/i.test(u2)) return Response.json({ ok: false, error: "a valid http(s) url is required" }, { status: 400 });
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _link_checks (url, status, source, created_at) VALUES (?, 'unchecked', ?, ?) ON CONFLICT(url) DO UPDATE SET source=excluded.source", [u2, body.source != null ? String(body.source).slice(0, 200) : null, now]);
+            return Response.json({ ok: true, url: u2, status: "unchecked" });
+          }
+          // REPORT.
+          if (isReport && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const u2 = String(body.url || "").trim();
+            if (!u2) return Response.json({ ok: false, error: "url is required" }, { status: 400 });
+            const status = body.ok ? "ok" : "broken";
+            let hs = body.http_status != null ? Math.floor(Number(body.http_status)) : null; if (hs != null && !Number.isFinite(hs)) hs = null;
+            const now = new Date().toISOString();
+            const ex = await cfD1Exec(env, uuid, "UPDATE _link_checks SET status=?, http_status=?, last_checked=? WHERE url=?", [status, hs, now, u2]);
+            if (!ex.changes) { await cfD1Exec(env, uuid, "INSERT INTO _link_checks (url, status, http_status, last_checked, created_at) VALUES (?,?,?,?,?)", [u2.slice(0, 2000), status, hs, now, now]); }
+            return Response.json({ ok: true, url: u2, status, http_status: hs });
+          }
+          // BROKEN.
+          if (isBroken && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT id, url, http_status, last_checked, source FROM _link_checks WHERE status='broken' ORDER BY last_checked DESC LIMIT 5000");
+            return Response.json({ ok: true, broken: rows });
+          }
+          // DELETE.
+          if (lcId != null && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _link_checks WHERE id=?", [lcId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such link" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: lcId });
+          }
+          // LIST.
+          if (!seg && request.method === "GET") {
+            const st = url.searchParams.get("status");
+            const rows = st
+              ? await cfD1Query(env, uuid, "SELECT id, url, status, http_status, last_checked, source FROM _link_checks WHERE status=? ORDER BY id DESC LIMIT 5000", [String(st).slice(0, 20)])
+              : await cfD1Query(env, uuid, "SELECT id, url, status, http_status, last_checked, source FROM _link_checks ORDER BY id DESC LIMIT 5000");
+            return Response.json({ ok: true, links: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported link-check request" }, { status: 405 });
+        } catch (e) { console.error("link-check failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "link-check failed" }, { status: 502 }); }
+      }
+      // RIGHT-TO-BE-FORGOTTEN QUEUE — a member opens a data-erasure request; an admin moves it open →
+      // processing → done | rejected. Each transition is an atomic state-guarded UPDATE.
+      //   POST /api/db/<slug>/erasure-requests {reason?}          (member) → open (one open at a time)
+      //   GET  /api/db/<slug>/erasure-requests/mine               (member) → own requests
+      //   GET  /api/db/<slug>/erasure-requests[?status=]          (ADMIN)  → the queue
+      //   POST /api/db/<slug>/erasure-requests/<id>/process       (ADMIN)  → open → processing
+      //   POST /api/db/<slug>/erasure-requests/<id>/complete {note?}  (ADMIN) → processing → done
+      //   POST /api/db/<slug>/erasure-requests/<id>/reject {note?}    (ADMIN) → → rejected
+      const ersm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/erasure-requests(?:\/(mine|\d+))?(?:\/(process|complete|reject))?$/i);
+      if (ersm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = ersm[1].toLowerCase(), seg = ersm[2] || null, act = ersm[3] || null;
+        const isMine = seg === "mine", erId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const isAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return !!(rr[0] && rr[0].role === "admin"); };
+        try {
+          await ensureErasure(env, uuid);
+          // OPEN (member).
+          if (!seg && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const open = (await cfD1Query(env, uuid, "SELECT id FROM _erasure_requests WHERE user_id=? AND status IN ('open','processing')", [userId]))[0];
+            if (open) return Response.json({ ok: false, error: "you already have an open request", id: open.id }, { status: 409 });
+            const me = (await cfD1Query(env, uuid, "SELECT email FROM _users WHERE id=?", [userId]))[0];
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _erasure_requests (user_id, email, reason, status, created_at, updated_at) VALUES (?,?,?, 'open', ?, ?) RETURNING id", [userId, me ? me.email : null, body.reason != null ? String(body.reason).slice(0, 1000) : null, now, now]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, status: "open" });
+          }
+          // MINE.
+          if (isMine && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT id, reason, status, note, created_at, updated_at FROM _erasure_requests WHERE user_id=? ORDER BY id DESC LIMIT 500", [userId]);
+            return Response.json({ ok: true, requests: rows });
+          }
+          // TRANSITIONS (admin).
+          if (erId != null && act && request.method === "POST") {
+            if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const now = new Date().toISOString();
+            let from, to, note = null;
+            if (act === "process") { from = "open"; to = "processing"; }
+            else if (act === "complete") { from = "processing"; to = "done"; note = body.note != null ? String(body.note).slice(0, 1000) : null; }
+            else { to = "rejected"; note = body.note != null ? String(body.note).slice(0, 1000) : null; }
+            let r;
+            if (act === "reject") r = await cfD1Query(env, uuid, "UPDATE _erasure_requests SET status='rejected', note=?, updated_at=? WHERE id=? AND status IN ('open','processing') RETURNING id", [note, now, erId]);
+            else r = await cfD1Query(env, uuid, "UPDATE _erasure_requests SET status=?, note=COALESCE(?, note), updated_at=? WHERE id=? AND status=? RETURNING id", [to, note, now, erId, from]);
+            if (!r.length) { const row = (await cfD1Query(env, uuid, "SELECT status FROM _erasure_requests WHERE id=?", [erId]))[0]; if (!row) return Response.json({ ok: false, error: "no such request" }, { status: 404 }); return Response.json({ ok: false, error: "can't " + act + " from '" + row.status + "'", status: row.status }, { status: 409 }); }
+            return Response.json({ ok: true, id: erId, status: to });
+          }
+          // QUEUE (admin).
+          if (!seg && request.method === "GET") {
+            if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const st = url.searchParams.get("status");
+            const rows = st
+              ? await cfD1Query(env, uuid, "SELECT id, user_id, email, reason, status, note, created_at FROM _erasure_requests WHERE status=? ORDER BY id ASC LIMIT 2000", [String(st).slice(0, 20)])
+              : await cfD1Query(env, uuid, "SELECT id, user_id, email, reason, status, note, created_at FROM _erasure_requests ORDER BY id ASC LIMIT 2000");
+            return Response.json({ ok: true, requests: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported erasure-requests request" }, { status: 405 });
+        } catch (e) { console.error("erasure-requests failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "erasure-requests failed" }, { status: 502 }); }
+      }
+      // COLOR CONTRAST — a stateless WCAG contrast checker: given a foreground and background hex color, return
+      // the contrast ratio and AA / AAA pass flags (normal + large text).
+      //   POST /api/db/<slug>/color-contrast {fg, bg}   (public) → {ratio, aa, aaa, aa_large, aaa_large}
+      const ccm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/color-contrast$/i);
+      if (ccm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = ccm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|cc", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const parseHex = (v) => { let s = String(v == null ? "" : v).trim().replace(/^#/, ""); if (/^[0-9a-f]{3}$/i.test(s)) s = s.split("").map((ch) => ch + ch).join(""); if (!/^[0-9a-f]{6}$/i.test(s)) return null; return [parseInt(s.slice(0, 2), 16), parseInt(s.slice(2, 4), 16), parseInt(s.slice(4, 6), 16)]; };
+          const fg = parseHex(body.fg), bg = parseHex(body.bg);
+          if (!fg || !bg) return Response.json({ ok: false, error: "fg and bg must be hex colors (e.g. #1a2b3c)" }, { status: 400 });
+          const lum = (rgb) => { const a = rgb.map((v) => { const c2 = v / 255; return c2 <= 0.03928 ? c2 / 12.92 : Math.pow((c2 + 0.055) / 1.055, 2.4); }); return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2]; };
+          const l1 = lum(fg), l2 = lum(bg);
+          const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+          const r = Math.round(ratio * 100) / 100;
+          return Response.json({ ok: true, ratio: r, aa: r >= 4.5, aaa: r >= 7, aa_large: r >= 3, aaa_large: r >= 4.5 });
+        } catch (e) { console.error("color-contrast failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "color-contrast failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
