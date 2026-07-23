@@ -6661,6 +6661,19 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — wishlist · glossary · star ratings (data API, next-100)
+- **`/wishlist/<item>`** — member saves items (idempotent add — fixed `already` since ON CONFLICT DO UPDATE
+  always counts as a change, so pre-check existence), my-list, remove, public per-item `/count` (+mine).
+  `_wishlist` erased by user. batch259 (17/17).
+- **`/glossary`** — admin terms+definitions+aliases (keyed by lowercased term). Public `?term=` lookup
+  matches an alias too (`(','||aliases||',') LIKE '%,x,%'`); list/search with q/letter/category. Admin
+  config. batch260 (20/20).
+- **`/ratings/<item>`** — quick 1–5 star rating (one changeable per member, ON CONFLICT upsert); public
+  aggregate {average, count, distribution:{1..5}, mine}. Distinct from text `/reviews`. `_ratings` erased by
+  user. batch261 (24/24).
+- Note: polls, round-robin (schema-config), bookmarks all already existed — chose these three distinct
+  absent ones. Full suite 244 green. (63/100 of the next-100 list shipped.)
+
 ## 2026-07-23 — preorder holds · scheduled digests · SLA timers (data API, next-100)
 - **`/preorders/<item>`** — capped preorder holds. Admin caps units; member holds qty via atomic
   `INSERT…SELECT…WHERE (SUM(qty))+qty <= capacity AND NOT EXISTS(my hold)` (no oversell, one hold each);
