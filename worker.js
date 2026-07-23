@@ -13,6 +13,9 @@ import { capabilityPrompt } from "./builder/capability-registry.mjs";
 import { lintGeneratedApp } from "./builder/app-linter.mjs";
 // Worker-safe vision-critique functions (fetch + JSON only; the Playwright render lives in the build container).
 import { buildCritiquePrompt, requestCritique, critiquesToInstruction } from "./builder/vision-critique.mjs";
+// Incremental (targeted) regeneration — behind the INCREMENTAL_EDIT flag, a chat edit sends only the affected
+// files (+ a compact index of the rest) instead of the whole app. Falls back to whole-app for global edits.
+import { selectEditTargets, composeEditPrompt } from "./builder/incremental-edit.mjs";
 // Game builder (Phase 3): same generate→build→publish pipeline, engine swapped for
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
@@ -29648,8 +29651,20 @@ async function handleRequest(request, env, ctx) {
         let files = srcObj.files;
         try {
           emit({ ev: "phase", phase: "generating" });
-          const filesDump = Object.entries(files).map(([p, src]) => "===FILE: " + p + "===\n" + src).join("\n\n").slice(0, 120000);
-          const g = await streamGen(REACT_REVISE_RULES, "Current project files:\n\n" + filesDump + "\n\nCHANGE REQUEST:\n" + instruction + "\n\nReturn only the changed file blocks.", onDelta);
+          // Behind INCREMENTAL_EDIT: send only the files this edit touches (+ a compact index of the rest), so a
+          // localized change costs a fraction of the input. Global edits (theme/font/site-wide) fall back to the
+          // whole app automatically. Flag OFF → the original whole-app dump, byte-for-byte.
+          let editUser;
+          if (env.INCREMENTAL_EDIT === "1") {
+            const sel = selectEditTargets(files, instruction);
+            const ep = composeEditPrompt(files, instruction, sel, { cap: 120000 });
+            editUser = ep.user;
+            emit({ ev: "targets", incremental: !ep.wholeApp, files: ep.targets });
+          } else {
+            const filesDump = Object.entries(files).map(([p, src]) => "===FILE: " + p + "===\n" + src).join("\n\n").slice(0, 120000);
+            editUser = "Current project files:\n\n" + filesDump + "\n\nCHANGE REQUEST:\n" + instruction + "\n\nReturn only the changed file blocks.";
+          }
+          const g = await streamGen(REACT_REVISE_RULES, editUser, onDelta);
           flushCode(true);
           const changed = parseGeneratedFiles(g.text);
           if (!Object.keys(changed).length) { emit({ ev: "error", stage: "generate", msg: "I couldn't apply that change — try rewording it" }); return; }
