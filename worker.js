@@ -19,6 +19,9 @@ import { selectEditTargets, composeEditPrompt } from "./builder/incremental-edit
 // Per-project memory — behind PROJECT_MEMORY, a compact "this site already exists, keep it consistent" block
 // (routes/tables/tokens/decisions/don't-touch) is prepended to edits so multi-turn changes don't drift.
 import { buildProjectMemory, memoryToPromptLine } from "./builder/project-memory.mjs";
+// Multi-agent generation — behind MULTI_AGENT, a contract-first parallel fan-out (design/backend/shell/per-page
+// agents, each routed to its model via the Auto/Sonnet/Opus picker) instead of one single-shot stream.
+import { runMultiAgent } from "./builder/multi-agent.mjs";
 // Game builder (Phase 3): same generate→build→publish pipeline, engine swapped for
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
@@ -29303,6 +29306,8 @@ async function handleRequest(request, env, ctx) {
       let rb; try { rb = await request.json(); } catch { return Response.json({ ok: false, error: "invalid JSON" }, { status: 400 }); }
       const brief = typeof rb.brief === "string" ? rb.brief.trim().slice(0, 4000) : "";
       if (!brief) return Response.json({ ok: false, error: "no brief" }, { status: 400 });
+      // Chatbox model picker: auto (route per agent) | sonnet | opus. Only used when MULTI_AGENT is on.
+      const reqPicker = ["auto", "sonnet", "opus"].includes(String(rb.picker || "").toLowerCase()) ? String(rb.picker).toLowerCase() : "auto";
       const auth = request.headers.get("Authorization") || "";
       const CREDIT_USD = 0.008, RB_MAX_OUT = 32000, RB_MAX_IMAGES = 6;
       const RB_IMG_CREDITS = Math.max(1, Math.ceil(SITE_IMG_USD / CREDIT_USD));
@@ -29356,6 +29361,25 @@ async function handleRequest(request, env, ctx) {
         if (!usedOut) usedOut = Math.ceil(text.length / 4);
         return { text, usedIn, usedOut };
       };
+      // One multi-agent slice: a NON-streaming call to the agent's routed model (each slice is small, so 16k is
+      // ample and non-streaming is safe). Emits {ev:"agent"} progress + a code peek so the client shows the fan-out
+      // live. runMultiAgent calls this for design/backend/shell/each-page IN PARALLEL.
+      const agentGen = async (task) => {
+        emit({ ev: "agent", key: task.key, model: task.model, status: "start" });
+        const r = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+          body: JSON.stringify({ model: task.model, max_tokens: 16000, system: task.system, messages: [{ role: "user", content: task.user }] }),
+          signal: AbortSignal.timeout(150000),
+        });
+        if (!r.ok) { const d = await r.text().catch(() => ""); const e = new Error("agent " + r.status); e.status = r.status; e.detail = d.slice(0, 300); throw e; }
+        const j = await r.json();
+        const text = (j.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
+        const u = j.usage || {};
+        emit({ ev: "agent", key: task.key, model: task.model, status: "done", chars: text.length });
+        if (text) emit({ ev: "code", t: "/* " + task.key + " */\n" + text.slice(0, 3000) });
+        return { text, usedIn: (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0), usedOut: u.output_tokens || 0 };
+      };
       const buildInContainer = async (files) => {
         const c = getContainer(env.BUILD_CONTAINER);
         const t0 = Date.now();
@@ -29396,14 +29420,29 @@ async function handleRequest(request, env, ctx) {
             } catch (e) { console.error("PIPELINE_V2 enrich failed, using base prompt:", e && e.message); }
           }
           emit({ ev: "phase", phase: "generating" });
-          const g = await streamGen(REACT_RULES, genUser, onDelta);
-          flushCode(true);
-          let files = parseGeneratedFiles(g.text);
+          // MULTI_AGENT (flag-gated): fan out design/backend/shell/one-per-page agents IN PARALLEL against a fixed
+          // contract, each routed to its model via the picker (Auto: Opus plans, Sonnet generates). Each slice is
+          // small → no truncation; concurrent → wall-clock is the slowest slice. Falls back to the single-shot
+          // stream on ANY failure, so the flag is never worse than off.
+          let files, genIn = 0, genOut = 0;
+          if (env.MULTI_AGENT === "1") {
+            try {
+              const ma = await runMultiAgent(brief, { generate: agentGen }, { picker: reqPicker });
+              if (ma.ok) { files = ma.files; genIn = ma.tokens.in; genOut = ma.tokens.out; emit({ ev: "agents", count: ma.agents.length, models: [...new Set(ma.agents.map((a) => a.model))], picker: reqPicker }); }
+              else emit({ ev: "note", msg: "multi-agent came up short — using single-shot" });
+            } catch (e) { console.error("multi-agent failed, falling back to single-shot:", e && e.message); }
+          }
+          if (!files) {
+            const g = await streamGen(REACT_RULES, genUser, onDelta);
+            flushCode(true);
+            files = parseGeneratedFiles(g.text);
+            genIn = g.usedIn; genOut = g.usedOut;
+          }
           if (!files["index.html"] || !files["src/main.jsx"] || !files["src/App.jsx"]) { emit({ ev: "error", stage: "generate", msg: "the generated project came out incomplete — try again" }); return; }
           let schemaSpec = parseSchemaSpec(files); // pulled out of the build; provisioned after publish
           const fnSpecs = parseFunctionSpecs(files); // edge functions, likewise stripped + provisioned after publish
-          genCredits += rbCredits(g.usedIn, g.usedOut);
-          try { const b = await useCredits(auth, rbCredits(g.usedIn, g.usedOut)); if (b >= 0) balAfter = b; } catch {}
+          genCredits += rbCredits(genIn, genOut);
+          try { const b = await useCredits(auth, rbCredits(genIn, genOut)); if (b >= 0) balAfter = b; } catch {}
           // SAFETY NET: the app wired itself to the backend API (/auth or /rows) but
           // the model forgot to declare isibi.schema.json → no DB gets provisioned
           // and every backend call 404s "this site has no backend yet" on the live
