@@ -32,7 +32,14 @@ Building them one PR at a time, $0 (no Claude/fal spend).
   (warnings). Errors block, warnings advise. `test/backend/applint.test.mjs` (18/18) — clean app passes, targeted
   broken apps each trip the right rule. The LIVE compile/render half (vite build + headless screenshot) belongs in
   the build container + spends nothing to design but needs the app deps installed — follow-up, and it overlaps #3.
-- Remaining: #2 planner, #3 design engine (incl. live render/screenshot-critique), #5 worker.js refactor.
+- **#2 App planner — DONE (deterministic core).** `builder/app-planner.mjs` `planApp(intent)` turns a build
+  intent into a COMPLETE, VALIDATED spec BEFORE codegen: `{name, capabilities, tables, roles, pages,
+  permissions, workflows, integrations, design_hints}`. Deterministic + $0 — it reasons over the #1 registry
+  (`selectCapabilities`, minScore 3 so specs stay focused) rather than calling a model. `validateSpec` (catches
+  fake caps / no home page / dup paths / missing visitor role) + `specToPrompt` (compact planning brief the
+  generator consumes). `test/backend/planner.test.mjs` (25/25). A model refinement pass can layer on later; the
+  spec shape stays the same. NOT yet wired into live generation (credits — will ask first).
+- Remaining: #3 design engine (incl. live render/screenshot-critique), #5 worker.js refactor.
 
 ## 2026-07-21 — BACKEND ROADMAP: building the "100 more" list (AI parked)
 
