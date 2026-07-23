@@ -1423,8 +1423,8 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-share { font: inherit; font-size: .84rem; font-weight: 650; color: var(--text); background: none; border: 1px solid var(--line-2); border-radius: 11px; padding: .5rem .95rem; cursor: pointer; }
 .st-share:hover { border-color: rgba(0, 0, 0, .45); }
 .st-publish {
-  font: inherit; font-size: .84rem; font-weight: 750; color: var(--text); cursor: pointer; border-radius: 11px; padding: .5rem 1.05rem;
-  background: linear-gradient(rgba(19, 14, 25, .88), rgba(19, 14, 25, .88)) padding-box, var(--split) border-box;
+  font: inherit; font-size: .84rem; font-weight: 750; color: var(--on-accent); cursor: pointer; border-radius: 11px; padding: .5rem 1.05rem;
+  background: var(--split);
   border: 1.5px solid transparent; box-shadow: 0 0 18px -6px rgba(0,0,0, .4);
 }
 .st-publish:hover:not([disabled]) { box-shadow: 0 0 26px -6px rgba(0,0,0, .6); }
