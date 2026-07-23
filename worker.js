@@ -5280,6 +5280,34 @@ async function ensureRatings(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_ratings_user ON _ratings (user_id)"); } catch {}
   _ratingsReady.add(uuid);
 }
+// Drip sequences — an admin defines an ordered set of steps (each with a day-offset); a subject is enrolled
+// and each step comes due at enrolled_at + day. `_sequences` = definitions, `_sequence_enrollments` = who's
+// in one + their next-due step. Ensured once per isolate.
+const _sequencesReady = new Set();
+async function ensureSequences(env, uuid) {
+  if (_sequencesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _sequences (name TEXT PRIMARY KEY, description TEXT, steps TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT, updated_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _sequence_enrollments (id INTEGER PRIMARY KEY AUTOINCREMENT, sequence TEXT NOT NULL, subject TEXT NOT NULL, enrolled_at TEXT, next_step INTEGER NOT NULL DEFAULT 0, next_due TEXT, status TEXT NOT NULL DEFAULT 'active', created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_seq_enroll ON _sequence_enrollments (status, next_due)"); } catch {}
+  _sequencesReady.add(uuid);
+}
+// Escalation rules — an admin defines rules (after N minutes, escalate to a target); an evaluate call
+// returns the rule that applies to a given elapsed time. `_escalation_rules`. Ensured once.
+const _escalationReady = new Set();
+async function ensureEscalation(env, uuid) {
+  if (_escalationReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _escalation_rules (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, after_mins INTEGER NOT NULL, target TEXT NOT NULL, note TEXT, active INTEGER NOT NULL DEFAULT 1, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_escalation ON _escalation_rules (active, after_mins)"); } catch {}
+  _escalationReady.add(uuid);
+}
+// Tax rates — an admin stores a tax rate per region (in basis points); the app computes the tax on a
+// subtotal. `_tax_rates` keyed by region. Ensured once.
+const _taxRatesReady = new Set();
+async function ensureTaxRates(env, uuid) {
+  if (_taxRatesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _tax_rates (region TEXT PRIMARY KEY, name TEXT, rate_bp INTEGER NOT NULL DEFAULT 0, updated_at TEXT)");
+  _taxRatesReady.add(uuid);
+}
 // The user-scoped tables a member can export their own rows from (GDPR data portability) — kept in sync with
 // the erase list. Each entry is [table, ownerColumn]; a missing table is skipped at read time.
 const DATA_EXPORT_TABLES = [
@@ -10104,6 +10132,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _preorder_holds WHERE user_id=?", [u.id]],                         // preorder capacity holds
             ["DELETE FROM _wishlist WHERE user_id=?", [u.id]],                               // saved/wishlist items
             ["DELETE FROM _ratings WHERE user_id=?", [u.id]],                                // star ratings they gave
+            ["DELETE FROM _sequence_enrollments WHERE lower(subject)=lower(?)", [u.email]],  // drip-sequence enrollment (if keyed by their email)
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -17161,6 +17190,230 @@ async function handleRequest(request, env, ctx) {
           if (!rateOk(slug + "|" + ip + "|ratr", 600)) return tooMany();
           return Response.json(Object.assign({ ok: true, item }, await aggregate()));
         } catch (e) { console.error("ratings failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "ratings failed" }, { status: 502 }); }
+      }
+      // DRIP SEQUENCES — an admin defines an ordered set of steps (each with a day-offset from enrollment);
+      // a subject is enrolled and each step comes due at enrolled_at + day. A worker sends due steps + advances.
+      //   POST   /api/db/<slug>/sequences/<name> {steps:[{day, subject?, template?}], description?, active?}  (ADMIN) → define
+      //   GET    /api/db/<slug>/sequences                   (ADMIN) → list · GET /sequences/<name> → detail · DELETE
+      //   POST   /api/db/<slug>/sequences/<name>/enroll {subject, start?}  (ADMIN) → enroll
+      //   GET    /api/db/<slug>/sequences/<name>/due        (ADMIN) → enrollments whose next step is due (+ the step)
+      //   POST   /api/db/<slug>/sequences/<name>/advance {enrollment}  (ADMIN) → mark the step sent, move to next
+      //   POST   /api/db/<slug>/sequences/<name>/cancel {enrollment}   (ADMIN) → stop an enrollment
+      const seqm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/sequences(?:\/([A-Za-z0-9_.-]{1,80})(?:\/(enroll|due|advance|cancel))?)?$/i);
+      if (seqm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = seqm[1].toLowerCase(), name = seqm[2] || null, act = seqm[3] ? seqm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        // Normalize steps → sorted [{day, ...}]. Returns null if invalid.
+        const parseSteps = (raw) => { if (!Array.isArray(raw) || !raw.length) return null; const out = []; for (const s of raw.slice(0, 200)) { const day = Math.floor(Number(s && s.day)); if (!Number.isFinite(day) || day < 0 || day > 3650) return null; out.push({ day, subject: s.subject != null ? String(s.subject).slice(0, 200) : null, template: s.template != null ? String(s.template).slice(0, 2000) : null }); } out.sort((a, b) => a.day - b.day); return out; };
+        try {
+          await ensureSequences(env, uuid);
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          // LIST.
+          if (!name && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|seql", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT s.name, s.description, s.active, s.steps, (SELECT COUNT(*) FROM _sequence_enrollments WHERE sequence=s.name AND status='active') AS active_enrollments FROM _sequences s ORDER BY s.name ASC LIMIT 500");
+            return Response.json({ ok: true, sequences: rows.map((r) => { let steps = []; try { steps = JSON.parse(r.steps); } catch {} return { name: r.name, description: r.description, active: !!r.active, step_count: steps.length, active_enrollments: r.active_enrollments }; }) });
+          }
+          // DEFINE.
+          if (name && !act && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|seqw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const steps = parseSteps(body.steps);
+            if (!steps) return Response.json({ ok: false, error: "steps[] with a day >= 0 each are required" }, { status: 400 });
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _sequences (name, description, steps, active, created_at, updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET description=excluded.description, steps=excluded.steps, active=excluded.active, updated_at=excluded.updated_at", [name, body.description != null ? String(body.description).slice(0, 500) : null, JSON.stringify(steps), body.active === false || body.active === 0 ? 0 : 1, now, now]);
+            return Response.json({ ok: true, name, steps: steps.length });
+          }
+          // DETAIL.
+          if (name && !act && request.method === "GET") {
+            const r = (await cfD1Query(env, uuid, "SELECT name, description, steps, active FROM _sequences WHERE name=?", [name]))[0];
+            if (!r) return Response.json({ ok: false, error: "no such sequence" }, { status: 404 });
+            let steps = []; try { steps = JSON.parse(r.steps); } catch {}
+            return Response.json({ ok: true, sequence: { name: r.name, description: r.description, active: !!r.active, steps } });
+          }
+          // DELETE.
+          if (name && !act && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _sequences WHERE name=?", [name]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such sequence" }, { status: 404 });
+            try { await cfD1Exec(env, uuid, "DELETE FROM _sequence_enrollments WHERE sequence=?", [name]); } catch {}
+            return Response.json({ ok: true, deleted: true, name });
+          }
+          // The remaining actions need the sequence + its steps.
+          const seq = (await cfD1Query(env, uuid, "SELECT steps FROM _sequences WHERE name=?", [name]))[0];
+          if (name && act && !seq) return Response.json({ ok: false, error: "no such sequence" }, { status: 404 });
+          let steps = []; if (seq) { try { steps = JSON.parse(seq.steps); } catch {} }
+          // ENROLL.
+          if (name && act === "enroll" && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const subject = String(body.subject || "").trim().slice(0, 200);
+            if (!subject) return Response.json({ ok: false, error: "a subject is required" }, { status: 400 });
+            if (!steps.length) return Response.json({ ok: false, error: "this sequence has no steps" }, { status: 400 });
+            let startMs = body.start != null && body.start !== "" ? Date.parse(String(body.start)) : Date.now();
+            if (Number.isNaN(startMs)) return Response.json({ ok: false, error: "bad start date" }, { status: 400 });
+            const enrolledAt = new Date(startMs).toISOString();
+            const nextDue = new Date(startMs + steps[0].day * 86400000).toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _sequence_enrollments (sequence, subject, enrolled_at, next_step, next_due, status, created_at) VALUES (?,?,?,0,?, 'active', ?) RETURNING id", [name, subject, enrolledAt, nextDue, new Date().toISOString()]);
+            return Response.json({ ok: true, enrollment: r[0] ? r[0].id : null, next_due: nextDue });
+          }
+          // DUE.
+          if (name && act === "due" && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT id, subject, enrolled_at, next_step, next_due FROM _sequence_enrollments WHERE sequence=? AND status='active' AND next_due IS NOT NULL AND datetime(next_due) <= datetime('now') ORDER BY next_due ASC LIMIT 1000", [name]);
+            return Response.json({ ok: true, due: rows.map((r) => ({ enrollment: r.id, subject: r.subject, step_index: r.next_step, step: steps[r.next_step] || null, next_due: r.next_due })) });
+          }
+          // ADVANCE.
+          if (name && act === "advance" && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const eid = parseInt(body.enrollment, 10);
+            const en = (await cfD1Query(env, uuid, "SELECT id, enrolled_at, next_step, status FROM _sequence_enrollments WHERE id=? AND sequence=?", [eid, name]))[0];
+            if (!en) return Response.json({ ok: false, error: "no such enrollment" }, { status: 404 });
+            if (en.status !== "active") return Response.json({ ok: false, error: "not active" }, { status: 409 });
+            const nextStep = en.next_step + 1;
+            if (nextStep >= steps.length) {
+              await cfD1Exec(env, uuid, "UPDATE _sequence_enrollments SET status='completed', next_due=NULL WHERE id=?", [eid]);
+              return Response.json({ ok: true, enrollment: eid, status: "completed" });
+            }
+            const nextDue = new Date(Date.parse(en.enrolled_at) + steps[nextStep].day * 86400000).toISOString();
+            await cfD1Exec(env, uuid, "UPDATE _sequence_enrollments SET next_step=?, next_due=? WHERE id=?", [nextStep, nextDue, eid]);
+            return Response.json({ ok: true, enrollment: eid, next_step: nextStep, next_due: nextDue });
+          }
+          // CANCEL.
+          if (name && act === "cancel" && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const eid = parseInt(body.enrollment, 10);
+            const ex = await cfD1Exec(env, uuid, "UPDATE _sequence_enrollments SET status='cancelled', next_due=NULL WHERE id=? AND sequence=? AND status='active'", [eid, name]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no active enrollment with that id" }, { status: 404 });
+            return Response.json({ ok: true, enrollment: eid, status: "cancelled" });
+          }
+          return Response.json({ ok: false, error: "unsupported sequences request" }, { status: 405 });
+        } catch (e) { console.error("sequences failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "sequences failed" }, { status: 502 }); }
+      }
+      // ESCALATION RULES — an admin defines rules (after N minutes, escalate to a target); an evaluate call
+      // returns the rule that applies to a given elapsed time (the highest after_mins that has passed).
+      //   POST   /api/db/<slug>/escalation-rules {name?, after_mins, target, note?, active?}  (ADMIN) → {id}
+      //   GET    /api/db/<slug>/escalation-rules            (ADMIN) → list
+      //   GET    /api/db/<slug>/escalation-rules/evaluate?elapsed_mins=N  (member) → the applicable rule
+      //   DELETE /api/db/<slug>/escalation-rules/<id>       (ADMIN)
+      const escm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/escalation-rules(?:\/(evaluate|\d+))?$/i);
+      if (escm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = escm[1].toLowerCase(), seg = escm[2] || null, isEval = seg === "evaluate", erId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureEscalation(env, uuid);
+          // EVALUATE (member) — the highest-threshold rule that has been passed.
+          if (isEval && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|esce", 600)) return tooMany();
+            const elapsedRaw = url.searchParams.get("elapsed_mins");
+            if (elapsedRaw == null || elapsedRaw === "" || !Number.isFinite(Number(elapsedRaw))) return Response.json({ ok: false, error: "an ?elapsed_mins= number is required" }, { status: 400 });
+            const elapsed = Math.floor(Number(elapsedRaw));
+            const r = (await cfD1Query(env, uuid, "SELECT id, name, after_mins, target, note FROM _escalation_rules WHERE active=1 AND after_mins <= ? ORDER BY after_mins DESC LIMIT 1", [elapsed]))[0];
+            const nextR = (await cfD1Query(env, uuid, "SELECT after_mins FROM _escalation_rules WHERE active=1 AND after_mins > ? ORDER BY after_mins ASC LIMIT 1", [elapsed]))[0];
+            return Response.json({ ok: true, elapsed_mins: elapsed, escalate: !!r, escalate_to: r ? r.target : null, rule: r || null, next_at_mins: nextR ? nextR.after_mins : null });
+          }
+          // CREATE (admin).
+          if (!seg && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|escw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const after = Math.floor(Number(body.after_mins));
+            const target = String(body.target || "").trim().slice(0, 200);
+            if (!Number.isFinite(after) || after < 0) return Response.json({ ok: false, error: "after_mins >= 0 is required" }, { status: 400 });
+            if (!target) return Response.json({ ok: false, error: "a target is required" }, { status: 400 });
+            const r = await cfD1Query(env, uuid, "INSERT INTO _escalation_rules (name, after_mins, target, note, active, created_at) VALUES (?,?,?,?,?,?) RETURNING id", [body.name != null ? String(body.name).slice(0, 120) : null, after, target, body.note != null ? String(body.note).slice(0, 500) : null, body.active === false || body.active === 0 ? 0 : 1, new Date().toISOString()]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null });
+          }
+          // DELETE (admin).
+          if (erId != null && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _escalation_rules WHERE id=?", [erId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such rule" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: erId });
+          }
+          // LIST (admin).
+          if (!seg && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|escl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT id, name, after_mins, target, note, active FROM _escalation_rules ORDER BY after_mins ASC LIMIT 500");
+            return Response.json({ ok: true, rules: rows.map((r) => ({ ...r, active: !!r.active })) });
+          }
+          return Response.json({ ok: false, error: "unsupported escalation-rules request" }, { status: 405 });
+        } catch (e) { console.error("escalation-rules failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "escalation-rules failed" }, { status: 502 }); }
+      }
+      // TAX RATES — an admin stores a tax rate per region; the app computes the tax on a subtotal.
+      //   POST   /api/db/<slug>/tax-rates/<region> {rate, name?}  (ADMIN) → set (rate as a percent, e.g. 8.75)
+      //   GET    /api/db/<slug>/tax-rates                   (public) → all
+      //   GET    /api/db/<slug>/tax-rates/compute?region=&subtotal=  (public) → {rate, tax, total}
+      //   DELETE /api/db/<slug>/tax-rates/<region>          (ADMIN)
+      const taxm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/tax-rates(?:\/(compute|[A-Za-z0-9_.-]{1,60}))?$/i);
+      if (taxm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = taxm[1].toLowerCase(), seg = taxm[2] || null, isCompute = seg === "compute", region = seg && !isCompute ? seg.toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureTaxRates(env, uuid);
+          // COMPUTE (public).
+          if (isCompute && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|taxc", 600)) return tooMany();
+            const reg = String(url.searchParams.get("region") || "").trim().toLowerCase();
+            const subtotalRaw = url.searchParams.get("subtotal");
+            const subtotalC = subtotalRaw == null || subtotalRaw === "" ? null : toCents(subtotalRaw);
+            if (!reg) return Response.json({ ok: false, error: "a ?region= is required" }, { status: 400 });
+            if (subtotalC == null) return Response.json({ ok: false, error: "a numeric ?subtotal= is required" }, { status: 400 });
+            const r = (await cfD1Query(env, uuid, "SELECT rate_bp FROM _tax_rates WHERE region=?", [reg]))[0];
+            if (!r) return Response.json({ ok: false, error: "no tax rate for that region" }, { status: 404 });
+            const taxC = Math.round(subtotalC * r.rate_bp / 10000);
+            return Response.json({ ok: true, region: reg, rate: r.rate_bp / 100, subtotal: subtotalC / 100, tax: taxC / 100, total: (subtotalC + taxC) / 100 });
+          }
+          // SET (admin).
+          if (region && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|taxw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const rate = Number(body.rate);
+            if (!Number.isFinite(rate) || rate < 0 || rate > 100) return Response.json({ ok: false, error: "rate must be a percent 0..100" }, { status: 400 });
+            const rate_bp = Math.round(rate * 100);
+            await cfD1Query(env, uuid, "INSERT INTO _tax_rates (region, name, rate_bp, updated_at) VALUES (?,?,?,?) ON CONFLICT(region) DO UPDATE SET name=excluded.name, rate_bp=excluded.rate_bp, updated_at=excluded.updated_at", [region, body.name != null ? String(body.name).slice(0, 120) : null, rate_bp, new Date().toISOString()]);
+            return Response.json({ ok: true, region, rate });
+          }
+          // DELETE (admin).
+          if (region && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _tax_rates WHERE region=?", [region]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such region" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, region });
+          }
+          // LIST (public).
+          if (!seg && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|taxl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT region, name, rate_bp FROM _tax_rates ORDER BY region ASC LIMIT 500");
+            return Response.json({ ok: true, rates: rows.map((r) => ({ region: r.region, name: r.name, rate: r.rate_bp / 100 })) });
+          }
+          return Response.json({ ok: false, error: "unsupported tax-rates request" }, { status: 405 });
+        } catch (e) { console.error("tax-rates failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "tax-rates failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
