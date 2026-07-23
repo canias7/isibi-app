@@ -5767,6 +5767,15 @@ async function ensureRankedVote(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _rv_ballots (poll_key TEXT NOT NULL, user_id INTEGER NOT NULL, ranking TEXT NOT NULL, at TEXT, PRIMARY KEY (poll_key, user_id))");
   _rankedVoteReady.add(uuid);
 }
+// Expense claims — a member submits an expense; an admin moves it submitted → approved | rejected, and
+// approved → reimbursed, each an atomic state-guarded UPDATE. `_expense_claims`. Ensured once.
+const _expenseClaimsReady = new Set();
+async function ensureExpenseClaims(env, uuid) {
+  if (_expenseClaimsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _expense_claims (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, amount INTEGER NOT NULL, category TEXT, description TEXT, receipt_url TEXT, status TEXT NOT NULL DEFAULT 'submitted', note TEXT, created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_expense_claims_user ON _expense_claims (user_id)"); } catch {}
+  _expenseClaimsReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -10626,6 +10635,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _registry_items WHERE owner_id=?", [u.id]],                        // my gift registry
             ["DELETE FROM _registry_claims WHERE user_id=?", [u.id]],                        // gifts I claimed
             ["DELETE FROM _rv_ballots WHERE user_id=?", [u.id]],                             // ranked-choice ballots
+            ["DELETE FROM _expense_claims WHERE user_id=?", [u.id]],                         // expense claims
             ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
             ["DELETE FROM _testimonials WHERE user_id=?", [u.id]],                           // user-submitted testimonials
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
@@ -22569,6 +22579,162 @@ async function handleRequest(request, env, ctx) {
           const hsl = { h: Math.round(hsl_h * 360), s: Math.round(hsl_s * 100), l: Math.round(hsl_l * 100) };
           return Response.json({ ok: true, hex, rgb: { r, g, b }, hsl, css: { rgb: `rgb(${r}, ${g}, ${b})`, hsl: `hsl(${hsl.h}, ${hsl.s}%, ${hsl.l}%)` } });
         } catch (e) { console.error("color-convert failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "color-convert failed" }, { status: 502 }); }
+      }
+      // HUMANIZE — a stateless human-friendly formatter for bytes, durations, counts, ordinals, and relative
+      // time. Turn raw numbers/timestamps into display strings.
+      //   POST /api/db/<slug>/humanize {value, type}   (public) → {humanized}
+      //     type: bytes | duration | number | ordinal | relative
+      const hmz = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/humanize$/i);
+      if (hmz && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = hmz[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|hum", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const type = String(body.type || "number").toLowerCase();
+          let humanized;
+          if (type === "bytes") {
+            let n = Number(body.value); if (!Number.isFinite(n)) return Response.json({ ok: false, error: "value must be a number" }, { status: 400 });
+            const neg = n < 0; n = Math.abs(n); const units = ["B", "KB", "MB", "GB", "TB", "PB"]; let i = 0; while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+            humanized = (neg ? "-" : "") + (i === 0 ? n : Math.round(n * 100) / 100) + " " + units[i];
+          } else if (type === "duration") {
+            let sec = Math.floor(Number(body.value)); if (!Number.isFinite(sec)) return Response.json({ ok: false, error: "value must be seconds" }, { status: 400 });
+            const neg = sec < 0; sec = Math.abs(sec); const parts = []; const units = [["d", 86400], ["h", 3600], ["m", 60], ["s", 1]];
+            for (const [label, s2] of units) { if (sec >= s2) { const v = Math.floor(sec / s2); sec -= v * s2; parts.push(v + label); } }
+            humanized = (neg ? "-" : "") + (parts.length ? parts.slice(0, 3).join(" ") : "0s");
+          } else if (type === "number") {
+            let n = Number(body.value); if (!Number.isFinite(n)) return Response.json({ ok: false, error: "value must be a number" }, { status: 400 });
+            const neg = n < 0; n = Math.abs(n); const units = [["", 1], ["K", 1e3], ["M", 1e6], ["B", 1e9], ["T", 1e12]]; let pick = units[0];
+            for (const u of units) { if (n >= u[1]) pick = u; } const v = n / pick[1];
+            humanized = (neg ? "-" : "") + (pick[0] ? (Math.round(v * 10) / 10) + pick[0] : String(n));
+          } else if (type === "ordinal") {
+            let n = Math.floor(Number(body.value)); if (!Number.isFinite(n)) return Response.json({ ok: false, error: "value must be an integer" }, { status: 400 });
+            const a = Math.abs(n) % 100, b = Math.abs(n) % 10; const suf = (a >= 11 && a <= 13) ? "th" : (b === 1 ? "st" : b === 2 ? "nd" : b === 3 ? "rd" : "th");
+            humanized = n + suf;
+          } else if (type === "relative") {
+            const ts = Date.parse(String(body.value)); if (isNaN(ts)) return Response.json({ ok: false, error: "value must be a date/timestamp" }, { status: 400 });
+            let diff = Math.round((ts - Date.now()) / 1000); const future = diff >= 0; diff = Math.abs(diff);
+            const units = [["year", 31536000], ["month", 2592000], ["week", 604800], ["day", 86400], ["hour", 3600], ["minute", 60], ["second", 1]];
+            let str = "just now";
+            for (const [label, s2] of units) { if (diff >= s2) { const v = Math.floor(diff / s2); str = v + " " + label + (v === 1 ? "" : "s"); break; } }
+            humanized = str === "just now" ? str : (future ? "in " + str : str + " ago");
+          } else return Response.json({ ok: false, error: "type must be bytes|duration|number|ordinal|relative" }, { status: 400 });
+          return Response.json({ ok: true, type, humanized });
+        } catch (e) { console.error("humanize failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "humanize failed" }, { status: 502 }); }
+      }
+      // ID GENERATE — a stateless ID generator: uuid v4, a ULID-style time-sortable id, a short base62 id, or a
+      // url-safe token. Optionally batch and prefix.
+      //   POST /api/db/<slug>/id-generate {type?, count?, prefix?, size?}   (member) → {ids:[...]}
+      const idgm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/id-generate$/i);
+      if (idgm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = idgm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          if (!rateOk(slug + "|" + ip + "|idg", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const type = String(body.type || "uuid").toLowerCase();
+          let count = Math.floor(Number(body.count)); if (!(count >= 1 && count <= 100)) count = 1;
+          let prefix = body.prefix != null ? String(body.prefix).slice(0, 40) : "";
+          const B62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+          const B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"; // Crockford
+          const rand = (n, alphabet) => { const a = new Uint8Array(n); crypto.getRandomValues(a); let s = ""; for (let i = 0; i < n; i++) s += alphabet[a[i] % alphabet.length]; return s; };
+          let size = Math.floor(Number(body.size)); if (!(size >= 4 && size <= 64)) size = type === "short" ? 10 : 21;
+          const ids = [];
+          for (let i = 0; i < count; i++) {
+            let id;
+            if (type === "uuid") id = crypto.randomUUID();
+            else if (type === "ulid") { let t2 = Date.now(); let time = ""; for (let k = 0; k < 10; k++) { time = B32[t2 % 32] + time; t2 = Math.floor(t2 / 32); } id = time + rand(16, B32); }
+            else if (type === "short") id = rand(size, B62);
+            else if (type === "nano" || type === "token") id = rand(size, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_");
+            else return Response.json({ ok: false, error: "type must be uuid|ulid|short|nano" }, { status: 400 });
+            ids.push(prefix + id);
+          }
+          return Response.json({ ok: true, type, ids });
+        } catch (e) { console.error("id-generate failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "id-generate failed" }, { status: 502 }); }
+      }
+      // EXPENSE CLAIMS — a member submits an expense; an admin moves it submitted → approved | rejected, and
+      // approved → reimbursed. Each transition is an atomic state-guarded UPDATE.
+      //   POST /api/db/<slug>/expense-claims {amount, category?, description?, receipt_url?}   (member) → submit
+      //   GET  /api/db/<slug>/expense-claims/mine                        (member) → own claims
+      //   GET  /api/db/<slug>/expense-claims[?status=]                   (ADMIN)  → queue + total
+      //   GET  /api/db/<slug>/expense-claims/<id>                        (owner or admin)
+      //   POST /api/db/<slug>/expense-claims/<id>/approve                (ADMIN)  submitted → approved
+      //   POST /api/db/<slug>/expense-claims/<id>/reject {note?}         (ADMIN)  submitted → rejected
+      //   POST /api/db/<slug>/expense-claims/<id>/reimburse             (ADMIN)  approved  → reimbursed
+      const expcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/expense-claims(?:\/(mine|\d+)(?:\/(approve|reject|reimburse))?)?$/i);
+      if (expcm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = expcm[1].toLowerCase(), seg = expcm[2] || null, act = expcm[3] || null;
+        const isMine = seg === "mine", claimId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const isAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return !!(rr[0] && rr[0].role === "admin"); };
+        const shape = (r) => ({ id: r.id, amount: r.amount, category: r.category, description: r.description, receipt_url: r.receipt_url, status: r.status, note: r.note, created_at: r.created_at, updated_at: r.updated_at });
+        try {
+          await ensureExpenseClaims(env, uuid);
+          // SUBMIT (member).
+          if (!seg && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const amount = toCents(body.amount);
+            if (amount == null || amount <= 0) return Response.json({ ok: false, error: "a positive amount is required" }, { status: 400 });
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _expense_claims (user_id, amount, category, description, receipt_url, status, created_at, updated_at) VALUES (?,?,?,?,?, 'submitted', ?, ?) RETURNING id", [userId, amount, body.category != null ? String(body.category).slice(0, 80) : null, body.description != null ? String(body.description).slice(0, 1000) : null, body.receipt_url != null ? String(body.receipt_url).slice(0, 1000) : null, now, now]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, amount, status: "submitted" });
+          }
+          // MINE.
+          if (isMine && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT * FROM _expense_claims WHERE user_id=? ORDER BY id DESC LIMIT 1000", [userId]);
+            return Response.json({ ok: true, claims: rows.map(shape) });
+          }
+          // GET one (owner or admin).
+          if (claimId != null && !act && request.method === "GET") {
+            const row = (await cfD1Query(env, uuid, "SELECT * FROM _expense_claims WHERE id=?", [claimId]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such claim" }, { status: 404 });
+            if (row.user_id !== userId && !(await isAdmin())) return Response.json({ ok: false, error: "not yours" }, { status: 403 });
+            return Response.json({ ok: true, claim: { ...shape(row), user_id: row.user_id } });
+          }
+          // TRANSITIONS (admin).
+          if (claimId != null && act && request.method === "POST") {
+            if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const now = new Date().toISOString();
+            let from, to, note = null;
+            if (act === "approve") { from = "submitted"; to = "approved"; }
+            else if (act === "reject") { from = "submitted"; to = "rejected"; note = body.note != null ? String(body.note).slice(0, 1000) : null; }
+            else { from = "approved"; to = "reimbursed"; }
+            const r = await cfD1Query(env, uuid, "UPDATE _expense_claims SET status=?, note=COALESCE(?, note), updated_at=? WHERE id=? AND status=? RETURNING id", [to, note, now, claimId, from]);
+            if (!r.length) { const row = (await cfD1Query(env, uuid, "SELECT status FROM _expense_claims WHERE id=?", [claimId]))[0]; if (!row) return Response.json({ ok: false, error: "no such claim" }, { status: 404 }); return Response.json({ ok: false, error: "can't " + act + " from '" + row.status + "'", status: row.status }, { status: 409 }); }
+            return Response.json({ ok: true, id: claimId, status: to });
+          }
+          // QUEUE (admin).
+          if (!seg && request.method === "GET") {
+            if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const st = url.searchParams.get("status");
+            const rows = st
+              ? await cfD1Query(env, uuid, "SELECT * FROM _expense_claims WHERE status=? ORDER BY id DESC LIMIT 2000", [String(st).slice(0, 20)])
+              : await cfD1Query(env, uuid, "SELECT * FROM _expense_claims ORDER BY id DESC LIMIT 2000");
+            const total = rows.reduce((s, r) => s + r.amount, 0);
+            return Response.json({ ok: true, claims: rows.map((r) => ({ ...shape(r), user_id: r.user_id })), total_amount: total });
+          }
+          return Response.json({ ok: false, error: "unsupported expense-claims request" }, { status: 405 });
+        } catch (e) { console.error("expense-claims failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "expense-claims failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
