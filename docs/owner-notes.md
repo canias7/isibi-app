@@ -6661,6 +6661,21 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — contacts CRM · order notes/gift msgs · config-validate (data API, next-100)
+- **`/contacts`** — admin address book. Capture dedupes on lowercased email (a repeat fills gaps on the
+  existing row, never duplicates), `/merge {from,into}` folds one contact into another (atomic
+  `UPDATE…merged_into=? WHERE id=? AND merged_into IS NULL RETURNING`, then gap-fills the survivor), list
+  hides merged rows unless `?all=1`, `?q=` searches email/name/company. get/patch/delete. `_contacts`
+  (org-level, no per-user erase). batch283 (21/21).
+- **`/order-notes`** — member attaches a note or gift message (`gift` flag) to an `order_ref`; per-order view
+  shows a member only their own, an admin all (with author id); `/mine`; owner/admin delete. `_order_notes`
+  erased by user. batch284 (16/16).
+- **`/config-validate`** — stateless member helper: validates one config object against a typed schema
+  (type/required/default/enum/min/max — numeric bounds or string length), returning per-key errors AND a
+  `normalized` object with defaults applied + values coerced. Sibling to `/import-preview` (single object +
+  normalization vs many rows). batch285 (15/15).
+- Full suite 268 green. (87/100 of the next-100 list shipped.)
+
 ## 2026-07-23 — UTM links · spam/honeypot score · RMA returns (data API, next-100)
 - **`/utm`** — admin registers a tracked outbound link (target + campaign/source/medium); the response `url`
   carries the utm_* params, `POST /utm/<slug>/click` (public) atomically bumps `clicks` (`UPDATE…clicks+1…
