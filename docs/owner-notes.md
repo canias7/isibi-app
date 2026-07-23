@@ -10,6 +10,25 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-07-23 — Builder upgrade #4: INCREMENTAL (targeted) regeneration — flag `INCREMENTAL_EDIT` (OFF by default)
+After re-framing the roadmap around the WEBSITE BUILDER (a v0/Lovable/Bolt competitor, not the media generator),
+the #1 gap was targeted edits. Today a chat edit re-sends the WHOLE app (`/api/site/react-revise` dumps up to 120k
+chars) every turn — slow, ~100k input tokens, and lets the model drift on files the edit never named. Built the fix.
+- **`builder/incremental-edit.mjs`** (worker-safe, pure, injected generate → $0-testable): `selectEditTargets`
+  (deterministic keyword/route scoring picks the files an edit touches), `composeEditPrompt` (sends FULL source of
+  just the targets + a COMPACT INDEX of every other file so the model still knows all routes/components),
+  `mergeEditedFiles`, `runIncrementalEdit`. **Safety:** global edits (theme/palette/font/"every page") and
+  low-confidence matches FALL BACK to whole-app; and a guard means the focused prompt is NEVER larger than
+  whole-app (small apps just use the full dump). So it's never worse than today, only cheaper on the common case.
+- **Wired into the Worker** at `/api/site/react-revise` behind `env.INCREMENTAL_EDIT === "1"` — flag OFF =
+  original whole-app dump byte-for-byte; flag ON = focused prompt + a `{ev:"targets"}` stream event. `node --check`
+  clean.
+- **`test/backend/incremental-edit.test.mjs`** (27/27): localized edit targets the right page, theme edit → whole-app,
+  gibberish → whole-app fallback, add-a-page pulls in App.jsx (routing), focused prompt smaller + carries the index,
+  merge distinguishes added vs changed, end-to-end mock edit reports savings %.
+- **Next:** wire the frontend to show "editing just these files", and once the eval informs priorities, tackle #12
+  (real browser-interaction agent — operate the app like a user) which reuses the vision Playwright rig.
+
 ## 2026-07-23 — FIRST LIVE SMOKE of the eval (6 prompts, $3.56) + caching fix + build/vision wired
 Owner said "go". Ran the first LIVE 6-prompt smoke via a throwaway-branch push trigger (the GitHub MCP integration
 can't `workflow_dispatch` — 403 `Resource not accessible by integration`; the key only exists inside CI, not the
