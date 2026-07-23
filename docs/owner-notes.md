@@ -6661,6 +6661,17 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — resource booking · data export (GDPR) · publish scheduling (data API, next-100)
+- **`/rooms/<resource>`** — double-book-proof reservations via atomic `INSERT…SELECT…WHERE NOT EXISTS(overlap)`
+  (overlap = `starts<newEnd AND ends>newStart`; touching bookings allowed). `/free` check, window list,
+  owner/admin cancel. `_room_bookings` erased by user. batch250 (17/17).
+- **`/data-export`** — member downloads their OWN rows across all user-scoped tables (portability, the read
+  mirror of the erase list via `DATA_EXPORT_TABLES` + `sqlIdent`, each SELECT try/caught for missing tables).
+  Own-rows-only. No new table. batch251 (11/11).
+- **`/publish-queue`** — admin schedules content (ref+publish_at); `/due` surfaces past-due scheduled items
+  for a worker to flip live + mark published. Admin config. batch252 (18/18).
+- Full suite 235 green. (54/100 of the next-100 list shipped.)
+
 ## 2026-07-23 — conversion tracking · two-person approval · recurring-order subs (data API, next-100)
 - **`/conversions/<goal>`** — visits+conversions counters per goal (atomic `hit` upsert, converted→both++),
   derived rate; goals auto-create; admin name/delete. Distinct from `/goals` (fundraising) + `/funnel`
