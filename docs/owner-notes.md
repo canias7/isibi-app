@@ -6661,6 +6661,19 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — A/B significance · TOC/anchor index · email open/click tracking (data API, next-100)
+- **`/stats/significance`** — STATELESS two-proportion z-test. POST a/b {visitors,conversions} → rates,
+  uplift, z, two-tailed p_value (via `normalCdf` A-S erf approx, ~1e-7), significant + winner at a
+  configurable confidence. No table. batch232 (18/18, math sanity-checked z=3.38 sig / z=0.37 not).
+- **`/toc`** — STATELESS heading extractor. POST {html} (regex `<h[1-6]>…</h>`, strips inner tags) or
+  {markdown} (`^#{1,6} …`) + min/max level filter → flat headings + nested tree, slugs deduped with -N.
+  No table. batch233 (19/19).
+- **`/track-email`** — `/open` returns a real 1×1 GIF (hardcoded 43 bytes) and logs an open; `/click` logs
+  + 302s to a validated http(s) `?u=`; `/stats` (admin) → opens/clicks/unique/CTR. Open ALWAYS returns the
+  pixel (even on error/bad input) so the email never shows a broken image. `_email_events` erased by
+  recipient email. batch234 (17/17). Doc gotcha again: literal `"` in the `<img src>` example broke the
+  BACKEND_RULES parse — reworded. Full suite 217 green.
+
 ## 2026-07-23 — service catalog · media metadata · share counters (data API, next-100)
 - **`/services`** — bookable/sellable service list (name×duration×price_c×category). Public list = active
   only (admin `?all=1`), category filter, get one; admin create/patch/delete + active toggle. No user scope.
