@@ -6661,6 +6661,23 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — NEXT-100 list started; counters · redirects · badges (data API)
+- Owner: "make a list of 100 things still needed to build, and build them without stopping." Produced
+  `docs/backlog-100-next.md` (100 concrete primitives across 10 domains, each route-regex-verified before
+  build, existing ones skipped). Building in ~3-item batches → one merged PR each, house pattern (atomic
+  guards, GDPR erase, BACKEND_RULES doc, green regression).
+- **`/counters/<name>`** — named atomic integer counters (page hits, download tallies, poll votes). Member
+  `/incr {by?}` is a single `INSERT…ON CONFLICT DO UPDATE SET n=n+? RETURNING n` (race-free, `by` may be
+  negative); public read one/list; admin set/delete. Separate table `_app_counters` (the internal
+  `_counters` is sequences/round-robin — no public API). batch199 (17/17).
+- **`/redirects`** — admin maps old path → new URL with an HTTP code (301 default · 302/307/308); public
+  `/resolve?from=` returns `{to,code}` and counts the hit; leading slash auto-added; re-post upserts by
+  from_path. Admin list (with hits) + delete. batch200 (23/23).
+- **`/badges/<key>`** — admin defines + awards achievement badges (award is atomic `INSERT…WHERE
+  EXISTS(badge) AND EXISTS(user) AND NOT EXISTS(award)`, idempotent), revoke, holders; member `/mine`;
+  public catalog with holder counts; delete cascades awards. `_badge_awards` in GDPR erase. batch201 (26/26).
+- Full suite 184 green.
+
 ## 2026-07-23 — FAQ · business hours · A/B experiments (data API)
 - Route-regex + proper-alternation verified absent (`/cart` DOES exist — route `crm` L9878 — so that was
   skipped; `/courses` too). All three new.
