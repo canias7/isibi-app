@@ -5881,6 +5881,24 @@ async function ensureMaintenance(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_maintenance_due ON _maintenance (next_due)"); } catch {}
   _maintenanceReady.add(uuid);
 }
+// Contact enrichment — a supplementary key/value field store per contact (company size, industry, source…),
+// kept separate from the main contact record. One row per (contact, field). `_enrichment`. Ensured once.
+const _enrichmentReady = new Set();
+async function ensureEnrichment(env, uuid) {
+  if (_enrichmentReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _enrichment (contact TEXT NOT NULL, field TEXT NOT NULL, value TEXT, updated_at TEXT, PRIMARY KEY (contact, field))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_enrichment_field ON _enrichment (field, value)"); } catch {}
+  _enrichmentReady.add(uuid);
+}
+// Opportunity forecast categories — sales deals tagged with a forecast category (pipeline / best_case / commit /
+// closed / omitted) + amount, rolled up per category into a forecast. One row per ref. `_opportunities`. Ensured once.
+const _opportunitiesReady = new Set();
+async function ensureOpportunities(env, uuid) {
+  if (_opportunitiesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _opportunities (ref TEXT PRIMARY KEY, name TEXT, amount_cents INTEGER NOT NULL DEFAULT 0, category TEXT NOT NULL, period TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_opp_period ON _opportunities (period, category)"); } catch {}
+  _opportunitiesReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -23872,6 +23890,175 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: true, periods, total_capacity: totCap, total_demand: totDem, total_shortfall: Math.max(0, totDem - totCap), total_surplus: Math.max(0, totCap - totDem), overall_utilization: totCap > 0 ? Math.round((totDem / totCap) * 1000) / 10 : null });
         } catch (e) { console.error("capacity-forecast failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "capacity-forecast failed" }, { status: 502 }); }
+      }
+      // CONTACT ENRICHMENT — a supplementary key/value field store per contact (firmographics, source, tags…),
+      // kept out of the main contact record. Admin writes; admin reads one contact's fields or finds contacts by
+      // a field value (segmentation).
+      //   POST   /api/db/<slug>/contact-enrichment {contact, fields:{k:v}}   (ADMIN) → upsert fields
+      //   GET    /api/db/<slug>/contact-enrichment/<contact>                 (ADMIN) → {fields:{k:v}}
+      //   GET    /api/db/<slug>/contact-enrichment?field=&value=            (ADMIN) → contacts matching a field
+      //   DELETE /api/db/<slug>/contact-enrichment/<contact>[?field=]        (ADMIN) → drop one field or all
+      const enrm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/contact-enrichment(?:\/([A-Za-z0-9_.:@-]{1,120}))?$/i);
+      if (enrm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = enrm[1].toLowerCase(), contact = enrm[2] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          const a = await needAdmin(); if (a) return a;
+          await ensureEnrichment(env, uuid);
+          // UPSERT fields (admin).
+          if (!contact && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const cust = String(body.contact || "").trim();
+            if (!/^[A-Za-z0-9_.:@-]{1,120}$/.test(cust)) return Response.json({ ok: false, error: "a valid contact is required" }, { status: 400 });
+            if (!body.fields || typeof body.fields !== "object" || Array.isArray(body.fields)) return Response.json({ ok: false, error: "fields must be an object" }, { status: 400 });
+            const keys = Object.keys(body.fields).filter((k) => /^[A-Za-z0-9_.-]{1,60}$/.test(k)).slice(0, 50);
+            if (!keys.length) return Response.json({ ok: false, error: "no valid fields" }, { status: 400 });
+            const now = new Date().toISOString();
+            for (const k of keys) await cfD1Query(env, uuid, "INSERT INTO _enrichment (contact, field, value, updated_at) VALUES (?,?,?,?) ON CONFLICT(contact, field) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at", [cust, k, body.fields[k] == null ? null : String(body.fields[k]).slice(0, 500), now]);
+            const rows = await cfD1Query(env, uuid, "SELECT field, value FROM _enrichment WHERE contact=?", [cust]);
+            const fields = {}; for (const r of rows) fields[r.field] = r.value;
+            return Response.json({ ok: true, contact: cust, fields });
+          }
+          // READ one contact (admin).
+          if (contact && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT field, value, updated_at FROM _enrichment WHERE contact=?", [contact]);
+            if (!rows.length) return Response.json({ ok: false, error: "no enrichment for that contact" }, { status: 404 });
+            const fields = {}; for (const r of rows) fields[r.field] = r.value;
+            return Response.json({ ok: true, contact, fields });
+          }
+          // FIND by field (admin).
+          if (!contact && request.method === "GET") {
+            const field = url.searchParams.get("field");
+            if (!field) return Response.json({ ok: false, error: "a field query is required" }, { status: 400 });
+            const value = url.searchParams.get("value");
+            const rows = value != null
+              ? await cfD1Query(env, uuid, "SELECT contact, value FROM _enrichment WHERE field=? AND value=? ORDER BY contact LIMIT 1000", [field, value])
+              : await cfD1Query(env, uuid, "SELECT contact, value FROM _enrichment WHERE field=? ORDER BY contact LIMIT 1000", [field]);
+            return Response.json({ ok: true, field, matches: rows });
+          }
+          // DELETE (admin) — one field or the whole contact.
+          if (contact && request.method === "DELETE") {
+            const field = url.searchParams.get("field");
+            const ex = field
+              ? await cfD1Exec(env, uuid, "DELETE FROM _enrichment WHERE contact=? AND field=?", [contact, field])
+              : await cfD1Exec(env, uuid, "DELETE FROM _enrichment WHERE contact=?", [contact]);
+            if (!ex.changes) return Response.json({ ok: false, error: "nothing to delete" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, contact, field: field || null });
+          }
+          return Response.json({ ok: false, error: "unsupported contact-enrichment request" }, { status: 405 });
+        } catch (e) { console.error("contact-enrichment failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "contact-enrichment failed" }, { status: 502 }); }
+      }
+      // DISCOUNT STACK — a stateless evaluator for whether/how multiple discounts combine. Each discount is
+      // {code, type:'percent'|'fixed', value, stackable?}. All `stackable:true` discounts apply together (percents
+      // compound on the running total, fixed subtract); each non-stackable is considered ALONE. The result is the
+      // combination that yields the LOWEST price. Money in cents.
+      //   POST /api/db/<slug>/discount-stack {price, discounts:[...]}   (public) → {final_cents, applied, strategy}
+      const dscm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/discount-stack$/i);
+      if (dscm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = dscm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|dstk", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const price = toCents(body.price);
+          if (price == null || price < 0) return Response.json({ ok: false, error: "a non-negative price is required" }, { status: 400 });
+          if (!Array.isArray(body.discounts)) return Response.json({ ok: false, error: "discounts must be an array" }, { status: 400 });
+          if (body.discounts.length > 100) return Response.json({ ok: false, error: "too many discounts (max 100)" }, { status: 400 });
+          const norm = [];
+          for (const d of body.discounts) {
+            const type = String(d.type || "").toLowerCase();
+            if (type !== "percent" && type !== "fixed") return Response.json({ ok: false, error: "each discount type must be percent | fixed" }, { status: 400 });
+            const value = Number(d.value);
+            if (!Number.isFinite(value) || value < 0) return Response.json({ ok: false, error: "each discount needs a non-negative value" }, { status: 400 });
+            if (type === "percent" && value > 100) return Response.json({ ok: false, error: "a percent discount can't exceed 100" }, { status: 400 });
+            norm.push({ code: d.code != null ? String(d.code).slice(0, 60) : null, type, value, stackable: !!d.stackable, cents: type === "fixed" ? toCents(d.value) : null });
+          }
+          // Apply a set of discounts sequentially; percents compound, fixed subtract; clamp at 0.
+          const applySet = (set) => { let p = price; const used = []; for (const d of set) { if (p <= 0) break; if (d.type === "percent") p = Math.round(p * (1 - d.value / 100)); else p = Math.max(0, p - (d.cents || 0)); used.push(d.code); } return { final: Math.max(0, p), used }; };
+          const stackables = norm.filter((d) => d.stackable);
+          const candidates = [];
+          candidates.push({ ...applySet(stackables), strategy: "stacked" });
+          for (const d of norm.filter((x) => !x.stackable)) candidates.push({ ...applySet([d]), strategy: "single" });
+          if (!candidates.length) candidates.push({ final: price, used: [], strategy: "none" });
+          const best = candidates.reduce((a, b) => (b.final < a.final ? b : a));
+          return Response.json({ ok: true, price_cents: price, final_cents: best.final, discount_cents: price - best.final, applied: best.used.filter((x) => x != null), strategy: best.strategy });
+        } catch (e) { console.error("discount-stack failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "discount-stack failed" }, { status: 502 }); }
+      }
+      // OPPORTUNITY FORECAST CATEGORIES — sales deals tagged with a forecast category (pipeline / best_case /
+      // commit / closed / omitted) + amount, rolled up per category into a forecast. One row per ref.
+      //   POST   /api/db/<slug>/forecast-categories {ref, amount, category, name?, period?}  (ADMIN) → upsert a deal
+      //   GET    /api/db/<slug>/forecast-categories/<ref>                                    (ADMIN) → one deal
+      //   GET    /api/db/<slug>/forecast-categories[?period=]                                (ADMIN) → rollup + list
+      //   DELETE /api/db/<slug>/forecast-categories/<ref>                                    (ADMIN)
+      const fcatm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/forecast-categories(?:\/([A-Za-z0-9_.:-]{1,80}))?$/i);
+      if (fcatm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = fcatm[1].toLowerCase(), ref = fcatm[2] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const CATS = ["pipeline", "best_case", "commit", "closed", "omitted"];
+        try {
+          const a = await needAdmin(); if (a) return a;
+          await ensureOpportunities(env, uuid);
+          // UPSERT (admin).
+          if (!ref && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const rf = String(body.ref || "").trim();
+            if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(rf)) return Response.json({ ok: false, error: "a valid ref is required" }, { status: 400 });
+            const cat = String(body.category || "").toLowerCase();
+            if (!CATS.includes(cat)) return Response.json({ ok: false, error: "category must be one of " + CATS.join(" / ") }, { status: 400 });
+            const amt = toCents(body.amount);
+            if (amt == null || amt < 0) return Response.json({ ok: false, error: "a non-negative amount is required" }, { status: 400 });
+            const r = await cfD1Query(env, uuid, "INSERT INTO _opportunities (ref, name, amount_cents, category, period, updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(ref) DO UPDATE SET name=excluded.name, amount_cents=excluded.amount_cents, category=excluded.category, period=excluded.period, updated_at=excluded.updated_at RETURNING ref, name, amount_cents, category, period", [rf, body.name != null ? String(body.name).slice(0, 200) : null, amt, cat, body.period != null ? String(body.period).slice(0, 40) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, opportunity: r[0] });
+          }
+          // READ one (admin).
+          if (ref && request.method === "GET") {
+            const row = (await cfD1Query(env, uuid, "SELECT ref, name, amount_cents, category, period FROM _opportunities WHERE ref=?", [ref]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such opportunity" }, { status: 404 });
+            return Response.json({ ok: true, opportunity: row });
+          }
+          // ROLLUP + list (admin).
+          if (!ref && request.method === "GET") {
+            const period = url.searchParams.get("period");
+            const wsql = period ? " WHERE period=?" : "", params = period ? [period] : [];
+            const grouped = await cfD1Query(env, uuid, "SELECT category, COUNT(*) AS n, COALESCE(SUM(amount_cents),0) AS total FROM _opportunities" + wsql + " GROUP BY category", params);
+            const by = {}; for (const cat of CATS) by[cat] = { count: 0, total_cents: 0 };
+            for (const g of grouped) if (by[g.category]) by[g.category] = { count: g.n, total_cents: g.total };
+            // Standard forecast rollups: commit is the floor; best-case adds best_case; pipeline is everything open.
+            const forecast = {
+              commit_cents: by.commit.total_cents + by.closed.total_cents,
+              best_case_cents: by.commit.total_cents + by.closed.total_cents + by.best_case.total_cents,
+              pipeline_cents: by.commit.total_cents + by.best_case.total_cents + by.pipeline.total_cents,
+              closed_cents: by.closed.total_cents,
+            };
+            const rows = await cfD1Query(env, uuid, "SELECT ref, name, amount_cents, category, period FROM _opportunities" + wsql + " ORDER BY amount_cents DESC LIMIT 1000", params);
+            return Response.json({ ok: true, categories: by, forecast, opportunities: rows });
+          }
+          // DELETE (admin).
+          if (ref && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _opportunities WHERE ref=?", [ref]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such opportunity" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, ref });
+          }
+          return Response.json({ ok: false, error: "unsupported forecast-categories request" }, { status: 405 });
+        } catch (e) { console.error("forecast-categories failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "forecast-categories failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
