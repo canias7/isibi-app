@@ -4577,6 +4577,34 @@ async function ensureReminders(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_reminders_user ON _reminders (user_id, done, remind_at)"); } catch {}
   _remindersReady.add(uuid);
 }
+// Threaded comments on any (table, row). A member posts a comment or a reply (parent_id); anyone READS
+// a row's thread (public); a member edits/soft-deletes their OWN; an admin deletes any. Soft-delete keeps
+// a tombstone if the comment has replies (so the thread stays intact), else it's omitted. Ensured once.
+const _commentsReady = new Set();
+async function ensureComments(env, uuid) {
+  if (_commentsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _comments (id INTEGER PRIMARY KEY AUTOINCREMENT, table_name TEXT NOT NULL, row_id INTEGER NOT NULL, user_id INTEGER NOT NULL, parent_id INTEGER, body TEXT, created_at TEXT, updated_at TEXT, deleted INTEGER NOT NULL DEFAULT 0)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_comments_row ON _comments (table_name, row_id, created_at)"); } catch {}
+  _commentsReady.add(uuid);
+}
+// Surveys / NPS / CSAT — one numeric response per member per survey (re-submit upserts). The aggregate
+// KIND (nps / csat / avg) is a read-time lens over the stored raw scores. Ensured once per isolate.
+const _surveysReady = new Set();
+async function ensureSurveys(env, uuid) {
+  if (_surveysReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _survey_responses (survey TEXT NOT NULL, user_id INTEGER NOT NULL, score INTEGER NOT NULL, comment TEXT, created_at TEXT, updated_at TEXT, PRIMARY KEY (survey, user_id))");
+  _surveysReady.add(uuid);
+}
+// @Mentions — a member records that ANOTHER member was @-tagged somewhere; the mentioned
+// member reads THEIR OWN mentions (mentioned_user = them) and marks them seen. Every read/mutate
+// is scoped to mentioned_user, so a member never sees the by_user perspective. Once per isolate.
+const _mentionsReady = new Set();
+async function ensureMentions(env, uuid) {
+  if (_mentionsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _mentions (id INTEGER PRIMARY KEY AUTOINCREMENT, mentioned_user INTEGER NOT NULL, by_user INTEGER NOT NULL, ref_table TEXT, ref_id INTEGER, context TEXT, seen INTEGER NOT NULL DEFAULT 0, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_mentions_me ON _mentions (mentioned_user, seen, id)"); } catch {}
+  _mentionsReady.add(uuid);
+}
 // The DEFAULT row-visibility suffix for a table (param-free): hide trashed / expired / not-yet-published
 // / archived rows — IDENTICAL to the list read's visClause. ANDed into a saved search's base so a stored
 // query can never re-widen visibility (buildD1List ignores the withTrashed/withScheduled/… params).
@@ -9333,6 +9361,9 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _waitlist WHERE user_id=?", [u.id]],                               // waitlist entries
             ["DELETE FROM _checkins WHERE user_id=?", [u.id]],                               // daily check-in streaks
             ["DELETE FROM _reminders WHERE user_id=?", [u.id]],                              // reminders
+            ["DELETE FROM _comments WHERE user_id=?", [u.id]],                               // threaded comments
+            ["DELETE FROM _survey_responses WHERE user_id=?", [u.id]],                       // survey/NPS responses
+            ["DELETE FROM _mentions WHERE mentioned_user=? OR by_user=?", [u.id, u.id]],     // @mentions (either side)
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -10902,6 +10933,259 @@ async function handleRequest(request, env, ctx) {
           const rows = await cfD1Query(env, uuid, "SELECT id, remind_at, subject, note, done, created_at FROM _reminders WHERE " + where + " ORDER BY " + order + " LIMIT 500", params);
           return Response.json({ ok: true, reminders: rows });
         } catch (e) { console.error("reminders failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "reminders failed" }, { status: 502 }); }
+      }
+      // THREADED COMMENTS on any (table, row). A member posts a comment or a reply (parent_id); anyone
+      // READS a row's thread (public, like feed/display rows); a member edits/soft-deletes their OWN; an
+      // admin deletes any. Soft-delete leaves a tombstone ONLY if the comment still has replies (thread
+      // stays intact), else it's omitted; the count excludes soft-deleted.
+      //   POST   /api/db/<slug>/comments {table, row, body, parent?}   → {id} (member)
+      //   GET    /api/db/<slug>/comments?table=<t>&row=<id>[&limit=]    → the thread, oldest-first (public)
+      //   GET    /api/db/<slug>/comments/count?table=<t>&row=<id>       → {count} of live comments (public)
+      //   PATCH  /api/db/<slug>/comments/<id> {body}                    → edit mine (member)
+      //   DELETE /api/db/<slug>/comments/<id>                           → soft-delete mine; admin deletes any
+      const cmtm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/comments(?:\/(count|\d+))?$/i);
+      if (cmtm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = cmtm[1].toLowerCase(), tail = cmtm[2] ? cmtm[2].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const cid = tail && /^\d+$/.test(tail) ? parseInt(tail, 10) : null;
+        try {
+          await ensureComments(env, uuid);
+          // POST — a member comments on (table,row), optionally replying to a live comment on the SAME row.
+          if (request.method === "POST" && !tail) {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|cmw", 60)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const table = String(body.table || "").toLowerCase();
+            if (!/^[a-z_][a-z0-9_]{0,40}$/.test(table)) return Response.json({ ok: false, error: "a valid table is required" }, { status: 400 });
+            const spec = await loadSiteSchema(env, uuid);
+            if (!tableDef(spec, table)) return Response.json({ ok: false, error: "unknown table" }, { status: 404 });
+            const rowId = parseInt(body.row, 10);
+            if (!Number.isFinite(rowId)) return Response.json({ ok: false, error: "a row id is required" }, { status: 400 });
+            const text = body.body != null ? String(body.body).trim().slice(0, 4000) : "";
+            if (!text) return Response.json({ ok: false, error: "a comment body is required" }, { status: 400 });
+            let parent = null;
+            if (body.parent != null && body.parent !== "") {
+              parent = parseInt(body.parent, 10);
+              if (!Number.isFinite(parent)) return Response.json({ ok: false, error: "bad parent id" }, { status: 400 });
+              const ok = (await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _comments WHERE id=? AND table_name=? AND row_id=? AND deleted=0", [parent, table, rowId]))[0];
+              if (!ok) return Response.json({ ok: false, error: "the parent comment doesn't exist on this row" }, { status: 400 });
+            }
+            const now = new Date().toISOString();
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _comments (table_name, row_id, user_id, parent_id, body, created_at, updated_at, deleted) VALUES (?,?,?,?,?,?,?,0) RETURNING id", [table, rowId, userId, parent, text, now, now]);
+            return Response.json({ ok: true, id: ins[0] && ins[0].id });
+          }
+          // COUNT — live comments on a row (public).
+          if (tail === "count") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            const table = String(url.searchParams.get("table") || "").toLowerCase();
+            const rowId = parseInt(url.searchParams.get("row"), 10);
+            if (!table || !Number.isFinite(rowId)) return Response.json({ ok: false, error: "table and row are required" }, { status: 400 });
+            if (!rateOk(slug + "|" + ip + "|cmc", 300)) return tooMany();
+            const r = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _comments WHERE table_name=? AND row_id=? AND deleted=0", [table, rowId]))[0];
+            return Response.json({ ok: true, count: (r && r.n) || 0 });
+          }
+          // A specific comment: PATCH (edit mine) / DELETE (soft-delete mine; admin any).
+          if (cid != null) {
+            if (request.method === "PATCH") {
+              if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+              if (!rateOk(slug + "|" + ip + "|cmp", 120)) return tooMany();
+              let body = {}; try { body = await request.json(); } catch {}
+              const text = body.body != null ? String(body.body).trim().slice(0, 4000) : "";
+              if (!text) return Response.json({ ok: false, error: "a comment body is required" }, { status: 400 });
+              const ex = await cfD1Exec(env, uuid, "UPDATE _comments SET body=?, updated_at=? WHERE id=? AND user_id=? AND deleted=0", [text, new Date().toISOString(), cid, userId]);
+              if (!ex.changes) return Response.json({ ok: false, error: "no such comment" }, { status: 404 });
+              return Response.json({ ok: true, id: cid, updated: true });
+            }
+            if (request.method === "DELETE") {
+              if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+              const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+              const isAdmin = !!(rr[0] && rr[0].role === "admin");
+              const ex = isAdmin
+                ? await cfD1Exec(env, uuid, "UPDATE _comments SET deleted=1, updated_at=? WHERE id=? AND deleted=0", [new Date().toISOString(), cid])
+                : await cfD1Exec(env, uuid, "UPDATE _comments SET deleted=1, updated_at=? WHERE id=? AND user_id=? AND deleted=0", [new Date().toISOString(), cid, userId]);
+              if (!ex.changes) return Response.json({ ok: false, error: "no such comment" }, { status: 404 });
+              return Response.json({ ok: true, id: cid, deleted: true });
+            }
+            return Response.json({ ok: false, error: "use PATCH or DELETE on /comments/<id>" }, { status: 405 });
+          }
+          // GET list (public) — a row's thread, oldest-first, with reply structure preserved.
+          if (request.method !== "GET") return Response.json({ ok: false, error: "unsupported comments request" }, { status: 405 });
+          const table = String(url.searchParams.get("table") || "").toLowerCase();
+          const rowId = parseInt(url.searchParams.get("row"), 10);
+          if (!table || !Number.isFinite(rowId)) return Response.json({ ok: false, error: "table and row are required" }, { status: 400 });
+          if (!rateOk(slug + "|" + ip + "|cml", 300)) return tooMany();
+          const lim = Math.min(1000, Math.max(1, parseInt(url.searchParams.get("limit") || "500", 10) || 500));
+          const all = await cfD1Query(env, uuid, "SELECT id, parent_id, user_id, body, deleted, created_at, updated_at FROM _comments WHERE table_name=? AND row_id=? ORDER BY created_at ASC, id ASC LIMIT ?", [table, rowId, lim]);
+          // Keep a soft-deleted comment as a tombstone only if a non-deleted reply references it.
+          const referenced = new Set(all.filter((r) => !r.deleted && r.parent_id != null).map((r) => r.parent_id));
+          const thread = all.filter((r) => !r.deleted || referenced.has(r.id)).map((r) => r.deleted
+            ? { id: r.id, parent_id: r.parent_id, user_id: null, body: null, deleted: true, created_at: r.created_at }
+            : { id: r.id, parent_id: r.parent_id, user_id: r.user_id, body: r.body, deleted: false, created_at: r.created_at, updated_at: r.updated_at });
+          return Response.json({ ok: true, table, row: rowId, comments: thread });
+        } catch (e) { console.error("comments failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "comments failed" }, { status: 502 }); }
+      }
+      // SURVEYS / NPS / CSAT — one numeric response per member per survey (re-submit upserts). A member
+      // submits + reads THEIR OWN; the aggregate + individual responses are ADMIN (they expose others'
+      // scores). The aggregate KIND is a read-time lens over the raw scores.
+      //   POST   /api/db/<slug>/surveys/<survey> {score, comment?, max?}  → upsert my response (member)
+      //   GET    /api/db/<slug>/surveys/<survey>/mine                     → my response or null (member)
+      //   DELETE /api/db/<slug>/surveys/<survey>/mine                     → withdraw mine (member)
+      //   GET    /api/db/<slug>/surveys/<survey>/summary[?kind=nps|csat|avg]  → aggregate (ADMIN)
+      //   GET    /api/db/<slug>/surveys/<survey>/responses[?limit=&offset=]   → individual responses (ADMIN)
+      const svym = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/surveys\/([A-Za-z0-9_.:-]{1,60})(?:\/(mine|summary|responses))?$/i);
+      if (svym && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = svym[1].toLowerCase(), survey = svym[2], sub = svym[3] ? svym[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureSurveys(env, uuid);
+          // SUBMIT (upsert my response).
+          if (!sub && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|svw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            let max = body.max != null && body.max !== "" ? Math.floor(Number(body.max)) : 10;
+            if (!Number.isFinite(max) || max < 1 || max > 100) max = 10;
+            const score = Math.floor(Number(body.score));
+            if (!Number.isFinite(score) || score < 0 || score > max) return Response.json({ ok: false, error: "score must be an integer 0–" + max }, { status: 400 });
+            const comment = body.comment != null && body.comment !== "" ? String(body.comment).slice(0, 2000) : null;
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _survey_responses (survey, user_id, score, comment, created_at, updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(survey, user_id) DO UPDATE SET score=excluded.score, comment=excluded.comment, updated_at=excluded.updated_at", [survey, userId, score, comment, now, now]);
+            return Response.json({ ok: true, survey, score, comment });
+          }
+          // MINE — my own response (member).
+          if (sub === "mine") {
+            if (request.method === "DELETE") {
+              const ex = await cfD1Exec(env, uuid, "DELETE FROM _survey_responses WHERE survey=? AND user_id=?", [survey, userId]);
+              if (!ex.changes) return Response.json({ ok: false, error: "no response to withdraw" }, { status: 404 });
+              return Response.json({ ok: true, withdrawn: true });
+            }
+            if (request.method !== "GET") return Response.json({ ok: false, error: "GET or DELETE" }, { status: 405 });
+            const row = (await cfD1Query(env, uuid, "SELECT survey, score, comment, created_at, updated_at FROM _survey_responses WHERE survey=? AND user_id=?", [survey, userId]))[0];
+            return Response.json({ ok: true, survey, response: row || null });
+          }
+          // Everything below is ADMIN (exposes other members' scores).
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          // SUMMARY — an aggregate lens over the raw scores.
+          if (sub === "summary") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|svs", 300)) return tooMany();
+            const kind = String(url.searchParams.get("kind") || "nps").toLowerCase();
+            const a = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n, AVG(score) AS avg, SUM(CASE WHEN score>=9 THEN 1 ELSE 0 END) AS promoters, SUM(CASE WHEN score BETWEEN 7 AND 8 THEN 1 ELSE 0 END) AS passives, SUM(CASE WHEN score<=6 THEN 1 ELSE 0 END) AS detractors, SUM(CASE WHEN score>=4 THEN 1 ELSE 0 END) AS satisfied FROM _survey_responses WHERE survey=?", [survey]))[0];
+            const n = (a && a.n) || 0;
+            if (kind === "csat") return Response.json({ ok: true, survey, kind, responses: n, average: n ? Math.round(a.avg * 100) / 100 : 0, satisfied: (a && a.satisfied) || 0, csat_pct: n ? Math.round(((a.satisfied || 0) / n) * 10000) / 100 : 0 });
+            if (kind === "avg") return Response.json({ ok: true, survey, kind, responses: n, average: n ? Math.round(a.avg * 100) / 100 : 0 });
+            const promoters = (a && a.promoters) || 0, detractors = (a && a.detractors) || 0;
+            return Response.json({ ok: true, survey, kind: "nps", responses: n, promoters, passives: (a && a.passives) || 0, detractors, nps: n ? Math.round(((promoters - detractors) / n) * 100) : 0 });
+          }
+          // RESPONSES — the individual responses (admin).
+          if (sub === "responses") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|svr", 300)) return tooMany();
+            const lim = Math.min(500, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+            const off = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10) || 0);
+            const rows = await cfD1Query(env, uuid, "SELECT user_id, score, comment, created_at, updated_at FROM _survey_responses WHERE survey=? ORDER BY updated_at DESC LIMIT ? OFFSET ?", [survey, lim, off]);
+            return Response.json({ ok: true, survey, responses: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported surveys request" }, { status: 405 });
+        } catch (e) { console.error("surveys failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "surveys failed" }, { status: 502 }); }
+      }
+      // @MENTIONS — a member records that another member was @-tagged; the MENTIONED member reads
+      // THEIR OWN mentions and marks them seen. Privacy/IDOR: every read/mutate is scoped to
+      // mentioned_user = caller; a member never sees the by_user perspective.
+      //   POST   /api/db/<slug>/mentions {user, ref_table?, ref_id?, context?} → {id}
+      //   GET    /api/db/<slug>/mentions/mine[?unseen=1&limit=&offset=]         → mentions of me, newest-first
+      //   GET    /api/db/<slug>/mentions/unseen-count                           → {count}
+      //   POST   /api/db/<slug>/mentions/<id>/seen                              → mark one of mine seen
+      //   POST   /api/db/<slug>/mentions/seen-all                               → mark all mine seen
+      //   DELETE /api/db/<slug>/mentions/<id>                                   → delete one of mine
+      const mnsm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/mentions(?:\/(mine|unseen-count|seen-all|\d+))?(?:\/(seen))?$/i);
+      if (mnsm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = mnsm[1].toLowerCase(), tail = mnsm[2] ? mnsm[2].toLowerCase() : null, act = mnsm[3] ? mnsm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const id = tail && /^\d+$/.test(tail) ? parseInt(tail, 10) : null;
+        try {
+          await ensureMentions(env, uuid);
+          // CREATE — record a mention of another member. Single ATOMIC INSERT ... SELECT ... WHERE
+          // EXISTS(user): no separate check→insert race, RETURNING yields no row (→404) when the
+          // mentioned user doesn't exist. by_user is ALWAYS the caller, never client-supplied.
+          if (!tail && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|mtw", 60)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const mu = parseInt(body.user, 10);
+            if (!(mu > 0)) return Response.json({ ok: false, error: "user (the mentioned member's id) is required" }, { status: 400 });
+            const refTable = body.ref_table != null && body.ref_table !== "" ? String(body.ref_table).slice(0, 64) : null;
+            const refId = body.ref_id != null && /^\d+$/.test(String(body.ref_id)) ? parseInt(body.ref_id, 10) : null;
+            const context = body.context != null && body.context !== "" ? String(body.context).replace(/[\r\n]+/g, " ").slice(0, 500) : null;
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _mentions (mentioned_user, by_user, ref_table, ref_id, context, seen, created_at) SELECT ?,?,?,?,?,0,? WHERE EXISTS(SELECT 1 FROM _users WHERE id=?) RETURNING id", [mu, userId, refTable, refId, context, new Date().toISOString(), mu]);
+            if (!ins[0]) return Response.json({ ok: false, error: "no such user" }, { status: 404 });
+            return Response.json({ ok: true, id: ins[0].id });
+          }
+          // UNSEEN COUNT — of my mentions.
+          if (tail === "unseen-count") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|mtc", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT COUNT(*) AS c FROM _mentions WHERE mentioned_user=? AND seen=0", [userId]);
+            return Response.json({ ok: true, count: (rows[0] && rows[0].c) || 0 });
+          }
+          // SEEN-ALL — mark all my mentions seen.
+          if (tail === "seen-all") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|mts", 120)) return tooMany();
+            const ex = await cfD1Exec(env, uuid, "UPDATE _mentions SET seen=1 WHERE mentioned_user=? AND seen=0", [userId]);
+            return Response.json({ ok: true, updated: ex.changes || 0 });
+          }
+          // LIST — mentions OF ME, newest-first.
+          if (tail === "mine") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|mtl", 300)) return tooMany();
+            const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 1), 200);
+            const offset = Math.max(parseInt(url.searchParams.get("offset") || "0", 10) || 0, 0);
+            let where = "mentioned_user=?"; const params = [userId];
+            if (url.searchParams.get("unseen") === "1") where += " AND seen=0";
+            const rows = await cfD1Query(env, uuid, "SELECT id, mentioned_user, by_user, ref_table, ref_id, context, seen, created_at FROM _mentions WHERE " + where + " ORDER BY id DESC LIMIT ? OFFSET ?", params.concat([limit, offset]));
+            return Response.json({ ok: true, mentions: rows });
+          }
+          // A specific mention of MINE — mark seen or delete. Scoped to mentioned_user = caller (IDOR-safe).
+          if (id != null) {
+            if (act === "seen") {
+              if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+              if (!rateOk(slug + "|" + ip + "|mts", 120)) return tooMany();
+              const ex = await cfD1Exec(env, uuid, "UPDATE _mentions SET seen=1 WHERE id=? AND mentioned_user=?", [id, userId]);
+              if (!ex.changes) return Response.json({ ok: false, error: "no such mention" }, { status: 404 });
+              return Response.json({ ok: true, id, seen: true });
+            }
+            if (request.method === "DELETE") {
+              const ex = await cfD1Exec(env, uuid, "DELETE FROM _mentions WHERE id=? AND mentioned_user=?", [id, userId]);
+              if (!ex.changes) return Response.json({ ok: false, error: "no such mention" }, { status: 404 });
+              return Response.json({ ok: true, id, deleted: true });
+            }
+            return Response.json({ ok: false, error: "use POST /<id>/seen or DELETE /<id>" }, { status: 405 });
+          }
+          return Response.json({ ok: false, error: "unsupported mentions request" }, { status: 405 });
+        } catch (e) { console.error("mentions failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "mentions failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.

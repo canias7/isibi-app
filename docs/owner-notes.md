@@ -6661,6 +6661,27 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — social primitives: comments · surveys/NPS · @mentions (data API)
+- Next backlog batch (all grep-verified absent — `/api/social/comments` is the media-agent's IG comments,
+  not a data-API primitive; `/links` + `/apikeys` already exist so those were dropped from the plan).
+  Design workflow `wf_7bc51254-27d`: mentions came back designed + reviewed; comments + surveys agents hit
+  the StructuredOutput retry cap AGAIN (their route strings are large) so I built those two from spec. The
+  design-agent-large-output failure is now a known pattern — going forward, better to implement then run a
+  review-only workflow over the real committed code than to have agents emit big route strings.
+- **`/comments`** — threaded comments on any (table,row). parent_id replies (validated same-row); public
+  read; owner edit/soft-delete, admin delete-any. Tombstone rule: a soft-deleted comment stays as
+  `{deleted:true, body:null}` only while it has a live reply, else it's omitted; count excludes deleted.
+  batch181 (25/25).
+- **`/surveys/<survey>`** — NPS/CSAT. One response per member (upsert); member reads own; admin-only
+  aggregate with a read-time lens (`kind=nps` → promoters(9-10)−detractors(0-6)/n×100; `csat` → avg +
+  %satisfied(≥4); `avg` → mean) computed in SQL, plus admin `/responses`. Distinct from `/reviews`
+  (public per-subject stars). batch182 (23/23).
+- **`/mentions`** — who-tagged-me inbox. **Review caught a non-atomic create** (SELECT-user-then-INSERT
+  TOCTOU → orphan row if the user is deleted between); fixed to a single `INSERT…SELECT…WHERE EXISTS(user)
+  RETURNING` (no row → 404). Every read/mutate scoped to mentioned_user=caller (IDOR-safe); by_user forced
+  to caller (unforgeable). Erase clears either side. batch183 (19/19).
+- All three wired into GDPR erase. Full suite 166 green.
+
 ## 2026-07-22 — engagement primitives: reviews · waitlist · streaks · reminders (data API)
 - Next backlog batch (all genuinely absent — grep-checked: `reactions` already covers likes/upvotes/RSVPs,
   `bookmarks`/`notifications`/`polls` exist, so these are new). Designed + adversarially reviewed via a
