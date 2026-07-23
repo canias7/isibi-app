@@ -12208,6 +12208,98 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: true, faq: rows });
         } catch (e) { console.error("faq failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "faq failed" }, { status: 502 }); }
       }
+      // BUSINESS HOURS — weekly open intervals (per day-of-week, local time) + per-date overrides
+      // (holidays / special hours), and an "open now?" check. Reads public; managing is admin. Times are
+      // local minutes-since-midnight; the open-check takes the business's tz offset (minutes from UTC).
+      //   POST   /api/db/<slug>/hours {dow(0-6), open, close}   (ADMIN) → add an open interval → {id}
+      //   GET    /api/db/<slug>/hours                            (public) → {weekly:{dow:[…]}, specials:[…]}
+      //   DELETE /api/db/<slug>/hours/<id>                       (ADMIN) → remove an interval
+      //   POST   /api/db/<slug>/hours/special {date, closed?, open?, close?, note?}  (ADMIN) → a date override
+      //   DELETE /api/db/<slug>/hours/special/<YYYY-MM-DD>       (ADMIN) → remove an override
+      //   GET    /api/db/<slug>/hours/open[?at=<ISO>&tz=<offsetMin>]  (public) → {open, reason, closes_at?}
+      const hrm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/hours(?:\/(open|special|\d+)(?:\/(\d{4}-\d{2}-\d{2}))?)?$/i);
+      if (hrm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = hrm[1].toLowerCase(), sub = hrm[2] ? hrm[2].toLowerCase() : null, dateParam = hrm[3] || null, hid = hrm[2] && /^\d+$/.test(hrm[2]) ? parseInt(hrm[2], 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const toMin = (v) => { if (v == null || v === "") return null; if (typeof v === "number" || /^\d+$/.test(String(v))) { const n = Math.floor(Number(v)); return (n >= 0 && n <= 1440) ? n : null; } const m = String(v).match(/^(\d{1,2}):(\d{2})$/); if (!m) return null; const h2 = +m[1], mi = +m[2]; return (h2 <= 24 && mi < 60) ? h2 * 60 + mi : null; };
+        try {
+          await ensureHours(env, uuid);
+          // "Open now?" (public).
+          if (sub === "open") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|hro", 300)) return tooMany();
+            const atRaw = url.searchParams.get("at");
+            const at = atRaw && !isNaN(new Date(atRaw).getTime()) ? new Date(atRaw) : new Date();
+            const tz = Math.max(-720, Math.min(840, parseInt(url.searchParams.get("tz") || "0", 10) || 0));
+            const local = new Date(at.getTime() + tz * 60000);
+            const date = local.toISOString().slice(0, 10), dow = local.getUTCDay(), mins = local.getUTCHours() * 60 + local.getUTCMinutes();
+            const sp = (await cfD1Query(env, uuid, "SELECT closed, open_min, close_min FROM _hours_special WHERE date=?", [date]))[0];
+            let intervals;
+            if (sp) { if (sp.closed) return Response.json({ ok: true, open: false, reason: "special_closed", date }); intervals = (sp.open_min != null && sp.close_min != null) ? [{ open_min: sp.open_min, close_min: sp.close_min }] : []; }
+            else intervals = await cfD1Query(env, uuid, "SELECT open_min, close_min FROM _hours WHERE dow=? ORDER BY open_min", [dow]);
+            const cur = intervals.find((i) => mins >= i.open_min && mins < i.close_min);
+            if (cur) return Response.json({ ok: true, open: true, reason: sp ? "special" : "regular", closes_at: cur.close_min, date });
+            return Response.json({ ok: true, open: false, reason: sp ? "special_hours" : (intervals.length ? "closed_now" : "closed_today"), date });
+          }
+          // Add a special-date override (admin).
+          if (sub === "special" && !dateParam && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|hrs", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const date = String(body.date || "").slice(0, 10);
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return Response.json({ ok: false, error: "date must be YYYY-MM-DD" }, { status: 400 });
+            const closed = (body.closed === true || body.closed === 1 || body.closed === "true") ? 1 : 0;
+            const openMin = closed ? null : toMin(body.open), closeMin = closed ? null : toMin(body.close);
+            if (!closed && (openMin == null || closeMin == null || closeMin <= openMin)) return Response.json({ ok: false, error: "give open<close times, or closed:true" }, { status: 400 });
+            const note = body.note != null ? String(body.note).slice(0, 200) : null;
+            await cfD1Query(env, uuid, "INSERT INTO _hours_special (date, closed, open_min, close_min, note, created_at) VALUES (?,?,?,?,?,?) ON CONFLICT(date) DO UPDATE SET closed=excluded.closed, open_min=excluded.open_min, close_min=excluded.close_min, note=excluded.note", [date, closed, openMin, closeMin, note, new Date().toISOString()]);
+            return Response.json({ ok: true, date, closed: !!closed });
+          }
+          // Remove a special-date override (admin).
+          if (sub === "special" && dateParam && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _hours_special WHERE date=?", [dateParam]);
+            return Response.json({ ok: true, deleted: (ex.changes || 0) > 0, date: dateParam });
+          }
+          // Add a weekly interval (admin).
+          if (!sub && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|hrw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const dow = Math.floor(Number(body.dow));
+            if (!Number.isFinite(dow) || dow < 0 || dow > 6) return Response.json({ ok: false, error: "dow must be 0 (Sun) – 6 (Sat)" }, { status: 400 });
+            const openMin = toMin(body.open), closeMin = toMin(body.close);
+            if (openMin == null || closeMin == null || closeMin <= openMin) return Response.json({ ok: false, error: "open and close times required (open < close)" }, { status: 400 });
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _hours (dow, open_min, close_min, created_at) VALUES (?,?,?,?) RETURNING id", [dow, openMin, closeMin, new Date().toISOString()]);
+            return Response.json({ ok: true, id: ins[0] && ins[0].id, dow, open_min: openMin, close_min: closeMin });
+          }
+          // Remove a weekly interval (admin).
+          if (hid != null && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _hours WHERE id=?", [hid]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such interval" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: hid });
+          }
+          // GET the schedule (public).
+          if (!sub && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|hrr", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT id, dow, open_min, close_min FROM _hours ORDER BY dow ASC, open_min ASC LIMIT 200");
+            const weekly = {}; for (let d = 0; d < 7; d++) weekly[d] = [];
+            for (const r of rows) weekly[r.dow].push({ id: r.id, open_min: r.open_min, close_min: r.close_min });
+            const specials = await cfD1Query(env, uuid, "SELECT date, closed, open_min, close_min, note FROM _hours_special WHERE date >= ? ORDER BY date ASC LIMIT 200", [new Date().toISOString().slice(0, 10)]);
+            return Response.json({ ok: true, weekly, specials: specials.map((s) => Object.assign(s, { closed: !!s.closed })) });
+          }
+          return Response.json({ ok: false, error: "unsupported hours request" }, { status: 405 });
+        } catch (e) { console.error("hours failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "hours failed" }, { status: 502 }); }
+      }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
       //   POST   /api/db/<slug>/webhooks {url, events?, secret?}   → register (admin; url must be https)
