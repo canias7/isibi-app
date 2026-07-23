@@ -10,6 +10,25 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-07-23 — VISION REPAIR wired end-to-end (container /critique + worker loop), flag `VISION_REPAIR`
+Built the container half of the vision loop so `PIPELINE_V2` can get full render→critique→repair, not just
+prompt-enrichment+lint.
+- **Split for worker-safety:** the Playwright renderer moved out of vision-critique.mjs into `vision-render.mjs`
+  (container-only, node:module+playwright). `vision-critique.mjs` is now fetch+JSON only (0 node refs) → the
+  Worker safely imports `buildCritiquePrompt/requestCritique/critiquesToInstruction` from it. vision.test.mjs +
+  pipeline.test.mjs updated + green.
+- **Container `/critique`** (build-server.mjs): POST `{dist, routes}` → writes the dist to a temp dir → serves it
+  (SPA/HashRouter fallback to index.html) → `renderRoutes({url})` screenshots each route → `{ok, shots:[{route,
+  pngBase64}]}`. `test/backend/critique-endpoint.test.mjs` (9/9) spawns the real server + renders (Playwright).
+- **Worker loop** (flag `PIPELINE_V2==1 && VISION_REPAIR==1`, after a successful build, before publish): the
+  container screenshots (has the browser), the Worker runs the vision model (`requestCritique`, has the key); if
+  minScore < 75 it does ONE revise (`REACT_REVISE_RULES`) + rebuild, keeping the polished dist (else the original).
+  Emits `reviewing`/`vision`/`polishing` SSE events. Fully guarded; any error leaves the build as-is. `dist` made
+  `let` so the polished rebuild can replace it.
+- **Cost:** VISION_REPAIR is a SEPARATE opt-in (extra build + a few vision calls per generation) on top of
+  PIPELINE_V2. Enable BOTH Worker vars to turn on the full loop; PIPELINE_V2 alone = cheap prompt-enrich + lint.
+- Full suite 387 green (flag-off unchanged). worker.js imports only worker-safe modules (never vision-render).
+
 ## 2026-07-23 — PIPELINE WIRED INTO LIVE GENERATION (flag-gated `PIPELINE_V2`, dormant by default)
 The React build path in worker.js (`streamGen(REACT_RULES, …)` ~line 29380) now has two flag-gated hooks, both
 skipped entirely unless `env.PIPELINE_V2 === "1"` (so default = byte-identical; full suite 386 green proves it):
