@@ -10,6 +10,75 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-07-23 — META-LAYER: VISION CRITIQUE + AUTO VISUAL REPAIR (the live half of #3/#4) — built
+Owner picked "build the vision critique" next. `builder/vision-critique.mjs` (a BUILD-CONTAINER Node module —
+Playwright + Anthropic, NOT imported by worker.js; Playwright lazy-loaded): after an app builds, `renderRoutes`
+screenshots each route in headless Chromium, `requestCritique` sends the PNG to a vision model
+(`ANTHROPIC_API_KEY`, same /v1/messages pattern as worker.js; default model claude-sonnet-5) with a structured
+critique prompt → `parseCritique` returns `{score, verdict, issues[{severity,area,message,fix}]}`;
+`visualRepairLoop` renders→critiques→(if below threshold) folds the issues into a revise instruction and calls
+the generator, looping to a round cap. Everything is injectable (render/critiqueOne/generate) so it's fully
+testable offline. `test/backend/vision.test.mjs` (31/31) covers parse (JSON/fenced/garbage), the prompt, the
+Anthropic request via a MOCK fetch, a REAL Playwright screenshot of a fixture ($0), the instruction fold, and the
+loop (passes clean / iterates-then-passes / fails after cap). **No credits spent** — this session has no
+ANTHROPIC_API_KEY, so the live vision call can't run here; it activates in the deployed build container where the
+key exists. NOT yet wired into the live generation loop (the `generate` step = the REVISE credit spend) — the
+module is ready; enabling the loop in build-server.mjs/worker is the wiring step, which spends credits per build.
+Playwright confirmed working here (5.8 KB PNG). No CI runs the backend suite, so the Chromium-dependent test is
+local-only.
+
+## 2026-07-23 — META-LAYER (ChatGPT's "next priorities") — #1 CAPABILITY REGISTRY shipped
+Owner shared a ChatGPT review naming 5 next priorities ABOVE the raw backend primitives (which are done, 200
+of them). Scorecard at the time: #1 capability registry (prose only), #2 app planner (none), #3 design engine
+(partial), #4 generated-app tests (none — only backend), #5 worker.js refactor (none, 32.5k-line monolith).
+Building them one PR at a time, $0 (no Claude/fal spend).
+- **#1 Capability registry — DONE.** It is GENERATED from worker.js (the source of truth), never hand-edited:
+  `builder/build-capability-registry.mjs` extracts every `/api/db/<slug>/<segment>` route → `{id, title,
+  summary, routes[], tables[], access[], stateful, gdpr_erased[], exportable[], tests[]}`. Emits
+  `capability-registry.json` (readable) + `capability-registry.data.mjs` (Worker-safe ESM runtime module).
+  `builder/capability-registry.mjs` adds `getCapability`, `selectCapabilities(intent)` (ranked keyword match —
+  the "selection" ChatGPT wanted, so a build pulls only the relevant slice instead of the 236 KB BACKEND_RULES),
+  and `capabilityPrompt(ids)`. **279 capabilities indexed, 273 test-linked.** `test/backend/registry.test.mjs`
+  (15/15) checks structure + LIVE coverage (fails if any worker route lacks an entry → can't drift) + selection.
+  NOT yet wired into the live generation flow (that spends Claude credits — will ask before enabling).
+- **#4 Generated-app test harness (static half) — DONE.** `builder/app-linter.mjs` `lintGeneratedApp(rawOrFiles)`
+  statically verifies a generated Vite+React+Tailwind app WITHOUT a browser/Claude call: required files present +
+  forbidden absent, index.html mount/script/title/desc, index.css tailwind directives, HashRouter-not-BrowserRouter
+  (survives refresh), imports resolve to the dep allow-list or a local file, **every `${API}/<seg>` call points to a
+  REAL capability (cross-checked against the #1 registry)**, no fake buttons / dead links / unwired forms+uploads
+  (warnings). Errors block, warnings advise. `test/backend/applint.test.mjs` (18/18) — clean app passes, targeted
+  broken apps each trip the right rule. The LIVE compile/render half (vite build + headless screenshot) belongs in
+  the build container + spends nothing to design but needs the app deps installed — follow-up, and it overlaps #3.
+- **#2 App planner — DONE (deterministic core).** `builder/app-planner.mjs` `planApp(intent)` turns a build
+  intent into a COMPLETE, VALIDATED spec BEFORE codegen: `{name, capabilities, tables, roles, pages,
+  permissions, workflows, integrations, design_hints}`. Deterministic + $0 — it reasons over the #1 registry
+  (`selectCapabilities`, minScore 3 so specs stay focused) rather than calling a model. `validateSpec` (catches
+  fake caps / no home page / dup paths / missing visitor role) + `specToPrompt` (compact planning brief the
+  generator consumes). `test/backend/planner.test.mjs` (25/25). A model refinement pass can layer on later; the
+  spec shape stays the same. NOT yet wired into live generation (credits — will ask first).
+- **#3 Design engine (offline core) — DONE.** `builder/design-system.mjs`: 5 **style families** (studio-dark,
+  minimal-light, warm-editorial, playful, elegant-dark) — each a token set (colors/type/radius/shadow) that is
+  WCAG-AA verified (`critiqueTokens` + `wcagContrast`; all pass, text ≥14:1, accents ≥5:1); a **component
+  registry** (Button/Card/Input/Nav/Table/Modal/EmptyState/Toast/…) + **layout patterns** (hero/dashboard/
+  list-detail/form/gallery/settings) + **responsive rules**. `pickStyleFamily(hints)` maps planner design_hints →
+  a family; `tokensToCssVars`/`tokensToTailwindTheme` emit; `designBrief(id)` renders the vocabulary for the
+  generator. `test/backend/design.test.mjs` (25/25). The vision-based screenshot-critique → automatic-visual-repair
+  is the LIVE half (renders + a vision model = credits) and layers on this — follow-up, pairs with #4's live half.
+- **#5 worker.js refactor — STARTED (proven pattern).** worker.js is 32.5k lines and auto-deploys to live on
+  merge, so NO big-bang split. First safe cut: extracted the pure, request-independent finance/money library
+  (`toCents` + 9 stateless calculators: depreciation/amortization/investment/eoq/breakeven/demand-forecast/
+  installment/tax/commission) into `worker-finance.mjs`, imported back into worker.js. Done PROGRAMMATICALLY
+  (line-precise, no hand-copy) so it's byte-for-byte identical; worker.js 32,549 → 32,235 lines. Full suite 384
+  green proves behavior unchanged (toCents alone is exercised by /finance + dozens of money routes). This
+  establishes the extraction pattern (pure leaf → module → import → suite proves it). The DEEPER work —
+  pulling route handlers out of the one giant fetch() closure — is a much larger, riskier effort (handlers
+  share env/url/request + many helpers) and should be steered incrementally, module by module, each behind a
+  green suite. Not attempting it unprompted given the live-deploy blast radius.
+- **ALL 5 meta-layers now have their offline/safe core shipped.** The remaining pieces all need live Claude/fal
+  credits (wire planner+registry+design into generation; vision screenshot-critique + auto visual repair;
+  in-container vite build/render check) OR are the deeper worker split — will confirm before spending or before
+  a large refactor.
+
 ## 2026-07-21 — BACKEND ROADMAP: building the "100 more" list (AI parked)
 
 Owner wants the whole 100-item backend roadmap built (AI category skipped for now).
