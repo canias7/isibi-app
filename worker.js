@@ -5253,6 +5253,33 @@ async function ensureSlaTimers(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_sla_kind ON _sla_timers (kind, status)"); } catch {}
   _slaTimersReady.add(uuid);
 }
+// Wishlist / saved items — a member's saved items; per-item want-count is derived. `_wishlist` keyed
+// (user_id, item). Ensured once per isolate.
+const _wishlistReady = new Set();
+async function ensureWishlist(env, uuid) {
+  if (_wishlistReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _wishlist (user_id INTEGER NOT NULL, item TEXT NOT NULL, note TEXT, created_at TEXT, PRIMARY KEY (user_id, item))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_wishlist_item ON _wishlist (item)"); } catch {}
+  _wishlistReady.add(uuid);
+}
+// Glossary — an admin curates terms + definitions (with aliases); the app looks a term up (by term or
+// alias) and lists/searches them. `_glossary` keyed by the lowercased term. Ensured once.
+const _glossaryReady = new Set();
+async function ensureGlossary(env, uuid) {
+  if (_glossaryReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _glossary (term_key TEXT PRIMARY KEY, term TEXT NOT NULL, definition TEXT, aliases TEXT, category TEXT, updated_at TEXT)");
+  _glossaryReady.add(uuid);
+}
+// Star ratings — a quick 1–5 star rating per item, one changeable vote per member; the average, count, and
+// distribution are derived. `_ratings` keyed (item, user_id). Distinct from text /reviews. Ensured once.
+const _ratingsReady = new Set();
+async function ensureRatings(env, uuid) {
+  if (_ratingsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _ratings (item TEXT NOT NULL, user_id INTEGER NOT NULL, stars INTEGER NOT NULL, created_at TEXT, updated_at TEXT, PRIMARY KEY (item, user_id))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_ratings_item ON _ratings (item)"); } catch {}
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_ratings_user ON _ratings (user_id)"); } catch {}
+  _ratingsReady.add(uuid);
+}
 // The user-scoped tables a member can export their own rows from (GDPR data portability) — kept in sync with
 // the erase list. Each entry is [table, ownerColumn]; a missing table is skipped at read time.
 const DATA_EXPORT_TABLES = [
@@ -10075,6 +10102,8 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _room_bookings WHERE user_id=?", [u.id]],                          // resource/room reservations
             ["DELETE FROM _eventlog WHERE actor_id=?", [u.id]],                              // event-stream entries they authored
             ["DELETE FROM _preorder_holds WHERE user_id=?", [u.id]],                         // preorder capacity holds
+            ["DELETE FROM _wishlist WHERE user_id=?", [u.id]],                               // saved/wishlist items
+            ["DELETE FROM _ratings WHERE user_id=?", [u.id]],                                // star ratings they gave
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -16969,6 +16998,169 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported sla-timers request" }, { status: 405 });
         } catch (e) { console.error("sla-timers failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "sla-timers failed" }, { status: 502 }); }
+      }
+      // WISHLIST / SAVED ITEMS — a member saves items; a per-item want-count is derived.
+      //   POST   /api/db/<slug>/wishlist/<item> {note?}     (member) → add
+      //   DELETE /api/db/<slug>/wishlist/<item>             (member) → remove
+      //   GET    /api/db/<slug>/wishlist                    (member) → my items
+      //   GET    /api/db/<slug>/wishlist/<item>/count       (public) → how many members saved it (+ mine)
+      const wshm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/wishlist(?:\/([A-Za-z0-9_.-]{1,80})(?:\/(count))?)?$/i);
+      if (wshm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = wshm[1].toLowerCase(), item = wshm[2] || null, isCount = wshm[3] === "count";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          await ensureWishlist(env, uuid);
+          // COUNT (public).
+          if (item && isCount && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|wshc", 600)) return tooMany();
+            const count = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _wishlist WHERE item=?", [item]))[0].n;
+            let mine = false; if (userId) mine = !!(await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _wishlist WHERE item=? AND user_id=?", [item, userId]))[0];
+            return Response.json({ ok: true, item, count, mine });
+          }
+          // ADD (member).
+          if (item && !isCount && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|wshw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const existed = !!(await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _wishlist WHERE user_id=? AND item=?", [userId, item]))[0];
+            await cfD1Exec(env, uuid, "INSERT INTO _wishlist (user_id, item, note, created_at) VALUES (?,?,?,?) ON CONFLICT(user_id, item) DO UPDATE SET note=excluded.note", [userId, item, body.note != null ? String(body.note).slice(0, 500) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, item, added: true, already: existed });
+          }
+          // REMOVE (member).
+          if (item && !isCount && request.method === "DELETE") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _wishlist WHERE user_id=? AND item=?", [userId, item]);
+            return Response.json({ ok: true, item, removed: (ex.changes || 0) > 0 });
+          }
+          // MY list (member).
+          if (!item && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|wshl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT item, note, created_at FROM _wishlist WHERE user_id=? ORDER BY created_at DESC LIMIT 1000", [userId]);
+            return Response.json({ ok: true, wishlist: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported wishlist request" }, { status: 405 });
+        } catch (e) { console.error("wishlist failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "wishlist failed" }, { status: 502 }); }
+      }
+      // GLOSSARY — an admin curates terms + definitions (with aliases); the app looks a term up (by term or
+      // alias) and lists/searches them. Keyed by the lowercased term.
+      //   POST   /api/db/<slug>/glossary {term, definition, aliases?, category?}  (ADMIN) → upsert
+      //   GET    /api/db/<slug>/glossary?term=<t>           (public) → the term (matches an alias too)
+      //   GET    /api/db/<slug>/glossary[?q=&letter=&category=]  (public) → list/search
+      //   DELETE /api/db/<slug>/glossary?term=<t>           (ADMIN)
+      const glsm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/glossary$/i);
+      if (glsm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = glsm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const out = (r) => ({ term: r.term, definition: r.definition, aliases: r.aliases ? r.aliases.split(",").filter(Boolean) : [], category: r.category, updated_at: r.updated_at });
+        try {
+          await ensureGlossary(env, uuid);
+          // UPSERT (admin).
+          if (request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|glsw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const term = String(body.term || "").trim().slice(0, 120);
+            if (!term) return Response.json({ ok: false, error: "a term is required" }, { status: 400 });
+            const key = term.toLowerCase();
+            const aliases = Array.isArray(body.aliases) ? [...new Set(body.aliases.map((x) => String(x).trim().toLowerCase()).filter(Boolean))].slice(0, 30).join(",") : (body.aliases != null ? String(body.aliases).slice(0, 500) : null);
+            await cfD1Query(env, uuid, "INSERT INTO _glossary (term_key, term, definition, aliases, category, updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(term_key) DO UPDATE SET term=excluded.term, definition=excluded.definition, aliases=excluded.aliases, category=excluded.category, updated_at=excluded.updated_at", [key, term, body.definition != null ? String(body.definition).slice(0, 5000) : null, aliases, body.category != null ? String(body.category).slice(0, 80) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, term });
+          }
+          const qTerm = url.searchParams.get("term");
+          // DELETE (admin).
+          if (request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            if (!qTerm) return Response.json({ ok: false, error: "a ?term= is required" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _glossary WHERE term_key=?", [String(qTerm).trim().toLowerCase()]);
+            return Response.json({ ok: true, deleted: (ex.changes || 0) > 0 });
+          }
+          // LOOK UP one (public) — by term or alias.
+          if (request.method === "GET" && qTerm) {
+            if (!rateOk(slug + "|" + ip + "|glsr", 600)) return tooMany();
+            const key = String(qTerm).trim().toLowerCase();
+            let r = (await cfD1Query(env, uuid, "SELECT term, definition, aliases, category, updated_at FROM _glossary WHERE term_key=?", [key]))[0];
+            if (!r) r = (await cfD1Query(env, uuid, "SELECT term, definition, aliases, category, updated_at FROM _glossary WHERE (','||aliases||',') LIKE ? LIMIT 1", ["%," + key + ",%"]))[0];
+            if (!r) return Response.json({ ok: false, error: "no such term" }, { status: 404 });
+            return Response.json({ ok: true, entry: out(r) });
+          }
+          // LIST / SEARCH (public).
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|glsl", 300)) return tooMany();
+            const where = [], params = [];
+            const q = url.searchParams.get("q");
+            if (q) { const like = "%" + String(q).toLowerCase().replace(/[%_]/g, "") + "%"; where.push("(lower(term) LIKE ? OR lower(definition) LIKE ?)"); params.push(like, like); }
+            const letter = url.searchParams.get("letter");
+            if (letter && /^[a-z]$/i.test(letter)) { where.push("term_key LIKE ?"); params.push(String(letter).toLowerCase() + "%"); }
+            const category = url.searchParams.get("category");
+            if (category) { where.push("category=?"); params.push(String(category).slice(0, 80)); }
+            const rows = await cfD1Query(env, uuid, "SELECT term, definition, aliases, category, updated_at FROM _glossary" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY term_key ASC LIMIT 2000", params);
+            return Response.json({ ok: true, terms: rows.map(out) });
+          }
+          return Response.json({ ok: false, error: "unsupported glossary request" }, { status: 405 });
+        } catch (e) { console.error("glossary failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "glossary failed" }, { status: 502 }); }
+      }
+      // STAR RATINGS — a quick 1–5 star rating per item, one changeable vote per member; the average, count,
+      // and distribution are derived. Distinct from text /reviews.
+      //   POST   /api/db/<slug>/ratings/<item> {stars}      (member) → rate (1–5, changeable) → aggregate
+      //   DELETE /api/db/<slug>/ratings/<item>              (member) → remove my rating
+      //   GET    /api/db/<slug>/ratings/<item>              (public) → {average, count, distribution, mine}
+      const ratm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/ratings\/([A-Za-z0-9_.-]{1,80})$/i);
+      if (ratm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = ratm[1].toLowerCase(), item = ratm[2];
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const aggregate = async () => {
+          const rows = await cfD1Query(env, uuid, "SELECT stars, COUNT(*) AS n FROM _ratings WHERE item=? GROUP BY stars", [item]);
+          const dist = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }; let total = 0, sum = 0;
+          for (const r of rows) { if (dist[r.stars] != null) dist[r.stars] = r.n; total += r.n; sum += r.stars * r.n; }
+          let mine = null; if (userId) { const mr = (await cfD1Query(env, uuid, "SELECT stars FROM _ratings WHERE item=? AND user_id=?", [item, userId]))[0]; if (mr) mine = mr.stars; }
+          return { average: total ? Math.round(sum / total * 100) / 100 : 0, count: total, distribution: dist, mine };
+        };
+        try {
+          await ensureRatings(env, uuid);
+          // RATE (member).
+          if (request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|ratw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const stars = Math.floor(Number(body.stars));
+            if (!Number.isFinite(stars) || stars < 1 || stars > 5) return Response.json({ ok: false, error: "stars must be 1–5" }, { status: 400 });
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _ratings (item, user_id, stars, created_at, updated_at) VALUES (?,?,?,?,?) ON CONFLICT(item, user_id) DO UPDATE SET stars=excluded.stars, updated_at=excluded.updated_at", [item, userId, stars, now, now]);
+            return Response.json(Object.assign({ ok: true, item }, await aggregate()));
+          }
+          // REMOVE (member).
+          if (request.method === "DELETE") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            await cfD1Exec(env, uuid, "DELETE FROM _ratings WHERE item=? AND user_id=?", [item, userId]);
+            return Response.json(Object.assign({ ok: true, item, removed: true }, await aggregate()));
+          }
+          // AGGREGATE (public).
+          if (!rateOk(slug + "|" + ip + "|ratr", 600)) return tooMany();
+          return Response.json(Object.assign({ ok: true, item }, await aggregate()));
+        } catch (e) { console.error("ratings failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "ratings failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
