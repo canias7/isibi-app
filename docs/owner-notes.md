@@ -6666,6 +6666,15 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — ISBN · barcode · inventory count (data API, round 2)
+- **`/isbn`** — stateless ISBN-10/13 validator (mod-11/mod-10 check, X digit) + cross-conversion. Public. batch393 (13/13).
+- **`/barcode`** — stateless GTIN check-digit validator (EAN-13/UPC-A/EAN-8, length-auto-detected, mod-10),
+  reports expected check on mismatch. Public. batch394 (12/12).
+- **`/inventory-count`** — stock-take/cycle-count log: record counted-vs-expected → variance, reconcile
+  (atomic guard), `?variance=1` shrinkage filter. Admin-only. `_stock_counts` counted_by nulled on erase.
+  batch395 (16/16).
+- Full suite 376 green. (96/100 of round 2 shipped.)
+
 ## 2026-07-23 — pluralize · mime-detect · approval-quorum (data API, round 2)
 - **`/pluralize`** — stateless English inflector: singular+plural (irregulars, suffix rules, uncountables),
   count-aware inflected form + "N words" phrase, case preserved. Public. batch390 (21/21).
