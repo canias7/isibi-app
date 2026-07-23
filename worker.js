@@ -5521,6 +5521,16 @@ async function ensureTestimonials(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _testimonials (id INTEGER PRIMARY KEY AUTOINCREMENT, author TEXT, role TEXT, quote TEXT NOT NULL, avatar TEXT, rating INTEGER, approved INTEGER NOT NULL DEFAULT 0, featured INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL DEFAULT 0, user_id INTEGER, created_at TEXT)");
   _testimonialsReady.add(uuid);
 }
+// Analytics sessions — a member opens a session, sends heartbeats (bumping last_seen + page views), and ends
+// it; an admin counts who's currently active. `_sessions` keyed on a generated id. Ensured once.
+const _sessionsReady = new Set();
+async function ensureSessions(env, uuid) {
+  if (_sessionsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _sessions (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, started_at TEXT, last_seen TEXT, ended_at TEXT, page_views INTEGER NOT NULL DEFAULT 1, meta TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_sessions_user ON _sessions (user_id)"); } catch {}
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_sessions_seen ON _sessions (last_seen)"); } catch {}
+  _sessionsReady.add(uuid);
+}
 // The user-scoped tables a member can export their own rows from (GDPR data portability) — kept in sync with
 // the erase list. Each entry is [table, ownerColumn]; a missing table is skipped at read time.
 const DATA_EXPORT_TABLES = [
@@ -10355,6 +10365,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _handles WHERE user_id=?", [u.id]],                                // reserved slugs / handles
             ["DELETE FROM _rma WHERE user_id=?", [u.id]],                                    // return / RMA requests
             ["DELETE FROM _order_notes WHERE user_id=?", [u.id]],                            // order notes / gift messages
+            ["DELETE FROM _sessions WHERE user_id=?", [u.id]],                               // analytics sessions
             ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
             ["DELETE FROM _testimonials WHERE user_id=?", [u.id]],                           // user-submitted testimonials
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
@@ -19528,6 +19539,127 @@ async function handleRequest(request, env, ctx) {
           lines.push("END:VCARD");
           return new Response(lines.join("\r\n") + "\r\n", { headers: { "Content-Type": "text/vcard; charset=utf-8", "Content-Disposition": "attachment; filename=contact.vcf", "Access-Control-Allow-Origin": "*" } });
         } catch (e) { console.error("vcard failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "vcard failed" }, { status: 502 }); }
+      }
+      // ANALYTICS SESSIONS — a member opens a session, heartbeats it (bumping last_seen + page views), and ends
+      // it; an admin counts who's active in a recent window.
+      //   POST /api/db/<slug>/sessions/start {meta?}          (member) → {id}
+      //   POST /api/db/<slug>/sessions/<id>/beat {page?}      (owner)  → bump last_seen + page_views
+      //   POST /api/db/<slug>/sessions/<id>/end               (owner)  → close it
+      //   GET  /api/db/<slug>/sessions/active[?window=5m]     (ADMIN)  → active count + list
+      //   GET  /api/db/<slug>/sessions/me                     (member) → my recent sessions
+      const sesm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/sessions(?:\/(start|active|me|[A-Za-z0-9_-]{1,60}))?(?:\/(beat|end))?$/i);
+      if (sesm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = sesm[1].toLowerCase(), seg = sesm[2] || null, act = sesm[3] || null;
+        const special = seg === "start" || seg === "active" || seg === "me";
+        const sid = (seg && !special) ? seg : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureSessions(env, uuid);
+          const isAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return !!(rr[0] && rr[0].role === "admin"); };
+          const winMs = (w) => { const m2 = String(w || "5m").match(/^(\d{1,5})([smhd])$/i); if (!m2) return 5 * 60000; const n = parseInt(m2[1], 10); const u2 = m2[2].toLowerCase(); return n * (u2 === "s" ? 1000 : u2 === "m" ? 60000 : u2 === "h" ? 3600000 : 86400000); };
+          // START.
+          if (seg === "start" && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|sess", 600)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const id = crypto.randomUUID();
+            const now = new Date().toISOString();
+            await cfD1Exec(env, uuid, "INSERT INTO _sessions (id, user_id, started_at, last_seen, page_views, meta) VALUES (?,?,?,?,1,?)", [id, userId, now, now, body.meta != null ? String(body.meta).slice(0, 1000) : null]);
+            return Response.json({ ok: true, id, started_at: now });
+          }
+          // BEAT (owner).
+          if (sid && act === "beat" && request.method === "POST") {
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "UPDATE _sessions SET last_seen=?, page_views = page_views + 1 WHERE id=? AND user_id=? AND ended_at IS NULL RETURNING page_views", [now, sid, userId]);
+            if (!r.length) return Response.json({ ok: false, error: "no active session" }, { status: 404 });
+            return Response.json({ ok: true, id: sid, page_views: r[0].page_views, last_seen: now });
+          }
+          // END (owner).
+          if (sid && act === "end" && request.method === "POST") {
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "UPDATE _sessions SET ended_at=?, last_seen=? WHERE id=? AND user_id=? AND ended_at IS NULL RETURNING id", [now, now, sid, userId]);
+            if (!r.length) return Response.json({ ok: false, error: "no active session" }, { status: 404 });
+            return Response.json({ ok: true, id: sid, ended: true });
+          }
+          // ACTIVE (admin).
+          if (seg === "active" && request.method === "GET") {
+            if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const cutoff = new Date(Date.now() - winMs(url.searchParams.get("window"))).toISOString();
+            const rows = await cfD1Query(env, uuid, "SELECT id, user_id, started_at, last_seen, page_views FROM _sessions WHERE ended_at IS NULL AND last_seen >= ? ORDER BY last_seen DESC LIMIT 1000", [cutoff]);
+            const users = new Set(rows.map((r) => r.user_id));
+            return Response.json({ ok: true, active: rows.length, unique_users: users.size, sessions: rows });
+          }
+          // ME (member).
+          if (seg === "me" && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT id, started_at, last_seen, ended_at, page_views FROM _sessions WHERE user_id=? ORDER BY started_at DESC LIMIT 100", [userId]);
+            return Response.json({ ok: true, sessions: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported sessions request" }, { status: 405 });
+        } catch (e) { console.error("sessions failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "sessions failed" }, { status: 502 }); }
+      }
+      // QR PAYLOAD BUILDER — a stateless helper that assembles the STRING to encode in a QR code (url / text /
+      // wifi / geo / tel / sms / mailto / vcard). The client passes `payload` to any QR-rendering library.
+      //   POST /api/db/<slug>/qr {type, ...}   (public) → {payload, type}
+      const qrm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/qr$/i);
+      if (qrm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = qrm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|qr", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const type = String(body.type || "url").toLowerCase();
+          const s = (v) => String(v == null ? "" : v);
+          const meca = (v) => s(v).replace(/([\\;,:"])/g, "\\$1"); // MECARD/WIFI escaping
+          let payload = null;
+          if (type === "url" || type === "text") { payload = s(body.text || body.url); if (!payload) return Response.json({ ok: false, error: "text/url is required" }, { status: 400 }); }
+          else if (type === "tel") { const t2 = s(body.phone || body.tel).trim(); if (!t2) return Response.json({ ok: false, error: "phone is required" }, { status: 400 }); payload = "tel:" + t2; }
+          else if (type === "sms") { const t2 = s(body.phone).trim(); if (!t2) return Response.json({ ok: false, error: "phone is required" }, { status: 400 }); payload = "SMSTO:" + t2 + ":" + s(body.message); }
+          else if (type === "mailto" || type === "email") { const e2 = s(body.email).trim(); if (!e2) return Response.json({ ok: false, error: "email is required" }, { status: 400 }); const qs = []; if (body.subject) qs.push("subject=" + encodeURIComponent(s(body.subject))); if (body.body) qs.push("body=" + encodeURIComponent(s(body.body))); payload = "mailto:" + e2 + (qs.length ? "?" + qs.join("&") : ""); }
+          else if (type === "geo") { const lat = Number(body.lat), lng = Number(body.lng); if (!Number.isFinite(lat) || !Number.isFinite(lng)) return Response.json({ ok: false, error: "lat and lng are required" }, { status: 400 }); payload = "geo:" + lat + "," + lng; }
+          else if (type === "wifi") { const ssid = s(body.ssid).trim(); if (!ssid) return Response.json({ ok: false, error: "ssid is required" }, { status: 400 }); let enc = s(body.encryption || "WPA").toUpperCase(); if (!["WPA", "WEP", "NOPASS"].includes(enc)) enc = "WPA"; payload = "WIFI:T:" + enc + ";S:" + meca(ssid) + ";" + (enc === "NOPASS" ? "" : "P:" + meca(body.password) + ";") + (body.hidden ? "H:true;" : "") + ";"; }
+          else if (type === "vcard") { const name = s(body.name).trim() || [body.first, body.last].filter(Boolean).join(" ").trim(); if (!name) return Response.json({ ok: false, error: "name is required" }, { status: 400 }); const parts = ["MECARD:N:" + meca(name) + ";"]; if (body.phone) parts.push("TEL:" + meca(body.phone) + ";"); if (body.email) parts.push("EMAIL:" + meca(body.email) + ";"); if (body.url) parts.push("URL:" + meca(body.url) + ";"); if (body.org) parts.push("ORG:" + meca(body.org) + ";"); parts.push(";"); payload = parts.join(""); }
+          else return Response.json({ ok: false, error: "unknown type (url|text|tel|sms|mailto|geo|wifi|vcard)" }, { status: 400 });
+          if (payload.length > 4000) return Response.json({ ok: false, error: "payload too long" }, { status: 400 });
+          return Response.json({ ok: true, type, payload });
+        } catch (e) { console.error("qr failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "qr failed" }, { status: 502 }); }
+      }
+      // PERCENTILE / DISTRIBUTION — a stateless summary of a numeric sample: min/max/mean/median plus requested
+      // percentiles (linear interpolation). Sibling to /stats/significance.
+      //   POST /api/db/<slug>/stats/percentile {values:[...], p?:[50,90,95]}   (public) → summary
+      const pctm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/stats\/percentile$/i);
+      if (pctm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = pctm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|pct", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const values = (Array.isArray(body.values) ? body.values : []).filter((v) => typeof v === "number" ? Number.isFinite(v) : (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)))).map(Number).slice(0, 100000);
+          if (!values.length) return Response.json({ ok: false, error: "values[] with at least one number is required" }, { status: 400 });
+          values.sort((a, b) => a - b);
+          const n = values.length;
+          const pctl = (p) => { if (n === 1) return values[0]; const rank = (p / 100) * (n - 1); const lo = Math.floor(rank), hi = Math.ceil(rank); if (lo === hi) return values[lo]; return values[lo] + (values[hi] - values[lo]) * (rank - lo); };
+          let ps = Array.isArray(body.p) ? body.p.map(Number).filter((x) => x >= 0 && x <= 100).slice(0, 20) : [50, 90, 95, 99];
+          if (!ps.length) ps = [50, 90, 95, 99];
+          const round = (x) => Math.round(x * 1e6) / 1e6;
+          const sum = values.reduce((a, b) => a + b, 0);
+          const percentiles = {}; for (const p of ps) percentiles[p] = round(pctl(p));
+          return Response.json({ ok: true, count: n, min: round(values[0]), max: round(values[n - 1]), mean: round(sum / n), median: round(pctl(50)), percentiles });
+        } catch (e) { console.error("percentile failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "percentile failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.

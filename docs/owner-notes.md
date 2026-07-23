@@ -6661,6 +6661,22 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — ROUND 2 STARTED: `docs/backlog-100-more.md` (a fresh next-100 list)
+The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog-100-more.md`) — deeper
+commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
+building it under the same pipeline. Round-2 batches are numbered from batch298.
+
+## 2026-07-23 — analytics sessions · QR payload builder · percentile (data API, round 2)
+- **`/sessions`** — member `/sessions/start` (uuid id), `/sessions/<id>/beat` (owner, bumps last_seen +
+  page_views via `UPDATE…page_views+1 WHERE id=? AND user_id=? AND ended_at IS NULL RETURNING`),
+  `/sessions/<id>/end`, `/sessions/active?window=5m` (admin count + unique users), `/sessions/me`. `_sessions`
+  erased by user. batch298 (15/15).
+- **`/qr`** — stateless: `{type,...}` → the STRING to encode (url/text/tel/sms/mailto/geo/wifi(MECARD-escaped,
+  nopass)/vcard(MECARD)). The client feeds `payload` to any QR lib. Public. batch299 (13/13).
+- **`/stats/percentile`** — stateless: `{values, p?}` → count/min/max/mean/median + interpolated percentiles;
+  accepts numbers or numeric strings only. Sibling to `/stats/significance`. batch300 (13/13).
+- Full suite 283 green. (3/100 of round 2 shipped.)
+
 ## 2026-07-23 — webhook dead-letter/retry · apikey scopes · flag audiences (data API, next-100 DONE)
 - **`/webhooks/dead-letter` + `/webhooks/deliveries/<id>/retry`** (#91) — admin lists failed deliveries
   (ok=0, `?hook=` filter) and re-fires one (looks up the delivery's hook+event, re-POSTs signed via the
