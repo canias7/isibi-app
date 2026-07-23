@@ -4763,6 +4763,32 @@ async function ensureBadges(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_badge_awards_user ON _badge_awards (user_id)"); } catch {}
   _badgesReady.add(uuid);
 }
+// Navigation / menu builder — an admin builds named menus (header, footer, sidebar) of ordered, nestable
+// items; the app reads a whole menu as a tree. `_menu_items` rows carry a menu key, a parent, a sort
+// position, a label and a URL. Ensured once per isolate.
+const _menusReady = new Set();
+async function ensureMenus(env, uuid) {
+  if (_menusReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _menu_items (id INTEGER PRIMARY KEY AUTOINCREMENT, menu TEXT NOT NULL, parent_id INTEGER, position INTEGER NOT NULL DEFAULT 0, label TEXT NOT NULL, url TEXT, created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_menu_items_menu ON _menu_items (menu, parent_id, position)"); } catch {}
+  _menusReady.add(uuid);
+}
+// SEO metadata per record — an admin stores a title / description / og-image / canonical / keywords for a
+// (table,row) pair (or a bare path); the app reads it back to render <head> tags. One row per (entity,ref).
+const _seoReady = new Set();
+async function ensureSeo(env, uuid) {
+  if (_seoReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _seo_meta (entity TEXT NOT NULL, ref TEXT NOT NULL, title TEXT, description TEXT, image TEXT, canonical TEXT, keywords TEXT, updated_at TEXT, PRIMARY KEY (entity, ref))");
+  _seoReady.add(uuid);
+}
+// Reusable content blocks / snippets — an admin stores named chunks of content (a promo banner, a footer
+// blurb, boilerplate T&Cs) keyed by slug; the app reads one (published only) or the admin lists all.
+const _snippetsReady = new Set();
+async function ensureSnippets(env, uuid) {
+  if (_snippetsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _snippets (slug TEXT PRIMARY KEY, title TEXT, body TEXT, format TEXT, published INTEGER NOT NULL DEFAULT 1, updated_at TEXT)");
+  _snippetsReady.add(uuid);
+}
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -12646,6 +12672,211 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported badges request" }, { status: 405 });
         } catch (e) { console.error("badges failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "badges failed" }, { status: 502 }); }
+      }
+      // NAVIGATION / MENU BUILDER — an admin builds named menus (header/footer/sidebar) of ordered,
+      // nestable items; the app reads a whole menu as a nested tree. Managing is admin; reading is public.
+      //   GET    /api/db/<slug>/menus                       (public) → distinct menu keys
+      //   GET    /api/db/<slug>/menus/<key>                 (public) → the menu as a nested tree
+      //   POST   /api/db/<slug>/menus/<key>/items {label, url?, parent?, position?}  (ADMIN) → {id}
+      //   PATCH  /api/db/<slug>/menus/<key>/items/<id> {label?, url?, parent?, position?}  (ADMIN)
+      //   DELETE /api/db/<slug>/menus/<key>/items/<id>      (ADMIN) → item + its descendants
+      const menm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/menus(?:\/([A-Za-z0-9_.-]{1,60})(?:\/(items)(?:\/(\d+))?)?)?$/i);
+      if (menm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = menm[1].toLowerCase(), key = menm[2] || null, isItems = menm[3] === "items", itemId = menm[4] ? parseInt(menm[4], 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureMenus(env, uuid);
+          // LIST menu keys (public).
+          if (!key && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|menl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT menu, COUNT(*) AS items FROM _menu_items GROUP BY menu ORDER BY menu ASC LIMIT 200");
+            return Response.json({ ok: true, menus: rows });
+          }
+          // TREE (public).
+          if (key && !isItems && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|menr", 600)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT id, parent_id, position, label, url FROM _menu_items WHERE menu=? ORDER BY position ASC, id ASC LIMIT 1000", [key]);
+            const byParent = new Map();
+            for (const r of rows) { const p = r.parent_id == null ? 0 : r.parent_id; if (!byParent.has(p)) byParent.set(p, []); byParent.get(p).push(r); }
+            const build = (pid) => (byParent.get(pid) || []).map((r) => ({ id: r.id, label: r.label, url: r.url, position: r.position, children: build(r.id) }));
+            return Response.json({ ok: true, menu: key, items: build(0) });
+          }
+          // CREATE item (admin).
+          if (key && isItems && itemId == null && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|menw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const label = String(body.label || "").trim().slice(0, 200);
+            if (!label) return Response.json({ ok: false, error: "a label is required" }, { status: 400 });
+            const urlv = body.url != null ? String(body.url).trim().slice(0, 2000) : null;
+            let parent = body.parent == null || body.parent === "" ? null : parseInt(body.parent, 10);
+            if (parent != null) { if (!(parent > 0) || !(await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _menu_items WHERE id=? AND menu=?", [parent, key]))[0]) return Response.json({ ok: false, error: "parent must be an item in this menu" }, { status: 400 }); }
+            const position = Number.isFinite(Number(body.position)) ? Math.floor(Number(body.position)) : 0;
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _menu_items (menu, parent_id, position, label, url, created_at, updated_at) VALUES (?,?,?,?,?,?,?) RETURNING id", [key, parent, position, label, urlv, now, now]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, menu: key });
+          }
+          // UPDATE item (admin).
+          if (key && isItems && itemId != null && request.method === "PATCH") {
+            const a = await needAdmin(); if (a) return a;
+            if (!(await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _menu_items WHERE id=? AND menu=?", [itemId, key]))[0]) return Response.json({ ok: false, error: "no such item" }, { status: 404 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const sets = [], params = [];
+            if (body.label != null) { const l = String(body.label).trim().slice(0, 200); if (!l) return Response.json({ ok: false, error: "label can't be blank" }, { status: 400 }); sets.push("label=?"); params.push(l); }
+            if ("url" in body) { sets.push("url=?"); params.push(body.url != null ? String(body.url).trim().slice(0, 2000) : null); }
+            if ("position" in body) { sets.push("position=?"); params.push(Math.floor(Number(body.position)) || 0); }
+            if ("parent" in body) {
+              let parent = body.parent == null || body.parent === "" ? null : parseInt(body.parent, 10);
+              if (parent === itemId) return Response.json({ ok: false, error: "an item can't be its own parent" }, { status: 400 });
+              if (parent != null && !(await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _menu_items WHERE id=? AND menu=?", [parent, key]))[0]) return Response.json({ ok: false, error: "parent must be an item in this menu" }, { status: 400 });
+              sets.push("parent_id=?"); params.push(parent);
+            }
+            if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+            sets.push("updated_at=?"); params.push(new Date().toISOString());
+            params.push(itemId);
+            await cfD1Exec(env, uuid, "UPDATE _menu_items SET " + sets.join(", ") + " WHERE id=?", params);
+            return Response.json({ ok: true, id: itemId });
+          }
+          // DELETE item + descendants (admin).
+          if (key && isItems && itemId != null && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const all = await cfD1Query(env, uuid, "SELECT id, parent_id FROM _menu_items WHERE menu=? LIMIT 2000", [key]);
+            if (!all.some((r) => r.id === itemId)) return Response.json({ ok: false, error: "no such item" }, { status: 404 });
+            const kids = new Map(); for (const r of all) { const p = r.parent_id == null ? 0 : r.parent_id; if (!kids.has(p)) kids.set(p, []); kids.get(p).push(r.id); }
+            const doomed = []; const stack = [itemId]; while (stack.length) { const id = stack.pop(); doomed.push(id); for (const k of (kids.get(id) || [])) stack.push(k); }
+            const ph = doomed.map(() => "?").join(",");
+            await cfD1Exec(env, uuid, "DELETE FROM _menu_items WHERE id IN (" + ph + ")", doomed);
+            return Response.json({ ok: true, deleted: doomed.length });
+          }
+          return Response.json({ ok: false, error: "unsupported menus request" }, { status: 405 });
+        } catch (e) { console.error("menus failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "menus failed" }, { status: 502 }); }
+      }
+      // SEO METADATA per record — an admin stores title/description/og-image/canonical/keywords for a
+      // (entity, ref) pair (e.g. entity='product', ref='42', or a bare path); the app reads it to render
+      // <head> tags. Reading is public; writing is admin.
+      //   POST   /api/db/<slug>/seo {entity, ref, title?, description?, image?, canonical?, keywords?}  (ADMIN) → upsert
+      //   GET    /api/db/<slug>/seo?entity=&ref=            (public) → the meta ({} if unset)
+      //   DELETE /api/db/<slug>/seo?entity=&ref=            (ADMIN)
+      //   GET    /api/db/<slug>/seo/all                     (ADMIN) → every meta row
+      const seom = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/seo(?:\/(all))?$/i);
+      if (seom && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = seom[1].toLowerCase(), isAll = seom[2] === "all";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const clean = (v, n) => v == null ? null : String(v).slice(0, n);
+        try {
+          await ensureSeo(env, uuid);
+          // ALL (admin).
+          if (isAll) {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|seol", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT entity, ref, title, description, image, canonical, keywords, updated_at FROM _seo_meta ORDER BY entity ASC, ref ASC LIMIT 1000");
+            return Response.json({ ok: true, meta: rows });
+          }
+          // UPSERT (admin).
+          if (request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|seow", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const entity = String(body.entity || "").trim().slice(0, 80);
+            const ref = String(body.ref == null ? "" : body.ref).trim().slice(0, 200);
+            if (!entity || !ref) return Response.json({ ok: false, error: "entity and ref are required" }, { status: 400 });
+            await cfD1Query(env, uuid, "INSERT INTO _seo_meta (entity, ref, title, description, image, canonical, keywords, updated_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(entity, ref) DO UPDATE SET title=excluded.title, description=excluded.description, image=excluded.image, canonical=excluded.canonical, keywords=excluded.keywords, updated_at=excluded.updated_at", [entity, ref, clean(body.title, 300), clean(body.description, 1000), clean(body.image, 2000), clean(body.canonical, 2000), clean(body.keywords, 500), new Date().toISOString()]);
+            return Response.json({ ok: true, entity, ref });
+          }
+          // READ (public) / DELETE (admin) — both need entity+ref from the query.
+          const entity = String(url.searchParams.get("entity") || "").trim().slice(0, 80);
+          const ref = String(url.searchParams.get("ref") || "").trim().slice(0, 200);
+          if (!entity || !ref) return Response.json({ ok: false, error: "entity and ref query params are required" }, { status: 400 });
+          if (request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _seo_meta WHERE entity=? AND ref=?", [entity, ref]);
+            return Response.json({ ok: true, deleted: (ex.changes || 0) > 0, entity, ref });
+          }
+          if (!rateOk(slug + "|" + ip + "|seor", 600)) return tooMany();
+          const r = (await cfD1Query(env, uuid, "SELECT entity, ref, title, description, image, canonical, keywords, updated_at FROM _seo_meta WHERE entity=? AND ref=?", [entity, ref]))[0];
+          return Response.json({ ok: true, entity, ref, meta: r || null });
+        } catch (e) { console.error("seo failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "seo failed" }, { status: 502 }); }
+      }
+      // REUSABLE CONTENT SNIPPETS / BLOCKS — an admin stores named chunks of content (a promo banner, a
+      // footer blurb, boilerplate T&Cs) keyed by slug; the app reads a published one, the admin lists all.
+      //   POST   /api/db/<slug>/snippets/<key> {title?, body, format?, published?}  (ADMIN) → upsert
+      //   GET    /api/db/<slug>/snippets/<key>             (public) → the snippet (published only)
+      //   DELETE /api/db/<slug>/snippets/<key>             (ADMIN)
+      //   GET    /api/db/<slug>/snippets                   (public) → published slugs + titles
+      //   GET    /api/db/<slug>/snippets/all               (ADMIN) → every snippet incl. drafts
+      const snpm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/snippets(?:\/(all|[A-Za-z0-9_.-]{1,80}))?$/i);
+      if (snpm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = snpm[1].toLowerCase(), seg = snpm[2] || null, key = seg && seg !== "all" ? seg : null, isAll = seg === "all";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureSnippets(env, uuid);
+          // UPSERT (admin).
+          if (key && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|snpw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const bodyText = body.body != null ? String(body.body).slice(0, 100000) : null;
+            if (!bodyText) return Response.json({ ok: false, error: "a body is required" }, { status: 400 });
+            const title = body.title != null ? String(body.title).slice(0, 200) : null;
+            const format = body.format != null ? String(body.format).slice(0, 20) : null;
+            const published = body.published === false || body.published === 0 ? 0 : 1;
+            await cfD1Query(env, uuid, "INSERT INTO _snippets (slug, title, body, format, published, updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(slug) DO UPDATE SET title=excluded.title, body=excluded.body, format=excluded.format, published=excluded.published, updated_at=excluded.updated_at", [key, title, bodyText, format, published, new Date().toISOString()]);
+            return Response.json({ ok: true, slug: key, published: !!published });
+          }
+          // DELETE (admin).
+          if (key && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _snippets WHERE slug=?", [key]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such snippet" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, slug: key });
+          }
+          // READ one (public, published only).
+          if (key && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|snpr", 600)) return tooMany();
+            const r = (await cfD1Query(env, uuid, "SELECT slug, title, body, format, updated_at FROM _snippets WHERE slug=? AND published=1", [key]))[0];
+            if (!r) return Response.json({ ok: false, error: "no such snippet" }, { status: 404 });
+            return Response.json({ ok: true, snippet: r });
+          }
+          // ALL (admin, incl. drafts).
+          if (isAll && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|snpl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT slug, title, format, published, updated_at FROM _snippets ORDER BY slug ASC LIMIT 1000");
+            return Response.json({ ok: true, snippets: rows });
+          }
+          // LIST published (public).
+          if (!seg && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|snpl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT slug, title, format, updated_at FROM _snippets WHERE published=1 ORDER BY slug ASC LIMIT 1000");
+            return Response.json({ ok: true, snippets: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported snippets request" }, { status: 405 });
+        } catch (e) { console.error("snippets failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "snippets failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
