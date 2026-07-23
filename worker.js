@@ -5078,6 +5078,35 @@ async function ensureNotifySubs(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_notify_item ON _notify_subs (item, kind)"); } catch {}
   _notifySubsReady.add(uuid);
 }
+// Capacity time-slots — a fixed-capacity session (a class, a tour, a webinar) members book a seat in; the
+// cap can't be exceeded under concurrency. `_slots` = the sessions, `_slot_bookings` = seats. Ensured once.
+const _slotsReady = new Set();
+async function ensureSlots(env, uuid) {
+  if (_slotsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _slots (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT, starts_at TEXT, capacity INTEGER NOT NULL DEFAULT 1, created_at TEXT, updated_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _slot_bookings (slot_id INTEGER NOT NULL, user_id INTEGER NOT NULL, created_at TEXT, PRIMARY KEY (slot_id, user_id))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_slot_bookings_user ON _slot_bookings (user_id)"); } catch {}
+  _slotsReady.add(uuid);
+}
+// Product bundles / kits — a bundle groups component line items (qty × unit price) and rolls up a total,
+// minus an optional bundle discount. `_bundles` = the header, `_bundle_items` = the components. Ensured once.
+const _bundlesReady = new Set();
+async function ensureBundles(env, uuid) {
+  if (_bundlesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _bundles (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, description TEXT, discount_c INTEGER NOT NULL DEFAULT 0, currency TEXT, active INTEGER NOT NULL DEFAULT 1, subtotal_c INTEGER NOT NULL DEFAULT 0, created_at TEXT, updated_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _bundle_items (id INTEGER PRIMARY KEY AUTOINCREMENT, bundle_id INTEGER NOT NULL, position INTEGER NOT NULL DEFAULT 0, description TEXT NOT NULL, qty REAL NOT NULL DEFAULT 1, unit_c INTEGER NOT NULL DEFAULT 0, line_c INTEGER NOT NULL DEFAULT 0)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_bundle_items ON _bundle_items (bundle_id, position)"); } catch {}
+  _bundlesReady.add(uuid);
+}
+// Win/loss reasons — log a deal outcome (won/lost) with a reason + amount; the summary rolls up win rate,
+// value, and a breakdown by reason. `_winloss` = one row per logged outcome. Ensured once.
+const _winlossReady = new Set();
+async function ensureWinloss(env, uuid) {
+  if (_winlossReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _winloss (id INTEGER PRIMARY KEY AUTOINCREMENT, outcome TEXT NOT NULL, reason TEXT, amount_c INTEGER NOT NULL DEFAULT 0, ref TEXT, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_winloss ON _winloss (outcome, created_at)"); } catch {}
+  _winlossReady.add(uuid);
+}
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -9877,6 +9906,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _queue_tickets WHERE user_id=?", [u.id]],                          // queue tickets they took
             ["DELETE FROM _email_events WHERE lower(recipient)=lower(?)", [u.email]],        // email open/click events about them
             ["DELETE FROM _notify_subs WHERE lower(email)=lower(?)", [u.email]],             // back-in-stock/price-drop notify subs
+            ["DELETE FROM _slot_bookings WHERE user_id=?", [u.id]],                          // capacity-slot seat bookings
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -15404,6 +15434,242 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: true, freq, interval, count: occ.length, occurrences: occ.slice(0, limit) });
         } catch (e) { console.error("recurring failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "recurring failed" }, { status: 502 }); }
+      }
+      // CAPACITY TIME-SLOTS (class sizes) — a fixed-capacity session members book a seat in; the cap can't
+      // be exceeded under concurrency. Distinct from /bookings (1:1 appointments).
+      //   POST   /api/db/<slug>/slots {label?, starts?, capacity}  (ADMIN) → {id}
+      //   GET    /api/db/<slug>/slots[?upcoming=1]          (public) → sessions with booked/available
+      //   GET    /api/db/<slug>/slots/<id>                  (public) → detail + booked + mine
+      //   POST   /api/db/<slug>/slots/<id>/book             (member) → book a seat (409 when full)
+      //   DELETE /api/db/<slug>/slots/<id>/book             (member) → cancel my seat
+      //   PATCH  /api/db/<slug>/slots/<id> {label?, starts?, capacity?}  (ADMIN)
+      //   DELETE /api/db/<slug>/slots/<id>                  (ADMIN)
+      const sltm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/slots(?:\/(\d+)(?:\/(book))?)?$/i);
+      if (sltm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = sltm[1].toLowerCase(), slotId = sltm[2] ? parseInt(sltm[2], 10) : null, isBook = sltm[3] === "book";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureSlots(env, uuid);
+          // CREATE (admin).
+          if (slotId == null && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|sltw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const capacity = Math.floor(Number(body.capacity));
+            if (!Number.isFinite(capacity) || capacity < 1 || capacity > 1000000) return Response.json({ ok: false, error: "a capacity >= 1 is required" }, { status: 400 });
+            let starts = null; if (body.starts != null && body.starts !== "") { const st = Date.parse(String(body.starts)); if (Number.isNaN(st)) return Response.json({ ok: false, error: "bad starts date" }, { status: 400 }); starts = new Date(st).toISOString(); }
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _slots (label, starts_at, capacity, created_at, updated_at) VALUES (?,?,?,?,?) RETURNING id", [body.label != null ? String(body.label).slice(0, 200) : null, starts, capacity, now, now]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, capacity });
+          }
+          // LIST (public).
+          if (slotId == null && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|sltl", 300)) return tooMany();
+            const upcoming = url.searchParams.get("upcoming") === "1";
+            const rows = await cfD1Query(env, uuid, "SELECT s.id, s.label, s.starts_at, s.capacity, (SELECT COUNT(*) FROM _slot_bookings WHERE slot_id=s.id) AS booked FROM _slots s" + (upcoming ? " WHERE s.starts_at IS NOT NULL AND datetime(s.starts_at) >= datetime('now')" : "") + " ORDER BY COALESCE(s.starts_at, s.created_at) ASC LIMIT 1000");
+            return Response.json({ ok: true, slots: rows.map((r) => ({ id: r.id, label: r.label, starts_at: r.starts_at, capacity: r.capacity, booked: r.booked, available: Math.max(0, r.capacity - r.booked), full: r.booked >= r.capacity })) });
+          }
+          // BOOK a seat (member) — atomic capacity check.
+          if (slotId != null && isBook && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|sltb", 120)) return tooMany();
+            const slot = (await cfD1Query(env, uuid, "SELECT id, capacity FROM _slots WHERE id=?", [slotId]))[0];
+            if (!slot) return Response.json({ ok: false, error: "no such slot" }, { status: 404 });
+            const ex = await cfD1Exec(env, uuid, "INSERT INTO _slot_bookings (slot_id, user_id, created_at) SELECT ?, ?, ? WHERE (SELECT COUNT(*) FROM _slot_bookings WHERE slot_id=?) < (SELECT capacity FROM _slots WHERE id=?) AND NOT EXISTS (SELECT 1 FROM _slot_bookings WHERE slot_id=? AND user_id=?)", [slotId, userId, new Date().toISOString(), slotId, slotId, slotId, userId]);
+            if (!ex.changes) {
+              if ((await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _slot_bookings WHERE slot_id=? AND user_id=?", [slotId, userId]))[0]) return Response.json({ ok: true, booked: true, already: true });
+              return Response.json({ ok: false, error: "this slot is full", full: true }, { status: 409 });
+            }
+            const booked = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _slot_bookings WHERE slot_id=?", [slotId]))[0].n;
+            return Response.json({ ok: true, booked: true, seats_left: Math.max(0, slot.capacity - booked) });
+          }
+          // CANCEL my seat (member).
+          if (slotId != null && isBook && request.method === "DELETE") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _slot_bookings WHERE slot_id=? AND user_id=?", [slotId, userId]);
+            return Response.json({ ok: true, cancelled: (ex.changes || 0) > 0 });
+          }
+          // Detail / patch / delete need the slot.
+          const slot = (await cfD1Query(env, uuid, "SELECT id, label, starts_at, capacity FROM _slots WHERE id=?", [slotId]))[0];
+          if (!slot) return Response.json({ ok: false, error: "no such slot" }, { status: 404 });
+          if (!isBook && request.method === "GET") {
+            const booked = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _slot_bookings WHERE slot_id=?", [slotId]))[0].n;
+            let mine = false; if (userId) mine = !!(await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _slot_bookings WHERE slot_id=? AND user_id=?", [slotId, userId]))[0];
+            return Response.json({ ok: true, slot: { id: slot.id, label: slot.label, starts_at: slot.starts_at, capacity: slot.capacity, booked, available: Math.max(0, slot.capacity - booked), full: booked >= slot.capacity, mine } });
+          }
+          if (!isBook && request.method === "PATCH") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const sets = [], params = [];
+            if ("label" in body) { sets.push("label=?"); params.push(body.label != null ? String(body.label).slice(0, 200) : null); }
+            if ("starts" in body) { let st = null; if (body.starts != null && body.starts !== "") { const p = Date.parse(String(body.starts)); if (Number.isNaN(p)) return Response.json({ ok: false, error: "bad starts date" }, { status: 400 }); st = new Date(p).toISOString(); } sets.push("starts_at=?"); params.push(st); }
+            if (body.capacity != null) { const cap = Math.floor(Number(body.capacity)); if (!Number.isFinite(cap) || cap < 1) return Response.json({ ok: false, error: "bad capacity" }, { status: 400 }); sets.push("capacity=?"); params.push(cap); }
+            if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+            sets.push("updated_at=?"); params.push(new Date().toISOString());
+            params.push(slotId);
+            await cfD1Exec(env, uuid, "UPDATE _slots SET " + sets.join(", ") + " WHERE id=?", params);
+            return Response.json({ ok: true, id: slotId });
+          }
+          if (!isBook && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            await cfD1Exec(env, uuid, "DELETE FROM _slots WHERE id=?", [slotId]);
+            try { await cfD1Exec(env, uuid, "DELETE FROM _slot_bookings WHERE slot_id=?", [slotId]); } catch {}
+            return Response.json({ ok: true, deleted: true, id: slotId });
+          }
+          return Response.json({ ok: false, error: "unsupported slots request" }, { status: 405 });
+        } catch (e) { console.error("slots failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "slots failed" }, { status: 502 }); }
+      }
+      // PRODUCT BUNDLES / KITS — a bundle groups component line items (qty × unit) and rolls up a total,
+      // minus an optional bundle discount.
+      //   POST   /api/db/<slug>/bundles {name, description?, currency?, discount?, active?, items:[{description, qty?, unit}]}  (ADMIN) → {id, subtotal, total}
+      //   GET    /api/db/<slug>/bundles[?active=1]          (public) → list with totals
+      //   GET    /api/db/<slug>/bundles/<id>                (public) → bundle + items + rollup
+      //   PATCH  /api/db/<slug>/bundles/<id> {name?, discount?, active?, items?}  (ADMIN) → re-rollup
+      //   DELETE /api/db/<slug>/bundles/<id>                (ADMIN)
+      const bndm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/bundles(?:\/(\d+))?$/i);
+      if (bndm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = bndm[1].toLowerCase(), bid = bndm[2] ? parseInt(bndm[2], 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const buildItems = (raw) => { if (!Array.isArray(raw) || !raw.length) return null; const out = []; let subtotal = 0; for (const l of raw.slice(0, 200)) { const desc = String((l && l.description) || "").trim().slice(0, 300); if (!desc) return null; const qty = l.qty == null ? 1 : Number(l.qty); const unit_c = toCents(l.unit); if (!Number.isFinite(qty) || qty < 0 || unit_c == null) return null; const line_c = Math.round(qty * unit_c); out.push({ description: desc, qty, unit_c, line_c }); subtotal += line_c; } return { items: out, subtotal_c: subtotal }; };
+        const writeItems = async (bundleId, items) => { await cfD1Exec(env, uuid, "DELETE FROM _bundle_items WHERE bundle_id=?", [bundleId]); let pos = 0; for (const l of items) await cfD1Exec(env, uuid, "INSERT INTO _bundle_items (bundle_id, position, description, qty, unit_c, line_c) VALUES (?,?,?,?,?,?)", [bundleId, pos++, l.description, l.qty, l.unit_c, l.line_c]); };
+        const totals = (subtotal_c, discount_c) => ({ subtotal: subtotal_c / 100, subtotal_c, discount: (discount_c || 0) / 100, total: Math.max(0, subtotal_c - (discount_c || 0)) / 100, total_c: Math.max(0, subtotal_c - (discount_c || 0)) });
+        try {
+          await ensureBundles(env, uuid);
+          // CREATE (admin).
+          if (bid == null && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|bndw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const name = String(body.name || "").trim().slice(0, 200);
+            if (!name) return Response.json({ ok: false, error: "a name is required" }, { status: 400 });
+            const built = buildItems(body.items);
+            if (!built) return Response.json({ ok: false, error: "items[] with description + unit are required" }, { status: 400 });
+            const discount_c = body.discount == null ? 0 : (toCents(body.discount) || 0);
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _bundles (name, description, discount_c, currency, active, subtotal_c, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?) RETURNING id", [name, body.description != null ? String(body.description).slice(0, 2000) : null, discount_c, body.currency != null ? String(body.currency).slice(0, 10) : null, body.active === false || body.active === 0 ? 0 : 1, built.subtotal_c, now, now]);
+            const newId = r[0] ? r[0].id : null;
+            if (newId) await writeItems(newId, built.items);
+            return Response.json(Object.assign({ ok: true, id: newId }, totals(built.subtotal_c, discount_c)));
+          }
+          // LIST (public).
+          if (bid == null && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|bndl", 300)) return tooMany();
+            let admin = false; if (userId) { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); admin = !!(rr[0] && rr[0].role === "admin"); }
+            // Public always sees active only; only an admin can ask for inactive too (?active=0).
+            const activeOnly = !(admin && url.searchParams.get("active") === "0");
+            const rows = await cfD1Query(env, uuid, "SELECT id, name, description, discount_c, currency, active, subtotal_c FROM _bundles" + (activeOnly ? " WHERE active=1" : "") + " ORDER BY created_at DESC LIMIT 1000");
+            return Response.json({ ok: true, bundles: rows.map((r) => Object.assign({ id: r.id, name: r.name, description: r.description, currency: r.currency, active: !!r.active }, totals(r.subtotal_c, r.discount_c))) });
+          }
+          // GET one (public).
+          if (bid != null && request.method === "GET") {
+            const b = (await cfD1Query(env, uuid, "SELECT id, name, description, discount_c, currency, active, subtotal_c FROM _bundles WHERE id=?", [bid]))[0];
+            if (!b) return Response.json({ ok: false, error: "no such bundle" }, { status: 404 });
+            const items = await cfD1Query(env, uuid, "SELECT description, qty, unit_c, line_c FROM _bundle_items WHERE bundle_id=? ORDER BY position ASC", [bid]);
+            return Response.json(Object.assign({ ok: true, bundle: { id: b.id, name: b.name, description: b.description, currency: b.currency, active: !!b.active }, items }, totals(b.subtotal_c, b.discount_c)));
+          }
+          // PATCH / DELETE (admin).
+          const a = await needAdmin(); if (a) return a;
+          const bundle = (await cfD1Query(env, uuid, "SELECT id, discount_c, subtotal_c FROM _bundles WHERE id=?", [bid]))[0];
+          if (!bundle) return Response.json({ ok: false, error: "no such bundle" }, { status: 404 });
+          if (request.method === "PATCH") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const sets = [], params = [];
+            if (body.name != null) { const n = String(body.name).trim().slice(0, 200); if (!n) return Response.json({ ok: false, error: "name can't be blank" }, { status: 400 }); sets.push("name=?"); params.push(n); }
+            if ("description" in body) { sets.push("description=?"); params.push(body.description != null ? String(body.description).slice(0, 2000) : null); }
+            if (body.discount != null) { const dc = toCents(body.discount); if (dc == null) return Response.json({ ok: false, error: "bad discount" }, { status: 400 }); sets.push("discount_c=?"); params.push(dc); }
+            if ("currency" in body) { sets.push("currency=?"); params.push(body.currency != null ? String(body.currency).slice(0, 10) : null); }
+            if (body.active != null) { sets.push("active=?"); params.push(body.active === false || body.active === 0 ? 0 : 1); }
+            let subtotal_c = bundle.subtotal_c;
+            if (body.items != null) { const built = buildItems(body.items); if (!built) return Response.json({ ok: false, error: "bad items[]" }, { status: 400 }); await writeItems(bid, built.items); subtotal_c = built.subtotal_c; sets.push("subtotal_c=?"); params.push(subtotal_c); }
+            if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+            sets.push("updated_at=?"); params.push(new Date().toISOString());
+            params.push(bid);
+            await cfD1Exec(env, uuid, "UPDATE _bundles SET " + sets.join(", ") + " WHERE id=?", params);
+            const discount_c = body.discount != null ? (toCents(body.discount) || 0) : bundle.discount_c;
+            return Response.json(Object.assign({ ok: true, id: bid }, totals(subtotal_c, discount_c)));
+          }
+          if (request.method === "DELETE") { await cfD1Exec(env, uuid, "DELETE FROM _bundles WHERE id=?", [bid]); try { await cfD1Exec(env, uuid, "DELETE FROM _bundle_items WHERE bundle_id=?", [bid]); } catch {} return Response.json({ ok: true, deleted: true, id: bid }); }
+          return Response.json({ ok: false, error: "unsupported bundles request" }, { status: 405 });
+        } catch (e) { console.error("bundles failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "bundles failed" }, { status: 502 }); }
+      }
+      // WIN/LOSS REASONS — log a deal outcome (won/lost) with a reason + amount; the summary rolls up win
+      // rate, value, and a breakdown by reason.
+      //   POST   /api/db/<slug>/winloss {outcome, reason?, amount?, ref?}  (ADMIN) → {id}
+      //   GET    /api/db/<slug>/winloss/summary[?from=&to=]  (ADMIN) → {won, lost, win_rate, value, by_reason}
+      //   GET    /api/db/<slug>/winloss[?outcome=]           (ADMIN) → entries
+      //   DELETE /api/db/<slug>/winloss/<id>                 (ADMIN)
+      const wlrm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/winloss(?:\/(summary|\d+))?$/i);
+      if (wlrm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = wlrm[1].toLowerCase(), seg = wlrm[2] || null, isSummary = seg === "summary", wlId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureWinloss(env, uuid);
+          const a = await needAdmin(); if (a) return a;
+          // LOG (admin).
+          if (!seg && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|wlw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const outcome = String(body.outcome || "").toLowerCase();
+            if (outcome !== "won" && outcome !== "lost") return Response.json({ ok: false, error: "outcome must be won or lost" }, { status: 400 });
+            const amount_c = body.amount == null ? 0 : (toCents(body.amount) || 0);
+            const r = await cfD1Query(env, uuid, "INSERT INTO _winloss (outcome, reason, amount_c, ref, created_at) VALUES (?,?,?,?,?) RETURNING id", [outcome, body.reason != null ? String(body.reason).slice(0, 200) : null, amount_c, body.ref != null ? String(body.ref).slice(0, 120) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, outcome });
+          }
+          // SUMMARY (admin).
+          if (isSummary && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|wls", 300)) return tooMany();
+            const where = [], params = [];
+            const from = url.searchParams.get("from"), to = url.searchParams.get("to");
+            if (from) { where.push("created_at >= ?"); params.push(String(from)); }
+            if (to) { where.push("created_at <= ?"); params.push(String(to)); }
+            const wsql = where.length ? " WHERE " + where.join(" AND ") : "";
+            const tot = (await cfD1Query(env, uuid, "SELECT SUM(outcome='won') AS won, SUM(outcome='lost') AS lost, SUM(CASE WHEN outcome='won' THEN amount_c ELSE 0 END) AS won_c, SUM(CASE WHEN outcome='lost' THEN amount_c ELSE 0 END) AS lost_c FROM _winloss" + wsql, params))[0] || {};
+            const won = tot.won || 0, lost = tot.lost || 0, total = won + lost;
+            const byReasonRows = await cfD1Query(env, uuid, "SELECT outcome, COALESCE(reason,'(none)') AS reason, COUNT(*) AS n, SUM(amount_c) AS amount_c FROM _winloss" + wsql + " GROUP BY outcome, reason ORDER BY n DESC LIMIT 200", params);
+            const by_reason = {}; for (const r of byReasonRows) { if (!by_reason[r.reason]) by_reason[r.reason] = { won: 0, lost: 0, value: 0 }; by_reason[r.reason][r.outcome] = r.n; by_reason[r.reason].value += (r.amount_c || 0) / 100; }
+            return Response.json({ ok: true, won, lost, total, win_rate: total ? Math.round(won / total * 10000) / 100 : 0, won_value: (tot.won_c || 0) / 100, lost_value: (tot.lost_c || 0) / 100, by_reason });
+          }
+          // LIST (admin).
+          if (!seg && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|wll", 300)) return tooMany();
+            const oc = String(url.searchParams.get("outcome") || "").toLowerCase();
+            const where = (oc === "won" || oc === "lost") ? " WHERE outcome=?" : "";
+            const params = where ? [oc] : [];
+            const rows = await cfD1Query(env, uuid, "SELECT id, outcome, reason, amount_c, ref, created_at FROM _winloss" + where + " ORDER BY created_at DESC LIMIT 1000", params);
+            return Response.json({ ok: true, entries: rows.map((r) => ({ id: r.id, outcome: r.outcome, reason: r.reason, amount: (r.amount_c || 0) / 100, ref: r.ref, created_at: r.created_at })) });
+          }
+          // DELETE (admin).
+          if (wlId != null && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _winloss WHERE id=?", [wlId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such entry" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: wlId });
+          }
+          return Response.json({ ok: false, error: "unsupported winloss request" }, { status: 405 });
+        } catch (e) { console.error("winloss failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "winloss failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
