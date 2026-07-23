@@ -44,9 +44,15 @@ Opus-vs-Sonnet binary). Built the foundation as two pure worker-safe libraries (
   so the whole thing is $0-testable with a mock.
 - **Why this shape:** each slice is small → no 16k/32k truncation; slices run concurrently → wall-clock ≈ slowest
   slice, not the sum; contract-first → integration is a plain merge, not a reconciliation.
-- **NOT YET WIRED into the worker.** Next: a real parallel `deps.generate` (N concurrent streams to the routed
-  models) behind a `MULTI_AGENT` flag, feeding the existing compile→repair, + the picker UI in the chatbox. Then
-  re-run the 25-prompt eval to compare single-shot-32k vs multi-agent.
+- **WIRED into the worker** at `/api/site/react-build` behind `env.MULTI_AGENT === "1"`. `agentGen` does a
+  NON-streaming call per agent (each slice small → 16k max_tokens is ample, non-streaming safe) to the routed model;
+  `runMultiAgent(brief, {generate:agentGen}, {picker})` fans them out with `Promise.all`. On success `files` = the
+  merged app (feeds the SAME compile→repair→publish path); **on ANY failure it falls back to the single-shot stream**,
+  so the flag is never worse than off. Credits charged on the summed agent tokens. New request param `picker`
+  (auto/sonnet/opus, default auto) + stream events `{ev:"agent",key,model,status}` / `{ev:"agents",models,picker}`.
+  Flag OFF → the single-shot path byte-for-byte. `node --check` clean.
+- **Still to do:** the picker UI in the chatbox (send `picker`, render the `{ev:"agent"}` fan-out), then flip
+  `MULTI_AGENT=1` and re-run the 25-prompt eval to compare single-shot-32k vs multi-agent.
 
 ## 2026-07-23 — Builder: RAISED the generation token ceiling 16k→32k (fixes the truncation the eval exposed)
 The full 25-prompt eval's headline finding: apps **truncate at the 16k output ceiling** (avg output 17.5k, 0% first-pass
