@@ -6666,6 +6666,16 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — IBAN · cron preview · password policy (data API, round 2)
+- **`/iban`** — stateless IBAN validator: per-country length registry (~47 countries) + ISO 7064 mod-97
+  checksum, spaces ignored, grouped formatting. Public. batch384 (15/15).
+- **`/cron-preview`** — stateless 5-field cron parser → next N UTC fire times (`*`, `a-b`, `a,b`, `*/n`;
+  DOM/DOW OR semantics). Minute-steps with a ~3-yr guard so yearly crons resolve 2 fires. Public. batch385 (15/15).
+- **`/password-policy`** — site-configurable rule set (singleton) + check (the RULES vs `/password-strength`'s
+  METER). Admin set (partial-merge), public GET, public `/check`→failures list. `_password_policy` (config,
+  no erase). batch386 (22/22).
+- Full suite 367 green. (87/100 of round 2 shipped.)
+
 ## 2026-07-23 — dunning · geofence · slot check (data API, round 2)
 - **`/dunning`** — failed-payment retry state machine (active→recovered|failed|canceled). Admin open/attempt
   (recovers or schedules next retry to max_attempts)/cancel; `?due=1` surfaces retry-ready cases. Atomic
