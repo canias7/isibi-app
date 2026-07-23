@@ -4605,6 +4605,44 @@ async function ensureMentions(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_mentions_me ON _mentions (mentioned_user, seen, id)"); } catch {}
   _mentionsReady.add(uuid);
 }
+// Event registration with a hard CAPACITY. An admin defines an event (capacity); a member registers —
+// a SINGLE atomic INSERT decides 'registered' (a seat was free) vs 'waitlisted' (full), so the cap can
+// never be exceeded even under concurrent registers. Cancelling a seat atomically promotes the front of
+// the waitlist. `_events` = the events, `_event_regs` = who's on each (PK event,user_id). Ensured once.
+const _eventsReady = new Set();
+async function ensureEvents(env, uuid) {
+  if (_eventsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _events (event TEXT PRIMARY KEY, title TEXT, capacity INTEGER NOT NULL DEFAULT 0, starts_at TEXT, created_at TEXT, updated_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _event_regs (event TEXT NOT NULL, user_id INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'registered', seq INTEGER, created_at TEXT, PRIMARY KEY (event, user_id))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_event_regs ON _event_regs (event, status, seq)"); } catch {}
+  _eventsReady.add(uuid);
+}
+// Fundraising / goal progress (a crowdfunding thermometer, a tip jar, a pledge drive). An admin sets a
+// goal + target; members contribute amounts that sum toward it; the public sees raised + progress %.
+// `_goals` = the goals (target in cents), `_goal_contribs` = the append-only contributions. Ensured once.
+const _goalsReady = new Set();
+async function ensureGoals(env, uuid) {
+  if (_goalsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _goals (goal TEXT PRIMARY KEY, title TEXT, target_cents INTEGER NOT NULL, currency TEXT, deadline TEXT, created_at TEXT, updated_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _goal_contribs (id INTEGER PRIMARY KEY AUTOINCREMENT, goal TEXT NOT NULL, user_id INTEGER NOT NULL, amount_cents INTEGER NOT NULL, note TEXT, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_goal_contribs ON _goal_contribs (goal)"); } catch {}
+  _goalsReady.add(uuid);
+}
+// Per-member notification preferences + quiet hours. One row per member: `channels`/`types` are JSON
+// maps (a channel/type is ON unless explicitly false), quiet_start/quiet_end are local hours (0–23,
+// null = none), tz_offset is minutes from UTC. Ensured once per isolate.
+const _notifyPrefsReady = new Set();
+async function ensureNotifyPrefs(env, uuid) {
+  if (_notifyPrefsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _notify_prefs (user_id INTEGER PRIMARY KEY, channels TEXT, types TEXT, quiet_start INTEGER, quiet_end INTEGER, tz_offset INTEGER NOT NULL DEFAULT 0, updated_at TEXT)");
+  _notifyPrefsReady.add(uuid);
+}
+// Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
+// (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
+function inQuietHours(hour, start, end) {
+  if (start == null || end == null || start === end) return false;
+  return start < end ? (hour >= start && hour < end) : (hour >= start || hour < end);
+}
 // The DEFAULT row-visibility suffix for a table (param-free): hide trashed / expired / not-yet-published
 // / archived rows — IDENTICAL to the list read's visClause. ANDed into a saved search's base so a stored
 // query can never re-widen visibility (buildD1List ignores the withTrashed/withScheduled/… params).
@@ -9364,6 +9402,9 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _comments WHERE user_id=?", [u.id]],                               // threaded comments
             ["DELETE FROM _survey_responses WHERE user_id=?", [u.id]],                       // survey/NPS responses
             ["DELETE FROM _mentions WHERE mentioned_user=? OR by_user=?", [u.id, u.id]],     // @mentions (either side)
+            ["DELETE FROM _event_regs WHERE user_id=?", [u.id]],                             // event registrations
+            ["DELETE FROM _goal_contribs WHERE user_id=?", [u.id]],                          // fundraising contributions
+            ["DELETE FROM _notify_prefs WHERE user_id=?", [u.id]],                           // notification preferences
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -11186,6 +11227,263 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported mentions request" }, { status: 405 });
         } catch (e) { console.error("mentions failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "mentions failed" }, { status: 502 }); }
+      }
+      // EVENT REGISTRATION with a hard CAPACITY (ticketed events, class signups, limited slots). An admin
+      // defines the event + capacity; a member registers and the seat vs waitlist decision is made by a
+      // SINGLE atomic INSERT (the cap is never exceeded under concurrency); cancelling a seat atomically
+      // promotes the front of the waitlist. Distinct from /waitlist (unbounded queue) and /reactions RSVP.
+      //   POST   /api/db/<slug>/events/<event> {title?, capacity, starts_at?}  → create/update (ADMIN)
+      //   GET    /api/db/<slug>/events/<event>            → {capacity, registered, waitlisted, spots_left} (public)
+      //   DELETE /api/db/<slug>/events/<event>            → delete the event + its regs (ADMIN)
+      //   POST   /api/db/<slug>/events/<event>/register   → register → {status:'registered'|'waitlisted', seq}
+      //   GET    /api/db/<slug>/events/<event>/me         → my registration (+ waitlist position)
+      //   POST   /api/db/<slug>/events/<event>/cancel     → cancel mine; promotes the next waitlisted
+      //   GET    /api/db/<slug>/events/<event>/roster     → the full registration list (ADMIN)
+      const evm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/events\/([A-Za-z0-9_.:-]{1,60})(?:\/(register|me|cancel|roster))?$/i);
+      if (evm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = evm[1].toLowerCase(), event = evm[2], sub = evm[3] ? evm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needMember = () => userId ? null : Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const needAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureEvents(env, uuid);
+          // CREATE / UPDATE an event (admin).
+          if (!sub && request.method === "POST") {
+            const m = needMember(); if (m) return m; const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|evw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const capacity = Math.floor(Number(body.capacity));
+            if (!Number.isFinite(capacity) || capacity < 1 || capacity > 10000000) return Response.json({ ok: false, error: "capacity must be 1–10000000" }, { status: 400 });
+            const title = body.title != null && body.title !== "" ? String(body.title).slice(0, 200) : null;
+            const startsAt = body.starts_at != null && body.starts_at !== "" && !isNaN(new Date(body.starts_at).getTime()) ? new Date(body.starts_at).toISOString() : null;
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _events (event, title, capacity, starts_at, created_at, updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(event) DO UPDATE SET title=excluded.title, capacity=excluded.capacity, starts_at=excluded.starts_at, updated_at=excluded.updated_at", [event, title, capacity, startsAt, now, now]);
+            return Response.json({ ok: true, event, title, capacity, starts_at: startsAt });
+          }
+          // REGISTER — single atomic INSERT picks registered vs waitlisted; idempotent if already on it.
+          if (sub === "register") {
+            const m = needMember(); if (m) return m;
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|evr", 60)) return tooMany();
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _event_regs (event, user_id, status, seq, created_at) SELECT ?, ?, CASE WHEN (SELECT COUNT(*) FROM _event_regs WHERE event=? AND status='registered') < (SELECT capacity FROM _events WHERE event=?) THEN 'registered' ELSE 'waitlisted' END, (SELECT COALESCE(MAX(seq),0)+1 FROM _event_regs WHERE event=?), ? WHERE EXISTS(SELECT 1 FROM _events WHERE event=?) AND NOT EXISTS(SELECT 1 FROM _event_regs WHERE event=? AND user_id=?) RETURNING status, seq", [event, userId, event, event, event, new Date().toISOString(), event, event, userId]);
+            if (ins[0]) return Response.json({ ok: true, registered: true, status: ins[0].status, seq: ins[0].seq });
+            const existing = (await cfD1Query(env, uuid, "SELECT status, seq FROM _event_regs WHERE event=? AND user_id=?", [event, userId]))[0];
+            if (existing) return Response.json({ ok: true, registered: false, status: existing.status, seq: existing.seq }); // already on it
+            return Response.json({ ok: false, error: "no such event" }, { status: 404 });
+          }
+          // ME — my registration (+ waitlist position when waitlisted).
+          if (sub === "me") {
+            const m = needMember(); if (m) return m;
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            const row = (await cfD1Query(env, uuid, "SELECT status, seq FROM _event_regs WHERE event=? AND user_id=?", [event, userId]))[0];
+            if (!row) return Response.json({ ok: false, error: "you're not registered" }, { status: 404 });
+            let position = null;
+            if (row.status === "waitlisted") position = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS ahead FROM _event_regs WHERE event=? AND status='waitlisted' AND seq < ?", [event, row.seq]))[0].ahead + 1;
+            return Response.json({ ok: true, status: row.status, seq: row.seq, waitlist_position: position });
+          }
+          // CANCEL — drop my seat; if I was registered, atomically promote the front of the waitlist.
+          if (sub === "cancel") {
+            const m = needMember(); if (m) return m;
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|evc", 60)) return tooMany();
+            const mine = (await cfD1Query(env, uuid, "SELECT status FROM _event_regs WHERE event=? AND user_id=?", [event, userId]))[0];
+            if (!mine) return Response.json({ ok: false, error: "you're not registered" }, { status: 404 });
+            await cfD1Exec(env, uuid, "DELETE FROM _event_regs WHERE event=? AND user_id=?", [event, userId]);
+            let promoted = null;
+            if (mine.status === "registered") {
+              const promo = await cfD1Query(env, uuid, "UPDATE _event_regs SET status='registered' WHERE event=? AND status='waitlisted' AND seq=(SELECT MIN(seq) FROM _event_regs WHERE event=? AND status='waitlisted') AND (SELECT COUNT(*) FROM _event_regs WHERE event=? AND status='registered') < (SELECT capacity FROM _events WHERE event=?) RETURNING user_id", [event, event, event, event]);
+              if (promo[0]) promoted = promo[0].user_id;
+            }
+            return Response.json({ ok: true, cancelled: true, promoted });
+          }
+          // ROSTER — the full registration list (admin).
+          if (sub === "roster") {
+            const m = needMember(); if (m) return m; const a = await needAdmin(); if (a) return a;
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|evro", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT user_id, status, seq, created_at FROM _event_regs WHERE event=? ORDER BY (status='registered') DESC, seq ASC LIMIT 5000", [event]);
+            return Response.json({ ok: true, event, roster: rows });
+          }
+          // DELETE the event + its registrations (admin).
+          if (!sub && request.method === "DELETE") {
+            const m = needMember(); if (m) return m; const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _events WHERE event=?", [event]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such event" }, { status: 404 });
+            try { await cfD1Exec(env, uuid, "DELETE FROM _event_regs WHERE event=?", [event]); } catch {}
+            return Response.json({ ok: true, deleted: true, event });
+          }
+          // GET event info (public).
+          if (request.method !== "GET") return Response.json({ ok: false, error: "unsupported events request" }, { status: 405 });
+          const ev = (await cfD1Query(env, uuid, "SELECT title, capacity, starts_at FROM _events WHERE event=?", [event]))[0];
+          if (!ev) return Response.json({ ok: false, error: "no such event" }, { status: 404 });
+          const cnt = (await cfD1Query(env, uuid, "SELECT SUM(CASE WHEN status='registered' THEN 1 ELSE 0 END) AS reg, SUM(CASE WHEN status='waitlisted' THEN 1 ELSE 0 END) AS wait FROM _event_regs WHERE event=?", [event]))[0];
+          const reg = (cnt && cnt.reg) || 0, wait = (cnt && cnt.wait) || 0;
+          return Response.json({ ok: true, event, title: ev.title, capacity: ev.capacity, registered: reg, waitlisted: wait, spots_left: Math.max(0, ev.capacity - reg), starts_at: ev.starts_at });
+        } catch (e) { console.error("events failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "events failed" }, { status: 502 }); }
+      }
+      // FUNDRAISING / GOAL PROGRESS (a crowdfunding thermometer, a tip jar, a pledge drive). An admin sets
+      // a goal + target; members contribute amounts that sum toward it; the public sees raised + progress.
+      // Money is integer cents. Contributions are append-only. The per-contributor amounts are ADMIN-only
+      // (the public read is aggregate); a member sees only the totals.
+      //   POST   /api/db/<slug>/goals/<goal> {title?, target, currency?, deadline?}  → create/update (ADMIN)
+      //   GET    /api/db/<slug>/goals            → all goals + progress (public)
+      //   GET    /api/db/<slug>/goals/<goal>     → {title, target, raised, progress_pct, met, contributions} (public)
+      //   POST   /api/db/<slug>/goals/<goal>/contribute {amount, note?}  → contribute → {raised, progress_pct} (member)
+      //   GET    /api/db/<slug>/goals/<goal>/contributions  → the individual contributions (ADMIN)
+      //   DELETE /api/db/<slug>/goals/<goal>     → delete the goal + its contributions (ADMIN)
+      const glm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/goals(?:\/([A-Za-z0-9_.:-]{1,60})(?:\/(contribute|contributions))?)?$/i);
+      if (glm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = glm[1].toLowerCase(), goal = glm[2] || null, sub = glm[3] ? glm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needMember = () => userId ? null : Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const needAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const pct = (raised, target) => target > 0 ? Math.round((raised / target) * 1000) / 10 : 0;
+        try {
+          await ensureGoals(env, uuid);
+          // LIST all goals (public).
+          if (!goal) {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "name a goal: /goals/<goal>" }, { status: 400 });
+            if (!rateOk(slug + "|" + ip + "|gll", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT g.goal, g.title, g.target_cents, g.currency, g.deadline, COALESCE((SELECT SUM(amount_cents) FROM _goal_contribs WHERE goal=g.goal),0) AS raised FROM _goals g ORDER BY g.created_at DESC LIMIT 500");
+            return Response.json({ ok: true, goals: rows.map((r) => ({ goal: r.goal, title: r.title, target: r.target_cents / 100, raised: r.raised / 100, progress_pct: pct(r.raised, r.target_cents), met: r.raised >= r.target_cents, currency: r.currency, deadline: r.deadline })) });
+          }
+          // CREATE / UPDATE a goal (admin).
+          if (!sub && request.method === "POST") {
+            const m = needMember(); if (m) return m; const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|glw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const targetC = toCents(body.target);
+            if (targetC == null || targetC < 1) return Response.json({ ok: false, error: "target must be a positive amount" }, { status: 400 });
+            const title = body.title != null && body.title !== "" ? String(body.title).slice(0, 200) : null;
+            const currency = body.currency != null && body.currency !== "" ? String(body.currency).slice(0, 8).toUpperCase() : null;
+            const deadline = body.deadline != null && body.deadline !== "" && !isNaN(new Date(body.deadline).getTime()) ? new Date(body.deadline).toISOString() : null;
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _goals (goal, title, target_cents, currency, deadline, created_at, updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(goal) DO UPDATE SET title=excluded.title, target_cents=excluded.target_cents, currency=excluded.currency, deadline=excluded.deadline, updated_at=excluded.updated_at", [goal, title, targetC, currency, deadline, now, now]);
+            return Response.json({ ok: true, goal, title, target: targetC / 100, currency, deadline });
+          }
+          // CONTRIBUTE (member) — append-only; the goal must exist (atomic insert guarded by EXISTS).
+          if (sub === "contribute") {
+            const m = needMember(); if (m) return m;
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|glc", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const amountC = toCents(body.amount);
+            if (amountC == null || amountC < 1) return Response.json({ ok: false, error: "amount must be a positive amount" }, { status: 400 });
+            const note = body.note != null && body.note !== "" ? String(body.note).slice(0, 500) : null;
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _goal_contribs (goal, user_id, amount_cents, note, created_at) SELECT ?,?,?,?,? WHERE EXISTS(SELECT 1 FROM _goals WHERE goal=?) RETURNING id", [goal, userId, amountC, note, new Date().toISOString(), goal]);
+            if (!ins[0]) return Response.json({ ok: false, error: "no such goal" }, { status: 404 });
+            const g = (await cfD1Query(env, uuid, "SELECT target_cents FROM _goals WHERE goal=?", [goal]))[0];
+            const raisedRow = (await cfD1Query(env, uuid, "SELECT COALESCE(SUM(amount_cents),0) AS raised FROM _goal_contribs WHERE goal=?", [goal]))[0];
+            const raised = raisedRow.raised;
+            return Response.json({ ok: true, id: ins[0].id, amount: amountC / 100, raised: raised / 100, progress_pct: pct(raised, g.target_cents), met: raised >= g.target_cents });
+          }
+          // CONTRIBUTIONS list (admin) — the individual amounts.
+          if (sub === "contributions") {
+            const m = needMember(); if (m) return m; const a = await needAdmin(); if (a) return a;
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|glcl", 300)) return tooMany();
+            const lim = Math.min(500, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+            const off = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10) || 0);
+            const rows = await cfD1Query(env, uuid, "SELECT id, user_id, amount_cents, note, created_at FROM _goal_contribs WHERE goal=? ORDER BY id DESC LIMIT ? OFFSET ?", [goal, lim, off]);
+            return Response.json({ ok: true, goal, contributions: rows.map((r) => ({ id: r.id, user_id: r.user_id, amount: r.amount_cents / 100, note: r.note, created_at: r.created_at })) });
+          }
+          // DELETE a goal + its contributions (admin).
+          if (!sub && request.method === "DELETE") {
+            const m = needMember(); if (m) return m; const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _goals WHERE goal=?", [goal]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such goal" }, { status: 404 });
+            try { await cfD1Exec(env, uuid, "DELETE FROM _goal_contribs WHERE goal=?", [goal]); } catch {}
+            return Response.json({ ok: true, deleted: true, goal });
+          }
+          // GET one goal + progress (public).
+          if (request.method !== "GET") return Response.json({ ok: false, error: "unsupported goals request" }, { status: 405 });
+          const g = (await cfD1Query(env, uuid, "SELECT title, target_cents, currency, deadline FROM _goals WHERE goal=?", [goal]))[0];
+          if (!g) return Response.json({ ok: false, error: "no such goal" }, { status: 404 });
+          const agg = (await cfD1Query(env, uuid, "SELECT COALESCE(SUM(amount_cents),0) AS raised, COUNT(*) AS n, COUNT(DISTINCT user_id) AS contributors FROM _goal_contribs WHERE goal=?", [goal]))[0];
+          return Response.json({ ok: true, goal, title: g.title, target: g.target_cents / 100, raised: agg.raised / 100, progress_pct: pct(agg.raised, g.target_cents), met: agg.raised >= g.target_cents, contributions: agg.n, contributors: agg.contributors, currency: g.currency, deadline: g.deadline });
+        } catch (e) { console.error("goals failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "goals failed" }, { status: 502 }); }
+      }
+      // NOTIFICATION PREFERENCES + QUIET HOURS — a member controls which channels/types they receive and
+      // a do-not-disturb window; the app asks /should-send before notifying. Per-member and private (a
+      // member reads/writes their OWN; an admin may check any member's send-eligibility with &user=).
+      //   GET  /api/db/<slug>/notify-prefs                        → my prefs (defaults if unset)
+      //   POST /api/db/<slug>/notify-prefs {channels?, types?, quiet_start?, quiet_end?, tz_offset?}  → update mine
+      //   GET  /api/db/<slug>/notify-prefs/should-send?type=&channel=[&at=&user=]  → {send, reasons}
+      const nprm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/notify-prefs(?:\/(should-send))?$/i);
+      if (nprm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = nprm[1].toLowerCase(), sub = nprm[2] ? nprm[2].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const parse = (s, d) => { if (!s) return d; try { const v = JSON.parse(s); return (v && typeof v === "object" && !Array.isArray(v)) ? v : d; } catch { return d; } };
+        const loadPrefs = async (uid) => {
+          const r = (await cfD1Query(env, uuid, "SELECT channels, types, quiet_start, quiet_end, tz_offset FROM _notify_prefs WHERE user_id=?", [uid]))[0];
+          return { channels: parse(r && r.channels, {}), types: parse(r && r.types, {}), quiet_start: r && r.quiet_start != null ? r.quiet_start : null, quiet_end: r && r.quiet_end != null ? r.quiet_end : null, tz_offset: (r && r.tz_offset) || 0 };
+        };
+        try {
+          await ensureNotifyPrefs(env, uuid);
+          // SHOULD-SEND — the notify gate. Member checks own; admin may check any via &user=.
+          if (sub === "should-send") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|nps", 600)) return tooMany();
+            let target = userId;
+            const other = url.searchParams.get("user");
+            if (other != null && other !== "" && String(other) !== String(userId)) {
+              const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+              if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+              target = parseInt(other, 10);
+              if (!Number.isFinite(target)) return Response.json({ ok: false, error: "bad user id" }, { status: 400 });
+            }
+            const prefs = await loadPrefs(target);
+            const type = url.searchParams.get("type"), channel = url.searchParams.get("channel");
+            const atRaw = url.searchParams.get("at");
+            const at = atRaw && !isNaN(new Date(atRaw).getTime()) ? new Date(atRaw) : new Date();
+            const localHour = Math.floor((((at.getUTCHours() * 60 + at.getUTCMinutes()) + prefs.tz_offset) % 1440 + 1440) % 1440 / 60);
+            const typeOk = !type || prefs.types[type] !== false;
+            const channelOk = !channel || prefs.channels[channel] !== false;
+            const quiet = inQuietHours(localHour, prefs.quiet_start, prefs.quiet_end);
+            return Response.json({ ok: true, send: typeOk && channelOk && !quiet, reasons: { type: typeOk, channel: channelOk, quiet }, local_hour: localHour });
+          }
+          // GET my prefs.
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|npg", 300)) return tooMany();
+            return Response.json(Object.assign({ ok: true }, await loadPrefs(userId)));
+          }
+          // POST — update my prefs (channels/types replace when provided; quiet/tz set when provided).
+          if (!rateOk(slug + "|" + ip + "|npw", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const cur = await loadPrefs(userId);
+          let channels = cur.channels, types = cur.types, qs = cur.quiet_start, qe = cur.quiet_end, tz = cur.tz_offset;
+          const cleanMap = (m) => { const out = {}; if (m && typeof m === "object" && !Array.isArray(m)) for (const [k, v] of Object.entries(m)) { if (/^[a-z0-9_.-]{1,40}$/i.test(k)) out[k] = v === true || v === 1 || v === "true"; } return out; };
+          if (body.channels !== undefined) channels = cleanMap(body.channels);
+          if (body.types !== undefined) types = cleanMap(body.types);
+          const hr = (v) => { if (v === null) return null; const n = Math.floor(Number(v)); return (Number.isFinite(n) && n >= 0 && n <= 23) ? n : undefined; };
+          if (body.quiet_start !== undefined) { const v = hr(body.quiet_start); if (v === undefined) return Response.json({ ok: false, error: "quiet_start must be an hour 0–23 or null" }, { status: 400 }); qs = v; }
+          if (body.quiet_end !== undefined) { const v = hr(body.quiet_end); if (v === undefined) return Response.json({ ok: false, error: "quiet_end must be an hour 0–23 or null" }, { status: 400 }); qe = v; }
+          if (body.tz_offset !== undefined) { const n = Math.floor(Number(body.tz_offset)); if (!Number.isFinite(n) || n < -720 || n > 840) return Response.json({ ok: false, error: "tz_offset must be minutes in -720..840" }, { status: 400 }); tz = n; }
+          await cfD1Query(env, uuid, "INSERT INTO _notify_prefs (user_id, channels, types, quiet_start, quiet_end, tz_offset, updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET channels=excluded.channels, types=excluded.types, quiet_start=excluded.quiet_start, quiet_end=excluded.quiet_end, tz_offset=excluded.tz_offset, updated_at=excluded.updated_at", [userId, JSON.stringify(channels), JSON.stringify(types), qs, qe, tz, new Date().toISOString()]);
+          return Response.json({ ok: true, channels, types, quiet_start: qs, quiet_end: qe, tz_offset: tz });
+        } catch (e) { console.error("notify-prefs failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "notify-prefs failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.

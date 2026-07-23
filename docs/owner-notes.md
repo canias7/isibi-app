@@ -6661,6 +6661,22 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — events/capacity · fundraising goals · notify-prefs (data API)
+- Next backlog batch (all grep-verified absent; ultracode was off so no design workflow — implemented
+  directly with an inline atomicity/IDOR self-review before each commit).
+- **`/events/<event>`** — event registration with a hard CAPACITY. The seat-vs-waitlist decision is a
+  SINGLE atomic INSERT (`status = CASE WHEN registered-count < capacity THEN 'registered' ELSE
+  'waitlisted'`), so the cap can't be exceeded under concurrency; cancel atomically promotes the front of
+  the waitlist (guarded UPDATE off MIN(seq) that re-checks capacity). Distinct from `/waitlist` (unbounded)
+  and `/reactions` RSVP (no cap). batch184 (30/30).
+- **`/goals/<goal>`** — fundraising/goal progress. Admin target, member contributions (append-only, cents-
+  exact, over-funding allowed), public aggregate (raised/progress/contributors), admin-only per-contributor
+  amounts. Contribute guarded by `INSERT…SELECT…WHERE EXISTS(goal)`. batch185 (23/23).
+- **`/notify-prefs`** — per-member channels/types + quiet hours; `/should-send?type=&channel=[&at=&user=]`
+  is the gate (type-on AND channel-on AND not-in-quiet). Quiet-hours math handles wrap-past-midnight and
+  tz_offset; member reads/writes own, admin checks any via `&user=`. batch186 (20/20).
+- All three wired into GDPR erase. Full suite 169 green.
+
 ## 2026-07-23 — social primitives: comments · surveys/NPS · @mentions (data API)
 - Next backlog batch (all grep-verified absent — `/api/social/comments` is the media-agent's IG comments,
   not a data-API primitive; `/links` + `/apikeys` already exist so those were dropped from the plan).
