@@ -6666,6 +6666,17 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — readability · schedule registry · kudos (data API, round 2)
+- **`/readability`** — stateless: `{text, wpm?}` → chars/words/sentences/syllables + reading_time_min +
+  Flesch reading-ease + Flesch-Kincaid grade (approx syllable counter). Public. batch307 (11/11).
+- **`/schedules`** — interval-based cron-style registry (admin): upsert `{name, interval_sec, enabled?}`,
+  `/<name>/ran` stamps last_run, `/due` returns enabled schedules where `last_run + interval ≤ now` (SQLite
+  `datetime(last_run,'+N seconds')`), list exposes next_due. `_schedules`. batch308 (16/16).
+- **`/kudos`** — peer recognition: member gives kudos to another (`to`, not self; recipient must exist);
+  `/leaderboard` (top receivers, JOINs email), `/received`, `/given`, admin `/kudos`. `_kudos` erased by
+  from_id OR to_id. batch309 (14/14).
+- Full suite 292 green. (12/100 of round 2 shipped.)
+
 ## 2026-07-23 — job queue · health checks · histogram (data API, round 2)
 - **`/jobs`** — background job queue (admin). Enqueue `{queue?, payload, max_attempts?, delay_sec?}`; `/claim
   {queue?}` atomically grabs the next due job (`UPDATE…status='running', attempts+1 WHERE id=(SELECT…pending
