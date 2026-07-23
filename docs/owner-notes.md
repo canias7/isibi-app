@@ -6661,6 +6661,17 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — gift cards · license keys · changelog (data API, next-100)
+- **`/gift-cards`** — code-bearer stored value. Admin issues (auto/custom code, uppercased), public
+  check/redeem (atomic `UPDATE…SET balance=balance-? WHERE balance>=? RETURNING`, 409 if short), void, list.
+  Bearer instrument → no user scope. batch265 (22/22).
+- **`/licenses`** — license keys. Admin issues (auto XXXX-XXXX-… key, product/owner/seats/expiry), public
+  `/validate?key=` → {valid, reason:unknown/revoked/expired}, revoke, delete. No user scope. batch266 (22/22).
+- **`/changelog`** — public release notes. Admin creates versioned entries (published flag), public reads
+  published newest-first (`released_at DESC`), `/all` incl. drafts, PATCH (publish-on-flip) + delete. Admin
+  content. batch267 (20/20).
+- Full suite 250 green. (69/100 of the next-100 list shipped.)
+
 ## 2026-07-23 — drip sequences · escalation rules · tax rates (data API, next-100)
 - **`/sequences`** — automated drip flows. Admin defines day-offset steps (auto-sorted); enroll a subject
   (next_due=start+step0.day); `/due` surfaces the due step; `/advance` schedules the next (or completes);

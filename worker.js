@@ -5308,6 +5308,31 @@ async function ensureTaxRates(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _tax_rates (region TEXT PRIMARY KEY, name TEXT, rate_bp INTEGER NOT NULL DEFAULT 0, updated_at TEXT)");
   _taxRatesReady.add(uuid);
 }
+// Gift cards — a code-bearer stored-value card: an admin issues one with a balance; anyone with the code
+// redeems against it (never below zero). `_gift_cards` keyed by code. Ensured once per isolate.
+const _giftCardsReady = new Set();
+async function ensureGiftCards(env, uuid) {
+  if (_giftCardsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _gift_cards (code TEXT PRIMARY KEY, initial_c INTEGER NOT NULL DEFAULT 0, balance_c INTEGER NOT NULL DEFAULT 0, currency TEXT, status TEXT NOT NULL DEFAULT 'active', note TEXT, created_at TEXT, updated_at TEXT)");
+  _giftCardsReady.add(uuid);
+}
+// License keys — an admin issues a license key (product/owner/seats/expiry); anyone validates a key, an
+// admin revokes it. `_licenses` keyed by key. Ensured once.
+const _licensesReady = new Set();
+async function ensureLicenses(env, uuid) {
+  if (_licensesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _licenses (key TEXT PRIMARY KEY, product TEXT, owner TEXT, seats INTEGER, status TEXT NOT NULL DEFAULT 'active', expires_at TEXT, meta TEXT, created_at TEXT, updated_at TEXT)");
+  _licensesReady.add(uuid);
+}
+// Changelog / release notes — an admin publishes versioned entries; the public reads the published ones
+// newest-first. `_changelog` = one row per entry. Ensured once.
+const _changelogReady = new Set();
+async function ensureChangelog(env, uuid) {
+  if (_changelogReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _changelog (id INTEGER PRIMARY KEY AUTOINCREMENT, version TEXT, title TEXT NOT NULL, body TEXT, kind TEXT, published INTEGER NOT NULL DEFAULT 1, released_at TEXT, created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_changelog ON _changelog (published, released_at)"); } catch {}
+  _changelogReady.add(uuid);
+}
 // The user-scoped tables a member can export their own rows from (GDPR data portability) — kept in sync with
 // the erase list. Each entry is [table, ownerColumn]; a missing table is skipped at read time.
 const DATA_EXPORT_TABLES = [
@@ -17414,6 +17439,217 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported tax-rates request" }, { status: 405 });
         } catch (e) { console.error("tax-rates failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "tax-rates failed" }, { status: 502 }); }
+      }
+      // GIFT CARDS — a code-bearer stored-value card: an admin issues one with a balance; anyone with the
+      // code checks or redeems against it (never below zero).
+      //   POST   /api/db/<slug>/gift-cards {amount, code?, currency?, note?}  (ADMIN) → issue → {code, balance}
+      //   GET    /api/db/<slug>/gift-cards/<code>            (public) → {balance, status}
+      //   POST   /api/db/<slug>/gift-cards/<code>/redeem {amount}  (public) → deduct → {balance} · 409 if short/void
+      //   POST   /api/db/<slug>/gift-cards/<code>/void       (ADMIN) → void the card
+      //   GET    /api/db/<slug>/gift-cards                   (ADMIN) → list
+      const gcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/gift-cards(?:\/([A-Za-z0-9_-]{1,40})(?:\/(redeem|void))?)?$/i);
+      if (gcm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = gcm[1].toLowerCase(), code = gcm[2] || null, act = gcm[3] ? gcm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureGiftCards(env, uuid);
+          // ISSUE (admin).
+          if (!code && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|gcw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const amount_c = toCents(body.amount);
+            if (amount_c == null || amount_c <= 0) return Response.json({ ok: false, error: "a positive amount is required" }, { status: 400 });
+            let newCode = body.code != null ? String(body.code).trim().toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 40) : "";
+            if (!newCode) newCode = (crypto.randomUUID().replace(/-/g, "").toUpperCase().slice(0, 16));
+            const existing = (await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _gift_cards WHERE code=?", [newCode]))[0];
+            if (existing) return Response.json({ ok: false, error: "that code already exists" }, { status: 409 });
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _gift_cards (code, initial_c, balance_c, currency, status, note, created_at, updated_at) VALUES (?,?,?,?, 'active', ?,?,?)", [newCode, amount_c, amount_c, body.currency != null ? String(body.currency).slice(0, 10) : null, body.note != null ? String(body.note).slice(0, 200) : null, now, now]);
+            return Response.json({ ok: true, code: newCode, balance: amount_c / 100 });
+          }
+          // REDEEM (public/bearer).
+          if (code && act === "redeem" && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|gcr", 30)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const amount_c = toCents(body.amount);
+            if (amount_c == null || amount_c <= 0) return Response.json({ ok: false, error: "a positive amount is required" }, { status: 400 });
+            const gc = (await cfD1Query(env, uuid, "SELECT balance_c, status FROM _gift_cards WHERE code=?", [code.toUpperCase()]))[0];
+            if (!gc) return Response.json({ ok: false, error: "no such gift card" }, { status: 404 });
+            if (gc.status !== "active") return Response.json({ ok: false, error: "this card is " + gc.status }, { status: 409 });
+            const r = await cfD1Query(env, uuid, "UPDATE _gift_cards SET balance_c = balance_c - ?, updated_at=? WHERE code=? AND status='active' AND balance_c >= ? RETURNING balance_c", [amount_c, new Date().toISOString(), code.toUpperCase(), amount_c]);
+            if (!r[0]) return Response.json({ ok: false, error: "insufficient balance", balance: gc.balance_c / 100 }, { status: 409 });
+            return Response.json({ ok: true, code: code.toUpperCase(), redeemed: amount_c / 100, balance: r[0].balance_c / 100 });
+          }
+          // VOID (admin).
+          if (code && act === "void" && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "UPDATE _gift_cards SET status='void', updated_at=? WHERE code=?", [new Date().toISOString(), code.toUpperCase()]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such gift card" }, { status: 404 });
+            return Response.json({ ok: true, code: code.toUpperCase(), status: "void" });
+          }
+          // CHECK balance (public).
+          if (code && !act && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|gcc", 120)) return tooMany();
+            const gc = (await cfD1Query(env, uuid, "SELECT code, balance_c, status FROM _gift_cards WHERE code=?", [code.toUpperCase()]))[0];
+            if (!gc) return Response.json({ ok: false, error: "no such gift card" }, { status: 404 });
+            return Response.json({ ok: true, code: gc.code, balance: gc.balance_c / 100, status: gc.status });
+          }
+          // LIST (admin).
+          if (!code && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|gcl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT code, initial_c, balance_c, currency, status, note, created_at FROM _gift_cards ORDER BY created_at DESC LIMIT 1000");
+            return Response.json({ ok: true, cards: rows.map((r) => ({ code: r.code, initial: r.initial_c / 100, balance: r.balance_c / 100, currency: r.currency, status: r.status, note: r.note, created_at: r.created_at })) });
+          }
+          return Response.json({ ok: false, error: "unsupported gift-cards request" }, { status: 405 });
+        } catch (e) { console.error("gift-cards failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "gift-cards failed" }, { status: 502 }); }
+      }
+      // LICENSE KEYS — an admin issues a license key (product/owner/seats/expiry); anyone validates a key; an
+      // admin revokes it.
+      //   POST   /api/db/<slug>/licenses {product?, owner?, seats?, expires?, key?}  (ADMIN) → issue → {key}
+      //   GET    /api/db/<slug>/licenses/validate?key=<k>   (public) → {valid, product, seats, expires_at, reason}
+      //   POST   /api/db/<slug>/licenses/<key>/revoke       (ADMIN)
+      //   GET    /api/db/<slug>/licenses                    (ADMIN) → list · DELETE /licenses/<key>
+      const licm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/licenses(?:\/(validate|[A-Za-z0-9_-]{1,60})(?:\/(revoke))?)?$/i);
+      if (licm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = licm[1].toLowerCase(), seg = licm[2] || null, isValidate = seg === "validate", key = seg && !isValidate ? seg : null, isRevoke = licm[3] === "revoke";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureLicenses(env, uuid);
+          // VALIDATE (public).
+          if (isValidate && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|licv", 120)) return tooMany();
+            const k = String(url.searchParams.get("key") || "").trim();
+            if (!k) return Response.json({ ok: false, error: "a ?key= is required" }, { status: 400 });
+            const lic = (await cfD1Query(env, uuid, "SELECT key, product, owner, seats, status, expires_at FROM _licenses WHERE key=?", [k]))[0];
+            if (!lic) return Response.json({ ok: true, valid: false, reason: "unknown" });
+            if (lic.status !== "active") return Response.json({ ok: true, valid: false, reason: lic.status });
+            if (lic.expires_at && Date.parse(lic.expires_at) < Date.now()) return Response.json({ ok: true, valid: false, reason: "expired", expires_at: lic.expires_at });
+            return Response.json({ ok: true, valid: true, product: lic.product, owner: lic.owner, seats: lic.seats, expires_at: lic.expires_at });
+          }
+          // ISSUE (admin).
+          if (!seg && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|licw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            let newKey = body.key != null ? String(body.key).trim().slice(0, 60) : "";
+            if (!newKey) { const raw = crypto.randomUUID().replace(/-/g, "").toUpperCase(); newKey = raw.slice(0, 4) + "-" + raw.slice(4, 8) + "-" + raw.slice(8, 12) + "-" + raw.slice(12, 16); }
+            if ((await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _licenses WHERE key=?", [newKey]))[0]) return Response.json({ ok: false, error: "that key already exists" }, { status: 409 });
+            let expires = null; if (body.expires != null && body.expires !== "") { const e = Date.parse(String(body.expires)); if (Number.isNaN(e)) return Response.json({ ok: false, error: "bad expires date" }, { status: 400 }); expires = new Date(e).toISOString(); }
+            const seats = body.seats == null ? null : Math.floor(Number(body.seats));
+            if (seats != null && (!Number.isFinite(seats) || seats < 0)) return Response.json({ ok: false, error: "bad seats" }, { status: 400 });
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _licenses (key, product, owner, seats, status, expires_at, meta, created_at, updated_at) VALUES (?,?,?,?, 'active', ?,?,?,?)", [newKey, body.product != null ? String(body.product).slice(0, 120) : null, body.owner != null ? String(body.owner).slice(0, 200) : null, seats, expires, body.meta != null ? JSON.stringify(body.meta).slice(0, 2000) : null, now, now]);
+            return Response.json({ ok: true, key: newKey, expires_at: expires });
+          }
+          // REVOKE (admin).
+          if (key && isRevoke && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "UPDATE _licenses SET status='revoked', updated_at=? WHERE key=?", [new Date().toISOString(), key]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such license" }, { status: 404 });
+            return Response.json({ ok: true, key, status: "revoked" });
+          }
+          // DELETE (admin).
+          if (key && !isRevoke && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _licenses WHERE key=?", [key]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such license" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, key });
+          }
+          // LIST (admin).
+          if (!seg && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|licl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT key, product, owner, seats, status, expires_at, created_at FROM _licenses ORDER BY created_at DESC LIMIT 1000");
+            return Response.json({ ok: true, licenses: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported licenses request" }, { status: 405 });
+        } catch (e) { console.error("licenses failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "licenses failed" }, { status: 502 }); }
+      }
+      // CHANGELOG / RELEASE NOTES — an admin publishes versioned entries; the public reads the published ones
+      // newest-first.
+      //   POST   /api/db/<slug>/changelog {title, version?, body?, kind?, released?, published?}  (ADMIN) → {id}
+      //   GET    /api/db/<slug>/changelog[?limit=]          (public) → published entries, newest first
+      //   GET    /api/db/<slug>/changelog/all               (ADMIN) → incl. drafts
+      //   PATCH  /api/db/<slug>/changelog/<id> {…}          (ADMIN) · DELETE /changelog/<id>
+      const chgm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/changelog(?:\/(all|\d+))?$/i);
+      if (chgm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = chgm[1].toLowerCase(), seg = chgm[2] || null, isAll = seg === "all", clId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureChangelog(env, uuid);
+          // CREATE (admin).
+          if (!seg && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|chgw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const title = String(body.title || "").trim().slice(0, 200);
+            if (!title) return Response.json({ ok: false, error: "a title is required" }, { status: 400 });
+            let released = null; if (body.released != null && body.released !== "") { const rd = Date.parse(String(body.released)); if (!Number.isNaN(rd)) released = new Date(rd).toISOString(); }
+            const now = new Date().toISOString();
+            if (!released) released = now;
+            const r = await cfD1Query(env, uuid, "INSERT INTO _changelog (version, title, body, kind, published, released_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?) RETURNING id", [body.version != null ? String(body.version).slice(0, 40) : null, title, body.body != null ? String(body.body).slice(0, 20000) : null, body.kind != null ? String(body.kind).slice(0, 40) : null, body.published === false || body.published === 0 ? 0 : 1, released, now, now]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null });
+          }
+          // ALL (admin, incl. drafts).
+          if (isAll && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            const rows = await cfD1Query(env, uuid, "SELECT id, version, title, body, kind, published, released_at FROM _changelog ORDER BY released_at DESC, id DESC LIMIT 1000");
+            return Response.json({ ok: true, entries: rows.map((r) => ({ ...r, published: !!r.published })) });
+          }
+          // PATCH / DELETE (admin).
+          if (clId != null && (request.method === "PATCH" || request.method === "DELETE")) {
+            const a = await needAdmin(); if (a) return a;
+            const entry = (await cfD1Query(env, uuid, "SELECT id FROM _changelog WHERE id=?", [clId]))[0];
+            if (!entry) return Response.json({ ok: false, error: "no such entry" }, { status: 404 });
+            if (request.method === "DELETE") { await cfD1Exec(env, uuid, "DELETE FROM _changelog WHERE id=?", [clId]); return Response.json({ ok: true, deleted: true, id: clId }); }
+            let body = {}; try { body = await request.json(); } catch {}
+            const sets = [], params = [];
+            if (body.title != null) { const ti = String(body.title).trim().slice(0, 200); if (!ti) return Response.json({ ok: false, error: "title can't be blank" }, { status: 400 }); sets.push("title=?"); params.push(ti); }
+            if ("version" in body) { sets.push("version=?"); params.push(body.version != null ? String(body.version).slice(0, 40) : null); }
+            if ("body" in body) { sets.push("body=?"); params.push(body.body != null ? String(body.body).slice(0, 20000) : null); }
+            if ("kind" in body) { sets.push("kind=?"); params.push(body.kind != null ? String(body.kind).slice(0, 40) : null); }
+            if (body.published != null) { sets.push("published=?"); params.push(body.published === false || body.published === 0 ? 0 : 1); }
+            if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+            sets.push("updated_at=?"); params.push(new Date().toISOString());
+            params.push(clId);
+            await cfD1Exec(env, uuid, "UPDATE _changelog SET " + sets.join(", ") + " WHERE id=?", params);
+            return Response.json({ ok: true, id: clId });
+          }
+          // PUBLIC list (published only).
+          if (!seg && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|chgl", 300)) return tooMany();
+            let limit = parseInt(url.searchParams.get("limit"), 10); if (!(limit > 0) || limit > 200) limit = 50;
+            const rows = await cfD1Query(env, uuid, "SELECT id, version, title, body, kind, released_at FROM _changelog WHERE published=1 ORDER BY released_at DESC, id DESC LIMIT ?", [limit]);
+            return Response.json({ ok: true, entries: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported changelog request" }, { status: 405 });
+        } catch (e) { console.error("changelog failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "changelog failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
