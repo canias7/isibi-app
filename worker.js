@@ -5601,6 +5601,25 @@ async function ensureContentReview(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_content_review_status ON _content_review (status)"); } catch {}
   _contentReviewReady.add(uuid);
 }
+// Equipment / asset checkout — atomically check an asset out (only if available), return it, and log every
+// move. `_equipment` = the assets, `_equipment_log` = the history. Ensured once.
+const _equipmentReady = new Set();
+async function ensureEquipment(env, uuid) {
+  if (_equipmentReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _equipment (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, ref TEXT, status TEXT NOT NULL DEFAULT 'available', holder_id INTEGER, checked_out_at TEXT, note TEXT, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _equipment_log (id INTEGER PRIMARY KEY AUTOINCREMENT, equipment_id INTEGER NOT NULL, user_id INTEGER, action TEXT NOT NULL, at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_equipment_holder ON _equipment (holder_id)"); } catch {}
+  _equipmentReady.add(uuid);
+}
+// Taxonomy — a nested term tree (categories, topics, tags with hierarchy). One row per term with a parent_id;
+// the tree is assembled in JS. `_taxonomy`. Ensured once.
+const _taxonomyReady = new Set();
+async function ensureTaxonomy(env, uuid) {
+  if (_taxonomyReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _taxonomy (id INTEGER PRIMARY KEY AUTOINCREMENT, term TEXT NOT NULL, parent_id INTEGER, slug TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0, created_at TEXT, UNIQUE (parent_id, slug))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_taxonomy_parent ON _taxonomy (parent_id)"); } catch {}
+  _taxonomyReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -10449,6 +10468,8 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _kudos WHERE from_id=? OR to_id=?", [u.id, u.id]],                 // kudos given or received
             ["DELETE FROM _no_shows WHERE user_id=?", [u.id]],                               // no-show strikes
             ["DELETE FROM _content_review WHERE author_id=?", [u.id]],                       // content-review items
+            ["UPDATE _equipment SET status='available', holder_id=NULL WHERE holder_id=?", [u.id]], // release held gear
+            ["DELETE FROM _equipment_log WHERE user_id=?", [u.id]],                          // equipment history
             ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
             ["DELETE FROM _testimonials WHERE user_id=?", [u.id]],                           // user-submitted testimonials
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
@@ -20561,6 +20582,198 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported content-review request" }, { status: 405 });
         } catch (e) { console.error("content-review failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "content-review failed" }, { status: 502 }); }
+      }
+      // ANOMALY DETECTION — a stateless z-score check over a numeric sample. With a `value`, it reports that
+      // point's z-score and whether it's an outlier; without one, it scans the series and returns every outlier.
+      //   POST /api/db/<slug>/stats/anomaly {values:[...], value?, threshold?}   (public)
+      const anmm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/stats\/anomaly$/i);
+      if (anmm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = anmm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|an", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const values = (Array.isArray(body.values) ? body.values : []).map(Number).filter((v) => Number.isFinite(v)).slice(0, 100000);
+          if (values.length < 2) return Response.json({ ok: false, error: "values[] needs at least 2 numbers" }, { status: 400 });
+          let threshold = Number(body.threshold); if (!(threshold > 0)) threshold = 3;
+          const mean = values.reduce((a, b) => a + b, 0) / values.length;
+          const variance = values.reduce((a, b) => a + (b - mean) * (b - mean), 0) / values.length;
+          const std = Math.sqrt(variance);
+          const round = (x) => x == null ? null : Math.round(x * 1e6) / 1e6;
+          if (body.value != null) {
+            const v = Number(body.value);
+            if (!Number.isFinite(v)) return Response.json({ ok: false, error: "value must be a number" }, { status: 400 });
+            const z = std === 0 ? 0 : (v - mean) / std;
+            return Response.json({ ok: true, mean: round(mean), std: round(std), value: v, z: round(z), anomaly: Math.abs(z) > threshold, threshold });
+          }
+          const anomalies = [];
+          for (let i = 0; i < values.length; i++) { const z = std === 0 ? 0 : (values[i] - mean) / std; if (Math.abs(z) > threshold) anomalies.push({ index: i, value: values[i], z: round(z) }); }
+          return Response.json({ ok: true, mean: round(mean), std: round(std), count: values.length, threshold, anomalies });
+        } catch (e) { console.error("anomaly failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "anomaly failed" }, { status: 502 }); }
+      }
+      // EQUIPMENT / ASSET CHECKOUT — atomically check an asset out (only if available), return it, and log every
+      // move. A member holds one asset at a time per item; the current holder or an admin returns it.
+      //   POST   /api/db/<slug>/equipment {name, ref?}         (ADMIN) → add an asset
+      //   POST   /api/db/<slug>/equipment/<id>/checkout        (member) → claim if available
+      //   POST   /api/db/<slug>/equipment/<id>/return          (holder or admin) → release
+      //   GET    /api/db/<slug>/equipment[?status=]            (public) → list
+      //   GET    /api/db/<slug>/equipment/mine                 (member) → items I hold
+      //   GET    /api/db/<slug>/equipment/<id>                 (public) → one
+      //   DELETE /api/db/<slug>/equipment/<id>                 (ADMIN)
+      const eqm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/equipment(?:\/(mine|\d+))?(?:\/(checkout|return))?$/i);
+      if (eqm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = eqm[1].toLowerCase(), seg = eqm[2] || null, act = eqm[3] || null;
+        const isMine = seg === "mine", eqId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const isAdmin = async () => { if (!userId) return false; const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return !!(rr[0] && rr[0].role === "admin"); };
+        try {
+          await ensureEquipment(env, uuid);
+          const logMove = (eqId2, action) => cfD1Exec(env, uuid, "INSERT INTO _equipment_log (equipment_id, user_id, action, at) VALUES (?,?,?,?)", [eqId2, userId, action, new Date().toISOString()]).catch(() => {});
+          // ADD (admin).
+          if (!seg && request.method === "POST") {
+            if (!(await isAdmin())) return Response.json({ ok: false, error: userId ? "admins only" : "sign in first" }, { status: userId ? 403 : 401 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const name = String(body.name || "").trim().slice(0, 200);
+            if (!name) return Response.json({ ok: false, error: "a name is required" }, { status: 400 });
+            const r = await cfD1Query(env, uuid, "INSERT INTO _equipment (name, ref, status, created_at) VALUES (?,?, 'available', ?) RETURNING id", [name, body.ref != null ? String(body.ref).slice(0, 120) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, name, status: "available" });
+          }
+          // CHECKOUT (member, atomic).
+          if (eqId != null && act === "checkout" && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|eqc", 300)) return tooMany();
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "UPDATE _equipment SET status='out', holder_id=?, checked_out_at=? WHERE id=? AND status='available' RETURNING id", [userId, now, eqId]);
+            if (!r.length) { const e2 = (await cfD1Query(env, uuid, "SELECT status FROM _equipment WHERE id=?", [eqId]))[0]; if (!e2) return Response.json({ ok: false, error: "no such asset" }, { status: 404 }); return Response.json({ ok: false, error: "not available (" + e2.status + ")" }, { status: 409 }); }
+            await logMove(eqId, "checkout");
+            return Response.json({ ok: true, id: eqId, status: "out", holder: userId });
+          }
+          // RETURN (holder or admin).
+          if (eqId != null && act === "return" && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const e2 = (await cfD1Query(env, uuid, "SELECT status, holder_id FROM _equipment WHERE id=?", [eqId]))[0];
+            if (!e2) return Response.json({ ok: false, error: "no such asset" }, { status: 404 });
+            if (e2.status !== "out") return Response.json({ ok: false, error: "not checked out" }, { status: 409 });
+            if (e2.holder_id !== userId && !(await isAdmin())) return Response.json({ ok: false, error: "only the holder or an admin can return it" }, { status: 403 });
+            await cfD1Exec(env, uuid, "UPDATE _equipment SET status='available', holder_id=NULL, checked_out_at=NULL WHERE id=?", [eqId]);
+            await logMove(eqId, "return");
+            return Response.json({ ok: true, id: eqId, status: "available" });
+          }
+          // MINE (member).
+          if (isMine && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rows = await cfD1Query(env, uuid, "SELECT id, name, ref, checked_out_at FROM _equipment WHERE holder_id=? ORDER BY id ASC LIMIT 1000", [userId]);
+            return Response.json({ ok: true, equipment: rows });
+          }
+          // GET one (public).
+          if (eqId != null && !act && request.method === "GET") {
+            const row = (await cfD1Query(env, uuid, "SELECT id, name, ref, status, holder_id, checked_out_at FROM _equipment WHERE id=?", [eqId]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such asset" }, { status: 404 });
+            return Response.json({ ok: true, equipment: row });
+          }
+          // DELETE (admin).
+          if (eqId != null && !act && request.method === "DELETE") {
+            if (!(await isAdmin())) return Response.json({ ok: false, error: userId ? "admins only" : "sign in first" }, { status: userId ? 403 : 401 });
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _equipment WHERE id=?", [eqId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such asset" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: eqId });
+          }
+          // LIST (public).
+          if (!seg && request.method === "GET") {
+            const st = url.searchParams.get("status");
+            const rows = st
+              ? await cfD1Query(env, uuid, "SELECT id, name, ref, status, holder_id FROM _equipment WHERE status=? ORDER BY id ASC LIMIT 2000", [String(st).slice(0, 20)])
+              : await cfD1Query(env, uuid, "SELECT id, name, ref, status, holder_id FROM _equipment ORDER BY id ASC LIMIT 2000");
+            return Response.json({ ok: true, equipment: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported equipment request" }, { status: 405 });
+        } catch (e) { console.error("equipment failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "equipment failed" }, { status: 502 }); }
+      }
+      // TAXONOMY — a nested term tree (categories / topics / hierarchical tags). Terms hang off a parent_id; the
+      // full tree is assembled server-side. Admin edits; anyone reads.
+      //   POST   /api/db/<slug>/taxonomy {term, parent?, slug?, position?}   (ADMIN) → add a term
+      //   GET    /api/db/<slug>/taxonomy                    (public) → the nested tree
+      //   GET    /api/db/<slug>/taxonomy/<id>/children      (public) → direct children
+      //   PATCH  /api/db/<slug>/taxonomy/<id> {term?, parent?, position?}   (ADMIN)
+      //   DELETE /api/db/<slug>/taxonomy/<id>               (ADMIN) → 409 if it has children
+      const txnmy = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/taxonomy(?:\/(\d+)(?:\/(children))?)?$/i);
+      if (txnmy && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = txnmy[1].toLowerCase(), tId = txnmy[2] ? parseInt(txnmy[2], 10) : null, isChildren = txnmy[3] === "children";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const slugify = (v) => String(v || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+        try {
+          await ensureTaxonomy(env, uuid);
+          // ADD (admin).
+          if (!tId && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const term = String(body.term || "").trim().slice(0, 200);
+            if (!term) return Response.json({ ok: false, error: "a term is required" }, { status: 400 });
+            let parent = body.parent != null ? Math.floor(Number(body.parent)) : null;
+            if (parent != null) { if (!Number.isFinite(parent)) return Response.json({ ok: false, error: "bad parent" }, { status: 400 }); const pe = (await cfD1Query(env, uuid, "SELECT 1 FROM _taxonomy WHERE id=?", [parent]))[0]; if (!pe) return Response.json({ ok: false, error: "no such parent" }, { status: 404 }); }
+            const sl = slugify(body.slug || term) || "term";
+            let position = Math.floor(Number(body.position)); if (!Number.isFinite(position)) position = 0;
+            const dup = (await cfD1Query(env, uuid, "SELECT 1 FROM _taxonomy WHERE parent_id IS ? AND slug=?", [parent, sl]))[0];
+            if (dup) return Response.json({ ok: false, error: "that slug already exists under this parent" }, { status: 409 });
+            const r = await cfD1Query(env, uuid, "INSERT INTO _taxonomy (term, parent_id, slug, position, created_at) VALUES (?,?,?,?,?) RETURNING id", [term, parent, sl, position, new Date().toISOString()]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, term, slug: sl, parent });
+          }
+          // CHILDREN (public).
+          if (tId && isChildren && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT id, term, slug, position FROM _taxonomy WHERE parent_id=? ORDER BY position ASC, term ASC LIMIT 2000", [tId]);
+            return Response.json({ ok: true, children: rows });
+          }
+          // PATCH (admin).
+          if (tId && !isChildren && request.method === "PATCH") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const sets = [], vals = [];
+            if (body.term != null) { sets.push("term=?"); vals.push(String(body.term).slice(0, 200)); }
+            if (Object.prototype.hasOwnProperty.call(body, "parent")) { let p = body.parent == null ? null : Math.floor(Number(body.parent)); if (p != null && (!Number.isFinite(p) || p === tId)) return Response.json({ ok: false, error: "bad parent" }, { status: 400 }); sets.push("parent_id=?"); vals.push(p); }
+            if (body.position != null) { const p = Math.floor(Number(body.position)); sets.push("position=?"); vals.push(Number.isFinite(p) ? p : 0); }
+            if (body.slug != null) { sets.push("slug=?"); vals.push(slugify(body.slug) || "term"); }
+            if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "UPDATE _taxonomy SET " + sets.join(", ") + " WHERE id=?", [...vals, tId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such term" }, { status: 404 });
+            return Response.json({ ok: true, id: tId });
+          }
+          // DELETE (admin).
+          if (tId && !isChildren && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const kids = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _taxonomy WHERE parent_id=?", [tId]))[0];
+            if (kids && kids.n > 0) return Response.json({ ok: false, error: "term has children; delete or move them first" }, { status: 409 });
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _taxonomy WHERE id=?", [tId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such term" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: tId });
+          }
+          // TREE (public).
+          if (!tId && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT id, term, parent_id, slug, position FROM _taxonomy ORDER BY position ASC, term ASC LIMIT 5000");
+            const byId = new Map(); for (const r of rows) byId.set(r.id, { id: r.id, term: r.term, slug: r.slug, position: r.position, children: [] });
+            const roots = [];
+            for (const r of rows) { const node = byId.get(r.id); if (r.parent_id != null && byId.has(r.parent_id)) byId.get(r.parent_id).children.push(node); else roots.push(node); }
+            return Response.json({ ok: true, tree: roots });
+          }
+          return Response.json({ ok: false, error: "unsupported taxonomy request" }, { status: 405 });
+        } catch (e) { console.error("taxonomy failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "taxonomy failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
