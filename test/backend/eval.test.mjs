@@ -2,7 +2,7 @@
 // The live run (makeAnthropicGenerate) is checked via an injected fetch. This proves the scorecard is correct
 // before any real credits are spent.
 import { makeTally } from "./harness.mjs";
-import { evaluatePrompt, runEval, formatScorecard, makeAnthropicGenerate, PROMPTS } from "../../test/pipeline-eval.mjs";
+import { evaluatePrompt, runEval, formatScorecard, makeAnthropicGenerate, makeContainerBuild, makeContainerRender, makeVisionCritique, PROMPTS } from "../../test/pipeline-eval.mjs";
 
 const t = makeTally("Pipeline eval");
 
@@ -63,15 +63,43 @@ t.eq(out.summary.generated_pct, 100, "all generated");
 t.eq(out.summary.routes_valid_pct, 50, "half have valid routes (every other one is broken)");
 t.eq(out.summary.avg_tokens_in, 500, "average input tokens aggregated");
 
-// --- Build + vision metrics when those deps are supplied ---
-const out2 = await runEval(["a booking app with sign in"], {
+// --- Build + vision metrics when those deps are supplied; the built dist flows into render ---
+let renderGot = null, critiqueGot = null;
+const out2 = await runEval(["a booking app for a hair salon with member sign in and an admin calendar"], {
   generate: async () => ({ text: appText(), usedIn: 1, usedOut: 1 }),
-  build: async () => ({ ok: true }),
-  render: async () => [{ pngBase64: "p" }],
-  critiqueOne: async () => ({ score: 82, issues: [] }),
+  build: async () => ({ ok: true, files: { "index.html": { t: "<html>built</html>" } } }),
+  render: async (target, opts) => { renderGot = { target, opts }; return [{ pngBase64: "p" }]; },
+  critiqueOne: async (shot, opts) => { critiqueGot = opts; return { score: 82, issues: [] }; },
 });
 t.eq(out2.summary.compiled_pct, 100, "compile metric surfaces when a builder is supplied");
 t.eq(out2.summary.avg_design_score, 82, "design score surfaces when vision is supplied");
+t.eq(renderGot.target["index.html"].t, "<html>built</html>", "render receives the BUILT dist, not the source");
+t.ok(renderGot.opts.routes.includes("/"), "…and the routes to screenshot (home included)");
+t.ok(/senior product designer/.test(critiqueGot.prompt), "critiqueOne gets the vision critique prompt");
+
+// --- The three live-dep factories build the right requests ---
+let bCap = null;
+const bFetch = async (url, init) => { bCap = { url, init }; return { ok: true, json: async () => ({ ok: true, files: { "index.html": { t: "x" } } }) }; };
+const bres = await makeContainerBuild("http://build:8080/", bFetch)({ "src/App.jsx": "x" });
+t.eq(bCap.url, "http://build:8080/build", "container build POSTs /build");
+t.eq(JSON.parse(bCap.init.body).files["src/App.jsx"], "x", "…with the source files");
+t.eq(bres.files["index.html"].t, "x", "…and returns the dist");
+
+let rCap = null;
+const rFetch = async (url, init) => { rCap = { url, init }; return { ok: true, json: async () => ({ ok: true, shots: [{ route: "/", pngBase64: "z" }] }) }; };
+const shots = await makeContainerRender("http://build:8080", rFetch)({ "index.html": { t: "x" } }, { routes: ["/", "/admin"] });
+t.eq(rCap.url, "http://build:8080/critique", "container render POSTs /critique");
+t.eq(JSON.parse(rCap.init.body).routes[1], "/admin", "…with the routes");
+t.eq(shots[0].pngBase64, "z", "…and returns the shots");
+
+let vCap = null;
+const vFetch = async (url, init) => { vCap = { url, init }; return { ok: true, json: async () => ({ content: [{ type: "text", text: '{"score":90,"issues":[]}' }] }) }; };
+const crit = await makeVisionCritique("sk-v", "claude-sonnet-5", vFetch)({ pngBase64: "img" }, { prompt: "judge this" });
+t.eq(vCap.url, "https://api.anthropic.com/v1/messages", "vision critique calls the messages API");
+const vbody = JSON.parse(vCap.init.body);
+t.eq(vbody.messages[0].content[0].source.data, "img", "…with the screenshot");
+t.eq(vbody.messages[0].content[1].text, "judge this", "…and the critique prompt");
+t.eq(crit.score, 90, "…and parses the score");
 
 // --- Scorecard renders ---
 const card = formatScorecard(out);

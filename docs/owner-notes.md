@@ -10,6 +10,39 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-07-23 — FIRST LIVE SMOKE of the eval (6 prompts, $3.56) + caching fix + build/vision wired
+Owner said "go". Ran the first LIVE 6-prompt smoke via a throwaway-branch push trigger (the GitHub MCP integration
+can't `workflow_dispatch` — 403 `Resource not accessible by integration`; the key only exists inside CI, not the
+session shell — so the push-trigger pattern from vision-check/fal-wm-test is how we fire a live workflow here).
+
+**Scorecard (6 prompts, generate + repair, no build/vision):**
+- chose capabilities **100%** · backend routes all real **100%** (zero hallucinated endpoints — the registry
+  cross-check works) · forms wired **100%** · lint clean after repair **50%** · repair success **50%**.
+- generated-a-valid-app FIRST PASS only **17%** (1/6). NOT a harness bug: production uses the SAME `max_tokens:
+  16000` ceiling (worker.js GB/RB_MAX_OUT), so big apps truncate on the first pass and the **repair loop is
+  load-bearing**, not polish. Worth knowing.
+
+**Cost surprise → fixed.** Smoke cost **$3.56**, ~10x my $0.30 estimate. Cause: input was **84%** of spend — the
+~100k-token BACKEND_RULES system prompt sent UNCACHED every call. Fix (#789): `makeAnthropicGenerate` now marks the
+system prompt `cache_control: ephemeral` exactly like production, and the scorecard prices cache-read tokens at
+~1/10. Re-estimate WITH caching: ~$1 for 6, ~$4–5 for the full 25 (+~$0.50–1 if vision is on).
+
+**Build + vision wired in (owner's call, before the full run).** The smoke skipped compile + design-score. Now:
+- `evaluatePrompt` captures the built dist from `build` and renders THAT (like production), passing routes
+  (home + up to 2 inner pages) + a critique prompt.
+- New dep factories in `pipeline-eval.mjs`: `makeContainerBuild(url)` → POST `/build` (real `vite build`),
+  `makeContainerRender(url)` → POST `/critique` (real Playwright), `makeVisionCritique(key)` → the vision model.
+- `.github/workflows/pipeline-eval.yml` now scaffolds the build service (template + baked deps + best-effort
+  Chromium) and runs with inputs `build`/`vision` (both default 1). Env: `EVAL_BUILD`/`EVAL_VISION`/`BUILD_URL`.
+- **De-risked at $0**: proved the whole compile+render path locally (scaffold + npm install + REAL vite build +
+  REAL 3-route Playwright render on a mock-generated app → build.ok + 3 shots) BEFORE any paid CI run.
+- `test/backend/eval.test.mjs` now 39/39 (adds: built dist flows into render, routes+prompt passed, all three
+  live-dep factories build the right requests).
+
+**Cleanup owed:** the throwaway `claude/eval-smoke-run` branch won't delete — the git proxy silently refuses ref
+deletion (`push :branch` returns "up-to-date" but the ref stays). It's inert (its temp workflow only fires on a
+push to itself). Delete from the GitHub branches UI when convenient.
+
 ## 2026-07-23 — PIPELINE_V2 eval harness (dormant, $0 to build; live run spends credits — owner's go needed)
 Built the "enable it in a controlled run, test 20–30 diverse prompts, then measure" step ChatGPT asked for. It maps
 each of their checklist questions to an auto-computed metric so we can prove PIPELINE_V2 end-to-end and get a number,
