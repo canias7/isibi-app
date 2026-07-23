@@ -6661,6 +6661,21 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — support tickets · canned responses · help-article votes (data API, next-100 support batch)
+- **`/tickets`** — a real help desk. Member opens (subject+body+priority → seeds the thread's first
+  message), lists own; admin sees all with `?status=&assignee=&mine=`. `GET /tickets/<id>` returns the
+  ticket + thread; a requester's view HIDES `internal=1` staff notes (SQL `AND internal=0` for non-admins).
+  Reply `POST /tickets/<id>/messages {body, internal?}` (internal coerced to 0 for members); a member
+  replying to a resolved/closed ticket AUTO-REOPENS it (status→open, closed_at→NULL). Admin `PATCH` triages
+  status(open/pending/resolved/closed — resolve/close stamps closed_at)/priority/assignee (assignee must be
+  a real user). `_tickets`(requester_id)+`_ticket_messages`(author_id) in GDPR erase. batch205 (24/24).
+- **`/canned/<key>`** — staff-only reusable reply templates (paste into ticket answers). Fully admin-scoped
+  (members 403 on every verb), upsert/read/list/delete. No user scope → no erase line. batch206 (15/15).
+- **`/helpful/<article>`** — "Was this helpful? Yes/No" widget. Member casts one changeable vote (ON CONFLICT
+  upsert per (article,user)), retracts via DELETE; public `GET` → `{yes,no,total,score,mine}` (score = % yes,
+  mine = caller's vote or null). `<article>` is any slug/path. `_help_votes` in GDPR erase. batch207 (20/20).
+- Full suite 190 green.
+
 ## 2026-07-23 — nav/menu builder · SEO metadata · content snippets (data API, next-100 CMS batch)
 - **`/menus/<menu>/items`** — editable navigation (header/footer/sidebar). Admin adds/patches/deletes
   ordered, nestable items (`parent` = another item in the same menu; `position` sortable, negatives ok);
