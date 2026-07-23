@@ -6661,6 +6661,20 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — FAQ · business hours · A/B experiments (data API)
+- Route-regex + proper-alternation verified absent (`/cart` DOES exist — route `crm` L9878 — so that was
+  skipped; `/courses` too). All three new.
+- **`/faq`** — admin Q&A, public published read with `?category` + `?q` (parameterized LIKE, wildcards
+  stripped), `/categories`, admin `/all` (incl. drafts). batch196 (19/19).
+- **`/hours`** — weekly open intervals (local minutes) + `/hours/special` per-date overrides + `/hours/open
+  ?at=&tz=` open-now check (shifts UTC by the business tz offset; a date override wins over the weekly
+  schedule; a day can have multiple intervals for lunch breaks). batch197 (20/20).
+- **`/experiments`** — A/B testing: weighted variants, deterministic+sticky assignment (FNV-1a of
+  key:userId across cumulative weights, recorded via atomic INSERT…WHERE NOT EXISTS), convert, per-variant
+  results (exposures/conversions/rate). Disabled → returns control, unrecorded. Complements `/flags`.
+  `_experiment_events` in GDPR erase. batch198 (21/21).
+- Full suite 181 green.
+
 ## 2026-07-23 — saved addresses · per-member settings · recently-viewed (data API)
 - **Grep lesson banked:** `grep -cE "a\|b"` uses `\|` = LITERAL pipe in ERE (not alternation), so several
   earlier "absence" checks were false-0s. Re-verify candidates with real `|` alternation (or separate greps).
