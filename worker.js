@@ -5776,6 +5776,16 @@ async function ensureExpenseClaims(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_expense_claims_user ON _expense_claims (user_id)"); } catch {}
   _expenseClaimsReady.add(uuid);
 }
+// Loyalty punch cards — a 'buy N, get 1 free' stamp card. A punch increments a member's count; on reaching the
+// program's threshold it rolls into an earned reward (with carry-over) in one atomic statement. `_punch_programs`
+// = the programs, `_punch_cards` = one card per (program, user). Ensured once.
+const _punchCardsReady = new Set();
+async function ensurePunchCards(env, uuid) {
+  if (_punchCardsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _punch_programs (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT UNIQUE NOT NULL, title TEXT, punches_needed INTEGER NOT NULL, reward TEXT, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _punch_cards (program_key TEXT NOT NULL, user_id INTEGER NOT NULL, total INTEGER NOT NULL DEFAULT 0, redeemed INTEGER NOT NULL DEFAULT 0, updated_at TEXT, PRIMARY KEY (program_key, user_id))");
+  _punchCardsReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -10636,6 +10646,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _registry_claims WHERE user_id=?", [u.id]],                        // gifts I claimed
             ["DELETE FROM _rv_ballots WHERE user_id=?", [u.id]],                             // ranked-choice ballots
             ["DELETE FROM _expense_claims WHERE user_id=?", [u.id]],                         // expense claims
+            ["DELETE FROM _punch_cards WHERE user_id=?", [u.id]],                            // loyalty punch cards
             ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
             ["DELETE FROM _testimonials WHERE user_id=?", [u.id]],                           // user-submitted testimonials
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
@@ -22735,6 +22746,154 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported expense-claims request" }, { status: 405 });
         } catch (e) { console.error("expense-claims failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "expense-claims failed" }, { status: 502 }); }
+      }
+      // LOYALTY PUNCH CARDS — a 'buy N, get 1 free' stamp card. A punch bumps a monotonic total; earned rewards
+      // = total ÷ needed and available = earned − redeemed (all integer math, so no rounding). Admin defines +
+      // stamps; a member reads their card and redeems a free reward.
+      //   POST /api/db/<slug>/punch-cards {key, punches_needed, title?, reward?}   (ADMIN) → define a program
+      //   POST /api/db/<slug>/punch-cards/<key>/punch {user}                       (ADMIN) → add a stamp
+      //   POST /api/db/<slug>/punch-cards/<key>/redeem                             (member) → claim a reward
+      //   GET  /api/db/<slug>/punch-cards/<key>/me                                 (member) → my card
+      //   GET  /api/db/<slug>/punch-cards[/<key>]                                  (public) → list / program
+      //   DELETE /api/db/<slug>/punch-cards/<key>                                  (ADMIN)
+      const pcrdm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/punch-cards(?:\/([A-Za-z0-9_.:-]{1,60})(?:\/(punch|redeem|me))?)?$/i);
+      if (pcrdm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = pcrdm[1].toLowerCase(), key = pcrdm[2] ? pcrdm[2].toLowerCase() : null, act = pcrdm[3] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const program = async () => (await cfD1Query(env, uuid, "SELECT key, title, punches_needed, reward FROM _punch_programs WHERE key=?", [key]))[0];
+        const cardView = (needed, total, redeemed) => ({ punches: total % needed, needed, rewards_available: Math.floor(total / needed) - redeemed, rewards_earned: Math.floor(total / needed), total });
+        try {
+          await ensurePunchCards(env, uuid);
+          // DEFINE (admin).
+          if (!key && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const k = String(body.key || "").trim().toLowerCase();
+            if (!/^[a-z0-9_.:-]{1,60}$/.test(k)) return Response.json({ ok: false, error: "a valid key is required" }, { status: 400 });
+            const needed = Math.floor(Number(body.punches_needed));
+            if (!(needed >= 1 && needed <= 1000)) return Response.json({ ok: false, error: "punches_needed must be 1..1000" }, { status: 400 });
+            if ((await cfD1Query(env, uuid, "SELECT 1 FROM _punch_programs WHERE key=?", [k]))[0]) return Response.json({ ok: false, error: "that key already exists" }, { status: 409 });
+            await cfD1Query(env, uuid, "INSERT INTO _punch_programs (key, title, punches_needed, reward, created_at) VALUES (?,?,?,?,?)", [k, body.title != null ? String(body.title).slice(0, 200) : null, needed, body.reward != null ? String(body.reward).slice(0, 200) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, key: k, punches_needed: needed });
+          }
+          // PUNCH (admin stamps a user).
+          if (key && act === "punch" && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            const prog = await program(); if (!prog) return Response.json({ ok: false, error: "no such program" }, { status: 404 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const target = Math.floor(Number(body.user));
+            if (!Number.isFinite(target)) return Response.json({ ok: false, error: "a user is required" }, { status: 400 });
+            if (!(await cfD1Query(env, uuid, "SELECT 1 FROM _users WHERE id=?", [target]))[0]) return Response.json({ ok: false, error: "no such user" }, { status: 404 });
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _punch_cards (program_key, user_id, total, updated_at) VALUES (?,?,1,?) ON CONFLICT(program_key, user_id) DO UPDATE SET total=total+1, updated_at=excluded.updated_at RETURNING total, redeemed", [key, target, now]);
+            return Response.json({ ok: true, key, user: target, ...cardView(prog.punches_needed, r[0].total, r[0].redeemed) });
+          }
+          // REDEEM (member).
+          if (key && act === "redeem" && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const prog = await program(); if (!prog) return Response.json({ ok: false, error: "no such program" }, { status: 404 });
+            const r = await cfD1Query(env, uuid, "UPDATE _punch_cards SET redeemed=redeemed+1, updated_at=? WHERE program_key=? AND user_id=? AND total >= (redeemed+1)*? RETURNING total, redeemed", [new Date().toISOString(), key, userId, prog.punches_needed]);
+            if (!r.length) return Response.json({ ok: false, error: "no reward available yet" }, { status: 409 });
+            return Response.json({ ok: true, key, redeemed: true, ...cardView(prog.punches_needed, r[0].total, r[0].redeemed) });
+          }
+          // ME (member).
+          if (key && act === "me" && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const prog = await program(); if (!prog) return Response.json({ ok: false, error: "no such program" }, { status: 404 });
+            const card = (await cfD1Query(env, uuid, "SELECT total, redeemed FROM _punch_cards WHERE program_key=? AND user_id=?", [key, userId]))[0] || { total: 0, redeemed: 0 };
+            return Response.json({ ok: true, key, reward: prog.reward, ...cardView(prog.punches_needed, card.total, card.redeemed) });
+          }
+          // DELETE (admin).
+          if (key && !act && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _punch_programs WHERE key=?", [key]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such program" }, { status: 404 });
+            await cfD1Exec(env, uuid, "DELETE FROM _punch_cards WHERE program_key=?", [key]);
+            return Response.json({ ok: true, deleted: true, key });
+          }
+          // PROGRAM (public).
+          if (key && !act && request.method === "GET") {
+            const prog = await program(); if (!prog) return Response.json({ ok: false, error: "no such program" }, { status: 404 });
+            return Response.json({ ok: true, program: prog });
+          }
+          // LIST (public).
+          if (!key && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT key, title, punches_needed, reward FROM _punch_programs ORDER BY id DESC LIMIT 1000");
+            return Response.json({ ok: true, programs: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported punch-cards request" }, { status: 405 });
+        } catch (e) { console.error("punch-cards failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "punch-cards failed" }, { status: 502 }); }
+      }
+      // CARD TYPE — a stateless card-brand detector from the number's IIN/prefix (Visa, Mastercard, Amex,
+      // Discover, Diners, JCB) plus a Luhn validity flag and expected-length check.
+      //   POST /api/db/<slug>/card-type {number}   (public) → {brand, luhn_valid, length}
+      const ctypm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/card-type$/i);
+      if (ctypm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = ctypm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|cty", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const d = String(body.number == null ? "" : body.number).replace(/\D/g, "");
+          if (!d || d.length > 40) return Response.json({ ok: false, error: "a number is required" }, { status: 400 });
+          let brand = "unknown";
+          const two = parseInt(d.slice(0, 2), 10), four = parseInt(d.slice(0, 4), 10), three = parseInt(d.slice(0, 3), 10);
+          if (d[0] === "4") brand = "visa";
+          else if ((two >= 51 && two <= 55) || (four >= 2221 && four <= 2720)) brand = "mastercard";
+          else if (two === 34 || two === 37) brand = "amex";
+          else if (d.slice(0, 4) === "6011" || two === 65 || (three >= 644 && three <= 649)) brand = "discover";
+          else if (two === 36 || two === 38 || (three >= 300 && three <= 305)) brand = "diners";
+          else if (two === 35) brand = "jcb";
+          const luhn = (str) => { let sum = 0, alt = false; for (let i = str.length - 1; i >= 0; i--) { let n = str.charCodeAt(i) - 48; if (alt) { n *= 2; if (n > 9) n -= 9; } sum += n; alt = !alt; } return sum % 10 === 0; };
+          const expected = { visa: [13, 16, 19], mastercard: [16], amex: [15], discover: [16], diners: [14], jcb: [16] };
+          return Response.json({ ok: true, brand, luhn_valid: luhn(d), length: d.length, length_ok: brand === "unknown" ? null : (expected[brand] || []).includes(d.length) });
+        } catch (e) { console.error("card-type failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "card-type failed" }, { status: 502 }); }
+      }
+      // BASE64 — a stateless base64 (and base64url) encoder / decoder for UTF-8 text.
+      //   POST /api/db/<slug>/base64 {text, mode?, urlsafe?}   (public) → {result}   (mode: encode | decode)
+      const b64m = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/base64$/i);
+      if (b64m && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = b64m[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|b64", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          if (typeof body.text !== "string") return Response.json({ ok: false, error: "text is required" }, { status: 400 });
+          if (body.text.length > 2000000) return Response.json({ ok: false, error: "text too large" }, { status: 400 });
+          const mode = String(body.mode || "encode").toLowerCase();
+          const urlsafe = !!body.urlsafe;
+          let result;
+          if (mode === "encode") {
+            let b64 = b64FromBuffer(new TextEncoder().encode(body.text).buffer);
+            if (urlsafe) b64 = b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+            result = b64;
+          } else if (mode === "decode") {
+            let s2 = body.text.trim();
+            if (urlsafe || /[-_]/.test(s2)) s2 = s2.replace(/-/g, "+").replace(/_/g, "/");
+            while (s2.length % 4) s2 += "=";
+            let bin;
+            try { bin = atob(s2); } catch { return Response.json({ ok: false, error: "invalid base64" }, { status: 400 }); }
+            const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            try { result = new TextDecoder("utf-8", { fatal: false }).decode(bytes); } catch { result = bin; }
+          } else return Response.json({ ok: false, error: "mode must be encode | decode" }, { status: 400 });
+          return Response.json({ ok: true, mode, result });
+        } catch (e) { console.error("base64 failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "base64 failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.

@@ -6666,6 +6666,17 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — punch cards · card type · base64 (data API, round 2)
+- **`/punch-cards`** — buy-N-get-1-free stamp card. A punch bumps a monotonic `total`; earned = `total ÷
+  needed`, available = earned − `redeemed` (pure integer math — SQLite `/` binds as float in node:sqlite, so
+  the model avoids in-SQL division). Admin define/punch, member `/me` + `/redeem` (guard `total ≥
+  (redeemed+1)*needed`). `_punch_cards` erased by user. batch355 (21/21).
+- **`/card-type`** — stateless card-brand detector from IIN/prefix (Visa/MC incl. 2221–2720/Amex/Discover/
+  Diners/JCB) + Luhn flag + brand length check. Public. batch356 (15/15).
+- **`/base64`** — stateless base64 / base64url encode+decode for UTF-8 (reuses `b64FromBuffer`; decode
+  auto-handles url-safe input). Public. batch357 (9/9).
+- Full suite 340 green. (60/100 of round 2 shipped.)
+
 ## 2026-07-23 — humanize · id-generate · expense claims (data API, round 2)
 - **`/humanize`** — stateless display formatter: `{value, type}` for bytes (1024-based), duration (s→"1h 1m
   1s"), number (1500→"1.5K"), ordinal (23→"23rd"), relative ("3 days ago"/"in 2 hours"). Public. batch352 (17/17).
