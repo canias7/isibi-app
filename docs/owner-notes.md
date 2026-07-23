@@ -6661,6 +6661,19 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — terms acceptance · age gate · profanity filter (data API, next-100 trust/safety batch)
+- **`/terms/<doc>`** — versioned consent paper-trail. Admin sets the current version; member `/accept` stamps
+  it; `/status` reports up_to_date (flips false on a version bump until re-accept); admin `/acceptances` log.
+  `_terms_accept` in GDPR erase. batch223 (21/21).
+- **`/agegate`** — DOB→age (month/day-aware) vs a min (default 18). PRIVACY: stores only the computed age +
+  verified_at, NEVER the raw DOB (test asserts no dob column). `/check` records a pass for signed-in members;
+  `/me` reports verified. `_agegate` in GDPR erase. batch224 (16/16).
+- **`/profanity`** — admin blocklist + public `/check {text}` → {clean, matches, masked}. Whole-word
+  (`\bword\b`, regex-escaped) + case-insensitive so 'classic' never trips 'ass'; masks hits with asterisks.
+  Admin config, no erase line. batch225 (21/21).
+- Note: `/auth/consent` (GDPR cookie consent) already existed — this terms feature is the separate
+  versioned-document acceptance track. Full suite 208 green.
+
 ## 2026-07-23 — challenges · levels/XP ladder · per-user dashboard tiles (data API, next-100)
 - **`/challenges/<key>`** — a goal with a target + optional starts/ends window. Member `/progress {by}`
   (atomic `MAX(0, progress+by)` upsert RETURNING) or `{set}` (absolute); active-window enforced (409 outside

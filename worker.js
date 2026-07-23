@@ -4958,6 +4958,32 @@ async function ensureDashboards(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _dashboards (user_id INTEGER PRIMARY KEY, tiles TEXT, updated_at TEXT)");
   _dashboardsReady.add(uuid);
 }
+// Terms acceptance — an admin publishes a versioned document (terms/privacy); a member records accepting
+// the current version, and the app checks whether they're up to date. `_terms_docs` = current version per
+// document, `_terms_accept` = each member's latest acceptance. Ensured once.
+const _termsReady = new Set();
+async function ensureTerms(env, uuid) {
+  if (_termsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _terms_docs (doc TEXT PRIMARY KEY, version TEXT NOT NULL, title TEXT, url TEXT, body TEXT, updated_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _terms_accept (doc TEXT NOT NULL, user_id INTEGER NOT NULL, version TEXT NOT NULL, accepted_at TEXT, PRIMARY KEY (doc, user_id))");
+  _termsReady.add(uuid);
+}
+// Age gate — a visitor submits a date of birth; the server computes the age and checks it against a minimum.
+// For privacy we store only the computed age + verified time (never the raw DOB) for signed-in members.
+const _ageGateReady = new Set();
+async function ensureAgeGate(env, uuid) {
+  if (_ageGateReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _agegate (user_id INTEGER PRIMARY KEY, age INTEGER, verified_at TEXT)");
+  _ageGateReady.add(uuid);
+}
+// Profanity filter — an admin manages a blocklist of words; anyone checks text against it and gets back a
+// clean flag, the matched words, and a masked version. `_profanity` = the blocklist. Ensured once.
+const _profanityReady = new Set();
+async function ensureProfanity(env, uuid) {
+  if (_profanityReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _profanity (word TEXT PRIMARY KEY, created_at TEXT)");
+  _profanityReady.add(uuid);
+}
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -9751,6 +9777,8 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _daily_claims WHERE user_id=?", [u.id]],                           // daily-reward claim streak
             ["DELETE FROM _challenge_progress WHERE user_id=?", [u.id]],                     // challenge progress
             ["DELETE FROM _dashboards WHERE user_id=?", [u.id]],                             // their saved dashboard layout
+            ["DELETE FROM _terms_accept WHERE user_id=?", [u.id]],                           // terms/privacy acceptances
+            ["DELETE FROM _agegate WHERE user_id=?", [u.id]],                                // age-gate verification
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -14408,6 +14436,187 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported dashboard request" }, { status: 405 });
         } catch (e) { console.error("dashboard failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "dashboard failed" }, { status: 502 }); }
+      }
+      // TERMS ACCEPTANCE — an admin publishes a versioned document; a member accepts the current version and
+      // the app checks whether they're up to date.
+      //   POST   /api/db/<slug>/terms/<doc> {version, title?, url?, body?}  (ADMIN) → set the current version
+      //   GET    /api/db/<slug>/terms/<doc>                 (public) → the current doc
+      //   POST   /api/db/<slug>/terms/<doc>/accept          (member) → record acceptance of the current version
+      //   GET    /api/db/<slug>/terms/<doc>/status          (member) → {current_version, accepted_version, up_to_date}
+      //   GET    /api/db/<slug>/terms/<doc>/acceptances     (ADMIN) → the acceptance log
+      //   GET    /api/db/<slug>/terms                       (public) → docs
+      const trm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/terms(?:\/([A-Za-z0-9_.-]{1,60})(?:\/(accept|status|acceptances))?)?$/i);
+      if (trm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = trm[1].toLowerCase(), doc = trm[2] || null, act = trm[3] ? trm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureTerms(env, uuid);
+          // LIST docs (public).
+          if (!doc && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|trml", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT doc, version, title, url, updated_at FROM _terms_docs ORDER BY doc ASC LIMIT 200");
+            return Response.json({ ok: true, docs: rows });
+          }
+          // SET current version (admin).
+          if (doc && !act && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|trmw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const version = String(body.version || "").trim().slice(0, 60);
+            if (!version) return Response.json({ ok: false, error: "a version is required" }, { status: 400 });
+            await cfD1Query(env, uuid, "INSERT INTO _terms_docs (doc, version, title, url, body, updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(doc) DO UPDATE SET version=excluded.version, title=excluded.title, url=excluded.url, body=excluded.body, updated_at=excluded.updated_at", [doc, version, body.title != null ? String(body.title).slice(0, 200) : null, body.url != null ? String(body.url).slice(0, 2000) : null, body.body != null ? String(body.body).slice(0, 100000) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, doc, version });
+          }
+          // DELETE a doc (admin).
+          if (doc && !act && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _terms_docs WHERE doc=?", [doc]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such document" }, { status: 404 });
+            try { await cfD1Exec(env, uuid, "DELETE FROM _terms_accept WHERE doc=?", [doc]); } catch {}
+            return Response.json({ ok: true, deleted: true, doc });
+          }
+          // GET current doc (public).
+          if (doc && !act && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|trmr", 600)) return tooMany();
+            const d = (await cfD1Query(env, uuid, "SELECT doc, version, title, url, body, updated_at FROM _terms_docs WHERE doc=?", [doc]))[0];
+            if (!d) return Response.json({ ok: false, error: "no such document" }, { status: 404 });
+            return Response.json({ ok: true, terms: d });
+          }
+          // ACCEPT (member).
+          if (doc && act === "accept" && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|trma", 120)) return tooMany();
+            const d = (await cfD1Query(env, uuid, "SELECT version FROM _terms_docs WHERE doc=?", [doc]))[0];
+            if (!d) return Response.json({ ok: false, error: "no such document" }, { status: 404 });
+            await cfD1Query(env, uuid, "INSERT INTO _terms_accept (doc, user_id, version, accepted_at) VALUES (?,?,?,?) ON CONFLICT(doc, user_id) DO UPDATE SET version=excluded.version, accepted_at=excluded.accepted_at", [doc, userId, d.version, new Date().toISOString()]);
+            return Response.json({ ok: true, doc, version: d.version, accepted: true });
+          }
+          // STATUS (member).
+          if (doc && act === "status" && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const d = (await cfD1Query(env, uuid, "SELECT version FROM _terms_docs WHERE doc=?", [doc]))[0];
+            if (!d) return Response.json({ ok: false, error: "no such document" }, { status: 404 });
+            const acc = (await cfD1Query(env, uuid, "SELECT version, accepted_at FROM _terms_accept WHERE doc=? AND user_id=?", [doc, userId]))[0];
+            return Response.json({ ok: true, doc, current_version: d.version, accepted_version: acc ? acc.version : null, up_to_date: !!(acc && acc.version === d.version), accepted_at: acc ? acc.accepted_at : null });
+          }
+          // ACCEPTANCES log (admin).
+          if (doc && act === "acceptances" && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|trmacc", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT user_id, version, accepted_at FROM _terms_accept WHERE doc=? ORDER BY accepted_at DESC LIMIT 5000", [doc]);
+            return Response.json({ ok: true, doc, acceptances: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported terms request" }, { status: 405 });
+        } catch (e) { console.error("terms failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "terms failed" }, { status: 502 }); }
+      }
+      // AGE GATE — a visitor submits a date of birth; the server computes the age and checks it against a
+      // minimum. For privacy only the computed age (never the raw DOB) is stored for signed-in members.
+      //   POST   /api/db/<slug>/agegate/check {dob, min?}   (public) → {age, pass, min}
+      //   GET    /api/db/<slug>/agegate/me                  (member) → {verified, age}
+      const agtm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/agegate(?:\/(check|me))?$/i);
+      if (agtm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = agtm[1].toLowerCase(), sub = agtm[2] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        // Whole years between a DOB and today (UTC), month/day aware.
+        const ageFrom = (dob) => { const b = new Date(dob); if (Number.isNaN(b.getTime())) return null; const now = new Date(); let a = now.getUTCFullYear() - b.getUTCFullYear(); const m = now.getUTCMonth() - b.getUTCMonth(); if (m < 0 || (m === 0 && now.getUTCDate() < b.getUTCDate())) a--; return a; };
+        try {
+          await ensureAgeGate(env, uuid);
+          if (sub === "check" && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|agc", 60)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const age = ageFrom(String(body.dob || ""));
+            if (age == null || age < 0 || age > 150) return Response.json({ ok: false, error: "a valid date of birth is required" }, { status: 400 });
+            let min = body.min == null ? 18 : Math.floor(Number(body.min));
+            if (!Number.isFinite(min) || min < 0 || min > 150) min = 18;
+            const pass = age >= min;
+            if (pass && userId) await cfD1Query(env, uuid, "INSERT INTO _agegate (user_id, age, verified_at) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET age=excluded.age, verified_at=excluded.verified_at", [userId, age, new Date().toISOString()]);
+            return Response.json({ ok: true, age, min, pass });
+          }
+          if (sub === "me" && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const r = (await cfD1Query(env, uuid, "SELECT age, verified_at FROM _agegate WHERE user_id=?", [userId]))[0];
+            return Response.json({ ok: true, verified: !!r, age: r ? r.age : null, verified_at: r ? r.verified_at : null });
+          }
+          return Response.json({ ok: false, error: "use POST /agegate/check or GET /agegate/me" }, { status: 405 });
+        } catch (e) { console.error("agegate failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "agegate failed" }, { status: 502 }); }
+      }
+      // PROFANITY FILTER — an admin manages a blocklist of words; anyone checks text against it and gets back
+      // a clean flag, the matched words, and a masked version.
+      //   POST   /api/db/<slug>/profanity/words {words:[…]}  (ADMIN) → add words
+      //   GET    /api/db/<slug>/profanity/words              (ADMIN) → the blocklist
+      //   DELETE /api/db/<slug>/profanity/words/<word>       (ADMIN) → remove one
+      //   POST   /api/db/<slug>/profanity/check {text}       (public) → {clean, matches, masked}
+      const pfm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/profanity\/(words|check)(?:\/([A-Za-z0-9_.'-]{1,60}))?$/i);
+      if (pfm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = pfm[1].toLowerCase(), kind = pfm[2].toLowerCase(), oneWord = pfm[3] ? pfm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const cleanWord = (w) => String(w || "").trim().toLowerCase().slice(0, 60);
+        try {
+          await ensureProfanity(env, uuid);
+          // CHECK (public).
+          if (kind === "check") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|pfc", 600)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const text = String(body.text || "").slice(0, 20000);
+            if (!text) return Response.json({ ok: false, error: "text is required" }, { status: 400 });
+            const words = (await cfD1Query(env, uuid, "SELECT word FROM _profanity LIMIT 5000")).map((r) => r.word);
+            const matches = []; let masked = text;
+            for (const w of words) {
+              if (!w) continue;
+              const re = new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
+              if (re.test(text)) { matches.push(w); masked = masked.replace(new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi"), (m) => "*".repeat(m.length)); }
+            }
+            return Response.json({ ok: true, clean: matches.length === 0, matches, masked });
+          }
+          // WORDS — admin only.
+          const a = await needAdmin(); if (a) return a;
+          if (request.method === "POST" && !oneWord) {
+            if (!rateOk(slug + "|" + ip + "|pfw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const raw = Array.isArray(body.words) ? body.words : (body.word != null ? [body.word] : []);
+            const list = [...new Set(raw.map(cleanWord).filter(Boolean))].slice(0, 500);
+            if (!list.length) return Response.json({ ok: false, error: "words[] is required" }, { status: 400 });
+            const now = new Date().toISOString();
+            for (const w of list) await cfD1Exec(env, uuid, "INSERT INTO _profanity (word, created_at) VALUES (?,?) ON CONFLICT(word) DO NOTHING", [w, now]);
+            const total = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _profanity"))[0].n;
+            return Response.json({ ok: true, added: list.length, total });
+          }
+          if (request.method === "DELETE" && oneWord) {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _profanity WHERE word=?", [oneWord]);
+            if (!ex.changes) return Response.json({ ok: false, error: "not in the list" }, { status: 404 });
+            return Response.json({ ok: true, removed: oneWord });
+          }
+          if (request.method === "GET" && !oneWord) {
+            if (!rateOk(slug + "|" + ip + "|pfl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT word FROM _profanity ORDER BY word ASC LIMIT 5000");
+            return Response.json({ ok: true, words: rows.map((r) => r.word) });
+          }
+          return Response.json({ ok: false, error: "unsupported profanity request" }, { status: 405 });
+        } catch (e) { console.error("profanity failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "profanity failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
