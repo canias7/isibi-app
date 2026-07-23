@@ -4974,11 +4974,21 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .mkt-crt .crtl-stage{position:relative;z-index:1}
 .mkt-crt .mkt-logobg{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden;
   background:radial-gradient(70% 58% at 50% 42%, rgba(0,0,0,.022), transparent 72%)}
-/* the logo as a single 3D-extruded block — ghosted into the surface as a
-   background element (middle-right of the chatbox), soft but still tactile */
+/* the logo reduced to just its circuit lines, with a live light sweeping through
+   them (echoes the chatbox halo) so it reads like a powered, living circuit —
+   ghosted into the background on the middle-right */
 .mkt-crt .mkt-logo3d{position:absolute;right:-3vw;top:50%;transform:translateY(-50%);
-  width:min(54vh,560px);height:min(58vh,600px);
-  background:url(/logo3d.png) center/contain no-repeat;opacity:.15}
+  width:min(54vh,560px);height:min(58vh,600px);opacity:.6;
+  -webkit-mask:url(/logo.png) center/contain no-repeat;mask:url(/logo.png) center/contain no-repeat;
+  -webkit-mask-size:contain;mask-size:contain;
+  background:linear-gradient(118deg,
+    rgba(26,26,32,.32) 0 44%,
+    rgba(255,121,198,1) 48.5%, rgba(255,178,92,1) 51.5%,
+    rgba(26,26,32,.32) 56% 100%);
+  background-size:300% 100%;
+  animation:mkt-live 4.2s linear infinite}
+@keyframes mkt-live{from{background-position:130% 50%}to{background-position:-30% 50%}}
+@media (prefers-reduced-motion:reduce){.mkt-crt .mkt-logo3d{animation:none;background-position:50% 50%}}
 
 /* ── Gradient Halo chatbox (owner 2026-07-23): the ONE colored element on the
    black-and-white platform. Pinned to the old dark glass + pink→amber halo so it
