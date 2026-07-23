@@ -6666,6 +6666,20 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — phone normalize · attribution · quest chains (data API, round 2)
+- **`/phone-normalize`** — stateless best-effort E.164: a leading `+` is trusted; else a `country` (ISO2 or
+  dialing code) prefixes and a national leading 0 is stripped; ~30-country dial map. Not a full validator.
+  Public. batch328 (11/11).
+- **`/attribution`** — first/last-touch marketing attribution: `/touch {channel, campaign?}` records a
+  touchpoint (admin may pass `user`), `/for?user=&model=first|last` returns the attributed touch, `/me`,
+  `/report?model=` tallies channels across users (first/last pick per user). `_touchpoints` erased by user.
+  batch329 (13/13).
+- **`/quests`** — ordered step chains: admin defines `{key, steps[]}`; member `/advance {step}` completes the
+  next step strictly in order (step 0 = fresh `INSERT…ON CONFLICT DO NOTHING`, later = state-guarded
+  `UPDATE…WHERE step_index=idx RETURNING`; out-of-order/repeat → 409); `/me` progress. `_quest_progress`
+  erased by user. batch330 (22/22).
+- Full suite 313 green. (33/100 of round 2 shipped.)
+
 ## 2026-07-23 — metric alerts · replay nonces · template render (data API, round 2)
 - **`/metric-alerts`** — admin declares threshold rules (`metric, op∈gt/gte/lt/lte/eq/ne, threshold`); `/check
   {metric, value}` evaluates all enabled rules for that metric and logs breaches; `/breaches`, list, delete.
