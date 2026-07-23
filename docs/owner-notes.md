@@ -6666,6 +6666,16 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — humanize · id-generate · expense claims (data API, round 2)
+- **`/humanize`** — stateless display formatter: `{value, type}` for bytes (1024-based), duration (s→"1h 1m
+  1s"), number (1500→"1.5K"), ordinal (23→"23rd"), relative ("3 days ago"/"in 2 hours"). Public. batch352 (17/17).
+- **`/id-generate`** — stateless ID gen: uuid v4, ULID (26ch, time-sortable), short base62, url-safe nano;
+  count/prefix/size. Member-gated. batch353 (12/12).
+- **`/expense-claims`** — member submits an expense (amount→cents); admin moves it submitted→approved|rejected,
+  approved→reimbursed (atomic state-guarded `UPDATE…WHERE status=? RETURNING`). mine/queue(+total)/get-one.
+  `_expense_claims` erased by user. batch354 (20/20).
+- Full suite 337 green. (57/100 of round 2 shipped.)
+
 ## 2026-07-23 — inventory lots (FEFO) · ranked-choice vote · color convert (data API, round 2)
 - **`/inventory-lots`** — batch stock with expiry; `/issue {sku, qty}` consumes earliest-expiring lots first
   (FEFO), each a guarded `UPDATE…qty-? WHERE id=? AND qty>=? RETURNING`, pre-checking the total and refunding
