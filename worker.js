@@ -5583,6 +5583,24 @@ async function ensureRenewals(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_renewals_end ON _renewals (status, end_date)"); } catch {}
   _renewalsReady.add(uuid);
 }
+// No-show tracking — record when a member misses a booking; a strike count is just COUNT per user. `_no_shows`.
+// Ensured once.
+const _noShowsReady = new Set();
+async function ensureNoShows(env, uuid) {
+  if (_noShowsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _no_shows (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, ref TEXT, reason TEXT, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_no_shows_user ON _no_shows (user_id)"); } catch {}
+  _noShowsReady.add(uuid);
+}
+// Content review workflow — a content item moves draft → in_review → approved | rejected, and approved →
+// published; each transition is an atomic state-guarded UPDATE. `_content_review` keyed by ref. Ensured once.
+const _contentReviewReady = new Set();
+async function ensureContentReview(env, uuid) {
+  if (_contentReviewReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _content_review (id INTEGER PRIMARY KEY AUTOINCREMENT, ref TEXT UNIQUE NOT NULL, title TEXT, status TEXT NOT NULL DEFAULT 'draft', author_id INTEGER NOT NULL, reviewer_id INTEGER, note TEXT, created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_content_review_status ON _content_review (status)"); } catch {}
+  _contentReviewReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -10429,6 +10447,8 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _order_notes WHERE user_id=?", [u.id]],                            // order notes / gift messages
             ["DELETE FROM _sessions WHERE user_id=?", [u.id]],                               // analytics sessions
             ["DELETE FROM _kudos WHERE from_id=? OR to_id=?", [u.id, u.id]],                 // kudos given or received
+            ["DELETE FROM _no_shows WHERE user_id=?", [u.id]],                               // no-show strikes
+            ["DELETE FROM _content_review WHERE author_id=?", [u.id]],                       // content-review items
             ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
             ["DELETE FROM _testimonials WHERE user_id=?", [u.id]],                           // user-submitted testimonials
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
@@ -20365,6 +20385,182 @@ async function handleRequest(request, env, ctx) {
           if (existing && existing.has(slug)) { let i = 2; while (existing.has(base + sep + i) && i < 10000) i++; slug = base + sep + i; }
           return Response.json({ ok: true, slug, base });
         } catch (e) { console.error("slugify failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "slugify failed" }, { status: 502 }); }
+      }
+      // MOVING AVERAGE — a stateless smoother of a numeric series: a simple moving average (SMA) over a window,
+      // plus an optional exponential moving average (EMA). Output is aligned to the input (null until the SMA
+      // window fills).
+      //   POST /api/db/<slug>/stats/moving-average {values:[...], window, ema?}   (public) → {sma:[...], ema?:[...]}
+      const mvm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/stats\/moving-average$/i);
+      if (mvm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = mvm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|mv", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const values = (Array.isArray(body.values) ? body.values : []).map(Number);
+          if (!values.length || values.some((v) => !Number.isFinite(v))) return Response.json({ ok: false, error: "values[] of finite numbers is required" }, { status: 400 });
+          if (values.length > 100000) return Response.json({ ok: false, error: "too many values" }, { status: 400 });
+          let window = Math.floor(Number(body.window)); if (!(window >= 1 && window <= values.length)) return Response.json({ ok: false, error: "window must be 1.." + values.length }, { status: 400 });
+          const round = (x) => x == null ? null : Math.round(x * 1e6) / 1e6;
+          const sma = []; let sum = 0;
+          for (let i = 0; i < values.length; i++) { sum += values[i]; if (i >= window) sum -= values[i - window]; sma.push(i >= window - 1 ? round(sum / window) : null); }
+          const out = { ok: true, window, sma };
+          if (body.ema) { const alpha = 2 / (window + 1); const ema = []; let prev = null; for (let i = 0; i < values.length; i++) { prev = prev == null ? values[i] : (values[i] * alpha + prev * (1 - alpha)); ema.push(round(prev)); } out.ema = ema; out.alpha = round(alpha); }
+          return Response.json(out);
+        } catch (e) { console.error("moving-average failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "moving-average failed" }, { status: 502 }); }
+      }
+      // NO-SHOW TRACKING — record when a member misses a booking; the strike count is COUNT per user. Admin
+      // records/forgives; a member sees their own.
+      //   POST   /api/db/<slug>/no-shows {user, ref?, reason?}   (ADMIN) → record a strike
+      //   GET    /api/db/<slug>/no-shows/count?user=<id>         (ADMIN) → {strikes}
+      //   GET    /api/db/<slug>/no-shows/me                      (member) → own strikes
+      //   GET    /api/db/<slug>/no-shows[?user=]                 (ADMIN) → list
+      //   DELETE /api/db/<slug>/no-shows/<id>                    (ADMIN) → forgive one
+      const nsm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/no-shows(?:\/(count|me|\d+))?$/i);
+      if (nsm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = nsm[1].toLowerCase(), seg = nsm[2] || null;
+        const nsId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const isAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return !!(rr[0] && rr[0].role === "admin"); };
+        try {
+          await ensureNoShows(env, uuid);
+          // ME (member).
+          if (seg === "me" && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT id, ref, reason, created_at FROM _no_shows WHERE user_id=? ORDER BY id DESC LIMIT 500", [userId]);
+            return Response.json({ ok: true, strikes: rows.length, no_shows: rows });
+          }
+          if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          // RECORD.
+          if (!seg && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const target = Math.floor(Number(body.user));
+            if (!Number.isFinite(target)) return Response.json({ ok: false, error: "a user is required" }, { status: 400 });
+            const exists = (await cfD1Query(env, uuid, "SELECT 1 FROM _users WHERE id=?", [target]))[0];
+            if (!exists) return Response.json({ ok: false, error: "no such user" }, { status: 404 });
+            const r = await cfD1Query(env, uuid, "INSERT INTO _no_shows (user_id, ref, reason, created_at) VALUES (?,?,?,?) RETURNING id", [target, body.ref != null ? String(body.ref).slice(0, 120) : null, body.reason != null ? String(body.reason).slice(0, 500) : null, new Date().toISOString()]);
+            const cnt = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _no_shows WHERE user_id=?", [target]))[0];
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, user: target, strikes: cnt.n });
+          }
+          // COUNT.
+          if (seg === "count" && request.method === "GET") {
+            const target = Math.floor(Number(url.searchParams.get("user")));
+            if (!Number.isFinite(target)) return Response.json({ ok: false, error: "a ?user= is required" }, { status: 400 });
+            const cnt = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _no_shows WHERE user_id=?", [target]))[0];
+            return Response.json({ ok: true, user: target, strikes: cnt.n });
+          }
+          // DELETE.
+          if (nsId != null && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _no_shows WHERE id=?", [nsId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such record" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: nsId });
+          }
+          // LIST.
+          if (!seg && request.method === "GET") {
+            const u2 = url.searchParams.get("user");
+            const rows = u2 && /^\d+$/.test(u2)
+              ? await cfD1Query(env, uuid, "SELECT id, user_id, ref, reason, created_at FROM _no_shows WHERE user_id=? ORDER BY id DESC LIMIT 2000", [parseInt(u2, 10)])
+              : await cfD1Query(env, uuid, "SELECT id, user_id, ref, reason, created_at FROM _no_shows ORDER BY id DESC LIMIT 2000");
+            return Response.json({ ok: true, no_shows: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported no-shows request" }, { status: 405 });
+        } catch (e) { console.error("no-shows failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "no-shows failed" }, { status: 502 }); }
+      }
+      // CONTENT REVIEW WORKFLOW — a content item moves draft → in_review → approved | rejected, and approved →
+      // published; each transition is an atomic state-guarded UPDATE. Author owns draft/submit; admin reviews.
+      //   POST /api/db/<slug>/content-review {ref, title?}       (member) → create a draft
+      //   POST /api/db/<slug>/content-review/<ref>/submit        (author) → draft → in_review
+      //   POST /api/db/<slug>/content-review/<ref>/approve       (ADMIN)  → in_review → approved
+      //   POST /api/db/<slug>/content-review/<ref>/reject {note?}(ADMIN)  → in_review → rejected
+      //   POST /api/db/<slug>/content-review/<ref>/publish       (ADMIN)  → approved → published
+      //   GET  /api/db/<slug>/content-review/<ref>               (author or admin)
+      //   GET  /api/db/<slug>/content-review/mine                (member) → own items
+      //   GET  /api/db/<slug>/content-review[?status=]           (ADMIN)  → the queue
+      const crvm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/content-review(?:\/(mine|[A-Za-z0-9_.:-]{1,80})(?:\/(submit|approve|reject|publish))?)?$/i);
+      if (crvm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = crvm[1].toLowerCase(), seg = crvm[2] || null, act = crvm[3] || null;
+        const isMine = seg === "mine" && !act, ref = (seg && seg !== "mine") ? seg : (seg === "mine" && act ? "mine" : null);
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureContentReview(env, uuid);
+          const isAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return !!(rr[0] && rr[0].role === "admin"); };
+          const shape = (r) => ({ id: r.id, ref: r.ref, title: r.title, status: r.status, author_id: r.author_id, reviewer_id: r.reviewer_id, note: r.note, updated_at: r.updated_at });
+          const transition = async (from, to, extraCol, extraVal) => {
+            const now = new Date().toISOString();
+            const sql = "UPDATE _content_review SET status=?, reviewer_id=?, updated_at=?" + (extraCol ? ", " + extraCol + "=?" : "") + " WHERE ref=? AND status=? RETURNING id";
+            const params = extraCol ? [to, userId, now, extraVal, ref, from] : [to, userId, now, ref, from];
+            const r = await cfD1Query(env, uuid, sql, params);
+            if (r.length) return Response.json({ ok: true, ref, status: to });
+            const row = (await cfD1Query(env, uuid, "SELECT status FROM _content_review WHERE ref=?", [ref]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such item" }, { status: 404 });
+            return Response.json({ ok: false, error: "can't go " + to + " from '" + row.status + "'", status: row.status }, { status: 409 });
+          };
+          // CREATE.
+          if (!seg && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const r2 = String(body.ref || "").trim();
+            if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(r2) || r2 === "mine") return Response.json({ ok: false, error: "a ref (letters, digits, . _ : -; not 'mine') is required" }, { status: 400 });
+            const exists = (await cfD1Query(env, uuid, "SELECT 1 FROM _content_review WHERE ref=?", [r2]))[0];
+            if (exists) return Response.json({ ok: false, error: "that ref already exists" }, { status: 409 });
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _content_review (ref, title, status, author_id, created_at, updated_at) VALUES (?,?, 'draft', ?, ?, ?) RETURNING id", [r2, body.title != null ? String(body.title).slice(0, 300) : null, userId, now, now]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, ref: r2, status: "draft" });
+          }
+          // MINE.
+          if (isMine && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT * FROM _content_review WHERE author_id=? ORDER BY id DESC LIMIT 1000", [userId]);
+            return Response.json({ ok: true, items: rows.map(shape) });
+          }
+          // SUBMIT (author only).
+          if (ref && ref !== "mine" && act === "submit" && request.method === "POST") {
+            const item = (await cfD1Query(env, uuid, "SELECT author_id FROM _content_review WHERE ref=?", [ref]))[0];
+            if (!item) return Response.json({ ok: false, error: "no such item" }, { status: 404 });
+            if (item.author_id !== userId && !(await isAdmin())) return Response.json({ ok: false, error: "only the author can submit" }, { status: 403 });
+            return await transition("draft", "in_review");
+          }
+          // APPROVE / REJECT / PUBLISH (admin).
+          if (ref && ref !== "mine" && act && ["approve", "reject", "publish"].includes(act) && request.method === "POST") {
+            if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            let body = {}; try { body = await request.json(); } catch {}
+            if (act === "approve") return await transition("in_review", "approved");
+            if (act === "reject") return await transition("in_review", "rejected", "note", body.note != null ? String(body.note).slice(0, 1000) : null);
+            return await transition("approved", "published");
+          }
+          // GET one.
+          if (ref && ref !== "mine" && !act && request.method === "GET") {
+            const row = (await cfD1Query(env, uuid, "SELECT * FROM _content_review WHERE ref=?", [ref]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such item" }, { status: 404 });
+            if (row.author_id !== userId && !(await isAdmin())) return Response.json({ ok: false, error: "not yours" }, { status: 403 });
+            return Response.json({ ok: true, item: shape(row) });
+          }
+          // QUEUE (admin).
+          if (!seg && request.method === "GET") {
+            if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const st = url.searchParams.get("status");
+            const rows = st
+              ? await cfD1Query(env, uuid, "SELECT * FROM _content_review WHERE status=? ORDER BY updated_at ASC LIMIT 2000", [String(st).slice(0, 20)])
+              : await cfD1Query(env, uuid, "SELECT * FROM _content_review ORDER BY updated_at DESC LIMIT 2000");
+            return Response.json({ ok: true, items: rows.map(shape) });
+          }
+          return Response.json({ ok: false, error: "unsupported content-review request" }, { status: 405 });
+        } catch (e) { console.error("content-review failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "content-review failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.

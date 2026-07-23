@@ -6666,6 +6666,17 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — moving average · no-shows · content review (data API, round 2)
+- **`/stats/moving-average`** — stateless: `{values, window, ema?}` → SMA aligned to input (null until the
+  window fills) + optional EMA (alpha = 2/(window+1)). Public. batch313 (15/15).
+- **`/no-shows`** — admin records/forgives a member's missed bookings; the strike count is `COUNT` per user.
+  `/count?user=`, `/me` (member), list, delete. `_no_shows` erased by user. batch314 (13/13).
+- **`/content-review`** — draft → in_review → approved|rejected, approved → published; each an atomic
+  state-guarded `UPDATE…WHERE ref=? AND status=? RETURNING`. author owns create/submit, admin reviews;
+  `/mine`, admin queue `?status=`, get-one (author or admin). `_content_review` erased by author. batch315
+  (21/21).
+- Full suite 298 green. (18/100 of round 2 shipped.)
+
 ## 2026-07-23 — on-call rotation · renewals · slugify (data API, round 2)
 - **`/oncall`** — ordered member list that rotates on a fixed interval; `/current` computes the on-call person
   deterministically from the anchor (`periods = floor((now-anchor)/interval); idx = periods % n`) — no stored
