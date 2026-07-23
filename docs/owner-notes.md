@@ -6666,6 +6666,16 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — account hierarchy · rolling uniques · comparison sets (data API, round 2)
+- **`/account-hierarchy`** — parent/child org tree. Admin upsert (cycle-refused via ancestor walk), public
+  node detail (ancestors+children) / descendants subtree / nested forest; delete reparents children to the
+  node's parent. `_org_nodes` (not member-personal, no erase). batch369 (17/17).
+- **`/rolling-uniques`** — exact distinct counter per stream. Member records (dedup via PK(stream,value),
+  `INSERT…ON CONFLICT DO NOTHING`), public read (`?since=` windows it), admin reset. `_uniques`. batch370 (15/15).
+- **`/comparison`** — member "compare tray": named sets of item refs, create/replace + add/remove (dedup,
+  cap 24). `_comparisons` (PK user,name; items JSON) erased by user + exportable. batch371 (19/19).
+- Full suite 352 green. (72/100 of round 2 shipped.)
+
 ## 2026-07-23 — commission · sales quota · tax-exempt registry (data API, round 2)
 - **`/commission`** — stateless commission calc: flat `rate` (fraction) OR marginal `tiers` (progressive-tax
   bracket math, unsorted-tolerant), with a per-bracket breakdown. Public. batch366 (14/14).
