@@ -5361,6 +5361,31 @@ async function ensurePetitions(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_petition_sig_user ON _petition_signatures (user_id)"); } catch {}
   _petitionsReady.add(uuid);
 }
+// Vault — an admin-only key-value store for app config / secrets. `_vault` keyed by key. Ensured once.
+const _vaultReady = new Set();
+async function ensureVault(env, uuid) {
+  if (_vaultReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _vault (key TEXT PRIMARY KEY, value TEXT, note TEXT, updated_at TEXT)");
+  _vaultReady.add(uuid);
+}
+// Embed cache — cache embed/oEmbed metadata (html/title/thumbnail) per URL so the app renders a rich embed
+// without re-fetching. `_embeds` keyed by URL. Ensured once.
+const _embedsReady = new Set();
+async function ensureEmbeds(env, uuid) {
+  if (_embedsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _embeds (url TEXT PRIMARY KEY, title TEXT, html TEXT, thumbnail TEXT, provider TEXT, created_at TEXT, updated_at TEXT)");
+  _embedsReady.add(uuid);
+}
+// Milestones — an admin defines personal progression milestones (a numeric target); each member accrues
+// progress and achieves it. `_milestones` = definitions, `_milestone_progress` = per-member. Ensured once.
+const _milestonesReady = new Set();
+async function ensureMilestones(env, uuid) {
+  if (_milestonesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _milestones (key TEXT PRIMARY KEY, name TEXT, target INTEGER NOT NULL DEFAULT 0, reward TEXT, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _milestone_progress (milestone TEXT NOT NULL, user_id INTEGER NOT NULL, progress INTEGER NOT NULL DEFAULT 0, achieved_at TEXT, updated_at TEXT, PRIMARY KEY (milestone, user_id))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_milestone_prog_user ON _milestone_progress (user_id)"); } catch {}
+  _milestonesReady.add(uuid);
+}
 // The user-scoped tables a member can export their own rows from (GDPR data portability) — kept in sync with
 // the erase list. Each entry is [table, ownerColumn]; a missing table is skipped at read time.
 const DATA_EXPORT_TABLES = [
@@ -10188,6 +10213,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _sequence_enrollments WHERE lower(subject)=lower(?)", [u.email]],  // drip-sequence enrollment (if keyed by their email)
             ["DELETE FROM _waiver_signatures WHERE user_id=?", [u.id]],                      // waivers they signed
             ["DELETE FROM _petition_signatures WHERE user_id=?", [u.id]],                    // petitions they signed
+            ["DELETE FROM _milestone_progress WHERE user_id=?", [u.id]],                     // personal milestone progress
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -17883,6 +17909,196 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported petitions request" }, { status: 405 });
         } catch (e) { console.error("petitions failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "petitions failed" }, { status: 502 }); }
+      }
+      // VAULT — an admin-only key-value store for app config / secrets. Every operation is admin-only.
+      //   POST/PUT /api/db/<slug>/vault/<key> {value, note?}  (ADMIN) → set
+      //   GET    /api/db/<slug>/vault/<key>                 (ADMIN) → {value, note}
+      //   GET    /api/db/<slug>/vault                       (ADMIN) → keys (values redacted)
+      //   DELETE /api/db/<slug>/vault/<key>                 (ADMIN)
+      const vltm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/vault(?:\/([A-Za-z0-9_.-]{1,80}))?$/i);
+      if (vltm && (request.method === "GET" || request.method === "POST" || request.method === "PUT" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = vltm[1].toLowerCase(), key = vltm[2] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureVault(env, uuid);
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          // SET.
+          if (key && (request.method === "POST" || request.method === "PUT")) {
+            if (!rateOk(slug + "|" + ip + "|vltw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            if (body.value === undefined) return Response.json({ ok: false, error: "value is required" }, { status: 400 });
+            const value = typeof body.value === "string" ? body.value.slice(0, 20000) : JSON.stringify(body.value).slice(0, 20000);
+            await cfD1Query(env, uuid, "INSERT INTO _vault (key, value, note, updated_at) VALUES (?,?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, note=excluded.note, updated_at=excluded.updated_at", [key, value, body.note != null ? String(body.note).slice(0, 200) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, key });
+          }
+          // GET one.
+          if (key && request.method === "GET") {
+            const r = (await cfD1Query(env, uuid, "SELECT key, value, note, updated_at FROM _vault WHERE key=?", [key]))[0];
+            if (!r) return Response.json({ ok: false, error: "no such key" }, { status: 404 });
+            let value = r.value; try { value = JSON.parse(r.value); } catch {}
+            return Response.json({ ok: true, key: r.key, value, note: r.note, updated_at: r.updated_at });
+          }
+          // DELETE.
+          if (key && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _vault WHERE key=?", [key]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such key" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, key });
+          }
+          // LIST (keys only, values redacted).
+          if (!key && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|vltl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT key, note, updated_at, length(value) AS size FROM _vault ORDER BY key ASC LIMIT 1000");
+            return Response.json({ ok: true, keys: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported vault request" }, { status: 405 });
+        } catch (e) { console.error("vault failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "vault failed" }, { status: 502 }); }
+      }
+      // EMBED CACHE — cache embed/oEmbed metadata (html/title/thumbnail) per URL so the app renders a rich
+      // embed without re-fetching. Caching is member-write, reading is public.
+      //   POST   /api/db/<slug>/embeds {url, title?, html?, thumbnail?, provider?}  (member) → cache
+      //   GET    /api/db/<slug>/embeds?url=<u>              (public) → the cached embed ({} if none)
+      //   DELETE /api/db/<slug>/embeds?url=<u>              (ADMIN)
+      const embm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/embeds$/i);
+      if (embm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = embm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          await ensureEmbeds(env, uuid);
+          // CACHE (member).
+          if (request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|embw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const u = String(body.url || "").trim().slice(0, 2000);
+            if (!u) return Response.json({ ok: false, error: "a url is required" }, { status: 400 });
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _embeds (url, title, html, thumbnail, provider, created_at, updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(url) DO UPDATE SET title=excluded.title, html=excluded.html, thumbnail=excluded.thumbnail, provider=excluded.provider, updated_at=excluded.updated_at", [u, body.title != null ? String(body.title).slice(0, 300) : null, body.html != null ? String(body.html).slice(0, 20000) : null, body.thumbnail != null ? String(body.thumbnail).slice(0, 2000) : null, body.provider != null ? String(body.provider).slice(0, 80) : null, now, now]);
+            return Response.json({ ok: true, url: u });
+          }
+          const qUrl = url.searchParams.get("url");
+          // READ (public).
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|embr", 600)) return tooMany();
+            if (!qUrl) return Response.json({ ok: false, error: "a ?url= is required" }, { status: 400 });
+            const r = (await cfD1Query(env, uuid, "SELECT url, title, html, thumbnail, provider, updated_at FROM _embeds WHERE url=?", [String(qUrl).slice(0, 2000)]))[0];
+            return Response.json({ ok: true, embed: r || null });
+          }
+          // DELETE (admin).
+          if (request.method === "DELETE") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            if (!qUrl) return Response.json({ ok: false, error: "a ?url= is required" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _embeds WHERE url=?", [String(qUrl).slice(0, 2000)]);
+            return Response.json({ ok: true, deleted: (ex.changes || 0) > 0 });
+          }
+          return Response.json({ ok: false, error: "unsupported embeds request" }, { status: 405 });
+        } catch (e) { console.error("embeds failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "embeds failed" }, { status: 502 }); }
+      }
+      // MILESTONES — an admin defines personal progression milestones (a numeric target); each member accrues
+      // progress and achieves it. Distinct from /challenges (group goals with a shared board + deadline).
+      //   POST   /api/db/<slug>/milestones/<key> {name, target, reward?}  (ADMIN) → define
+      //   POST   /api/db/<slug>/milestones/<key>/progress {by?} | {set?}  (member) → accrue → {progress, achieved}
+      //   GET    /api/db/<slug>/milestones/<key>            (public) → definition + mine
+      //   GET    /api/db/<slug>/milestones/mine             (member) → all my progress
+      //   GET    /api/db/<slug>/milestones                  (public) → list
+      //   DELETE /api/db/<slug>/milestones/<key>            (ADMIN)
+      const mlsm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/milestones(?:\/(mine|[A-Za-z0-9_.-]{1,80})(?:\/(progress))?)?$/i);
+      if (mlsm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = mlsm[1].toLowerCase(), seg = mlsm[2] || null, isMine = seg === "mine", key = seg && !isMine ? seg : null, isProgress = mlsm[3] === "progress";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureMilestones(env, uuid);
+          // MINE (member).
+          if (isMine && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rows = await cfD1Query(env, uuid, "SELECT p.milestone, p.progress, p.achieved_at, m.name, m.target, m.reward FROM _milestone_progress p LEFT JOIN _milestones m ON m.key=p.milestone WHERE p.user_id=? ORDER BY p.updated_at DESC LIMIT 500", [userId]);
+            return Response.json({ ok: true, milestones: rows.map((r) => ({ milestone: r.milestone, name: r.name, progress: r.progress, target: r.target, reward: r.reward, achieved: !!r.achieved_at, achieved_at: r.achieved_at })) });
+          }
+          // LIST (public).
+          if (!seg && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|mlsl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT key, name, target, reward FROM _milestones ORDER BY key ASC LIMIT 500");
+            return Response.json({ ok: true, milestones: rows });
+          }
+          // DEFINE (admin).
+          if (key && !isProgress && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|mlsw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const target = Math.floor(Number(body.target));
+            if (!Number.isFinite(target) || target <= 0) return Response.json({ ok: false, error: "a positive target is required" }, { status: 400 });
+            await cfD1Query(env, uuid, "INSERT INTO _milestones (key, name, target, reward, created_at) VALUES (?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET name=excluded.name, target=excluded.target, reward=excluded.reward", [key, body.name != null ? String(body.name).slice(0, 200) : null, target, body.reward != null ? String(body.reward).slice(0, 200) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, key, target });
+          }
+          // DELETE (admin).
+          if (key && !isProgress && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _milestones WHERE key=?", [key]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such milestone" }, { status: 404 });
+            try { await cfD1Exec(env, uuid, "DELETE FROM _milestone_progress WHERE milestone=?", [key]); } catch {}
+            return Response.json({ ok: true, deleted: true, key });
+          }
+          // PROGRESS (member).
+          if (key && isProgress && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|mlsp", 300)) return tooMany();
+            const m = (await cfD1Query(env, uuid, "SELECT target FROM _milestones WHERE key=?", [key]))[0];
+            if (!m) return Response.json({ ok: false, error: "no such milestone" }, { status: 404 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const now = new Date().toISOString();
+            let progress;
+            if (body.set != null) {
+              const set = Math.floor(Number(body.set));
+              if (!Number.isFinite(set) || set < 0) return Response.json({ ok: false, error: "set must be >= 0" }, { status: 400 });
+              await cfD1Query(env, uuid, "INSERT INTO _milestone_progress (milestone, user_id, progress, updated_at) VALUES (?,?,?,?) ON CONFLICT(milestone, user_id) DO UPDATE SET progress=excluded.progress, updated_at=excluded.updated_at", [key, userId, set, now]);
+              progress = set;
+            } else {
+              const by = body.by == null ? 1 : Math.floor(Number(body.by));
+              if (!Number.isFinite(by) || by < -1000000 || by > 1000000) return Response.json({ ok: false, error: "by must be an integer" }, { status: 400 });
+              const r = await cfD1Query(env, uuid, "INSERT INTO _milestone_progress (milestone, user_id, progress, updated_at) VALUES (?,?,?,?) ON CONFLICT(milestone, user_id) DO UPDATE SET progress = MAX(0, _milestone_progress.progress + ?), updated_at=excluded.updated_at RETURNING progress", [key, userId, Math.max(0, by), now, by]);
+              progress = r[0] ? r[0].progress : Math.max(0, by);
+            }
+            const achieved = progress >= m.target;
+            // Stamp achieved_at the first time the target is reached.
+            if (achieved) await cfD1Exec(env, uuid, "UPDATE _milestone_progress SET achieved_at=COALESCE(achieved_at, ?) WHERE milestone=? AND user_id=?", [now, key, userId]);
+            else await cfD1Exec(env, uuid, "UPDATE _milestone_progress SET achieved_at=NULL WHERE milestone=? AND user_id=?", [key, userId]);
+            return Response.json({ ok: true, key, progress, target: m.target, achieved });
+          }
+          // GET one (public) + mine.
+          if (key && !isProgress && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|mlsr", 600)) return tooMany();
+            const m = (await cfD1Query(env, uuid, "SELECT key, name, target, reward FROM _milestones WHERE key=?", [key]))[0];
+            if (!m) return Response.json({ ok: false, error: "no such milestone" }, { status: 404 });
+            let mine = null; if (userId) { const mp = (await cfD1Query(env, uuid, "SELECT progress, achieved_at FROM _milestone_progress WHERE milestone=? AND user_id=?", [key, userId]))[0]; if (mp) mine = { progress: mp.progress, achieved: !!mp.achieved_at }; }
+            return Response.json({ ok: true, milestone: { key: m.key, name: m.name, target: m.target, reward: m.reward }, mine });
+          }
+          return Response.json({ ok: false, error: "unsupported milestones request" }, { status: 405 });
+        } catch (e) { console.error("milestones failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "milestones failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
