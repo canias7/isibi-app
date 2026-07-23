@@ -6666,6 +6666,17 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — deposit holds · maintenance schedule · capacity forecast (data API, round 2)
+- **`/deposit-holds`** — refundable deposit, state machine held→captured|released (atomic
+  `UPDATE…WHERE status='held' RETURNING`, resolved→409). Amount cents, admin manage + member self-read one,
+  list+per-status totals. `_deposit_holds` user_id nulled on erase (keeps the record). batch372 (17/17).
+- **`/maintenance-schedule`** — recurring service due-dates; server computes next_due, `/service` advances it,
+  `?overdue=1` filter. Public read/list, admin manage. `_maintenance` (PK key). batch373 (19/19).
+- **`/capacity-forecast`** — stateless capacity-vs-demand roll-up: per-period utilization/shortfall/surplus +
+  totals + overall. Public. batch374 (17/17).
+- Full suite 355 green. (75/100 of round 2 shipped.)
+- Skipped `/availability-exceptions` — `/hours` already does holiday/special-hours overrides + "open now?".
+
 ## 2026-07-23 — account hierarchy · rolling uniques · comparison sets (data API, round 2)
 - **`/account-hierarchy`** — parent/child org tree. Admin upsert (cycle-refused via ancestor walk), public
   node detail (ancestors+children) / descendants subtree / nested forest; delete reparents children to the
