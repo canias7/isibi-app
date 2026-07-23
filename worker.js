@@ -4577,6 +4577,16 @@ async function ensureReminders(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_reminders_user ON _reminders (user_id, done, remind_at)"); } catch {}
   _remindersReady.add(uuid);
 }
+// Threaded comments on any (table, row). A member posts a comment or a reply (parent_id); anyone READS
+// a row's thread (public); a member edits/soft-deletes their OWN; an admin deletes any. Soft-delete keeps
+// a tombstone if the comment has replies (so the thread stays intact), else it's omitted. Ensured once.
+const _commentsReady = new Set();
+async function ensureComments(env, uuid) {
+  if (_commentsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _comments (id INTEGER PRIMARY KEY AUTOINCREMENT, table_name TEXT NOT NULL, row_id INTEGER NOT NULL, user_id INTEGER NOT NULL, parent_id INTEGER, body TEXT, created_at TEXT, updated_at TEXT, deleted INTEGER NOT NULL DEFAULT 0)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_comments_row ON _comments (table_name, row_id, created_at)"); } catch {}
+  _commentsReady.add(uuid);
+}
 // The DEFAULT row-visibility suffix for a table (param-free): hide trashed / expired / not-yet-published
 // / archived rows — IDENTICAL to the list read's visClause. ANDed into a saved search's base so a stored
 // query can never re-widen visibility (buildD1List ignores the withTrashed/withScheduled/… params).
@@ -9333,6 +9343,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _waitlist WHERE user_id=?", [u.id]],                               // waitlist entries
             ["DELETE FROM _checkins WHERE user_id=?", [u.id]],                               // daily check-in streaks
             ["DELETE FROM _reminders WHERE user_id=?", [u.id]],                              // reminders
+            ["DELETE FROM _comments WHERE user_id=?", [u.id]],                               // threaded comments
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -10902,6 +10913,103 @@ async function handleRequest(request, env, ctx) {
           const rows = await cfD1Query(env, uuid, "SELECT id, remind_at, subject, note, done, created_at FROM _reminders WHERE " + where + " ORDER BY " + order + " LIMIT 500", params);
           return Response.json({ ok: true, reminders: rows });
         } catch (e) { console.error("reminders failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "reminders failed" }, { status: 502 }); }
+      }
+      // THREADED COMMENTS on any (table, row). A member posts a comment or a reply (parent_id); anyone
+      // READS a row's thread (public, like feed/display rows); a member edits/soft-deletes their OWN; an
+      // admin deletes any. Soft-delete leaves a tombstone ONLY if the comment still has replies (thread
+      // stays intact), else it's omitted; the count excludes soft-deleted.
+      //   POST   /api/db/<slug>/comments {table, row, body, parent?}   → {id} (member)
+      //   GET    /api/db/<slug>/comments?table=<t>&row=<id>[&limit=]    → the thread, oldest-first (public)
+      //   GET    /api/db/<slug>/comments/count?table=<t>&row=<id>       → {count} of live comments (public)
+      //   PATCH  /api/db/<slug>/comments/<id> {body}                    → edit mine (member)
+      //   DELETE /api/db/<slug>/comments/<id>                           → soft-delete mine; admin deletes any
+      const cmtm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/comments(?:\/(count|\d+))?$/i);
+      if (cmtm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = cmtm[1].toLowerCase(), tail = cmtm[2] ? cmtm[2].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const cid = tail && /^\d+$/.test(tail) ? parseInt(tail, 10) : null;
+        try {
+          await ensureComments(env, uuid);
+          // POST — a member comments on (table,row), optionally replying to a live comment on the SAME row.
+          if (request.method === "POST" && !tail) {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|cmw", 60)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const table = String(body.table || "").toLowerCase();
+            if (!/^[a-z_][a-z0-9_]{0,40}$/.test(table)) return Response.json({ ok: false, error: "a valid table is required" }, { status: 400 });
+            const spec = await loadSiteSchema(env, uuid);
+            if (!tableDef(spec, table)) return Response.json({ ok: false, error: "unknown table" }, { status: 404 });
+            const rowId = parseInt(body.row, 10);
+            if (!Number.isFinite(rowId)) return Response.json({ ok: false, error: "a row id is required" }, { status: 400 });
+            const text = body.body != null ? String(body.body).trim().slice(0, 4000) : "";
+            if (!text) return Response.json({ ok: false, error: "a comment body is required" }, { status: 400 });
+            let parent = null;
+            if (body.parent != null && body.parent !== "") {
+              parent = parseInt(body.parent, 10);
+              if (!Number.isFinite(parent)) return Response.json({ ok: false, error: "bad parent id" }, { status: 400 });
+              const ok = (await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _comments WHERE id=? AND table_name=? AND row_id=? AND deleted=0", [parent, table, rowId]))[0];
+              if (!ok) return Response.json({ ok: false, error: "the parent comment doesn't exist on this row" }, { status: 400 });
+            }
+            const now = new Date().toISOString();
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _comments (table_name, row_id, user_id, parent_id, body, created_at, updated_at, deleted) VALUES (?,?,?,?,?,?,?,0) RETURNING id", [table, rowId, userId, parent, text, now, now]);
+            return Response.json({ ok: true, id: ins[0] && ins[0].id });
+          }
+          // COUNT — live comments on a row (public).
+          if (tail === "count") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            const table = String(url.searchParams.get("table") || "").toLowerCase();
+            const rowId = parseInt(url.searchParams.get("row"), 10);
+            if (!table || !Number.isFinite(rowId)) return Response.json({ ok: false, error: "table and row are required" }, { status: 400 });
+            if (!rateOk(slug + "|" + ip + "|cmc", 300)) return tooMany();
+            const r = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _comments WHERE table_name=? AND row_id=? AND deleted=0", [table, rowId]))[0];
+            return Response.json({ ok: true, count: (r && r.n) || 0 });
+          }
+          // A specific comment: PATCH (edit mine) / DELETE (soft-delete mine; admin any).
+          if (cid != null) {
+            if (request.method === "PATCH") {
+              if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+              if (!rateOk(slug + "|" + ip + "|cmp", 120)) return tooMany();
+              let body = {}; try { body = await request.json(); } catch {}
+              const text = body.body != null ? String(body.body).trim().slice(0, 4000) : "";
+              if (!text) return Response.json({ ok: false, error: "a comment body is required" }, { status: 400 });
+              const ex = await cfD1Exec(env, uuid, "UPDATE _comments SET body=?, updated_at=? WHERE id=? AND user_id=? AND deleted=0", [text, new Date().toISOString(), cid, userId]);
+              if (!ex.changes) return Response.json({ ok: false, error: "no such comment" }, { status: 404 });
+              return Response.json({ ok: true, id: cid, updated: true });
+            }
+            if (request.method === "DELETE") {
+              if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+              const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+              const isAdmin = !!(rr[0] && rr[0].role === "admin");
+              const ex = isAdmin
+                ? await cfD1Exec(env, uuid, "UPDATE _comments SET deleted=1, updated_at=? WHERE id=? AND deleted=0", [new Date().toISOString(), cid])
+                : await cfD1Exec(env, uuid, "UPDATE _comments SET deleted=1, updated_at=? WHERE id=? AND user_id=? AND deleted=0", [new Date().toISOString(), cid, userId]);
+              if (!ex.changes) return Response.json({ ok: false, error: "no such comment" }, { status: 404 });
+              return Response.json({ ok: true, id: cid, deleted: true });
+            }
+            return Response.json({ ok: false, error: "use PATCH or DELETE on /comments/<id>" }, { status: 405 });
+          }
+          // GET list (public) — a row's thread, oldest-first, with reply structure preserved.
+          if (request.method !== "GET") return Response.json({ ok: false, error: "unsupported comments request" }, { status: 405 });
+          const table = String(url.searchParams.get("table") || "").toLowerCase();
+          const rowId = parseInt(url.searchParams.get("row"), 10);
+          if (!table || !Number.isFinite(rowId)) return Response.json({ ok: false, error: "table and row are required" }, { status: 400 });
+          if (!rateOk(slug + "|" + ip + "|cml", 300)) return tooMany();
+          const lim = Math.min(1000, Math.max(1, parseInt(url.searchParams.get("limit") || "500", 10) || 500));
+          const all = await cfD1Query(env, uuid, "SELECT id, parent_id, user_id, body, deleted, created_at, updated_at FROM _comments WHERE table_name=? AND row_id=? ORDER BY created_at ASC, id ASC LIMIT ?", [table, rowId, lim]);
+          // Keep a soft-deleted comment as a tombstone only if a non-deleted reply references it.
+          const referenced = new Set(all.filter((r) => !r.deleted && r.parent_id != null).map((r) => r.parent_id));
+          const thread = all.filter((r) => !r.deleted || referenced.has(r.id)).map((r) => r.deleted
+            ? { id: r.id, parent_id: r.parent_id, user_id: null, body: null, deleted: true, created_at: r.created_at }
+            : { id: r.id, parent_id: r.parent_id, user_id: r.user_id, body: r.body, deleted: false, created_at: r.created_at, updated_at: r.updated_at });
+          return Response.json({ ok: true, table, row: rowId, comments: thread });
+        } catch (e) { console.error("comments failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "comments failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
