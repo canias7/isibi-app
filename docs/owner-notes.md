@@ -6661,6 +6661,19 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — rate policies · audit retention · trending/top-N (data API, next-100)
+- **`/rate-policies`** — admin declares named per-key limits (max/window_sec); member `/rate-policies/<key>/
+  consume` atomically counts a hit in the current fixed window (`INSERT…ON CONFLICT(key,window_start) DO
+  UPDATE SET hits=hits+1 RETURNING`) → {allowed, remaining, reset_at}. list/upsert/delete. `_rate_policies` +
+  `_rate_hits`. batch286 (19/19).
+- **`/audit-policy`** — singleton retention_days + `/prune` that trims `_audit` older than the window (or an
+  explicit `before`); GET → {retention_days, audit_rows, oldest_at}. Ensures `_audit` so it never 502s on a
+  site that never audited. `_audit_policy`. batch287 (15/15).
+- **`/trending`** — rolling popularity: member `/trending/hit {item,weight?}` records; public `/trending/top?
+  window=24h&n=10&item=` aggregates top items by SUM(weight) inside the window (window `<n>h|<n>d|all`);
+  admin DELETE prunes. `_trending`. batch288 (18/18).
+- Full suite 271 green. (90/100 of the next-100 list shipped.)
+
 ## 2026-07-23 — contacts CRM · order notes/gift msgs · config-validate (data API, next-100)
 - **`/contacts`** — admin address book. Capture dedupes on lowercased email (a repeat fills gaps on the
   existing row, never duplicates), `/merge {from,into}` folds one contact into another (atomic
