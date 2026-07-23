@@ -6661,6 +6661,16 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — vault · embed cache · milestones (data API, next-100)
+- **`/vault/<key>`** — admin-only KV config/secret store (string or JSON value); list REDACTS values (key +
+  size + note only). No user scope. batch271 (20/20).
+- **`/embeds`** — oEmbed/embed metadata cache keyed by URL (member write, public read → null if uncached,
+  admin delete). No user scope. batch272 (12/12).
+- **`/milestones/<key>`** — admin-defined personal progression targets; member `/progress {by|set}` (atomic
+  `MAX(0,…)` upsert), achieved stamp on first cross, `/mine`, public get+mine. Distinct from group
+  `/challenges`. `_milestone_progress` erased by user. batch273 (23/23).
+- Note: rewards/vault/embeds/milestones all confirmed absent. Full suite 256 green. (75/100 of next-100.)
+
 ## 2026-07-23 — downloads · waivers/e-sign · petitions (data API, next-100)
 - **`/downloads/<file>`** — download counter, optionally gated. Admin registers; `/hit` bumps count +
   returns url (gated → 401 signed-out); public read (no count, hides url if gated); ranked list. No user
