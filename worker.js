@@ -16,6 +16,9 @@ import { buildCritiquePrompt, requestCritique, critiquesToInstruction } from "./
 // Incremental (targeted) regeneration — behind the INCREMENTAL_EDIT flag, a chat edit sends only the affected
 // files (+ a compact index of the rest) instead of the whole app. Falls back to whole-app for global edits.
 import { selectEditTargets, composeEditPrompt } from "./builder/incremental-edit.mjs";
+// Per-project memory — behind PROJECT_MEMORY, a compact "this site already exists, keep it consistent" block
+// (routes/tables/tokens/decisions/don't-touch) is prepended to edits so multi-turn changes don't drift.
+import { buildProjectMemory, memoryToPromptLine } from "./builder/project-memory.mjs";
 // Game builder (Phase 3): same generate→build→publish pipeline, engine swapped for
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
@@ -29663,6 +29666,12 @@ async function handleRequest(request, env, ctx) {
           } else {
             const filesDump = Object.entries(files).map(([p, src]) => "===FILE: " + p + "===\n" + src).join("\n\n").slice(0, 120000);
             editUser = "Current project files:\n\n" + filesDump + "\n\nCHANGE REQUEST:\n" + instruction + "\n\nReturn only the changed file blocks.";
+          }
+          // Prepend project memory (routes/tables/tokens/decisions/don't-touch) so the edit stays consistent with
+          // what already exists. Flag OFF → editUser unchanged.
+          if (env.PROJECT_MEMORY === "1") {
+            const memLine = memoryToPromptLine(buildProjectMemory(files, srcObj.memory || {}));
+            if (memLine) editUser = memLine + "\n\n" + editUser;
           }
           const g = await streamGen(REACT_REVISE_RULES, editUser, onDelta);
           flushCode(true);

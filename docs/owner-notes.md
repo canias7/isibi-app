@@ -10,6 +10,21 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-07-23 — Builder upgrade #6: PERSISTENT PER-PROJECT MEMORY — flag `PROJECT_MEMORY` (OFF by default)
+Second of the "doable now" builder upgrades (owner picked #6→#8→#11 in sequence). Pairs with #4: #4 picks WHICH
+files to send on an edit; #6 tells the model the project-level constraints those edits must respect.
+- **`builder/project-memory.mjs`** (worker-safe, pure): derives a structured memory from the files —
+  `extractRoutes` (App.jsx), `extractTables` (isibi.schema.json), `extractComponents` (src/components+pages),
+  `extractTokens` (palette from tailwind.config, fonts from config + Google-Fonts link). Plus accumulators for the
+  things files can't hold — `recordDecision`/`addPreference`/`addDontTouch` (immutable, deduped). `buildProjectMemory`
+  assembles both; `mergeProjectMemory` refreshes the derived structure while carrying decisions/prefs/don't-touch
+  forward; `memoryToPromptLine` emits a bounded "this site already exists — keep it consistent" block.
+- **Wired** into `/api/site/react-revise` behind `env.PROJECT_MEMORY === "1"` — prepends the memory block to the
+  edit prompt (reads `srcObj.memory` for accumulated context). Flag OFF → prompt unchanged. `node --check` clean.
+- **`test/backend/project-memory.test.mjs`** (21/21): extractors, immutable/deduped accumulators, merge preserves
+  accumulated context while refreshing routes, prompt line is compact/bounded/informative, empty project → empty line.
+- Next in the queue: #8 smart repair routing, then #11 capability bundles.
+
 ## 2026-07-23 — Builder upgrade #4: INCREMENTAL (targeted) regeneration — flag `INCREMENTAL_EDIT` (OFF by default)
 After re-framing the roadmap around the WEBSITE BUILDER (a v0/Lovable/Bolt competitor, not the media generator),
 the #1 gap was targeted edits. Today a chat edit re-sends the WHOLE app (`/api/site/react-revise` dumps up to 120k
