@@ -16,7 +16,8 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { renderRoutes } from "./vision-render.mjs";
+// NOTE: vision-render (Playwright) is loaded LAZILY inside /critique — never at startup — so the build service
+// starts and serves /build even if Playwright/Chromium aren't present. /critique degrades to {ok:false} then.
 
 const APP = process.env.APP_DIR || "/app"; // overridable for local testing
 const SRC = path.join(APP, "src");
@@ -117,6 +118,7 @@ const server = http.createServer((req, res) => {
       const routes = Array.isArray(payload.routes) && payload.routes.length ? payload.routes.slice(0, 12).map(String) : ["/"];
       let dir, served;
       try {
+        const { renderRoutes } = await import("./vision-render.mjs"); // lazy: Playwright only loads here
         dir = writeDistToTemp(dist);
         served = await serveDir(dir);
         const shots = await renderRoutes({ url: served.url }, routes, { width: payload.width || 1280, height: payload.height || 900 });
