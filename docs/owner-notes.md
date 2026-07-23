@@ -6661,6 +6661,20 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — idempotency keys · announcements · richer audit query (data API)
+- **`/idempotency/<key>`** — safe retries. First POST stores the result, a replay returns the stored one
+  (atomic claim per (user_id,key)); GET peeks, DELETE clears. batch188 (13/13).
+- **`/announcements`** — admin broadcast, per-member dismiss, respects starts_at/ends_at scheduling window.
+  Admin `/all` + delete; member GET (active+undismissed) + `/<id>/dismiss`. batch189 (17/17).
+- **`/audit`** — enhanced the EXISTING admin endpoint (was at L10191; my first cut duplicated it — caught it
+  because the dupe was dead code behind the existing route, whose weaker `action` filter silently returned
+  everything for an unknown action). Added `actor` / `since` / `until` / `offset`, made `action` an exact
+  match (unknown → 0; and non-CRUD actions like `impersonate` are now filterable). Backward-compatible —
+  batch37/62/163 stay green. batch187 (16/16). Lesson: grep for the ROUTE REGEX, not just the table name —
+  `/audit` existed but my `/audit-log|_audit_log` greps missed it.
+- `_idempotency` + `_announcement_dismissals` wired into GDPR erase; `_audit` intentionally kept. Full suite
+  172 green.
+
 ## 2026-07-23 — events/capacity · fundraising goals · notify-prefs (data API)
 - Next backlog batch (all grep-verified absent; ultracode was off so no design workflow — implemented
   directly with an inline atomicity/IDOR self-review before each commit).
