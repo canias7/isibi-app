@@ -6666,6 +6666,18 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — metric alerts · replay nonces · template render (data API, round 2)
+- **`/metric-alerts`** — admin declares threshold rules (`metric, op∈gt/gte/lt/lte/eq/ne, threshold`); `/check
+  {metric, value}` evaluates all enabled rules for that metric and logs breaches; `/breaches`, list, delete.
+  `_metric_alerts` + `_metric_breaches`. batch325 (16/16).
+- **`/nonce`** — single-use replay protection: `/consume {nonce, ttl_sec?}` claims once atomically (`INSERT…ON
+  CONFLICT DO NOTHING RETURNING`; 409 replay), `/check` (used?), admin `/purge` expired. Global, member-gated.
+  `_nonces`. batch326 (12/12).
+- **`/template-render`** — stateless mustache-lite: `{{key}}` (HTML-escaped), `{{{key}}}` (raw), `{{#key}}…
+  {{/key}}` sections + array iteration with `{{.}}`, `{{^key}}` inverted, dot paths; recursion depth-capped.
+  batch327 (14/14).
+- Full suite 310 green. (30/100 of round 2 shipped.)
+
 ## 2026-07-23 — broken-link registry · RTBF queue · color contrast (data API, round 2)
 - **`/link-check`** — broken-link registry (admin): register URLs, `/report {url, ok, http_status?}` records a
   crawler's result (ok/broken, auto-registers unseen URLs), `/broken` lists broken, list/delete. Server never

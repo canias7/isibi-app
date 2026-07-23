@@ -5655,6 +5655,25 @@ async function ensureErasure(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_erasure_status ON _erasure_requests (status)"); } catch {}
   _erasureReady.add(uuid);
 }
+// Metric alerts — declare threshold rules on named metrics; a `check` evaluates a value against them and logs
+// any breach. `_metric_alerts` = the rules, `_metric_breaches` = the log. Ensured once.
+const _metricAlertsReady = new Set();
+async function ensureMetricAlerts(env, uuid) {
+  if (_metricAlertsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _metric_alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, metric TEXT NOT NULL, op TEXT NOT NULL, threshold REAL NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, note TEXT, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _metric_breaches (id INTEGER PRIMARY KEY AUTOINCREMENT, alert_id INTEGER, metric TEXT, value REAL, op TEXT, threshold REAL, at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_metric_alerts_m ON _metric_alerts (metric, enabled)"); } catch {}
+  _metricAlertsReady.add(uuid);
+}
+// Replay-protection nonces — a single-use token that can be consumed exactly once. `_nonces` keyed by the
+// nonce value. Ensured once.
+const _noncesReady = new Set();
+async function ensureNonces(env, uuid) {
+  if (_noncesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _nonces (nonce TEXT PRIMARY KEY, used_at TEXT, expires_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_nonces_exp ON _nonces (expires_at)"); } catch {}
+  _noncesReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -21136,6 +21155,165 @@ async function handleRequest(request, env, ctx) {
           const r = Math.round(ratio * 100) / 100;
           return Response.json({ ok: true, ratio: r, aa: r >= 4.5, aaa: r >= 7, aa_large: r >= 3, aaa_large: r >= 4.5 });
         } catch (e) { console.error("color-contrast failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "color-contrast failed" }, { status: 502 }); }
+      }
+      // METRIC ALERTS — declare threshold rules on named metrics, then push a value through `check` to evaluate
+      // them and log any breach. Admin-only.
+      //   POST   /api/db/<slug>/metric-alerts {metric, op, threshold, note?}   (ADMIN) → define a rule
+      //   POST   /api/db/<slug>/metric-alerts/check {metric, value}            (ADMIN) → evaluate + log breaches
+      //   GET    /api/db/<slug>/metric-alerts                                  (ADMIN) → rules
+      //   GET    /api/db/<slug>/metric-alerts/breaches[?metric=]               (ADMIN) → breach log
+      //   DELETE /api/db/<slug>/metric-alerts/<id>                             (ADMIN)
+      const malm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/metric-alerts(?:\/(check|breaches|\d+))?$/i);
+      if (malm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = malm[1].toLowerCase(), seg = malm[2] || null;
+        const isCheck = seg === "check", isBreaches = seg === "breaches", maId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureMetricAlerts(env, uuid);
+          const OPS = { gt: (a, b) => a > b, gte: (a, b) => a >= b, lt: (a, b) => a < b, lte: (a, b) => a <= b, eq: (a, b) => a === b, ne: (a, b) => a !== b };
+          // DEFINE.
+          if (!seg && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const metric = String(body.metric || "").trim().toLowerCase().slice(0, 60);
+            if (!/^[a-z0-9_.:-]{1,60}$/.test(metric)) return Response.json({ ok: false, error: "a valid metric is required" }, { status: 400 });
+            const op = String(body.op || "").toLowerCase();
+            if (!OPS[op]) return Response.json({ ok: false, error: "op must be gt|gte|lt|lte|eq|ne" }, { status: 400 });
+            const threshold = Number(body.threshold);
+            if (!Number.isFinite(threshold)) return Response.json({ ok: false, error: "a numeric threshold is required" }, { status: 400 });
+            const r = await cfD1Query(env, uuid, "INSERT INTO _metric_alerts (metric, op, threshold, enabled, note, created_at) VALUES (?,?,?,1,?,?) RETURNING id", [metric, op, threshold, body.note != null ? String(body.note).slice(0, 300) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, metric, op, threshold });
+          }
+          // CHECK.
+          if (isCheck && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const metric = String(body.metric || "").trim().toLowerCase();
+            const value = Number(body.value);
+            if (!metric || !Number.isFinite(value)) return Response.json({ ok: false, error: "metric and a numeric value are required" }, { status: 400 });
+            const rules = await cfD1Query(env, uuid, "SELECT id, op, threshold FROM _metric_alerts WHERE metric=? AND enabled=1 LIMIT 1000", [metric]);
+            const breached = [], now = new Date().toISOString();
+            for (const rule of rules) { if (OPS[rule.op] && OPS[rule.op](value, rule.threshold)) { breached.push({ alert_id: rule.id, op: rule.op, threshold: rule.threshold }); await cfD1Exec(env, uuid, "INSERT INTO _metric_breaches (alert_id, metric, value, op, threshold, at) VALUES (?,?,?,?,?,?)", [rule.id, metric, value, rule.op, rule.threshold, now]); } }
+            return Response.json({ ok: true, metric, value, breached, breach_count: breached.length });
+          }
+          // BREACHES.
+          if (isBreaches && request.method === "GET") {
+            const m2 = url.searchParams.get("metric");
+            const rows = m2
+              ? await cfD1Query(env, uuid, "SELECT id, alert_id, metric, value, op, threshold, at FROM _metric_breaches WHERE metric=? ORDER BY id DESC LIMIT 2000", [String(m2).slice(0, 60)])
+              : await cfD1Query(env, uuid, "SELECT id, alert_id, metric, value, op, threshold, at FROM _metric_breaches ORDER BY id DESC LIMIT 2000");
+            return Response.json({ ok: true, breaches: rows });
+          }
+          // DELETE.
+          if (maId != null && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _metric_alerts WHERE id=?", [maId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such alert" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: maId });
+          }
+          // LIST.
+          if (!seg && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT id, metric, op, threshold, enabled, note FROM _metric_alerts ORDER BY metric ASC, id ASC LIMIT 2000");
+            return Response.json({ ok: true, alerts: rows.map((r) => ({ ...r, enabled: !!r.enabled })) });
+          }
+          return Response.json({ ok: false, error: "unsupported metric-alerts request" }, { status: 405 });
+        } catch (e) { console.error("metric-alerts failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "metric-alerts failed" }, { status: 502 }); }
+      }
+      // REPLAY-PROTECTION NONCES — consume a single-use token exactly once (atomic). A repeat is a replay.
+      //   POST /api/db/<slug>/nonce/consume {nonce, ttl_sec?}   (member) → {fresh} (409 on replay)
+      //   GET  /api/db/<slug>/nonce/check?nonce=<n>             (member) → {used}
+      //   POST /api/db/<slug>/nonce/purge                       (ADMIN)  → delete expired
+      const ncm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/nonce(?:\/(consume|check|purge))?$/i);
+      if (ncm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = ncm[1].toLowerCase(), seg = ncm[2] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureNonces(env, uuid);
+          // CONSUME (atomic single-use).
+          if (seg === "consume" && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|ncn", 1200)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const nonce = String(body.nonce || "").trim().slice(0, 200);
+            if (!nonce) return Response.json({ ok: false, error: "a nonce is required" }, { status: 400 });
+            let ttl = Math.floor(Number(body.ttl_sec)); if (!(ttl >= 1 && ttl <= 31536000)) ttl = 86400;
+            const now = new Date().toISOString(), exp = new Date(Date.now() + ttl * 1000).toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _nonces (nonce, used_at, expires_at) VALUES (?,?,?) ON CONFLICT(nonce) DO NOTHING RETURNING nonce", [nonce, now, exp]);
+            if (r.length) return Response.json({ ok: true, fresh: true });
+            return Response.json({ ok: false, error: "nonce already used", replay: true }, { status: 409 });
+          }
+          // CHECK.
+          if (seg === "check" && request.method === "GET") {
+            const nonce = String(url.searchParams.get("nonce") || "").trim();
+            if (!nonce) return Response.json({ ok: false, error: "a ?nonce= is required" }, { status: 400 });
+            const row = (await cfD1Query(env, uuid, "SELECT used_at FROM _nonces WHERE nonce=?", [nonce]))[0];
+            return Response.json({ ok: true, used: !!row, used_at: row ? row.used_at : null });
+          }
+          // PURGE (admin).
+          if (seg === "purge" && request.method === "POST") {
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _nonces WHERE expires_at IS NOT NULL AND expires_at < ?", [new Date().toISOString()]);
+            return Response.json({ ok: true, purged: ex.changes || 0 });
+          }
+          return Response.json({ ok: false, error: "unsupported nonce request" }, { status: 405 });
+        } catch (e) { console.error("nonce failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "nonce failed" }, { status: 502 }); }
+      }
+      // TEMPLATE RENDER — a stateless mustache-lite renderer: {{key}} (HTML-escaped), {{{key}}} (raw),
+      // {{#key}}…{{/key}} (sections / array iteration with {{.}}), {{^key}}…{{/key}} (inverted). Dot paths.
+      //   POST /api/db/<slug>/template-render {template, data}   (member) → {rendered}
+      const tplm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/template-render$/i);
+      if (tplm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = tplm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          if (!rateOk(slug + "|" + ip + "|tpl", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const template = typeof body.template === "string" ? body.template : "";
+          if (!template) return Response.json({ ok: false, error: "a template string is required" }, { status: 400 });
+          if (template.length > 50000) return Response.json({ ok: false, error: "template too large" }, { status: 400 });
+          const data = (body.data && typeof body.data === "object") ? body.data : {};
+          const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+          const resolve = (ctx, key) => { if (key === ".") return ctx; return key.split(".").reduce((o, k) => (o == null ? undefined : o[k]), ctx); };
+          let depth = 0;
+          const render = (tpl, ctx) => {
+            if (depth++ > 50) return tpl;
+            // sections + inverted (innermost handled via recursion on inner)
+            tpl = tpl.replace(/\{\{([#^])\s*([\w.]+)\s*\}\}([\s\S]*?)\{\{\/\s*\2\s*\}\}/g, (m, kind, key, inner) => {
+              const val = resolve(ctx, key);
+              if (kind === "^") return (!val || (Array.isArray(val) && !val.length)) ? render(inner, ctx) : "";
+              if (Array.isArray(val)) return val.map((item) => render(inner, item)).join("");
+              if (val) return render(inner, (val && typeof val === "object") ? val : ctx);
+              return "";
+            });
+            tpl = tpl.replace(/\{\{\{\s*([\w.]+)\s*\}\}\}/g, (m, key) => { const v = resolve(ctx, key); return v == null ? "" : String(v); });
+            tpl = tpl.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (m, key) => { const v = resolve(ctx, key); return v == null ? "" : esc(String(v)); });
+            depth--;
+            return tpl;
+          };
+          return Response.json({ ok: true, rendered: render(template, data) });
+        } catch (e) { console.error("template-render failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "template-render failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
