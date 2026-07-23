@@ -4799,6 +4799,8 @@ async function ensureTickets(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _ticket_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL, author_id INTEGER, body TEXT NOT NULL, internal INTEGER NOT NULL DEFAULT 0, created_at TEXT)");
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_tickets_req ON _tickets (requester_id, status)"); } catch {}
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_ticket_msgs ON _ticket_messages (ticket_id, id)"); } catch {}
+  try { await cfD1Query(env, uuid, "ALTER TABLE _tickets ADD COLUMN merged_into INTEGER"); } catch {}
+  try { await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _ticket_links (a INTEGER NOT NULL, b INTEGER NOT NULL, relation TEXT NOT NULL DEFAULT 'related', created_at TEXT, PRIMARY KEY (a, b))"); } catch {}
   _ticketsReady.add(uuid);
 }
 // Canned responses — a staff-only library of reusable reply templates (keyed by slug) to paste into ticket
@@ -5497,6 +5499,23 @@ async function ensureTrending(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _trending (id INTEGER PRIMARY KEY AUTOINCREMENT, item TEXT NOT NULL, weight INTEGER NOT NULL DEFAULT 1, at TEXT NOT NULL)");
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_trending_at ON _trending (at)"); } catch {}
   _trendingReady.add(uuid);
+}
+// NPS surveys — a member answers a 0–10 'how likely to recommend' once per campaign; the score endpoint buckets
+// them into promoters (9–10) / passives (7–8) / detractors (0–6) and returns the NPS = %promoters − %detractors.
+// `_nps_responses` (one row per user+campaign, last answer wins). Ensured once.
+const _npsReady = new Set();
+async function ensureNps(env, uuid) {
+  if (_npsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _nps_responses (campaign TEXT NOT NULL, user_id INTEGER NOT NULL, score INTEGER NOT NULL, comment TEXT, created_at TEXT, updated_at TEXT, PRIMARY KEY (campaign, user_id))");
+  _npsReady.add(uuid);
+}
+// Testimonials — a curated wall of marketing quotes: anyone (or a member) submits a quote, an admin approves and
+// optionally features it; the public list returns only approved ones. `_testimonials`. Ensured once.
+const _testimonialsReady = new Set();
+async function ensureTestimonials(env, uuid) {
+  if (_testimonialsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _testimonials (id INTEGER PRIMARY KEY AUTOINCREMENT, author TEXT, role TEXT, quote TEXT NOT NULL, avatar TEXT, rating INTEGER, approved INTEGER NOT NULL DEFAULT 0, featured INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL DEFAULT 0, user_id INTEGER, created_at TEXT)");
+  _testimonialsReady.add(uuid);
 }
 // The user-scoped tables a member can export their own rows from (GDPR data portability) — kept in sync with
 // the erase list. Each entry is [table, ownerColumn]; a missing table is skipped at read time.
@@ -10332,6 +10351,8 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _handles WHERE user_id=?", [u.id]],                                // reserved slugs / handles
             ["DELETE FROM _rma WHERE user_id=?", [u.id]],                                    // return / RMA requests
             ["DELETE FROM _order_notes WHERE user_id=?", [u.id]],                            // order notes / gift messages
+            ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
+            ["DELETE FROM _testimonials WHERE user_id=?", [u.id]],                           // user-submitted testimonials
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -19193,6 +19214,196 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported trending request" }, { status: 405 });
         } catch (e) { console.error("trending failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "trending failed" }, { status: 502 }); }
+      }
+      // NPS SURVEYS — a member answers a 0–10 'how likely to recommend' once per campaign; the score endpoint
+      // buckets promoters (9–10) / passives (7–8) / detractors (0–6) and returns NPS = %promoters − %detractors.
+      //   POST /api/db/<slug>/nps {campaign?, score, comment?}   (member) → submit (upsert)
+      //   GET  /api/db/<slug>/nps/me[?campaign=]                 (member) → own answer
+      //   GET  /api/db/<slug>/nps[?campaign=]                    (ADMIN)  → score + breakdown
+      //   GET  /api/db/<slug>/nps/responses[?campaign=]          (ADMIN)  → raw responses
+      const npm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/nps(?:\/(me|responses))?$/i);
+      if (npm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = npm[1].toLowerCase(), seg = npm[2] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const isAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return !!(rr[0] && rr[0].role === "admin"); };
+        const campOf = () => { const c2 = (url.searchParams.get("campaign") || "default").trim().toLowerCase().slice(0, 60); return /^[a-z0-9_.:-]{1,60}$/.test(c2) ? c2 : "default"; };
+        try {
+          await ensureNps(env, uuid);
+          // SUBMIT (member, upsert).
+          if (!seg && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|npsw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const score = Math.floor(Number(body.score));
+            if (!(score >= 0 && score <= 10)) return Response.json({ ok: false, error: "score must be 0..10" }, { status: 400 });
+            let campaign = body.campaign != null ? String(body.campaign).trim().toLowerCase().slice(0, 60) : "default";
+            if (!/^[a-z0-9_.:-]{1,60}$/.test(campaign)) campaign = "default";
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _nps_responses (campaign, user_id, score, comment, created_at, updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(campaign, user_id) DO UPDATE SET score=excluded.score, comment=excluded.comment, updated_at=excluded.updated_at", [campaign, userId, score, body.comment != null ? String(body.comment).slice(0, 2000) : null, now, now]);
+            const bucket = score >= 9 ? "promoter" : (score >= 7 ? "passive" : "detractor");
+            return Response.json({ ok: true, campaign, score, bucket });
+          }
+          // MY answer.
+          if (seg === "me" && request.method === "GET") {
+            const r = (await cfD1Query(env, uuid, "SELECT campaign, score, comment, updated_at FROM _nps_responses WHERE campaign=? AND user_id=?", [campOf(), userId]))[0];
+            return Response.json({ ok: true, response: r || null });
+          }
+          // RESPONSES (admin).
+          if (seg === "responses" && request.method === "GET") {
+            if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const rows = await cfD1Query(env, uuid, "SELECT user_id, score, comment, updated_at FROM _nps_responses WHERE campaign=? ORDER BY updated_at DESC LIMIT 5000", [campOf()]);
+            return Response.json({ ok: true, campaign: campOf(), responses: rows });
+          }
+          // SCORE (admin).
+          if (!seg && request.method === "GET") {
+            if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const campaign = campOf();
+            const rows = await cfD1Query(env, uuid, "SELECT score FROM _nps_responses WHERE campaign=?", [campaign]);
+            const total = rows.length;
+            let promoters = 0, passives = 0, detractors = 0;
+            for (const r of rows) { if (r.score >= 9) promoters++; else if (r.score >= 7) passives++; else detractors++; }
+            const nps = total ? Math.round(((promoters - detractors) / total) * 100) : 0;
+            return Response.json({ ok: true, campaign, total, promoters, passives, detractors, nps });
+          }
+          return Response.json({ ok: false, error: "unsupported nps request" }, { status: 405 });
+        } catch (e) { console.error("nps failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "nps failed" }, { status: 502 }); }
+      }
+      // TESTIMONIALS — a curated wall of marketing quotes. Anyone signed in submits a quote (unapproved); an
+      // admin approves / features / reorders it; the public list returns only approved ones (featured first).
+      //   POST   /api/db/<slug>/testimonials {quote, author?, role?, avatar?, rating?}  (member) → submit (pending)
+      //   GET    /api/db/<slug>/testimonials                    (public) → approved (featured first)
+      //   GET    /api/db/<slug>/testimonials/all                (ADMIN)  → every one incl. pending
+      //   PATCH  /api/db/<slug>/testimonials/<id> {approved?, featured?, position?, quote?...}  (ADMIN)
+      //   DELETE /api/db/<slug>/testimonials/<id>               (ADMIN)
+      const tsm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/testimonials(?:\/(all|\d+))?$/i);
+      if (tsm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = tsm[1].toLowerCase(), seg = tsm[2] || null;
+        const isAll = seg === "all", tid = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const clean = (v, n) => v == null ? null : String(v).slice(0, n);
+        const shape = (r) => ({ id: r.id, author: r.author, role: r.role, quote: r.quote, avatar: r.avatar, rating: r.rating, approved: !!r.approved, featured: !!r.featured, position: r.position, created_at: r.created_at });
+        try {
+          await ensureTestimonials(env, uuid);
+          // SUBMIT (member).
+          if (!seg && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|tsw", 60)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const quote = String(body.quote || "").trim().slice(0, 2000);
+            if (!quote) return Response.json({ ok: false, error: "a quote is required" }, { status: 400 });
+            let rating = body.rating != null ? Math.floor(Number(body.rating)) : null; if (rating != null && !(rating >= 1 && rating <= 5)) rating = null;
+            const r = await cfD1Query(env, uuid, "INSERT INTO _testimonials (author, role, quote, avatar, rating, approved, featured, position, user_id, created_at) VALUES (?,?,?,?,?,0,0,0,?,?) RETURNING id", [clean(body.author, 120), clean(body.role, 120), quote, clean(body.avatar, 1000), rating, userId, new Date().toISOString()]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, pending: true });
+          }
+          // ALL (admin).
+          if (isAll && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            const rows = await cfD1Query(env, uuid, "SELECT * FROM _testimonials ORDER BY featured DESC, position ASC, id DESC LIMIT 2000");
+            return Response.json({ ok: true, testimonials: rows.map((r) => ({ ...shape(r), user_id: r.user_id })) });
+          }
+          // PATCH (admin).
+          if (tid != null && request.method === "PATCH") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const sets = [], vals = [];
+            if (Object.prototype.hasOwnProperty.call(body, "approved")) { sets.push("approved=?"); vals.push(body.approved ? 1 : 0); }
+            if (Object.prototype.hasOwnProperty.call(body, "featured")) { sets.push("featured=?"); vals.push(body.featured ? 1 : 0); }
+            if (Object.prototype.hasOwnProperty.call(body, "position")) { const p = Math.floor(Number(body.position)); sets.push("position=?"); vals.push(Number.isFinite(p) ? p : 0); }
+            for (const f of ["author", "role", "quote", "avatar"]) { if (Object.prototype.hasOwnProperty.call(body, f)) { sets.push(f + "=?"); vals.push(clean(body[f], 2000)); } }
+            if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "UPDATE _testimonials SET " + sets.join(", ") + " WHERE id=?", [...vals, tid]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such testimonial" }, { status: 404 });
+            const row = (await cfD1Query(env, uuid, "SELECT * FROM _testimonials WHERE id=?", [tid]))[0];
+            return Response.json({ ok: true, testimonial: shape(row) });
+          }
+          // DELETE (admin).
+          if (tid != null && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _testimonials WHERE id=?", [tid]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such testimonial" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: tid });
+          }
+          // PUBLIC LIST (approved only, featured first).
+          if (!seg && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|tsl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT * FROM _testimonials WHERE approved=1 ORDER BY featured DESC, position ASC, id DESC LIMIT 1000");
+            return Response.json({ ok: true, testimonials: rows.map(shape) });
+          }
+          return Response.json({ ok: false, error: "unsupported testimonials request" }, { status: 405 });
+        } catch (e) { console.error("testimonials failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "testimonials failed" }, { status: 502 }); }
+      }
+      // TICKET MERGE / LINK — fold a duplicate ticket into another (its messages move over, it goes to
+      // status 'merged'), or link two tickets as related. Additive to the /tickets system, admin-only.
+      //   POST   /api/db/<slug>/tickets/<id>/merge {into}          (ADMIN) → fold <id> into <into>
+      //   POST   /api/db/<slug>/tickets/<id>/link {other, relation?}  (ADMIN) → relate two tickets
+      //   GET    /api/db/<slug>/tickets/<id>/links                 (member: own ticket; admin: any)
+      const tklm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/tickets\/(\d+)\/(merge|link|links)$/i);
+      if (tklm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = tklm[1].toLowerCase(), ticketId = parseInt(tklm[2], 10), verb = tklm[3].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureTickets(env, uuid);
+          const isAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return !!(rr[0] && rr[0].role === "admin"); };
+          const src = (await cfD1Query(env, uuid, "SELECT id, requester_id, status FROM _tickets WHERE id=?", [ticketId]))[0];
+          if (!src) return Response.json({ ok: false, error: "no such ticket" }, { status: 404 });
+          // LINKS (member on own ticket, or admin).
+          if (verb === "links" && request.method === "GET") {
+            if (src.requester_id !== userId && !(await isAdmin())) return Response.json({ ok: false, error: "not yours" }, { status: 403 });
+            const rows = await cfD1Query(env, uuid, "SELECT a, b, relation, created_at FROM _ticket_links WHERE a=? OR b=? ORDER BY created_at DESC LIMIT 500", [ticketId, ticketId]);
+            const links = rows.map((r) => ({ other: r.a === ticketId ? r.b : r.a, relation: r.relation, created_at: r.created_at }));
+            return Response.json({ ok: true, ticket: ticketId, links });
+          }
+          if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          // MERGE.
+          if (verb === "merge" && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const into = Math.floor(Number(body.into));
+            if (!Number.isFinite(into) || into === ticketId) return Response.json({ ok: false, error: "a distinct into ticket id is required" }, { status: 400 });
+            const target = (await cfD1Query(env, uuid, "SELECT id, merged_into FROM _tickets WHERE id=?", [into]))[0];
+            if (!target) return Response.json({ ok: false, error: "no such target ticket" }, { status: 404 });
+            if (target.merged_into != null) return Response.json({ ok: false, error: "target is itself merged" }, { status: 409 });
+            const now = new Date().toISOString();
+            const mv = await cfD1Query(env, uuid, "UPDATE _tickets SET merged_into=?, status='merged', updated_at=? WHERE id=? AND merged_into IS NULL RETURNING id", [into, now, ticketId]);
+            if (!mv.length) return Response.json({ ok: false, error: "ticket already merged" }, { status: 409 });
+            await cfD1Exec(env, uuid, "UPDATE _ticket_messages SET ticket_id=? WHERE ticket_id=?", [into, ticketId]);
+            return Response.json({ ok: true, merged: ticketId, into });
+          }
+          // LINK.
+          if (verb === "link" && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const other = Math.floor(Number(body.other));
+            if (!Number.isFinite(other) || other === ticketId) return Response.json({ ok: false, error: "a distinct other ticket id is required" }, { status: 400 });
+            const ot = (await cfD1Query(env, uuid, "SELECT id FROM _tickets WHERE id=?", [other]))[0];
+            if (!ot) return Response.json({ ok: false, error: "no such other ticket" }, { status: 404 });
+            let relation = String(body.relation || "related").trim().toLowerCase().slice(0, 40); if (!/^[a-z0-9_-]{1,40}$/.test(relation)) relation = "related";
+            const a = Math.min(ticketId, other), b = Math.max(ticketId, other);
+            await cfD1Query(env, uuid, "INSERT INTO _ticket_links (a, b, relation, created_at) VALUES (?,?,?,?) ON CONFLICT(a, b) DO UPDATE SET relation=excluded.relation", [a, b, relation, new Date().toISOString()]);
+            return Response.json({ ok: true, linked: [a, b], relation });
+          }
+          return Response.json({ ok: false, error: "unsupported ticket merge/link request" }, { status: 405 });
+        } catch (e) { console.error("ticket-merge failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "ticket-merge failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
