@@ -9452,6 +9452,8 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _notify_prefs WHERE user_id=?", [u.id]],                           // notification preferences
             ["DELETE FROM _idempotency WHERE user_id=?", [u.id]],                            // idempotency keys
             ["DELETE FROM _announcement_dismissals WHERE user_id=?", [u.id]],                // announcement dismissals
+            ["DELETE FROM _list_items WHERE list_id IN (SELECT id FROM _lists WHERE user_id=?)", [u.id]], // items in their lists
+            ["DELETE FROM _lists WHERE user_id=?", [u.id]],                                  // their named lists
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -11743,6 +11745,100 @@ async function handleRequest(request, env, ctx) {
           for (const n of nodes.values()) { if (n.parent_id != null && nodes.has(n.parent_id)) nodes.get(n.parent_id).children.push(n); else tree.push(n); }
           return Response.json({ ok: true, flat: all, tree });
         } catch (e) { console.error("categories failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "categories failed" }, { status: 502 }); }
+      }
+      // NAMED LISTS / COLLECTIONS — a member curates named lists (wishlist, watchlist, playlist, saved
+      // items) whose items reference rows in any table. Private by default; a list can be made public to
+      // share. Every list/item op is scoped to the owner (a public list is read-only to non-owners).
+      //   POST   /api/db/<slug>/lists {name, kind?, public?}          → create a list → {id}
+      //   GET    /api/db/<slug>/lists                                 → my lists (+ item counts)
+      //   GET    /api/db/<slug>/lists/<id>                            → a list + its items (owner, or if public)
+      //   PATCH  /api/db/<slug>/lists/<id> {name?, kind?, public?}    → rename / toggle public (owner)
+      //   DELETE /api/db/<slug>/lists/<id>                            → delete the list + items (owner)
+      //   POST   /api/db/<slug>/lists/<id>/items {table?, row?, note?, sort?}  → add an item (owner)
+      //   DELETE /api/db/<slug>/lists/<id>/items/<itemId>            → remove an item (owner)
+      const lstm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/lists(?:\/(\d+)(?:\/(items)(?:\/(\d+))?)?)?$/i);
+      if (lstm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = lstm[1].toLowerCase(), listId = lstm[2] ? parseInt(lstm[2], 10) : null, isItems = lstm[3] === "items", itemId = lstm[4] ? parseInt(lstm[4], 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          await ensureLists(env, uuid);
+          // VIEW a single list + items — the ONLY endpoint open to non-owners (and only if public).
+          if (listId != null && !isItems && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|lsr", 300)) return tooMany();
+            const l = (await cfD1Query(env, uuid, "SELECT id, user_id, name, kind, is_public, created_at FROM _lists WHERE id=?", [listId]))[0];
+            if (!l) return Response.json({ ok: false, error: "no such list" }, { status: 404 });
+            if (!l.is_public && (!userId || userId !== l.user_id)) return Response.json({ ok: false, error: "this list is private" }, { status: 403 });
+            const items = await cfD1Query(env, uuid, "SELECT id, ref_table, ref_id, note, sort, created_at FROM _list_items WHERE list_id=? ORDER BY sort ASC, id ASC LIMIT 2000", [listId]);
+            return Response.json({ ok: true, list: { id: l.id, name: l.name, kind: l.kind, is_public: !!l.is_public, owner: l.user_id, created_at: l.created_at }, items });
+          }
+          // Everything else requires a signed-in member.
+          if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+          // CREATE a list.
+          if (listId == null && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|lsw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const name = String(body.name || "").trim().slice(0, 160);
+            if (!name) return Response.json({ ok: false, error: "a name is required" }, { status: 400 });
+            const kind = body.kind != null && body.kind !== "" ? String(body.kind).slice(0, 40) : null;
+            const isPublic = (body.public === true || body.public === 1 || body.public === "true") ? 1 : 0;
+            const now = new Date().toISOString();
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _lists (user_id, name, kind, is_public, created_at, updated_at) VALUES (?,?,?,?,?,?) RETURNING id", [userId, name, kind, isPublic, now, now]);
+            return Response.json({ ok: true, id: ins[0] && ins[0].id, name, kind, is_public: !!isPublic });
+          }
+          // LIST my lists.
+          if (listId == null && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|lsl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT l.id, l.name, l.kind, l.is_public, l.created_at, (SELECT COUNT(*) FROM _list_items WHERE list_id=l.id) AS items FROM _lists l WHERE l.user_id=? ORDER BY l.id DESC LIMIT 500", [userId]);
+            return Response.json({ ok: true, lists: rows.map((r) => ({ id: r.id, name: r.name, kind: r.kind, is_public: !!r.is_public, items: r.items, created_at: r.created_at })) });
+          }
+          // Below: operations on a specific list — must be MINE.
+          const owned = (await cfD1Query(env, uuid, "SELECT id FROM _lists WHERE id=? AND user_id=?", [listId, userId]))[0];
+          if (!owned) return Response.json({ ok: false, error: "no such list" }, { status: 404 }); // private to owner (a foreign/absent list is a 404)
+          // ADD an item.
+          if (isItems && itemId == null && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|lsiw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const refTable = body.table != null && body.table !== "" ? String(body.table).toLowerCase().slice(0, 40) : null;
+            const refId = body.row != null && /^\d+$/.test(String(body.row)) ? parseInt(body.row, 10) : null;
+            const note = body.note != null && body.note !== "" ? String(body.note).slice(0, 1000) : null;
+            if ((refTable == null || refId == null) && note == null) return Response.json({ ok: false, error: "an item needs a (table,row) reference or a note" }, { status: 400 });
+            const sort = Math.floor(Number(body.sort)) || 0;
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _list_items (list_id, ref_table, ref_id, note, sort, created_at) VALUES (?,?,?,?,?,?) RETURNING id", [listId, refTable, refId, note, sort, new Date().toISOString()]);
+            return Response.json({ ok: true, id: ins[0] && ins[0].id });
+          }
+          // REMOVE an item.
+          if (isItems && itemId != null && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _list_items WHERE id=? AND list_id=?", [itemId, listId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such item" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: itemId });
+          }
+          // PATCH the list.
+          if (!isItems && request.method === "PATCH") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const sets = [], params = [];
+            if (body.name !== undefined) { const n = String(body.name || "").trim().slice(0, 160); if (!n) return Response.json({ ok: false, error: "name can't be empty" }, { status: 400 }); sets.push("name=?"); params.push(n); }
+            if (body.kind !== undefined) { sets.push("kind=?"); params.push(body.kind != null && body.kind !== "" ? String(body.kind).slice(0, 40) : null); }
+            if (body.public !== undefined) { sets.push("is_public=?"); params.push((body.public === true || body.public === 1 || body.public === "true") ? 1 : 0); }
+            if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+            sets.push("updated_at=?"); params.push(new Date().toISOString());
+            await cfD1Exec(env, uuid, "UPDATE _lists SET " + sets.join(", ") + " WHERE id=? AND user_id=?", params.concat([listId, userId]));
+            return Response.json({ ok: true, id: listId, updated: true });
+          }
+          // DELETE the list + items.
+          if (!isItems && request.method === "DELETE") {
+            await cfD1Exec(env, uuid, "DELETE FROM _lists WHERE id=? AND user_id=?", [listId, userId]);
+            try { await cfD1Exec(env, uuid, "DELETE FROM _list_items WHERE list_id=?", [listId]); } catch {}
+            return Response.json({ ok: true, deleted: true, id: listId });
+          }
+          return Response.json({ ok: false, error: "unsupported lists request" }, { status: 405 });
+        } catch (e) { console.error("lists failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "lists failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
