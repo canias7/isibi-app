@@ -6661,6 +6661,20 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — service catalog · media metadata · share counters (data API, next-100)
+- **`/services`** — bookable/sellable service list (name×duration×price_c×category). Public list = active
+  only (admin `?all=1`), category filter, get one; admin create/patch/delete + active toggle. No user scope.
+  batch229 (21/21).
+- **`/media-meta`** — alt/caption/credit/tags/dimensions per media URL (key in body/query since URLs have
+  slashes). Public read by ?key=, admin list + tag filter (`(','||tags||',') LIKE '%,tag,%'`). No user scope.
+  batch230 (19/19).
+- **`/share-counts`** — per-URL per-network social share tallies. Public `/increment` (atomic ON CONFLICT
+  count+1 RETURNING), aggregate read {total, by_network}, `/top` most-shared. Network normalized. No user
+  scope. batch231 (15/15).
+- Note: `_shares` (record-sharing) already existed → used `_share_counts` for the social counter. Doc gotcha:
+  a literal `"` in a BACKEND_RULES entry broke the double-quoted string parse — reworded with ‘typographic’
+  quotes. Full suite 214 green.
+
 ## 2026-07-23 — slug reservation · IP allow/deny · queue dispenser (data API, next-100 platform batch)
 - **`/reserve/<ns>/<name>`** — atomic unique-name claim (usernames/vanity URLs/event slugs), first-come via
   `INSERT … ON CONFLICT DO NOTHING` + changes check (no SELECT-then-INSERT race). Case-insensitive,
