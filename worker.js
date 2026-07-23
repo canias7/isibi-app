@@ -4847,6 +4847,36 @@ async function ensureCountdowns(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _countdowns (key TEXT PRIMARY KEY, title TEXT, target_at TEXT NOT NULL, created_at TEXT, updated_at TEXT)");
   _countdownsReady.add(uuid);
 }
+// Shipping-rate calculator — an admin defines rate tiers per named zone (weight and/or subtotal bands, a
+// flat rate, an optional free-over threshold); the app asks for a quote and gets the matching rate. Ensured
+// once per isolate.
+const _shippingRatesReady = new Set();
+async function ensureShippingRates(env, uuid) {
+  if (_shippingRatesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _shipping_rates (id INTEGER PRIMARY KEY AUTOINCREMENT, zone TEXT NOT NULL, label TEXT, min_weight REAL NOT NULL DEFAULT 0, max_weight REAL, min_subtotal INTEGER NOT NULL DEFAULT 0, max_subtotal INTEGER, rate_c INTEGER NOT NULL DEFAULT 0, free_over_c INTEGER, created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_shipping_zone ON _shipping_rates (zone)"); } catch {}
+  _shippingRatesReady.add(uuid);
+}
+// Quote / estimate builder — an admin builds a quote of line items (qty × unit price), the server totals it,
+// and the customer views/accepts it via a share token. `_quotes` = the header, `_quote_lines` = the items.
+const _quotesReady = new Set();
+async function ensureQuotes(env, uuid) {
+  if (_quotesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _quotes (id INTEGER PRIMARY KEY AUTOINCREMENT, number TEXT, customer TEXT, status TEXT NOT NULL DEFAULT 'draft', currency TEXT, notes TEXT, total_c INTEGER NOT NULL DEFAULT 0, token TEXT UNIQUE, author_id INTEGER, created_at TEXT, updated_at TEXT, expires_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _quote_lines (id INTEGER PRIMARY KEY AUTOINCREMENT, quote_id INTEGER NOT NULL, position INTEGER NOT NULL DEFAULT 0, description TEXT NOT NULL, qty REAL NOT NULL DEFAULT 1, unit_c INTEGER NOT NULL DEFAULT 0, line_c INTEGER NOT NULL DEFAULT 0)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_quote_lines ON _quote_lines (quote_id, position)"); } catch {}
+  _quotesReady.add(uuid);
+}
+// Giveaway / sweepstakes — members enter an open giveaway (once each), an admin randomly draws N winners.
+// `_giveaways` = the header (status + drawn winners), `_giveaway_entries` = one entry per (giveaway, member).
+const _giveawaysReady = new Set();
+async function ensureGiveaways(env, uuid) {
+  if (_giveawaysReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _giveaways (key TEXT PRIMARY KEY, title TEXT, status TEXT NOT NULL DEFAULT 'open', winners TEXT, drawn_at TEXT, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _giveaway_entries (giveaway TEXT NOT NULL, user_id INTEGER NOT NULL, created_at TEXT, PRIMARY KEY (giveaway, user_id))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_giveaway_entries_user ON _giveaway_entries (user_id)"); } catch {}
+  _giveawaysReady.add(uuid);
+}
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -9630,6 +9660,9 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _feedback_votes WHERE user_id=?", [u.id]],                         // feedback-board upvotes
             ["DELETE FROM _feedback WHERE author_id=?", [u.id]],                             // feedback posts they submitted
             ["DELETE FROM _status_subscribers WHERE lower(email)=lower(?)", [u.email]],      // status-page email subscription
+            ["DELETE FROM _giveaway_entries WHERE user_id=?", [u.id]],                       // giveaway/sweepstakes entries
+            ["DELETE FROM _quote_lines WHERE quote_id IN (SELECT id FROM _quotes WHERE author_id=?)", [u.id]], // quote line items (before the quotes)
+            ["DELETE FROM _quotes WHERE author_id=?", [u.id]],                               // quotes/estimates they authored
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -13398,6 +13431,280 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported countdowns request" }, { status: 405 });
         } catch (e) { console.error("countdowns failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "countdowns failed" }, { status: 502 }); }
+      }
+      // SHIPPING-RATE CALCULATOR — an admin defines rate tiers per named zone (weight and/or subtotal bands,
+      // a flat rate, an optional free-over threshold); the app asks for a quote and gets the matching rate.
+      //   POST   /api/db/<slug>/shipping/rates {zone, label?, min_weight?, max_weight?, min_subtotal?, max_subtotal?, rate, free_over?}  (ADMIN) → {id}
+      //   GET    /api/db/<slug>/shipping/rates[?zone=]      (ADMIN) → the rate table
+      //   DELETE /api/db/<slug>/shipping/rates/<id>         (ADMIN)
+      //   POST   /api/db/<slug>/shipping/quote {zone, weight?, subtotal?}  (public) → {rate, free, matched}
+      const shrm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/shipping\/(rates|quote)(?:\/(\d+))?$/i);
+      if (shrm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = shrm[1].toLowerCase(), kind = shrm[2].toLowerCase(), rateId = shrm[3] ? parseInt(shrm[3], 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureShippingRates(env, uuid);
+          // QUOTE (public).
+          if (kind === "quote") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|shq", 600)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const zone = String(body.zone || "").trim().slice(0, 80);
+            if (!zone) return Response.json({ ok: false, error: "a zone is required" }, { status: 400 });
+            const weight = body.weight == null ? 0 : Number(body.weight);
+            const subtotalC = body.subtotal == null ? 0 : (toCents(body.subtotal) || 0);
+            if (!Number.isFinite(weight) || weight < 0) return Response.json({ ok: false, error: "bad weight" }, { status: 400 });
+            const rows = await cfD1Query(env, uuid, "SELECT id, label, min_weight, max_weight, min_subtotal, max_subtotal, rate_c, free_over_c FROM _shipping_rates WHERE zone=?", [zone]);
+            const matches = rows.filter((r) => weight >= (r.min_weight || 0) && (r.max_weight == null || weight <= r.max_weight) && subtotalC >= (r.min_subtotal || 0) && (r.max_subtotal == null || subtotalC <= r.max_subtotal));
+            if (!matches.length) return Response.json({ ok: true, zone, matched: null, rate: null, reason: "no matching rate for this zone" });
+            // Pick the cheapest applicable tier; apply free-over.
+            matches.sort((a, b) => a.rate_c - b.rate_c);
+            const m = matches[0];
+            const free = m.free_over_c != null && subtotalC >= m.free_over_c;
+            const rate_c = free ? 0 : m.rate_c;
+            return Response.json({ ok: true, zone, rate: rate_c / 100, rate_c, free, matched: { id: m.id, label: m.label } });
+          }
+          // RATES — admin only from here.
+          const a = await needAdmin(); if (a) return a;
+          if (request.method === "POST" && rateId == null) {
+            if (!rateOk(slug + "|" + ip + "|shw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const zone = String(body.zone || "").trim().slice(0, 80);
+            if (!zone) return Response.json({ ok: false, error: "a zone is required" }, { status: 400 });
+            const rate_c = toCents(body.rate); if (rate_c == null || rate_c < 0) return Response.json({ ok: false, error: "a rate (>= 0) is required" }, { status: 400 });
+            const minW = body.min_weight == null ? 0 : Number(body.min_weight);
+            const maxW = body.max_weight == null || body.max_weight === "" ? null : Number(body.max_weight);
+            const minS = body.min_subtotal == null ? 0 : (toCents(body.min_subtotal) || 0);
+            const maxS = body.max_subtotal == null || body.max_subtotal === "" ? null : toCents(body.max_subtotal);
+            const freeOver = body.free_over == null || body.free_over === "" ? null : toCents(body.free_over);
+            if (!Number.isFinite(minW) || (maxW != null && !Number.isFinite(maxW))) return Response.json({ ok: false, error: "bad weight band" }, { status: 400 });
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _shipping_rates (zone, label, min_weight, max_weight, min_subtotal, max_subtotal, rate_c, free_over_c, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?) RETURNING id", [zone, body.label != null ? String(body.label).slice(0, 120) : null, minW, maxW, minS, maxS, rate_c, freeOver, now, now]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, zone });
+          }
+          if (request.method === "DELETE" && rateId != null) {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _shipping_rates WHERE id=?", [rateId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such rate" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: rateId });
+          }
+          if (request.method === "GET" && rateId == null) {
+            if (!rateOk(slug + "|" + ip + "|shl", 300)) return tooMany();
+            const z = String(url.searchParams.get("zone") || "").trim().slice(0, 80);
+            const rows = await cfD1Query(env, uuid, "SELECT id, zone, label, min_weight, max_weight, min_subtotal, max_subtotal, rate_c, free_over_c FROM _shipping_rates" + (z ? " WHERE zone=?" : "") + " ORDER BY zone ASC, rate_c ASC LIMIT 1000", z ? [z] : []);
+            return Response.json({ ok: true, rates: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported shipping request" }, { status: 405 });
+        } catch (e) { console.error("shipping failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "shipping failed" }, { status: 502 }); }
+      }
+      // QUOTE / ESTIMATE BUILDER — an admin builds a quote of line items (qty × unit price), the server
+      // totals it, and the customer views/accepts it via a share token.
+      //   POST   /api/db/<slug>/quotes {number?, customer?, currency?, notes?, expires?, lines:[{description, qty?, unit}]}  (ADMIN) → {id, number, token}
+      //   GET    /api/db/<slug>/quotes[?status=]            (ADMIN) → list
+      //   GET    /api/db/<slug>/quotes/<id>                 (ADMIN) → quote + lines
+      //   PATCH  /api/db/<slug>/quotes/<id> {status?, customer?, notes?, lines?}  (ADMIN) → edit/re-total
+      //   DELETE /api/db/<slug>/quotes/<id>                 (ADMIN)
+      //   GET    /api/db/<slug>/quotes/view/<token>         (public) → quote + lines by share token
+      //   POST   /api/db/<slug>/quotes/view/<token>/respond {accept:bool}  (public) → accept/decline
+      const qtm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/quotes(?:\/(\d+)|\/view\/([A-Za-z0-9_-]{6,64})(?:\/(respond))?)?$/i);
+      if (qtm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = qtm[1].toLowerCase(), qid = qtm[2] ? parseInt(qtm[2], 10) : null, viewToken = qtm[3] || null, isRespond = qtm[4] === "respond";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const QSTATUS = ["draft", "sent", "accepted", "declined", "expired"];
+        // Normalize incoming lines → [{description, qty, unit_c, line_c}]; total in cents. Returns null if bad.
+        const buildLines = (raw) => {
+          if (!Array.isArray(raw) || !raw.length) return null;
+          const out = []; let total = 0;
+          for (const l of raw.slice(0, 200)) {
+            const desc = String((l && l.description) || "").trim().slice(0, 300);
+            if (!desc) return null;
+            const qty = l.qty == null ? 1 : Number(l.qty);
+            const unit_c = toCents(l.unit);
+            if (!Number.isFinite(qty) || qty < 0 || unit_c == null) return null;
+            const line_c = Math.round(qty * unit_c);
+            out.push({ description: desc, qty, unit_c, line_c }); total += line_c;
+          }
+          return { lines: out, total_c: total };
+        };
+        const writeLines = async (quoteId, lines) => { await cfD1Exec(env, uuid, "DELETE FROM _quote_lines WHERE quote_id=?", [quoteId]); let pos = 0; for (const l of lines) { await cfD1Exec(env, uuid, "INSERT INTO _quote_lines (quote_id, position, description, qty, unit_c, line_c) VALUES (?,?,?,?,?,?)", [quoteId, pos++, l.description, l.qty, l.unit_c, l.line_c]); } };
+        try {
+          await ensureQuotes(env, uuid);
+          // PUBLIC view/respond by token.
+          if (viewToken) {
+            const q = (await cfD1Query(env, uuid, "SELECT id, number, customer, status, currency, notes, total_c, created_at, expires_at FROM _quotes WHERE token=?", [viewToken]))[0];
+            if (!q) return Response.json({ ok: false, error: "no such quote" }, { status: 404 });
+            if (isRespond) {
+              if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+              if (!rateOk(slug + "|" + ip + "|qtresp", 60)) return tooMany();
+              let body = {}; try { body = await request.json(); } catch {}
+              if (typeof body.accept !== "boolean") return Response.json({ ok: false, error: "accept (true/false) is required" }, { status: 400 });
+              if (q.status === "accepted" || q.status === "declined") return Response.json({ ok: false, error: "this quote was already " + q.status }, { status: 409 });
+              if (q.expires_at && Date.parse(q.expires_at) < Date.now()) return Response.json({ ok: false, error: "this quote has expired" }, { status: 409 });
+              const ns = body.accept ? "accepted" : "declined";
+              await cfD1Exec(env, uuid, "UPDATE _quotes SET status=?, updated_at=? WHERE id=?", [ns, new Date().toISOString(), q.id]);
+              return Response.json({ ok: true, status: ns });
+            }
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|qtview", 300)) return tooMany();
+            const lines = await cfD1Query(env, uuid, "SELECT description, qty, unit_c, line_c FROM _quote_lines WHERE quote_id=? ORDER BY position ASC", [q.id]);
+            return Response.json({ ok: true, quote: q, lines });
+          }
+          // CREATE (admin).
+          if (qid == null && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|qtw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const built = buildLines(body.lines);
+            if (!built) return Response.json({ ok: false, error: "lines[] with description + unit are required" }, { status: 400 });
+            const token = crypto.randomUUID().replace(/-/g, "");
+            const now = new Date().toISOString();
+            let expires = null; if (body.expires != null && body.expires !== "") { const e = Date.parse(String(body.expires)); if (Number.isNaN(e)) return Response.json({ ok: false, error: "bad expires date" }, { status: 400 }); expires = new Date(e).toISOString(); }
+            const r = await cfD1Query(env, uuid, "INSERT INTO _quotes (number, customer, status, currency, notes, total_c, token, author_id, created_at, updated_at, expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?) RETURNING id", [body.number != null ? String(body.number).slice(0, 60) : null, body.customer != null ? String(body.customer).slice(0, 200) : null, "draft", body.currency != null ? String(body.currency).slice(0, 10) : null, body.notes != null ? String(body.notes).slice(0, 2000) : null, built.total_c, token, userId, now, now, expires]);
+            const newId = r[0] ? r[0].id : null;
+            if (newId) await writeLines(newId, built.lines);
+            return Response.json({ ok: true, id: newId, number: body.number || null, token, total: built.total_c / 100 });
+          }
+          // LIST (admin).
+          if (qid == null && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|qtl", 300)) return tooMany();
+            const where = [], params = [];
+            const st = String(url.searchParams.get("status") || "").toLowerCase();
+            if (QSTATUS.includes(st)) { where.push("status=?"); params.push(st); }
+            const rows = await cfD1Query(env, uuid, "SELECT id, number, customer, status, currency, total_c, token, created_at, expires_at FROM _quotes" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY created_at DESC LIMIT 500", params);
+            return Response.json({ ok: true, quotes: rows });
+          }
+          // Beyond here we need the quote; admin only.
+          const a = await needAdmin(); if (a) return a;
+          const quote = (await cfD1Query(env, uuid, "SELECT id, number, customer, status, currency, notes, total_c, token, author_id, created_at, updated_at, expires_at FROM _quotes WHERE id=?", [qid]))[0];
+          if (!quote) return Response.json({ ok: false, error: "no such quote" }, { status: 404 });
+          if (request.method === "GET") {
+            const lines = await cfD1Query(env, uuid, "SELECT description, qty, unit_c, line_c FROM _quote_lines WHERE quote_id=? ORDER BY position ASC", [qid]);
+            return Response.json({ ok: true, quote, lines });
+          }
+          if (request.method === "PATCH") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const sets = [], params = [];
+            if (body.status != null) { const s = String(body.status).toLowerCase(); if (!QSTATUS.includes(s)) return Response.json({ ok: false, error: "bad status" }, { status: 400 }); sets.push("status=?"); params.push(s); }
+            if ("customer" in body) { sets.push("customer=?"); params.push(body.customer != null ? String(body.customer).slice(0, 200) : null); }
+            if ("notes" in body) { sets.push("notes=?"); params.push(body.notes != null ? String(body.notes).slice(0, 2000) : null); }
+            if ("number" in body) { sets.push("number=?"); params.push(body.number != null ? String(body.number).slice(0, 60) : null); }
+            let newTotal = null;
+            if (body.lines != null) { const built = buildLines(body.lines); if (!built) return Response.json({ ok: false, error: "bad lines[]" }, { status: 400 }); await writeLines(qid, built.lines); newTotal = built.total_c; sets.push("total_c=?"); params.push(built.total_c); }
+            if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+            sets.push("updated_at=?"); params.push(new Date().toISOString());
+            params.push(qid);
+            await cfD1Exec(env, uuid, "UPDATE _quotes SET " + sets.join(", ") + " WHERE id=?", params);
+            return Response.json({ ok: true, id: qid, total: newTotal != null ? newTotal / 100 : quote.total_c / 100 });
+          }
+          if (request.method === "DELETE") {
+            await cfD1Exec(env, uuid, "DELETE FROM _quotes WHERE id=?", [qid]);
+            try { await cfD1Exec(env, uuid, "DELETE FROM _quote_lines WHERE quote_id=?", [qid]); } catch {}
+            return Response.json({ ok: true, deleted: true, id: qid });
+          }
+          return Response.json({ ok: false, error: "unsupported quotes request" }, { status: 405 });
+        } catch (e) { console.error("quotes failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "quotes failed" }, { status: 502 }); }
+      }
+      // GIVEAWAY / SWEEPSTAKES — members enter an open giveaway (once each), an admin randomly draws winners.
+      //   POST   /api/db/<slug>/giveaways/<key> {title?}    (ADMIN) → create/open
+      //   POST   /api/db/<slug>/giveaways/<key>/enter       (member) → enter (once, while open)
+      //   POST   /api/db/<slug>/giveaways/<key>/draw {count?}  (ADMIN) → random winners, closes it
+      //   GET    /api/db/<slug>/giveaways/<key>             (public) → {status, entries, winners, mine}
+      //   GET    /api/db/<slug>/giveaways                   (public) → list
+      //   DELETE /api/db/<slug>/giveaways/<key>             (ADMIN)
+      const gvm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/giveaways(?:\/([A-Za-z0-9_.-]{1,80})(?:\/(enter|draw))?)?$/i);
+      if (gvm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = gvm[1].toLowerCase(), key = gvm[2] || null, act = gvm[3] ? gvm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureGiveaways(env, uuid);
+          // ENTER (member).
+          if (key && act === "enter" && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|gventer", 120)) return tooMany();
+            const g = (await cfD1Query(env, uuid, "SELECT status FROM _giveaways WHERE key=?", [key]))[0];
+            if (!g) return Response.json({ ok: false, error: "no such giveaway" }, { status: 404 });
+            if (g.status !== "open") return Response.json({ ok: false, error: "entries are closed" }, { status: 409 });
+            const ex = await cfD1Exec(env, uuid, "INSERT INTO _giveaway_entries (giveaway, user_id, created_at) VALUES (?,?,?) ON CONFLICT DO NOTHING", [key, userId, new Date().toISOString()]);
+            return Response.json({ ok: true, entered: true, already: (ex.changes || 0) === 0 });
+          }
+          // DRAW (admin).
+          if (key && act === "draw" && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const g = (await cfD1Query(env, uuid, "SELECT status FROM _giveaways WHERE key=?", [key]))[0];
+            if (!g) return Response.json({ ok: false, error: "no such giveaway" }, { status: 404 });
+            if (g.status === "drawn") return Response.json({ ok: false, error: "already drawn" }, { status: 409 });
+            let count = body.count == null ? 1 : Math.floor(Number(body.count));
+            if (!(count > 0)) count = 1; if (count > 1000) count = 1000;
+            const entries = (await cfD1Query(env, uuid, "SELECT user_id FROM _giveaway_entries WHERE giveaway=? LIMIT 100000", [key])).map((r) => r.user_id);
+            if (!entries.length) return Response.json({ ok: false, error: "no entries to draw from" }, { status: 400 });
+            // Fisher–Yates with CSPRNG bytes → fair winner pick.
+            const rnd = crypto.getRandomValues(new Uint32Array(entries.length));
+            for (let i = entries.length - 1; i > 0; i--) { const j = rnd[i] % (i + 1); const t2 = entries[i]; entries[i] = entries[j]; entries[j] = t2; }
+            const winners = entries.slice(0, Math.min(count, entries.length));
+            const now = new Date().toISOString();
+            await cfD1Exec(env, uuid, "UPDATE _giveaways SET status='drawn', winners=?, drawn_at=? WHERE key=?", [JSON.stringify(winners), now, key]);
+            return Response.json({ ok: true, drawn: true, winners, entries: entries.length });
+          }
+          // CREATE / OPEN (admin).
+          if (key && !act && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|gvw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const title = body.title != null ? String(body.title).slice(0, 200) : null;
+            await cfD1Query(env, uuid, "INSERT INTO _giveaways (key, title, status, created_at) VALUES (?,?, 'open', ?) ON CONFLICT(key) DO UPDATE SET title=excluded.title", [key, title, new Date().toISOString()]);
+            return Response.json({ ok: true, key, status: "open" });
+          }
+          // DELETE (admin).
+          if (key && !act && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _giveaways WHERE key=?", [key]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such giveaway" }, { status: 404 });
+            try { await cfD1Exec(env, uuid, "DELETE FROM _giveaway_entries WHERE giveaway=?", [key]); } catch {}
+            return Response.json({ ok: true, deleted: true, key });
+          }
+          // READ one (public).
+          if (key && !act && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|gvr", 600)) return tooMany();
+            const g = (await cfD1Query(env, uuid, "SELECT key, title, status, winners, drawn_at, created_at FROM _giveaways WHERE key=?", [key]))[0];
+            if (!g) return Response.json({ ok: false, error: "no such giveaway" }, { status: 404 });
+            const entries = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _giveaway_entries WHERE giveaway=?", [key]))[0].n;
+            let mine = false; if (userId) mine = !!(await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _giveaway_entries WHERE giveaway=? AND user_id=?", [key, userId]))[0];
+            let winners = null; try { winners = g.winners ? JSON.parse(g.winners) : null; } catch {}
+            return Response.json({ ok: true, key: g.key, title: g.title, status: g.status, entries, winners, drawn_at: g.drawn_at, mine });
+          }
+          // LIST (public).
+          if (!key && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|gvl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT key, title, status, drawn_at, created_at, (SELECT COUNT(*) FROM _giveaway_entries WHERE giveaway=_giveaways.key) AS entries FROM _giveaways ORDER BY created_at DESC LIMIT 200");
+            return Response.json({ ok: true, giveaways: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported giveaways request" }, { status: 405 });
+        } catch (e) { console.error("giveaways failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "giveaways failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
