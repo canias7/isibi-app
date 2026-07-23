@@ -6812,3 +6812,22 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   check missed it — the DOM overlay made the canvas-region screenshot "non-blank"), with an error that tells the
   fix loop to move the render loop ahead of the load. Both validated locally: deadlocked game → detector flags it;
   render-loop-first game → clean. Rebuilds the container (smoke.mjs is baked in).
+
+- **2026-07-23 — REAL PROP/ENVIRONMENT MODELS: 3D games no longer "just squares" (4 themed CC0 packs baked in).**
+  Owner: "still looks like squares" (props/env were primitive MeshBuilder boxes/cylinders; only characters were real
+  models). Fixed the same way characters were: baked a themed CC0 3D prop pack into the container modelpack. Broke
+  the "can't fetch assets from the sandbox" wall — `git clone` of public repos WORKS through the proxy (only the
+  GitHub API/codeload are repo-scoped; raw.githubusercontent.com + git clone are not). Sourced 46 CC0 props across
+  4 THEMES (owner picked "multiple themes up front"): **scifi_** (11 — Polygonal Mind CC0 via ToxSam registry:
+  machine/battery/capsule/antenna/drone/glassscreen/plug/wall_circle/bridge/minipc), **warehouse_** (15 — KayKit
+  Prototype Bits: crates/barrels/pallets/pillars/walls/targets), **dungeon_** (12 — KayKit Dungeon: barrels/crates/
+  chests/keg/torch/pillar/table/wall/banner/bottle), **city_** (8 — KayKit City: dumpster/car/bench/streetlight/
+  trafficlight/hydrant/watertower/crate). All CC0 (see builder-game/models/CREDITS.md). `.gltf` sources converted to
+  self-contained `.glb` via gltf-pipeline; filenames lowercase + theme-prefixed (the worker lowercases model refs).
+  Every prop load-checked headless (46/46 load, 0 fail) + full sci-fi arena render validated with the exact helper.
+  GAME_3D_RULES PROPS section rewritten: pick the ONE theme matching the game's genre, dress the arena with those
+  real models (not boxes) via a `placeProp(container,x,z,ry,target)` helper that auto-scales + grounds + adds an
+  invisible collider + shadow-casts; load render-loop-first async (respects the deadlock fix); primitives only for
+  ground/boundary-walls/platforms/projectiles/pickups. Worker needs NO change (model-ref parse already grabs any
+  `.glb`, copyModels copies only referenced props per game). Modelpack now 8.4MB / 48 files (46 props + robot +
+  soldier); container rebuild. Next increment ideas: more props per theme, per-genre enemy models, generated 3D.
