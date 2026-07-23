@@ -24,7 +24,15 @@ Building them one PR at a time, $0 (no Claude/fal spend).
   and `capabilityPrompt(ids)`. **279 capabilities indexed, 273 test-linked.** `test/backend/registry.test.mjs`
   (15/15) checks structure + LIVE coverage (fails if any worker route lacks an entry → can't drift) + selection.
   NOT yet wired into the live generation flow (that spends Claude credits — will ask before enabling).
-- Remaining: #2 planner, #3 design engine, #4 generated-app test harness, #5 worker.js refactor.
+- **#4 Generated-app test harness (static half) — DONE.** `builder/app-linter.mjs` `lintGeneratedApp(rawOrFiles)`
+  statically verifies a generated Vite+React+Tailwind app WITHOUT a browser/Claude call: required files present +
+  forbidden absent, index.html mount/script/title/desc, index.css tailwind directives, HashRouter-not-BrowserRouter
+  (survives refresh), imports resolve to the dep allow-list or a local file, **every `${API}/<seg>` call points to a
+  REAL capability (cross-checked against the #1 registry)**, no fake buttons / dead links / unwired forms+uploads
+  (warnings). Errors block, warnings advise. `test/backend/applint.test.mjs` (18/18) — clean app passes, targeted
+  broken apps each trip the right rule. The LIVE compile/render half (vite build + headless screenshot) belongs in
+  the build container + spends nothing to design but needs the app deps installed — follow-up, and it overlaps #3.
+- Remaining: #2 planner, #3 design engine (incl. live render/screenshot-critique), #5 worker.js refactor.
 
 ## 2026-07-21 — BACKEND ROADMAP: building the "100 more" list (AI parked)
 
