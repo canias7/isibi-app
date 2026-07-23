@@ -11,6 +11,8 @@ import { planApp, specToPrompt } from "./builder/app-planner.mjs";
 import { pickStyleFamily, designBrief, tokensToTailwindTheme } from "./builder/design-system.mjs";
 import { capabilityPrompt } from "./builder/capability-registry.mjs";
 import { lintGeneratedApp } from "./builder/app-linter.mjs";
+// Worker-safe vision-critique functions (fetch + JSON only; the Playwright render lives in the build container).
+import { buildCritiquePrompt, requestCritique, critiquesToInstruction } from "./builder/vision-critique.mjs";
 // Game builder (Phase 3): same generate→build→publish pipeline, engine swapped for
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
@@ -29355,6 +29357,12 @@ async function handleRequest(request, env, ctx) {
         const bd = await br.json().catch(() => ({ ok: false, error: "build service returned no JSON" }));
         return { bd, buildMs: Date.now() - t0 };
       };
+      // PIPELINE_V2 vision: ask the build container to render the dist + screenshot the given routes.
+      const critiqueInContainer = async (dist, routes) => {
+        const c = getContainer(env.BUILD_CONTAINER);
+        const cr = await c.fetch(new Request("http://build/critique", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ dist, routes }) }));
+        return await cr.json().catch(() => ({ ok: false, error: "critique service returned no JSON" }));
+      };
       // Batch code deltas so the client gets readable chunks, not a flood.
       let codeBuf = "";
       const flushCode = (force) => { if (codeBuf && (force || codeBuf.length >= 140)) { emit({ ev: "code", t: codeBuf }); codeBuf = ""; } };
@@ -29490,8 +29498,40 @@ async function handleRequest(request, env, ctx) {
             ({ bd, buildMs } = await buildInContainer(files));
           }
           if (!bd.ok) { emit({ ev: "error", stage: "build", msg: "the site didn't compile — try rephrasing or send it again", detail: String(bd.error || "").slice(0, 400), cost: genCredits + imgCredits, balance: balAfter }); return; }
-          const dist = bd.files || {};
+          let dist = bd.files || {};
           if (!dist["index.html"]) { emit({ ev: "error", stage: "build", msg: "the build produced no page — try again", cost: genCredits + imgCredits, balance: balAfter }); return; }
+          // PIPELINE_V2 + VISION_REPAIR (both flags): render the built site, have the vision model critique the
+          // screenshots, and — if it looks weak — do ONE revise + rebuild. The container screenshots (it has the
+          // browser); the Worker runs the vision model (it has the key). Costs an extra build + a few vision calls,
+          // so it's a separate opt-in on top of PIPELINE_V2. Fully guarded; any error leaves the build as-is.
+          if (env.PIPELINE_V2 === "1" && env.VISION_REPAIR === "1") {
+            try {
+              emit({ ev: "phase", phase: "reviewing" });
+              const cr = await critiqueInContainer(dist, ["/"]);
+              if (cr && cr.ok && Array.isArray(cr.shots) && cr.shots.length) {
+                const vPrompt = buildCritiquePrompt({ goal: brief });
+                const critiques = [];
+                for (const s of cr.shots) critiques.push(await requestCritique({ apiKey: env.ANTHROPIC_API_KEY, pngBase64: s.pngBase64, prompt: vPrompt }));
+                const minScore = critiques.length ? Math.min(...critiques.map((c) => c.score)) : 100;
+                emit({ ev: "vision", minScore, issues: critiques.reduce((n, c) => n + c.issues.length, 0) });
+                if (minScore < 75) {
+                  const instruction = critiquesToInstruction(critiques);
+                  if (instruction) {
+                    emit({ ev: "phase", phase: "polishing" });
+                    const dump = Object.entries(files).map(([p, s]) => "===FILE: " + p + "===\n" + s).join("\n\n").slice(0, 90000);
+                    const vg = await streamGen(REACT_REVISE_RULES, instruction + "\n\nProject files:\n\n" + dump, null);
+                    if (vg && vg.text) {
+                      const vf = parseGeneratedFiles(vg.text);
+                      for (const [p, v] of Object.entries(vf)) { if (p !== "isibi.schema.json") files[p] = v; }
+                      const vc = rbCredits(vg.usedIn, vg.usedOut); genCredits += vc; try { const b = await useCredits(auth, vc); if (b >= 0) balAfter = b; } catch {}
+                      const rb = await buildInContainer(files);
+                      if (rb.bd && rb.bd.ok && rb.bd.files && rb.bd.files["index.html"]) dist = rb.bd.files; // keep the polished build; else keep the original
+                    }
+                  }
+                }
+              }
+            } catch (e) { console.error("PIPELINE_V2 vision repair failed:", e && e.message); }
+          }
           // 4) Publish the dist to R2 → live at /s/<slug>/.
           emit({ ev: "phase", phase: "publishing" });
           // Brand = the <title> the model chose, minus any " — tagline".

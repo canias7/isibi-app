@@ -3,8 +3,9 @@
 // exercised with an injected fetch, so this whole suite is $0.
 import { makeTally } from "./harness.mjs";
 import {
-  renderRoutes, buildCritiquePrompt, parseCritique, requestCritique, critiquesToInstruction, visualRepairLoop, DEFAULT_VISION_MODEL,
+  buildCritiquePrompt, parseCritique, requestCritique, critiquesToInstruction, visualRepairLoop, DEFAULT_VISION_MODEL,
 } from "../../builder/vision-critique.mjs";
+import { renderRoutes } from "../../builder/vision-render.mjs";
 
 const t = makeTally("Vision critique");
 
