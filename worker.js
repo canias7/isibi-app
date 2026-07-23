@@ -29304,7 +29304,7 @@ async function handleRequest(request, env, ctx) {
       const brief = typeof rb.brief === "string" ? rb.brief.trim().slice(0, 4000) : "";
       if (!brief) return Response.json({ ok: false, error: "no brief" }, { status: 400 });
       const auth = request.headers.get("Authorization") || "";
-      const CREDIT_USD = 0.008, RB_MAX_OUT = 16000, RB_MAX_IMAGES = 6;
+      const CREDIT_USD = 0.008, RB_MAX_OUT = 32000, RB_MAX_IMAGES = 6;
       const RB_IMG_CREDITS = Math.max(1, Math.ceil(SITE_IMG_USD / CREDIT_USD));
       // Build model: always Sonnet 5 (owner's call 2026-07-21). Haiku was dropped from
       // the builder — it mis-wired the backend API often enough to ship dead apps, so
@@ -29334,7 +29334,7 @@ async function handleRequest(request, env, ctx) {
           method: "POST",
           headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
           body: JSON.stringify({ model: RB_MODEL, max_tokens: RB_MAX_OUT, stream: true, system, messages: [{ role: "user", content: userContent }] }),
-          signal: AbortSignal.timeout(180000),
+          signal: AbortSignal.timeout(300000),
         });
         if (!r.ok) { const d = await r.json().catch(() => ({})); const e = new Error("gen " + r.status); e.status = r.status; e.detail = JSON.stringify(d).slice(0, 500); throw e; }
         const reader = r.body.getReader(); const dec = new TextDecoder();
@@ -29603,7 +29603,7 @@ async function handleRequest(request, env, ctx) {
       if (!srcObj || !srcObj.files) return Response.json({ ok: false, error: "this site can't be edited yet — rebuild it first", need: "rebuild" }, { status: 409 });
       if (srcObj.uid && srcObj.uid !== rvUser.id) return UNAUTHED();
       const auth = request.headers.get("Authorization") || "";
-      const CREDIT_USD = 0.008, RB_MAX_OUT = 16000, RB_MAX_IMAGES = 4;
+      const CREDIT_USD = 0.008, RB_MAX_OUT = 32000, RB_MAX_IMAGES = 4;
       const RB_IMG_CREDITS = Math.max(1, Math.ceil(SITE_IMG_USD / CREDIT_USD));
       const rbCredits = (i, o) => Math.max(1, Math.ceil((i * 3e-6 + o * 15e-6) / CREDIT_USD));
       let bal0; try { bal0 = await readCredits(auth); } catch { bal0 = 0; }
@@ -29617,7 +29617,7 @@ async function handleRequest(request, env, ctx) {
           method: "POST",
           headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
           body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: RB_MAX_OUT, stream: true, system, messages: [{ role: "user", content: userContent }] }),
-          signal: AbortSignal.timeout(180000),
+          signal: AbortSignal.timeout(300000),
         });
         if (!r.ok) { const d = await r.json().catch(() => ({})); const e = new Error("gen " + r.status); e.status = r.status; e.detail = JSON.stringify(d).slice(0, 500); throw e; }
         const reader = r.body.getReader(); const dec = new TextDecoder();

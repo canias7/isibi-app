@@ -168,7 +168,7 @@ export function makeAnthropicGenerate(apiKey, model = "claude-sonnet-5", fetchIm
       method: "POST",
       headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({
-        model, max_tokens: 16000,
+        model, max_tokens: 32000, stream: false,
         system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
         messages: [{ role: "user", content: user }],
       }),
