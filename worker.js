@@ -5540,6 +5540,24 @@ async function ensurePriceLists(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_price_lists_li ON _price_lists (list, item, min_qty)"); } catch {}
   _priceListsReady.add(uuid);
 }
+// Background job queue — enqueue jobs, atomically claim the next due one (claim bumps attempts), then mark it
+// done or failed; a failure re-queues with backoff until max_attempts, after which it goes 'dead'. `_jobs`.
+// Ensured once.
+const _jobsReady = new Set();
+async function ensureJobs(env, uuid) {
+  if (_jobsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, queue TEXT NOT NULL DEFAULT 'default', payload TEXT, status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 3, run_at TEXT, locked_at TEXT, last_error TEXT, created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_jobs_claim ON _jobs (queue, status, run_at)"); } catch {}
+  _jobsReady.add(uuid);
+}
+// Health-check registry — named checks each report up / degraded / down; a public read rolls them up into one
+// overall status (down beats degraded beats up). `_health_checks`. Ensured once.
+const _healthReady = new Set();
+async function ensureHealth(env, uuid) {
+  if (_healthReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _health_checks (name TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'unknown', message TEXT, updated_at TEXT)");
+  _healthReady.add(uuid);
+}
 // The user-scoped tables a member can export their own rows from (GDPR data portability) — kept in sync with
 // the erase list. Each entry is [table, ownerColumn]; a missing table is skipped at read time.
 const DATA_EXPORT_TABLES = [
@@ -19803,6 +19821,182 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported price-lists request" }, { status: 405 });
         } catch (e) { console.error("price-lists failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "price-lists failed" }, { status: 502 }); }
+      }
+      // BACKGROUND JOB QUEUE — enqueue jobs, atomically claim the next due one (claim bumps attempts), then mark
+      // done or failed; a failure re-queues with backoff until max_attempts, after which it goes 'dead'. Admin.
+      //   POST /api/db/<slug>/jobs {queue?, payload, max_attempts?, delay_sec?}  (ADMIN) → enqueue
+      //   POST /api/db/<slug>/jobs/claim {queue?}     (ADMIN) → claim the next due job (or {job:null})
+      //   POST /api/db/<slug>/jobs/<id>/done          (ADMIN) → complete
+      //   POST /api/db/<slug>/jobs/<id>/fail {error?, backoff_sec?}  (ADMIN) → retry-or-dead
+      //   GET  /api/db/<slug>/jobs[?queue=&status=]   (ADMIN) → list
+      //   GET  /api/db/<slug>/jobs/stats[?queue=]     (ADMIN) → counts by status
+      //   DELETE /api/db/<slug>/jobs/<id>             (ADMIN)
+      const jbm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/jobs(?:\/(claim|stats|\d+))?(?:\/(done|fail))?$/i);
+      if (jbm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = jbm[1].toLowerCase(), seg = jbm[2] || null, act = jbm[3] || null;
+        const jobId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureJobs(env, uuid);
+          // ENQUEUE.
+          if (!seg && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            let queue = String(body.queue || "default").trim().toLowerCase().slice(0, 60); if (!/^[a-z0-9_.:-]{1,60}$/.test(queue)) queue = "default";
+            let maxA = Math.floor(Number(body.max_attempts)); if (!(maxA >= 1 && maxA <= 100)) maxA = 3;
+            let delay = Math.floor(Number(body.delay_sec)); if (!(delay >= 0)) delay = 0;
+            const runAt = new Date(Date.now() + delay * 1000).toISOString(), now = new Date().toISOString();
+            const payload = body.payload != null ? (typeof body.payload === "string" ? body.payload : JSON.stringify(body.payload)).slice(0, 100000) : null;
+            const r = await cfD1Query(env, uuid, "INSERT INTO _jobs (queue, payload, status, attempts, max_attempts, run_at, created_at, updated_at) VALUES (?,?, 'pending', 0, ?, ?, ?, ?) RETURNING id", [queue, payload, maxA, runAt, now, now]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, queue, run_at: runAt });
+          }
+          // CLAIM (atomic).
+          if (seg === "claim" && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const now = new Date().toISOString();
+            const q = body.queue != null ? String(body.queue).trim().toLowerCase().slice(0, 60) : null;
+            const r = q
+              ? await cfD1Query(env, uuid, "UPDATE _jobs SET status='running', locked_at=?, attempts=attempts+1, updated_at=? WHERE id=(SELECT id FROM _jobs WHERE status='pending' AND run_at <= ? AND queue=? ORDER BY run_at ASC LIMIT 1) RETURNING id, queue, payload, attempts, max_attempts", [now, now, now, q])
+              : await cfD1Query(env, uuid, "UPDATE _jobs SET status='running', locked_at=?, attempts=attempts+1, updated_at=? WHERE id=(SELECT id FROM _jobs WHERE status='pending' AND run_at <= ? ORDER BY run_at ASC LIMIT 1) RETURNING id, queue, payload, attempts, max_attempts", [now, now, now]);
+            if (!r.length) return Response.json({ ok: true, job: null });
+            return Response.json({ ok: true, job: r[0] });
+          }
+          // DONE.
+          if (jobId != null && act === "done" && request.method === "POST") {
+            const r = await cfD1Query(env, uuid, "UPDATE _jobs SET status='done', updated_at=? WHERE id=? AND status='running' RETURNING id", [new Date().toISOString(), jobId]);
+            if (!r.length) { const j = (await cfD1Query(env, uuid, "SELECT status FROM _jobs WHERE id=?", [jobId]))[0]; if (!j) return Response.json({ ok: false, error: "no such job" }, { status: 404 }); return Response.json({ ok: false, error: "job is not running (" + j.status + ")" }, { status: 409 }); }
+            return Response.json({ ok: true, id: jobId, status: "done" });
+          }
+          // FAIL (retry-or-dead).
+          if (jobId != null && act === "fail" && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const j = (await cfD1Query(env, uuid, "SELECT status, attempts, max_attempts FROM _jobs WHERE id=?", [jobId]))[0];
+            if (!j) return Response.json({ ok: false, error: "no such job" }, { status: 404 });
+            if (j.status !== "running") return Response.json({ ok: false, error: "job is not running (" + j.status + ")" }, { status: 409 });
+            const err = body.error != null ? String(body.error).slice(0, 1000) : null;
+            const now = new Date().toISOString();
+            if (j.attempts >= j.max_attempts) {
+              await cfD1Exec(env, uuid, "UPDATE _jobs SET status='dead', last_error=?, updated_at=? WHERE id=?", [err, now, jobId]);
+              return Response.json({ ok: true, id: jobId, status: "dead", attempts: j.attempts });
+            }
+            let backoff = Math.floor(Number(body.backoff_sec)); if (!(backoff >= 0)) backoff = Math.min(3600, Math.pow(2, j.attempts) * 10);
+            const runAt = new Date(Date.now() + backoff * 1000).toISOString();
+            await cfD1Exec(env, uuid, "UPDATE _jobs SET status='pending', last_error=?, run_at=?, locked_at=NULL, updated_at=? WHERE id=?", [err, runAt, now, jobId]);
+            return Response.json({ ok: true, id: jobId, status: "pending", retry_at: runAt, attempts: j.attempts });
+          }
+          // STATS.
+          if (seg === "stats" && request.method === "GET") {
+            const q = url.searchParams.get("queue");
+            const rows = q
+              ? await cfD1Query(env, uuid, "SELECT status, COUNT(*) AS n FROM _jobs WHERE queue=? GROUP BY status", [String(q)])
+              : await cfD1Query(env, uuid, "SELECT status, COUNT(*) AS n FROM _jobs GROUP BY status");
+            const by = {}; let total = 0; for (const r of rows) { by[r.status] = r.n; total += r.n; }
+            return Response.json({ ok: true, total, by_status: by });
+          }
+          // DELETE.
+          if (jobId != null && !act && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _jobs WHERE id=?", [jobId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such job" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: jobId });
+          }
+          // LIST.
+          if (!seg && request.method === "GET") {
+            const q = url.searchParams.get("queue"), st = url.searchParams.get("status");
+            let sql = "SELECT id, queue, payload, status, attempts, max_attempts, run_at, last_error FROM _jobs WHERE 1=1", params = [];
+            if (q) { sql += " AND queue=?"; params.push(String(q)); }
+            if (st) { sql += " AND status=?"; params.push(String(st).slice(0, 20)); }
+            sql += " ORDER BY id DESC LIMIT 1000";
+            const rows = await cfD1Query(env, uuid, sql, params);
+            return Response.json({ ok: true, jobs: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported jobs request" }, { status: 405 });
+        } catch (e) { console.error("jobs failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "jobs failed" }, { status: 502 }); }
+      }
+      // HEALTH-CHECK REGISTRY — named checks each report up / degraded / down; a public read rolls them into one
+      // overall status (down beats degraded beats up).
+      //   POST   /api/db/<slug>/health-checks {name, status, message?}   (ADMIN) → upsert a check
+      //   GET    /api/db/<slug>/health-checks                            (public) → checks + overall
+      //   DELETE /api/db/<slug>/health-checks/<name>                     (ADMIN)
+      const hcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/health-checks(?:\/([A-Za-z0-9_.:-]{1,60}))?$/i);
+      if (hcm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = hcm[1].toLowerCase(), name = hcm[2] ? hcm[2].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureHealth(env, uuid);
+          // UPSERT (admin).
+          if (!name && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const nm = String(body.name || "").trim().toLowerCase().slice(0, 60);
+            if (!/^[a-z0-9_.:-]{1,60}$/.test(nm)) return Response.json({ ok: false, error: "a valid name is required" }, { status: 400 });
+            let status = String(body.status || "").toLowerCase(); if (!["up", "degraded", "down", "unknown"].includes(status)) return Response.json({ ok: false, error: "status must be up|degraded|down|unknown" }, { status: 400 });
+            await cfD1Query(env, uuid, "INSERT INTO _health_checks (name, status, message, updated_at) VALUES (?,?,?,?) ON CONFLICT(name) DO UPDATE SET status=excluded.status, message=excluded.message, updated_at=excluded.updated_at", [nm, status, body.message != null ? String(body.message).slice(0, 500) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, name: nm, status });
+          }
+          // DELETE (admin).
+          if (name && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _health_checks WHERE name=?", [name]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such check" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, name });
+          }
+          // LIST + roll-up (public).
+          if (!name && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|hc", 600)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT name, status, message, updated_at FROM _health_checks ORDER BY name ASC LIMIT 1000");
+            let overall = "up";
+            if (!rows.length) overall = "unknown";
+            else if (rows.some((r) => r.status === "down")) overall = "down";
+            else if (rows.some((r) => r.status === "degraded")) overall = "degraded";
+            else if (rows.every((r) => r.status === "unknown")) overall = "unknown";
+            return Response.json({ ok: true, overall, checks: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported health-checks request" }, { status: 405 });
+        } catch (e) { console.error("health-checks failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "health-checks failed" }, { status: 502 }); }
+      }
+      // HISTOGRAM — a stateless bucketed distribution of a numeric sample: split [min,max] into N equal bins and
+      // count how many values fall in each. Sibling to /stats/percentile.
+      //   POST /api/db/<slug>/stats/histogram {values, bins?, min?, max?}   (public) → {bins:[{lo,hi,count}], ...}
+      const hgm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/stats\/histogram$/i);
+      if (hgm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = hgm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|hg", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const values = (Array.isArray(body.values) ? body.values : []).filter((v) => typeof v === "number" ? Number.isFinite(v) : (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)))).map(Number).slice(0, 100000);
+          if (!values.length) return Response.json({ ok: false, error: "values[] with at least one number is required" }, { status: 400 });
+          let bins = Math.floor(Number(body.bins)); if (!(bins >= 1 && bins <= 1000)) bins = 10;
+          let lo = body.min != null && Number.isFinite(Number(body.min)) ? Number(body.min) : Math.min(...values);
+          let hi = body.max != null && Number.isFinite(Number(body.max)) ? Number(body.max) : Math.max(...values);
+          if (hi <= lo) hi = lo + 1;
+          const width = (hi - lo) / bins;
+          const counts = new Array(bins).fill(0);
+          for (const v of values) { if (v < lo || v > hi) continue; let idx = Math.floor((v - lo) / width); if (idx >= bins) idx = bins - 1; if (idx < 0) idx = 0; counts[idx]++; }
+          const round = (x) => Math.round(x * 1e6) / 1e6;
+          const out = counts.map((c2, i) => ({ lo: round(lo + i * width), hi: round(lo + (i + 1) * width), count: c2 }));
+          return Response.json({ ok: true, count: values.length, min: round(lo), max: round(hi), bins: out });
+        } catch (e) { console.error("histogram failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "histogram failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
