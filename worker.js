@@ -5224,6 +5224,35 @@ async function ensureFxRates(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _fx_rates (code TEXT PRIMARY KEY, rate REAL NOT NULL, base TEXT, updated_at TEXT)");
   _fxRatesReady.add(uuid);
 }
+// Backorder / preorder capacity holds — an admin caps how many units can be reserved; members hold a
+// quantity and the cap can't be exceeded under concurrency. `_preorder_items` = the cap, `_preorder_holds`
+// = reservations. Ensured once per isolate.
+const _preordersReady = new Set();
+async function ensurePreorders(env, uuid) {
+  if (_preordersReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _preorder_items (item TEXT PRIMARY KEY, name TEXT, capacity INTEGER NOT NULL DEFAULT 0, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _preorder_holds (item TEXT NOT NULL, user_id INTEGER NOT NULL, qty INTEGER NOT NULL DEFAULT 1, created_at TEXT, PRIMARY KEY (item, user_id))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_preorder_holds_user ON _preorder_holds (user_id)"); } catch {}
+  _preordersReady.add(uuid);
+}
+// Scheduled digests — an admin defines a named digest (a saved query + a cadence); a due-list surfaces the
+// ones whose next_run has passed to send. `_digests` = one row per digest. Ensured once.
+const _digestsReady = new Set();
+async function ensureDigests(env, uuid) {
+  if (_digestsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _digests (name TEXT PRIMARY KEY, description TEXT, query TEXT, interval_days INTEGER NOT NULL DEFAULT 7, recipients TEXT, next_run TEXT, last_sent TEXT, active INTEGER NOT NULL DEFAULT 1, created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_digests_next ON _digests (active, next_run)"); } catch {}
+  _digestsReady.add(uuid);
+}
+// SLA timers — start a deadline clock for a (kind, ref) with a target in minutes; reads report remaining/
+// breached; resolving stops the clock. `_sla_timers` = one row per (kind, ref). Ensured once.
+const _slaTimersReady = new Set();
+async function ensureSlaTimers(env, uuid) {
+  if (_slaTimersReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _sla_timers (kind TEXT NOT NULL, ref TEXT NOT NULL, target_mins INTEGER NOT NULL, started_at TEXT, resolved_at TEXT, status TEXT NOT NULL DEFAULT 'open', PRIMARY KEY (kind, ref))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_sla_kind ON _sla_timers (kind, status)"); } catch {}
+  _slaTimersReady.add(uuid);
+}
 // The user-scoped tables a member can export their own rows from (GDPR data portability) — kept in sync with
 // the erase list. Each entry is [table, ownerColumn]; a missing table is skipped at read time.
 const DATA_EXPORT_TABLES = [
@@ -10045,6 +10074,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _subscriptions WHERE user_id=?", [u.id]],                          // recurring-order subscriptions
             ["DELETE FROM _room_bookings WHERE user_id=?", [u.id]],                          // resource/room reservations
             ["DELETE FROM _eventlog WHERE actor_id=?", [u.id]],                              // event-stream entries they authored
+            ["DELETE FROM _preorder_holds WHERE user_id=?", [u.id]],                         // preorder capacity holds
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -16715,6 +16745,230 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported fx request" }, { status: 405 });
         } catch (e) { console.error("fx failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "fx failed" }, { status: 502 }); }
+      }
+      // BACKORDER / PREORDER CAPACITY HOLDS — an admin caps how many units can be reserved; a member holds a
+      // quantity and the cap can't be exceeded under concurrency.
+      //   POST   /api/db/<slug>/preorders/<item> {capacity, name?}  (ADMIN) → define the cap
+      //   POST   /api/db/<slug>/preorders/<item>/hold {qty?}  (member) → reserve qty → {held, remaining} · 409 if over cap
+      //   DELETE /api/db/<slug>/preorders/<item>/hold        (member) → release my hold
+      //   GET    /api/db/<slug>/preorders/<item>             (public) → {capacity, held, remaining, mine}
+      //   GET    /api/db/<slug>/preorders                    (public) → list
+      //   DELETE /api/db/<slug>/preorders/<item>             (ADMIN)
+      const prem = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/preorders(?:\/([A-Za-z0-9_.-]{1,80})(?:\/(hold))?)?$/i);
+      if (prem && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = prem[1].toLowerCase(), item = prem[2] || null, isHold = prem[3] === "hold";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const heldOf = async (it) => (await cfD1Query(env, uuid, "SELECT COALESCE(SUM(qty),0) AS n FROM _preorder_holds WHERE item=?", [it]))[0].n;
+        try {
+          await ensurePreorders(env, uuid);
+          // DEFINE (admin).
+          if (item && !isHold && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|prew", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const capacity = Math.floor(Number(body.capacity));
+            if (!Number.isFinite(capacity) || capacity < 0 || capacity > 100000000) return Response.json({ ok: false, error: "a capacity >= 0 is required" }, { status: 400 });
+            await cfD1Query(env, uuid, "INSERT INTO _preorder_items (item, name, capacity, created_at) VALUES (?,?,?,?) ON CONFLICT(item) DO UPDATE SET name=excluded.name, capacity=excluded.capacity", [item, body.name != null ? String(body.name).slice(0, 200) : null, capacity, new Date().toISOString()]);
+            return Response.json({ ok: true, item, capacity });
+          }
+          // HOLD (member) — atomic cap guard.
+          if (item && isHold && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|preh", 120)) return tooMany();
+            const it = (await cfD1Query(env, uuid, "SELECT capacity FROM _preorder_items WHERE item=?", [item]))[0];
+            if (!it) return Response.json({ ok: false, error: "no such preorder item" }, { status: 404 });
+            let body = {}; try { body = await request.json(); } catch {}
+            let qty = body.qty == null ? 1 : Math.floor(Number(body.qty));
+            if (!Number.isFinite(qty) || qty < 1 || qty > 100000) return Response.json({ ok: false, error: "qty must be >= 1" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "INSERT INTO _preorder_holds (item, user_id, qty, created_at) SELECT ?,?,?,? WHERE (SELECT COALESCE(SUM(qty),0) FROM _preorder_holds WHERE item=?) + ? <= (SELECT capacity FROM _preorder_items WHERE item=?) AND NOT EXISTS (SELECT 1 FROM _preorder_holds WHERE item=? AND user_id=?)", [item, userId, qty, new Date().toISOString(), item, qty, item, item, userId]);
+            if (!ex.changes) {
+              if ((await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _preorder_holds WHERE item=? AND user_id=?", [item, userId]))[0]) return Response.json({ ok: false, error: "you already hold a reservation on this item" }, { status: 409 });
+              const held = await heldOf(item);
+              return Response.json({ ok: false, error: "not enough capacity left", remaining: Math.max(0, it.capacity - held) }, { status: 409 });
+            }
+            const held = await heldOf(item);
+            return Response.json({ ok: true, held: qty, remaining: Math.max(0, it.capacity - held) });
+          }
+          // RELEASE (member).
+          if (item && isHold && request.method === "DELETE") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _preorder_holds WHERE item=? AND user_id=?", [item, userId]);
+            return Response.json({ ok: true, released: (ex.changes || 0) > 0 });
+          }
+          // DELETE item (admin).
+          if (item && !isHold && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _preorder_items WHERE item=?", [item]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such item" }, { status: 404 });
+            try { await cfD1Exec(env, uuid, "DELETE FROM _preorder_holds WHERE item=?", [item]); } catch {}
+            return Response.json({ ok: true, deleted: true, item });
+          }
+          // GET one (public).
+          if (item && !isHold && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|prer", 600)) return tooMany();
+            const it = (await cfD1Query(env, uuid, "SELECT item, name, capacity FROM _preorder_items WHERE item=?", [item]))[0];
+            if (!it) return Response.json({ ok: false, error: "no such preorder item" }, { status: 404 });
+            const held = await heldOf(item);
+            let mine = 0; if (userId) { const mr = (await cfD1Query(env, uuid, "SELECT qty FROM _preorder_holds WHERE item=? AND user_id=?", [item, userId]))[0]; if (mr) mine = mr.qty; }
+            return Response.json({ ok: true, item: it.item, name: it.name, capacity: it.capacity, held, remaining: Math.max(0, it.capacity - held), sold_out: held >= it.capacity, mine });
+          }
+          // LIST (public).
+          if (!item && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|prel", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT i.item, i.name, i.capacity, (SELECT COALESCE(SUM(qty),0) FROM _preorder_holds WHERE item=i.item) AS held FROM _preorder_items i ORDER BY i.created_at DESC LIMIT 500");
+            return Response.json({ ok: true, items: rows.map((r) => ({ item: r.item, name: r.name, capacity: r.capacity, held: r.held, remaining: Math.max(0, r.capacity - r.held), sold_out: r.held >= r.capacity })) });
+          }
+          return Response.json({ ok: false, error: "unsupported preorders request" }, { status: 405 });
+        } catch (e) { console.error("preorders failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "preorders failed" }, { status: 502 }); }
+      }
+      // SCHEDULED DIGESTS — an admin defines a named digest (a saved query + a cadence); a due-list surfaces
+      // the ones whose next_run has passed to send, then marks them sent (advancing next_run).
+      //   POST   /api/db/<slug>/digests/<name> {description?, query?, interval_days, recipients?, start?, active?}  (ADMIN) → upsert
+      //   GET    /api/db/<slug>/digests                     (ADMIN) → list
+      //   GET    /api/db/<slug>/digests/due                 (ADMIN) → active digests whose next_run has passed
+      //   POST   /api/db/<slug>/digests/<name>/sent         (ADMIN) → mark sent, advance next_run
+      //   DELETE /api/db/<slug>/digests/<name>              (ADMIN)
+      const dgm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/digests(?:\/(due|[A-Za-z0-9_.-]{1,80})(?:\/(sent))?)?$/i);
+      if (dgm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = dgm[1].toLowerCase(), seg = dgm[2] || null, isDue = seg === "due", name = seg && !isDue ? seg : null, isSent = dgm[3] === "sent";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureDigests(env, uuid);
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          // UPSERT.
+          if (name && !isSent && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|dgw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const interval = Math.floor(Number(body.interval_days));
+            if (!Number.isFinite(interval) || interval < 1 || interval > 3650) return Response.json({ ok: false, error: "interval_days must be 1..3650" }, { status: 400 });
+            let startMs = body.start != null && body.start !== "" ? Date.parse(String(body.start)) : Date.now() + interval * 86400000;
+            if (Number.isNaN(startMs)) return Response.json({ ok: false, error: "bad start date" }, { status: 400 });
+            const recipients = Array.isArray(body.recipients) ? body.recipients.map((x) => String(x).slice(0, 200)).slice(0, 200).join(",") : (body.recipients != null ? String(body.recipients).slice(0, 2000) : null);
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _digests (name, description, query, interval_days, recipients, next_run, active, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET description=excluded.description, query=excluded.query, interval_days=excluded.interval_days, recipients=excluded.recipients, next_run=excluded.next_run, active=excluded.active, updated_at=excluded.updated_at", [name, body.description != null ? String(body.description).slice(0, 500) : null, body.query != null ? String(body.query).slice(0, 2000) : null, interval, recipients, new Date(startMs).toISOString(), body.active === false || body.active === 0 ? 0 : 1, now, now]);
+            return Response.json({ ok: true, name, next_run: new Date(startMs).toISOString() });
+          }
+          // DUE.
+          if (isDue && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT name, description, query, interval_days, recipients, next_run FROM _digests WHERE active=1 AND next_run IS NOT NULL AND datetime(next_run) <= datetime('now') ORDER BY next_run ASC LIMIT 1000");
+            return Response.json({ ok: true, due: rows });
+          }
+          // MARK sent.
+          if (name && isSent && request.method === "POST") {
+            const d = (await cfD1Query(env, uuid, "SELECT interval_days, next_run FROM _digests WHERE name=?", [name]))[0];
+            if (!d) return Response.json({ ok: false, error: "no such digest" }, { status: 404 });
+            const base = d.next_run ? Date.parse(d.next_run) : Date.now();
+            const next = new Date(base + d.interval_days * 86400000).toISOString();
+            const now = new Date().toISOString();
+            await cfD1Exec(env, uuid, "UPDATE _digests SET last_sent=?, next_run=?, updated_at=? WHERE name=?", [now, next, now, name]);
+            return Response.json({ ok: true, name, last_sent: now, next_run: next });
+          }
+          // DELETE.
+          if (name && !isSent && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _digests WHERE name=?", [name]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such digest" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, name });
+          }
+          // LIST.
+          if (!seg && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|dgl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT name, description, interval_days, recipients, next_run, last_sent, active FROM _digests ORDER BY name ASC LIMIT 500");
+            return Response.json({ ok: true, digests: rows.map((r) => ({ ...r, active: !!r.active })) });
+          }
+          return Response.json({ ok: false, error: "unsupported digests request" }, { status: 405 });
+        } catch (e) { console.error("digests failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "digests failed" }, { status: 502 }); }
+      }
+      // SLA TIMERS — start a deadline clock for a (kind, ref) with a target in minutes; reads report
+      // remaining / breached; resolving stops the clock.
+      //   POST   /api/db/<slug>/sla-timers/<kind>/<ref> {target_mins}  (member) → start → {due_at}
+      //   GET    /api/db/<slug>/sla-timers/<kind>/<ref>     (public) → {remaining_mins, breached, status, due_at}
+      //   POST   /api/db/<slug>/sla-timers/<kind>/<ref>/resolve  (member) → stop the clock
+      //   GET    /api/db/<slug>/sla-timers[?kind=&status=]  (ADMIN) → list (e.g. all breached)
+      //   DELETE /api/db/<slug>/sla-timers/<kind>/<ref>     (ADMIN)
+      const sltmr = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/sla-timers(?:\/([A-Za-z0-9_.-]{1,60})\/([A-Za-z0-9_.-]{1,80})(?:\/(resolve))?)?$/i);
+      if (sltmr && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = sltmr[1].toLowerCase(), kind = sltmr[2] || null, ref = sltmr[3] || null, isResolve = sltmr[4] === "resolve";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const view = (r) => { const dueMs = Date.parse(r.started_at) + r.target_mins * 60000; const now = Date.now(); const resolved = !!r.resolved_at; const breached = !resolved && now > dueMs; return { kind: r.kind, ref: r.ref, target_mins: r.target_mins, started_at: r.started_at, due_at: new Date(dueMs).toISOString(), remaining_mins: resolved ? 0 : Math.round((dueMs - now) / 60000), breached, status: resolved ? "resolved" : (breached ? "breached" : "open"), resolved_at: r.resolved_at }; };
+        try {
+          await ensureSlaTimers(env, uuid);
+          // LIST (admin).
+          if (!kind && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            if (!rateOk(slug + "|" + ip + "|slal", 300)) return tooMany();
+            const where = [], params = [];
+            const k = url.searchParams.get("kind"); if (k) { where.push("kind=?"); params.push(String(k).slice(0, 60)); }
+            const rows = await cfD1Query(env, uuid, "SELECT kind, ref, target_mins, started_at, resolved_at, status FROM _sla_timers" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY started_at DESC LIMIT 2000", params);
+            const stFilter = String(url.searchParams.get("status") || "").toLowerCase();
+            let out = rows.map(view);
+            if (["open", "breached", "resolved"].includes(stFilter)) out = out.filter((x) => x.status === stFilter);
+            return Response.json({ ok: true, timers: out });
+          }
+          // START (member).
+          if (kind && ref && !isResolve && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|slaw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const mins = Math.floor(Number(body.target_mins));
+            if (!Number.isFinite(mins) || mins < 1 || mins > 5256000) return Response.json({ ok: false, error: "target_mins must be >= 1" }, { status: 400 });
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _sla_timers (kind, ref, target_mins, started_at, status) VALUES (?,?,?,?, 'open') ON CONFLICT(kind, ref) DO UPDATE SET target_mins=excluded.target_mins, started_at=excluded.started_at, resolved_at=NULL, status='open'", [kind, ref, mins, now]);
+            const r = (await cfD1Query(env, uuid, "SELECT kind, ref, target_mins, started_at, resolved_at, status FROM _sla_timers WHERE kind=? AND ref=?", [kind, ref]))[0];
+            return Response.json(Object.assign({ ok: true }, view(r)));
+          }
+          // RESOLVE (member).
+          if (kind && ref && isResolve && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const r = (await cfD1Query(env, uuid, "SELECT status FROM _sla_timers WHERE kind=? AND ref=?", [kind, ref]))[0];
+            if (!r) return Response.json({ ok: false, error: "no such timer" }, { status: 404 });
+            await cfD1Exec(env, uuid, "UPDATE _sla_timers SET resolved_at=?, status='resolved' WHERE kind=? AND ref=?", [new Date().toISOString(), kind, ref]);
+            const upd = (await cfD1Query(env, uuid, "SELECT kind, ref, target_mins, started_at, resolved_at, status FROM _sla_timers WHERE kind=? AND ref=?", [kind, ref]))[0];
+            return Response.json(Object.assign({ ok: true }, view(upd)));
+          }
+          // DELETE (admin).
+          if (kind && ref && !isResolve && request.method === "DELETE") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _sla_timers WHERE kind=? AND ref=?", [kind, ref]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such timer" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true });
+          }
+          // GET one (public).
+          if (kind && ref && !isResolve && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|slar", 600)) return tooMany();
+            const r = (await cfD1Query(env, uuid, "SELECT kind, ref, target_mins, started_at, resolved_at, status FROM _sla_timers WHERE kind=? AND ref=?", [kind, ref]))[0];
+            if (!r) return Response.json({ ok: false, error: "no such timer" }, { status: 404 });
+            return Response.json(Object.assign({ ok: true }, view(r)));
+          }
+          return Response.json({ ok: false, error: "unsupported sla-timers request" }, { status: 405 });
+        } catch (e) { console.error("sla-timers failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "sla-timers failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
