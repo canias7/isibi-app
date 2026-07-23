@@ -5727,6 +5727,15 @@ async function ensureBallots(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _ballot_votes (poll_key TEXT NOT NULL, user_id INTEGER NOT NULL, choice TEXT NOT NULL, weight REAL NOT NULL DEFAULT 1, at TEXT, PRIMARY KEY (poll_key, user_id))");
   _ballotsReady.add(uuid);
 }
+// Contact frequency cap — limit how many messages a specific recipient gets per window (contact fatigue),
+// with the cap supplied per call (unlike the pre-declared /rate-policies). `_freq_hits` = per (key, window)
+// counters where key = recipient|channel. Ensured once.
+const _freqCapReady = new Set();
+async function ensureFreqCap(env, uuid) {
+  if (_freqCapReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _freq_hits (key TEXT NOT NULL, window_start INTEGER NOT NULL, hits INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (key, window_start))");
+  _freqCapReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -21870,6 +21879,127 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported ballots request" }, { status: 405 });
         } catch (e) { console.error("ballots failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "ballots failed" }, { status: 502 }); }
+      }
+      // GEO DISTANCE — a stateless point-to-point great-circle (haversine) distance + initial bearing between
+      // two coordinates. (For a nearby-rows search, a table can declare `geo` instead.)
+      //   POST /api/db/<slug>/geo-distance {from:{lat,lng}, to:{lat,lng}, unit?}   (public) → {distance, bearing}
+      const gdm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/geo-distance$/i);
+      if (gdm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = gdm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|geo", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const pt = (o) => { if (!o || typeof o !== "object") return null; const la = Number(o.lat), ln = Number(o.lng); if (!Number.isFinite(la) || !Number.isFinite(ln) || la < -90 || la > 90 || ln < -180 || ln > 180) return null; return { lat: la, lng: ln }; };
+          const a = pt(body.from), b = pt(body.to);
+          if (!a || !b) return Response.json({ ok: false, error: "from and to each need a valid {lat,lng}" }, { status: 400 });
+          const R = 6371, rad = (d) => d * Math.PI / 180;
+          const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
+          const s = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+          const km = R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+          const y = Math.sin(rad(b.lng - a.lng)) * Math.cos(rad(b.lat));
+          const x = Math.cos(rad(a.lat)) * Math.sin(rad(b.lat)) - Math.sin(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.cos(rad(b.lng - a.lng));
+          const bearing = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+          const unit = String(body.unit || "km").toLowerCase() === "mi" ? "mi" : "km";
+          const dist = unit === "mi" ? km * 0.621371 : km;
+          return Response.json({ ok: true, distance: Math.round(dist * 1000) / 1000, unit, bearing: Math.round(bearing * 100) / 100 });
+        } catch (e) { console.error("geo-distance failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "geo-distance failed" }, { status: 502 }); }
+      }
+      // RRULE EXPANSION — a stateless recurrence expander: from a start date + a simple rule (freq / interval /
+      // count / until / weekly byday) return the next occurrence dates. A lightweight subset of iCal RRULE.
+      //   POST /api/db/<slug>/rrule {start, freq, interval?, count?, until?, byday?}   (public) → {occurrences}
+      const rrm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rrule$/i);
+      if (rrm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = rrm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|rrl", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const startTs = Date.parse(String(body.start));
+          if (isNaN(startTs)) return Response.json({ ok: false, error: "a valid start date is required" }, { status: 400 });
+          const freq = String(body.freq || "").toLowerCase();
+          if (!["daily", "weekly", "monthly", "yearly"].includes(freq)) return Response.json({ ok: false, error: "freq must be daily|weekly|monthly|yearly" }, { status: 400 });
+          let interval = Math.floor(Number(body.interval)); if (!(interval >= 1 && interval <= 1000)) interval = 1;
+          let count = Math.floor(Number(body.count)); if (!(count >= 1 && count <= 366)) count = 10;
+          const untilTs = body.until != null ? Date.parse(String(body.until)) : NaN;
+          const DAYNAMES = { su: 0, mo: 1, tu: 2, we: 3, th: 4, fr: 5, sa: 6, sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+          let byday = null;
+          if (freq === "weekly" && Array.isArray(body.byday) && body.byday.length) { byday = [...new Set(body.byday.map((d) => { if (typeof d === "number") return ((d % 7) + 7) % 7; const k = String(d).toLowerCase().slice(0, 3); return DAYNAMES[k]; }).filter((n) => n != null && n >= 0 && n <= 6))]; if (!byday.length) byday = null; }
+          const occ = [];
+          const push = (ts) => { if (!isNaN(untilTs) && ts > untilTs) return false; occ.push(new Date(ts).toISOString()); return occ.length < count; };
+          const start = new Date(startTs);
+          if (freq === "daily") { for (let i = 0; occ.length < count; i++) { if (!push(startTs + i * interval * 86400000)) break; if (i > 100000) break; } }
+          else if (freq === "weekly" && byday) { const base = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate())); const baseTs = base.getTime(); for (let day = 0; occ.length < count && day < 3660; day++) { const ts = baseTs + day * 86400000; const wd = new Date(ts).getUTCDay(); const weekIdx = Math.floor(day / 7); if (byday.includes(wd) && weekIdx % interval === 0 && ts >= startTs) { if (!push(ts)) break; } } }
+          else if (freq === "weekly") { for (let i = 0; occ.length < count; i++) { if (!push(startTs + i * interval * 7 * 86400000)) break; if (i > 100000) break; } }
+          else if (freq === "monthly") { for (let i = 0; occ.length < count; i++) { const d = new Date(start); d.setUTCMonth(d.getUTCMonth() + i * interval); if (!push(d.getTime())) break; if (i > 100000) break; } }
+          else { for (let i = 0; occ.length < count; i++) { const d = new Date(start); d.setUTCFullYear(d.getUTCFullYear() + i * interval); if (!push(d.getTime())) break; if (i > 100000) break; } }
+          return Response.json({ ok: true, freq, interval, count: occ.length, occurrences: occ });
+        } catch (e) { console.error("rrule failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "rrule failed" }, { status: 502 }); }
+      }
+      // CONTACT FREQUENCY CAP — limit how many messages a specific recipient receives per window (contact
+      // fatigue), with the cap + window supplied per call. Atomic per (recipient|channel, window).
+      //   POST /api/db/<slug>/frequency-cap/consume {recipient, channel?, max, window_sec}   (member)
+      //     → {allowed, remaining, reset_at}
+      //   GET  /api/db/<slug>/frequency-cap/check?recipient=&channel=&window_sec=              (member) → {count}
+      //   POST /api/db/<slug>/frequency-cap/purge                                              (ADMIN) → drop old
+      const fcapm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/frequency-cap(?:\/(consume|check|purge))?$/i);
+      if (fcapm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = fcapm[1].toLowerCase(), seg = fcapm[2] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const keyFor = (rec, ch) => String(rec).trim().toLowerCase().slice(0, 160) + "|" + String(ch || "default").trim().toLowerCase().slice(0, 40);
+        try {
+          await ensureFreqCap(env, uuid);
+          // CONSUME (atomic).
+          if (seg === "consume" && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|fcc", 1200)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const recipient = String(body.recipient || "").trim();
+            if (!recipient) return Response.json({ ok: false, error: "a recipient is required" }, { status: 400 });
+            const max = Math.floor(Number(body.max)); if (!(max >= 1 && max <= 1000000)) return Response.json({ ok: false, error: "max must be 1..1000000" }, { status: 400 });
+            let windowSec = Math.floor(Number(body.window_sec)); if (!(windowSec >= 1 && windowSec <= 31536000)) return Response.json({ ok: false, error: "window_sec must be 1..31536000" }, { status: 400 });
+            const key = keyFor(recipient, body.channel);
+            const nowSec = Math.floor(Date.now() / 1000), windowStart = Math.floor(nowSec / windowSec) * windowSec;
+            const r = await cfD1Query(env, uuid, "INSERT INTO _freq_hits (key, window_start, hits) VALUES (?,?,1) ON CONFLICT(key, window_start) DO UPDATE SET hits = hits + 1 RETURNING hits", [key, windowStart]);
+            const hits = r[0].hits, allowed = hits <= max;
+            return Response.json({ ok: true, allowed, remaining: Math.max(0, max - hits), limit: max, reset_at: new Date((windowStart + windowSec) * 1000).toISOString() });
+          }
+          // CHECK.
+          if (seg === "check" && request.method === "GET") {
+            const recipient = String(url.searchParams.get("recipient") || "").trim();
+            if (!recipient) return Response.json({ ok: false, error: "a ?recipient= is required" }, { status: 400 });
+            let windowSec = Math.floor(Number(url.searchParams.get("window_sec"))); if (!(windowSec >= 1 && windowSec <= 31536000)) windowSec = 86400;
+            const key = keyFor(recipient, url.searchParams.get("channel"));
+            const nowSec = Math.floor(Date.now() / 1000), windowStart = Math.floor(nowSec / windowSec) * windowSec;
+            const row = (await cfD1Query(env, uuid, "SELECT hits FROM _freq_hits WHERE key=? AND window_start=?", [key, windowStart]))[0];
+            return Response.json({ ok: true, count: row ? row.hits : 0, reset_at: new Date((windowStart + windowSec) * 1000).toISOString() });
+          }
+          // PURGE (admin).
+          if (seg === "purge" && request.method === "POST") {
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            let olderThan = Math.floor(Number((await request.json().catch(() => ({}))).older_than_sec)); if (!(olderThan >= 0)) olderThan = 86400 * 7;
+            const cutoff = Math.floor(Date.now() / 1000) - olderThan;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _freq_hits WHERE window_start < ?", [cutoff]);
+            return Response.json({ ok: true, purged: ex.changes || 0 });
+          }
+          return Response.json({ ok: false, error: "unsupported frequency-cap request" }, { status: 405 });
+        } catch (e) { console.error("frequency-cap failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "frequency-cap failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
