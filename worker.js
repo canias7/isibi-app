@@ -5941,6 +5941,15 @@ async function ensurePasswordPolicy(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _password_policy (id INTEGER PRIMARY KEY CHECK(id=1), min_length INTEGER NOT NULL DEFAULT 8, require_upper INTEGER NOT NULL DEFAULT 0, require_lower INTEGER NOT NULL DEFAULT 0, require_digit INTEGER NOT NULL DEFAULT 0, require_symbol INTEGER NOT NULL DEFAULT 0, min_classes INTEGER NOT NULL DEFAULT 2, disallow_common INTEGER NOT NULL DEFAULT 1, updated_at TEXT)");
   _passwordPolicyReady.add(uuid);
 }
+// Checklists — a reusable checklist template (ordered items) + per-member completion state. `_checklist_templates`
+// holds the definition; `_checklist_state` holds one row per (template, user) with the done item ids. Ensured once.
+const _checklistReady = new Set();
+async function ensureChecklists(env, uuid) {
+  if (_checklistReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _checklist_templates (key TEXT PRIMARY KEY, title TEXT, items TEXT NOT NULL DEFAULT '[]', created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _checklist_state (template TEXT NOT NULL, user_id INTEGER NOT NULL, done TEXT NOT NULL DEFAULT '[]', updated_at TEXT, PRIMARY KEY (template, user_id))");
+  _checklistReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -5963,7 +5972,7 @@ const DATA_EXPORT_TABLES = [
   ["_reservations", "user_id"], ["_queue_tickets", "user_id"], ["_loyalty_spend", "user_id"],
   ["_store_credit", "user_id"], ["_activity", "author_id"], ["_shifts", "user_id"], ["_timeoff", "user_id"],
   ["_subscriptions", "user_id"], ["_room_bookings", "user_id"], ["_access_log", "actor_id"],
-  ["_comparisons", "user_id"], ["_read_receipts", "user_id"],
+  ["_comparisons", "user_id"], ["_read_receipts", "user_id"], ["_checklist_state", "user_id"],
 ];
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
@@ -10810,6 +10819,7 @@ async function handleRequest(request, env, ctx) {
             ["UPDATE _deposit_holds SET user_id=NULL WHERE user_id=?", [u.id]],              // keep the financial record, drop the link
             ["DELETE FROM _read_receipts WHERE user_id=?", [u.id]],                          // read receipts
             ["UPDATE _dunning SET user_id=NULL WHERE user_id=?", [u.id]],                    // keep the dunning record, drop the link
+            ["DELETE FROM _checklist_state WHERE user_id=?", [u.id]],                        // personal checklist progress
             ["UPDATE _content_hashes SET first_by=NULL WHERE first_by=?", [u.id]],           // keep the shared dedup entry, drop the link
             ["UPDATE _bans SET banned_by=NULL WHERE banned_by=?", [u.id]],                   // keep the ban, drop the admin link
             ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
@@ -24591,6 +24601,161 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported password-policy request" }, { status: 405 });
         } catch (e) { console.error("password-policy failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "password-policy failed" }, { status: 502 }); }
+      }
+      // CHECKLISTS — a reusable checklist template (ordered items) + per-member completion. An admin defines the
+      // template; a member checks items off and reads their own progress. Public reads for the template itself.
+      //   POST   /api/db/<slug>/checklist {key, items:[{id?,label}], title?}   (ADMIN)  → define a template
+      //   GET    /api/db/<slug>/checklist[/<key>]                              (public) → list / one template
+      //   DELETE /api/db/<slug>/checklist/<key>                               (ADMIN)  → delete template + state
+      //   POST   /api/db/<slug>/checklist/<key>/check {item}                   (member) → mark an item done
+      //   POST   /api/db/<slug>/checklist/<key>/uncheck {item}                 (member) → unmark
+      //   GET    /api/db/<slug>/checklist/<key>/me                             (member) → my progress
+      const cklm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/checklist(?:\/([A-Za-z0-9_.:-]{1,60})(?:\/(check|uncheck|me))?)?$/i);
+      if (cklm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = cklm[1].toLowerCase(), key = cklm[2] || null, act = cklm[3] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const tmpl = async () => { const row = (await cfD1Query(env, uuid, "SELECT key, title, items FROM _checklist_templates WHERE key=?", [key]))[0]; if (!row) return null; let items = []; try { items = JSON.parse(row.items); } catch {} return { key: row.key, title: row.title, items }; };
+        const progress = (items, done) => { const ids = items.map((i) => i.id); const doneSet = done.filter((d) => ids.includes(d)); return { done: doneSet, total: items.length, remaining: items.length - doneSet.length, pct: items.length ? Math.round((doneSet.length / items.length) * 1000) / 10 : 0, complete: items.length > 0 && doneSet.length === items.length }; };
+        try {
+          await ensureChecklists(env, uuid);
+          // DEFINE (admin).
+          if (!key && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const k = String(body.key || "").trim();
+            if (!/^[A-Za-z0-9_.:-]{1,60}$/.test(k)) return Response.json({ ok: false, error: "a valid key is required" }, { status: 400 });
+            if (!Array.isArray(body.items) || !body.items.length) return Response.json({ ok: false, error: "items must be a non-empty array" }, { status: 400 });
+            if (body.items.length > 200) return Response.json({ ok: false, error: "too many items (max 200)" }, { status: 400 });
+            const items = []; const seen = new Set();
+            for (let i5 = 0; i5 < body.items.length; i5++) {
+              const it = body.items[i5];
+              const label = typeof it === "string" ? it : (it && it.label != null ? String(it.label) : "");
+              if (!label.trim()) return Response.json({ ok: false, error: "each item needs a label" }, { status: 400 });
+              let id = it && it.id != null ? String(it.id).slice(0, 40) : String(i5 + 1);
+              if (!/^[A-Za-z0-9_.:-]{1,40}$/.test(id)) return Response.json({ ok: false, error: "an item id is invalid" }, { status: 400 });
+              if (seen.has(id)) return Response.json({ ok: false, error: "duplicate item id: " + id }, { status: 400 });
+              seen.add(id); items.push({ id, label: label.slice(0, 300) });
+            }
+            await cfD1Query(env, uuid, "INSERT INTO _checklist_templates (key, title, items, created_at) VALUES (?,?,?,?) ON CONFLICT(key) DO UPDATE SET title=excluded.title, items=excluded.items", [k, body.title != null ? String(body.title).slice(0, 200) : null, JSON.stringify(items), new Date().toISOString()]);
+            return Response.json({ ok: true, key: k, items });
+          }
+          // CHECK / UNCHECK (member).
+          if (key && (act === "check" || act === "uncheck") && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const template = await tmpl(); if (!template) return Response.json({ ok: false, error: "no such checklist" }, { status: 404 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const item = String(body.item == null ? "" : body.item);
+            if (!template.items.some((i) => i.id === item)) return Response.json({ ok: false, error: "no such item in this checklist" }, { status: 400 });
+            const row = (await cfD1Query(env, uuid, "SELECT done FROM _checklist_state WHERE template=? AND user_id=?", [key, userId]))[0];
+            let done = []; if (row) { try { done = JSON.parse(row.done); } catch {} }
+            if (act === "check") { if (!done.includes(item)) done.push(item); }
+            else done = done.filter((d) => d !== item);
+            await cfD1Query(env, uuid, "INSERT INTO _checklist_state (template, user_id, done, updated_at) VALUES (?,?,?,?) ON CONFLICT(template, user_id) DO UPDATE SET done=excluded.done, updated_at=excluded.updated_at", [key, userId, JSON.stringify(done), new Date().toISOString()]);
+            return Response.json({ ok: true, key, ...progress(template.items, done) });
+          }
+          // MY PROGRESS (member).
+          if (key && act === "me" && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const template = await tmpl(); if (!template) return Response.json({ ok: false, error: "no such checklist" }, { status: 404 });
+            const row = (await cfD1Query(env, uuid, "SELECT done FROM _checklist_state WHERE template=? AND user_id=?", [key, userId]))[0];
+            let done = []; if (row) { try { done = JSON.parse(row.done); } catch {} }
+            return Response.json({ ok: true, key, title: template.title, items: template.items, ...progress(template.items, done) });
+          }
+          // TEMPLATE (public).
+          if (key && !act && request.method === "GET") {
+            const template = await tmpl(); if (!template) return Response.json({ ok: false, error: "no such checklist" }, { status: 404 });
+            return Response.json({ ok: true, checklist: template });
+          }
+          // LIST (public).
+          if (!key && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT key, title, items FROM _checklist_templates ORDER BY key LIMIT 1000");
+            return Response.json({ ok: true, checklists: rows.map((r) => { let items = []; try { items = JSON.parse(r.items); } catch {} return { key: r.key, title: r.title, count: items.length }; }) });
+          }
+          // DELETE (admin).
+          if (key && !act && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _checklist_templates WHERE key=?", [key]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such checklist" }, { status: 404 });
+            await cfD1Exec(env, uuid, "DELETE FROM _checklist_state WHERE template=?", [key]);
+            return Response.json({ ok: true, deleted: true, key });
+          }
+          return Response.json({ ok: false, error: "unsupported checklist request" }, { status: 405 });
+        } catch (e) { console.error("checklist failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "checklist failed" }, { status: 502 }); }
+      }
+      // NUMBER TO WORDS — a stateless integer/money speller (English). With `currency` it spells an amount
+      // ("one hundred twenty-three dollars and forty-five cents"); otherwise it spells the whole number.
+      //   POST /api/db/<slug>/number-to-words {number, currency?}   (public) → {words}
+      const n2wm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/number-to-words$/i);
+      if (n2wm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = n2wm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|n2w", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const num = Number(body.number);
+          if (!Number.isFinite(num)) return Response.json({ ok: false, error: "a numeric number is required" }, { status: 400 });
+          if (Math.abs(num) >= 1e15) return Response.json({ ok: false, error: "number too large (max 999 trillion)" }, { status: 400 });
+          const ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];
+          const TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
+          const SCALES = ["", " thousand", " million", " billion", " trillion"];
+          const under1000 = (n) => { let s = ""; if (n >= 100) { s += ONES[Math.floor(n / 100)] + " hundred"; n %= 100; if (n) s += " "; } if (n >= 20) { s += TENS[Math.floor(n / 10)]; if (n % 10) s += "-" + ONES[n % 10]; } else if (n > 0) s += ONES[n]; return s; };
+          const spellInt = (n) => { if (n === 0) return "zero"; const groups = []; while (n > 0) { groups.push(n % 1000); n = Math.floor(n / 1000); } let parts = []; for (let g = groups.length - 1; g >= 0; g--) { if (groups[g]) parts.push(under1000(groups[g]) + SCALES[g]); } return parts.join(" "); };
+          const neg = num < 0;
+          let words;
+          if (body.currency != null) {
+            const cents = Math.round(Math.abs(num) * 100);
+            const dollars = Math.floor(cents / 100), cc = cents % 100;
+            const cur = String(body.currency).toLowerCase();
+            const NAMES = { usd: ["dollar", "cent"], eur: ["euro", "cent"], gbp: ["pound", "penny"] };
+            const [maj, min] = NAMES[cur] || [cur, "cent"];
+            const majPl = maj + "s", minPl = min === "penny" ? "pence" : min + "s";
+            words = spellInt(dollars) + " " + (dollars === 1 ? maj : majPl);
+            words += " and " + spellInt(cc) + " " + (cc === 1 ? min : minPl);
+          } else {
+            const whole = Math.trunc(Math.abs(num));
+            words = spellInt(whole);
+            const frac = Math.abs(num) - whole;
+            if (frac > 0) { const digits = String(Math.round(frac * 1e6)).replace(/0+$/, ""); words += " point " + digits.split("").map((d) => ONES[+d]).join(" "); }
+          }
+          if (neg) words = "negative " + words;
+          return Response.json({ ok: true, words });
+        } catch (e) { console.error("number-to-words failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "number-to-words failed" }, { status: 502 }); }
+      }
+      // VAT NUMBER — a stateless EU (+ UK) VAT-number FORMAT validator (structure only, not a live VIES lookup).
+      //   POST /api/db/<slug>/vat-number {vat}   (public) → {valid, country, format_ok}
+      const vatm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/vat-number$/i);
+      if (vatm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = vatm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|vat", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          if (typeof body.vat !== "string" || !body.vat.trim()) return Response.json({ ok: false, error: "vat is required" }, { status: 400 });
+          const raw = body.vat.replace(/[\s.-]/g, "").toUpperCase();
+          if (!/^[A-Z]{2}[A-Z0-9]{2,15}$/.test(raw)) return Response.json({ ok: false, error: "vat has an invalid shape" }, { status: 400 });
+          const country = raw.slice(0, 2), rest = raw.slice(2);
+          // Per-country VAT body patterns (structure only).
+          const PAT = { AT: /^U\d{8}$/, BE: /^0\d{9}$/, BG: /^\d{9,10}$/, CY: /^\d{8}[A-Z]$/, CZ: /^\d{8,10}$/, DE: /^\d{9}$/, DK: /^\d{8}$/, EE: /^\d{9}$/, EL: /^\d{9}$/, ES: /^[A-Z0-9]\d{7}[A-Z0-9]$/, FI: /^\d{8}$/, FR: /^[A-Z0-9]{2}\d{9}$/, GB: /^(\d{9}|\d{12}|(GD|HA)\d{3})$/, HR: /^\d{11}$/, HU: /^\d{8}$/, IE: /^\d{7}[A-Z]{1,2}$|^\d[A-Z0-9]\d{5}[A-Z]$/, IT: /^\d{11}$/, LT: /^(\d{9}|\d{12})$/, LU: /^\d{8}$/, LV: /^\d{11}$/, MT: /^\d{8}$/, NL: /^\d{9}B\d{2}$/, PL: /^\d{10}$/, PT: /^\d{9}$/, RO: /^\d{2,10}$/, SE: /^\d{12}$/, SI: /^\d{8}$/, SK: /^\d{10}$/ };
+          const pat = PAT[country];
+          const known = pat != null;
+          const formatOk = known && pat.test(rest);
+          return Response.json({ ok: true, valid: !!formatOk, country: known ? country : null, format_ok: formatOk, normalized: raw });
+        } catch (e) { console.error("vat-number failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "vat-number failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.

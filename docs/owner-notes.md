@@ -6666,6 +6666,16 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — checklists · number-to-words · VAT number (data API, round 2)
+- **`/checklist`** — reusable checklist template (ordered items, auto-ids) + per-member completion (check/
+  uncheck, progress %/complete). Admin define/delete, public template read, member `/me`. `_checklist_templates`
+  + `_checklist_state` (state erased by user + exportable). batch387 (23/23).
+- **`/number-to-words`** — stateless English integer/money speller (up to trillions, negatives, decimals,
+  currency dollars+cents/pounds+pence singular/plural). Public. batch388 (16/16).
+- **`/vat-number`** — stateless EU/UK VAT format validator (~27-country patterns, structure only). Public.
+  batch389 (14/14).
+- Full suite 370 green. (90/100 of round 2 shipped.)
+
 ## 2026-07-23 — IBAN · cron preview · password policy (data API, round 2)
 - **`/iban`** — stateless IBAN validator: per-country length registry (~47 countries) + ISO 7064 mod-97
   checksum, spaces ignored, grouped formatting. Public. batch384 (15/15).
