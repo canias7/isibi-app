@@ -6661,6 +6661,18 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — preorder holds · scheduled digests · SLA timers (data API, next-100)
+- **`/preorders/<item>`** — capped preorder holds. Admin caps units; member holds qty via atomic
+  `INSERT…SELECT…WHERE (SUM(qty))+qty <= capacity AND NOT EXISTS(my hold)` (no oversell, one hold each);
+  release frees; sold_out flag. `_preorder_holds` erased by user. batch256 (21/21).
+- **`/digests`** — recurring digest configs (saved query + interval). Admin upsert; `/due` (next_run<=now);
+  `/<name>/sent` advances next_run + stamps last_sent. Admin config. batch257 (20/20).
+- **`/sla-timers/<kind>/<ref>`** — deadline clocks. Member starts w/ target_mins (upsert per kind+ref,
+  restart resets), public read → {remaining_mins, breached, due_at, status}, resolve stops it; admin list
+  with `?status=breached`/`?kind=`. No user column → no erase. batch258 (25/25). i18n skipped (already
+  exists).
+- Full suite 241 green. (60/100 of the next-100 list shipped.)
+
 ## 2026-07-23 — recycle bin · event stream · currency converter (data API, next-100)
 - **`/recycle-bin`** — soft-delete snapshot store (admin). Stash {entity,ref,data-JSON}, list (+entity
   filter), `/restore` (returns the snapshot AND removes it), purge one, `?before=` bulk purge. Admin
