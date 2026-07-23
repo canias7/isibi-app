@@ -5967,6 +5967,15 @@ async function ensureStockCounts(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_stockcount_sku ON _stock_counts (sku)"); } catch {}
   _stockCountsReady.add(uuid);
 }
+// Seat maps — reserve individual seats from a named layout. One row per (map, seat); claiming a taken seat fails
+// atomically (the PK conflict). A member holds their own seats; an admin can clear a map. `_seat_reservations`. Ensured once.
+const _seatMapReady = new Set();
+async function ensureSeatMap(env, uuid) {
+  if (_seatMapReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _seat_reservations (map TEXT NOT NULL, seat TEXT NOT NULL, user_id INTEGER, holder TEXT, reserved_at TEXT, PRIMARY KEY (map, seat))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_seat_user ON _seat_reservations (user_id)"); } catch {}
+  _seatMapReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -10838,6 +10847,7 @@ async function handleRequest(request, env, ctx) {
             ["UPDATE _dunning SET user_id=NULL WHERE user_id=?", [u.id]],                    // keep the dunning record, drop the link
             ["DELETE FROM _checklist_state WHERE user_id=?", [u.id]],                        // personal checklist progress
             ["UPDATE _stock_counts SET counted_by=NULL WHERE counted_by=?", [u.id]],         // keep the count record, drop the link
+            ["DELETE FROM _seat_reservations WHERE user_id=?", [u.id]],                      // release their seats
             ["UPDATE _content_hashes SET first_by=NULL WHERE first_by=?", [u.id]],           // keep the shared dedup entry, drop the link
             ["UPDATE _bans SET banned_by=NULL WHERE banned_by=?", [u.id]],                   // keep the ban, drop the admin link
             ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
@@ -25061,6 +25071,172 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported inventory-count request" }, { status: 405 });
         } catch (e) { console.error("inventory-count failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "inventory-count failed" }, { status: 502 }); }
+      }
+      // COLOR PALETTE — a stateless palette generator from a base hex color. Schemes: complementary, analogous,
+      // triadic, tetradic, monochromatic (tints + shades). Returns hex colors derived via HSL rotation.
+      //   POST /api/db/<slug>/color-palette {color, scheme?}   (public) → {base, scheme, colors:[hex,...]}
+      const cpalm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/color-palette$/i);
+      if (cpalm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = cpalm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|cpal", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          if (typeof body.color !== "string") return Response.json({ ok: false, error: "color is required" }, { status: 400 });
+          let hx = body.color.trim().replace(/^#/, "");
+          if (/^[0-9a-fA-F]{3}$/.test(hx)) hx = hx.split("").map((c) => c + c).join("");
+          if (!/^[0-9a-fA-F]{6}$/.test(hx)) return Response.json({ ok: false, error: "color must be a hex like #3366ff" }, { status: 400 });
+          const r0 = parseInt(hx.slice(0, 2), 16), g0 = parseInt(hx.slice(2, 4), 16), b0 = parseInt(hx.slice(4, 6), 16);
+          const rgb2hsl = (r, g, b) => { r /= 255; g /= 255; b /= 255; const mx = Math.max(r, g, b), mn = Math.min(r, g, b); let h = 0, s = 0, l = (mx + mn) / 2; const d = mx - mn; if (d) { s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn); if (mx === r) h = (g - b) / d + (g < b ? 6 : 0); else if (mx === g) h = (b - r) / d + 2; else h = (r - g) / d + 4; h *= 60; } return [h, s, l]; };
+          const hsl2hex = (h, s, l) => { h = ((h % 360) + 360) % 360; s = Math.min(1, Math.max(0, s)); l = Math.min(1, Math.max(0, l)); const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = l - c / 2; let rp = 0, gp = 0, bp = 0; if (h < 60) [rp, gp, bp] = [c, x, 0]; else if (h < 120) [rp, gp, bp] = [x, c, 0]; else if (h < 180) [rp, gp, bp] = [0, c, x]; else if (h < 240) [rp, gp, bp] = [0, x, c]; else if (h < 300) [rp, gp, bp] = [x, 0, c]; else [rp, gp, bp] = [c, 0, x]; const to = (v) => ("0" + Math.round((v + m) * 255).toString(16)).slice(-2); return "#" + to(rp) + to(gp) + to(bp); };
+          const [h, s, l] = rgb2hsl(r0, g0, b0);
+          const scheme = String(body.scheme || "complementary").toLowerCase();
+          const base = "#" + hx.toLowerCase();
+          let colors;
+          if (scheme === "complementary") colors = [base, hsl2hex(h + 180, s, l)];
+          else if (scheme === "analogous") colors = [hsl2hex(h - 30, s, l), base, hsl2hex(h + 30, s, l)];
+          else if (scheme === "triadic") colors = [base, hsl2hex(h + 120, s, l), hsl2hex(h + 240, s, l)];
+          else if (scheme === "tetradic") colors = [base, hsl2hex(h + 90, s, l), hsl2hex(h + 180, s, l), hsl2hex(h + 270, s, l)];
+          else if (scheme === "monochromatic") colors = [hsl2hex(h, s, l * 0.4), hsl2hex(h, s, l * 0.7), base, hsl2hex(h, s, Math.min(0.95, l + (1 - l) * 0.4)), hsl2hex(h, s, Math.min(0.98, l + (1 - l) * 0.7))];
+          else return Response.json({ ok: false, error: "scheme must be complementary | analogous | triadic | tetradic | monochromatic" }, { status: 400 });
+          return Response.json({ ok: true, base, scheme, colors });
+        } catch (e) { console.error("color-palette failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "color-palette failed" }, { status: 502 }); }
+      }
+      // ROMAN — a stateless Roman-numeral converter, both directions (1..3999).
+      //   POST /api/db/<slug>/roman {number}  → {roman}   OR   {roman}  → {number}   (public)
+      const romm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/roman$/i);
+      if (romm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = romm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|roman", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const TABLE = [[1000, "M"], [900, "CM"], [500, "D"], [400, "CD"], [100, "C"], [90, "XC"], [50, "L"], [40, "XL"], [10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"]];
+          if (body.number != null) {
+            const n = Math.floor(Number(body.number));
+            if (!(n >= 1 && n <= 3999)) return Response.json({ ok: false, error: "number must be 1..3999" }, { status: 400 });
+            let rem = n, roman = ""; for (const [v, sym] of TABLE) while (rem >= v) { roman += sym; rem -= v; }
+            return Response.json({ ok: true, number: n, roman });
+          }
+          if (typeof body.roman === "string" && body.roman.trim()) {
+            const s2 = body.roman.trim().toUpperCase();
+            if (!/^[MDCLXVI]+$/.test(s2)) return Response.json({ ok: false, error: "invalid Roman numeral characters" }, { status: 400 });
+            const VAL = { M: 1000, D: 500, C: 100, L: 50, X: 10, V: 5, I: 1 };
+            let total = 0; for (let i = 0; i < s2.length; i++) { const cur = VAL[s2[i]], nxt = VAL[s2[i + 1]] || 0; total += cur < nxt ? -cur : cur; }
+            // Canonical round-trip check (rejects things like IIII / VX).
+            let rem = total, canon = ""; for (const [v, sym] of TABLE) while (rem >= v) { canon += sym; rem -= v; }
+            if (total < 1 || total > 3999 || canon !== s2) return Response.json({ ok: false, error: "not a valid Roman numeral" }, { status: 400 });
+            return Response.json({ ok: true, roman: s2, number: total });
+          }
+          return Response.json({ ok: false, error: "provide number or roman" }, { status: 400 });
+        } catch (e) { console.error("roman failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "roman failed" }, { status: 502 }); }
+      }
+      // WORD FREQUENCY — a stateless top-terms counter over a block of text (lower-cased, split on non-letters),
+      // with optional stop-word removal and a `top` cap.
+      //   POST /api/db/<slug>/word-frequency {text, top?, stopwords?}   (public) → {total_words, unique_words, top:[{word,count}]}
+      const wfm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/word-frequency$/i);
+      if (wfm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = wfm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|wfreq", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          if (typeof body.text !== "string") return Response.json({ ok: false, error: "text is required" }, { status: 400 });
+          if (body.text.length > 500000) return Response.json({ ok: false, error: "text too large" }, { status: 400 });
+          const top = Math.min(500, Math.max(1, parseInt(body.top, 10) || 20));
+          const STOP = new Set(["the", "a", "an", "and", "or", "but", "of", "to", "in", "on", "at", "for", "is", "are", "was", "were", "be", "been", "it", "its", "this", "that", "with", "as", "by", "from", "i", "you", "he", "she", "they", "we", "not", "no", "so", "if", "then", "than", "too", "very", "can", "will", "just"]);
+          const useStop = body.stopwords !== false;
+          const words = body.text.toLowerCase().match(/[a-z0-9']+/g) || [];
+          const counts = new Map(); let total = 0;
+          for (let w of words) { w = w.replace(/^'+|'+$/g, ""); if (!w) continue; if (useStop && STOP.has(w)) continue; total++; counts.set(w, (counts.get(w) || 0) + 1); }
+          const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, top).map(([word, count]) => ({ word, count }));
+          return Response.json({ ok: true, total_words: total, unique_words: counts.size, top: sorted });
+        } catch (e) { console.error("word-frequency failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "word-frequency failed" }, { status: 502 }); }
+      }
+      // SEAT MAP — reserve individual seats from a named layout. Claiming a taken seat fails atomically; a group
+      // reserve is all-or-nothing (any conflict rolls back the ones just claimed). A member holds their own seats.
+      //   POST   /api/db/<slug>/seat-map/<map>/reserve {seat|seats, holder?}   (member) → claim → {reserved, conflicts}
+      //   POST   /api/db/<slug>/seat-map/<map>/release {seat}                  (member owns | ADMIN) → free a seat
+      //   GET    /api/db/<slug>/seat-map/<map>[/<seat>]                        (public) → occupancy / one seat
+      //   DELETE /api/db/<slug>/seat-map/<map>                                 (ADMIN)  → clear the map
+      const smapm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/seat-map\/([A-Za-z0-9_.:-]{1,60})(?:\/(reserve|release|[A-Za-z0-9_.:-]{1,40}))?$/i);
+      if (smapm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = smapm[1].toLowerCase(), map = smapm[2], tail = smapm[3] || null;
+        const seatArg = (tail === "reserve" || tail === "release") ? null : tail;
+        const action = (tail === "reserve" || tail === "release") ? tail : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          await ensureSeatMap(env, uuid);
+          // RESERVE (member) — one seat or an all-or-nothing group.
+          if (action === "reserve" && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            let body = {}; try { body = await request.json(); } catch {}
+            let seats = Array.isArray(body.seats) ? body.seats : (body.seat != null ? [body.seat] : []);
+            seats = [...new Set(seats.map((s2) => String(s2)).filter((s2) => /^[A-Za-z0-9_.:-]{1,40}$/.test(s2)))];
+            if (!seats.length) return Response.json({ ok: false, error: "a seat (or seats[]) is required" }, { status: 400 });
+            if (seats.length > 50) return Response.json({ ok: false, error: "too many seats (max 50)" }, { status: 400 });
+            const now = new Date().toISOString(), holder = body.holder != null ? String(body.holder).slice(0, 120) : null;
+            const claimed = [], conflicts = [];
+            for (const seat of seats) {
+              const ex = await cfD1Exec(env, uuid, "INSERT INTO _seat_reservations (map, seat, user_id, holder, reserved_at) VALUES (?,?,?,?,?) ON CONFLICT(map, seat) DO NOTHING", [map, seat, userId, holder, now]);
+              if ((ex.changes || 0) > 0) claimed.push(seat); else conflicts.push(seat);
+            }
+            if (conflicts.length) { // all-or-nothing: roll back what we just claimed.
+              for (const seat of claimed) await cfD1Exec(env, uuid, "DELETE FROM _seat_reservations WHERE map=? AND seat=? AND user_id=?", [map, seat, userId]);
+              return Response.json({ ok: false, error: "some seats are already taken", reserved: [], conflicts }, { status: 409 });
+            }
+            return Response.json({ ok: true, map, reserved: claimed, conflicts: [] });
+          }
+          // RELEASE (owner or admin).
+          if (action === "release" && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const seat = String(body.seat == null ? "" : body.seat);
+            if (!seat) return Response.json({ ok: false, error: "a seat is required" }, { status: 400 });
+            const row = (await cfD1Query(env, uuid, "SELECT user_id FROM _seat_reservations WHERE map=? AND seat=?", [map, seat]))[0];
+            if (!row) return Response.json({ ok: false, error: "that seat is not reserved" }, { status: 404 });
+            if (row.user_id !== userId) { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "not your seat" }, { status: 403 }); }
+            await cfD1Exec(env, uuid, "DELETE FROM _seat_reservations WHERE map=? AND seat=?", [map, seat]);
+            return Response.json({ ok: true, map, released: seat });
+          }
+          // ONE SEAT status (public).
+          if (seatArg && request.method === "GET") {
+            const row = (await cfD1Query(env, uuid, "SELECT seat, holder, reserved_at FROM _seat_reservations WHERE map=? AND seat=?", [map, seatArg]))[0];
+            return Response.json({ ok: true, map, seat: seatArg, reserved: !!row, holder: row ? row.holder : null });
+          }
+          // OCCUPANCY (public).
+          if (!action && !seatArg && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT seat, holder, reserved_at FROM _seat_reservations WHERE map=? ORDER BY seat LIMIT 5000", [map]);
+            return Response.json({ ok: true, map, occupied: rows, count: rows.length });
+          }
+          // CLEAR the map (admin).
+          if (!action && !seatArg && request.method === "DELETE") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _seat_reservations WHERE map=?", [map]);
+            return Response.json({ ok: true, cleared: true, map, removed: ex.changes || 0 });
+          }
+          return Response.json({ ok: false, error: "unsupported seat-map request" }, { status: 405 });
+        } catch (e) { console.error("seat-map failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "seat-map failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
