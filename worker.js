@@ -4617,6 +4617,17 @@ async function ensureEvents(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_event_regs ON _event_regs (event, status, seq)"); } catch {}
   _eventsReady.add(uuid);
 }
+// Fundraising / goal progress (a crowdfunding thermometer, a tip jar, a pledge drive). An admin sets a
+// goal + target; members contribute amounts that sum toward it; the public sees raised + progress %.
+// `_goals` = the goals (target in cents), `_goal_contribs` = the append-only contributions. Ensured once.
+const _goalsReady = new Set();
+async function ensureGoals(env, uuid) {
+  if (_goalsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _goals (goal TEXT PRIMARY KEY, title TEXT, target_cents INTEGER NOT NULL, currency TEXT, deadline TEXT, created_at TEXT, updated_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _goal_contribs (id INTEGER PRIMARY KEY AUTOINCREMENT, goal TEXT NOT NULL, user_id INTEGER NOT NULL, amount_cents INTEGER NOT NULL, note TEXT, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_goal_contribs ON _goal_contribs (goal)"); } catch {}
+  _goalsReady.add(uuid);
+}
 // The DEFAULT row-visibility suffix for a table (param-free): hide trashed / expired / not-yet-published
 // / archived rows — IDENTICAL to the list read's visClause. ANDed into a saved search's base so a stored
 // query can never re-widen visibility (buildD1List ignores the withTrashed/withScheduled/… params).
@@ -9377,6 +9388,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _survey_responses WHERE user_id=?", [u.id]],                       // survey/NPS responses
             ["DELETE FROM _mentions WHERE mentioned_user=? OR by_user=?", [u.id, u.id]],     // @mentions (either side)
             ["DELETE FROM _event_regs WHERE user_id=?", [u.id]],                             // event registrations
+            ["DELETE FROM _goal_contribs WHERE user_id=?", [u.id]],                          // fundraising contributions
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -11299,6 +11311,95 @@ async function handleRequest(request, env, ctx) {
           const reg = (cnt && cnt.reg) || 0, wait = (cnt && cnt.wait) || 0;
           return Response.json({ ok: true, event, title: ev.title, capacity: ev.capacity, registered: reg, waitlisted: wait, spots_left: Math.max(0, ev.capacity - reg), starts_at: ev.starts_at });
         } catch (e) { console.error("events failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "events failed" }, { status: 502 }); }
+      }
+      // FUNDRAISING / GOAL PROGRESS (a crowdfunding thermometer, a tip jar, a pledge drive). An admin sets
+      // a goal + target; members contribute amounts that sum toward it; the public sees raised + progress.
+      // Money is integer cents. Contributions are append-only. The per-contributor amounts are ADMIN-only
+      // (the public read is aggregate); a member sees only the totals.
+      //   POST   /api/db/<slug>/goals/<goal> {title?, target, currency?, deadline?}  → create/update (ADMIN)
+      //   GET    /api/db/<slug>/goals            → all goals + progress (public)
+      //   GET    /api/db/<slug>/goals/<goal>     → {title, target, raised, progress_pct, met, contributions} (public)
+      //   POST   /api/db/<slug>/goals/<goal>/contribute {amount, note?}  → contribute → {raised, progress_pct} (member)
+      //   GET    /api/db/<slug>/goals/<goal>/contributions  → the individual contributions (ADMIN)
+      //   DELETE /api/db/<slug>/goals/<goal>     → delete the goal + its contributions (ADMIN)
+      const glm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/goals(?:\/([A-Za-z0-9_.:-]{1,60})(?:\/(contribute|contributions))?)?$/i);
+      if (glm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = glm[1].toLowerCase(), goal = glm[2] || null, sub = glm[3] ? glm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needMember = () => userId ? null : Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const needAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const pct = (raised, target) => target > 0 ? Math.round((raised / target) * 1000) / 10 : 0;
+        try {
+          await ensureGoals(env, uuid);
+          // LIST all goals (public).
+          if (!goal) {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "name a goal: /goals/<goal>" }, { status: 400 });
+            if (!rateOk(slug + "|" + ip + "|gll", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT g.goal, g.title, g.target_cents, g.currency, g.deadline, COALESCE((SELECT SUM(amount_cents) FROM _goal_contribs WHERE goal=g.goal),0) AS raised FROM _goals g ORDER BY g.created_at DESC LIMIT 500");
+            return Response.json({ ok: true, goals: rows.map((r) => ({ goal: r.goal, title: r.title, target: r.target_cents / 100, raised: r.raised / 100, progress_pct: pct(r.raised, r.target_cents), met: r.raised >= r.target_cents, currency: r.currency, deadline: r.deadline })) });
+          }
+          // CREATE / UPDATE a goal (admin).
+          if (!sub && request.method === "POST") {
+            const m = needMember(); if (m) return m; const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|glw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const targetC = toCents(body.target);
+            if (targetC == null || targetC < 1) return Response.json({ ok: false, error: "target must be a positive amount" }, { status: 400 });
+            const title = body.title != null && body.title !== "" ? String(body.title).slice(0, 200) : null;
+            const currency = body.currency != null && body.currency !== "" ? String(body.currency).slice(0, 8).toUpperCase() : null;
+            const deadline = body.deadline != null && body.deadline !== "" && !isNaN(new Date(body.deadline).getTime()) ? new Date(body.deadline).toISOString() : null;
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _goals (goal, title, target_cents, currency, deadline, created_at, updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(goal) DO UPDATE SET title=excluded.title, target_cents=excluded.target_cents, currency=excluded.currency, deadline=excluded.deadline, updated_at=excluded.updated_at", [goal, title, targetC, currency, deadline, now, now]);
+            return Response.json({ ok: true, goal, title, target: targetC / 100, currency, deadline });
+          }
+          // CONTRIBUTE (member) — append-only; the goal must exist (atomic insert guarded by EXISTS).
+          if (sub === "contribute") {
+            const m = needMember(); if (m) return m;
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|glc", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const amountC = toCents(body.amount);
+            if (amountC == null || amountC < 1) return Response.json({ ok: false, error: "amount must be a positive amount" }, { status: 400 });
+            const note = body.note != null && body.note !== "" ? String(body.note).slice(0, 500) : null;
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _goal_contribs (goal, user_id, amount_cents, note, created_at) SELECT ?,?,?,?,? WHERE EXISTS(SELECT 1 FROM _goals WHERE goal=?) RETURNING id", [goal, userId, amountC, note, new Date().toISOString(), goal]);
+            if (!ins[0]) return Response.json({ ok: false, error: "no such goal" }, { status: 404 });
+            const g = (await cfD1Query(env, uuid, "SELECT target_cents FROM _goals WHERE goal=?", [goal]))[0];
+            const raisedRow = (await cfD1Query(env, uuid, "SELECT COALESCE(SUM(amount_cents),0) AS raised FROM _goal_contribs WHERE goal=?", [goal]))[0];
+            const raised = raisedRow.raised;
+            return Response.json({ ok: true, id: ins[0].id, amount: amountC / 100, raised: raised / 100, progress_pct: pct(raised, g.target_cents), met: raised >= g.target_cents });
+          }
+          // CONTRIBUTIONS list (admin) — the individual amounts.
+          if (sub === "contributions") {
+            const m = needMember(); if (m) return m; const a = await needAdmin(); if (a) return a;
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|glcl", 300)) return tooMany();
+            const lim = Math.min(500, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+            const off = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10) || 0);
+            const rows = await cfD1Query(env, uuid, "SELECT id, user_id, amount_cents, note, created_at FROM _goal_contribs WHERE goal=? ORDER BY id DESC LIMIT ? OFFSET ?", [goal, lim, off]);
+            return Response.json({ ok: true, goal, contributions: rows.map((r) => ({ id: r.id, user_id: r.user_id, amount: r.amount_cents / 100, note: r.note, created_at: r.created_at })) });
+          }
+          // DELETE a goal + its contributions (admin).
+          if (!sub && request.method === "DELETE") {
+            const m = needMember(); if (m) return m; const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _goals WHERE goal=?", [goal]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such goal" }, { status: 404 });
+            try { await cfD1Exec(env, uuid, "DELETE FROM _goal_contribs WHERE goal=?", [goal]); } catch {}
+            return Response.json({ ok: true, deleted: true, goal });
+          }
+          // GET one goal + progress (public).
+          if (request.method !== "GET") return Response.json({ ok: false, error: "unsupported goals request" }, { status: 405 });
+          const g = (await cfD1Query(env, uuid, "SELECT title, target_cents, currency, deadline FROM _goals WHERE goal=?", [goal]))[0];
+          if (!g) return Response.json({ ok: false, error: "no such goal" }, { status: 404 });
+          const agg = (await cfD1Query(env, uuid, "SELECT COALESCE(SUM(amount_cents),0) AS raised, COUNT(*) AS n, COUNT(DISTINCT user_id) AS contributors FROM _goal_contribs WHERE goal=?", [goal]))[0];
+          return Response.json({ ok: true, goal, title: g.title, target: g.target_cents / 100, raised: agg.raised / 100, progress_pct: pct(agg.raised, g.target_cents), met: agg.raised >= g.target_cents, contributions: agg.n, contributors: agg.contributors, currency: g.currency, deadline: g.deadline });
+        } catch (e) { console.error("goals failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "goals failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
