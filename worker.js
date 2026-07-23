@@ -4595,6 +4595,16 @@ async function ensureSurveys(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _survey_responses (survey TEXT NOT NULL, user_id INTEGER NOT NULL, score INTEGER NOT NULL, comment TEXT, created_at TEXT, updated_at TEXT, PRIMARY KEY (survey, user_id))");
   _surveysReady.add(uuid);
 }
+// @Mentions — a member records that ANOTHER member was @-tagged somewhere; the mentioned
+// member reads THEIR OWN mentions (mentioned_user = them) and marks them seen. Every read/mutate
+// is scoped to mentioned_user, so a member never sees the by_user perspective. Once per isolate.
+const _mentionsReady = new Set();
+async function ensureMentions(env, uuid) {
+  if (_mentionsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _mentions (id INTEGER PRIMARY KEY AUTOINCREMENT, mentioned_user INTEGER NOT NULL, by_user INTEGER NOT NULL, ref_table TEXT, ref_id INTEGER, context TEXT, seen INTEGER NOT NULL DEFAULT 0, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_mentions_me ON _mentions (mentioned_user, seen, id)"); } catch {}
+  _mentionsReady.add(uuid);
+}
 // The DEFAULT row-visibility suffix for a table (param-free): hide trashed / expired / not-yet-published
 // / archived rows — IDENTICAL to the list read's visClause. ANDed into a saved search's base so a stored
 // query can never re-widen visibility (buildD1List ignores the withTrashed/withScheduled/… params).
@@ -9353,6 +9363,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _reminders WHERE user_id=?", [u.id]],                              // reminders
             ["DELETE FROM _comments WHERE user_id=?", [u.id]],                               // threaded comments
             ["DELETE FROM _survey_responses WHERE user_id=?", [u.id]],                       // survey/NPS responses
+            ["DELETE FROM _mentions WHERE mentioned_user=? OR by_user=?", [u.id, u.id]],     // @mentions (either side)
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -11092,6 +11103,89 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported surveys request" }, { status: 405 });
         } catch (e) { console.error("surveys failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "surveys failed" }, { status: 502 }); }
+      }
+      // @MENTIONS — a member records that another member was @-tagged; the MENTIONED member reads
+      // THEIR OWN mentions and marks them seen. Privacy/IDOR: every read/mutate is scoped to
+      // mentioned_user = caller; a member never sees the by_user perspective.
+      //   POST   /api/db/<slug>/mentions {user, ref_table?, ref_id?, context?} → {id}
+      //   GET    /api/db/<slug>/mentions/mine[?unseen=1&limit=&offset=]         → mentions of me, newest-first
+      //   GET    /api/db/<slug>/mentions/unseen-count                           → {count}
+      //   POST   /api/db/<slug>/mentions/<id>/seen                              → mark one of mine seen
+      //   POST   /api/db/<slug>/mentions/seen-all                               → mark all mine seen
+      //   DELETE /api/db/<slug>/mentions/<id>                                   → delete one of mine
+      const mnsm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/mentions(?:\/(mine|unseen-count|seen-all|\d+))?(?:\/(seen))?$/i);
+      if (mnsm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = mnsm[1].toLowerCase(), tail = mnsm[2] ? mnsm[2].toLowerCase() : null, act = mnsm[3] ? mnsm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const id = tail && /^\d+$/.test(tail) ? parseInt(tail, 10) : null;
+        try {
+          await ensureMentions(env, uuid);
+          // CREATE — record a mention of another member. Single ATOMIC INSERT ... SELECT ... WHERE
+          // EXISTS(user): no separate check→insert race, RETURNING yields no row (→404) when the
+          // mentioned user doesn't exist. by_user is ALWAYS the caller, never client-supplied.
+          if (!tail && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|mtw", 60)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const mu = parseInt(body.user, 10);
+            if (!(mu > 0)) return Response.json({ ok: false, error: "user (the mentioned member's id) is required" }, { status: 400 });
+            const refTable = body.ref_table != null && body.ref_table !== "" ? String(body.ref_table).slice(0, 64) : null;
+            const refId = body.ref_id != null && /^\d+$/.test(String(body.ref_id)) ? parseInt(body.ref_id, 10) : null;
+            const context = body.context != null && body.context !== "" ? String(body.context).replace(/[\r\n]+/g, " ").slice(0, 500) : null;
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _mentions (mentioned_user, by_user, ref_table, ref_id, context, seen, created_at) SELECT ?,?,?,?,?,0,? WHERE EXISTS(SELECT 1 FROM _users WHERE id=?) RETURNING id", [mu, userId, refTable, refId, context, new Date().toISOString(), mu]);
+            if (!ins[0]) return Response.json({ ok: false, error: "no such user" }, { status: 404 });
+            return Response.json({ ok: true, id: ins[0].id });
+          }
+          // UNSEEN COUNT — of my mentions.
+          if (tail === "unseen-count") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|mtc", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT COUNT(*) AS c FROM _mentions WHERE mentioned_user=? AND seen=0", [userId]);
+            return Response.json({ ok: true, count: (rows[0] && rows[0].c) || 0 });
+          }
+          // SEEN-ALL — mark all my mentions seen.
+          if (tail === "seen-all") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|mts", 120)) return tooMany();
+            const ex = await cfD1Exec(env, uuid, "UPDATE _mentions SET seen=1 WHERE mentioned_user=? AND seen=0", [userId]);
+            return Response.json({ ok: true, updated: ex.changes || 0 });
+          }
+          // LIST — mentions OF ME, newest-first.
+          if (tail === "mine") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|mtl", 300)) return tooMany();
+            const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 1), 200);
+            const offset = Math.max(parseInt(url.searchParams.get("offset") || "0", 10) || 0, 0);
+            let where = "mentioned_user=?"; const params = [userId];
+            if (url.searchParams.get("unseen") === "1") where += " AND seen=0";
+            const rows = await cfD1Query(env, uuid, "SELECT id, mentioned_user, by_user, ref_table, ref_id, context, seen, created_at FROM _mentions WHERE " + where + " ORDER BY id DESC LIMIT ? OFFSET ?", params.concat([limit, offset]));
+            return Response.json({ ok: true, mentions: rows });
+          }
+          // A specific mention of MINE — mark seen or delete. Scoped to mentioned_user = caller (IDOR-safe).
+          if (id != null) {
+            if (act === "seen") {
+              if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+              if (!rateOk(slug + "|" + ip + "|mts", 120)) return tooMany();
+              const ex = await cfD1Exec(env, uuid, "UPDATE _mentions SET seen=1 WHERE id=? AND mentioned_user=?", [id, userId]);
+              if (!ex.changes) return Response.json({ ok: false, error: "no such mention" }, { status: 404 });
+              return Response.json({ ok: true, id, seen: true });
+            }
+            if (request.method === "DELETE") {
+              const ex = await cfD1Exec(env, uuid, "DELETE FROM _mentions WHERE id=? AND mentioned_user=?", [id, userId]);
+              if (!ex.changes) return Response.json({ ok: false, error: "no such mention" }, { status: 404 });
+              return Response.json({ ok: true, id, deleted: true });
+            }
+            return Response.json({ ok: false, error: "use POST /<id>/seen or DELETE /<id>" }, { status: 405 });
+          }
+          return Response.json({ ok: false, error: "unsupported mentions request" }, { status: 405 });
+        } catch (e) { console.error("mentions failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "mentions failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
