@@ -6661,6 +6661,21 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — shipping rates · quote builder · giveaway draw (data API, next-100 commerce batch)
+- Note: NO e-commerce `_orders` table exists (only manufacturing `_work_orders`), so I skipped the
+  order-dependent items (#2 RMA, #3 order timeline) and built 3 clean standalone commerce primitives instead.
+- **`/shipping`** — rate calculator. Admin defines tiers per named zone (weight+subtotal bands, flat rate,
+  free_over); public `POST /shipping/quote {zone,weight,subtotal}` picks the CHEAPEST matching tier and
+  applies free-over → `{rate, free, matched}`. Money via `toCents`. No user scope. batch211 (21/21).
+- **`/quotes`** — estimate builder. Admin creates line-item quotes, SERVER totals (qty×unit, cents-exact);
+  a `token` gives a public `/quotes/view/<token>` + `/respond {accept}` (once, blocked past expires).
+  PATCH re-totals on new lines; status draft/sent/accepted/declined/expired. `_quotes`(author_id)+
+  `_quote_lines`(via quote_id subselect) in GDPR erase. batch212 (27/27).
+- **`/giveaways/<key>`** — sweepstakes. Member enters once (ON CONFLICT dedup, only while open), admin draws
+  N random winners via CSPRNG Fisher-Yates (`crypto.getRandomValues`), flips to drawn. Public read
+  {status,entries,winners,mine}. `_giveaway_entries` in GDPR erase. batch213 (21/21).
+- Full suite 196 green.
+
 ## 2026-07-23 — status-page incidents · feedback board · countdown timers (data API, next-100)
 - **`/incidents`** — a service status page. Admin opens an incident (title/impact/status; body seeds the
   first timeline entry) and posts updates (`/updates {status?,body}` — a status advances the incident, and
