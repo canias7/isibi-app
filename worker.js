@@ -4708,6 +4708,35 @@ async function ensureRecent(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_recent_user ON _recent_views (user_id, viewed_at)"); } catch {}
   _recentReady.add(uuid);
 }
+// FAQ / knowledge base — admin-managed Q&A entries, optionally categorized + ordered; the public reads
+// the published ones (with a text search). Ensured once per isolate.
+const _faqReady = new Set();
+async function ensureFaq(env, uuid) {
+  if (_faqReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _faq (id INTEGER PRIMARY KEY AUTOINCREMENT, question TEXT NOT NULL, answer TEXT, category TEXT, sort INTEGER NOT NULL DEFAULT 0, published INTEGER NOT NULL DEFAULT 1, created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_faq_cat ON _faq (category, sort)"); } catch {}
+  _faqReady.add(uuid);
+}
+// Business hours — weekly open intervals (per day-of-week, in local minutes-since-midnight; a day can
+// have several intervals) plus per-date overrides (holidays / special hours). Powers an "open now?" check.
+const _hoursReady = new Set();
+async function ensureHours(env, uuid) {
+  if (_hoursReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _hours (id INTEGER PRIMARY KEY AUTOINCREMENT, dow INTEGER NOT NULL, open_min INTEGER NOT NULL, close_min INTEGER NOT NULL, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _hours_special (date TEXT PRIMARY KEY, closed INTEGER NOT NULL DEFAULT 0, open_min INTEGER, close_min INTEGER, note TEXT, created_at TEXT)");
+  _hoursReady.add(uuid);
+}
+// A/B experiments — an admin defines an experiment with weighted variants; a member is assigned a variant
+// DETERMINISTICALLY (sticky, weighted by a hash), the exposure + any conversion are recorded, and the
+// admin reads per-variant results. `_experiments` = configs, `_experiment_events` = per-member assignment.
+const _experimentsReady = new Set();
+async function ensureExperiments(env, uuid) {
+  if (_experimentsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _experiments (key TEXT PRIMARY KEY, variants TEXT, enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT, updated_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _experiment_events (experiment TEXT NOT NULL, user_id INTEGER NOT NULL, variant TEXT, converted INTEGER NOT NULL DEFAULT 0, created_at TEXT, converted_at TEXT, PRIMARY KEY (experiment, user_id))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_exp_events ON _experiment_events (experiment, variant)"); } catch {}
+  _experimentsReady.add(uuid);
+}
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -12090,6 +12119,94 @@ async function handleRequest(request, env, ctx) {
             : await cfD1Query(env, uuid, "SELECT ref_table, ref_id, viewed_at FROM _recent_views WHERE user_id=? ORDER BY viewed_at DESC LIMIT ?", [userId, lim]);
           return Response.json({ ok: true, recent: rows });
         } catch (e) { console.error("recent failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "recent failed" }, { status: 502 }); }
+      }
+      // FAQ / KNOWLEDGE BASE — admin-managed Q&A; the public reads the published entries (with search +
+      // category filter). Reads are public; managing is admin.
+      //   POST   /api/db/<slug>/faq {question, answer, category?, sort?, published?}  (ADMIN) → {id}
+      //   GET    /api/db/<slug>/faq[?category=&q=]     (public) → published entries
+      //   GET    /api/db/<slug>/faq/categories         (public) → the distinct categories
+      //   GET    /api/db/<slug>/faq/all                (ADMIN)  → every entry (incl. unpublished)
+      //   PATCH  /api/db/<slug>/faq/<id> {question?, answer?, category?, sort?, published?}  (ADMIN)
+      //   DELETE /api/db/<slug>/faq/<id>               (ADMIN)
+      const faqm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/faq(?:\/(all|categories|\d+))?$/i);
+      if (faqm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = faqm[1].toLowerCase(), sub = faqm[2] ? faqm[2].toLowerCase() : null, fid = faqm[2] && /^\d+$/.test(faqm[2]) ? parseInt(faqm[2], 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureFaq(env, uuid);
+          // CREATE (admin).
+          if (!sub && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|faqw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const q = String(body.question || "").trim().slice(0, 500);
+            if (!q) return Response.json({ ok: false, error: "a question is required" }, { status: 400 });
+            const ans = body.answer != null ? String(body.answer).slice(0, 8000) : null;
+            const cat = body.category != null && body.category !== "" ? String(body.category).slice(0, 80) : null;
+            const sort = Math.floor(Number(body.sort)) || 0;
+            const published = (body.published === false || body.published === 0 || body.published === "false") ? 0 : 1;
+            const now = new Date().toISOString();
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _faq (question, answer, category, sort, published, created_at, updated_at) VALUES (?,?,?,?,?,?,?) RETURNING id", [q, ans, cat, sort, published, now, now]);
+            return Response.json({ ok: true, id: ins[0] && ins[0].id });
+          }
+          // Distinct categories (public).
+          if (sub === "categories") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|faqc", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT DISTINCT category FROM _faq WHERE published=1 AND category IS NOT NULL ORDER BY category ASC LIMIT 200");
+            return Response.json({ ok: true, categories: rows.map((r) => r.category) });
+          }
+          // All (admin, incl. unpublished).
+          if (sub === "all") {
+            const a = await needAdmin(); if (a) return a;
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|faqa", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT id, question, answer, category, sort, published, updated_at FROM _faq ORDER BY category ASC, sort ASC, id ASC LIMIT 2000");
+            return Response.json({ ok: true, faq: rows.map((r) => Object.assign(r, { published: !!r.published })) });
+          }
+          // Update / delete one (admin).
+          if (fid != null) {
+            const a = await needAdmin(); if (a) return a;
+            if (request.method === "PATCH") {
+              let body = {}; try { body = await request.json(); } catch {}
+              const sets = [], params = [];
+              if (body.question !== undefined) { const q = String(body.question || "").trim().slice(0, 500); if (!q) return Response.json({ ok: false, error: "question can't be empty" }, { status: 400 }); sets.push("question=?"); params.push(q); }
+              if (body.answer !== undefined) { sets.push("answer=?"); params.push(body.answer != null ? String(body.answer).slice(0, 8000) : null); }
+              if (body.category !== undefined) { sets.push("category=?"); params.push(body.category != null && body.category !== "" ? String(body.category).slice(0, 80) : null); }
+              if (body.sort !== undefined) { sets.push("sort=?"); params.push(Math.floor(Number(body.sort)) || 0); }
+              if (body.published !== undefined) { sets.push("published=?"); params.push((body.published === false || body.published === 0 || body.published === "false") ? 0 : 1); }
+              if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+              sets.push("updated_at=?"); params.push(new Date().toISOString());
+              const ex = await cfD1Exec(env, uuid, "UPDATE _faq SET " + sets.join(", ") + " WHERE id=?", params.concat([fid]));
+              if (!ex.changes) return Response.json({ ok: false, error: "no such entry" }, { status: 404 });
+              return Response.json({ ok: true, id: fid, updated: true });
+            }
+            if (request.method === "DELETE") {
+              const ex = await cfD1Exec(env, uuid, "DELETE FROM _faq WHERE id=?", [fid]);
+              if (!ex.changes) return Response.json({ ok: false, error: "no such entry" }, { status: 404 });
+              return Response.json({ ok: true, deleted: true, id: fid });
+            }
+            return Response.json({ ok: false, error: "use PATCH or DELETE" }, { status: 405 });
+          }
+          // Public published list (+ category filter + text search).
+          if (request.method !== "GET") return Response.json({ ok: false, error: "unsupported faq request" }, { status: 405 });
+          if (!rateOk(slug + "|" + ip + "|faqr", 300)) return tooMany();
+          const where = ["published=1"], params = [];
+          const cat = url.searchParams.get("category");
+          if (cat) { where.push("category=?"); params.push(String(cat).slice(0, 80)); }
+          const q = url.searchParams.get("q");
+          if (q) { const like = "%" + String(q).replace(/[%_\\]/g, "").slice(0, 80) + "%"; where.push("(question LIKE ? OR answer LIKE ?)"); params.push(like, like); }
+          const rows = await cfD1Query(env, uuid, "SELECT id, question, answer, category, sort FROM _faq WHERE " + where.join(" AND ") + " ORDER BY category ASC, sort ASC, id ASC LIMIT 500", params);
+          return Response.json({ ok: true, faq: rows });
+        } catch (e) { console.error("faq failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "faq failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
