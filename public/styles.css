@@ -4989,18 +4989,21 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .mkt-crt .mkt-logo-lite{position:absolute;inset:0;pointer-events:none;overflow:hidden;
   -webkit-mask:url(/logo3d-edge.png) center/contain no-repeat;mask:url(/logo3d-edge.png) center/contain no-repeat;
   -webkit-mask-size:contain;mask-size:contain;
-  background:linear-gradient(rgba(255,150,120,.2),rgba(255,150,120,.2));
+  background:linear-gradient(rgba(255,150,120,.09),rgba(255,150,120,.09));
   filter:drop-shadow(0 0 6px rgba(255,140,110,.5))}
+/* the moving light: a big bright arc that dominates the faint rim, so what you
+   see IS the thing that's travelling. Rotated on the compositor = smooth. */
 .mkt-crt .mkt-logo-lite::before{content:"";position:absolute;inset:-35%;
   background:conic-gradient(from 0deg at 50% 50%,
     rgba(255,121,198,0) 0deg,
-    rgba(255,121,198,.6) 26deg,
-    rgba(255,121,198,1) 64deg,
-    rgba(255,178,110,1) 90deg,
-    rgba(255,180,95,.5) 122deg,
-    rgba(255,180,95,0) 166deg,
+    rgba(255,121,198,.55) 22deg,
+    rgba(255,121,198,1) 55deg,
+    rgba(255,150,95,1) 88deg,
+    rgba(255,180,95,1) 104deg,
+    rgba(255,180,95,.45) 140deg,
+    rgba(255,180,95,0) 178deg,
     rgba(255,121,198,0) 360deg);
-  animation:mkt-spin 12s linear infinite}
+  animation:mkt-spin 9s linear infinite}
 @keyframes mkt-spin{to{transform:rotate(360deg)}}
 /* click bloom: a soft glow ripples out from the disc */
 .mkt-crt .mkt-logo3d::before{content:"";position:absolute;inset:2%;pointer-events:none;z-index:1;
@@ -5027,8 +5030,12 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   border:0;background:transparent;padding:0;margin:0;cursor:pointer;
   -webkit-tap-highlight-color:transparent}
 .mkt-crt .mkt-logo-hit:focus-visible{outline:2px solid rgba(255,121,198,.55);outline-offset:6px}
+/* The ambient orbit keeps running even under reduce-motion (owner's call: it must
+   always be moving) — it's a slow, small, peripheral glow. The !important beats the
+   global reduce-motion reset (~L2083) that otherwise freezes every animation. Only
+   the click-triggered spring/bloom (sudden motion) is suppressed for those users. */
 @media (prefers-reduced-motion:reduce){
-  .mkt-crt .mkt-logo-lite::before{animation:none}
+  .mkt-crt .mkt-logo-lite::before{animation:mkt-spin 9s linear infinite !important}
   .mkt-crt .mkt-logo3d.is-alive,
   .mkt-crt .mkt-logo3d.is-alive::before,
   .mkt-crt .mkt-logo3d.is-alive .mkt-logo-lite{animation:none}}
