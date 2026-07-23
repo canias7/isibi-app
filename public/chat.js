@@ -9145,6 +9145,20 @@ function initCrt() {
     else if ((e.key === 'Enter' || e.key === ' ') && document.activeElement === menu) { e.preventDefault(); crtSelect(); }
   };
   document.addEventListener('keydown', onKey);
+  // Landing logo block: clicking the ghosted 3D mark "wakes" it (springy pulse +
+  // bloom) so it feels alive/touchable. The hit target sits over the disc only.
+  const logoHit = mkt && mkt.querySelector('.mkt-logo-hit');
+  const logo3d = mkt && mkt.querySelector('.mkt-logo3d');
+  if (logoHit && logo3d) {
+    logoHit.addEventListener('click', () => {
+      logo3d.classList.remove('is-alive');
+      void logo3d.offsetWidth;            // restart the pulse on every click
+      logo3d.classList.add('is-alive');
+    });
+    logo3d.addEventListener('animationend', (e) => {
+      if (e.animationName === 'mkt-wake') logo3d.classList.remove('is-alive');
+    });
+  }
   // Landing chatbox: let the visitor type freely; only funnel into the sign-up
   // popup when they commit (Enter) or hit the send arrow — not on tap/focus.
   const landInput = document.getElementById('crtLandInput');
