@@ -11,6 +11,14 @@ import { pickStyleFamily } from "../builder/design-system.mjs";
 import { composeBuildPrompt } from "../builder/pipeline.mjs";
 import { lintGeneratedApp } from "../builder/app-linter.mjs";
 import { parseGeneratedFiles, REACT_RULES, REACT_REVISE_RULES } from "../builder/react-gen.mjs";
+import { buildCritiquePrompt, requestCritique } from "../builder/vision-critique.mjs";
+
+// evalRoutes — the routes to screenshot for a design score: the home page (the design signal) plus up to two
+// inner pages, skipping bare auth screens. HashRouter, so all serve index.html and the render targets url#route.
+function evalRoutes(spec) {
+  const inner = (spec.pages || []).filter((p) => p.path !== "/" && p.path !== "/signin").slice(0, 2).map((p) => p.path);
+  return ["/", ...inner];
+}
 
 // ── The diverse prompt set (ChatGPT's list + more; ~25 different app archetypes). ──
 export const PROMPTS = [
@@ -75,14 +83,18 @@ export async function evaluatePrompt(prompt, deps = {}) {
       lint = lint2; r.lint.ok = lint.ok;
     }
 
-    // Optional: compile.
-    if (deps.build) { const b = await deps.build(files); r.build = { ok: !!b.ok, error: b.error ? String(b.error).slice(0, 200) : null }; }
+    // Optional: compile. Capture the built dist so vision renders the REAL built output (exactly like production).
+    let dist = null;
+    if (deps.build) { const b = await deps.build(files); r.build = { ok: !!b.ok, error: b.error ? String(b.error).slice(0, 200) : null }; if (b.ok && b.files) dist = b.files; }
 
-    // Optional: vision (render + critique).
+    // Optional: vision (render + critique) — screenshots the built dist (falls back to source if no build ran),
+    // then asks the vision model to score the RENDERED page (layout/contrast/polish — things source can't show).
     if (deps.render && deps.critiqueOne) {
-      const shots = await deps.render(files);
-      const crits = []; for (const s of shots) crits.push(await deps.critiqueOne(s));
-      r.vision = { minScore: crits.length ? Math.min(...crits.map((c) => c.score)) : null, issues: crits.reduce((n, c) => n + (c.issues ? c.issues.length : 0), 0) };
+      const routes = evalRoutes(plan.spec);
+      const critiquePrompt = buildCritiquePrompt({ goal: prompt, family: r.family });
+      const shots = (await deps.render(dist || files, { routes })) || [];
+      const crits = []; for (const s of shots) crits.push(await deps.critiqueOne(s, { prompt: critiquePrompt }));
+      r.vision = { minScore: crits.length ? Math.min(...crits.map((c) => c.score)) : null, avgScore: crits.length ? Math.round(crits.reduce((s, c) => s + (c.score || 0), 0) / crits.length) : null, issues: crits.reduce((n, c) => n + (c.issues ? c.issues.length : 0), 0), routes: routes.length, shots: shots.length };
     }
 
     r.ok = r.generated && r.lint.ok && (!r.build || r.build.ok);
@@ -170,7 +182,38 @@ export function makeAnthropicGenerate(apiKey, model = "claude-sonnet-5", fetchIm
   };
 }
 
+// makeContainerBuild(baseUrl) — a build(files) that POSTs the generated source to the build-server /build endpoint
+// (real `vite build`); returns { ok, error, files: dist }. Exactly the call the Worker makes in production.
+export function makeContainerBuild(baseUrl, fetchImpl = fetch) {
+  return async (files) => {
+    try {
+      const r = await fetchImpl(baseUrl.replace(/\/$/, "") + "/build", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ files }) });
+      const j = await r.json();
+      return { ok: !!j.ok, error: j.error || null, files: j.files || null };
+    } catch (e) { return { ok: false, error: String(e && e.message || e).slice(0, 300), files: null }; }
+  };
+}
+
+// makeContainerRender(baseUrl) — a render(dist, {routes}) that POSTs the built dist to /critique and returns the
+// screenshots [{route, pngBase64}]. Needs the build server to have Playwright/Chromium (best-effort in the image).
+export function makeContainerRender(baseUrl, fetchImpl = fetch) {
+  return async (dist, { routes } = {}) => {
+    try {
+      const r = await fetchImpl(baseUrl.replace(/\/$/, "") + "/critique", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ dist, routes: routes || ["/"] }) });
+      const j = await r.json();
+      return j.ok && Array.isArray(j.shots) ? j.shots : [];
+    } catch { return []; }
+  };
+}
+
+// makeVisionCritique(apiKey) — a critiqueOne(shot, {prompt}) that runs the vision model on one screenshot.
+export function makeVisionCritique(apiKey, model = "claude-sonnet-5", fetchImpl = fetch) {
+  return async (shot, { prompt } = {}) => requestCritique({ apiKey, model, pngBase64: shot.pngBase64, prompt, fetchImpl });
+}
+
 // CLI entry — run the live eval when executed directly with ANTHROPIC_API_KEY.
+//   EVAL_LIMIT (0=all)  EVAL_MODEL  EVAL_REPAIR=1  EVAL_BUILD=1 (compile via BUILD_URL)  EVAL_VISION=1 (render+score)
+//   BUILD_URL (default http://127.0.0.1:8080) — the build-server the workflow starts.
 export async function runEvalCLI() {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) { console.error("ANTHROPIC_API_KEY not set — this runs live and spends credits; set it in CI."); process.exit(2); }
@@ -180,7 +223,15 @@ export async function runEvalCLI() {
   const generate = makeAnthropicGenerate(key, model);
   const deps = { generate };
   if (process.env.EVAL_REPAIR === "1") deps.revise = generate;
-  console.error(`Running ${prompts.length} prompts through PIPELINE_V2 (model ${model})…`);
+  const buildUrl = process.env.BUILD_URL || "http://127.0.0.1:8080";
+  if (process.env.EVAL_BUILD === "1") deps.build = makeContainerBuild(buildUrl);
+  if (process.env.EVAL_VISION === "1") {
+    if (process.env.EVAL_BUILD !== "1") deps.build = makeContainerBuild(buildUrl); // vision renders the built dist
+    deps.render = makeContainerRender(buildUrl);
+    deps.critiqueOne = makeVisionCritique(key, model);
+  }
+  const extras = [process.env.EVAL_REPAIR === "1" && "repair", deps.build && "build", deps.render && "vision"].filter(Boolean).join("+") || "none";
+  console.error(`Running ${prompts.length} prompts through PIPELINE_V2 (model ${model}; extras: ${extras})…`);
   const out = await runEval(prompts, deps);
   console.log(formatScorecard(out));
   console.error("\nJSON:\n" + JSON.stringify(out.summary));

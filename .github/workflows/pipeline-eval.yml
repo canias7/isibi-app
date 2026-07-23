@@ -1,15 +1,18 @@
 # Manually-triggered LIVE evaluation of PIPELINE_V2. Runs only on demand (workflow_dispatch), where the
 # ANTHROPIC_API_KEY secret is available, and pushes N diverse prompts through plan → focused prompt → generate →
-# lint (→ optional repair), then prints a scorecard: capabilities chosen, backend routes real, forms wired, lint
-# clean, repair success, and est. cost. SPENDS CREDITS — one full generation per prompt (~$0.02–0.05 each), so the
-# default run is capped and the full sweep is opt-in via the `limit` input.
+# lint (→ optional repair → optional COMPILE → optional VISION score), then prints a scorecard: capabilities
+# chosen, backend routes real, forms wired, lint clean, compiles, avg design score, repair success, and est. cost.
+#
+# SPENDS CREDITS. Per prompt: one generation (~$0.02–0.05 with caching); +1 revise on failures if repair=1;
+# +~3 vision calls (~$0.01 each) if vision=1. The default run is capped (limit 6) so a stray click isn't costly;
+# the full sweep is opt-in via the `limit` input.
 name: pipeline-eval
 
 on:
   workflow_dispatch:
     inputs:
       limit:
-        description: "How many prompts to run (0 = all 25). Each is one live generation (~$0.02–0.05)."
+        description: "How many prompts to run (0 = all 25). Each is one live generation."
         required: false
         default: "6"
       model:
@@ -17,9 +20,17 @@ on:
         required: false
         default: "claude-sonnet-5"
       repair:
-        description: "Run one lint-gate repair pass on failures (1 = yes). Doubles cost on failing prompts."
+        description: "Run one lint-gate repair pass on failures (1 = yes)."
         required: false
-        default: "0"
+        default: "1"
+      build:
+        description: "Compile each app with vite (1 = yes) — measures the 'does it compile' column."
+        required: false
+        default: "1"
+      vision:
+        description: "Render + vision-score each app (1 = yes) — measures the 'design score' column. Implies build."
+        required: false
+        default: "1"
 
 jobs:
   pipeline-eval:
@@ -29,10 +40,35 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+
+      # Stand up the build service exactly like the container image: template scaffold + baked deps + Chromium.
+      # Only needed when build/vision is on; harmless (and quick to skip) otherwise.
+      - name: Scaffold the build service
+        if: ${{ github.event.inputs.build == '1' || github.event.inputs.vision == '1' }}
+        run: |
+          set -e
+          mkdir -p /tmp/buildapp
+          cp builder/package.json /tmp/buildapp/
+          cp -r builder/template/. /tmp/buildapp/
+          cd /tmp/buildapp
+          npm install --no-audit --no-fund --loglevel=error
+          # Chromium for the vision render. Best-effort: a hiccup must not fail the run (vision just no-ops then).
+          npx playwright install --with-deps chromium || echo "WARN: chromium install failed; vision will no-op"
+
+      - name: Start the build service
+        if: ${{ github.event.inputs.build == '1' || github.event.inputs.vision == '1' }}
+        run: |
+          APP_DIR=/tmp/buildapp PORT=8080 node builder/build-server.mjs > /tmp/build-server.log 2>&1 &
+          for i in $(seq 1 20); do curl -sf http://127.0.0.1:8080/health && break || sleep 0.5; done
+          echo "build service up"
+
       - name: Run the eval
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           EVAL_LIMIT: ${{ github.event.inputs.limit }}
           EVAL_MODEL: ${{ github.event.inputs.model }}
           EVAL_REPAIR: ${{ github.event.inputs.repair }}
+          EVAL_BUILD: ${{ github.event.inputs.build }}
+          EVAL_VISION: ${{ github.event.inputs.vision }}
+          BUILD_URL: "http://127.0.0.1:8080"
         run: node test/pipeline-eval.mjs
