@@ -5057,6 +5057,27 @@ function normalCdf(z) {
 function slugifyHeading(text) {
   return String(text || "").toLowerCase().replace(/&[a-z]+;/g, " ").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "section";
 }
+// Escape a string for inclusion in XML text/attributes (sitemap + RSS output).
+function xmlEscape(s) {
+  return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+// Content syndication — a list of published URLs (title/summary/dates/priority) that renders as a sitemap
+// and an RSS feed. `_syndication` = one row per URL. Ensured once per isolate.
+const _syndicationReady = new Set();
+async function ensureSyndication(env, uuid) {
+  if (_syndicationReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _syndication (id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT UNIQUE NOT NULL, title TEXT, summary TEXT, published_at TEXT, changed_at TEXT, priority REAL, created_at TEXT, updated_at TEXT)");
+  _syndicationReady.add(uuid);
+}
+// Back-in-stock / price-drop notify — a visitor asks to be told when an item is available/cheaper; the
+// admin lists pending subscribers and fires them (marking them notified). `_notify_subs`. Ensured once.
+const _notifySubsReady = new Set();
+async function ensureNotifySubs(env, uuid) {
+  if (_notifySubsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _notify_subs (id INTEGER PRIMARY KEY AUTOINCREMENT, item TEXT NOT NULL, email TEXT NOT NULL, user_id INTEGER, kind TEXT NOT NULL DEFAULT 'back_in_stock', notified_at TEXT, created_at TEXT, UNIQUE (item, email, kind))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_notify_item ON _notify_subs (item, kind)"); } catch {}
+  _notifySubsReady.add(uuid);
+}
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -9855,6 +9876,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _reservations WHERE user_id=?", [u.id]],                           // slug/handle reservations they hold
             ["DELETE FROM _queue_tickets WHERE user_id=?", [u.id]],                          // queue tickets they took
             ["DELETE FROM _email_events WHERE lower(recipient)=lower(?)", [u.email]],        // email open/click events about them
+            ["DELETE FROM _notify_subs WHERE lower(email)=lower(?)", [u.email]],             // back-in-stock/price-drop notify subs
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -15191,6 +15213,197 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported track-email request" }, { status: 405 });
         } catch (e) { console.error("track-email failed:", e && e.message, e && e.detail); if (kind === "open") return gifResp(); return Response.json({ ok: false, error: "track-email failed" }, { status: 502 }); }
+      }
+      // CONTENT SYNDICATION — an admin registers published URLs; the site serves them as a sitemap.xml and
+      // an rss.xml feed. Managing is admin; the feeds are public XML.
+      //   POST   /api/db/<slug>/syndication {url, title?, summary?, published?, changed?, priority?}  (ADMIN) → upsert
+      //   GET    /api/db/<slug>/syndication                 (ADMIN) → the items (JSON)
+      //   DELETE /api/db/<slug>/syndication/<id>            (ADMIN)
+      const synm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/syndication(?:\/(\d+))?$/i);
+      if (synm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = synm[1].toLowerCase(), synId = synm[2] ? parseInt(synm[2], 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureSyndication(env, uuid);
+          const a = await needAdmin(); if (a) return a;
+          if (synId == null && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|synw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const u = String(body.url || "").trim().slice(0, 2000);
+            if (!u) return Response.json({ ok: false, error: "a url is required" }, { status: 400 });
+            let published = null, changed = null;
+            if (body.published != null && body.published !== "") { const p = Date.parse(String(body.published)); if (!Number.isNaN(p)) published = new Date(p).toISOString(); }
+            if (body.changed != null && body.changed !== "") { const ch = Date.parse(String(body.changed)); if (!Number.isNaN(ch)) changed = new Date(ch).toISOString(); }
+            let priority = Number(body.priority); if (!Number.isFinite(priority) || priority < 0 || priority > 1) priority = null;
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _syndication (url, title, summary, published_at, changed_at, priority, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(url) DO UPDATE SET title=excluded.title, summary=excluded.summary, published_at=excluded.published_at, changed_at=excluded.changed_at, priority=excluded.priority, updated_at=excluded.updated_at", [u, body.title != null ? String(body.title).slice(0, 300) : null, body.summary != null ? String(body.summary).slice(0, 2000) : null, published, changed, priority, now, now]);
+            const row = (await cfD1Query(env, uuid, "SELECT id FROM _syndication WHERE url=?", [u]))[0];
+            return Response.json({ ok: true, id: row && row.id, url: u });
+          }
+          if (synId != null && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _syndication WHERE id=?", [synId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such item" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: synId });
+          }
+          if (synId == null && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|synl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT id, url, title, summary, published_at, changed_at, priority FROM _syndication ORDER BY COALESCE(published_at, created_at) DESC LIMIT 5000");
+            return Response.json({ ok: true, items: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported syndication request" }, { status: 405 });
+        } catch (e) { console.error("syndication failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "syndication failed" }, { status: 502 }); }
+      }
+      // SITEMAP.XML / RSS.XML — public XML feeds rendered from the syndication items.
+      //   GET /api/db/<slug>/sitemap.xml                    (public) → an XML sitemap
+      //   GET /api/db/<slug>/rss.xml[?title=&link=&desc=]   (public) → an RSS 2.0 feed
+      const feedm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/(sitemap\.xml|rss\.xml)$/i);
+      if (feedm && (request.method === "GET" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Max-Age": "86400" } });
+        const slug = feedm[1].toLowerCase(), which = feedm[2].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        const xmlResp = (xml) => new Response(xml, { status: 200, headers: { "Content-Type": "application/xml; charset=utf-8", "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=300" } });
+        try {
+          if (!rateOk(slug + "|" + ip + "|synfeed", 300)) return tooMany();
+          await ensureSyndication(env, uuid);
+          const rows = await cfD1Query(env, uuid, "SELECT url, title, summary, published_at, changed_at, priority FROM _syndication ORDER BY COALESCE(published_at, created_at) DESC LIMIT 2000");
+          if (which === "sitemap.xml") {
+            const body = rows.map((r) => "  <url>\n    <loc>" + xmlEscape(r.url) + "</loc>" + (r.changed_at || r.published_at ? "\n    <lastmod>" + xmlEscape((r.changed_at || r.published_at).slice(0, 10)) + "</lastmod>" : "") + (r.priority != null ? "\n    <priority>" + r.priority.toFixed(1) + "</priority>" : "") + "\n  </url>").join("\n");
+            return xmlResp('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + body + "\n</urlset>\n");
+          }
+          // rss.xml
+          const chTitle = xmlEscape(url.searchParams.get("title") || slug);
+          const chLink = xmlEscape(url.searchParams.get("link") || ("https://" + slug));
+          const chDesc = xmlEscape(url.searchParams.get("desc") || "");
+          const items = rows.map((r) => "    <item>\n      <title>" + xmlEscape(r.title || r.url) + "</title>\n      <link>" + xmlEscape(r.url) + "</link>\n      <guid>" + xmlEscape(r.url) + "</guid>" + (r.summary ? "\n      <description>" + xmlEscape(r.summary) + "</description>" : "") + (r.published_at ? "\n      <pubDate>" + xmlEscape(new Date(r.published_at).toUTCString()) + "</pubDate>" : "") + "\n    </item>").join("\n");
+          return xmlResp('<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0">\n  <channel>\n    <title>' + chTitle + "</title>\n    <link>" + chLink + "</link>\n    <description>" + chDesc + "</description>\n" + items + "\n  </channel>\n</rss>\n");
+        } catch (e) { console.error("feed-xml failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "feed failed" }, { status: 502 }); }
+      }
+      // BACK-IN-STOCK / PRICE-DROP NOTIFY — a visitor asks to be told when an item is available/cheaper; the
+      // admin lists pending subscribers and fires them (marking them notified so nobody is emailed twice).
+      //   POST   /api/db/<slug>/notify-me/<item> {email, kind?}   (public) → subscribe (kind back_in_stock|price_drop)
+      //   DELETE /api/db/<slug>/notify-me/<item>?email=<e>&kind=  (public) → unsubscribe
+      //   GET    /api/db/<slug>/notify-me/<item>[?kind=]          (ADMIN) → pending subscribers
+      //   POST   /api/db/<slug>/notify-me/<item>/fire {kind?}     (ADMIN) → mark pending notified → the list to email
+      const nmm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/notify-me\/([A-Za-z0-9_.-]{1,80})(?:\/(fire))?$/i);
+      if (nmm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = nmm[1].toLowerCase(), item = nmm[2], isFire = nmm[3] === "fire";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const normKind = (k) => { const v = String(k || "back_in_stock").toLowerCase(); return v === "price_drop" ? "price_drop" : "back_in_stock"; };
+        try {
+          await ensureNotifySubs(env, uuid);
+          // SUBSCRIBE (public).
+          if (!isFire && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|nmw", 30)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const email = String(body.email || "").trim().toLowerCase().slice(0, 200);
+            if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return Response.json({ ok: false, error: "a valid email is required" }, { status: 400 });
+            const kind = normKind(body.kind);
+            await cfD1Query(env, uuid, "INSERT INTO _notify_subs (item, email, user_id, kind, created_at) VALUES (?,?,?,?,?) ON CONFLICT(item, email, kind) DO UPDATE SET notified_at=NULL, user_id=COALESCE(excluded.user_id, _notify_subs.user_id)", [item, email, userId, kind, new Date().toISOString()]);
+            return Response.json({ ok: true, item, kind, subscribed: true });
+          }
+          // UNSUBSCRIBE (public).
+          if (!isFire && request.method === "DELETE") {
+            const email = String(url.searchParams.get("email") || "").trim().toLowerCase().slice(0, 200);
+            if (!email) return Response.json({ ok: false, error: "an ?email= is required" }, { status: 400 });
+            const kind = normKind(url.searchParams.get("kind"));
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _notify_subs WHERE item=? AND email=? AND kind=?", [item, email, kind]);
+            return Response.json({ ok: true, unsubscribed: (ex.changes || 0) > 0 });
+          }
+          // LIST pending (admin).
+          if (!isFire && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|nml", 300)) return tooMany();
+            const kind = url.searchParams.get("kind") ? normKind(url.searchParams.get("kind")) : null;
+            const where = kind ? " AND kind=?" : "";
+            const params = kind ? [item, kind] : [item];
+            const rows = await cfD1Query(env, uuid, "SELECT email, kind, created_at FROM _notify_subs WHERE item=? AND notified_at IS NULL" + where + " ORDER BY created_at ASC LIMIT 5000", params);
+            return Response.json({ ok: true, item, pending: rows.length, subscribers: rows });
+          }
+          // FIRE (admin) — mark pending notified and return the list to email.
+          if (isFire && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const kind = normKind(body.kind);
+            const pending = await cfD1Query(env, uuid, "SELECT email FROM _notify_subs WHERE item=? AND kind=? AND notified_at IS NULL ORDER BY created_at ASC LIMIT 5000", [item, kind]);
+            await cfD1Exec(env, uuid, "UPDATE _notify_subs SET notified_at=? WHERE item=? AND kind=? AND notified_at IS NULL", [new Date().toISOString(), item, kind]);
+            return Response.json({ ok: true, item, kind, notified: pending.length, emails: pending.map((r) => r.email) });
+          }
+          return Response.json({ ok: false, error: "unsupported notify-me request" }, { status: 405 });
+        } catch (e) { console.error("notify-me failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "notify-me failed" }, { status: 502 }); }
+      }
+      // RECURRING EVENTS (RRULE-lite) — a STATELESS expander: given a start + a simple recurrence rule + a
+      // window, return the occurrence dates. freq daily|weekly|monthly; interval, count, until, byweekday.
+      //   POST /api/db/<slug>/recurring/expand {start, freq, interval?, count?, until?, byweekday?, from?, to?, limit?}
+      const recm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/recurring\/expand$/i);
+      if (recm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = recm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|rec", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const startMs = Date.parse(String(body.start || ""));
+          if (Number.isNaN(startMs)) return Response.json({ ok: false, error: "a valid start date is required" }, { status: 400 });
+          const freq = String(body.freq || "").toLowerCase();
+          if (!["daily", "weekly", "monthly"].includes(freq)) return Response.json({ ok: false, error: "freq must be daily, weekly, or monthly" }, { status: 400 });
+          let interval = Math.floor(Number(body.interval)); if (!(interval >= 1)) interval = 1; if (interval > 1000) interval = 1000;
+          let limit = Math.floor(Number(body.limit)); if (!(limit >= 1)) limit = 100; if (limit > 366) limit = 366;
+          let count = body.count == null ? null : Math.floor(Number(body.count)); if (count != null && (!(count >= 1) || count > 1000)) count = 1000;
+          const untilMs = body.until != null && body.until !== "" ? Date.parse(String(body.until)) : null;
+          const fromMs = body.from != null && body.from !== "" ? Date.parse(String(body.from)) : null;
+          const toMs = body.to != null && body.to !== "" ? Date.parse(String(body.to)) : null;
+          const byweekday = Array.isArray(body.byweekday) ? body.byweekday.map((x) => Math.floor(Number(x))).filter((x) => x >= 0 && x <= 6) : null;
+          const occ = [];
+          let cursor = new Date(startMs); let produced = 0; let guard = 0;
+          const pushIf = (d) => { const ms = d.getTime(); if (fromMs != null && ms < fromMs) return; if (toMs != null && ms > toMs) return; occ.push(d.toISOString()); };
+          while (occ.length < limit && guard < 100000) {
+            guard++;
+            const ms = cursor.getTime();
+            if (untilMs != null && ms > untilMs) break;
+            if (count != null && produced >= count) break;
+            if (freq === "weekly" && byweekday && byweekday.length) {
+              // Expand each selected weekday within the current week step.
+              const weekStart = new Date(cursor); weekStart.setUTCDate(weekStart.getUTCDate() - weekStart.getUTCDay());
+              for (const wd of [...byweekday].sort((x, y) => x - y)) {
+                const d = new Date(weekStart); d.setUTCDate(weekStart.getUTCDate() + wd);
+                if (d.getTime() < startMs) continue;
+                if (untilMs != null && d.getTime() > untilMs) continue;
+                if (count != null && produced >= count) break;
+                if (occ.length >= limit) break;
+                pushIf(d); produced++;
+              }
+              cursor.setUTCDate(cursor.getUTCDate() + 7 * interval);
+              continue;
+            }
+            pushIf(cursor); produced++;
+            if (freq === "daily") cursor.setUTCDate(cursor.getUTCDate() + interval);
+            else if (freq === "weekly") cursor.setUTCDate(cursor.getUTCDate() + 7 * interval);
+            else cursor.setUTCMonth(cursor.getUTCMonth() + interval);
+          }
+          return Response.json({ ok: true, freq, interval, count: occ.length, occurrences: occ.slice(0, limit) });
+        } catch (e) { console.error("recurring failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "recurring failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
