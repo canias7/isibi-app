@@ -5674,6 +5674,24 @@ async function ensureNonces(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_nonces_exp ON _nonces (expires_at)"); } catch {}
   _noncesReady.add(uuid);
 }
+// Marketing attribution — record a user's touchpoints (channel + campaign); first/last-touch models attribute
+// a conversion to the earliest or latest touch. `_touchpoints`. Ensured once.
+const _touchpointsReady = new Set();
+async function ensureTouchpoints(env, uuid) {
+  if (_touchpointsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _touchpoints (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, channel TEXT NOT NULL, campaign TEXT, at TEXT NOT NULL)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_touchpoints_user ON _touchpoints (user_id, id)"); } catch {}
+  _touchpointsReady.add(uuid);
+}
+// Quest chains — an ordered list of steps a member completes strictly in sequence; progress advances one step
+// at a time. `_quests` = the definitions, `_quest_progress` = one row per (quest, user). Ensured once.
+const _questsReady = new Set();
+async function ensureQuests(env, uuid) {
+  if (_questsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _quests (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT UNIQUE NOT NULL, title TEXT, steps TEXT NOT NULL, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _quest_progress (quest_key TEXT NOT NULL, user_id INTEGER NOT NULL, step_index INTEGER NOT NULL DEFAULT 0, updated_at TEXT, PRIMARY KEY (quest_key, user_id))");
+  _questsReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -10526,6 +10544,8 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _equipment_log WHERE user_id=?", [u.id]],                          // equipment history
             ["DELETE FROM _reputation WHERE user_id=?", [u.id]],                             // reputation events
             ["DELETE FROM _erasure_requests WHERE user_id=?", [u.id]],                       // RTBF requests
+            ["DELETE FROM _touchpoints WHERE user_id=?", [u.id]],                            // attribution touchpoints
+            ["DELETE FROM _quest_progress WHERE user_id=?", [u.id]],                         // quest progress
             ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
             ["DELETE FROM _testimonials WHERE user_id=?", [u.id]],                           // user-submitted testimonials
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
@@ -21314,6 +21334,176 @@ async function handleRequest(request, env, ctx) {
           };
           return Response.json({ ok: true, rendered: render(template, data) });
         } catch (e) { console.error("template-render failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "template-render failed" }, { status: 502 }); }
+      }
+      // PHONE NORMALIZE — a stateless best-effort E.164 normalizer. A leading + is trusted; otherwise a country
+      // (ISO2 or dialing code) supplies the prefix and a leading national 0 is stripped. Not a full validator.
+      //   POST /api/db/<slug>/phone-normalize {phone, country?}   (public) → {e164, valid, country_code}
+      const phm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/phone-normalize$/i);
+      if (phm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = phm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|phn", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const raw = String(body.phone == null ? "" : body.phone).trim();
+          if (!raw) return Response.json({ ok: false, error: "phone is required" }, { status: 400 });
+          const DIAL = { us: "1", ca: "1", gb: "44", uk: "44", ie: "353", fr: "33", de: "49", es: "34", it: "39", nl: "31", be: "32", ch: "41", at: "43", se: "46", no: "47", dk: "45", fi: "358", pt: "351", pl: "48", au: "61", nz: "64", jp: "81", cn: "86", in: "91", br: "55", mx: "52", za: "27", ng: "234", ae: "971", sg: "65", hk: "852" };
+          let e164 = null, cc = null;
+          if (raw[0] === "+") { const digits = raw.slice(1).replace(/\D/g, ""); if (digits.length >= 8 && digits.length <= 15) { e164 = "+" + digits; } }
+          else {
+            let country = String(body.country || "").trim().toLowerCase();
+            if (/^\d{1,4}$/.test(country)) cc = country; else if (DIAL[country]) cc = DIAL[country];
+            let national = raw.replace(/\D/g, "").replace(/^0+/, "");
+            if (cc && national) { const full = cc + national; if (full.length >= 8 && full.length <= 15) e164 = "+" + full; }
+          }
+          if (cc == null && e164) { for (const [k, v] of Object.entries(DIAL)) { if (e164.slice(1).startsWith(v)) { cc = v; break; } } }
+          return Response.json({ ok: true, e164, valid: !!e164, country_code: cc });
+        } catch (e) { console.error("phone-normalize failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "phone-normalize failed" }, { status: 502 }); }
+      }
+      // MARKETING ATTRIBUTION — record a member's touchpoints (channel + campaign); first/last-touch models
+      // attribute a conversion to the earliest or latest touch, and a report tallies channels across users.
+      //   POST /api/db/<slug>/attribution/touch {channel, campaign?, user?}   (member; admin may pass user)
+      //   GET  /api/db/<slug>/attribution/for?user=<id>&model=first|last      (owner or admin)
+      //   GET  /api/db/<slug>/attribution/me                                  (member) → own touches
+      //   GET  /api/db/<slug>/attribution/report?model=first|last             (ADMIN) → channel tally
+      const attm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/attribution(?:\/(touch|for|me|report))?$/i);
+      if (attm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = attm[1].toLowerCase(), seg = attm[2] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const isAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return !!(rr[0] && rr[0].role === "admin"); };
+        const modelOf = () => (String(url.searchParams.get("model") || "last").toLowerCase() === "first" ? "first" : "last");
+        try {
+          await ensureTouchpoints(env, uuid);
+          // TOUCH.
+          if (seg === "touch" && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const channel = String(body.channel || "").trim().toLowerCase().slice(0, 60);
+            if (!channel) return Response.json({ ok: false, error: "a channel is required" }, { status: 400 });
+            let target = userId;
+            if (body.user != null) { if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only may set user" }, { status: 403 }); target = Math.floor(Number(body.user)); if (!Number.isFinite(target)) return Response.json({ ok: false, error: "bad user" }, { status: 400 }); }
+            await cfD1Exec(env, uuid, "INSERT INTO _touchpoints (user_id, channel, campaign, at) VALUES (?,?,?,?)", [target, channel, body.campaign != null ? String(body.campaign).slice(0, 120) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, channel });
+          }
+          // FOR (owner or admin).
+          if (seg === "for" && request.method === "GET") {
+            const target = Math.floor(Number(url.searchParams.get("user")));
+            if (!Number.isFinite(target)) return Response.json({ ok: false, error: "a ?user= is required" }, { status: 400 });
+            if (target !== userId && !(await isAdmin())) return Response.json({ ok: false, error: "not yours" }, { status: 403 });
+            const order = modelOf() === "first" ? "ASC" : "DESC";
+            const row = (await cfD1Query(env, uuid, "SELECT channel, campaign, at FROM _touchpoints WHERE user_id=? ORDER BY id " + order + " LIMIT 1", [target]))[0];
+            return Response.json({ ok: true, model: modelOf(), user: target, attributed: row || null });
+          }
+          // ME.
+          if (seg === "me" && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT channel, campaign, at FROM _touchpoints WHERE user_id=? ORDER BY id ASC LIMIT 1000", [userId]);
+            return Response.json({ ok: true, touches: rows });
+          }
+          // REPORT (admin).
+          if (seg === "report" && request.method === "GET") {
+            if (!(await isAdmin())) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const model = modelOf();
+            const rows = await cfD1Query(env, uuid, "SELECT user_id, channel, id FROM _touchpoints ORDER BY user_id ASC, id ASC LIMIT 200000");
+            const pick = new Map();
+            for (const r of rows) { if (model === "first") { if (!pick.has(r.user_id)) pick.set(r.user_id, r.channel); } else { pick.set(r.user_id, r.channel); } }
+            const tally = {}; for (const ch of pick.values()) tally[ch] = (tally[ch] || 0) + 1;
+            return Response.json({ ok: true, model, users: pick.size, by_channel: tally });
+          }
+          return Response.json({ ok: false, error: "unsupported attribution request" }, { status: 405 });
+        } catch (e) { console.error("attribution failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "attribution failed" }, { status: 502 }); }
+      }
+      // QUEST CHAINS — an ordered list of steps a member completes strictly in sequence; progress advances one
+      // step at a time (an out-of-order or repeat step is refused). Admin defines; members play.
+      //   POST /api/db/<slug>/quests {key, title?, steps:[...]}   (ADMIN) → define
+      //   GET  /api/db/<slug>/quests[/<key>]                      (public) → list / one
+      //   POST /api/db/<slug>/quests/<key>/advance {step}         (member) → complete the next step
+      //   GET  /api/db/<slug>/quests/<key>/me                     (member) → progress
+      //   DELETE /api/db/<slug>/quests/<key>                      (ADMIN)
+      const qstm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/quests(?:\/([A-Za-z0-9_.:-]{1,60})(?:\/(advance|me))?)?$/i);
+      if (qstm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = qstm[1].toLowerCase(), key = qstm[2] ? qstm[2].toLowerCase() : null, act = qstm[3] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureQuests(env, uuid);
+          const getQuest = async () => { const q = (await cfD1Query(env, uuid, "SELECT key, title, steps FROM _quests WHERE key=?", [key]))[0]; if (!q) return null; let steps = []; try { steps = JSON.parse(q.steps) || []; } catch { steps = []; } return { key: q.key, title: q.title, steps }; };
+          // DEFINE (admin).
+          if (!key && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const k = String(body.key || "").trim().toLowerCase();
+            if (!/^[a-z0-9_.:-]{1,60}$/.test(k)) return Response.json({ ok: false, error: "a valid key is required" }, { status: 400 });
+            const steps = (Array.isArray(body.steps) ? body.steps : []).map((x) => String(x).slice(0, 100)).filter(Boolean).slice(0, 100);
+            if (steps.length < 1) return Response.json({ ok: false, error: "at least one step is required" }, { status: 400 });
+            if (new Set(steps).size !== steps.length) return Response.json({ ok: false, error: "steps must be unique" }, { status: 400 });
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _quests (key, title, steps, created_at) VALUES (?,?,?,?) ON CONFLICT(key) DO UPDATE SET title=excluded.title, steps=excluded.steps", [k, body.title != null ? String(body.title).slice(0, 200) : null, JSON.stringify(steps), now]);
+            return Response.json({ ok: true, key: k, steps });
+          }
+          // ADVANCE (member).
+          if (key && act === "advance" && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|qadv", 300)) return tooMany();
+            const quest = await getQuest(); if (!quest) return Response.json({ ok: false, error: "no such quest" }, { status: 404 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const step = String(body.step || "").trim();
+            const idx = quest.steps.indexOf(step);
+            if (idx < 0) return Response.json({ ok: false, error: "no such step" }, { status: 400 });
+            const now = new Date().toISOString();
+            // Step 0 is a fresh insert (a repeat conflicts → no row → 409). Later steps require an existing row
+            // whose progress is exactly at that step, via a state-guarded UPDATE — so order is enforced on both paths.
+            const r = idx === 0
+              ? await cfD1Query(env, uuid, "INSERT INTO _quest_progress (quest_key, user_id, step_index, updated_at) VALUES (?,?,1,?) ON CONFLICT(quest_key, user_id) DO NOTHING RETURNING step_index", [key, userId, now])
+              : await cfD1Query(env, uuid, "UPDATE _quest_progress SET step_index=step_index+1, updated_at=? WHERE quest_key=? AND user_id=? AND step_index=? RETURNING step_index", [now, key, userId, idx]);
+            if (!r.length) { const cur = (await cfD1Query(env, uuid, "SELECT step_index FROM _quest_progress WHERE quest_key=? AND user_id=?", [key, userId]))[0]; const at = cur ? cur.step_index : 0; return Response.json({ ok: false, error: "out of order — the next step is '" + (quest.steps[at] || "(done)") + "'", expected: quest.steps[at] || null }, { status: 409 }); }
+            const done = r[0].step_index >= quest.steps.length;
+            return Response.json({ ok: true, step, step_index: r[0].step_index, done });
+          }
+          // ME (member).
+          if (key && act === "me" && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const quest = await getQuest(); if (!quest) return Response.json({ ok: false, error: "no such quest" }, { status: 404 });
+            const cur = (await cfD1Query(env, uuid, "SELECT step_index FROM _quest_progress WHERE quest_key=? AND user_id=?", [key, userId]))[0];
+            const done_count = cur ? cur.step_index : 0;
+            return Response.json({ ok: true, key, completed: done_count, total: quest.steps.length, next_step: quest.steps[done_count] || null, done: done_count >= quest.steps.length, percent: quest.steps.length ? Math.round((done_count / quest.steps.length) * 100) : 0 });
+          }
+          // ONE (public).
+          if (key && !act && request.method === "GET") {
+            const quest = await getQuest(); if (!quest) return Response.json({ ok: false, error: "no such quest" }, { status: 404 });
+            return Response.json({ ok: true, quest });
+          }
+          // DELETE (admin).
+          if (key && !act && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _quests WHERE key=?", [key]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such quest" }, { status: 404 });
+            await cfD1Exec(env, uuid, "DELETE FROM _quest_progress WHERE quest_key=?", [key]);
+            return Response.json({ ok: true, deleted: true, key });
+          }
+          // LIST (public).
+          if (!key && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT key, title, steps FROM _quests ORDER BY key ASC LIMIT 1000");
+            return Response.json({ ok: true, quests: rows.map((r) => { let steps = []; try { steps = JSON.parse(r.steps) || []; } catch { steps = []; } return { key: r.key, title: r.title, steps: steps.length }; }) });
+          }
+          return Response.json({ ok: false, error: "unsupported quests request" }, { status: 405 });
+        } catch (e) { console.error("quests failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "quests failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
