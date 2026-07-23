@@ -4978,7 +4978,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    background element (middle-right of the chatbox), soft but still tactile */
 .mkt-crt .mkt-logo3d{position:absolute;right:-3vw;top:50%;transform:translateY(-50%);
   width:min(54vh,560px);height:min(58vh,600px);
-  background:url(/logo3d.png) center/contain no-repeat;opacity:.33}
+  background:url(/logo3d.png) center/contain no-repeat;opacity:.95}
 
 /* ── Gradient Halo chatbox (owner 2026-07-23): the ONE colored element on the
    black-and-white platform. Pinned to the old dark glass + pink→amber halo so it
