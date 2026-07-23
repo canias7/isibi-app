@@ -10,6 +10,22 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-07-23 — META-LAYER (ChatGPT's "next priorities") — #1 CAPABILITY REGISTRY shipped
+Owner shared a ChatGPT review naming 5 next priorities ABOVE the raw backend primitives (which are done, 200
+of them). Scorecard at the time: #1 capability registry (prose only), #2 app planner (none), #3 design engine
+(partial), #4 generated-app tests (none — only backend), #5 worker.js refactor (none, 32.5k-line monolith).
+Building them one PR at a time, $0 (no Claude/fal spend).
+- **#1 Capability registry — DONE.** It is GENERATED from worker.js (the source of truth), never hand-edited:
+  `builder/build-capability-registry.mjs` extracts every `/api/db/<slug>/<segment>` route → `{id, title,
+  summary, routes[], tables[], access[], stateful, gdpr_erased[], exportable[], tests[]}`. Emits
+  `capability-registry.json` (readable) + `capability-registry.data.mjs` (Worker-safe ESM runtime module).
+  `builder/capability-registry.mjs` adds `getCapability`, `selectCapabilities(intent)` (ranked keyword match —
+  the "selection" ChatGPT wanted, so a build pulls only the relevant slice instead of the 236 KB BACKEND_RULES),
+  and `capabilityPrompt(ids)`. **279 capabilities indexed, 273 test-linked.** `test/backend/registry.test.mjs`
+  (15/15) checks structure + LIVE coverage (fails if any worker route lacks an entry → can't drift) + selection.
+  NOT yet wired into the live generation flow (that spends Claude credits — will ask before enabling).
+- Remaining: #2 planner, #3 design engine, #4 generated-app test harness, #5 worker.js refactor.
+
 ## 2026-07-21 — BACKEND ROADMAP: building the "100 more" list (AI parked)
 
 Owner wants the whole 100-item backend roadmap built (AI category skipped for now).
