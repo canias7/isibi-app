@@ -4737,6 +4737,32 @@ async function ensureExperiments(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_exp_events ON _experiment_events (experiment, variant)"); } catch {}
   _experimentsReady.add(uuid);
 }
+// App counters / metrics — named integer counters an app increments atomically (page hits, tallies,
+// cached counts). Separate table from the INTERNAL _counters (sequences/round-robin). Ensured once.
+const _appCountersReady = new Set();
+async function ensureAppCounters(env, uuid) {
+  if (_appCountersReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _app_counters (name TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0, updated_at TEXT)");
+  _appCountersReady.add(uuid);
+}
+// Redirects — an admin maps an old path to a new URL (301/302); the app resolves a path at runtime and
+// the hit is counted. Ensured once per isolate.
+const _redirectsReady = new Set();
+async function ensureRedirects(env, uuid) {
+  if (_redirectsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _redirects (id INTEGER PRIMARY KEY AUTOINCREMENT, from_path TEXT UNIQUE NOT NULL, to_url TEXT NOT NULL, code INTEGER NOT NULL DEFAULT 301, hits INTEGER NOT NULL DEFAULT 0, created_at TEXT, updated_at TEXT)");
+  _redirectsReady.add(uuid);
+}
+// Badges / achievements — an admin defines badges and awards them to members (once each); members read
+// their own. `_badges` = definitions, `_badge_awards` = who earned what. Ensured once.
+const _badgesReady = new Set();
+async function ensureBadges(env, uuid) {
+  if (_badgesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _badges (key TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT, icon TEXT, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _badge_awards (badge_key TEXT NOT NULL, user_id INTEGER NOT NULL, awarded_by INTEGER, awarded_at TEXT, PRIMARY KEY (badge_key, user_id))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_badge_awards_user ON _badge_awards (user_id)"); } catch {}
+  _badgesReady.add(uuid);
+}
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -9513,6 +9539,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _user_settings WHERE user_id=?", [u.id]],                          // per-member settings
             ["DELETE FROM _recent_views WHERE user_id=?", [u.id]],                           // recently-viewed
             ["DELETE FROM _experiment_events WHERE user_id=?", [u.id]],                      // A/B experiment assignments
+            ["DELETE FROM _badge_awards WHERE user_id=?", [u.id]],                           // badges they earned
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -12403,6 +12430,222 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported experiments request" }, { status: 405 });
         } catch (e) { console.error("experiments failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "experiments failed" }, { status: 502 }); }
+      }
+      // APP COUNTERS / METRICS — named integer counters incremented ATOMICALLY (page hits, tallies, a
+      // cached count). Reads public; incrementing needs a signed-in member; set/delete are admin.
+      //   POST /api/db/<slug>/counters/<name>/incr {by?}  (member) → {n}  (atomic; by defaults 1, may be negative)
+      //   GET  /api/db/<slug>/counters/<name>             (public) → {name, n}
+      //   GET  /api/db/<slug>/counters                    (public) → all counters
+      //   POST /api/db/<slug>/counters/<name> {value}     (ADMIN)  → set absolute
+      //   DELETE /api/db/<slug>/counters/<name>           (ADMIN)  → remove
+      const cntm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/counters(?:\/([A-Za-z0-9_.:-]{1,60})(?:\/(incr))?)?$/i);
+      if (cntm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = cntm[1].toLowerCase(), name = cntm[2] || null, isIncr = cntm[3] === "incr";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          await ensureAppCounters(env, uuid);
+          // INCREMENT (member) — atomic.
+          if (name && isIncr) {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|cntw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            let by = body.by == null || body.by === "" ? 1 : Math.floor(Number(body.by));
+            if (!Number.isFinite(by) || by < -1000000 || by > 1000000) return Response.json({ ok: false, error: "by must be an integer" }, { status: 400 });
+            const r = await cfD1Query(env, uuid, "INSERT INTO _app_counters (name, n, updated_at) VALUES (?,?,?) ON CONFLICT(name) DO UPDATE SET n = n + ?, updated_at=? RETURNING n", [name, by, new Date().toISOString(), by, new Date().toISOString()]);
+            return Response.json({ ok: true, name, n: r[0] ? r[0].n : by });
+          }
+          // GET one (public).
+          if (name && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|cntr", 600)) return tooMany();
+            const r = (await cfD1Query(env, uuid, "SELECT n FROM _app_counters WHERE name=?", [name]))[0];
+            return Response.json({ ok: true, name, n: r ? r.n : 0 });
+          }
+          // SET (admin).
+          if (name && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const value = Math.floor(Number(body.value));
+            if (!Number.isFinite(value)) return Response.json({ ok: false, error: "value must be an integer" }, { status: 400 });
+            await cfD1Query(env, uuid, "INSERT INTO _app_counters (name, n, updated_at) VALUES (?,?,?) ON CONFLICT(name) DO UPDATE SET n=excluded.n, updated_at=excluded.updated_at", [name, value, new Date().toISOString()]);
+            return Response.json({ ok: true, name, n: value });
+          }
+          // DELETE (admin).
+          if (name && request.method === "DELETE") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _app_counters WHERE name=?", [name]);
+            return Response.json({ ok: true, deleted: (ex.changes || 0) > 0, name });
+          }
+          // LIST all (public).
+          if (request.method !== "GET") return Response.json({ ok: false, error: "unsupported counters request" }, { status: 405 });
+          if (!rateOk(slug + "|" + ip + "|cntl", 300)) return tooMany();
+          const rows = await cfD1Query(env, uuid, "SELECT name, n FROM _app_counters ORDER BY name ASC LIMIT 1000");
+          return Response.json({ ok: true, counters: rows });
+        } catch (e) { console.error("counters failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "counters failed" }, { status: 502 }); }
+      }
+      // REDIRECTS — an admin maps an old path → a new URL (301/302); the app resolves a path at runtime and
+      // the hit is counted. Managing is admin; resolve is public.
+      //   POST   /api/db/<slug>/redirects {from, to, code?}  (ADMIN) → create/update → {id}
+      //   GET    /api/db/<slug>/redirects            (ADMIN) → all rules (+ hit counts)
+      //   GET    /api/db/<slug>/redirects/resolve?from=<path>  (public) → {to, code} (counts the hit) · 404
+      //   DELETE /api/db/<slug>/redirects/<id>       (ADMIN)
+      const rdm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/redirects(?:\/(resolve|\d+))?$/i);
+      if (rdm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = rdm[1].toLowerCase(), sub = rdm[2] ? rdm[2].toLowerCase() : null, rid = rdm[2] && /^\d+$/.test(rdm[2]) ? parseInt(rdm[2], 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const normPath = (p) => { let s = String(p || "").trim().slice(0, 400); if (!s) return ""; if (!s.startsWith("/")) s = "/" + s; return s; };
+        try {
+          await ensureRedirects(env, uuid);
+          // RESOLVE (public) — the runtime lookup; counts the hit.
+          if (sub === "resolve") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|rdr", 600)) return tooMany();
+            const from = normPath(url.searchParams.get("from"));
+            if (!from) return Response.json({ ok: false, error: "a ?from= path is required" }, { status: 400 });
+            const r = (await cfD1Query(env, uuid, "SELECT to_url, code FROM _redirects WHERE from_path=?", [from]))[0];
+            if (!r) return Response.json({ ok: false, error: "no redirect" }, { status: 404 });
+            try { await cfD1Exec(env, uuid, "UPDATE _redirects SET hits = hits + 1 WHERE from_path=?", [from]); } catch {}
+            return Response.json({ ok: true, to: r.to_url, code: r.code });
+          }
+          // CREATE / UPDATE (admin).
+          if (!sub && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|rdw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const from = normPath(body.from);
+            if (!from) return Response.json({ ok: false, error: "a from path is required" }, { status: 400 });
+            const to = String(body.to || "").trim().slice(0, 2000);
+            if (!to) return Response.json({ ok: false, error: "a to URL/path is required" }, { status: 400 });
+            let code = Math.floor(Number(body.code)); if (code !== 302 && code !== 307 && code !== 308) code = 301;
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _redirects (from_path, to_url, code, hits, created_at, updated_at) VALUES (?,?,?,0,?,?) ON CONFLICT(from_path) DO UPDATE SET to_url=excluded.to_url, code=excluded.code, updated_at=excluded.updated_at", [from, to, code, now, now]);
+            const row = (await cfD1Query(env, uuid, "SELECT id FROM _redirects WHERE from_path=?", [from]))[0];
+            return Response.json({ ok: true, id: row && row.id, from, to, code });
+          }
+          // DELETE (admin).
+          if (rid != null && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _redirects WHERE id=?", [rid]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such redirect" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: rid });
+          }
+          // LIST (admin).
+          if (!sub && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|rdl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT id, from_path, to_url, code, hits, updated_at FROM _redirects ORDER BY from_path ASC LIMIT 1000");
+            return Response.json({ ok: true, redirects: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported redirects request" }, { status: 405 });
+        } catch (e) { console.error("redirects failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "redirects failed" }, { status: 502 }); }
+      }
+      // BADGES / ACHIEVEMENTS — an admin defines badges and awards them to members (once each); members
+      // read their own; anyone reads the badge catalog. `_badges` = definitions, `_badge_awards` = earned.
+      //   POST   /api/db/<slug>/badges/<key> {name, description?, icon?}  (ADMIN) → define
+      //   GET    /api/db/<slug>/badges                 (public) → the badge catalog
+      //   DELETE /api/db/<slug>/badges/<key>           (ADMIN) → delete a badge + its awards
+      //   POST   /api/db/<slug>/badges/<key>/award {user}  (ADMIN) → award to a member (once)
+      //   DELETE /api/db/<slug>/badges/<key>/award/<userId>  (ADMIN) → revoke
+      //   GET    /api/db/<slug>/badges/<key>/holders   (ADMIN) → who has it
+      //   GET    /api/db/<slug>/badges/mine            (member) → my earned badges
+      const bdgm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/badges(?:\/(mine|[A-Za-z0-9_.-]{1,60})(?:\/(award|holders)(?:\/(\d+))?)?)?$/i);
+      if (bdgm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = bdgm[1].toLowerCase(), seg = bdgm[2] || null, act = bdgm[3] ? bdgm[3].toLowerCase() : null, actUser = bdgm[4] ? parseInt(bdgm[4], 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const isKey = seg && seg !== "mine";
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureBadges(env, uuid);
+          // MY badges (member).
+          if (seg === "mine") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rows = await cfD1Query(env, uuid, "SELECT a.badge_key, b.name, b.description, b.icon, a.awarded_at FROM _badge_awards a LEFT JOIN _badges b ON b.key=a.badge_key WHERE a.user_id=? ORDER BY a.awarded_at DESC LIMIT 500", [userId]);
+            return Response.json({ ok: true, badges: rows });
+          }
+          // AWARD (admin).
+          if (isKey && act === "award" && actUser == null && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|bdga", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const target = parseInt(body.user, 10);
+            if (!(target > 0)) return Response.json({ ok: false, error: "user (the member's id) is required" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "INSERT INTO _badge_awards (badge_key, user_id, awarded_by, awarded_at) SELECT ?, ?, ?, ? WHERE EXISTS(SELECT 1 FROM _badges WHERE key=?) AND EXISTS(SELECT 1 FROM _users WHERE id=?) AND NOT EXISTS(SELECT 1 FROM _badge_awards WHERE badge_key=? AND user_id=?)", [seg, target, userId, new Date().toISOString(), seg, target, seg, target]);
+            if (!ex.changes) {
+              if (!(await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _badges WHERE key=?", [seg]))[0]) return Response.json({ ok: false, error: "no such badge" }, { status: 404 });
+              if (!(await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _users WHERE id=?", [target]))[0]) return Response.json({ ok: false, error: "no such user" }, { status: 404 });
+              return Response.json({ ok: true, awarded: false, already: true }); // already had it
+            }
+            return Response.json({ ok: true, awarded: true, badge: seg, user: target });
+          }
+          // REVOKE (admin).
+          if (isKey && act === "award" && actUser != null && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _badge_awards WHERE badge_key=? AND user_id=?", [seg, actUser]);
+            if (!ex.changes) return Response.json({ ok: false, error: "that member doesn't have this badge" }, { status: 404 });
+            return Response.json({ ok: true, revoked: true });
+          }
+          // HOLDERS (admin).
+          if (isKey && act === "holders" && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|bdgh", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT user_id, awarded_at FROM _badge_awards WHERE badge_key=? ORDER BY awarded_at DESC LIMIT 2000", [seg]);
+            return Response.json({ ok: true, badge: seg, holders: rows });
+          }
+          // DEFINE (admin).
+          if (isKey && !act && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|bdgw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const name = String(body.name || "").trim().slice(0, 120);
+            if (!name) return Response.json({ ok: false, error: "a name is required" }, { status: 400 });
+            const description = body.description != null ? String(body.description).slice(0, 500) : null;
+            const icon = body.icon != null ? String(body.icon).slice(0, 200) : null;
+            await cfD1Query(env, uuid, "INSERT INTO _badges (key, name, description, icon, created_at) VALUES (?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET name=excluded.name, description=excluded.description, icon=excluded.icon", [seg, name, description, icon, new Date().toISOString()]);
+            return Response.json({ ok: true, key: seg, name });
+          }
+          // DELETE badge (admin).
+          if (isKey && !act && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _badges WHERE key=?", [seg]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such badge" }, { status: 404 });
+            try { await cfD1Exec(env, uuid, "DELETE FROM _badge_awards WHERE badge_key=?", [seg]); } catch {}
+            return Response.json({ ok: true, deleted: true, key: seg });
+          }
+          // CATALOG (public).
+          if (!seg && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|bdgl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT key, name, description, icon, (SELECT COUNT(*) FROM _badge_awards WHERE badge_key=_badges.key) AS holders FROM _badges ORDER BY key ASC LIMIT 500");
+            return Response.json({ ok: true, badges: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported badges request" }, { status: 405 });
+        } catch (e) { console.error("badges failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "badges failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
