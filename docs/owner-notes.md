@@ -6661,6 +6661,17 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — rewards catalog · onboarding checklist · spotlight (data API, next-100)
+- **`/rewards-catalog`** — spend `/points` on rewards. Redeem = claim stock (`stock = CASE WHEN stock<0
+  THEN stock ELSE stock-1 WHERE stock!=0`) THEN atomic points deduct (`INSERT…SELECT…WHERE SUM>=cost`),
+  refunding stock on a points shortfall → neither oversells nor overdraws. my/all redemptions, patch/delete.
+  `_reward_redemptions` erased by user. batch274 (23/23).
+- **`/onboarding`** — admin defines steps (replace-all), member `/complete/<step>` (+DELETE undo), `/me` →
+  {steps done-flags, completed, total, percent, all_done}. `_onboarding_done` erased by user. batch275 (24/24).
+- **`/spotlight`** — weighted featured pool; `/current` = deterministic day-rotating weighted pick (`day %
+  totalWeight` walk, no stored "current"). Admin add/delete. No user scope. batch276 (14/14).
+- Full suite 259 green. (78/100 of the next-100 list shipped.)
+
 ## 2026-07-23 — vault · embed cache · milestones (data API, next-100)
 - **`/vault/<key>`** — admin-only KV config/secret store (string or JSON value); list REDACTS values (key +
   size + note only). No user scope. batch271 (20/20).

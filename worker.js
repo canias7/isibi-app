@@ -5386,6 +5386,34 @@ async function ensureMilestones(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_milestone_prog_user ON _milestone_progress (user_id)"); } catch {}
   _milestonesReady.add(uuid);
 }
+// Rewards catalog — an admin lists rewards (cost in points, optional stock); a member redeems by spending
+// gamification points (from _points_ledger). `_reward_items` = catalog, `_reward_redemptions` = log. Once.
+const _rewardsReady = new Set();
+async function ensureRewards(env, uuid) {
+  if (_rewardsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _reward_items (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, description TEXT, cost INTEGER NOT NULL, stock INTEGER NOT NULL DEFAULT -1, active INTEGER NOT NULL DEFAULT 1, created_at TEXT, updated_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _reward_redemptions (id INTEGER PRIMARY KEY AUTOINCREMENT, item_id INTEGER NOT NULL, user_id INTEGER NOT NULL, cost INTEGER, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_reward_redemptions_user ON _reward_redemptions (user_id)"); } catch {}
+  _rewardsReady.add(uuid);
+}
+// Onboarding checklist — an admin defines steps; each member marks them done and reads their progress.
+// `_onboarding_steps` = the list, `_onboarding_done` = per-member completion. Ensured once.
+const _onboardingReady = new Set();
+async function ensureOnboarding(env, uuid) {
+  if (_onboardingReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _onboarding_steps (key TEXT PRIMARY KEY, title TEXT, position INTEGER NOT NULL DEFAULT 0, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _onboarding_done (user_id INTEGER NOT NULL, step TEXT NOT NULL, done_at TEXT, PRIMARY KEY (user_id, step))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_onboarding_user ON _onboarding_done (user_id)"); } catch {}
+  _onboardingReady.add(uuid);
+}
+// Spotlight — a rotating featured pool: an admin adds items (with a weight); a public "current" endpoint
+// returns a deterministic weighted pick that rotates by day. `_spotlight`. Ensured once.
+const _spotlightReady = new Set();
+async function ensureSpotlight(env, uuid) {
+  if (_spotlightReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _spotlight (id INTEGER PRIMARY KEY AUTOINCREMENT, item TEXT NOT NULL, label TEXT, weight INTEGER NOT NULL DEFAULT 1, active INTEGER NOT NULL DEFAULT 1, created_at TEXT)");
+  _spotlightReady.add(uuid);
+}
 // The user-scoped tables a member can export their own rows from (GDPR data portability) — kept in sync with
 // the erase list. Each entry is [table, ownerColumn]; a missing table is skipped at read time.
 const DATA_EXPORT_TABLES = [
@@ -10214,6 +10242,8 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _waiver_signatures WHERE user_id=?", [u.id]],                      // waivers they signed
             ["DELETE FROM _petition_signatures WHERE user_id=?", [u.id]],                    // petitions they signed
             ["DELETE FROM _milestone_progress WHERE user_id=?", [u.id]],                     // personal milestone progress
+            ["DELETE FROM _reward_redemptions WHERE user_id=?", [u.id]],                     // rewards-catalog redemptions
+            ["DELETE FROM _onboarding_done WHERE user_id=?", [u.id]],                        // onboarding step completions
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -18099,6 +18129,248 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported milestones request" }, { status: 405 });
         } catch (e) { console.error("milestones failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "milestones failed" }, { status: 502 }); }
+      }
+      // REWARDS CATALOG — an admin lists rewards (a points cost, optional stock); a member redeems by
+      // spending their gamification points (from /points). Stock is claimed then points deducted (refunded
+      // on a points shortfall), so neither over-sells nor overdraws.
+      //   POST   /api/db/<slug>/rewards-catalog {name, cost, stock?, description?, active?}  (ADMIN) → {id}
+      //   GET    /api/db/<slug>/rewards-catalog[?active=1]  (public) → catalog
+      //   GET    /api/db/<slug>/rewards-catalog/<id>        (public)
+      //   POST   /api/db/<slug>/rewards-catalog/<id>/redeem (member) → spend points → {balance} · 409 if short/out
+      //   GET    /api/db/<slug>/rewards-catalog/mine        (member) → my redemptions
+      //   GET    /api/db/<slug>/rewards-catalog/redemptions (ADMIN) → all redemptions
+      //   PATCH/DELETE /api/db/<slug>/rewards-catalog/<id>  (ADMIN)
+      const rcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rewards-catalog(?:\/(mine|redemptions|\d+)(?:\/(redeem))?)?$/i);
+      if (rcm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = rcm[1].toLowerCase(), seg = rcm[2] || null, isMine = seg === "mine", isReds = seg === "redemptions", itemId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null, isRedeem = rcm[3] === "redeem";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const itemOut = (r) => ({ id: r.id, name: r.name, description: r.description, cost: r.cost, stock: r.stock, unlimited: r.stock < 0, active: !!r.active });
+        try {
+          await ensureRewards(env, uuid);
+          // CREATE (admin).
+          if (!seg && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|rcw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const name = String(body.name || "").trim().slice(0, 200);
+            const cost = Math.floor(Number(body.cost));
+            if (!name) return Response.json({ ok: false, error: "a name is required" }, { status: 400 });
+            if (!Number.isFinite(cost) || cost < 0) return Response.json({ ok: false, error: "a cost >= 0 is required" }, { status: 400 });
+            let stock = body.stock == null ? -1 : Math.floor(Number(body.stock));
+            if (!Number.isFinite(stock)) stock = -1;
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _reward_items (name, description, cost, stock, active, created_at, updated_at) VALUES (?,?,?,?,?,?,?) RETURNING id", [name, body.description != null ? String(body.description).slice(0, 2000) : null, cost, stock, body.active === false || body.active === 0 ? 0 : 1, now, now]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null });
+          }
+          // MY redemptions (member).
+          if (isMine && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rows = await cfD1Query(env, uuid, "SELECT r.id, r.item_id, r.cost, r.created_at, i.name FROM _reward_redemptions r LEFT JOIN _reward_items i ON i.id=r.item_id WHERE r.user_id=? ORDER BY r.id DESC LIMIT 500", [userId]);
+            return Response.json({ ok: true, redemptions: rows });
+          }
+          // ALL redemptions (admin).
+          if (isReds && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|rcred", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT r.id, r.item_id, r.user_id, r.cost, r.created_at, i.name FROM _reward_redemptions r LEFT JOIN _reward_items i ON i.id=r.item_id ORDER BY r.id DESC LIMIT 2000");
+            return Response.json({ ok: true, redemptions: rows });
+          }
+          // REDEEM (member) — claim stock, then deduct points (refund stock on shortfall).
+          if (itemId != null && isRedeem && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|rcredeem", 60)) return tooMany();
+            const item = (await cfD1Query(env, uuid, "SELECT id, name, cost, stock, active FROM _reward_items WHERE id=?", [itemId]))[0];
+            if (!item) return Response.json({ ok: false, error: "no such reward" }, { status: 404 });
+            if (!item.active) return Response.json({ ok: false, error: "this reward isn't available" }, { status: 409 });
+            // 1) claim a unit of stock (unlimited stock < 0 stays; stock=0 → sold out → no match).
+            const claim = await cfD1Exec(env, uuid, "UPDATE _reward_items SET stock = CASE WHEN stock < 0 THEN stock ELSE stock - 1 END, updated_at=? WHERE id=? AND active=1 AND stock != 0", [new Date().toISOString(), itemId]);
+            if (!claim.changes) return Response.json({ ok: false, error: "out of stock", sold_out: true }, { status: 409 });
+            // 2) deduct points atomically (guard balance >= cost).
+            try { await ensurePoints(env, uuid); } catch {}
+            const now = new Date().toISOString();
+            const paid = await cfD1Exec(env, uuid, "INSERT INTO _points_ledger (user_id, delta, reason, ref, created_at) SELECT ?,?, 'reward', ?, ? WHERE (SELECT COALESCE(SUM(delta),0) FROM _points_ledger WHERE user_id=?) >= ?", [userId, -item.cost, "reward:" + itemId, now, userId, item.cost]);
+            if (!paid.changes) {
+              // refund the claimed stock.
+              await cfD1Exec(env, uuid, "UPDATE _reward_items SET stock = CASE WHEN stock < 0 THEN stock ELSE stock + 1 END WHERE id=?", [itemId]);
+              const bal = (await cfD1Query(env, uuid, "SELECT COALESCE(SUM(delta),0) AS b FROM _points_ledger WHERE user_id=?", [userId]))[0].b;
+              return Response.json({ ok: false, error: "not enough points", balance: bal, cost: item.cost }, { status: 409 });
+            }
+            const r = await cfD1Query(env, uuid, "INSERT INTO _reward_redemptions (item_id, user_id, cost, created_at) VALUES (?,?,?,?) RETURNING id", [itemId, userId, item.cost, now]);
+            const bal = (await cfD1Query(env, uuid, "SELECT COALESCE(SUM(delta),0) AS b FROM _points_ledger WHERE user_id=?", [userId]))[0].b;
+            return Response.json({ ok: true, redeemed: item.name, redemption: r[0] ? r[0].id : null, balance: bal });
+          }
+          // GET one (public).
+          if (itemId != null && !isRedeem && request.method === "GET") {
+            const r = (await cfD1Query(env, uuid, "SELECT id, name, description, cost, stock, active FROM _reward_items WHERE id=?", [itemId]))[0];
+            if (!r) return Response.json({ ok: false, error: "no such reward" }, { status: 404 });
+            return Response.json({ ok: true, reward: itemOut(r) });
+          }
+          // PATCH / DELETE (admin).
+          if (itemId != null && (request.method === "PATCH" || request.method === "DELETE")) {
+            const a = await needAdmin(); if (a) return a;
+            const item = (await cfD1Query(env, uuid, "SELECT id FROM _reward_items WHERE id=?", [itemId]))[0];
+            if (!item) return Response.json({ ok: false, error: "no such reward" }, { status: 404 });
+            if (request.method === "DELETE") { await cfD1Exec(env, uuid, "DELETE FROM _reward_items WHERE id=?", [itemId]); return Response.json({ ok: true, deleted: true, id: itemId }); }
+            let body = {}; try { body = await request.json(); } catch {}
+            const sets = [], params = [];
+            if (body.name != null) { const n = String(body.name).trim().slice(0, 200); if (!n) return Response.json({ ok: false, error: "name can't be blank" }, { status: 400 }); sets.push("name=?"); params.push(n); }
+            if ("description" in body) { sets.push("description=?"); params.push(body.description != null ? String(body.description).slice(0, 2000) : null); }
+            if (body.cost != null) { const co = Math.floor(Number(body.cost)); if (!Number.isFinite(co) || co < 0) return Response.json({ ok: false, error: "bad cost" }, { status: 400 }); sets.push("cost=?"); params.push(co); }
+            if (body.stock != null) { const st = Math.floor(Number(body.stock)); if (!Number.isFinite(st)) return Response.json({ ok: false, error: "bad stock" }, { status: 400 }); sets.push("stock=?"); params.push(st); }
+            if (body.active != null) { sets.push("active=?"); params.push(body.active === false || body.active === 0 ? 0 : 1); }
+            if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+            sets.push("updated_at=?"); params.push(new Date().toISOString());
+            params.push(itemId);
+            await cfD1Exec(env, uuid, "UPDATE _reward_items SET " + sets.join(", ") + " WHERE id=?", params);
+            return Response.json({ ok: true, id: itemId });
+          }
+          // LIST (public).
+          if (!seg && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|rcl", 300)) return tooMany();
+            let admin = false; if (userId) { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); admin = !!(rr[0] && rr[0].role === "admin"); }
+            const activeOnly = !(admin && url.searchParams.get("active") === "0");
+            const rows = await cfD1Query(env, uuid, "SELECT id, name, description, cost, stock, active FROM _reward_items" + (activeOnly ? " WHERE active=1" : "") + " ORDER BY cost ASC, id ASC LIMIT 1000");
+            return Response.json({ ok: true, rewards: rows.map(itemOut) });
+          }
+          return Response.json({ ok: false, error: "unsupported rewards-catalog request" }, { status: 405 });
+        } catch (e) { console.error("rewards-catalog failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "rewards-catalog failed" }, { status: 502 }); }
+      }
+      // ONBOARDING CHECKLIST — an admin defines steps; each member marks them done and reads their progress.
+      //   POST   /api/db/<slug>/onboarding/steps {steps:[{key, title, position?}]}  (ADMIN) → replace the list
+      //   GET    /api/db/<slug>/onboarding/steps            (public) → the steps
+      //   POST   /api/db/<slug>/onboarding/complete/<step>  (member) → mark done · DELETE to un-mark
+      //   GET    /api/db/<slug>/onboarding/me               (member) → steps with done flags + percent
+      const onbm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/onboarding(?:\/(steps|me|complete)(?:\/([A-Za-z0-9_.-]{1,60}))?)?$/i);
+      if (onbm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = onbm[1].toLowerCase(), seg = onbm[2] || null, sub = onbm[3] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          await ensureOnboarding(env, uuid);
+          // REPLACE steps (admin).
+          if (seg === "steps" && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            let body = {}; try { body = await request.json(); } catch {}
+            if (!Array.isArray(body.steps) || !body.steps.length) return Response.json({ ok: false, error: "steps[] is required" }, { status: 400 });
+            const seen = new Set(); const rows = [];
+            let pos = 0;
+            for (const s of body.steps.slice(0, 100)) {
+              const k = String((s && s.key) || "").trim().toLowerCase().slice(0, 60);
+              if (!k) return Response.json({ ok: false, error: "each step needs a key" }, { status: 400 });
+              if (seen.has(k)) return Response.json({ ok: false, error: "duplicate step " + k }, { status: 400 }); seen.add(k);
+              rows.push([k, s.title != null ? String(s.title).slice(0, 200) : null, Number.isFinite(Number(s.position)) ? Math.floor(Number(s.position)) : pos]);
+              pos++;
+            }
+            await cfD1Exec(env, uuid, "DELETE FROM _onboarding_steps");
+            const now = new Date().toISOString();
+            for (const r of rows) await cfD1Exec(env, uuid, "INSERT INTO _onboarding_steps (key, title, position, created_at) VALUES (?,?,?,?)", [r[0], r[1], r[2], now]);
+            return Response.json({ ok: true, steps: rows.length });
+          }
+          // GET steps (public).
+          if (seg === "steps" && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|onbl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT key, title, position FROM _onboarding_steps ORDER BY position ASC, key ASC LIMIT 200");
+            return Response.json({ ok: true, steps: rows });
+          }
+          // COMPLETE / UNCOMPLETE (member).
+          if (seg === "complete" && sub) {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const step = sub.toLowerCase();
+            if (request.method === "POST") {
+              if (!(await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _onboarding_steps WHERE key=?", [step]))[0]) return Response.json({ ok: false, error: "no such step" }, { status: 404 });
+              await cfD1Exec(env, uuid, "INSERT INTO _onboarding_done (user_id, step, done_at) VALUES (?,?,?) ON CONFLICT(user_id, step) DO NOTHING", [userId, step, new Date().toISOString()]);
+              return Response.json({ ok: true, step, done: true });
+            }
+            if (request.method === "DELETE") {
+              await cfD1Exec(env, uuid, "DELETE FROM _onboarding_done WHERE user_id=? AND step=?", [userId, step]);
+              return Response.json({ ok: true, step, done: false });
+            }
+          }
+          // ME (member) — steps with done flags + percent.
+          if (seg === "me" && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const steps = await cfD1Query(env, uuid, "SELECT key, title, position FROM _onboarding_steps ORDER BY position ASC, key ASC LIMIT 200");
+            const done = new Set((await cfD1Query(env, uuid, "SELECT step FROM _onboarding_done WHERE user_id=?", [userId])).map((r) => r.step));
+            const list = steps.map((s) => ({ key: s.key, title: s.title, done: done.has(s.key) }));
+            const completed = list.filter((s) => s.done).length;
+            return Response.json({ ok: true, steps: list, total: list.length, completed, percent: list.length ? Math.round(completed / list.length * 100) : 0, all_done: list.length > 0 && completed === list.length });
+          }
+          return Response.json({ ok: false, error: "unsupported onboarding request" }, { status: 405 });
+        } catch (e) { console.error("onboarding failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "onboarding failed" }, { status: 502 }); }
+      }
+      // SPOTLIGHT — a rotating featured pool: an admin adds items with a weight; the "current" endpoint
+      // returns a deterministic weighted pick that rotates by day (no server-side "current" state).
+      //   POST   /api/db/<slug>/spotlight {item, label?, weight?}  (ADMIN) → add
+      //   GET    /api/db/<slug>/spotlight/current           (public) → today's featured item
+      //   GET    /api/db/<slug>/spotlight                   (public) → the pool
+      //   DELETE /api/db/<slug>/spotlight/<id>              (ADMIN)
+      const sptm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/spotlight(?:\/(current|\d+))?$/i);
+      if (sptm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = sptm[1].toLowerCase(), seg = sptm[2] || null, isCurrent = seg === "current", spId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureSpotlight(env, uuid);
+          // ADD (admin).
+          if (!seg && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|sptw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const item = String(body.item || "").trim().slice(0, 300);
+            if (!item) return Response.json({ ok: false, error: "an item is required" }, { status: 400 });
+            let weight = Math.floor(Number(body.weight)); if (!(weight >= 1)) weight = 1; if (weight > 1000) weight = 1000;
+            const r = await cfD1Query(env, uuid, "INSERT INTO _spotlight (item, label, weight, active, created_at) VALUES (?,?,?,1,?) RETURNING id", [item, body.label != null ? String(body.label).slice(0, 200) : null, weight, new Date().toISOString()]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null });
+          }
+          // CURRENT (public) — deterministic weighted pick, rotates by day.
+          if (isCurrent && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|sptc", 600)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT id, item, label, weight FROM _spotlight WHERE active=1 ORDER BY id ASC LIMIT 1000");
+            if (!rows.length) return Response.json({ ok: true, current: null });
+            const total = rows.reduce((s, r) => s + Math.max(1, r.weight), 0);
+            const day = Math.floor(Date.now() / 86400000);
+            let point = day % total, chosen = rows[0];
+            for (const r of rows) { point -= Math.max(1, r.weight); if (point < 0) { chosen = r; break; } }
+            return Response.json({ ok: true, current: { id: chosen.id, item: chosen.item, label: chosen.label } });
+          }
+          // DELETE (admin).
+          if (spId != null && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _spotlight WHERE id=?", [spId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such item" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: spId });
+          }
+          // LIST (public).
+          if (!seg && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|sptl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT id, item, label, weight, active FROM _spotlight ORDER BY id ASC LIMIT 1000");
+            return Response.json({ ok: true, spotlight: rows.map((r) => ({ id: r.id, item: r.item, label: r.label, weight: r.weight, active: !!r.active })) });
+          }
+          return Response.json({ ok: false, error: "unsupported spotlight request" }, { status: 405 });
+        } catch (e) { console.error("spotlight failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "spotlight failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
