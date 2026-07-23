@@ -5950,6 +5950,14 @@ async function ensureChecklists(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _checklist_state (template TEXT NOT NULL, user_id INTEGER NOT NULL, done TEXT NOT NULL DEFAULT '[]', updated_at TEXT, PRIMARY KEY (template, user_id))");
   _checklistReady.add(uuid);
 }
+// Approval quorum — an N-of-M sign-off. A request needs `needed` distinct approvers; each member approves once and
+// once the count is reached it flips to 'approved'. One row per key; approvers stored as a JSON id array. Ensured once.
+const _quorumReady = new Set();
+async function ensureQuorum(env, uuid) {
+  if (_quorumReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _quorum (key TEXT PRIMARY KEY, title TEXT, needed INTEGER NOT NULL, approvals TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'open', created_at TEXT, updated_at TEXT)");
+  _quorumReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -24756,6 +24764,173 @@ async function handleRequest(request, env, ctx) {
           const formatOk = known && pat.test(rest);
           return Response.json({ ok: true, valid: !!formatOk, country: known ? country : null, format_ok: formatOk, normalized: raw });
         } catch (e) { console.error("vat-number failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "vat-number failed" }, { status: 502 }); }
+      }
+      // PLURALIZE — a stateless English inflector: returns the singular + plural of a word and, with a `count`,
+      // the correctly-inflected form and a "N words" phrase. Handles common irregulars + suffix rules.
+      //   POST /api/db/<slug>/pluralize {word, count?}   (public) → {singular, plural, inflected, formatted?}
+      const plzm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/pluralize$/i);
+      if (plzm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = plzm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|plz", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          if (typeof body.word !== "string" || !body.word.trim()) return Response.json({ ok: false, error: "word is required" }, { status: 400 });
+          const word = body.word.trim();
+          if (word.length > 80) return Response.json({ ok: false, error: "word too long" }, { status: 400 });
+          const IRR = { person: "people", man: "men", woman: "women", child: "children", tooth: "teeth", foot: "feet", mouse: "mice", goose: "geese", ox: "oxen", die: "dice", datum: "data", index: "indices", cactus: "cacti", fungus: "fungi", nucleus: "nuclei", syllabus: "syllabi", analysis: "analyses", crisis: "crises", thesis: "theses", phenomenon: "phenomena", criterion: "criteria" };
+          const UNCH = new Set(["sheep", "series", "species", "deer", "fish", "money", "information", "equipment", "rice", "aircraft"]);
+          const irrRev = {}; for (const [s2, p2] of Object.entries(IRR)) irrRev[p2] = s2;
+          const preserve = (src, out) => src[0] === src[0].toUpperCase() ? out[0].toUpperCase() + out.slice(1) : out;
+          const pluralize = (w) => {
+            const lw = w.toLowerCase();
+            if (UNCH.has(lw)) return w;
+            if (IRR[lw]) return preserve(w, IRR[lw]);
+            if (/[^aeiou]y$/i.test(w)) return w.slice(0, -1) + "ies";
+            if (/(s|x|z|ch|sh)$/i.test(w)) return w + "es";
+            if (/(?:[^f]fe|[aeilnorst]f)$/i.test(w)) return w.replace(/fe?$/i, "ves");
+            return w + "s";
+          };
+          const singularize = (w) => {
+            const lw = w.toLowerCase();
+            if (UNCH.has(lw)) return w;
+            if (irrRev[lw]) return preserve(w, irrRev[lw]);
+            if (/ies$/i.test(w) && w.length > 3) return w.slice(0, -3) + "y";
+            if (/ves$/i.test(w)) return w.replace(/ves$/i, "f");
+            if (/(ses|xes|zes|ches|shes)$/i.test(w)) return w.slice(0, -2);
+            if (/s$/i.test(w) && !/ss$/i.test(w)) return w.slice(0, -1);
+            return w;
+          };
+          const singular = singularize(word), plural = pluralize(singular);
+          const out = { ok: true, singular, plural };
+          if (body.count != null) {
+            const n = Number(body.count);
+            if (!Number.isFinite(n)) return Response.json({ ok: false, error: "count must be a number" }, { status: 400 });
+            out.count = n; out.inflected = Math.abs(n) === 1 ? singular : plural; out.formatted = n + " " + out.inflected;
+          } else out.inflected = plural;
+          return Response.json(out);
+        } catch (e) { console.error("pluralize failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "pluralize failed" }, { status: 502 }); }
+      }
+      // MIME DETECT — a stateless magic-byte content-type sniffer. Give it the first bytes as base64 (or hex) and
+      // it returns the detected MIME type, a file extension, and a coarse category. Never trusts a filename.
+      //   POST /api/db/<slug>/mime-detect {base64|hex}   (public) → {mime, ext, category}
+      const mdtm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/mime-detect$/i);
+      if (mdtm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = mdtm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|mime", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          let bytes;
+          if (typeof body.hex === "string" && body.hex.trim()) {
+            const hx = body.hex.replace(/[\s:]/g, ""); if (!/^[0-9a-fA-F]*$/.test(hx) || hx.length % 2) return Response.json({ ok: false, error: "hex is malformed" }, { status: 400 });
+            bytes = new Uint8Array(hx.slice(0, 64).match(/.{2}/g)?.map((b) => parseInt(b, 16)) || []);
+          } else if (typeof body.base64 === "string" && body.base64.trim()) {
+            let s2 = body.base64.trim().replace(/-/g, "+").replace(/_/g, "/"); while (s2.length % 4) s2 += "=";
+            let bin; try { bin = atob(s2.slice(0, 88)); } catch { return Response.json({ ok: false, error: "base64 is malformed" }, { status: 400 }); }
+            bytes = new Uint8Array(bin.length); for (let i6 = 0; i6 < bin.length; i6++) bytes[i6] = bin.charCodeAt(i6);
+          } else return Response.json({ ok: false, error: "base64 or hex is required" }, { status: 400 });
+          const b = bytes, at = (i) => b[i], starts = (arr, off = 0) => arr.every((v, i) => b[off + i] === v);
+          const asc = (i, str) => { for (let k = 0; k < str.length; k++) if (b[i + k] !== str.charCodeAt(k)) return false; return true; };
+          let mime = null, ext = null;
+          if (starts([0x89, 0x50, 0x4e, 0x47])) { mime = "image/png"; ext = "png"; }
+          else if (starts([0xff, 0xd8, 0xff])) { mime = "image/jpeg"; ext = "jpg"; }
+          else if (asc(0, "GIF87a") || asc(0, "GIF89a")) { mime = "image/gif"; ext = "gif"; }
+          else if (asc(0, "RIFF") && asc(8, "WEBP")) { mime = "image/webp"; ext = "webp"; }
+          else if (asc(0, "RIFF") && asc(8, "WAVE")) { mime = "audio/wav"; ext = "wav"; }
+          else if (starts([0x42, 0x4d])) { mime = "image/bmp"; ext = "bmp"; }
+          else if (asc(0, "%PDF")) { mime = "application/pdf"; ext = "pdf"; }
+          else if (asc(0, "OggS")) { mime = "audio/ogg"; ext = "ogg"; }
+          else if (starts([0x1f, 0x8b])) { mime = "application/gzip"; ext = "gz"; }
+          else if (starts([0x50, 0x4b, 0x03, 0x04]) || starts([0x50, 0x4b, 0x05, 0x06])) { mime = "application/zip"; ext = "zip"; }
+          else if (starts([0x49, 0x44, 0x33]) || (at(0) === 0xff && (at(1) & 0xe0) === 0xe0)) { mime = "audio/mpeg"; ext = "mp3"; }
+          else if (asc(4, "ftyp")) { const brand = String.fromCharCode(b[8] || 0, b[9] || 0, b[10] || 0); if (brand === "M4A") { mime = "audio/mp4"; ext = "m4a"; } else { mime = "video/mp4"; ext = "mp4"; } }
+          else if (starts([0x25, 0x21])) { mime = "application/postscript"; ext = "ps"; }
+          else if (at(0) === 0x3c) { mime = "text/xml"; ext = "xml"; }
+          const category = mime ? mime.split("/")[0] : null;
+          return Response.json({ ok: true, mime, ext, category: mime ? (["image", "audio", "video", "text"].includes(category) ? category : "application") : null, detected: !!mime });
+        } catch (e) { console.error("mime-detect failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "mime-detect failed" }, { status: 502 }); }
+      }
+      // APPROVAL QUORUM — an N-of-M sign-off. A request needs `needed` distinct approvers; each member approves
+      // once and when the count is reached the request flips to 'approved'. Distinct from /dual-approval (2-party
+      // maker/checker) — this is many-approver quorum.
+      //   POST   /api/db/<slug>/approval-quorum {key, needed, title?}   (ADMIN)  → open a request
+      //   POST   /api/db/<slug>/approval-quorum/<key>/approve           (member) → cast an approval
+      //   POST   /api/db/<slug>/approval-quorum/<key>/revoke            (member) → withdraw yours (while open)
+      //   GET    /api/db/<slug>/approval-quorum/<key>                   (member) → status + count + mine
+      //   GET    /api/db/<slug>/approval-quorum                         (ADMIN)  → list
+      //   DELETE /api/db/<slug>/approval-quorum/<key>                   (ADMIN)
+      const aqm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/approval-quorum(?:\/([A-Za-z0-9_.:-]{1,60})(?:\/(approve|revoke))?)?$/i);
+      if (aqm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = aqm[1].toLowerCase(), key = aqm[2] || null, act = aqm[3] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null, role = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); if (role == null) role = ((await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]))[0] || {}).role; return role === "admin" ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const view = (row, uid, admin) => { let approvals = []; try { approvals = JSON.parse(row.approvals); } catch {} return { key: row.key, title: row.title, needed: row.needed, count: approvals.length, status: row.status, mine: uid != null && approvals.includes(uid), approvers: admin ? approvals : undefined }; };
+        try {
+          await ensureQuorum(env, uuid);
+          // OPEN (admin).
+          if (!key && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const k = String(body.key || "").trim();
+            if (!/^[A-Za-z0-9_.:-]{1,60}$/.test(k)) return Response.json({ ok: false, error: "a valid key is required" }, { status: 400 });
+            const needed = Math.floor(Number(body.needed));
+            if (!(needed >= 1 && needed <= 1000)) return Response.json({ ok: false, error: "needed must be 1..1000" }, { status: 400 });
+            if ((await cfD1Query(env, uuid, "SELECT 1 FROM _quorum WHERE key=?", [k]))[0]) return Response.json({ ok: false, error: "that key already exists" }, { status: 409 });
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _quorum (key, title, needed, approvals, status, created_at, updated_at) VALUES (?,?,?, '[]', 'open', ?,?)", [k, body.title != null ? String(body.title).slice(0, 200) : null, needed, now, now]);
+            return Response.json({ ok: true, key: k, needed, count: 0, status: "open" });
+          }
+          // APPROVE / REVOKE (member).
+          if (key && (act === "approve" || act === "revoke") && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const row = (await cfD1Query(env, uuid, "SELECT key, title, needed, approvals, status FROM _quorum WHERE key=?", [key]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such request" }, { status: 404 });
+            if (row.status !== "open") return Response.json({ ok: false, error: "this request is already " + row.status }, { status: 409 });
+            let approvals = []; try { approvals = JSON.parse(row.approvals); } catch {}
+            if (act === "approve") { if (!approvals.includes(userId)) approvals.push(userId); }
+            else approvals = approvals.filter((x) => x !== userId);
+            const status = approvals.length >= row.needed ? "approved" : "open";
+            const r = await cfD1Query(env, uuid, "UPDATE _quorum SET approvals=?, status=?, updated_at=? WHERE key=? AND status='open' RETURNING key, title, needed, approvals, status", [JSON.stringify(approvals), status, new Date().toISOString(), key]);
+            if (!r.length) return Response.json({ ok: false, error: "this request is no longer open" }, { status: 409 });
+            return Response.json({ ok: true, ...view(r[0], userId, false) });
+          }
+          // READ one (member).
+          if (key && !act && request.method === "GET") {
+            const row = (await cfD1Query(env, uuid, "SELECT key, title, needed, approvals, status FROM _quorum WHERE key=?", [key]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such request" }, { status: 404 });
+            if (userId != null && role == null) role = ((await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]))[0] || {}).role;
+            return Response.json({ ok: true, ...view(row, userId, role === "admin") });
+          }
+          // LIST (admin).
+          if (!key && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            const rows = await cfD1Query(env, uuid, "SELECT key, title, needed, approvals, status FROM _quorum ORDER BY created_at DESC LIMIT 1000");
+            return Response.json({ ok: true, requests: rows.map((r) => view(r, userId, true)) });
+          }
+          // DELETE (admin).
+          if (key && !act && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _quorum WHERE key=?", [key]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such request" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, key });
+          }
+          return Response.json({ ok: false, error: "unsupported approval-quorum request" }, { status: 405 });
+        } catch (e) { console.error("approval-quorum failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "approval-quorum failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
