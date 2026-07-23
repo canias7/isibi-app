@@ -6666,6 +6666,17 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — on-call rotation · renewals · slugify (data API, round 2)
+- **`/oncall`** — ordered member list that rotates on a fixed interval; `/current` computes the on-call person
+  deterministically from the anchor (`periods = floor((now-anchor)/interval); idx = periods % n`) — no stored
+  pointer, no drift. define/config/list/delete. `_oncall`. batch310 (15/15).
+- **`/renewals`** — contract/subscription end-date tracking (admin): create `{name, end_date, ...}`,
+  `/upcoming?days=30` (active + ending in the window), `/<id>/renew {end_date}` bumps it out, PATCH status
+  (active/cancelled/renewed/lapsed), list/delete. `_renewals`. batch311 (18/18).
+- **`/slugify`** — stateless: `{text, max?, separator?, existing?}` → NFKD-accent-stripped url slug; an
+  `existing` list appends -2/-3 on collision. Public. batch312 (13/13).
+- Full suite 295 green. (15/100 of round 2 shipped.)
+
 ## 2026-07-23 — readability · schedule registry · kudos (data API, round 2)
 - **`/readability`** — stateless: `{text, wpm?}` → chars/words/sentences/syllables + reading_time_min +
   Flesch reading-ease + Flesch-Kincaid grade (approx syllable counter). Public. batch307 (11/11).
