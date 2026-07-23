@@ -45,7 +45,7 @@ export const PROMPTS = [
 //   deps: { generate(system, user) -> {files, usedIn, usedOut}, build?(files) -> {ok,error}, critiqueOne?(shot),
 //           render?(files) -> shots, revise?(system,user) -> {...} }
 export async function evaluatePrompt(prompt, deps = {}) {
-  const r = { prompt, ok: false, capabilities: [], family: null, generated: false, lint: null, build: null, vision: null, repaired: null, tokens: { in: 0, out: 0 } };
+  const r = { prompt, ok: false, capabilities: [], family: null, generated: false, lint: null, build: null, vision: null, repaired: null, tokens: { in: 0, inCached: 0, out: 0 } };
   try {
     const plan = planApp(prompt);
     if (!plan.ok) { r.error = "plan failed"; return r; }
@@ -54,7 +54,7 @@ export async function evaluatePrompt(prompt, deps = {}) {
     const user = composeBuildPrompt(plan.spec, r.family, { baseRules: "Build this as a polished React app. Output ONLY the file blocks." });
 
     const g = await deps.generate(REACT_RULES, user);
-    r.tokens.in += g.usedIn || 0; r.tokens.out += g.usedOut || 0;
+    r.tokens.in += g.usedIn || 0; r.tokens.inCached += g.usedInCached || 0; r.tokens.out += g.usedOut || 0;
     let files = parseGeneratedFiles(g.text || "");
     r.generated = !!(files["index.html"] && files["src/App.jsx"]);
 
@@ -67,7 +67,7 @@ export async function evaluatePrompt(prompt, deps = {}) {
     if (!lint.ok && deps.revise) {
       const instr = "Fix these structural errors, returning ONLY corrected files:\n- " + lint.errors.map((e) => `[${e.rule}] ${e.msg}`).join("\n- ");
       const rv = await deps.revise(REACT_REVISE_RULES, instr + "\n\n" + Object.entries(files).map(([p, s]) => "===FILE: " + p + "===\n" + s).join("\n\n").slice(0, 90000));
-      r.tokens.in += rv.usedIn || 0; r.tokens.out += rv.usedOut || 0;
+      r.tokens.in += rv.usedIn || 0; r.tokens.inCached += rv.usedInCached || 0; r.tokens.out += rv.usedOut || 0;
       const rf = parseGeneratedFiles(rv.text || "");
       for (const [p, v] of Object.entries(rf)) if (p !== "isibi.schema.json") files[p] = v;
       const lint2 = lintGeneratedApp(files);
@@ -110,6 +110,7 @@ export async function runEval(prompts, deps = {}) {
     avg_design_score: withVision.length ? Math.round(withVision.reduce((s, r) => s + r.vision.minScore, 0) / withVision.length) : null,
     repair_success_pct: repairs.length ? Math.round((repairs.filter((r) => r.repaired.fixed).length / repairs.length) * 100) : null,
     avg_tokens_in: Math.round(results.reduce((s, r) => s + r.tokens.in, 0) / n),
+    avg_tokens_cached: Math.round(results.reduce((s, r) => s + (r.tokens.inCached || 0), 0) / n),
     avg_tokens_out: Math.round(results.reduce((s, r) => s + r.tokens.out, 0) / n),
   };
   return { results, summary };
@@ -129,8 +130,9 @@ export function formatScorecard({ results, summary }, opts = {}) {
   if (summary.compiled_pct != null) L.push(`| compiled | ${summary.compiled_pct}% |`);
   if (summary.avg_design_score != null) L.push(`| avg design score | ${summary.avg_design_score}/100 |`);
   if (summary.repair_success_pct != null) L.push(`| repair success | ${summary.repair_success_pct}% |`);
-  const inRate = opts.inRate || 3 / 1e6, outRate = opts.outRate || 15 / 1e6;
-  const cost = results.reduce((s, r) => s + r.tokens.in * inRate + r.tokens.out * outRate, 0);
+  // Sonnet-5 rates: fresh input $3/M, cache-read input $0.30/M (~1/10), output $15/M.
+  const inRate = opts.inRate || 3 / 1e6, cacheRate = opts.cacheRate || 0.3 / 1e6, outRate = opts.outRate || 15 / 1e6;
+  const cost = results.reduce((s, r) => s + r.tokens.in * inRate + (r.tokens.inCached || 0) * cacheRate + r.tokens.out * outRate, 0);
   L.push(`| est. total cost | $${cost.toFixed(2)} (${results.length} generations) |`);
   L.push("\n## Per-prompt\n");
   L.push("| prompt | caps | gen | routes | lint | " + (summary.compiled_pct != null ? "build | " : "") + (summary.avg_design_score != null ? "design | " : "") + "|");
@@ -143,17 +145,28 @@ export function formatScorecard({ results, summary }, opts = {}) {
 }
 
 // makeAnthropicGenerate — a real generate(system, user) that calls the Anthropic Messages API. Needs a key.
+// The system prompt (the ~100k-token BACKEND_RULES) is marked cache_control:ephemeral, exactly like production —
+// so after the first prompt every subsequent call is a cache HIT (~10x cheaper input, 5-min TTL, sequential calls
+// land inside it). max_tokens 16000 mirrors production (worker.js GB_MAX_OUT/RB_MAX_OUT) so completeness numbers
+// are the real thing. usedIn counts fresh input tokens only (cache reads are billed at ~1/10 and reported apart),
+// so the est. cost reflects post-cache spend.
 export function makeAnthropicGenerate(apiKey, model = "claude-sonnet-5", fetchImpl = fetch) {
   return async (system, user) => {
     const r = await fetchImpl("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model, max_tokens: 16000, system, messages: [{ role: "user", content: user }] }),
+      body: JSON.stringify({
+        model, max_tokens: 16000,
+        system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
+        messages: [{ role: "user", content: user }],
+      }),
     });
     if (!r.ok) throw new Error("anthropic " + r.status + ": " + (await r.text()).slice(0, 200));
     const j = await r.json();
     const text = (j.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
-    return { text, usedIn: j.usage ? j.usage.input_tokens : 0, usedOut: j.usage ? j.usage.output_tokens : 0 };
+    const u = j.usage || {};
+    // Fresh (uncached) input + the cheap cache-read tokens, kept apart so the scorecard can price them differently.
+    return { text, usedIn: (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0), usedInCached: u.cache_read_input_tokens || 0, usedOut: u.output_tokens || 0 };
   };
 }
 

@@ -80,15 +80,17 @@ t.ok(/Per-prompt/.test(card), "…and a per-prompt table");
 
 // --- makeAnthropicGenerate builds the right request ---
 let captured = null;
-const fakeFetch = async (url, init) => { captured = { url, init }; return { ok: true, json: async () => ({ content: [{ type: "text", text: "hi" }], usage: { input_tokens: 7, output_tokens: 9 } }) }; };
+const fakeFetch = async (url, init) => { captured = { url, init }; return { ok: true, json: async () => ({ content: [{ type: "text", text: "hi" }], usage: { input_tokens: 7, cache_read_input_tokens: 40, output_tokens: 9 } }) }; };
 const gen = makeAnthropicGenerate("sk-x", "claude-sonnet-5", fakeFetch);
 const g = await gen("SYSTEM", "USER");
 t.eq(captured.url, "https://api.anthropic.com/v1/messages", "calls the messages API");
 t.eq(captured.init.headers["x-api-key"], "sk-x", "…with the key");
 const body = JSON.parse(captured.init.body);
-t.eq(body.system, "SYSTEM", "…system prompt passed");
+t.eq(body.system[0].text, "SYSTEM", "…system prompt passed as a content block");
+t.eq(body.system[0].cache_control.type, "ephemeral", "…and marked for prompt caching (cheap input on repeat calls)");
 t.eq(body.messages[0].content, "USER", "…user prompt passed");
-t.eq(g.usedIn, 7, "…and it reports token usage");
+t.eq(g.usedIn, 7, "…and it reports fresh input tokens");
+t.eq(g.usedInCached, 40, "…and cache-read tokens separately (priced ~1/10 in the scorecard)");
 
 // --- The prompt set is diverse + sizable ---
 t.ok(PROMPTS.length >= 20, `the prompt set has 20+ archetypes (${PROMPTS.length})`);
