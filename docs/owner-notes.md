@@ -6666,6 +6666,17 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — env config · address format · weighted ballots (data API, round 2)
+- **`/env-config`** — key/value config scoped to a named env (dev/staging/prod): set/get one/get all,
+  `/promote {from, to, keys?}` copies values env→env (all or a subset, upsert). Admin. `_env_config`. batch334
+  (17/17).
+- **`/address-format`** — stateless postal formatter: structured parts → country-appropriate multi-line
+  layout (US `City, REGION POSTAL`; GB city / upper-cased postcode; sensible default). Public. batch335 (11/11).
+- **`/ballots`** — weighted voting: admin creates a poll, member `/vote {choice, weight?}` once (re-vote
+  replaces; open polls only), `/results` sums weight per option + winner, `/me` via GET one, close/delete.
+  `_ballot_votes` erased by user. batch336 (21/21).
+- Full suite 319 green. (39/100 of round 2 shipped.)
+
 ## 2026-07-23 — excerpt · entity fields · usage metering (data API, round 2)
 - **`/excerpt`** — stateless smart truncate: optional HTML strip, whitespace collapse, cut to N words or N
   chars on a word boundary + ellipsis (custom suffix). Public. batch331 (12/12).
