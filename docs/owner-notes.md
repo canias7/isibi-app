@@ -6661,6 +6661,22 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — categories · named lists · OTP codes (data API)
+- Route-regex-verified absent (the lesson from last batch). `_reports`/`ensureReports` already exists so
+  moderation was skipped; `/verify` is auth-only so OTP got the distinct `/otp` base path.
+- **`/categories`** — hierarchical taxonomy tree. Admin CRUD, public tree + breadcrumb read. Tree/breadcrumb
+  assembled in JS from one capped read; reparenting is cycle-guarded (BFS descendant check); delete
+  reparents children up. batch190 (21/21).
+- **`/lists`** + `/lists/<id>/items` — per-member named lists (wishlist/watchlist) of row-references; private
+  by default, `public` toggle for a shareable read. Every op owner-scoped (foreign list → 404, no IDOR);
+  the one public read is the only non-owner surface. `_lists`+`_list_items` in GDPR erase (items first).
+  batch191 (22/22).
+- **`/otp`** — one-time codes. generate returns the code ONCE (app sends it), stores sha256(purpose:identifier:
+  code) with expiry; verify is single-use, attempt-capped (429 lockout), expiry (400), reports attempts_left;
+  random via crypto.getRandomValues, rate-limited per IP + per identifier. No user_id (ephemeral) so no erase
+  line. batch192 (15/15).
+- Full suite 175 green.
+
 ## 2026-07-23 — idempotency keys · announcements · richer audit query (data API)
 - **`/idempotency/<key>`** — safe retries. First POST stores the result, a replay returns the stored one
   (atomic claim per (user_id,key)); GET peeks, DELETE clears. batch188 (13/13).
