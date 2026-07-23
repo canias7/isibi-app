@@ -4965,6 +4965,25 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .mkt-crt .crt-inbox{top:50%;bottom:auto;transform:translateY(-50%)}
 .mkt-crt .crt-crest{top:calc(50% - 7.5rem)}
 
+/* ── Gradient Halo chatbox (owner 2026-07-23): a glowing brand-gradient border
+   that's always on, the input on top, a small tool row + send along the bottom.
+   The ring is a masked ::before (padding-box XOR border-box) so it's a crisp
+   pink→amber stroke over the glassy interior; the halo is the box-shadow. ── */
+.mkt-crt .crt-chatbox{position:relative;flex-direction:column;align-items:stretch;gap:.55rem;
+  width:min(620px,92%);padding:1.15rem 1.2rem 1rem;border:0;background:var(--panel);
+  box-shadow:0 28px 70px rgba(0,0,0,.55),0 0 24px rgba(255,121,198,.34),0 0 62px rgba(255,121,198,.16)}
+.mkt-crt .crt-chatbox::before{content:"";position:absolute;inset:0;border-radius:inherit;padding:1.7px;
+  background:var(--split);pointer-events:none;
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;mask-composite:exclude}
+.mkt-crt .crt-chatbox-in{min-height:2.6rem;font-size:1.08rem}
+.crt-chatbox-bar{display:flex;align-items:center;justify-content:space-between;gap:.6rem}
+.crt-chatbox-tools{display:flex;align-items:center;gap:.5rem}
+.crt-chatbox-ico{display:flex;align-items:center;justify-content:center;width:34px;height:34px;
+  border-radius:10px;color:var(--muted);background:rgba(255,255,255,.03);border:1px solid var(--line-2)}
+.crt-chatbox-ico svg{width:17px;height:17px}
+
 /* ---- CRT landing: crest (laurel + headline), preview stage, legal ---- */
 .crt-crest{position:absolute;top:clamp(4.6rem,9vh,6.2rem);left:0;right:0;z-index:3;
   display:flex;align-items:center;justify-content:center;gap:.7rem;pointer-events:none}
