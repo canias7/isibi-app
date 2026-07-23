@@ -5709,6 +5709,24 @@ async function ensureUsageMeter(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _usage_meter (meter TEXT NOT NULL, period TEXT NOT NULL DEFAULT 'all', count INTEGER NOT NULL DEFAULT 0, total REAL NOT NULL DEFAULT 0, updated_at TEXT, PRIMARY KEY (meter, period))");
   _usageMeterReady.add(uuid);
 }
+// Environment config — key/value settings scoped to a named environment (dev / staging / prod), with a promote
+// action that copies values from one environment to another. `_env_config`. Ensured once.
+const _envConfigReady = new Set();
+async function ensureEnvConfig(env, uuid) {
+  if (_envConfigReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _env_config (env TEXT NOT NULL, key TEXT NOT NULL, value TEXT, updated_at TEXT, PRIMARY KEY (env, key))");
+  _envConfigReady.add(uuid);
+}
+// Weighted ballots — a poll where each voter's choice carries a weight (voting power / shares); results tally
+// the summed weight per option. `_ballot_polls` = the polls, `_ballot_votes` = one vote per (poll, user).
+// Ensured once.
+const _ballotsReady = new Set();
+async function ensureBallots(env, uuid) {
+  if (_ballotsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _ballot_polls (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT UNIQUE NOT NULL, title TEXT, options TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _ballot_votes (poll_key TEXT NOT NULL, user_id INTEGER NOT NULL, choice TEXT NOT NULL, weight REAL NOT NULL DEFAULT 1, at TEXT, PRIMARY KEY (poll_key, user_id))");
+  _ballotsReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -10563,6 +10581,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _erasure_requests WHERE user_id=?", [u.id]],                       // RTBF requests
             ["DELETE FROM _touchpoints WHERE user_id=?", [u.id]],                            // attribution touchpoints
             ["DELETE FROM _quest_progress WHERE user_id=?", [u.id]],                         // quest progress
+            ["DELETE FROM _ballot_votes WHERE user_id=?", [u.id]],                           // weighted ballot votes
             ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
             ["DELETE FROM _testimonials WHERE user_id=?", [u.id]],                           // user-submitted testimonials
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
@@ -21664,6 +21683,193 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported usage-meter request" }, { status: 405 });
         } catch (e) { console.error("usage-meter failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "usage-meter failed" }, { status: 502 }); }
+      }
+      // ENVIRONMENT CONFIG — key/value settings scoped to a named environment (dev / staging / prod), plus a
+      // promote action that copies values from one environment to another. Admin-only.
+      //   POST   /api/db/<slug>/env-config/<env> {key, value}       (ADMIN) → set a value
+      //   GET    /api/db/<slug>/env-config/<env>[/<key>]            (ADMIN) → all values / one
+      //   POST   /api/db/<slug>/env-config/promote {from, to, keys?}(ADMIN) → copy env → env
+      //   DELETE /api/db/<slug>/env-config/<env>/<key>              (ADMIN)
+      const ecfgm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/env-config(?:\/(promote|[a-z0-9_.:-]{1,40})(?:\/([A-Za-z0-9_.:-]{1,60}))?)?$/i);
+      if (ecfgm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = ecfgm[1].toLowerCase(), seg = ecfgm[2] || null, key = ecfgm[3] || null;
+        const isPromote = seg === "promote", envName = (seg && !isPromote) ? seg.toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureEnvConfig(env, uuid);
+          // PROMOTE.
+          if (isPromote && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const from = String(body.from || "").trim().toLowerCase(), to = String(body.to || "").trim().toLowerCase();
+            if (!/^[a-z0-9_.:-]{1,40}$/.test(from) || !/^[a-z0-9_.:-]{1,40}$/.test(to) || from === to) return Response.json({ ok: false, error: "distinct from and to environments are required" }, { status: 400 });
+            const wanted = Array.isArray(body.keys) ? new Set(body.keys.map((k) => String(k).toLowerCase())) : null;
+            const rows = await cfD1Query(env, uuid, "SELECT key, value FROM _env_config WHERE env=?", [from]);
+            const now = new Date().toISOString(); let n = 0;
+            for (const r of rows) { if (wanted && !wanted.has(r.key)) continue; await cfD1Query(env, uuid, "INSERT INTO _env_config (env, key, value, updated_at) VALUES (?,?,?,?) ON CONFLICT(env, key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at", [to, r.key, r.value, now]); n++; }
+            return Response.json({ ok: true, from, to, promoted: n });
+          }
+          // SET.
+          if (envName && !key && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const k = String(body.key || "").trim().toLowerCase();
+            if (!/^[a-z0-9_.:-]{1,60}$/.test(k)) return Response.json({ ok: false, error: "a valid key is required" }, { status: 400 });
+            const value = body.value == null ? null : (typeof body.value === "object" ? JSON.stringify(body.value) : String(body.value)).slice(0, 8000);
+            await cfD1Query(env, uuid, "INSERT INTO _env_config (env, key, value, updated_at) VALUES (?,?,?,?) ON CONFLICT(env, key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at", [envName, k, value, new Date().toISOString()]);
+            return Response.json({ ok: true, env: envName, key: k });
+          }
+          // GET one.
+          if (envName && key && request.method === "GET") {
+            const row = (await cfD1Query(env, uuid, "SELECT value, updated_at FROM _env_config WHERE env=? AND key=?", [envName, key.toLowerCase()]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such key" }, { status: 404 });
+            return Response.json({ ok: true, env: envName, key: key.toLowerCase(), value: row.value });
+          }
+          // GET all for env.
+          if (envName && !key && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT key, value FROM _env_config WHERE env=? ORDER BY key ASC LIMIT 2000", [envName]);
+            const config = {}; for (const r of rows) config[r.key] = r.value;
+            return Response.json({ ok: true, env: envName, config });
+          }
+          // DELETE.
+          if (envName && key && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _env_config WHERE env=? AND key=?", [envName, key.toLowerCase()]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such key" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, env: envName, key: key.toLowerCase() });
+          }
+          return Response.json({ ok: false, error: "unsupported env-config request" }, { status: 405 });
+        } catch (e) { console.error("env-config failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "env-config failed" }, { status: 502 }); }
+      }
+      // ADDRESS FORMAT — a stateless postal-address formatter: assemble structured parts into the conventional
+      // multi-line layout for the country (US / GB / a sensible default).
+      //   POST /api/db/<slug>/address-format {line1, line2?, city, region?, postal?, country?}   (public)
+      const afmtm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/address-format$/i);
+      if (afmtm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = afmtm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|adrf", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const g = (k) => { const v = body[k]; return v == null ? "" : String(v).trim().slice(0, 200); };
+          const line1 = g("line1"), line2 = g("line2"), city = g("city"), region = g("region"), postal = g("postal"), country = g("country");
+          if (!line1 && !city) return Response.json({ ok: false, error: "at least line1 or city is required" }, { status: 400 });
+          const cc = country.toLowerCase();
+          const lines = [];
+          if (line1) lines.push(line1);
+          if (line2) lines.push(line2);
+          if (cc === "us" || cc === "usa" || cc === "united states") {
+            const l = [city && city + ",", region, postal].filter(Boolean).join(" ").replace(" ,", ",").trim();
+            if (l) lines.push(l);
+          } else if (cc === "gb" || cc === "uk" || cc === "united kingdom") {
+            if (city) lines.push(city);
+            if (postal) lines.push(postal.toUpperCase());
+          } else {
+            const l = [city, region, postal].filter(Boolean).join(" ").trim();
+            if (l) lines.push(l);
+          }
+          if (country) lines.push(country);
+          return Response.json({ ok: true, formatted: lines.join("\n"), lines });
+        } catch (e) { console.error("address-format failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "address-format failed" }, { status: 502 }); }
+      }
+      // WEIGHTED BALLOTS — a poll where each voter's choice carries a weight (voting power / shares); results
+      // tally the summed weight per option. Admin creates; members vote once (a re-vote replaces).
+      //   POST /api/db/<slug>/ballots {key, title?, options:[...]}   (ADMIN) → create
+      //   POST /api/db/<slug>/ballots/<key>/vote {choice, weight?}   (member) → cast/replace (poll must be open)
+      //   GET  /api/db/<slug>/ballots/<key>/results                  (public) → weighted tally + winner
+      //   GET  /api/db/<slug>/ballots[/<key>]                        (public) → list / one (+ my vote)
+      //   POST /api/db/<slug>/ballots/<key>/close                    (ADMIN)
+      //   DELETE /api/db/<slug>/ballots/<key>                        (ADMIN)
+      const bltm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/ballots(?:\/([A-Za-z0-9_.:-]{1,60})(?:\/(vote|results|close))?)?$/i);
+      if (bltm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = bltm[1].toLowerCase(), key = bltm[2] ? bltm[2].toLowerCase() : null, act = bltm[3] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureBallots(env, uuid);
+          const getPoll = async () => { const p = (await cfD1Query(env, uuid, "SELECT key, title, options, status FROM _ballot_polls WHERE key=?", [key]))[0]; if (!p) return null; let options = []; try { options = JSON.parse(p.options) || []; } catch { options = []; } return { key: p.key, title: p.title, options, status: p.status }; };
+          // CREATE (admin).
+          if (!key && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const k = String(body.key || "").trim().toLowerCase();
+            if (!/^[a-z0-9_.:-]{1,60}$/.test(k)) return Response.json({ ok: false, error: "a valid key is required" }, { status: 400 });
+            const options = (Array.isArray(body.options) ? body.options : []).map((x) => String(x).slice(0, 120)).filter(Boolean).slice(0, 100);
+            if (options.length < 2) return Response.json({ ok: false, error: "at least two options are required" }, { status: 400 });
+            if (new Set(options).size !== options.length) return Response.json({ ok: false, error: "options must be unique" }, { status: 400 });
+            const ex = (await cfD1Query(env, uuid, "SELECT 1 FROM _ballot_polls WHERE key=?", [k]))[0];
+            if (ex) return Response.json({ ok: false, error: "that key already exists" }, { status: 409 });
+            await cfD1Query(env, uuid, "INSERT INTO _ballot_polls (key, title, options, status, created_at) VALUES (?,?,?, 'open', ?)", [k, body.title != null ? String(body.title).slice(0, 200) : null, JSON.stringify(options), new Date().toISOString()]);
+            return Response.json({ ok: true, key: k, options });
+          }
+          // VOTE (member).
+          if (key && act === "vote" && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|blv", 300)) return tooMany();
+            const poll = await getPoll(); if (!poll) return Response.json({ ok: false, error: "no such poll" }, { status: 404 });
+            if (poll.status !== "open") return Response.json({ ok: false, error: "poll is closed" }, { status: 409 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const choice = String(body.choice || "");
+            if (!poll.options.includes(choice)) return Response.json({ ok: false, error: "choice must be one of the options" }, { status: 400 });
+            let weight = Number(body.weight); if (!(weight > 0 && weight <= 1000000)) weight = 1;
+            await cfD1Query(env, uuid, "INSERT INTO _ballot_votes (poll_key, user_id, choice, weight, at) VALUES (?,?,?,?,?) ON CONFLICT(poll_key, user_id) DO UPDATE SET choice=excluded.choice, weight=excluded.weight, at=excluded.at", [key, userId, choice, weight, new Date().toISOString()]);
+            return Response.json({ ok: true, key, choice, weight });
+          }
+          // RESULTS (public).
+          if (key && act === "results" && request.method === "GET") {
+            const poll = await getPoll(); if (!poll) return Response.json({ ok: false, error: "no such poll" }, { status: 404 });
+            const rows = await cfD1Query(env, uuid, "SELECT choice, SUM(weight) AS w, COUNT(*) AS n FROM _ballot_votes WHERE poll_key=? GROUP BY choice", [key]);
+            const tally = {}; for (const o of poll.options) tally[o] = { weight: 0, votes: 0 };
+            let total = 0, winner = null, best = -1;
+            for (const r of rows) { if (!tally[r.choice]) tally[r.choice] = { weight: 0, votes: 0 }; tally[r.choice] = { weight: r.w || 0, votes: r.n }; total += r.w || 0; if ((r.w || 0) > best) { best = r.w || 0; winner = r.choice; } }
+            return Response.json({ ok: true, key, status: poll.status, total_weight: total, tally, winner: total > 0 ? winner : null });
+          }
+          // CLOSE (admin).
+          if (key && act === "close" && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "UPDATE _ballot_polls SET status='closed' WHERE key=?", [key]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such poll" }, { status: 404 });
+            return Response.json({ ok: true, key, status: "closed" });
+          }
+          // DELETE (admin).
+          if (key && !act && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _ballot_polls WHERE key=?", [key]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such poll" }, { status: 404 });
+            await cfD1Exec(env, uuid, "DELETE FROM _ballot_votes WHERE poll_key=?", [key]);
+            return Response.json({ ok: true, deleted: true, key });
+          }
+          // ONE (public).
+          if (key && !act && request.method === "GET") {
+            const poll = await getPoll(); if (!poll) return Response.json({ ok: false, error: "no such poll" }, { status: 404 });
+            let myVote = null;
+            if (userId) { const mv = (await cfD1Query(env, uuid, "SELECT choice, weight FROM _ballot_votes WHERE poll_key=? AND user_id=?", [key, userId]))[0]; if (mv) myVote = { choice: mv.choice, weight: mv.weight }; }
+            return Response.json({ ok: true, poll, my_vote: myVote });
+          }
+          // LIST (public).
+          if (!key && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT key, title, status FROM _ballot_polls ORDER BY id DESC LIMIT 1000");
+            return Response.json({ ok: true, ballots: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported ballots request" }, { status: 405 });
+        } catch (e) { console.error("ballots failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "ballots failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
