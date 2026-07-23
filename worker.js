@@ -4682,6 +4682,32 @@ async function ensureOtp(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _otp (purpose TEXT NOT NULL, identifier TEXT NOT NULL, code_hash TEXT, expires_at TEXT, attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 5, created_at TEXT, PRIMARY KEY (purpose, identifier))");
   _otpReady.add(uuid);
 }
+// Saved addresses / address book — a member keeps multiple postal addresses (shipping/billing) with one
+// marked default. Every row is owned by user_id. Ensured once per isolate.
+const _addressesReady = new Set();
+async function ensureAddresses(env, uuid) {
+  if (_addressesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _addresses (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, label TEXT, name TEXT, line1 TEXT, line2 TEXT, city TEXT, region TEXT, postal TEXT, country TEXT, phone TEXT, is_default INTEGER NOT NULL DEFAULT 0, created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_addresses_user ON _addresses (user_id)"); } catch {}
+  _addressesReady.add(uuid);
+}
+// Per-member settings — an arbitrary key→value store each member keeps for themselves (theme, layout,
+// preferences the app defines). One row per (user_id, key); value is JSON. Ensured once.
+const _userSettingsReady = new Set();
+async function ensureUserSettings(env, uuid) {
+  if (_userSettingsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _user_settings (user_id INTEGER NOT NULL, key TEXT NOT NULL, value TEXT, updated_at TEXT, PRIMARY KEY (user_id, key))");
+  _userSettingsReady.add(uuid);
+}
+// Recently-viewed — a per-member ring of the rows they last looked at (recently-viewed products, recent
+// docs). One row per (user_id, ref_table, ref_id); re-viewing bumps its timestamp; pruned to the last N.
+const _recentReady = new Set();
+async function ensureRecent(env, uuid) {
+  if (_recentReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _recent_views (user_id INTEGER NOT NULL, ref_table TEXT NOT NULL, ref_id INTEGER NOT NULL, viewed_at TEXT, PRIMARY KEY (user_id, ref_table, ref_id))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_recent_user ON _recent_views (user_id, viewed_at)"); } catch {}
+  _recentReady.add(uuid);
+}
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -9454,6 +9480,9 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _announcement_dismissals WHERE user_id=?", [u.id]],                // announcement dismissals
             ["DELETE FROM _list_items WHERE list_id IN (SELECT id FROM _lists WHERE user_id=?)", [u.id]], // items in their lists
             ["DELETE FROM _lists WHERE user_id=?", [u.id]],                                  // their named lists
+            ["DELETE FROM _addresses WHERE user_id=?", [u.id]],                              // saved addresses
+            ["DELETE FROM _user_settings WHERE user_id=?", [u.id]],                          // per-member settings
+            ["DELETE FROM _recent_views WHERE user_id=?", [u.id]],                           // recently-viewed
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -11894,6 +11923,173 @@ async function handleRequest(request, env, ctx) {
           const left = Math.max(0, row.max_attempts - (row.attempts + 1));
           return Response.json({ ok: true, verified: false, attempts_left: left });
         } catch (e) { console.error("otp failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "otp failed" }, { status: 502 }); }
+      }
+      // SAVED ADDRESSES / ADDRESS BOOK — a member keeps multiple postal addresses (shipping/billing) with
+      // exactly one default. Private per member (every op scoped to user_id — a foreign address is a 404).
+      //   POST   /api/db/<slug>/addresses {label?, name?, line1, line2?, city?, region?, postal?, country?, phone?, default?}
+      //   GET    /api/db/<slug>/addresses            → my addresses (default first)
+      //   GET    /api/db/<slug>/addresses/<id>       → one of mine
+      //   PATCH  /api/db/<slug>/addresses/<id>       → update mine
+      //   DELETE /api/db/<slug>/addresses/<id>       → delete mine
+      //   POST   /api/db/<slug>/addresses/<id>/default  → make it my default (atomic: exactly one)
+      const adrm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/addresses(?:\/(\d+)(?:\/(default))?)?$/i);
+      if (adrm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = adrm[1].toLowerCase(), aid = adrm[2] ? parseInt(adrm[2], 10) : null, isDefault = adrm[3] === "default";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const A = ["label", "name", "line1", "line2", "city", "region", "postal", "country", "phone"];
+        const clean = (v) => v != null && v !== "" ? String(v).slice(0, 200) : null;
+        try {
+          await ensureAddresses(env, uuid);
+          // Set default (atomic — exactly one default for the member).
+          if (aid != null && isDefault) {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            const own = (await cfD1Query(env, uuid, "SELECT id FROM _addresses WHERE id=? AND user_id=?", [aid, userId]))[0];
+            if (!own) return Response.json({ ok: false, error: "no such address" }, { status: 404 });
+            await cfD1Exec(env, uuid, "UPDATE _addresses SET is_default = CASE WHEN id=? THEN 1 ELSE 0 END, updated_at=? WHERE user_id=?", [aid, new Date().toISOString(), userId]);
+            return Response.json({ ok: true, id: aid, is_default: true });
+          }
+          // CREATE.
+          if (aid == null && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|adrw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            if (!clean(body.line1)) return Response.json({ ok: false, error: "line1 (a street address) is required" }, { status: 400 });
+            const vals = A.map((k) => clean(body[k]));
+            const existing = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _addresses WHERE user_id=?", [userId]))[0].n;
+            const makeDefault = (body.default === true || body.default === 1 || body.default === "true" || existing === 0) ? 1 : 0;
+            const now = new Date().toISOString();
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _addresses (user_id, label, name, line1, line2, city, region, postal, country, phone, is_default, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id", [userId].concat(vals, [makeDefault, now, now]));
+            const newId = ins[0] && ins[0].id;
+            if (makeDefault) await cfD1Exec(env, uuid, "UPDATE _addresses SET is_default=0 WHERE user_id=? AND id!=?", [userId, newId]);
+            return Response.json({ ok: true, id: newId, is_default: !!makeDefault });
+          }
+          // LIST mine.
+          if (aid == null && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|adrl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT id, label, name, line1, line2, city, region, postal, country, phone, is_default, created_at FROM _addresses WHERE user_id=? ORDER BY is_default DESC, id DESC LIMIT 200", [userId]);
+            return Response.json({ ok: true, addresses: rows.map((r) => Object.assign(r, { is_default: !!r.is_default })) });
+          }
+          // A specific address — must be mine.
+          if (aid != null) {
+            const own = (await cfD1Query(env, uuid, "SELECT id, label, name, line1, line2, city, region, postal, country, phone, is_default, created_at FROM _addresses WHERE id=? AND user_id=?", [aid, userId]))[0];
+            if (!own) return Response.json({ ok: false, error: "no such address" }, { status: 404 });
+            if (request.method === "GET") return Response.json({ ok: true, address: Object.assign(own, { is_default: !!own.is_default }) });
+            if (request.method === "PATCH") {
+              let body = {}; try { body = await request.json(); } catch {}
+              const sets = [], params = [];
+              for (const k of A) if (body[k] !== undefined) { sets.push(k + "=?"); params.push(clean(body[k])); }
+              if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+              sets.push("updated_at=?"); params.push(new Date().toISOString());
+              await cfD1Exec(env, uuid, "UPDATE _addresses SET " + sets.join(", ") + " WHERE id=? AND user_id=?", params.concat([aid, userId]));
+              return Response.json({ ok: true, id: aid, updated: true });
+            }
+            if (request.method === "DELETE") {
+              await cfD1Exec(env, uuid, "DELETE FROM _addresses WHERE id=? AND user_id=?", [aid, userId]);
+              if (own.is_default) { const nxt = (await cfD1Query(env, uuid, "SELECT id FROM _addresses WHERE user_id=? ORDER BY id DESC LIMIT 1", [userId]))[0]; if (nxt) await cfD1Exec(env, uuid, "UPDATE _addresses SET is_default=1 WHERE id=?", [nxt.id]); }
+              return Response.json({ ok: true, deleted: true, id: aid });
+            }
+          }
+          return Response.json({ ok: false, error: "unsupported addresses request" }, { status: 405 });
+        } catch (e) { console.error("addresses failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "addresses failed" }, { status: 502 }); }
+      }
+      // PER-MEMBER SETTINGS — an arbitrary key→value store each member keeps for themselves (theme, saved
+      // UI layout, app-defined preferences). Private per member. Distinct from the public site /config and
+      // the specific /notify-prefs. Values are any JSON.
+      //   GET    /api/db/<slug>/settings           → all my settings as {key:value}
+      //   POST   /api/db/<slug>/settings {k:v, …}  → bulk-set (merge) several
+      //   GET    /api/db/<slug>/settings/<key>     → {key, value}
+      //   POST   /api/db/<slug>/settings/<key> {value}  → set one
+      //   DELETE /api/db/<slug>/settings/<key>     → remove one
+      const setm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/settings(?:\/([A-Za-z0-9_.:-]{1,60}))?$/i);
+      if (setm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = setm[1].toLowerCase(), key = setm[2] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const parse = (s) => { if (s == null) return null; try { return JSON.parse(s); } catch { return null; } };
+        try {
+          await ensureUserSettings(env, uuid);
+          const setOne = async (k, v) => { const j = JSON.stringify(v === undefined ? null : v); await cfD1Query(env, uuid, "INSERT INTO _user_settings (user_id, key, value, updated_at) VALUES (?,?,?,?) ON CONFLICT(user_id, key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at", [userId, k, j, new Date().toISOString()]); };
+          if (key) {
+            if (request.method === "GET") { const r = (await cfD1Query(env, uuid, "SELECT value FROM _user_settings WHERE user_id=? AND key=?", [userId, key]))[0]; return Response.json({ ok: true, key, value: r ? parse(r.value) : null, found: !!r }); }
+            if (request.method === "POST") { if (!rateOk(slug + "|" + ip + "|setw", 300)) return tooMany(); let body = {}; try { body = await request.json(); } catch {} const v = body.value; if (JSON.stringify(v === undefined ? null : v).length > 16000) return Response.json({ ok: false, error: "value too large" }, { status: 400 }); await setOne(key, v); return Response.json({ ok: true, key, value: v === undefined ? null : v }); }
+            if (request.method === "DELETE") { const ex = await cfD1Exec(env, uuid, "DELETE FROM _user_settings WHERE user_id=? AND key=?", [userId, key]); return Response.json({ ok: true, deleted: (ex.changes || 0) > 0, key }); }
+          }
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|setr", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT key, value FROM _user_settings WHERE user_id=? LIMIT 1000", [userId]);
+            const out = {}; for (const r of rows) out[r.key] = parse(r.value);
+            return Response.json({ ok: true, settings: out });
+          }
+          if (request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|setw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ ok: false, error: "send an object of {key:value}" }, { status: 400 });
+            const keys = Object.keys(body).filter((k) => /^[A-Za-z0-9_.:-]{1,60}$/.test(k)).slice(0, 100);
+            for (const k of keys) await setOne(k, body[k]);
+            return Response.json({ ok: true, set: keys.length });
+          }
+          return Response.json({ ok: false, error: "unsupported settings request" }, { status: 405 });
+        } catch (e) { console.error("settings failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "settings failed" }, { status: 502 }); }
+      }
+      // RECENTLY-VIEWED — a per-member ring of the rows they last looked at (recently-viewed products,
+      // recent docs). Re-viewing bumps a row to the top; the ring is pruned to the last 200 per member.
+      //   POST   /api/db/<slug>/recent {table, row}         → record a view
+      //   GET    /api/db/<slug>/recent[?table=&limit=]      → my recently-viewed, newest first
+      //   DELETE /api/db/<slug>/recent[?table=&row=]        → clear one, or all mine
+      const rvwm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/recent$/i);
+      if (rvwm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = rvwm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureRecent(env, uuid);
+          if (request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|rvw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const table = body.table != null ? String(body.table).toLowerCase().slice(0, 40) : "";
+            const rowId = parseInt(body.row, 10);
+            if (!table || !Number.isFinite(rowId)) return Response.json({ ok: false, error: "table and row are required" }, { status: 400 });
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _recent_views (user_id, ref_table, ref_id, viewed_at) VALUES (?,?,?,?) ON CONFLICT(user_id, ref_table, ref_id) DO UPDATE SET viewed_at=excluded.viewed_at", [userId, table, rowId, now]);
+            // prune to the newest 200 for this member
+            try { await cfD1Exec(env, uuid, "DELETE FROM _recent_views WHERE user_id=? AND viewed_at < (SELECT MIN(viewed_at) FROM (SELECT viewed_at FROM _recent_views WHERE user_id=? ORDER BY viewed_at DESC LIMIT 200))", [userId, userId]); } catch {}
+            return Response.json({ ok: true, recorded: true });
+          }
+          if (request.method === "DELETE") {
+            const table = url.searchParams.get("table"), row = url.searchParams.get("row");
+            if (table && row && /^\d+$/.test(row)) { await cfD1Exec(env, uuid, "DELETE FROM _recent_views WHERE user_id=? AND ref_table=? AND ref_id=?", [userId, String(table).toLowerCase(), parseInt(row, 10)]); }
+            else { await cfD1Exec(env, uuid, "DELETE FROM _recent_views WHERE user_id=?", [userId]); }
+            return Response.json({ ok: true, cleared: true });
+          }
+          if (!rateOk(slug + "|" + ip + "|rvr", 300)) return tooMany();
+          const table = url.searchParams.get("table");
+          const lim = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") || "50", 10) || 50));
+          const rows = table
+            ? await cfD1Query(env, uuid, "SELECT ref_table, ref_id, viewed_at FROM _recent_views WHERE user_id=? AND ref_table=? ORDER BY viewed_at DESC LIMIT ?", [userId, String(table).toLowerCase(), lim])
+            : await cfD1Query(env, uuid, "SELECT ref_table, ref_id, viewed_at FROM _recent_views WHERE user_id=? ORDER BY viewed_at DESC LIMIT ?", [userId, lim]);
+          return Response.json({ ok: true, recent: rows });
+        } catch (e) { console.error("recent failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "recent failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
