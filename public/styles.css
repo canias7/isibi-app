@@ -4979,7 +4979,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    while keeping its depth. The light layer is masked to the same block image so
    it lands exactly on the 3D shape. */
 .mkt-crt .mkt-logo3d{position:absolute;right:-3vw;top:50%;transform:translateY(-50%);
-  width:min(54vh,560px);height:min(58vh,600px);opacity:.55;
+  width:min(54vh,560px);height:min(58vh,600px);opacity:.8;
   background:url(/logo3d.png) center/contain no-repeat}
 .mkt-crt .mkt-logo3d::after{content:"";position:absolute;inset:0;pointer-events:none;
   -webkit-mask:url(/logo3d-edge.png) center/contain no-repeat;mask:url(/logo3d-edge.png) center/contain no-repeat;
