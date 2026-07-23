@@ -4931,6 +4931,33 @@ async function ensureDaily(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _daily_claims (user_id INTEGER PRIMARY KEY, last_claim_date TEXT, streak INTEGER NOT NULL DEFAULT 0, total_claims INTEGER NOT NULL DEFAULT 0, updated_at TEXT)");
   _dailyReady.add(uuid);
 }
+// Challenges — a goal with a target + deadline; members join and log progress toward it, and a board ranks
+// them. `_challenges` = the definition, `_challenge_progress` = per-member progress. Ensured once.
+const _challengesReady = new Set();
+async function ensureChallenges(env, uuid) {
+  if (_challengesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _challenges (key TEXT PRIMARY KEY, title TEXT, description TEXT, target INTEGER NOT NULL DEFAULT 0, unit TEXT, starts_at TEXT, ends_at TEXT, created_at TEXT, updated_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _challenge_progress (challenge TEXT NOT NULL, user_id INTEGER NOT NULL, progress INTEGER NOT NULL DEFAULT 0, updated_at TEXT, PRIMARY KEY (challenge, user_id))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_challenge_progress ON _challenge_progress (challenge, progress)"); } catch {}
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_challenge_progress_user ON _challenge_progress (user_id)"); } catch {}
+  _challengesReady.add(uuid);
+}
+// Levels / XP ladder — an admin defines level thresholds; the app resolves an XP amount (or a member's
+// points balance) to a level + progress toward the next. `_levels` = the ladder. Ensured once.
+const _levelsReady = new Set();
+async function ensureLevels(env, uuid) {
+  if (_levelsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _levels (level INTEGER PRIMARY KEY, name TEXT, min_xp INTEGER NOT NULL DEFAULT 0)");
+  _levelsReady.add(uuid);
+}
+// Per-user dashboard tiles — each member stores their own dashboard layout (a JSON blob of tiles). One row
+// per member in `_dashboards`. Ensured once.
+const _dashboardsReady = new Set();
+async function ensureDashboards(env, uuid) {
+  if (_dashboardsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _dashboards (user_id INTEGER PRIMARY KEY, tiles TEXT, updated_at TEXT)");
+  _dashboardsReady.add(uuid);
+}
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -9722,6 +9749,8 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _points_ledger WHERE user_id=?", [u.id]],                          // gamification points ledger
             ["DELETE FROM _leaderboard_scores WHERE user_id=?", [u.id]],                     // leaderboard scores
             ["DELETE FROM _daily_claims WHERE user_id=?", [u.id]],                           // daily-reward claim streak
+            ["DELETE FROM _challenge_progress WHERE user_id=?", [u.id]],                     // challenge progress
+            ["DELETE FROM _dashboards WHERE user_id=?", [u.id]],                             // their saved dashboard layout
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -14180,6 +14209,205 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "use POST /daily/claim or GET /daily" }, { status: 405 });
         } catch (e) { console.error("daily failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "daily failed" }, { status: 502 }); }
+      }
+      // CHALLENGES — a goal with a target + optional deadline; members log progress toward it, a board ranks
+      // them. Managing is admin; joining/progress is member; reading is public.
+      //   POST   /api/db/<slug>/challenges/<key> {title?, description?, target, unit?, starts?, ends?}  (ADMIN)
+      //   POST   /api/db/<slug>/challenges/<key>/progress {by?} | {set?}  (member) → log progress (while active)
+      //   GET    /api/db/<slug>/challenges/<key>[?limit=]   (public) → {challenge, participants, top, mine}
+      //   GET    /api/db/<slug>/challenges                  (public) → list
+      //   DELETE /api/db/<slug>/challenges/<key>            (ADMIN)
+      const chlm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/challenges(?:\/([A-Za-z0-9_.-]{1,80})(?:\/(progress))?)?$/i);
+      if (chlm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = chlm[1].toLowerCase(), key = chlm[2] || null, isProgress = chlm[3] === "progress";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const isActive = (ch) => { const now = Date.now(); if (ch.starts_at && Date.parse(ch.starts_at) > now) return false; if (ch.ends_at && Date.parse(ch.ends_at) < now) return false; return true; };
+        try {
+          await ensureChallenges(env, uuid);
+          // LIST (public).
+          if (!key && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|chll", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT c.key, c.title, c.description, c.target, c.unit, c.starts_at, c.ends_at, (SELECT COUNT(*) FROM _challenge_progress WHERE challenge=c.key) AS participants FROM _challenges c ORDER BY c.created_at DESC LIMIT 200");
+            return Response.json({ ok: true, challenges: rows });
+          }
+          // DEFINE (admin).
+          if (key && !isProgress && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|chlw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const target = Math.floor(Number(body.target));
+            if (!Number.isFinite(target) || target <= 0) return Response.json({ ok: false, error: "a positive target is required" }, { status: 400 });
+            let starts = null, ends = null;
+            if (body.starts != null && body.starts !== "") { const st = Date.parse(String(body.starts)); if (Number.isNaN(st)) return Response.json({ ok: false, error: "bad starts date" }, { status: 400 }); starts = new Date(st).toISOString(); }
+            if (body.ends != null && body.ends !== "") { const en = Date.parse(String(body.ends)); if (Number.isNaN(en)) return Response.json({ ok: false, error: "bad ends date" }, { status: 400 }); ends = new Date(en).toISOString(); }
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _challenges (key, title, description, target, unit, starts_at, ends_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET title=excluded.title, description=excluded.description, target=excluded.target, unit=excluded.unit, starts_at=excluded.starts_at, ends_at=excluded.ends_at, updated_at=excluded.updated_at", [key, body.title != null ? String(body.title).slice(0, 200) : null, body.description != null ? String(body.description).slice(0, 2000) : null, target, body.unit != null ? String(body.unit).slice(0, 40) : null, starts, ends, now, now]);
+            return Response.json({ ok: true, key, target });
+          }
+          // DELETE (admin).
+          if (key && !isProgress && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _challenges WHERE key=?", [key]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such challenge" }, { status: 404 });
+            try { await cfD1Exec(env, uuid, "DELETE FROM _challenge_progress WHERE challenge=?", [key]); } catch {}
+            return Response.json({ ok: true, deleted: true, key });
+          }
+          // PROGRESS (member).
+          if (key && isProgress && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|chlp", 300)) return tooMany();
+            const ch = (await cfD1Query(env, uuid, "SELECT key, target, starts_at, ends_at FROM _challenges WHERE key=?", [key]))[0];
+            if (!ch) return Response.json({ ok: false, error: "no such challenge" }, { status: 404 });
+            if (!isActive(ch)) return Response.json({ ok: false, error: "this challenge isn't active" }, { status: 409 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const now = new Date().toISOString();
+            let progress;
+            if (body.set != null) {
+              const set = Math.floor(Number(body.set));
+              if (!Number.isFinite(set) || set < 0) return Response.json({ ok: false, error: "set must be >= 0" }, { status: 400 });
+              await cfD1Query(env, uuid, "INSERT INTO _challenge_progress (challenge, user_id, progress, updated_at) VALUES (?,?,?,?) ON CONFLICT(challenge, user_id) DO UPDATE SET progress=excluded.progress, updated_at=excluded.updated_at", [key, userId, set, now]);
+              progress = set;
+            } else {
+              const by = body.by == null ? 1 : Math.floor(Number(body.by));
+              if (!Number.isFinite(by) || by < -1000000 || by > 1000000) return Response.json({ ok: false, error: "by must be an integer" }, { status: 400 });
+              const r = await cfD1Query(env, uuid, "INSERT INTO _challenge_progress (challenge, user_id, progress, updated_at) VALUES (?,?,?,?) ON CONFLICT(challenge, user_id) DO UPDATE SET progress = MAX(0, _challenge_progress.progress + ?), updated_at=excluded.updated_at RETURNING progress", [key, userId, Math.max(0, by), now, by]);
+              progress = r[0] ? r[0].progress : Math.max(0, by);
+            }
+            return Response.json({ ok: true, key, progress, target: ch.target, done: progress >= ch.target });
+          }
+          // READ one (public) — challenge + board + mine.
+          if (key && !isProgress && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|chlr", 600)) return tooMany();
+            const ch = (await cfD1Query(env, uuid, "SELECT key, title, description, target, unit, starts_at, ends_at FROM _challenges WHERE key=?", [key]))[0];
+            if (!ch) return Response.json({ ok: false, error: "no such challenge" }, { status: 404 });
+            let limit = parseInt(url.searchParams.get("limit"), 10); if (!(limit > 0) || limit > 100) limit = 20;
+            const top = await cfD1Query(env, uuid, "SELECT user_id, progress FROM _challenge_progress WHERE challenge=? ORDER BY progress DESC, updated_at ASC LIMIT ?", [key, limit]);
+            const participants = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _challenge_progress WHERE challenge=?", [key]))[0].n;
+            let mine = null; if (userId) { const mr = (await cfD1Query(env, uuid, "SELECT progress FROM _challenge_progress WHERE challenge=? AND user_id=?", [key, userId]))[0]; if (mr) mine = { progress: mr.progress, done: mr.progress >= ch.target }; }
+            return Response.json({ ok: true, challenge: ch, active: isActive(ch), participants, top: top.map((r, i) => ({ rank: i + 1, user_id: r.user_id, progress: r.progress })), mine });
+          }
+          return Response.json({ ok: false, error: "unsupported challenges request" }, { status: 405 });
+        } catch (e) { console.error("challenges failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "challenges failed" }, { status: 502 }); }
+      }
+      // LEVELS / XP LADDER — an admin defines level thresholds; the app resolves an XP amount (or a member's
+      // points balance) to a level + progress toward the next.
+      //   PUT/POST /api/db/<slug>/levels {tiers:[{level, name?, min_xp}]}  (ADMIN) → replace the ladder
+      //   GET    /api/db/<slug>/levels                      (public) → the ladder
+      //   GET    /api/db/<slug>/levels/for?xp=N             (public) → {level, name, next, xp_to_next, progress}
+      //   GET    /api/db/<slug>/levels/me                   (member) → the caller's level from their points balance
+      const lvlm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/levels(?:\/(for|me))?$/i);
+      if (lvlm && (request.method === "GET" || request.method === "POST" || request.method === "PUT" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = lvlm[1].toLowerCase(), sub = lvlm[2] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        // Resolve an xp value against the ladder rows (sorted ascending by min_xp).
+        const resolve = (ladder, xp) => {
+          if (!ladder.length) return { level: 0, name: null, xp, next: null, xp_to_next: null, progress: 0 };
+          let cur = ladder[0], nextTier = null;
+          for (let i = 0; i < ladder.length; i++) { if (xp >= ladder[i].min_xp) { cur = ladder[i]; nextTier = ladder[i + 1] || null; } else break; }
+          const span = nextTier ? nextTier.min_xp - cur.min_xp : 0;
+          const into = xp - cur.min_xp;
+          return { level: cur.level, name: cur.name, xp, next: nextTier ? { level: nextTier.level, name: nextTier.name, min_xp: nextTier.min_xp } : null, xp_to_next: nextTier ? nextTier.min_xp - xp : null, progress: nextTier && span > 0 ? Math.round(into / span * 100) : 100 };
+        };
+        try {
+          await ensureLevels(env, uuid);
+          // REPLACE ladder (admin).
+          if (!sub && (request.method === "POST" || request.method === "PUT")) {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            let body = {}; try { body = await request.json(); } catch {}
+            if (!Array.isArray(body.tiers) || !body.tiers.length) return Response.json({ ok: false, error: "tiers[] is required" }, { status: 400 });
+            const seen = new Set(); const rows = [];
+            for (const tr of body.tiers.slice(0, 200)) {
+              const level = Math.floor(Number(tr && tr.level));
+              const min_xp = Math.floor(Number(tr && tr.min_xp));
+              if (!Number.isFinite(level) || !Number.isFinite(min_xp) || min_xp < 0) return Response.json({ ok: false, error: "each tier needs a level and a min_xp >= 0" }, { status: 400 });
+              if (seen.has(level)) return Response.json({ ok: false, error: "duplicate level " + level }, { status: 400 }); seen.add(level);
+              rows.push([level, tr.name != null ? String(tr.name).slice(0, 80) : null, min_xp]);
+            }
+            await cfD1Exec(env, uuid, "DELETE FROM _levels");
+            for (const r of rows) await cfD1Exec(env, uuid, "INSERT INTO _levels (level, name, min_xp) VALUES (?,?,?)", r);
+            return Response.json({ ok: true, tiers: rows.length });
+          }
+          // FOR a given xp (public).
+          if (sub === "for" && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|lvlf", 600)) return tooMany();
+            const xpRaw = url.searchParams.get("xp");
+            if (xpRaw == null || xpRaw === "") return Response.json({ ok: false, error: "an ?xp= number is required" }, { status: 400 });
+            const xp = Math.floor(Number(xpRaw));
+            if (!Number.isFinite(xp)) return Response.json({ ok: false, error: "an ?xp= number is required" }, { status: 400 });
+            const ladder = await cfD1Query(env, uuid, "SELECT level, name, min_xp FROM _levels ORDER BY min_xp ASC, level ASC");
+            return Response.json(Object.assign({ ok: true }, resolve(ladder, xp)));
+          }
+          // ME — from the caller's points balance (member).
+          if (sub === "me" && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            let xp = 0; try { await ensurePoints(env, uuid); xp = (await cfD1Query(env, uuid, "SELECT COALESCE(SUM(delta),0) AS b FROM _points_ledger WHERE user_id=?", [userId]))[0].b; } catch {}
+            const ladder = await cfD1Query(env, uuid, "SELECT level, name, min_xp FROM _levels ORDER BY min_xp ASC, level ASC");
+            return Response.json(Object.assign({ ok: true }, resolve(ladder, xp)));
+          }
+          // GET ladder (public).
+          if (!sub && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|lvll", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT level, name, min_xp FROM _levels ORDER BY min_xp ASC, level ASC");
+            return Response.json({ ok: true, levels: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported levels request" }, { status: 405 });
+        } catch (e) { console.error("levels failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "levels failed" }, { status: 502 }); }
+      }
+      // PER-USER DASHBOARD TILES — each member stores their own dashboard layout (a JSON blob of tiles).
+      //   GET    /api/db/<slug>/dashboard                   (member) → {tiles}
+      //   PUT/POST /api/db/<slug>/dashboard {tiles}         (member) → save
+      //   DELETE /api/db/<slug>/dashboard                   (member) → reset
+      const dshm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/dashboard$/i);
+      if (dshm && (request.method === "GET" || request.method === "POST" || request.method === "PUT" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = dshm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureDashboards(env, uuid);
+          if (request.method === "GET") {
+            const r = (await cfD1Query(env, uuid, "SELECT tiles, updated_at FROM _dashboards WHERE user_id=?", [userId]))[0];
+            let tiles = null; if (r && r.tiles) { try { tiles = JSON.parse(r.tiles); } catch {} }
+            return Response.json({ ok: true, tiles, updated_at: r ? r.updated_at : null });
+          }
+          if (request.method === "POST" || request.method === "PUT") {
+            if (!rateOk(slug + "|" + ip + "|dshw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            if (body.tiles === undefined) return Response.json({ ok: false, error: "tiles is required" }, { status: 400 });
+            const json = JSON.stringify(body.tiles);
+            if (json.length > 100000) return Response.json({ ok: false, error: "tiles too large (100k max)" }, { status: 400 });
+            await cfD1Query(env, uuid, "INSERT INTO _dashboards (user_id, tiles, updated_at) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET tiles=excluded.tiles, updated_at=excluded.updated_at", [userId, json, new Date().toISOString()]);
+            return Response.json({ ok: true, saved: true });
+          }
+          if (request.method === "DELETE") {
+            await cfD1Exec(env, uuid, "DELETE FROM _dashboards WHERE user_id=?", [userId]);
+            return Response.json({ ok: true, reset: true });
+          }
+          return Response.json({ ok: false, error: "unsupported dashboard request" }, { status: 405 });
+        } catch (e) { console.error("dashboard failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "dashboard failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
