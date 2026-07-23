@@ -6661,6 +6661,20 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — saved addresses · per-member settings · recently-viewed (data API)
+- **Grep lesson banked:** `grep -cE "a\|b"` uses `\|` = LITERAL pipe in ERE (not alternation), so several
+  earlier "absence" checks were false-0s. Re-verify candidates with real `|` alternation (or separate greps).
+  This batch was re-verified correctly — and confirmed `/courses` DOES exist (route `csm` L13284), so I
+  avoided an onboarding-checklist dup.
+- **`/addresses`** — per-member address book; exactly-one-default invariant held atomically
+  (`UPDATE … SET is_default = CASE WHEN id=? THEN 1 ELSE 0 END WHERE user_id=?`); first address auto-defaults,
+  deleting the default promotes another. batch193 (20/20).
+- **`/settings`** — per-member key→value JSON store (theme/layout/app prefs). GET all / GET|POST|DELETE
+  `<key>` / bulk POST. Distinct from public `/config` + specific `/notify-prefs`. batch194 (15/15).
+- **`/recent`** — recently-viewed ring; re-view bumps via ON CONFLICT, pruned to last 200/member; list with
+  table filter + limit; clear one/all. batch195 (11/11).
+- All three owner-scoped (foreign row → 404) + in GDPR erase. Full suite 178 green.
+
 ## 2026-07-23 — categories · named lists · OTP codes (data API)
 - Route-regex-verified absent (the lesson from last batch). `_reports`/`ensureReports` already exists so
   moderation was skipped; `/verify` is auth-only so OTP got the distinct `/otp` base path.
