@@ -5820,6 +5820,22 @@ async function ensureCreditLimits(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _credit_limits (user_id INTEGER PRIMARY KEY, limit_cents INTEGER NOT NULL DEFAULT 0, balance_cents INTEGER NOT NULL DEFAULT 0, updated_at TEXT)");
   _creditLimitReady.add(uuid);
 }
+// Sales quota — per-rep, per-period target + running attainment (both in cents). `rep` is a free label (a name,
+// email, or external id). One row per (rep, period). Ensured once.
+const _salesQuotaReady = new Set();
+async function ensureSalesQuota(env, uuid) {
+  if (_salesQuotaReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _sales_quota (rep TEXT NOT NULL, period TEXT NOT NULL, target_cents INTEGER NOT NULL DEFAULT 0, attained_cents INTEGER NOT NULL DEFAULT 0, updated_at TEXT, PRIMARY KEY (rep, period))");
+  _salesQuotaReady.add(uuid);
+}
+// Tax-exemption certificate registry — one certificate per customer key, with an optional region + expiry; a
+// check reports whether the customer is CURRENTLY exempt (expired certs read as not-exempt). Ensured once.
+const _taxExemptReady = new Set();
+async function ensureTaxExempt(env, uuid) {
+  if (_taxExemptReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _tax_exempt (customer TEXT PRIMARY KEY, certificate TEXT, region TEXT, note TEXT, added_by INTEGER, created_at TEXT, expires TEXT)");
+  _taxExemptReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -10683,6 +10699,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _punch_cards WHERE user_id=?", [u.id]],                            // loyalty punch cards
             ["DELETE FROM _access_log WHERE actor_id=?", [u.id]],                            // access-view log
             ["DELETE FROM _credit_limits WHERE user_id=?", [u.id]],                          // per-customer credit limit
+            ["UPDATE _tax_exempt SET added_by=NULL WHERE added_by=?", [u.id]],               // keep the cert, drop the admin link
             ["UPDATE _content_hashes SET first_by=NULL WHERE first_by=?", [u.id]],           // keep the shared dedup entry, drop the link
             ["UPDATE _bans SET banned_by=NULL WHERE banned_by=?", [u.id]],                   // keep the ban, drop the admin link
             ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
@@ -23281,6 +23298,172 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported credit-limit request" }, { status: 405 });
         } catch (e) { console.error("credit-limit failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "credit-limit failed" }, { status: 502 }); }
+      }
+      // COMMISSION — a stateless commission calculator. Flat (`rate`, a fraction like 0.1 = 10%) OR marginal
+      // tiers (`tiers:[{upto, rate}]`, sorted; the last tier may omit `upto` for "everything above"). Returns the
+      // commission, an effective rate, and a per-bracket breakdown. Amounts are numbers; commission rounds to cents.
+      //   POST /api/db/<slug>/commission {amount, rate?, tiers?}   (public) → {commission, effective_rate, breakdown}
+      const cmsm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/commission$/i);
+      if (cmsm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = cmsm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|comm", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const amount = Number(body.amount);
+          if (!Number.isFinite(amount) || amount < 0) return Response.json({ ok: false, error: "a non-negative amount is required" }, { status: 400 });
+          const r2 = (n) => Math.round(n * 100) / 100;
+          let commission = 0; const breakdown = [];
+          if (Array.isArray(body.tiers) && body.tiers.length) {
+            // Marginal brackets. Normalize: rate required per tier; upto ascending, last may be open (null/absent).
+            const tiers = body.tiers.map((t) => ({ upto: t.upto == null ? Infinity : Number(t.upto), rate: Number(t.rate) }));
+            for (const t of tiers) { if (!Number.isFinite(t.rate) || t.rate < 0 || t.rate > 1) return Response.json({ ok: false, error: "each tier needs a rate in 0..1" }, { status: 400 }); if (Number.isNaN(t.upto)) return Response.json({ ok: false, error: "a tier upto must be a number or null" }, { status: 400 }); }
+            tiers.sort((a, b) => a.upto - b.upto);
+            let prev = 0;
+            for (const t of tiers) {
+              if (amount <= prev) break;
+              const top = Math.min(amount, t.upto);
+              const band = top - prev;
+              if (band > 0) { const c2 = band * t.rate; commission += c2; breakdown.push({ from: prev, to: top === Infinity ? null : r2(top), rate: t.rate, amount: r2(band), commission: r2(c2) }); }
+              prev = top;
+              if (prev >= amount) break;
+            }
+          } else {
+            const rate = Number(body.rate);
+            if (!Number.isFinite(rate) || rate < 0 || rate > 1) return Response.json({ ok: false, error: "rate must be a fraction in 0..1 (or provide tiers)" }, { status: 400 });
+            commission = amount * rate;
+            breakdown.push({ from: 0, to: r2(amount), rate, amount: r2(amount), commission: r2(commission) });
+          }
+          return Response.json({ ok: true, amount: r2(amount), commission: r2(commission), effective_rate: amount > 0 ? Math.round((commission / amount) * 1e6) / 1e6 : 0, breakdown });
+        } catch (e) { console.error("commission failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "commission failed" }, { status: 502 }); }
+      }
+      // SALES QUOTA — per-rep, per-period target + running attainment (both in cents; `rep` is a free label).
+      //   POST   /api/db/<slug>/sales-quota {rep, period, target}         (ADMIN) → set/adjust a quota
+      //   POST   /api/db/<slug>/sales-quota/<rep>/<period>/record {amount}(ADMIN) → add to attainment
+      //   GET    /api/db/<slug>/sales-quota/<rep>/<period>                (ADMIN) → {target, attained, pct, remaining}
+      //   GET    /api/db/<slug>/sales-quota?period=                       (ADMIN) → all reps (ranked by attainment)
+      //   DELETE /api/db/<slug>/sales-quota/<rep>/<period>               (ADMIN)
+      const sqtm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/sales-quota(?:\/([A-Za-z0-9_.:@-]{1,80})\/([A-Za-z0-9_.:-]{1,40})(?:\/(record))?)?$/i);
+      if (sqtm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = sqtm[1].toLowerCase(), rep = sqtm[2] || null, period = sqtm[3] || null, act = sqtm[4] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const view = (row) => ({ rep: row.rep, period: row.period, target_cents: row.target_cents, attained_cents: row.attained_cents, pct: row.target_cents > 0 ? Math.round((row.attained_cents / row.target_cents) * 1000) / 10 : null, remaining_cents: Math.max(0, row.target_cents - row.attained_cents) });
+        try {
+          await ensureSalesQuota(env, uuid);
+          // SET (admin).
+          if (!rep && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const rp = String(body.rep || "").trim(), pd = String(body.period || "").trim();
+            if (!/^[A-Za-z0-9_.:@-]{1,80}$/.test(rp)) return Response.json({ ok: false, error: "a valid rep is required" }, { status: 400 });
+            if (!/^[A-Za-z0-9_.:-]{1,40}$/.test(pd)) return Response.json({ ok: false, error: "a valid period is required" }, { status: 400 });
+            const target = toCents(body.target);
+            if (target == null || target < 0) return Response.json({ ok: false, error: "a non-negative target is required" }, { status: 400 });
+            const r = await cfD1Query(env, uuid, "INSERT INTO _sales_quota (rep, period, target_cents, attained_cents, updated_at) VALUES (?,?,?,0,?) ON CONFLICT(rep, period) DO UPDATE SET target_cents=excluded.target_cents, updated_at=excluded.updated_at RETURNING rep, period, target_cents, attained_cents", [rp, pd, target, new Date().toISOString()]);
+            return Response.json({ ok: true, ...view(r[0]) });
+          }
+          // RECORD attainment (admin).
+          if (rep && period && act === "record" && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const amt = toCents(body.amount);
+            if (amt == null || amt === 0) return Response.json({ ok: false, error: "a non-zero amount is required" }, { status: 400 });
+            const r = await cfD1Query(env, uuid, "UPDATE _sales_quota SET attained_cents=MAX(0, attained_cents+?), updated_at=? WHERE rep=? AND period=? RETURNING rep, period, target_cents, attained_cents", [amt, new Date().toISOString(), rep, period]);
+            if (!r.length) return Response.json({ ok: false, error: "no quota set for that rep/period" }, { status: 404 });
+            return Response.json({ ok: true, ...view(r[0]) });
+          }
+          // READ one (admin).
+          if (rep && period && !act && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            const row = (await cfD1Query(env, uuid, "SELECT rep, period, target_cents, attained_cents FROM _sales_quota WHERE rep=? AND period=?", [rep, period]))[0];
+            if (!row) return Response.json({ ok: false, error: "no quota set for that rep/period" }, { status: 404 });
+            return Response.json({ ok: true, ...view(row) });
+          }
+          // LIST for a period (admin).
+          if (!rep && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            const pd = url.searchParams.get("period");
+            const rows = pd
+              ? await cfD1Query(env, uuid, "SELECT rep, period, target_cents, attained_cents FROM _sales_quota WHERE period=? ORDER BY attained_cents DESC LIMIT 1000", [pd])
+              : await cfD1Query(env, uuid, "SELECT rep, period, target_cents, attained_cents FROM _sales_quota ORDER BY period DESC, attained_cents DESC LIMIT 1000");
+            return Response.json({ ok: true, quotas: rows.map(view) });
+          }
+          // DELETE (admin).
+          if (rep && period && !act && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _sales_quota WHERE rep=? AND period=?", [rep, period]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no quota set for that rep/period" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, rep, period });
+          }
+          return Response.json({ ok: false, error: "unsupported sales-quota request" }, { status: 405 });
+        } catch (e) { console.error("sales-quota failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "sales-quota failed" }, { status: 502 }); }
+      }
+      // TAX-EXEMPTION REGISTRY — one certificate per customer key, with an optional region + expiry. The check
+      // reports whether the customer is CURRENTLY exempt (an expired certificate reads as not-exempt).
+      //   POST   /api/db/<slug>/tax-exempt {customer, certificate, region?, expires?, note?}  (ADMIN) → register
+      //   GET    /api/db/<slug>/tax-exempt/<customer>                                         (ADMIN) → status
+      //   GET    /api/db/<slug>/tax-exempt                                                    (ADMIN) → list
+      //   DELETE /api/db/<slug>/tax-exempt/<customer>                                         (ADMIN) → revoke
+      const txem = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/tax-exempt(?:\/([A-Za-z0-9_.:@-]{1,120}))?$/i);
+      if (txem && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = txem[1].toLowerCase(), customer = txem[2] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureTaxExempt(env, uuid);
+          const now = Date.now();
+          const status = (row) => { const active = !row.expires || Date.parse(row.expires) > now; return { customer: row.customer, exempt: active, certificate: active ? row.certificate : null, region: row.region, expires: row.expires, note: row.note }; };
+          // REGISTER (admin).
+          if (!customer && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const cust = String(body.customer || "").trim();
+            if (!/^[A-Za-z0-9_.:@-]{1,120}$/.test(cust)) return Response.json({ ok: false, error: "a valid customer is required" }, { status: 400 });
+            if (!body.certificate || !String(body.certificate).trim()) return Response.json({ ok: false, error: "a certificate is required" }, { status: 400 });
+            let expires = null;
+            if (body.expires != null) { const e = Date.parse(body.expires); if (!Number.isFinite(e)) return Response.json({ ok: false, error: "expires is invalid" }, { status: 400 }); expires = new Date(e).toISOString(); }
+            const r = await cfD1Query(env, uuid, "INSERT INTO _tax_exempt (customer, certificate, region, note, added_by, created_at, expires) VALUES (?,?,?,?,?,?,?) ON CONFLICT(customer) DO UPDATE SET certificate=excluded.certificate, region=excluded.region, note=excluded.note, added_by=excluded.added_by, expires=excluded.expires RETURNING customer, certificate, region, note, expires", [cust, String(body.certificate).slice(0, 120), body.region != null ? String(body.region).slice(0, 60) : null, body.note != null ? String(body.note).slice(0, 300) : null, userId, new Date(now).toISOString(), expires]);
+            return Response.json({ ok: true, ...status(r[0]) });
+          }
+          // STATUS (admin).
+          if (customer && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            const row = (await cfD1Query(env, uuid, "SELECT customer, certificate, region, note, expires FROM _tax_exempt WHERE customer=?", [customer]))[0];
+            if (!row) return Response.json({ ok: true, customer, exempt: false });
+            return Response.json({ ok: true, ...status(row) });
+          }
+          // LIST (admin).
+          if (!customer && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            const rows = await cfD1Query(env, uuid, "SELECT customer, certificate, region, note, expires FROM _tax_exempt ORDER BY created_at DESC LIMIT 1000");
+            return Response.json({ ok: true, certificates: rows.map(status) });
+          }
+          // REVOKE (admin).
+          if (customer && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _tax_exempt WHERE customer=?", [customer]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no certificate for that customer" }, { status: 404 });
+            return Response.json({ ok: true, revoked: true, customer });
+          }
+          return Response.json({ ok: false, error: "unsupported tax-exempt request" }, { status: 405 });
+        } catch (e) { console.error("tax-exempt failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "tax-exempt failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
