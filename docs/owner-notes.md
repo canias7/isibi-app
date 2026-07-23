@@ -6661,6 +6661,19 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — NPS surveys · testimonials wall · ticket merge/link (data API, next-100)
+- **`/nps`** — member submits 0–10 once per campaign (upsert PK campaign+user); `/nps` (admin) buckets
+  promoters 9-10 / passives 7-8 / detractors 0-6 → NPS = round((%prom−%det)·100); `/nps/me`, `/nps/responses`
+  (admin). Per-campaign. `_nps_responses` erased by user. batch289 (19/19).
+- **`/testimonials`** — curated marketing wall: member submits a quote (pending), admin `PATCH` approves/
+  features/reorders, public list returns approved only (featured first, then position). `_testimonials`
+  erased by user. batch290 (15/15).
+- **`/tickets/<id>/merge|link|links`** — additive to the ticket system (#47). Merge folds a duplicate into a
+  survivor (its `_ticket_messages` move over, source → status 'merged' via atomic `merged_into` guard); link
+  relates two tickets (`_ticket_links`, ordered pair PK); links listing (owner or admin). `_tickets` gained a
+  `merged_into` column (ALTER, additive — existing routes untouched). batch291 (19/19).
+- Full suite 274 green. (93/100 of the next-100 list shipped.)
+
 ## 2026-07-23 — rate policies · audit retention · trending/top-N (data API, next-100)
 - **`/rate-policies`** — admin declares named per-key limits (max/window_sec); member `/rate-policies/<key>/
   consume` atomically counts a hit in the current fixed window (`INSERT…ON CONFLICT(key,window_start) DO
