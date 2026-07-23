@@ -5469,6 +5469,35 @@ async function ensureOrderNotes(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_order_notes_ref ON _order_notes (order_ref)"); } catch {}
   _orderNotesReady.add(uuid);
 }
+// Rate-limit policies — an admin declares named per-key limits (max hits per window); a consume endpoint
+// atomically counts a hit in the current fixed window and reports whether it's allowed. `_rate_policies` = the
+// declarations, `_rate_hits` = the per-(key, window) counters. Ensured once.
+const _ratePolReady = new Set();
+async function ensureRatePolicies(env, uuid) {
+  if (_ratePolReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _rate_policies (key TEXT PRIMARY KEY, max_hits INTEGER NOT NULL, window_sec INTEGER NOT NULL, created_at TEXT, updated_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _rate_hits (key TEXT NOT NULL, window_start INTEGER NOT NULL, hits INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (key, window_start))");
+  _ratePolReady.add(uuid);
+}
+// Audit-log retention — a singleton policy (retention_days) plus a prune that trims the `_audit` trail older
+// than the window. `_audit_policy` holds the setting; `_audit` is ensured here so count/prune never 502 on a
+// site that never wrote an audit row. Ensured once.
+const _auditPolReady = new Set();
+async function ensureAuditPolicy(env, uuid) {
+  if (_auditPolReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _audit_policy (id INTEGER PRIMARY KEY, retention_days INTEGER, updated_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _audit (id INTEGER PRIMARY KEY AUTOINCREMENT, row_table TEXT, row_id INTEGER, action TEXT, actor_id INTEGER, at TEXT)");
+  _auditPolReady.add(uuid);
+}
+// Trending / top-N — a rolling popularity feed: each hit records an item (+ optional weight) with a timestamp,
+// and a top endpoint aggregates the highest-scoring items within a time window. `_trending`. Ensured once.
+const _trendingReady = new Set();
+async function ensureTrending(env, uuid) {
+  if (_trendingReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _trending (id INTEGER PRIMARY KEY AUTOINCREMENT, item TEXT NOT NULL, weight INTEGER NOT NULL DEFAULT 1, at TEXT NOT NULL)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_trending_at ON _trending (at)"); } catch {}
+  _trendingReady.add(uuid);
+}
 // The user-scoped tables a member can export their own rows from (GDPR data portability) — kept in sync with
 // the erase list. Each entry is [table, ownerColumn]; a missing table is skipped at read time.
 const DATA_EXPORT_TABLES = [
@@ -18997,6 +19026,173 @@ async function handleRequest(request, env, ctx) {
           for (const key of Object.keys(config)) { if (!allowed.has(key)) errors.push({ key, message: "unknown key" }); }
           return Response.json({ ok: true, valid: errors.length === 0, errors, normalized });
         } catch (e) { console.error("config-validate failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "config-validate failed" }, { status: 502 }); }
+      }
+      // RATE-LIMIT POLICIES — an admin declares named per-key limits (max hits per window); `consume` atomically
+      // counts a hit in the current fixed window and reports whether it's allowed + how many remain.
+      //   POST   /api/db/<slug>/rate-policies {key, max, window_sec}   (ADMIN) → upsert a policy
+      //   GET    /api/db/<slug>/rate-policies                         (ADMIN) → list
+      //   DELETE /api/db/<slug>/rate-policies/<key>                   (ADMIN)
+      //   POST   /api/db/<slug>/rate-policies/<key>/consume           (member) → {allowed, remaining, reset_at}
+      const rplm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rate-policies(?:\/([A-Za-z0-9_.:-]{1,60})(?:\/(consume))?)?$/i);
+      if (rplm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = rplm[1].toLowerCase(), seg = rplm[2] || null, sub = rplm[3] || null;
+        const polKey = seg ? seg.toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const needAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureRatePolicies(env, uuid);
+          // CONSUME (member) — atomic per-window increment.
+          if (polKey && sub === "consume" && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|rpc", 1200)) return tooMany();
+            const pol = (await cfD1Query(env, uuid, "SELECT max_hits, window_sec FROM _rate_policies WHERE key=?", [polKey]))[0];
+            if (!pol) return Response.json({ ok: false, error: "no such policy" }, { status: 404 });
+            const nowSec = Math.floor(Date.now() / 1000);
+            const windowStart = Math.floor(nowSec / pol.window_sec) * pol.window_sec;
+            const r = await cfD1Query(env, uuid, "INSERT INTO _rate_hits (key, window_start, hits) VALUES (?,?,1) ON CONFLICT(key, window_start) DO UPDATE SET hits = hits + 1 RETURNING hits", [polKey, windowStart]);
+            const hits = r[0].hits;
+            const allowed = hits <= pol.max_hits;
+            return Response.json({ ok: true, allowed, remaining: Math.max(0, pol.max_hits - hits), limit: pol.max_hits, reset_at: new Date((windowStart + pol.window_sec) * 1000).toISOString() });
+          }
+          // UPSERT (admin).
+          if (!seg && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const key = String(body.key || "").trim().toLowerCase();
+            if (!/^[a-z0-9_.:-]{1,60}$/.test(key)) return Response.json({ ok: false, error: "a key (letters, digits, . _ : -) is required" }, { status: 400 });
+            const max = Math.floor(Number(body.max)); if (!(max >= 1 && max <= 1000000)) return Response.json({ ok: false, error: "max must be 1..1000000" }, { status: 400 });
+            let windowSec = Math.floor(Number(body.window_sec)); if (!(windowSec >= 1 && windowSec <= 86400)) return Response.json({ ok: false, error: "window_sec must be 1..86400" }, { status: 400 });
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _rate_policies (key, max_hits, window_sec, created_at, updated_at) VALUES (?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET max_hits=excluded.max_hits, window_sec=excluded.window_sec, updated_at=excluded.updated_at", [key, max, windowSec, now, now]);
+            return Response.json({ ok: true, key, max, window_sec: windowSec });
+          }
+          // LIST (admin).
+          if (!seg && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            const rows = await cfD1Query(env, uuid, "SELECT key, max_hits, window_sec, updated_at FROM _rate_policies ORDER BY key ASC LIMIT 1000");
+            return Response.json({ ok: true, policies: rows.map((r) => ({ key: r.key, max: r.max_hits, window_sec: r.window_sec, updated_at: r.updated_at })) });
+          }
+          // DELETE (admin).
+          if (polKey && !sub && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _rate_policies WHERE key=?", [polKey]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such policy" }, { status: 404 });
+            await cfD1Exec(env, uuid, "DELETE FROM _rate_hits WHERE key=?", [polKey]);
+            return Response.json({ ok: true, deleted: true, key: polKey });
+          }
+          return Response.json({ ok: false, error: "unsupported rate-policies request" }, { status: 405 });
+        } catch (e) { console.error("rate-policies failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "rate-policies failed" }, { status: 502 }); }
+      }
+      // AUDIT-LOG RETENTION — a singleton policy (retention_days) plus a prune that trims the audit trail older
+      // than the window; a bounded, self-serve GDPR/storage-hygiene control.
+      //   GET  /api/db/<slug>/audit-policy               (ADMIN) → {retention_days, audit_rows, oldest_at}
+      //   POST /api/db/<slug>/audit-policy {retention_days}  (ADMIN) → set
+      //   POST /api/db/<slug>/audit-policy/prune [{before?}] (ADMIN) → {deleted, cutoff}
+      const apm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/audit-policy(?:\/(prune))?$/i);
+      if (apm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = apm[1].toLowerCase(), isPrune = apm[2] === "prune";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureAuditPolicy(env, uuid);
+          // SET.
+          if (!isPrune && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const days = Math.floor(Number(body.retention_days));
+            if (!(days >= 1 && days <= 3650)) return Response.json({ ok: false, error: "retention_days must be 1..3650" }, { status: 400 });
+            await cfD1Query(env, uuid, "INSERT INTO _audit_policy (id, retention_days, updated_at) VALUES (1,?,?) ON CONFLICT(id) DO UPDATE SET retention_days=excluded.retention_days, updated_at=excluded.updated_at", [days, new Date().toISOString()]);
+            return Response.json({ ok: true, retention_days: days });
+          }
+          // PRUNE.
+          if (isPrune && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            let cutoff;
+            if (body.before != null && String(body.before).trim()) { const ts = Date.parse(String(body.before)); if (isNaN(ts)) return Response.json({ ok: false, error: "bad before timestamp" }, { status: 400 }); cutoff = new Date(ts).toISOString(); }
+            else { const pol = (await cfD1Query(env, uuid, "SELECT retention_days FROM _audit_policy WHERE id=1"))[0]; if (!pol || pol.retention_days == null) return Response.json({ ok: false, error: "set retention_days first (or pass before)" }, { status: 400 }); cutoff = new Date(Date.now() - pol.retention_days * 86400000).toISOString(); }
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _audit WHERE at IS NOT NULL AND at < ?", [cutoff]);
+            return Response.json({ ok: true, deleted: ex.changes || 0, cutoff });
+          }
+          // GET status.
+          if (request.method === "GET") {
+            const pol = (await cfD1Query(env, uuid, "SELECT retention_days, updated_at FROM _audit_policy WHERE id=1"))[0];
+            const stat = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n, MIN(at) AS oldest FROM _audit"))[0] || { n: 0, oldest: null };
+            return Response.json({ ok: true, retention_days: pol ? pol.retention_days : null, updated_at: pol ? pol.updated_at : null, audit_rows: stat.n || 0, oldest_at: stat.oldest });
+          }
+          return Response.json({ ok: false, error: "unsupported audit-policy request" }, { status: 405 });
+        } catch (e) { console.error("audit-policy failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "audit-policy failed" }, { status: 502 }); }
+      }
+      // TRENDING / TOP-N — a rolling popularity feed: each hit records an item (+ optional weight) with a
+      // timestamp, and `top` aggregates the highest-scoring items inside a time window.
+      //   POST   /api/db/<slug>/trending/hit {item, weight?}   (member) → record
+      //   GET    /api/db/<slug>/trending/top[?window=24h&n=10&item=]  (public) → ranked items
+      //   DELETE /api/db/<slug>/trending[?before=]              (ADMIN) → prune old rows
+      const trndm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/trending(?:\/(hit|top))?$/i);
+      if (trndm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = trndm[1].toLowerCase(), seg = trndm[2] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const cutoffFor = (w) => { if (!w || w === "all") return null; const m2 = String(w).match(/^(\d{1,5})([hd])$/i); if (!m2) return new Date(Date.now() - 86400000).toISOString(); const n = parseInt(m2[1], 10); const ms = (m2[2].toLowerCase() === "h" ? 3600000 : 86400000) * n; return new Date(Date.now() - ms).toISOString(); };
+        try {
+          await ensureTrending(env, uuid);
+          // HIT (member).
+          if (seg === "hit" && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|trh", 1200)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const item = String(body.item || "").trim().slice(0, 300);
+            if (!item) return Response.json({ ok: false, error: "an item is required" }, { status: 400 });
+            let weight = Math.floor(Number(body.weight)); if (!(weight >= 1)) weight = 1; if (weight > 1000) weight = 1000;
+            await cfD1Exec(env, uuid, "INSERT INTO _trending (item, weight, at) VALUES (?,?,?)", [item, weight, new Date().toISOString()]);
+            return Response.json({ ok: true, recorded: true });
+          }
+          // TOP (public).
+          if (seg === "top" && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|trt", 300)) return tooMany();
+            let n = Math.floor(Number(url.searchParams.get("n"))); if (!(n >= 1 && n <= 100)) n = 10;
+            const cutoff = cutoffFor(url.searchParams.get("window") || "24h");
+            const itemFilter = (url.searchParams.get("item") || "").trim();
+            let sql = "SELECT item, SUM(weight) AS score, COUNT(*) AS hits FROM _trending WHERE 1=1", params = [];
+            if (cutoff) { sql += " AND at >= ?"; params.push(cutoff); }
+            if (itemFilter) { sql += " AND item = ?"; params.push(itemFilter.slice(0, 300)); }
+            sql += " GROUP BY item ORDER BY score DESC, hits DESC LIMIT ?"; params.push(n);
+            const rows = await cfD1Query(env, uuid, sql, params);
+            return Response.json({ ok: true, window: url.searchParams.get("window") || "24h", top: rows.map((r, i) => ({ rank: i + 1, item: r.item, score: r.score, hits: r.hits })) });
+          }
+          // PRUNE (admin).
+          if (!seg && request.method === "DELETE") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            let cutoff;
+            const before = url.searchParams.get("before");
+            if (before && before.trim()) { const ts = Date.parse(before); if (isNaN(ts)) return Response.json({ ok: false, error: "bad before timestamp" }, { status: 400 }); cutoff = new Date(ts).toISOString(); }
+            else cutoff = new Date(Date.now() - 30 * 86400000).toISOString();
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _trending WHERE at < ?", [cutoff]);
+            return Response.json({ ok: true, deleted: ex.changes || 0, cutoff });
+          }
+          return Response.json({ ok: false, error: "unsupported trending request" }, { status: 405 });
+        } catch (e) { console.error("trending failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "trending failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
