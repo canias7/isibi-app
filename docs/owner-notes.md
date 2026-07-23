@@ -6661,6 +6661,20 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — points ledger · generic leaderboards · daily-reward claim (data API, next-100 gamification)
+- **`/points`** — per-member karma/XP/coin balance backed by an APPEND-ONLY ledger (balance = SUM(delta),
+  never overwritten). Admin `/award {user,amount,reason}` (amount may be negative), member `/me`, admin
+  `/<userId>`, public `/leaderboard` (GROUP BY SUM, zero balances excluded). Separate from billing credits.
+  `_points_ledger` in GDPR erase. batch217 (17/17).
+- **`/leaderboards/<board>`** — a ranked board over ANY metric. Admin defines a board with a mode (max/sum/
+  last); member `/submit {score}` applies the mode atomically via `ON CONFLICT DO UPDATE` (`MAX(existing,
+  excluded)` / `+` / overwrite — verified MAX() 2-arg works in node:sqlite); public read → `{top, players,
+  mine:{score,rank}}`. `_leaderboard_scores` in GDPR erase. batch218 (18/18).
+- **`/daily`** — once-per-UTC-day claim with a consecutive-day streak. `POST /daily/claim` → 409 if already
+  today; yesterday's claim grows the streak, a gap resets to 1; reward = 10×min(streak,7). `GET /daily`
+  peeks. `_daily_claims` in GDPR erase. batch219 (21/21, days simulated white-box via last_claim_date).
+- Full suite 202 green.
+
 ## 2026-07-23 — lead capture · deal pipeline (kanban) · newsletter opt-in (data API, next-100 CRM batch)
 - **`/leads`** — PUBLIC form capture (no auth, hard rate-limit 20/min, needs name|email|phone, email
   validated) → staff triage. Admin list (status/min_score/sort=score|new), `/leads/<id>/score {by}` atomic
