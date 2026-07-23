@@ -4587,6 +4587,14 @@ async function ensureComments(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_comments_row ON _comments (table_name, row_id, created_at)"); } catch {}
   _commentsReady.add(uuid);
 }
+// Surveys / NPS / CSAT — one numeric response per member per survey (re-submit upserts). The aggregate
+// KIND (nps / csat / avg) is a read-time lens over the stored raw scores. Ensured once per isolate.
+const _surveysReady = new Set();
+async function ensureSurveys(env, uuid) {
+  if (_surveysReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _survey_responses (survey TEXT NOT NULL, user_id INTEGER NOT NULL, score INTEGER NOT NULL, comment TEXT, created_at TEXT, updated_at TEXT, PRIMARY KEY (survey, user_id))");
+  _surveysReady.add(uuid);
+}
 // The DEFAULT row-visibility suffix for a table (param-free): hide trashed / expired / not-yet-published
 // / archived rows — IDENTICAL to the list read's visClause. ANDed into a saved search's base so a stored
 // query can never re-widen visibility (buildD1List ignores the withTrashed/withScheduled/… params).
@@ -9344,6 +9352,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _checkins WHERE user_id=?", [u.id]],                               // daily check-in streaks
             ["DELETE FROM _reminders WHERE user_id=?", [u.id]],                              // reminders
             ["DELETE FROM _comments WHERE user_id=?", [u.id]],                               // threaded comments
+            ["DELETE FROM _survey_responses WHERE user_id=?", [u.id]],                       // survey/NPS responses
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -11010,6 +11019,79 @@ async function handleRequest(request, env, ctx) {
             : { id: r.id, parent_id: r.parent_id, user_id: r.user_id, body: r.body, deleted: false, created_at: r.created_at, updated_at: r.updated_at });
           return Response.json({ ok: true, table, row: rowId, comments: thread });
         } catch (e) { console.error("comments failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "comments failed" }, { status: 502 }); }
+      }
+      // SURVEYS / NPS / CSAT — one numeric response per member per survey (re-submit upserts). A member
+      // submits + reads THEIR OWN; the aggregate + individual responses are ADMIN (they expose others'
+      // scores). The aggregate KIND is a read-time lens over the raw scores.
+      //   POST   /api/db/<slug>/surveys/<survey> {score, comment?, max?}  → upsert my response (member)
+      //   GET    /api/db/<slug>/surveys/<survey>/mine                     → my response or null (member)
+      //   DELETE /api/db/<slug>/surveys/<survey>/mine                     → withdraw mine (member)
+      //   GET    /api/db/<slug>/surveys/<survey>/summary[?kind=nps|csat|avg]  → aggregate (ADMIN)
+      //   GET    /api/db/<slug>/surveys/<survey>/responses[?limit=&offset=]   → individual responses (ADMIN)
+      const svym = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/surveys\/([A-Za-z0-9_.:-]{1,60})(?:\/(mine|summary|responses))?$/i);
+      if (svym && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = svym[1].toLowerCase(), survey = svym[2], sub = svym[3] ? svym[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureSurveys(env, uuid);
+          // SUBMIT (upsert my response).
+          if (!sub && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|svw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            let max = body.max != null && body.max !== "" ? Math.floor(Number(body.max)) : 10;
+            if (!Number.isFinite(max) || max < 1 || max > 100) max = 10;
+            const score = Math.floor(Number(body.score));
+            if (!Number.isFinite(score) || score < 0 || score > max) return Response.json({ ok: false, error: "score must be an integer 0–" + max }, { status: 400 });
+            const comment = body.comment != null && body.comment !== "" ? String(body.comment).slice(0, 2000) : null;
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _survey_responses (survey, user_id, score, comment, created_at, updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(survey, user_id) DO UPDATE SET score=excluded.score, comment=excluded.comment, updated_at=excluded.updated_at", [survey, userId, score, comment, now, now]);
+            return Response.json({ ok: true, survey, score, comment });
+          }
+          // MINE — my own response (member).
+          if (sub === "mine") {
+            if (request.method === "DELETE") {
+              const ex = await cfD1Exec(env, uuid, "DELETE FROM _survey_responses WHERE survey=? AND user_id=?", [survey, userId]);
+              if (!ex.changes) return Response.json({ ok: false, error: "no response to withdraw" }, { status: 404 });
+              return Response.json({ ok: true, withdrawn: true });
+            }
+            if (request.method !== "GET") return Response.json({ ok: false, error: "GET or DELETE" }, { status: 405 });
+            const row = (await cfD1Query(env, uuid, "SELECT survey, score, comment, created_at, updated_at FROM _survey_responses WHERE survey=? AND user_id=?", [survey, userId]))[0];
+            return Response.json({ ok: true, survey, response: row || null });
+          }
+          // Everything below is ADMIN (exposes other members' scores).
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          // SUMMARY — an aggregate lens over the raw scores.
+          if (sub === "summary") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|svs", 300)) return tooMany();
+            const kind = String(url.searchParams.get("kind") || "nps").toLowerCase();
+            const a = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n, AVG(score) AS avg, SUM(CASE WHEN score>=9 THEN 1 ELSE 0 END) AS promoters, SUM(CASE WHEN score BETWEEN 7 AND 8 THEN 1 ELSE 0 END) AS passives, SUM(CASE WHEN score<=6 THEN 1 ELSE 0 END) AS detractors, SUM(CASE WHEN score>=4 THEN 1 ELSE 0 END) AS satisfied FROM _survey_responses WHERE survey=?", [survey]))[0];
+            const n = (a && a.n) || 0;
+            if (kind === "csat") return Response.json({ ok: true, survey, kind, responses: n, average: n ? Math.round(a.avg * 100) / 100 : 0, satisfied: (a && a.satisfied) || 0, csat_pct: n ? Math.round(((a.satisfied || 0) / n) * 10000) / 100 : 0 });
+            if (kind === "avg") return Response.json({ ok: true, survey, kind, responses: n, average: n ? Math.round(a.avg * 100) / 100 : 0 });
+            const promoters = (a && a.promoters) || 0, detractors = (a && a.detractors) || 0;
+            return Response.json({ ok: true, survey, kind: "nps", responses: n, promoters, passives: (a && a.passives) || 0, detractors, nps: n ? Math.round(((promoters - detractors) / n) * 100) : 0 });
+          }
+          // RESPONSES — the individual responses (admin).
+          if (sub === "responses") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|svr", 300)) return tooMany();
+            const lim = Math.min(500, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+            const off = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10) || 0);
+            const rows = await cfD1Query(env, uuid, "SELECT user_id, score, comment, created_at, updated_at FROM _survey_responses WHERE survey=? ORDER BY updated_at DESC LIMIT ? OFFSET ?", [survey, lim, off]);
+            return Response.json({ ok: true, survey, responses: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported surveys request" }, { status: 405 });
+        } catch (e) { console.error("surveys failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "surveys failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
