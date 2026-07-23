@@ -6661,6 +6661,19 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — content syndication (sitemap+RSS) · back-in-stock notify · recurring expander (data API, next-100)
+- **`/syndication` + `/sitemap.xml` + `/rss.xml`** — admin registers URLs (`_syndication`, upsert by url);
+  public `/sitemap.xml` (urlset/loc/lastmod/priority) + `/rss.xml` (RSS 2.0, `?title=&link=&desc=`), both via
+  a new `xmlEscape` helper. `/feed` was taken (timeline) so the store is `/syndication`. No user scope.
+  batch235 (22/22).
+- **`/notify-me/<item>`** — back-in-stock/price-drop waitlist. Public subscribe {email,kind} (dedup on
+  (item,email,kind), re-arm clears notified_at), unsubscribe; admin lists pending + `/fire` marks all
+  pending notified and RETURNS the emails to send (fire-once-per-person). `_notify_subs` erased by email.
+  batch236 (17/17).
+- **`/recurring/expand`** — STATELESS RRULE-lite. daily/weekly/monthly × interval, count/until bounds,
+  byweekday (weekly), from/to window, limit≤366. Guarded loop (100k cap). No table. batch237 (22/22).
+- Full suite 220 green.
+
 ## 2026-07-23 — A/B significance · TOC/anchor index · email open/click tracking (data API, next-100)
 - **`/stats/significance`** — STATELESS two-proportion z-test. POST a/b {visitors,conversions} → rates,
   uplift, z, two-tailed p_value (via `normalCdf` A-S erf approx, ~1e-7), significant + winner at a
