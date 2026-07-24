@@ -8075,3 +8075,17 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   numbers are understated by a NEW harness bug — 3 of 4 Sonnet streamed responses returned files=[NONE]/empty text
   despite 32k billed out (streaming-parser glitch on some responses; Opus run was clean). Cost ~$4.53 (CI run
   30098163900). New harness knobs: EVAL_STREAM, EVAL_DUMP (prints per-prompt hitCap/hasApp/tailOpen + file list).
+
+- **2026-07-24 — CHUNKED BUILD, step 1 of N: the build planner (builder/build-plan.mjs).** After proving single-shot
+  dead-ends even bounded (the ~16k fixed overhead — scaffolding + shared component library + Home + SignIn — eats
+  the budget before feature pages, so pages get starved/truncated; and page sizes vary 2× run-to-run so estimation
+  alone can't save it), the direction is the owner's: the OUTPUT CAP governs EVERY step of the pipeline, and the
+  planner lays out the whole build as cap-sized steps so each FINISHES. `buildPlan(spec, cap)` takes the FULL app
+  (never shrunk) and emits an ordered plan: step 1 = SHELL (scaffold + components + Home + SignIn, ~16k, built
+  ONCE), steps 2..N = feature pages BIN-PACKED into groups each ≤ cap*0.85 (run as EDITS onto the shell, so they
+  only output their own pages — no shell re-payment), + an Admin step. Per-page cost estimated from each capability's
+  route count (heavy CRUD vs light read). Demo: the full 8-cap CRM → 5 steps at 25k, each under budget (was: one
+  32k blob that truncated). NEXT: the executor (shell build → page-edit loop, MEASURING real tokens after the shell
+  to re-bin remaining pages — estimate to plan, measure to correct), then an eval run (does the chunked CRM finish +
+  compile?), then wire into worker behind a flag. Also still open: the intermittent Sonnet files=[NONE]/empty-output
+  flake (diag logging now armed in pipeline-eval to catch it next occurrence).
