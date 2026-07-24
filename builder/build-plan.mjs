@@ -1,74 +1,76 @@
-// build-plan.mjs — turns a FULL app spec + a per-step output cap into an ordered BUILD PLAN: a sequence of steps
-// each guaranteed to fit under the cap, so every step FINISHES and nothing truncates. The app is never shrunk —
-// a bigger app just becomes more steps.
+// build-plan.mjs — splits ONE shared output budget (the cap) across the build's steps so the SUM of all steps ≤ cap.
+// The cap is the TOTAL output for the whole build, not a per-step limit: each step gets a SLICE of the budget, and
+// the slices add up to the cap. Same total output as a single-shot, but split into small steps that each finish
+// reliably (no truncation, no empty-output flake) instead of one fragile giant call.
 //
-// Step 1 is the SHELL: scaffolding (index.html, config, main, API client, auth/toast context, router) + the shared
-// component library + Home + SignIn. That's the big fixed overhead (~16k tokens observed) — and it's built ONCE.
-// Steps 2..N are PAGE GROUPS: feature pages bin-packed so each group's output stays under the cap. These run as
-// EDITS onto the shell, so each only OUTPUTS its own pages (the components already exist) — cheap, lots of headroom.
-// A final REPAIR budget is reserved per step (schema-fix / fix-loop / vision each get their own capped call at run
-// time; they're not pages, so they're noted, not packed).
+// step 1 (SHELL) — scaffolding + shared component library + Home + SignIn. The big fixed overhead; it gets first
+//   claim on the budget (capped so pages still get room).
+// steps 2..N (PAGES) — feature pages, added as edits onto the shell. Packed into the REMAINING budget; pages that
+//   don't fit are DROPPED (the app is bounded to what the total budget affords — raise the cap for a bigger app).
+// last (ADMIN) — the admin console, if the app has an admin role.
 //
-// The per-page cost is ESTIMATED from each capability's real route count (a 6-route CRUD page is heavy, a 2-route
-// read page is light). It's only a planning estimate — at run time the executor MEASURES actual tokens after the
-// shell step and re-bins the remaining pages, so the plan self-corrects. Estimate to plan, measure to correct.
+// Each step carries `budget` = its max_tokens for that call. Σ step.budget ≤ cap.
 
 import { getCapability } from "./capability-registry.mjs";
 
-// Token model, calibrated to observed builds (JSX ≈ 3.2 chars/token):
-export const SHELL_TOKENS = 16000; // scaffolding + ~15 shared components + Home + SignIn + nav/router, built once
-export const BASE_PAGE = 1800;     // a feature page's floor: layout, header, empty/loading states
-export const PER_ROUTE = 700;      // each endpoint the page drives ≈ a fetch + the UI (form/row/action) around it
-export const SAFETY = 0.85;        // leave headroom so estimate error doesn't push a step over the real cap
+export const SHELL_TOKENS = 16000; // scaffolding + ~15 shared components + Home + SignIn + nav/router
+export const BASE_PAGE = 1800;     // a feature page's floor
+export const PER_ROUTE = 700;      // each endpoint the page drives
+export const STEP_MAX = 9000;      // soft ceiling per step (keeps each call small + reliable, well under any wall)
+export const SHELL_FRACTION = 0.6; // shell may claim at most this share of the total budget
 
-// pageCost — estimated output tokens to write one feature page, from its capability's route surface.
 export function pageCost(capId, capFn = getCapability) {
   const c = capFn(capId);
   const routes = (c && Array.isArray(c.routes) && c.routes.length) || 3;
   return BASE_PAGE + routes * PER_ROUTE;
 }
 
-// buildPlan(spec, cap, opts) → { ok, cap, budget, steps, stepCount, warnings }
-//   steps: ordered [{ kind:'shell'|'pages'|'admin', ... , tokens }]. Every step's tokens ≤ budget (= cap*SAFETY),
-//   except a shell that's inherently bigger than the cap (flagged as a warning — the cap is too small to build).
+// buildPlan(spec, cap, opts) → { ok, cap, total, steps, stepCount, included, dropped, warnings }
+//   cap = TOTAL output budget for the whole build. steps each carry `budget` (their max_tokens); Σ budget ≤ cap.
 export function buildPlan(spec, cap, opts = {}) {
   const capFn = opts.capFn || getCapability;
-  const shellTokens = opts.shellTokens || SHELL_TOKENS;
+  const shellEst = opts.shellTokens || SHELL_TOKENS;
+  const stepMax = opts.stepMax || STEP_MAX;
   if (!spec || !Array.isArray(spec.capabilities)) return { ok: false, error: "invalid spec" };
-  const budget = Math.floor(cap * SAFETY);
   const warnings = [];
-  const steps = [];
 
-  // Step 1 — the shell (built once). If it alone exceeds the budget, the cap can't build a real app; flag it but
-  // still emit the step (the executor will stream it and take whatever fits, same as today's single-shot floor).
-  if (shellTokens > budget) warnings.push(`shell (~${shellTokens} tok) exceeds the per-step budget (${budget}); raise the cap`);
-  steps.push({ kind: "shell", tokens: shellTokens, includes: ["scaffolding", "components", "Home", "SignIn", "nav", "router"] });
+  // Shell gets first claim, but capped to a share of the total so feature pages have room.
+  const shellBudget = Math.min(shellEst, Math.max(1, Math.floor(cap * SHELL_FRACTION)));
+  if (shellBudget < shellEst) warnings.push(`shell squeezed to ${shellBudget} tok of its ~${shellEst} need — the total cap (${cap}) is tight, so the shell itself may be thin`);
+  const steps = [{ kind: "shell", budget: shellBudget, includes: ["scaffolding", "components", "Home", "SignIn", "nav", "router"] }];
 
-  // Steps 2..N — bin-pack feature pages into groups, each group's OUTPUT ≤ budget. (Edits onto the shell only emit
-  // their own pages, so a group's cost is just the sum of its pages — no shell re-payment.)
+  // Reserve for the admin console (if any), then pack feature pages into whatever budget remains.
   const admin = (spec.roles || []).includes("admin");
-  const feats = spec.capabilities.map((id) => ({ id, tokens: pageCost(id, capFn) }));
-  let group = [], groupTokens = 0;
-  const flush = () => { if (group.length) { steps.push({ kind: "pages", pages: group.map((g) => g.id), tokens: groupTokens }); group = []; groupTokens = 0; } };
-  for (const f of feats) {
-    // A single page heavier than the whole budget still gets its own step (best effort); note it.
-    if (f.tokens > budget) warnings.push(`page "${f.id}" (~${f.tokens} tok) is heavier than one step's budget (${budget})`);
-    if (group.length && groupTokens + f.tokens > budget) flush();
-    group.push(f); groupTokens += f.tokens;
+  const adminCost = admin ? Math.min(stepMax, BASE_PAGE + 4 * PER_ROUTE) : 0;
+  let pageBudget = cap - shellBudget - adminCost;
+  const included = [], dropped = [];
+  for (const id of spec.capabilities) {
+    const cost = pageCost(id, capFn);
+    if (pageBudget - cost < 0) { dropped.push(id); continue; }
+    pageBudget -= cost; included.push({ id, cost });
   }
+
+  // Group the included pages so each step's budget ≤ stepMax (small, reliable calls).
+  let group = [], gt = 0;
+  const flush = () => { if (group.length) { steps.push({ kind: "pages", pages: group.map((g) => g.id), budget: gt }); group = []; gt = 0; } };
+  for (const p of included) { if (group.length && gt + p.cost > stepMax) flush(); group.push(p); gt += p.cost; }
   flush();
 
-  // Admin console (if any admin role) — its own edit step; it's often heavy (observed ~3k+).
-  if (admin) steps.push({ kind: "admin", pages: ["Admin"], tokens: BASE_PAGE + 4 * PER_ROUTE });
+  if (admin) steps.push({ kind: "admin", pages: ["Admin"], budget: adminCost });
 
-  return { ok: true, cap, budget, steps, stepCount: steps.length, warnings };
+  const total = steps.reduce((s, x) => s + x.budget, 0);
+  if (dropped.length) warnings.push(`${dropped.length} page(s) dropped to keep the whole build ≤ ${cap} total: ${dropped.join(", ")} — raise the cap to include them`);
+  return { ok: true, cap, total, budget: cap, steps, stepCount: steps.length, included: included.map((x) => x.id), dropped, warnings };
 }
 
-// planSummary — one-line-per-step human view of a plan (for logs / the live build UI).
+// planSummary — human view: each step's slice + the running total, showing Σ ≤ cap.
 export function planSummary(plan) {
   if (!plan || !plan.ok) return "(no plan)";
-  return plan.steps.map((s, i) => {
+  let run = 0;
+  const lines = plan.steps.map((s, i) => {
+    run += s.budget;
     const what = s.kind === "shell" ? "shell (scaffold + components + Home + SignIn)" : s.kind === "admin" ? "Admin console" : "pages: " + s.pages.join(", ");
-    return `  step ${i + 1} — ${what}  (~${s.tokens} tok ≤ ${plan.budget})`;
-  }).join("\n");
+    return `  step ${i + 1} — ${what}  [budget ${s.budget}, running ${run}]`;
+  });
+  return lines.join("\n") + `\n  Σ = ${plan.total} ≤ cap ${plan.cap}` + (plan.dropped.length ? `  (dropped: ${plan.dropped.join(", ")})` : "");
 }

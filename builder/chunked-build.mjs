@@ -12,7 +12,6 @@
 // so it unit-tests at $0 with a mock generate.
 
 import { buildPlan } from "./build-plan.mjs";
-import { pageCost } from "./build-plan.mjs";
 import { parseGeneratedFiles, REACT_RULES, REACT_REVISE_RULES } from "./react-gen.mjs";
 import { getCapability } from "./capability-registry.mjs";
 
@@ -63,59 +62,32 @@ function pagesPrompt(brief, capIds, files, label) {
     "shared components or any other page.\n\n" + existingContext(files);
 }
 
-// rebinRemaining — after the shell's real size is known, re-pack the not-yet-built feature caps into groups that fit
-// the TRUE remaining budget (cap*SAFETY per step — each edit only outputs its own pages, so the shell size doesn't
-// reduce a later step's budget; this mainly recovers when the estimate was off, keeping groups ≤ budget).
-function rebinRemaining(capIds, budget) {
-  const groups = [];
-  let g = [], t = 0;
-  for (const id of capIds) {
-    const c = pageCost(id);
-    if (g.length && t + c > budget) { groups.push(g); g = []; t = 0; }
-    g.push(id); t += c;
-  }
-  if (g.length) groups.push(g);
-  return groups;
-}
-
-// runChunkedBuild(brief, spec, cap, deps, opts) → { ok, files, plan, steps:[{step,kind,out,files}], tokens }
+// runChunkedBuild(brief, spec, cap, deps, opts) → { ok, files, plan, steps:[{step,kind,budget,out,files}], tokens }
+// Runs the plan from buildPlan: each step is a generate call whose max_tokens is that step's budget slice, so the
+// SUM of all steps' output stays within the cap. deps.generate(system, user, maxTokens) — the third arg is the
+// step's budget. Dropped pages (over the total budget) are simply never built.
 export async function runChunkedBuild(brief, spec, cap, deps, opts = {}) {
   if (!deps || typeof deps.generate !== "function") return { ok: false, error: "deps.generate required" };
   const plan = buildPlan(spec, cap, opts);
   if (!plan.ok) return { ok: false, error: plan.error || "plan failed" };
-  const budget = plan.budget;
   let files = {};
   let totIn = 0, totInCached = 0, totOut = 0;
   const steps = [];
-  const record = (kind, g, f) => {
+  const record = (kind, budget, g, f) => {
     totIn += g.usedIn || 0; totInCached += g.usedInCached || 0; totOut += g.usedOut || 0;
-    const rec = { step: steps.length + 1, kind, out: g.usedOut || 0, files: Object.keys(f) };
+    const rec = { step: steps.length + 1, kind, budget, out: g.usedOut || 0, files: Object.keys(f) };
     steps.push(rec); if (opts.onStep) opts.onStep(rec);
   };
 
-  // Step 1 — the shell.
-  {
-    const g = await deps.generate(opts.shellRules || REACT_RULES, shellPrompt(brief, spec));
+  for (const step of plan.steps) {
+    let system, user;
+    if (step.kind === "shell") { system = opts.shellRules || REACT_RULES; user = shellPrompt(brief, spec); }
+    else if (step.kind === "admin") { system = opts.editRules || REACT_REVISE_RULES; user = pagesPrompt(brief, [], files, "an Admin console page (src/pages/Admin.jsx) that manages the app's data (list/create/edit/delete across the admin-only endpoints)"); }
+    else { system = opts.editRules || REACT_REVISE_RULES; user = pagesPrompt(brief, step.pages, files, "these feature pages: " + step.pages.map(pascal).join(", ")); }
+    const g = await deps.generate(system, user, step.budget);
     const f = parseGeneratedFiles(g.text || "");
     for (const [p, v] of Object.entries(f)) files[p] = v;
-    record("shell", g, f);
-  }
-
-  // Steps 2..N — feature pages, re-binned against the true budget, added as edits onto the shell.
-  const featCaps = (spec.capabilities || []).slice();
-  for (const group of rebinRemaining(featCaps, budget)) {
-    const g = await deps.generate(opts.editRules || REACT_REVISE_RULES, pagesPrompt(brief, group, files, "these feature pages: " + group.map(pascal).join(", ")));
-    const f = parseGeneratedFiles(g.text || "");
-    for (const [p, v] of Object.entries(f)) files[p] = v;
-    record("pages", g, f);
-  }
-
-  // Admin console (its own edit) when the app has an admin role.
-  if ((spec.roles || []).includes("admin")) {
-    const g = await deps.generate(opts.editRules || REACT_REVISE_RULES, pagesPrompt(brief, [], files, "an Admin console page (src/pages/Admin.jsx) that manages the app's data (list/create/edit/delete across the admin-only endpoints)"));
-    const f = parseGeneratedFiles(g.text || "");
-    for (const [p, v] of Object.entries(f)) files[p] = v;
-    record("admin", g, f);
+    record(step.kind, step.budget, g, f);
   }
 
   const ok = !!(files["index.html"] && files["src/App.jsx"] && files["src/main.jsx"]);

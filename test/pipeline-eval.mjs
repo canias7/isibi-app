@@ -242,9 +242,9 @@ export function formatCompare(runs, opts = {}) {
 // are the real thing. usedIn counts fresh input tokens only (cache reads are billed at ~1/10 and reported apart),
 // so the est. cost reflects post-cache spend.
 export function makeAnthropicGenerate(apiKey, model = "claude-sonnet-5", fetchImpl = fetch, maxOut = 32000, stream = false) {
-  return async (system, user) => {
+  return async (system, user, maxTokensOverride) => {
     const body = {
-      model, max_tokens: maxOut, stream,
+      model, max_tokens: maxTokensOverride || maxOut, stream,
       system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: user }],
     };
@@ -345,9 +345,10 @@ export async function runEvalCLI() {
   // vs finished-but-broken vs a parser miss, instead of trusting the pass/fail flags alone.
   const dump = process.env.EVAL_DUMP === "1";
   let dumpN = 0;
-  const withDump = (gen, maxOut) => async (system, user) => {
-    const g = await gen(system, user);
+  const withDump = (gen, maxOut) => async (system, user, maxTokens) => {
+    const g = await gen(system, user, maxTokens);
     if (dump) {
+      const cap = maxTokens || maxOut; // the actual ceiling for THIS call (a chunked step passes its own budget)
       const files = parseGeneratedFiles(g.text || "");
       const names = Object.keys(files);
       const sizes = names.map((n) => `${n}(${files[n].length}c)`).join(", ") || "NONE";
@@ -356,11 +357,11 @@ export async function runEvalCLI() {
       //  hitCap  → output pinned at the token ceiling = truncated at the cap
       //  hasApp  → the essential src/App.jsx block parsed out
       //  tailOpen→ the response ends mid-expression (also a truncation tell, independent of the cap)
-      const hitCap = g.usedOut >= Math.floor(maxOut * 0.98);
+      const hitCap = g.usedOut >= Math.floor(cap * 0.98);
       const hasApp = names.includes("src/App.jsx");
       const tailOpen = /[{([,=+\-*/<>&|:]$/.test(raw);
       const label = (prompts[dumpN] || "?").slice(0, 46);
-      console.error(`\n[DUMP ${dumpN + 1}] "${label}"\n  out=${g.usedOut}/${maxOut}${hitCap ? " HIT-CAP" : ""} in=${g.usedIn} cached=${g.usedInCached} | hasApp=${hasApp} tailOpen=${tailOpen} | files=[${sizes}]\n  tail: …${raw.slice(-140).replace(/\n/g, "⏎")}`);
+      console.error(`\n[DUMP ${dumpN + 1}] "${label}"\n  out=${g.usedOut}/${cap}${hitCap ? " HIT-CAP" : ""} in=${g.usedIn} cached=${g.usedInCached} | hasApp=${hasApp} tailOpen=${tailOpen} | files=[${sizes}]\n  tail: …${raw.slice(-140).replace(/\n/g, "⏎")}`);
       dumpN++;
     }
     return g;
