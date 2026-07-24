@@ -6,9 +6,9 @@ import { cx } from '../lib/cx.js'
 export default function PricingCard({ name, price, period = '/mo', description, features = [], cta = 'Get started', onSelect, featured = false, badge, className }) {
   return (
     <div className={cx('relative flex flex-col rounded-xl2 border p-6',
-      featured ? 'border-brand-500 bg-white shadow-soft ring-1 ring-brand-500' : 'border-ink-100 bg-white', className)}>
+      featured ? 'border-brand-500 bg-surface shadow-soft ring-1 ring-brand-500' : 'border-ink-100 bg-surface', className)}>
       {badge && (
-        <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-brand-500 px-3 py-1 text-xs font-semibold text-white">{badge}</span>
+        <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-brand-500 px-3 py-1 text-xs font-semibold text-brandfg">{badge}</span>
       )}
       <p className="font-display text-sm font-semibold uppercase tracking-wider text-ink-500">{name}</p>
       <p className="mt-3 flex items-baseline gap-1">

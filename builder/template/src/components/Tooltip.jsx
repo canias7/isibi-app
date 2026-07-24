@@ -16,7 +16,7 @@ export default function Tooltip({ label, side = 'top', children, className }) {
       {children}
       {show && (
         <span role="tooltip"
-          className={cx('pointer-events-none absolute z-40 whitespace-nowrap rounded-lg bg-ink-900 px-2.5 py-1.5 text-xs font-medium text-white shadow', pos[side])}>
+          className={cx('pointer-events-none absolute z-40 whitespace-nowrap rounded-lg bg-ink-900 px-2.5 py-1.5 text-xs font-medium text-canvas shadow', pos[side])}>
           {label}
         </span>
       )}

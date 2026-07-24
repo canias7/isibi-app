@@ -73,3 +73,132 @@ export function scaffoldRouting(files) {
   out["src/App.jsx"] = appModule(pages);
   return { files: out, pages };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THEMING — the 72 components are written against SEMANTIC tokens (ink-50..900,
+// brand-50..900, accent-*, canvas, surface, brandfg, font-display/sans, shadow-soft,
+// rounded-xl2). The token NAMES never change; only their VALUES do. So we can give
+// every app its own palette without touching a single component — generated in code,
+// $0, from the style family the planner already picks.
+//
+// The ink ramp is SEMANTIC, not literal: ink-50 is always "faintest fill" and ink-900
+// is always "strongest text". On a dark family the ramp inverts, so `text-ink-900`
+// stays readable and `bg-ink-100` stays a subtle fill — with no component changes.
+
+const hex2rgb = (h) => {
+  const s = String(h).replace('#', '');
+  const n = s.length === 3 ? s.split('').map((c) => c + c).join('') : s;
+  return [parseInt(n.slice(0, 2), 16), parseInt(n.slice(2, 4), 16), parseInt(n.slice(4, 6), 16)];
+};
+const rgb2hex = (r, g, b) => '#' + [r, g, b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+
+function rgb2hsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h;
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0));
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return [h / 6, s, l];
+}
+function hsl2rgb(h, s, l) {
+  if (s === 0) { const v = l * 255; return [v, v, v]; }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const f = (t) => {
+    if (t < 0) t += 1; if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  return [f(h + 1 / 3) * 255, f(h) * 255, f(h - 1 / 3) * 255];
+}
+
+// ramp(baseHex, lightnesses, satScale) → a 50..900 scale that keeps the base hue.
+function ramp(baseHex, stops, satAdjust = []) {
+  const [h, s] = rgb2hsl(...hex2rgb(baseHex));
+  const keys = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900];
+  const out = {};
+  keys.forEach((k, i) => {
+    const sat = Math.max(0, Math.min(1, s * (satAdjust[i] ?? 1)));
+    out[k] = rgb2hex(...hsl2rgb(h, sat, stops[i]));
+  });
+  return out;
+}
+
+// isDark(hex) — relative luminance test, used to decide whether the ink ramp inverts.
+export function isDark(hex) {
+  const [r, g, b] = hex2rgb(hex).map((v) => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.4;
+}
+
+// themeFor(family) → the token values for one style family (tokens from design-system.mjs).
+export function themeFor(tokens) {
+  const t = tokens || {};
+  const dark = isDark(t.bg || '#ffffff');
+  // Light theme: ink goes light→dark. Dark theme: the same ramp INVERTED, so ink-900
+  // is still "strongest text" (now near-white) and ink-100 is still a subtle fill.
+  const neutralStops = dark
+    ? [0.14, 0.18, 0.24, 0.34, 0.46, 0.58, 0.68, 0.78, 0.87, 0.95]
+    : [0.975, 0.945, 0.88, 0.76, 0.60, 0.46, 0.36, 0.27, 0.18, 0.10];
+  // Neutrals carry a whisper of the accent hue so they read as chosen, not default grey.
+  const ink = ramp(t.muted || t.text || '#71717a', neutralStops, [0.35, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.8]);
+  const brand = ramp(t.accent || '#4a6df5', dark
+    ? [0.20, 0.26, 0.34, 0.44, 0.54, 0.62, 0.70, 0.78, 0.85, 0.91]
+    : [0.965, 0.925, 0.855, 0.755, 0.66, 0.58, 0.48, 0.39, 0.31, 0.24]);
+  const accent = ramp(t.accent2 || '#f97a17', dark
+    ? [0.22, 0.28, 0.36, 0.46, 0.56, 0.64, 0.72, 0.80, 0.86, 0.92]
+    : [0.965, 0.925, 0.86, 0.76, 0.67, 0.59, 0.50, 0.41, 0.33, 0.26]);
+  return {
+    canvas: t.bg || '#ffffff',
+    surface: t.surface || (dark ? '#16141c' : '#ffffff'),
+    brandfg: t.accentFg || '#ffffff',
+    ink, brand, accent,
+    radius: t.radius || '0.75rem',
+    shadow: t.shadow || '0 1px 2px rgba(0,0,0,.04), 0 8px 24px -12px rgba(0,0,0,.12)',
+    fontDisplay: t.fontDisplay || "system-ui, sans-serif",
+    fontBody: t.fontBody || "system-ui, -apple-system, sans-serif",
+    dark,
+  };
+}
+
+// tailwindConfig(theme) → the generated tailwind.config.js for an app.
+export function tailwindConfig(theme) {
+  const scale = (o) => '{ ' + Object.entries(o).map(([k, v]) => `${k}: '${v}'`).join(', ') + ' }';
+  return `// GENERATED per app — the component library reads these token NAMES; only the values change.
+export default {
+  content: ['./index.html', './src/**/*.{js,jsx}'],
+  theme: {
+    extend: {
+      fontFamily: {
+        display: [${JSON.stringify(theme.fontDisplay).slice(1, -1).split(', ').map((f) => `'${f.replace(/'/g, '')}'`).join(', ')}],
+        sans: [${JSON.stringify(theme.fontBody).slice(1, -1).split(', ').map((f) => `'${f.replace(/'/g, '')}'`).join(', ')}],
+      },
+      colors: {
+        canvas: '${theme.canvas}',
+        surface: '${theme.surface}',
+        brandfg: '${theme.brandfg}',
+        ink: ${scale(theme.ink)},
+        brand: ${scale(theme.brand)},
+        accent: ${scale(theme.accent)},
+      },
+      boxShadow: { soft: '${theme.shadow}' },
+      borderRadius: { xl2: '${theme.radius}' },
+    },
+  },
+  plugins: [],
+}
+`;
+}
+
+// scaffoldTheme(files, tokens) — write the per-app tailwind.config.js into the file set.
+export function scaffoldTheme(files, tokens) {
+  const out = { ...(files || {}) };
+  out['tailwind.config.js'] = tailwindConfig(themeFor(tokens));
+  return out;
+}

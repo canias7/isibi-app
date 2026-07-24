@@ -26,7 +26,7 @@ export default function DataTable({ columns = [], rows = [], loading = false, em
   if (!rows.length) return <EmptyState title="Nothing here yet" message="Records will show up once they're created." className={className} />
 
   return (
-    <div className={cx('overflow-x-auto rounded-xl border border-ink-100 bg-white', className)}>
+    <div className={cx('overflow-x-auto rounded-xl border border-ink-100 bg-surface', className)}>
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-ink-100 bg-ink-50/60">

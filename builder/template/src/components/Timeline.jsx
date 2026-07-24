@@ -6,7 +6,7 @@ export default function Timeline({ items = [], className }) {
     <ol className={cx('relative space-y-6 border-l border-ink-100 pl-6', className)}>
       {items.map((it, i) => (
         <li key={i} className="relative">
-          <span className="absolute -left-[31px] flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-brand-500 text-white">
+          <span className="absolute -left-[31px] flex h-5 w-5 items-center justify-center rounded-full border-2 border-surface bg-brand-500 text-brandfg">
             {it.icon}
           </span>
           <div className="flex flex-wrap items-baseline gap-x-2">

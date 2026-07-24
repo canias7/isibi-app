@@ -9,7 +9,7 @@ export function Radio({ label, hint, name, className, ...props }) {
         id={id}
         name={name}
         type="radio"
-        className="mt-0.5 h-5 w-5 shrink-0 appearance-none rounded-full border border-ink-300 bg-white transition
+        className="mt-0.5 h-5 w-5 shrink-0 appearance-none rounded-full border border-ink-300 bg-surface transition
           checked:border-[6px] checked:border-brand-500
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2
           disabled:cursor-not-allowed disabled:bg-ink-100"

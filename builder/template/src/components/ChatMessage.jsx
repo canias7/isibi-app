@@ -8,7 +8,7 @@ export default function ChatMessage({ author, avatar, body, time, mine = false, 
       {!mine && <Avatar name={author} src={avatar} size="sm" className="shrink-0 self-end" />}
       <div className={cx('max-w-[75%] min-w-0', mine ? 'items-end text-right' : 'items-start')}>
         <div className={cx('inline-block rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed',
-          mine ? 'rounded-br-md bg-brand-500 text-white' : 'rounded-bl-md bg-ink-100 text-ink-800')}>
+          mine ? 'rounded-br-md bg-brand-500 text-brandfg' : 'rounded-bl-md bg-ink-100 text-ink-800')}>
           {body}
         </div>
         <div className={cx('mt-1 flex items-center gap-1.5 text-xs text-ink-400', mine && 'justify-end')}>

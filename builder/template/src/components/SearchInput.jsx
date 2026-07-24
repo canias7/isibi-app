@@ -10,7 +10,7 @@ export default function SearchInput({ value = '', onChange, onClear, placeholder
         value={value}
         onChange={(e) => onChange && onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full rounded-xl border border-ink-200 bg-white py-2.5 pl-9 pr-9 text-sm text-ink-900 placeholder:text-ink-400
+        className="w-full rounded-xl border border-ink-200 bg-surface py-2.5 pl-9 pr-9 text-sm text-ink-900 placeholder:text-ink-400
           focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20
           [&::-webkit-search-cancel-button]:appearance-none"
         {...props}

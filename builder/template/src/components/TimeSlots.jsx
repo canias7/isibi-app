@@ -14,9 +14,9 @@ export default function TimeSlots({ slots = [], value, onChange, label, emptyTex
             <button key={s.time} type="button" disabled={s.taken} onClick={() => onChange && onChange(s.time)}
               className={cx('rounded-xl border px-3 py-2.5 text-sm font-medium tabular-nums transition',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
-                value === s.time ? 'border-brand-500 bg-brand-500 text-white'
+                value === s.time ? 'border-brand-500 bg-brand-500 text-brandfg'
                   : s.taken ? 'cursor-not-allowed border-ink-100 bg-ink-50 text-ink-300 line-through'
-                  : 'border-ink-200 bg-white text-ink-700 hover:border-brand-300 hover:bg-brand-50')}>
+                  : 'border-ink-200 bg-surface text-ink-700 hover:border-brand-300 hover:bg-brand-50')}>
               {s.time}
             </button>
           ))}

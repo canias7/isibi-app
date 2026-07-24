@@ -7,7 +7,7 @@ export default function Accordion({ items = [], allowMultiple = false, className
   const toggle = (i) =>
     setOpen((cur) => (cur.includes(i) ? cur.filter((x) => x !== i) : allowMultiple ? [...cur, i] : [i]))
   return (
-    <div className={cx('divide-y divide-ink-100 rounded-xl border border-ink-100 bg-white', className)}>
+    <div className={cx('divide-y divide-ink-100 rounded-xl border border-ink-100 bg-surface', className)}>
       {items.map((item, i) => {
         const isOpen = open.includes(i)
         return (

@@ -19,7 +19,7 @@ export default function MultiSelect({ options = [], value = [], onChange, label,
     <div ref={box} className={cx('relative', className)}>
       {label && <span className="mb-1.5 block text-sm font-medium text-ink-800">{label}</span>}
       <button type="button" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}
-        className="flex w-full items-center justify-between gap-2 rounded-xl border border-ink-200 bg-white px-3 py-2 text-left
+        className="flex w-full items-center justify-between gap-2 rounded-xl border border-ink-200 bg-surface px-3 py-2 text-left
           focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20">
         <span className="flex min-w-0 flex-wrap gap-1">
           {selected.length === 0 && <span className="py-0.5 text-sm text-ink-400">{placeholder}</span>}
@@ -34,7 +34,7 @@ export default function MultiSelect({ options = [], value = [], onChange, label,
         <ChevronDown size={16} className={cx('shrink-0 text-ink-400 transition', open && 'rotate-180')} />
       </button>
       {open && (
-        <ul role="listbox" className="absolute z-30 mt-1.5 max-h-56 w-full overflow-y-auto rounded-xl border border-ink-100 bg-white py-1 shadow-soft">
+        <ul role="listbox" className="absolute z-30 mt-1.5 max-h-56 w-full overflow-y-auto rounded-xl border border-ink-100 bg-surface py-1 shadow-soft">
           {opts.map((o) => (
             <li key={o.value}>
               <button type="button" role="option" aria-selected={value.includes(o.value)} onClick={() => toggle(o.value)}

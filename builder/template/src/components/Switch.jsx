@@ -22,7 +22,7 @@ export default function Switch({ checked = false, onChange, label, hint, disable
       >
         <span
           className={cx(
-            'inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform',
+            'inline-block h-5 w-5 transform rounded-full bg-surface shadow transition-transform',
             checked ? 'translate-x-[22px]' : 'translate-x-0.5'
           )}
         />

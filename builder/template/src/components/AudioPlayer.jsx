@@ -18,7 +18,7 @@ export default function AudioPlayer({ src, title, subtitle, className }) {
   return (
     <div className={cx('card-surface flex items-center gap-4 p-4', className)}>
       <button type="button" onClick={toggle} aria-label={playing ? 'Pause' : 'Play'}
-        className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-brand-500 text-white transition hover:bg-brand-600">
+        className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-brand-500 text-brandfg transition hover:bg-brand-600">
         {playing ? <Pause size={18} /> : <Play size={18} className="ml-0.5" />}
       </button>
       <div className="min-w-0 flex-1">

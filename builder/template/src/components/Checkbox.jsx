@@ -14,14 +14,14 @@ const Checkbox = forwardRef(function Checkbox(
           ref={ref}
           id={id}
           type="checkbox"
-          className="peer h-5 w-5 appearance-none rounded-md border border-ink-300 bg-white transition
+          className="peer h-5 w-5 appearance-none rounded-md border border-ink-300 bg-surface transition
             checked:border-brand-500 checked:bg-brand-500
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2
             disabled:cursor-not-allowed disabled:bg-ink-100"
           aria-describedby={hint || error ? `${id}-d` : undefined}
           {...props}
         />
-        <span className="pointer-events-none absolute text-white opacity-0 peer-checked:opacity-100">
+        <span className="pointer-events-none absolute text-brandfg opacity-0 peer-checked:opacity-100">
           {indeterminate ? <Minus size={14} strokeWidth={3} /> : <Check size={14} strokeWidth={3} />}
         </span>
       </span>

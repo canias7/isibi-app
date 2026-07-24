@@ -31,7 +31,7 @@ export default function Countdown({ to, onComplete, compact = false, className }
     <div className={cx('flex gap-3', className)}>
       {parts.map((p) => (
         <div key={p.label} className="min-w-16 rounded-xl bg-ink-900 px-3 py-2.5 text-center">
-          <div className="font-display text-2xl font-bold tabular-nums text-white">{String(p.value).padStart(2, '0')}</div>
+          <div className="font-display text-2xl font-bold tabular-nums text-canvas">{String(p.value).padStart(2, '0')}</div>
           <div className="text-[10px] uppercase tracking-wider text-ink-400">{p.label}</div>
         </div>
       ))}

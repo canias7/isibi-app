@@ -13,7 +13,7 @@ export default function TagInput({ value = [], onChange, label, placeholder = 'A
   return (
     <div className={className}>
       {label && <span className="mb-1.5 block text-sm font-medium text-ink-800">{label}</span>}
-      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-2.5 py-2 focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-500/20">
+      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-ink-200 bg-surface px-2.5 py-2 focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-500/20">
         {value.map((t) => (
           <span key={t} className="inline-flex items-center gap-1 rounded-lg bg-brand-100 px-2 py-1 text-xs font-medium text-brand-700">
             {t}

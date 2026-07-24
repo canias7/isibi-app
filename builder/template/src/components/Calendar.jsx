@@ -38,7 +38,7 @@ export default function Calendar({ value, onChange, marks = {}, minDate, classNa
             <button key={ds} type="button" disabled={disabled} onClick={() => onChange && onChange(ds)}
               className={cx(
                 'relative aspect-square rounded-lg text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
-                selected ? 'bg-brand-500 font-medium text-white'
+                selected ? 'bg-brand-500 font-medium text-brandfg'
                   : disabled ? 'cursor-not-allowed text-ink-300'
                   : 'text-ink-700 hover:bg-ink-100',
                 !selected && ds === today && 'font-semibold text-brand-600'

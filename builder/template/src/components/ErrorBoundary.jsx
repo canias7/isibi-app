@@ -25,7 +25,7 @@ export default class ErrorBoundary extends Component {
         <h2 className="mt-4 font-display text-lg font-semibold text-ink-900">Something went wrong</h2>
         <p className="mt-1.5 text-sm text-ink-500">This section failed to load. Try refreshing the page.</p>
         <button type="button" onClick={() => this.setState({ failed: false })}
-          className="mt-5 rounded-xl bg-ink-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-ink-800">
+          className="mt-5 rounded-xl bg-ink-900 px-4 py-2 text-sm font-medium text-canvas transition hover:bg-ink-800">
           Try again
         </button>
       </div>

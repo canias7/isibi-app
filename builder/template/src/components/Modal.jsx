@@ -42,7 +42,7 @@ export default function Modal({ open, onClose, title, children, footer, size = '
       <div
         ref={ref}
         className={cx(
-          'w-full bg-white rounded-2xl shadow-xl border border-ink-100 max-h-[90vh] flex flex-col',
+          'w-full bg-surface rounded-2xl shadow-xl border border-ink-100 max-h-[90vh] flex flex-col',
           sizes[size]
         )}
       >

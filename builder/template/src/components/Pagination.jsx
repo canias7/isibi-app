@@ -22,7 +22,7 @@ export default function Pagination({ page = 1, pageCount = 1, onChange, classNam
           <span key={`e${i}`} className="px-1 text-ink-400">…</span>
         ) : (
           <button key={n} type="button" onClick={() => go(n)} aria-current={n === page ? 'page' : undefined}
-            className={cx(btn, n === page ? 'bg-brand-500 font-medium text-white' : 'text-ink-600 hover:bg-ink-100')}>
+            className={cx(btn, n === page ? 'bg-brand-500 font-medium text-brandfg' : 'text-ink-600 hover:bg-ink-100')}>
             {n}
           </button>
         )

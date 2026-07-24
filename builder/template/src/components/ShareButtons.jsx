@@ -21,13 +21,13 @@ export default function ShareButtons({ url, title = '', className }) {
   return (
     <div className={cx('flex flex-wrap items-center gap-2', className)}>
       <button type="button" onClick={share}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-2.5 py-1.5 text-xs font-medium text-ink-600 transition hover:bg-ink-50">
+        className="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 bg-surface px-2.5 py-1.5 text-xs font-medium text-ink-600 transition hover:bg-ink-50">
         {copied ? <Check size={13} className="text-emerald-500" /> : <Link2 size={13} />}
         {copied ? 'Link copied' : 'Share'}
       </button>
       {targets.map((t) => (
         <a key={t.label} href={t.href} target="_blank" rel="noopener noreferrer"
-          className="rounded-lg border border-ink-200 bg-white px-2.5 py-1.5 text-xs font-medium text-ink-600 transition hover:bg-ink-50">
+          className="rounded-lg border border-ink-200 bg-surface px-2.5 py-1.5 text-xs font-medium text-ink-600 transition hover:bg-ink-50">
           {t.label}
         </a>
       ))}

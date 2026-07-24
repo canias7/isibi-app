@@ -9,7 +9,7 @@ export default function AvatarGroup({ people = [], max = 4, size = 'sm', classNa
     <div className={cx('flex items-center', className)}>
       <div className="flex -space-x-2">
         {shown.map((p, i) => (
-          <span key={i} className="rounded-full ring-2 ring-white">
+          <span key={i} className="rounded-full ring-2 ring-surface">
             <Avatar name={p.name || p} src={p.src} size={size} />
           </span>
         ))}

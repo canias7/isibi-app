@@ -4,7 +4,7 @@ import { cx } from '../lib/cx.js'
 // Sidebar — the dashboard shell's left rail. items: [{to, label, icon, badge}] or {section:'Label'}.
 export function Sidebar({ items = [], header, footer, className }) {
   return (
-    <aside className={cx('flex w-60 shrink-0 flex-col border-r border-ink-100 bg-white', className)}>
+    <aside className={cx('flex w-60 shrink-0 flex-col border-r border-ink-100 bg-surface', className)}>
       {header && <div className="border-b border-ink-100 px-4 py-4">{header}</div>}
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-3">
         {items.map((it, i) =>

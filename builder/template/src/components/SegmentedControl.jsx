@@ -10,7 +10,7 @@ export default function SegmentedControl({ options = [], value, onChange, size =
         <button key={o.value} type="button" role="tab" aria-selected={value === o.value}
           onClick={() => onChange && onChange(o.value)}
           className={cx('inline-flex items-center gap-1.5 rounded-lg font-medium transition', pad,
-            value === o.value ? 'bg-white text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-800')}>
+            value === o.value ? 'bg-surface text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-800')}>
           {o.icon}{o.label}
         </button>
       ))}

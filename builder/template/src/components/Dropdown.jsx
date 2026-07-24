@@ -21,7 +21,7 @@ export default function Dropdown({ trigger, items = [], align = 'right', classNa
       {open && (
         <div role="menu"
           className={cx(
-            'absolute z-30 mt-2 min-w-48 overflow-hidden rounded-xl border border-ink-100 bg-white py-1 shadow-soft',
+            'absolute z-30 mt-2 min-w-48 overflow-hidden rounded-xl border border-ink-100 bg-surface py-1 shadow-soft',
             align === 'right' ? 'right-0' : 'left-0'
           )}>
           {items.map((it, i) =>

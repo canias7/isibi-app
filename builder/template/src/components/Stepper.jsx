@@ -12,7 +12,7 @@ export default function Stepper({ steps = [], current = 0, className }) {
           <li key={i} className="flex flex-1 items-center gap-2 last:flex-none">
             <span className={cx(
               'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-medium transition',
-              done ? 'bg-brand-500 text-white' : active ? 'border-2 border-brand-500 bg-white text-brand-700' : 'bg-ink-100 text-ink-400'
+              done ? 'bg-brand-500 text-brandfg' : active ? 'border-2 border-brand-500 bg-surface text-brand-700' : 'bg-ink-100 text-ink-400'
             )}>
               {done ? <Check size={15} strokeWidth={3} /> : i + 1}
             </span>

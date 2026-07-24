@@ -14,13 +14,13 @@ export default function Kanban({ columns = [], items = [], renderCard, onMove, s
             className="flex w-72 shrink-0 flex-col rounded-xl bg-ink-50/70 p-3">
             <div className="mb-3 flex items-center justify-between px-1">
               <span className="text-sm font-semibold text-ink-800">{col.title}</span>
-              <span className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-ink-500">{cards.length}</span>
+              <span className="rounded-full bg-surface px-2 py-0.5 text-xs font-medium text-ink-500">{cards.length}</span>
             </div>
             {summarize && <p className="mb-2 px-1 text-xs text-ink-400">{summarize(cards)}</p>}
             <div className="flex-1 space-y-2">
               {cards.map((it) => (
                 <div key={it.id} draggable onDragStart={(e) => e.dataTransfer.setData('text/plain', String(it.id))}
-                  className="cursor-grab rounded-xl border border-ink-100 bg-white p-3 shadow-sm transition hover:shadow-soft active:cursor-grabbing">
+                  className="cursor-grab rounded-xl border border-ink-100 bg-surface p-3 shadow-sm transition hover:shadow-soft active:cursor-grabbing">
                   {renderCard ? renderCard(it) : it.title}
                 </div>
               ))}

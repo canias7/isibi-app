@@ -13,7 +13,7 @@ export default function DatePicker({ value, onChange, label, placeholder = 'Pick
       {label && <span className="mb-1.5 block text-sm font-medium text-ink-800">{label}</span>}
       <Popover open={open} onOpenChange={setOpen} width="w-auto"
         trigger={
-          <button type="button" className="flex w-full items-center gap-2 rounded-xl border border-ink-200 bg-white px-3.5 py-2.5 text-left text-sm
+          <button type="button" className="flex w-full items-center gap-2 rounded-xl border border-ink-200 bg-surface px-3.5 py-2.5 text-left text-sm
             focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20">
             <CalendarDays size={16} className="shrink-0 text-ink-400" />
             <span className={cx(value ? 'text-ink-900' : 'text-ink-400')}>{pretty || placeholder}</span>

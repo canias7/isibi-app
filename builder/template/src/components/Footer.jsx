@@ -5,7 +5,7 @@ import { navLinks } from '../routes.js'
 export default function Footer({ brand = 'Made with isibi', tagline, columns = [], social }) {
   const year = new Date().getFullYear()
   return (
-    <footer className="mt-16 border-t border-ink-100 bg-white">
+    <footer className="mt-16 border-t border-ink-100 bg-surface">
       <div className="container-page py-12">
         <div className="flex flex-wrap gap-10">
           <div className="min-w-56 flex-1">

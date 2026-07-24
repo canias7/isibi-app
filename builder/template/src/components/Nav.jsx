@@ -16,10 +16,10 @@ export default function Nav() {
   const location = useLocation()
 
   return (
-    <header className="sticky top-0 z-40 bg-white/85 backdrop-blur border-b border-ink-100">
+    <header className="sticky top-0 z-40 bg-surface/85 backdrop-blur border-b border-ink-100">
       <div className="container-page flex items-center justify-between h-16">
         <Link to="/" className="flex items-center gap-2 font-display font-bold text-ink-900 text-lg tracking-tight">
-          <span className="h-8 w-8 rounded-lg bg-brand-600 text-white flex items-center justify-center">
+          <span className="h-8 w-8 rounded-lg bg-brand-600 text-brandfg flex items-center justify-center">
             <LayoutDashboard size={17} />
           </span>
           Pipeline
@@ -67,7 +67,7 @@ export default function Nav() {
       </div>
 
       {open && (
-        <div className="md:hidden border-t border-ink-100 bg-white">
+        <div className="md:hidden border-t border-ink-100 bg-surface">
           <nav className="container-page py-3 flex flex-col gap-1">
             {navLinks.map((link) => (
               <Link

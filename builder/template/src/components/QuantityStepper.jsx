@@ -6,7 +6,7 @@ export default function QuantityStepper({ value = 1, onChange, min = 1, max = 99
   const btn = size === 'sm' ? 'h-7 w-7' : 'h-9 w-9'
   const set = (v) => onChange && onChange(Math.min(max, Math.max(min, v)))
   return (
-    <div className={cx('inline-flex items-center rounded-xl border border-ink-200 bg-white', className)}>
+    <div className={cx('inline-flex items-center rounded-xl border border-ink-200 bg-surface', className)}>
       <button type="button" aria-label="Decrease" onClick={() => set(value - 1)} disabled={value <= min}
         className={cx(btn, 'grid place-items-center rounded-l-xl text-ink-600 transition hover:bg-ink-50 disabled:opacity-40')}>
         <Minus size={14} />

@@ -17,7 +17,7 @@ export default function Drawer({ open, onClose, title, side = 'right', width = '
     <div className="fixed inset-0 z-50 flex" role="dialog" aria-modal="true" aria-label={title}>
       <div className="absolute inset-0 bg-ink-900/40 backdrop-blur-sm" onClick={onClose} />
       <div className={cx(
-        'relative flex h-full w-full flex-col bg-white shadow-xl',
+        'relative flex h-full w-full flex-col bg-surface shadow-xl',
         width,
         side === 'right' ? 'ml-auto' : 'mr-auto'
       )}>

@@ -8229,3 +8229,21 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   colour picker, maps: all need third-party deps, which breaks the "import ONLY from REACT_DEPS" contract.
   Toast already exists as `lib/toast.jsx`. **At 72 we're past shadcn parity (~48) on the pieces our 279 capabilities
   actually generate, and the remaining candidates are all rare-or-needs-a-dep. This is the natural stopping point.**
+
+- **2026-07-24 — PER-APP PALETTES: same 72 components, different look per app ($0).** The last gap — every generated
+  app looked identical because the template shipped one fixed blue/slate palette. Fixed WITHOUT touching component
+  logic, by making the components fully token-driven and generating token VALUES per app:
+  (1) **De-hardcoded the components**: `bg-white`→`bg-surface` (42 occurrences / 31 files), `text-white`→`text-brandfg`
+  on brand/accent fills (13) and →`text-canvas` on ink-900 fills (3), `border/ring-white`→`-surface`. Lightbox keeps
+  literal white (it sits over a photo). index.css likewise.
+  (2) **`themeFor()` + `tailwindConfig()` in scaffold.mjs** turn any style family's flat tokens into full 50..900
+  scales via HSL ramps (hue preserved, neutrals given a whisper of the accent hue so they read chosen, not default
+  grey). **The ink ramp is SEMANTIC, not literal** — on a dark family it INVERTS, so `text-ink-900` stays "strongest
+  text" (near-white) and `bg-ink-100` stays a subtle fill, with zero component changes. `isDark()` (relative
+  luminance) picks the direction.
+  (3) **chunked-build calls `scaffoldTheme`** using the family `pickStyleFamily` already chooses from design_hints.
+  **Verified by building the SAME app under all 5 families — minimal-light, warm-editorial, playful, studio-dark,
+  elegant-dark — all 5 compile and render with ZERO page errors**, screenshotted. studio-dark: near-black canvas,
+  pink accent, inverted neutrals, fully readable. warm-editorial: warm paper, serif display, amber accent. Same
+  components, unrecognisably different apps.
+  So the parts bin is shared but the *look* is per-app — which was the whole objection to templating.

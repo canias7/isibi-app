@@ -24,13 +24,13 @@ export default function Combobox({ options = [], value, onChange, label, placeho
     <div ref={box} className={cx('relative', className)}>
       {label && <span className="mb-1.5 block text-sm font-medium text-ink-800">{label}</span>}
       <button type="button" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}
-        className="flex w-full items-center justify-between gap-2 rounded-xl border border-ink-200 bg-white px-3.5 py-2.5 text-left text-sm
+        className="flex w-full items-center justify-between gap-2 rounded-xl border border-ink-200 bg-surface px-3.5 py-2.5 text-left text-sm
           focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20">
         <span className={cx('truncate', selected ? 'text-ink-900' : 'text-ink-400')}>{selected ? selected.label : placeholder}</span>
         <ChevronDown size={16} className={cx('shrink-0 text-ink-400 transition', open && 'rotate-180')} />
       </button>
       {open && (
-        <div className="absolute z-30 mt-1.5 w-full overflow-hidden rounded-xl border border-ink-100 bg-white shadow-soft">
+        <div className="absolute z-30 mt-1.5 w-full overflow-hidden rounded-xl border border-ink-100 bg-surface shadow-soft">
           <div className="flex items-center gap-2 border-b border-ink-100 px-3 py-2">
             <Search size={14} className="text-ink-400" />
             <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search…"

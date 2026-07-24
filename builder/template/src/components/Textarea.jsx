@@ -20,7 +20,7 @@ const Textarea = forwardRef(function Textarea(
         rows={rows}
         aria-invalid={!!error}
         className={cx(
-          'w-full rounded-xl border bg-white px-3.5 py-2.5 text-sm text-ink-900 placeholder:text-ink-400 transition-colors resize-y',
+          'w-full rounded-xl border bg-surface px-3.5 py-2.5 text-sm text-ink-900 placeholder:text-ink-400 transition-colors resize-y',
           'focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500',
           error ? 'border-rose-400' : 'border-ink-200 hover:border-ink-300',
           className

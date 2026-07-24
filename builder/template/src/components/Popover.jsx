@@ -18,7 +18,7 @@ export default function Popover({ trigger, open: openProp, onOpenChange, align =
     <div ref={box} className={cx('relative inline-block', className)}>
       <span onClick={() => set(!open)}>{trigger}</span>
       {open && (
-        <div className={cx('absolute z-30 mt-2 rounded-xl border border-ink-100 bg-white p-3 shadow-soft', width,
+        <div className={cx('absolute z-30 mt-2 rounded-xl border border-ink-100 bg-surface p-3 shadow-soft', width,
           align === 'right' ? 'right-0' : 'left-0')}>
           {children}
         </div>

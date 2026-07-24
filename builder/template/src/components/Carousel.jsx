@@ -19,17 +19,17 @@ export default function Carousel({ slides = [], aspect = 'aspect-[16/9]', classN
       {slides.length > 1 && (
         <>
           <button type="button" aria-label="Previous" onClick={() => go(i - 1)}
-            className="absolute left-3 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-white/90 text-ink-700 shadow transition hover:bg-white">
+            className="absolute left-3 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-surface/90 text-ink-700 shadow transition hover:bg-surface">
             <ChevronLeft size={18} />
           </button>
           <button type="button" aria-label="Next" onClick={() => go(i + 1)}
-            className="absolute right-3 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-white/90 text-ink-700 shadow transition hover:bg-white">
+            className="absolute right-3 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-surface/90 text-ink-700 shadow transition hover:bg-surface">
             <ChevronRight size={18} />
           </button>
           <div className="absolute inset-x-0 bottom-3 flex justify-center gap-1.5">
             {slides.map((_, n) => (
               <button key={n} type="button" aria-label={`Go to slide ${n + 1}`} onClick={() => setI(n)}
-                className={cx('h-1.5 rounded-full transition-all', n === i ? 'w-5 bg-white' : 'w-1.5 bg-white/60')} />
+                className={cx('h-1.5 rounded-full transition-all', n === i ? 'w-5 bg-surface' : 'w-1.5 bg-surface/60')} />
             ))}
           </div>
         </>

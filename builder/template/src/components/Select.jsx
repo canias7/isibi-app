@@ -21,7 +21,7 @@ const Select = forwardRef(function Select(
           id={selectId}
           aria-invalid={!!error}
           className={cx(
-            'w-full appearance-none rounded-xl border bg-white px-3.5 py-2.5 pr-9 text-sm text-ink-900 transition-colors',
+            'w-full appearance-none rounded-xl border bg-surface px-3.5 py-2.5 pr-9 text-sm text-ink-900 transition-colors',
             'focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500',
             error ? 'border-rose-400' : 'border-ink-200 hover:border-ink-300',
             className

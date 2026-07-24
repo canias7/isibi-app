@@ -12,7 +12,8 @@
 // so it unit-tests at $0 with a mock generate.
 
 import { buildPlan } from "./build-plan.mjs";
-import { scaffoldRouting } from "./scaffold.mjs";
+import { scaffoldRouting, scaffoldTheme } from "./scaffold.mjs";
+import { getStyleFamily, pickStyleFamily } from "./design-system.mjs";
 import { parseGeneratedFiles, REACT_RULES, REACT_REVISE_RULES } from "./react-gen.mjs";
 import { getCapability } from "./capability-registry.mjs";
 
@@ -95,6 +96,13 @@ export async function runChunkedBuild(brief, spec, cap, deps, opts = {}) {
     files = scaffoldRouting(files).files;
     record(step.kind, step.budget, g, f);
   }
+
+  // Per-app PALETTE, generated in code ($0): the shared components read semantic token NAMES, so swapping the
+  // token VALUES re-skins the whole app — different canvas, accent, neutrals, fonts, radius — without touching a
+  // single component. Keeps every generated app from looking identical.
+  const famId = opts.family || pickStyleFamily((spec && spec.design_hints) || {});
+  const fam = getStyleFamily(famId);
+  if (fam) files = scaffoldTheme(files, fam.tokens);
 
   // main.jsx / index.css / the component library come from the TEMPLATE, so they are not in `files` — the build is
   // valid when the model supplied the page content and the scaffold wired the router.
