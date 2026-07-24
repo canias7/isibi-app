@@ -32,12 +32,13 @@ jobs:
           for i in $(seq 1 20); do curl -sf http://127.0.0.1:8080/health && break || sleep 0.5; done
           echo "build service up"
 
-      - name: Sonnet 5 @ 25k — CRM (broke) + course (passed)
+      - name: Sonnet 5 @ 25k, cap-aware planner — CRM (broke) + course (passed)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           EVAL_MODEL: "claude-sonnet-5"
           EVAL_ONLY: "2,21"
           EVAL_MAX_OUT: "25000"
+          EVAL_CAP_AWARE: "1"
           EVAL_STREAM: "0"
           EVAL_DUMP: "1"
           EVAL_BUILD: "1"

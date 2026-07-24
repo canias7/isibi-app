@@ -49,6 +49,16 @@ export const PROMPTS = [
   "a community forum with categories, threads, and member profiles",
 ];
 
+// capsForBudget — cap-aware planning: given the output-token budget, how many feature capabilities (≈ pages) can
+// the app include and still FINISH under the cap instead of truncating? Conservative on purpose — finishing a small
+// complete app beats a big truncated one. Model from the dumps: ~14k tokens of fixed overhead (shell + shared
+// components + Home/SignIn/Admin + config), then ~4k per feature page. So 25k → 2 feature pages (~5 total), which
+// matches the course app that compiled at ~22k. Always at least 1 so it's still a real app.
+export function capsForBudget(maxOut) {
+  const OVERHEAD = 14000, PER_CAP = 4000;
+  return Math.max(1, Math.floor((maxOut - OVERHEAD) / PER_CAP));
+}
+
 // evaluatePrompt — run one prompt through the pipeline and score it.
 //   deps: { generate(system, user) -> {files, usedIn, usedOut}, build?(files) -> {ok,error}, critiqueOne?(shot),
 //           render?(files) -> shots, revise?(system,user) -> {...} }
@@ -310,7 +320,15 @@ export async function runEvalCLI() {
   const depsFor = (maxOut) => {
     const generate = withDump(makeAnthropicGenerate(key, model, fetch, maxOut, stream), maxOut);
     const deps = { generate };
-    if (process.env.EVAL_MAX_CAPS) deps.capabilityLimit = parseInt(process.env.EVAL_MAX_CAPS, 10);
+    // EVAL_CAP_AWARE: the planner reads the output budget and plans only as many pages as will FINISH under it
+    // (via capsForBudget). EVAL_MAX_CAPS is the manual override. Either way, the trimmed spec is a COMPLETE app —
+    // fewer pages, but self-contained (the planner keeps pages/capabilities consistent), so it finishes, not truncates.
+    if (process.env.EVAL_CAP_AWARE === "1") {
+      deps.capabilityLimit = capsForBudget(maxOut);
+      console.error(`[CAP-AWARE] maxOut=${maxOut} → capabilityLimit=${deps.capabilityLimit} (plan only what fits)`);
+    } else if (process.env.EVAL_MAX_CAPS) {
+      deps.capabilityLimit = parseInt(process.env.EVAL_MAX_CAPS, 10);
+    }
     if (process.env.EVAL_REPAIR === "1") deps.revise = generate;
     if (process.env.EVAL_BUILD === "1") deps.build = makeContainerBuild(buildUrl);
     if (process.env.EVAL_VISION === "1") {
