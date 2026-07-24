@@ -80,6 +80,7 @@ export async function runChunkedBuild(brief, spec, cap, deps, opts = {}) {
   };
 
   for (const step of plan.steps) {
+    if (step.reserve) continue; // reserved pipeline steps (schema-fix/lint-repair/fix-loop/vision) run in the real pipeline, not here
     let system, user;
     if (step.kind === "shell") { system = opts.shellRules || REACT_RULES; user = shellPrompt(brief, spec); }
     else if (step.kind === "admin") { system = opts.editRules || REACT_REVISE_RULES; user = pagesPrompt(brief, [], files, "an Admin console page (src/pages/Admin.jsx) that manages the app's data (list/create/edit/delete across the admin-only endpoints)"); }

@@ -8089,3 +8089,22 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   to re-bin remaining pages — estimate to plan, measure to correct), then an eval run (does the chunked CRM finish +
   compile?), then wire into worker behind a flag. Also still open: the intermittent Sonnet files=[NONE]/empty-output
   flake (diag logging now armed in pipeline-eval to catch it next occurrence).
+
+- **2026-07-24 — CHUNKED BUILD: whole-pipeline budgeting + the thinking-off breakthrough.** Two big things.
+  (1) **Thinking was the real bug.** The [DIAG] logging caught it: Sonnet 5's default adaptive thinking spent the
+  ENTIRE max_tokens budget on reasoning (`blocks=[thinking]`) before writing any code — on small chunked steps it
+  ate 100% → empty files. That's the intermittent `files=[NONE]` that sabotaged EVERY prior run. Fix:
+  `thinking:{type:"disabled"}` on generation calls (valid on Sonnet 5 + Opus 4.8; omit for Fable). We already
+  pre-plan, so generation just needs to WRITE. After the fix: generated 0%→100%, shells come out complete with
+  App.jsx + all components. **PRODUCTION LIKELY AFFECTED** — worker.js calls Sonnet 5 without disabling thinking,
+  so real builds are probably bleeding budget/timeout to thinking too; apply the same fix to worker.js react-build.
+  (2) **buildPlan now budgets the WHOLE 13-step pipeline against ONE cap** (owner's model: Σ of every token-spending
+  step ≤ cap, not just generation). Reserves come off the top — schema-fix 2k, lint-repair 2k, fix-loop 4k, vision
+  2k — and generation (shell + page-groups + admin) gets `cap − reserves`, split into ≤9k steps. Reserve steps
+  carry `reserve:true`; the executor skips them (they run in the real pipeline). Honest math it exposes: **CRM @ 25k
+  total = shell + admin + repair reserve, ALL 8 pages dropped**; **CRM @ 60k total = shell + 5 pages + admin + repair
+  reserve (2 dropped)**. So 25k total only fits a shell; a real multi-page app needs ~55–60k total once repair is
+  budgeted. Files: builder/build-plan.mjs (RESERVES, whole-pipeline buildPlan, planSummary), builder/chunked-build.mjs
+  (executor skips reserve steps), test/pipeline-eval.mjs (EVAL_CHUNKED, thinking-off, per-call max_tokens, DIAG).
+  Chunked eval @25k: gen 100% but compile 0% (pages truncate — shell eats the tiny budget). NEXT: re-run at ~60k
+  total + save/screenshot the built app; wire thinking-off into worker.js.

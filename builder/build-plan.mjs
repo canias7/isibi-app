@@ -1,23 +1,25 @@
-// build-plan.mjs — splits ONE shared output budget (the cap) across the build's steps so the SUM of all steps ≤ cap.
-// The cap is the TOTAL output for the whole build, not a per-step limit: each step gets a SLICE of the budget, and
-// the slices add up to the cap. Same total output as a single-shot, but split into small steps that each finish
-// reliably (no truncation, no empty-output flake) instead of one fragile giant call.
+// build-plan.mjs — budgets the WHOLE build pipeline against ONE cap. The cap is the total output budget for every
+// token-spending step across the entire build, and the SUM of all of them ≤ cap. Not just the generate steps —
+// the repair/schema/vision steps get their own reserved slices too, all coming out of the same budget.
 //
-// step 1 (SHELL) — scaffolding + shared component library + Home + SignIn. The big fixed overhead; it gets first
-//   claim on the budget (capped so pages still get room).
-// steps 2..N (PAGES) — feature pages, added as edits onto the shell. Packed into the REMAINING budget; pages that
-//   don't fit are DROPPED (the app is bounded to what the total budget affords — raise the cap for a bigger app).
-// last (ADMIN) — the admin console, if the app has an admin role.
-//
-// Each step carries `budget` = its max_tokens for that call. Σ step.budget ≤ cap.
+// Off the top we RESERVE budget for the post-generation steps that also spend output tokens:
+//   schema-fix   — emit isibi.schema.json if the app wired a backend but forgot it
+//   lint-repair  — one pass to fix structural lint errors
+//   fix-loop     — repair compile errors (this is what patches a truncated/broken page)
+//   vision       — one visual-polish revise (only when vision is on)
+// Whatever remains (genBudget = cap − reserves) funds GENERATION, split into:
+//   shell (scaffold + shared components + Home + SignIn, built once) + page groups (edits onto the shell) + admin.
+// Reserves that don't end up firing at build time are simply unused (free). Pages that don't fit genBudget are
+// dropped (the app is bounded to what the total affords — raise the cap for a bigger app).
 
 import { getCapability } from "./capability-registry.mjs";
 
 export const SHELL_TOKENS = 16000; // scaffolding + ~15 shared components + Home + SignIn + nav/router
 export const BASE_PAGE = 1800;     // a feature page's floor
 export const PER_ROUTE = 700;      // each endpoint the page drives
-export const STEP_MAX = 9000;      // soft ceiling per step (keeps each call small + reliable, well under any wall)
-export const SHELL_FRACTION = 0.6; // shell may claim at most this share of the total budget
+export const STEP_MAX = 9000;      // soft ceiling per generation step (small, reliable calls)
+export const SHELL_FRACTION = 0.6; // shell may claim at most this share of the generation budget
+export const RESERVES = { schema: 2000, lint: 2000, repair: 4000, vision: 2000 }; // default per-step reserves
 
 export function pageCost(capId, capFn = getCapability) {
   const c = capFn(capId);
@@ -25,8 +27,8 @@ export function pageCost(capId, capFn = getCapability) {
   return BASE_PAGE + routes * PER_ROUTE;
 }
 
-// buildPlan(spec, cap, opts) → { ok, cap, total, steps, stepCount, included, dropped, warnings }
-//   cap = TOTAL output budget for the whole build. steps each carry `budget` (their max_tokens); Σ budget ≤ cap.
+// buildPlan(spec, cap, opts) → full-pipeline plan. steps carry `budget` (their max_tokens); reserve steps carry
+// `reserve:true` (conditional, run only if their pipeline step fires). Σ of ALL step budgets ≤ cap.
 export function buildPlan(spec, cap, opts = {}) {
   const capFn = opts.capFn || getCapability;
   const shellEst = opts.shellTokens || SHELL_TOKENS;
@@ -34,43 +36,61 @@ export function buildPlan(spec, cap, opts = {}) {
   if (!spec || !Array.isArray(spec.capabilities)) return { ok: false, error: "invalid spec" };
   const warnings = [];
 
-  // Shell gets first claim, but capped to a share of the total so feature pages have room.
-  const shellBudget = Math.min(shellEst, Math.max(1, Math.floor(cap * SHELL_FRACTION)));
-  if (shellBudget < shellEst) warnings.push(`shell squeezed to ${shellBudget} tok of its ~${shellEst} need — the total cap (${cap}) is tight, so the shell itself may be thin`);
-  const steps = [{ kind: "shell", budget: shellBudget, includes: ["scaffolding", "components", "Home", "SignIn", "nav", "router"] }];
+  // 1) Reserve budget for the post-generation pipeline steps (they spend output tokens; the cap covers the WHOLE build).
+  const reserves = {
+    schema: opts.reserveSchema != null ? opts.reserveSchema : RESERVES.schema,
+    lint: opts.reserveLint != null ? opts.reserveLint : RESERVES.lint,
+    repair: opts.reserveRepair != null ? opts.reserveRepair : RESERVES.repair,
+    vision: opts.vision ? (opts.reserveVision != null ? opts.reserveVision : RESERVES.vision) : 0,
+  };
+  const reserveTotal = reserves.schema + reserves.lint + reserves.repair + reserves.vision;
+  const genBudget = Math.max(0, cap - reserveTotal);
+  if (genBudget < shellEst) warnings.push(`only ${genBudget} tok left for generation after ${reserveTotal} reserved for repair/schema/vision — the shell (~${shellEst}) won't fully fit; raise the cap`);
 
-  // Reserve for the admin console (if any), then pack feature pages into whatever budget remains.
+  // 2) Generation steps, packed into genBudget.
+  const shellBudget = Math.min(shellEst, Math.max(1, Math.floor(genBudget * SHELL_FRACTION)));
+  const steps = [{ kind: "shell", budget: shellBudget, includes: ["scaffolding", "components", "Home", "SignIn", "nav", "router"] }];
   const admin = (spec.roles || []).includes("admin");
   const adminCost = admin ? Math.min(stepMax, BASE_PAGE + 4 * PER_ROUTE) : 0;
-  let pageBudget = cap - shellBudget - adminCost;
+  let pageBudget = genBudget - shellBudget - adminCost;
   const included = [], dropped = [];
   for (const id of spec.capabilities) {
     const cost = pageCost(id, capFn);
     if (pageBudget - cost < 0) { dropped.push(id); continue; }
     pageBudget -= cost; included.push({ id, cost });
   }
-
-  // Group the included pages so each step's budget ≤ stepMax (small, reliable calls).
   let group = [], gt = 0;
   const flush = () => { if (group.length) { steps.push({ kind: "pages", pages: group.map((g) => g.id), budget: gt }); group = []; gt = 0; } };
   for (const p of included) { if (group.length && gt + p.cost > stepMax) flush(); group.push(p); gt += p.cost; }
   flush();
-
   if (admin) steps.push({ kind: "admin", pages: ["Admin"], budget: adminCost });
+  const genTotal = steps.reduce((s, x) => s + x.budget, 0);
 
-  const total = steps.reduce((s, x) => s + x.budget, 0);
-  if (dropped.length) warnings.push(`${dropped.length} page(s) dropped to keep the whole build ≤ ${cap} total: ${dropped.join(", ")} — raise the cap to include them`);
-  return { ok: true, cap, total, budget: cap, steps, stepCount: steps.length, included: included.map((x) => x.id), dropped, warnings };
+  // 3) Reserved pipeline steps — conditional, run only if their step fires at build time; their budget is held aside.
+  steps.push({ kind: "schema-fix", budget: reserves.schema, reserve: true });
+  steps.push({ kind: "lint-repair", budget: reserves.lint, reserve: true });
+  steps.push({ kind: "fix-loop", budget: reserves.repair, reserve: true });
+  if (reserves.vision) steps.push({ kind: "vision", budget: reserves.vision, reserve: true });
+
+  const total = genTotal + reserveTotal;
+  if (dropped.length) warnings.push(`${dropped.length} page(s) dropped to keep the whole build ≤ ${cap} total: ${dropped.join(", ")} — raise the cap`);
+  return { ok: true, cap, budget: cap, genBudget, reserves, reserveTotal, genTotal, total, steps, stepCount: steps.length, included: included.map((x) => x.id), dropped, warnings };
 }
 
-// planSummary — human view: each step's slice + the running total, showing Σ ≤ cap.
+// planSummary — human view of the WHOLE pipeline: generation steps, then reserved steps, then Σ ≤ cap.
 export function planSummary(plan) {
   if (!plan || !plan.ok) return "(no plan)";
   let run = 0;
-  const lines = plan.steps.map((s, i) => {
+  const lines = [];
+  for (const s of plan.steps) {
     run += s.budget;
-    const what = s.kind === "shell" ? "shell (scaffold + components + Home + SignIn)" : s.kind === "admin" ? "Admin console" : "pages: " + s.pages.join(", ");
-    return `  step ${i + 1} — ${what}  [budget ${s.budget}, running ${run}]`;
-  });
-  return lines.join("\n") + `\n  Σ = ${plan.total} ≤ cap ${plan.cap}` + (plan.dropped.length ? `  (dropped: ${plan.dropped.join(", ")})` : "");
+    const what = s.kind === "shell" ? "shell (scaffold + components + Home + SignIn)"
+      : s.kind === "admin" ? "Admin console"
+      : s.kind === "pages" ? "pages: " + s.pages.join(", ")
+      : s.reserve ? s.kind + " (reserve)" : s.kind;
+    lines.push(`  ${s.reserve ? "·" : "▸"} ${what.padEnd(46)} budget ${String(s.budget).padStart(6)}  running ${run}`);
+  }
+  return lines.join("\n") +
+    `\n  generation Σ=${plan.genTotal}  +  reserves Σ=${plan.reserveTotal}  =  ${plan.total} ≤ cap ${plan.cap}` +
+    (plan.dropped.length ? `\n  dropped: ${plan.dropped.join(", ")}` : "");
 }
