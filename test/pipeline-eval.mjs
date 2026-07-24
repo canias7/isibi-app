@@ -245,6 +245,11 @@ export function makeAnthropicGenerate(apiKey, model = "claude-sonnet-5", fetchIm
   return async (system, user, maxTokensOverride) => {
     const body = {
       model, max_tokens: maxTokensOverride || maxOut, stream,
+      // Thinking OFF for generation: adaptive thinking (Sonnet 5's default) burns the whole max_tokens budget on
+      // reasoning before writing any code — on small chunked steps it ate 100% of the budget → empty files. We
+      // already pre-plan (planApp + contract), so the model just needs to WRITE, not re-reason. Accepted on Sonnet 5
+      // + Opus 4.8; only Fable 5 rejects {type:"disabled"} (omit it there).
+      ...(/fable/i.test(model) ? {} : { thinking: { type: "disabled" } }),
       system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: user }],
     };
@@ -360,7 +365,7 @@ export async function runEvalCLI() {
       const hitCap = g.usedOut >= Math.floor(cap * 0.98);
       const hasApp = names.includes("src/App.jsx");
       const tailOpen = /[{([,=+\-*/<>&|:]$/.test(raw);
-      const label = (prompts[dumpN] || "?").slice(0, 46);
+      const label = (prompts[dumpN] || ("call " + (dumpN + 1))).slice(0, 46);
       console.error(`\n[DUMP ${dumpN + 1}] "${label}"\n  out=${g.usedOut}/${cap}${hitCap ? " HIT-CAP" : ""} in=${g.usedIn} cached=${g.usedInCached} | hasApp=${hasApp} tailOpen=${tailOpen} | files=[${sizes}]\n  tail: …${raw.slice(-140).replace(/\n/g, "⏎")}`);
       dumpN++;
     }
