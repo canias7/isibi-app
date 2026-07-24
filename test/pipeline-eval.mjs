@@ -55,8 +55,11 @@ export const PROMPTS = [
 export async function evaluatePrompt(prompt, deps = {}) {
   const r = { prompt, ok: false, capabilities: [], family: null, generated: false, lint: null, build: null, vision: null, repaired: null, tokens: { in: 0, inCached: 0, out: 0 } };
   try {
-    const plan = planApp(prompt);
+    // deps.capabilityLimit bounds the app's scope (fewer capabilities → fewer pages) so the whole build fits under
+    // the token cap and finishes cleanly instead of truncating — the "generate a subset that fits" test.
+    const plan = planApp(prompt, deps.capabilityLimit != null ? { capabilityLimit: deps.capabilityLimit } : {});
     if (!plan.ok) { r.error = "plan failed"; return r; }
+    r.pageCount = plan.spec.pages.length;
     r.capabilities = plan.spec.capabilities;
     r.family = pickStyleFamily(plan.spec.design_hints);
     const user = composeBuildPrompt(plan.spec, r.family, { baseRules: "Build this as a polished React app. Output ONLY the file blocks." });
@@ -307,6 +310,7 @@ export async function runEvalCLI() {
   const depsFor = (maxOut) => {
     const generate = withDump(makeAnthropicGenerate(key, model, fetch, maxOut, stream), maxOut);
     const deps = { generate };
+    if (process.env.EVAL_MAX_CAPS) deps.capabilityLimit = parseInt(process.env.EVAL_MAX_CAPS, 10);
     if (process.env.EVAL_REPAIR === "1") deps.revise = generate;
     if (process.env.EVAL_BUILD === "1") deps.build = makeContainerBuild(buildUrl);
     if (process.env.EVAL_VISION === "1") {
