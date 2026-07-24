@@ -1,0 +1,60 @@
+# Build the CRM through the chunked pipeline at 25k AND 60k total, compile each, and commit the generated source +
+# built dist back to the branch (with [skip ci] so it doesn't re-trigger) so we can render + SHOW it. Triggers on
+# push to eval-view-run. Delete branch when done.
+name: eval-view
+
+on:
+  push:
+    branches: [eval-view-run]
+
+permissions:
+  contents: write
+
+jobs:
+  eval-view:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Scaffold the build service
+        run: |
+          set -e
+          mkdir -p /tmp/buildapp
+          cp builder/package.json /tmp/buildapp/
+          cp -r builder/template/. /tmp/buildapp/
+          cd /tmp/buildapp
+          npm install --no-audit --no-fund --loglevel=error
+          npx playwright install --with-deps chromium || echo "WARN: chromium install failed"
+
+      - name: Start the build service
+        run: |
+          APP_DIR=/tmp/buildapp PORT=8080 node builder/build-server.mjs > /tmp/build-server.log 2>&1 &
+          for i in $(seq 1 20); do curl -sf http://127.0.0.1:8080/health && break || sleep 0.5; done
+          echo "build service up"
+
+      - name: Build @ 25k total
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          VIEW_CAP: "25000"
+          VIEW_PROMPT: "a CRM to track sales leads, deals, and follow-ups for a small team"
+          BUILD_URL: "http://127.0.0.1:8080"
+        run: node test/view-build.mjs
+
+      - name: Build @ 60k total
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          VIEW_CAP: "60000"
+          VIEW_PROMPT: "a CRM to track sales leads, deals, and follow-ups for a small team"
+          BUILD_URL: "http://127.0.0.1:8080"
+        run: node test/view-build.mjs
+
+      - name: Commit the built outputs back
+        run: |
+          git config user.name "isibi-ci"
+          git config user.email "ci@isibi.local"
+          git add viewout
+          git commit -m "view build outputs (25k + 60k) [skip ci]" || echo "nothing to commit"
+          git push origin HEAD:eval-view-run
