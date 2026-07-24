@@ -8194,3 +8194,22 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   percentage bar heights collapsed to 0 against an auto-height parent. REACT_RULES now lists the whole catalog with
   props, grouped Forms/Layout/Overlays/Data. Deliberately NOT copying shadcn's ~45 (most go unused in a given app);
   the set is sized to what our capability registry actually generates.
+
+- **2026-07-24 — UI PRIMITIVES round 2: 34 → 55 components.** Owner pushed that 34 was short of a real catalog —
+  correct. Added 21 more, again with NO new deps (React + Tailwind + lucide only), same tokens/conventions:
+  **Pickers** Combobox (searchable select) · TagInput · SegmentedControl · DatePicker (field + calendar popover) ·
+  **TimeSlots** (appointment picker w/ taken slots) · QuantityStepper (cart) · OtpInput;
+  **Overlays** Popover · **ConfirmDialog** (the destructive-action gate) · Lightbox;
+  **App shells & data views** **PageHeader** (title/description/actions — every inner page) · **Sidebar**
+  (+SidebarLayout, dashboard rail) · **DataTable** (sortable + built-in loading/empty states) · **Kanban**
+  (HTML5 drag-drop stage board — the CRM pipeline, task boards) · FilterBar (active filter chips);
+  **Media & misc** Carousel · AspectRatio · AvatarGroup · Collapsible · ProgressRing (circular gauge) · CopyButton.
+  Gap analysis was done against shadcn's catalog AND our 279 capabilities — deliberately skipped command palette,
+  menubar, resizable, context-menu, hover-card (rare in generated apps); added app-shaped molecules shadcn lacks
+  (PageHeader, DataTable, Kanban, TimeSlots) because our capability set generates those constantly.
+  **Verified: all 55 compile; a second showcase page exercising every new one builds clean and renders with ZERO
+  page errors** (screenshotted — DataTable sorting, DatePicker formatting, TimeSlots taken-state, ProgressRing,
+  Sidebar, OTP all correct). Caught a real API footgun while testing: my page imported `{SidebarLayout}` when it was
+  the default export — exactly the mistake a model would make — so Sidebar now exports SidebarLayout BOTH ways.
+  Kanban compiled + is wired but was behind a view toggle in the shot, so it is not visually verified yet.
+  REACT_RULES lists all 55 grouped Forms/Layout/Pickers/Overlays/App-shells/Media with props.
