@@ -7,6 +7,7 @@
 // generate). Run for real with a live Anthropic generate via runEvalCLI() (needs ANTHROPIC_API_KEY) — that spends
 // credits (one full generation per prompt).
 import { planApp } from "../builder/app-planner.mjs";
+import { getCapability } from "../builder/capability-registry.mjs";
 import { pickStyleFamily } from "../builder/design-system.mjs";
 import { composeBuildPrompt } from "../builder/pipeline.mjs";
 import { lintGeneratedApp } from "../builder/app-linter.mjs";
@@ -59,17 +60,47 @@ export function capsForBudget(maxOut) {
   return Math.max(1, Math.floor((maxOut - OVERHEAD) / PER_CAP));
 }
 
+// capsForBudgetAdaptive — TRUE per-app sizing. Instead of a flat per-page cost, it estimates EACH candidate
+// capability's page weight from its real feature surface (route count ≈ how much UI + fetch logic the page needs:
+// a 6-route CRUD+board page is heavy; a 2-route read page is light), then packs capabilities in relevance order
+// until the output budget is spent. So a heavy app gets fewer pages, a light app more — it "depends on the app."
+// Still an ESTIMATE (the perfectly-accurate version measures tokens WHILE generating — the chunked loop); this is
+// the best pre-generation guess. Conservative constants so it under-packs and finishes rather than truncates.
+export function capsForBudgetAdaptive(intent, maxOut, planFn = planApp, capFn = getCapability) {
+  const full = planFn(intent, { capabilityLimit: 24 });
+  if (!full.ok || !full.spec) return 1;
+  // Calibrated to ground truth: the course app compiled at 22,396 output tokens = shell + 2 heavy pages (5- and
+  // 6-route). Back-solving with OVERHEAD 11000 → a ~5.5-route page ≈ 5700 tokens, i.e. BASE ~1800 + ~700/route.
+  // Slightly conservative (over-estimates a touch) so it under-packs and FINISHES rather than truncating.
+  const OVERHEAD = 11000; // shell + shared components + Home/SignIn/Admin baseline + config, in tokens
+  const BASE_PAGE = 1800;  // a page's floor: layout, header, empty/loading states
+  const PER_ROUTE = 700;   // each endpoint the page drives ≈ a fetch + the UI (form/row/action) around it
+  let budget = maxOut - OVERHEAD, n = 0;
+  for (const id of full.spec.capabilities) {
+    const c = capFn(id);
+    const routes = (c && Array.isArray(c.routes) && c.routes.length) || 3;
+    const cost = BASE_PAGE + routes * PER_ROUTE;
+    if (budget - cost < 0) break;
+    budget -= cost; n++;
+  }
+  return Math.max(1, n);
+}
+
 // evaluatePrompt — run one prompt through the pipeline and score it.
 //   deps: { generate(system, user) -> {files, usedIn, usedOut}, build?(files) -> {ok,error}, critiqueOne?(shot),
 //           render?(files) -> shots, revise?(system,user) -> {...} }
 export async function evaluatePrompt(prompt, deps = {}) {
   const r = { prompt, ok: false, capabilities: [], family: null, generated: false, lint: null, build: null, vision: null, repaired: null, tokens: { in: 0, inCached: 0, out: 0 } };
   try {
-    // deps.capabilityLimit bounds the app's scope (fewer capabilities → fewer pages) so the whole build fits under
-    // the token cap and finishes cleanly instead of truncating — the "generate a subset that fits" test.
-    const plan = planApp(prompt, deps.capabilityLimit != null ? { capabilityLimit: deps.capabilityLimit } : {});
+    // Cap-aware scope so the build fits under the token cap and finishes instead of truncating. deps.capAware turns
+    // on TRUE per-app sizing (capsForBudgetAdaptive weighs each app's own pages); deps.capabilityLimit is a manual
+    // override. Either way the trimmed spec is a COMPLETE, self-contained app (planApp keeps pages/caps consistent).
+    let capLimit = deps.capabilityLimit;
+    if (deps.capAware) capLimit = capsForBudgetAdaptive(prompt, deps.maxOut || 25000);
+    const plan = planApp(prompt, capLimit != null ? { capabilityLimit: capLimit } : {});
     if (!plan.ok) { r.error = "plan failed"; return r; }
     r.pageCount = plan.spec.pages.length;
+    r.capLimit = capLimit != null ? capLimit : null;
     r.capabilities = plan.spec.capabilities;
     r.family = pickStyleFamily(plan.spec.design_hints);
     const user = composeBuildPrompt(plan.spec, r.family, { baseRules: "Build this as a polished React app. Output ONLY the file blocks." });
@@ -324,8 +355,8 @@ export async function runEvalCLI() {
     // (via capsForBudget). EVAL_MAX_CAPS is the manual override. Either way, the trimmed spec is a COMPLETE app —
     // fewer pages, but self-contained (the planner keeps pages/capabilities consistent), so it finishes, not truncates.
     if (process.env.EVAL_CAP_AWARE === "1") {
-      deps.capabilityLimit = capsForBudget(maxOut);
-      console.error(`[CAP-AWARE] maxOut=${maxOut} → capabilityLimit=${deps.capabilityLimit} (plan only what fits)`);
+      deps.capAware = true; deps.maxOut = maxOut; // true per-app sizing, computed per prompt in evaluatePrompt
+      console.error(`[CAP-AWARE] maxOut=${maxOut} → adaptive per-app page sizing (weighs each app's own pages)`);
     } else if (process.env.EVAL_MAX_CAPS) {
       deps.capabilityLimit = parseInt(process.env.EVAL_MAX_CAPS, 10);
     }
