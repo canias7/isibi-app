@@ -8266,3 +8266,18 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   page colours — on a gold-accent theme the button was almost invisible against the gold band. Fixed to force
   surface-on-brand for the primary and a bordered brandfg for the secondary. That class of bug is invisible to
   compile checks and only shows up in a render.
+
+- **2026-07-24 — DASHBOARD/ADMIN BLOCKS: 95 → 105.** The app-side counterpart to the landing sections. Added 10:
+  **DashboardShell** (page frame: header + toolbar + grid) · **StatRow** (KPI strip) · **ChartPanel** (titled chart
+  card w/ range switcher + summary figure) · **ActivityFeed** (who-did-what) · **SettingsLayout** (section nav +
+  panel) · **StatusPill** (auto-maps common status words — paid/pending/overdue/won/lost — to a tone so pages stop
+  hand-rolling it) · **BulkActionBar** (floating bar when rows are selected) · **SearchFilterBar** (list toolbar) ·
+  **CartLineItem** · **InvoiceTable** (line items + totals + amount due).
+  **Verified: all 105 compile; a full SaaS dashboard assembled purely from these blocks builds clean and renders
+  with ZERO page errors** (screenshotted — KPIs, chart w/ range switcher, activity feed, DataTable + StatusPills,
+  bulk bar, cart, order summary, invoice totals, settings). Known nit: BulkActionBar is `sticky bottom-4`, so in a
+  short container it can float over content — fine at page level, worth remembering.
+  **NEXT (owner's sequencing): components first, THEN the quality pass.** Quality gaps already measured and waiting:
+  **73 of 105 components have NO focus-visible state**; **114 literal `rounded-lg/xl` vs 11 themed** so a family's
+  radius barely applies (playful isn't playful — it's just purple); **~8 transform/motion usages total**. The fix is
+  a DESIGN LANGUAGE layer (radius/density/elevation/motion scales per family), not more components.
