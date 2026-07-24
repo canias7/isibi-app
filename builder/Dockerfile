@@ -13,9 +13,13 @@ RUN npm install --no-audit --no-fund --loglevel=error
 # serves /build; only /critique (vision, opt-in) degrades to a no-op. So this layer can't cause a build outage.
 RUN npx playwright install --with-deps chromium || echo "WARN: chromium install failed; /critique will no-op"
 
-# A default template so `vite build` always has a valid project shape; the
-# generated source overwrites index.html + src/** + configs per request.
+# The template: the shipped UI kit (src/components/**, src/lib/**, main.jsx, index.css) plus a valid project
+# shape, so `vite build` always has something to build and the generated pages can just `import Button from
+# '../components/Button.jsx'`.
 COPY template/ ./
+# Keep a PRISTINE copy. Each /build resets src/** (so one site's pages can't leak into the next), which would
+# otherwise delete the whole kit — the build service restores src/ from here before writing the generated files.
+RUN cp -a /app/src /app/.template-src
 COPY build-server.mjs ./
 COPY vision-render.mjs ./
 

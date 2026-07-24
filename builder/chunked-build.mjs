@@ -14,7 +14,7 @@
 import { buildPlan } from "./build-plan.mjs";
 import { scaffoldRouting, scaffoldTheme } from "./scaffold.mjs";
 import { getStyleFamily, pickStyleFamily } from "./design-system.mjs";
-import { parseGeneratedFiles, REACT_RULES, REACT_REVISE_RULES } from "./react-gen.mjs";
+import { parseGeneratedFiles, REACT_RULES, REACT_REVISE_RULES, COMPONENT_INVENTORY } from "./react-gen.mjs";
 import { getCapability } from "./capability-registry.mjs";
 
 const pascal = (s) => String(s || "").replace(/(^|[-_ ])([a-z])/g, (_, __, c) => c.toUpperCase()).replace(/[-_ ]/g, "");
@@ -29,9 +29,13 @@ function existingContext(files) {
   if (navKey) keep.push(navKey);
   if (authKey) keep.push(authKey);
   const shown = keep.filter((k) => files[k]).map((k) => "===FILE: " + k + "===\n" + files[k]).join("\n\n");
-  const manifest = Object.keys(files).filter((p) => /^src\/components\//.test(p)).map((p) => p).join(", ");
+  // The kit lives in the TEMPLATE, not in `files`, so listing only `files` keys would advertise an EMPTY library
+  // and the page step would rebuild a card/table/hero it already has. Ship the real inventory, plus anything the
+  // shell step invented on top of it.
+  const extra = Object.keys(files).filter((p) => /^src\/components\//.test(p));
   return "EXISTING FILES you must match (import from these, do not rewrite them):\n\n" + shown +
-    "\n\nAVAILABLE SHARED COMPONENTS (import from these paths, reuse — do not recreate): " + manifest;
+    "\n\nAVAILABLE SHARED COMPONENTS in src/components/ (import these, reuse — NEVER recreate one):\n" + COMPONENT_INVENTORY +
+    (extra.length ? "\nAlso built for this app: " + extra.join(", ") : "");
 }
 
 function shellPrompt(brief, spec) {

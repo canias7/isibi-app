@@ -37,7 +37,18 @@ function safeRel(rel) {
   return p;
 }
 
-function wipeSrc() { try { fs.rmSync(SRC, { recursive: true, force: true }); } catch {} fs.mkdirSync(SRC, { recursive: true }); }
+// Reset src/ for a fresh build. src/ must be wiped so one site's pages can't leak into the next, but the shipped
+// UI kit (components/, lib/, main.jsx, index.css) lives there too — so restore it from the pristine copy the image
+// baked at /app/.template-src. Without this the generated pages import components that no longer exist and every
+// build fails to compile. Falls back to an empty src/ if the copy is missing (older image).
+const TEMPLATE_SRC = path.join(APP, ".template-src");
+function wipeSrc() {
+  try { fs.rmSync(SRC, { recursive: true, force: true }); } catch {}
+  try {
+    if (fs.existsSync(TEMPLATE_SRC)) { fs.cpSync(TEMPLATE_SRC, SRC, { recursive: true }); return; }
+  } catch {}
+  fs.mkdirSync(SRC, { recursive: true });
+}
 function wipeDist() { try { fs.rmSync(DIST, { recursive: true, force: true }); } catch {} }
 
 function runBuild() {

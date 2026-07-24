@@ -8281,3 +8281,35 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   **73 of 105 components have NO focus-visible state**; **114 literal `rounded-lg/xl` vs 11 themed** so a family's
   radius barely applies (playful isn't playful — it's just purple); **~8 transform/motion usages total**. The fix is
   a DESIGN LANGUAGE layer (radius/density/elevation/motion scales per family), not more components.
+
+- **2026-07-24 — CAPABILITY BLOCKS: 105 → 118. The parts bin now covers the backend.** Last component round: the
+  gap left was capabilities the backend already serves that had no UI at all. Added 13:
+  **SeatPicker** (venue seat map: rows/tiers, taken seats disabled, maxSeats enforced) · **WeekSchedule**
+  (timetables/rotas/opening hours) · **OrderTracker** (fulfilment progress) · **LessonList** (course curriculum,
+  completion + progress bar + locked lessons) · **CompareTable** (plan/feature comparison) · **AddressForm**
+  (shipping/billing with the right autoComplete attrs) · **PaymentForm** (card field layout — carries a code comment
+  that raw card numbers must never be POSTed to your own backend; wire it to the provider's tokenizer) ·
+  **WishlistButton** (save heart, incl. a floating-over-image variant) · **Leaderboard** (referrals/challenges) ·
+  **Poll** (community voting w/ result bars) · **ChatComposer** (Enter sends, Shift+Enter newlines) ·
+  **AnnouncementBar** (promo strip above the nav) · **CookieConsent** (choice persisted to localStorage).
+  **Verified: all 118 compile; a showcase page renders with ZERO page errors, and the interactive paths were
+  clicked through** — seat selection respects maxSeats and refuses taken seats, the poll reveals bars on vote,
+  messages send, hearts toggle, both bars dismiss.
+
+- **2026-07-24 — TWO REAL BUGS FOUND WHILE WIRING ROUND 6 IN (both would have bitten in production):**
+  **(1) The model was never told about 47 of the 118 components.** `REACT_RULES` still listed the round-3 inventory,
+  so every section block, dashboard block and capability block added since was INVISIBLE to the generator — it would
+  hand-roll a hero it already had. Fixed by extracting the inventory into one exported `COMPONENT_INVENTORY`
+  (~2.5k tokens, prompt-cached) covering all 118, and — this is the bigger half — **feeding it to the per-page
+  steps too**. `existingContext()` in chunked-build.mjs advertised "AVAILABLE SHARED COMPONENTS" built from the
+  files dict, which after templating is EMPTY (the kit lives in the template, not in `files`), so the page steps —
+  where most output tokens go — were told the library was empty. Both paths now get the real list.
+  **(2) The build container was DELETING the entire component library on every build.** `wipeSrc()` in
+  build-server.mjs `rm -rf`s `/app/src` before writing the incoming files, and the Worker only sends model-generated
+  files — so the kit the Dockerfile baked into `/app/src` was gone by the time `vite build` ran. Every templated
+  app would have failed to compile in the real container; it only ever worked in the local harness because that
+  directory had the components on disk. Fixed: the Dockerfile keeps a pristine `/app/.template-src`, and `wipeSrc()`
+  restores src/ from it before writing (falls back to an empty src/ on an older image). **Proved both directions
+  locally** against a replica of the image layout: with the pristine copy a 6-file payload (index.html + 2 pages +
+  scaffolded App/routes/tailwind) compiles clean pulling all 118 components from the template; with it removed the
+  same payload fails to resolve the imports.
