@@ -8060,3 +8060,18 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   (level 5 = fan-out). Cost ~$6.88 (CI run 30059674837, ~63 min for 20 sequential non-streaming gens). Next: wire
   runMultiAgent into the eval for an apples-to-apples 32k-single vs multi-agent run, OR flip MULTI_AGENT for a live
   test build. Harness: EVAL_COMPARE/EVAL_CAPS/EVAL_ONLY/EVAL_MAX_OUT in test/pipeline-eval.mjs.
+
+- **2026-07-24 — Sonnet-vs-Opus head-to-head (4 heavy prompts, streamed, 32k, DUMP on): truncation confirmed, and
+  "build in pieces" is the fix — not a bigger model.** Opus beat Sonnet (generated 75% vs 25%, compiled 25% vs 0%),
+  BUT the dumps show the real story: the ONLY app that compiled (course platform, Opus) is the ONLY one that DIDN'T
+  hit the 32k cap — it finished at 22,396 tokens with a clean tail and **compiled + linted clean**. All 3 that hit
+  the cap (CRM/social/marketplace, out=32000) truncated → failed. So: (1) failure mode = TRUNCATION, not
+  finished-but-broken (the finished app was clean); (2) the linter isn't miscalibrated (it passed the complete app,
+  failed the cut-off ones — earlier "0% lint" was a truncation artifact); (3) Opus helps (tighter code pushes one
+  more app under the line) but does NOT solve it — heavy apps still overflow one shot. The success/failure split was
+  literally PAGE COUNT: course = 3 pages (~22k, fit ✅); CRM = 8+ pages (>32k, cut ❌). Each page is only ~5–10k
+  chars = fits comfortably alone. **Conclusion: generate per-page (unit-sized), not whole-app-in-one-call. A smarter
+  model isn't the fix; smaller units are.** Directly backs the incremental/multi-agent direction. Caveat: Sonnet's
+  numbers are understated by a NEW harness bug — 3 of 4 Sonnet streamed responses returned files=[NONE]/empty text
+  despite 32k billed out (streaming-parser glitch on some responses; Opus run was clean). Cost ~$4.53 (CI run
+  30098163900). New harness knobs: EVAL_STREAM, EVAL_DUMP (prints per-prompt hitCap/hasApp/tailOpen + file list).
