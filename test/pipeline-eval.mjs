@@ -248,7 +248,7 @@ export function makeAnthropicGenerate(apiKey, model = "claude-sonnet-5", fetchIm
       });
       if (!r.ok) throw new Error("anthropic " + r.status + ": " + (await r.text()).slice(0, 200));
       const reader = r.body.getReader(); const dec = new TextDecoder();
-      let buf = "", text = "", usedIn = 0, usedInCached = 0, usedOut = 0;
+      let buf = "", text = "", usedIn = 0, usedInCached = 0, usedOut = 0, stopReason = null; const blockTypes = [];
       for (;;) {
         const { value, done } = await reader.read(); if (done) break;
         buf += dec.decode(value, { stream: true });
@@ -259,10 +259,13 @@ export function makeAnthropicGenerate(apiKey, model = "claude-sonnet-5", fetchIm
           const js = line.slice(5).trim(); if (!js || js === "[DONE]") continue;
           let ev; try { ev = JSON.parse(js); } catch { continue; }
           if (ev.type === "content_block_delta" && ev.delta && ev.delta.type === "text_delta") text += ev.delta.text;
+          else if (ev.type === "content_block_start" && ev.content_block) blockTypes.push(ev.content_block.type);
           else if (ev.type === "message_start" && ev.message && ev.message.usage) { usedIn = (ev.message.usage.input_tokens || 0) + (ev.message.usage.cache_creation_input_tokens || 0); usedInCached = ev.message.usage.cache_read_input_tokens || 0; }
-          else if (ev.type === "message_delta" && ev.usage) usedOut = ev.usage.output_tokens || usedOut;
+          else if (ev.type === "message_delta") { if (ev.usage) usedOut = ev.usage.output_tokens || usedOut; if (ev.delta && ev.delta.stop_reason) stopReason = ev.delta.stop_reason; }
         }
       }
+      // DIAG: same as the non-stream path — on empty text, show stop_reason + which block types actually arrived.
+      if (!text) console.error(`[DIAG stream] stop_reason=${stopReason} out=${usedOut} blocks=[${blockTypes.join(",")}]`);
       return { text, usedIn, usedInCached, usedOut };
     }
     const r = await fetchImpl("https://api.anthropic.com/v1/messages", {
@@ -274,6 +277,10 @@ export function makeAnthropicGenerate(apiKey, model = "claude-sonnet-5", fetchIm
     const j = await r.json();
     const text = (j.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
     const u = j.usage || {};
+    // DIAG: when text comes back empty despite spending output tokens, show WHY — stop_reason + the content block
+    // types (text vs thinking vs tool_use) + a raw peek. Tells us if the budget went to thinking, a refusal, or a
+    // parse miss, instead of guessing.
+    if (!text) console.error(`[DIAG non-stream] stop_reason=${j.stop_reason} out=${u.output_tokens} blocks=[${(j.content || []).map((c) => c.type).join(",")}] first=${JSON.stringify((j.content || [])[0] || null).slice(0, 240)}`);
     // Fresh (uncached) input + the cheap cache-read tokens, kept apart so the scorecard can price them differently.
     return { text, usedIn: (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0), usedInCached: u.cache_read_input_tokens || 0, usedOut: u.output_tokens || 0 };
   };
