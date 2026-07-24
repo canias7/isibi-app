@@ -8313,3 +8313,35 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   locally** against a replica of the image layout: with the pristine copy a 6-file payload (index.html + 2 pages +
   scaffolded App/routes/tailwind) compiles clean pulling all 118 components from the template; with it removed the
   same payload fails to resolve the imports.
+
+- **2026-07-24 — ROUND 7: 118 → 158. The gaps a universal builder still had.** Owner asked for more; these are the
+  40 things a real app reaches for that were still being hand-written every time. Added:
+  **Long-form/docs** Prose (the typography wrapper — a docs page was ~900 chars of className soup per article) ·
+  TableOfContents (sticky rail, highlights the section in view) · CodeBlock (filename bar, tabs, line numbers,
+  copy) · Callout (the aside INSIDE prose — Alert is the app-level one) · FeedbackWidget ("was this helpful?");
+  **Advanced fields** RangeSlider (two-handle price filter — every marketplace needs it) · DateRangePicker
+  (check-in/check-out; Calendar only does one date) · PasswordInput (show/hide + strength) · CurrencyInput ·
+  PhoneInput · ImageUploader (drag-drop + previews) · ColorPicker · SignaturePad (canvas, pointer events);
+  **Navigation** CommandPalette (⌘K — the one control that makes an app feel like a product) · KeyboardShortcuts
+  ("?" sheet, exports {Kbd}) · TreeView;
+  **Analytics** HeatMap (contribution calendar) · FunnelChart (stages + drop-off) · GanttChart (project timelines);
+  **Marketing sections** BentoGrid (asymmetric mosaic — hierarchy, not a spreadsheet of equal cards) · SplitFeature
+  (the alternating zig-zag row) · Marquee (seamless CSS loop, pauses on hover, still under reduced motion) ·
+  StatsCounter (counts up on scroll, exports {useCountUp}) · DeviceFrame (browser/phone/laptop chrome) ·
+  ImageCompare (before/after wipe) · Masonry · MapEmbed (a REAL map via OpenStreetMap — no library, no API key);
+  **SaaS surfaces** OnboardingChecklist · UsageMeter · TeamSwitcher · NotificationCenter · InviteMembers ·
+  ApiKeyRow (masked + reveal + revoke) · OfflineBanner;
+  **Social/commerce** UserCard · FollowButton · ReactionBar · VariantPicker (size/colour, sold-out stays visible
+  and struck through) · PromoCodeInput · ShippingOptions.
+  **Verified: all 158 compile; two showcase pages render with ZERO page errors, and the behaviour was measured, not
+  eyeballed** — the counters reach 2,400+ once scrolled into view, the marquee's transform actually advances
+  (−132px → −155px over 700ms), the compare slider's clip-path moves on drag (50% → 18%), the palette filters and
+  groups, the shortcut sheet opens.
+  **Two real bugs caught by looking at the render** (the same pattern that caught BarChart, SidebarLayout and
+  CTASection in earlier rounds): (1) GanttChart shaded the REMAINING portion of each bar, so an unfinished task
+  looked emphasised — flipped so solid = done, with the track and fill as SIBLINGS (opacity on a parent would have
+  faded the fill too); (2) HeatMap's month labels collided into "JanFeb" when two months landed in adjacent
+  columns — now it remembers where the last label went and skips the crowded ones.
+  All 40 shipped WITH focus-visible states, which is a head start on the quality pass.
+  **Also re-verified the whole path end-to-end**: the container replica compiles a page importing all 40 new
+  components from a 6-file payload, so the round-6 build-server fix holds at 158.
