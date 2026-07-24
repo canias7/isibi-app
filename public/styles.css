@@ -67,6 +67,34 @@
       .st-icon:active, .st-dev:active, .st-plus:active, .st-sendc:active, .send:active { transform: none; }
     }
 
+    /* ── More micro-interactions (owner 2026-07-24): view + builder-panel entrance
+       transitions, a click ripple on primary buttons, and a spring pop on toasts.
+       All reduce-motion safe. ── */
+    @keyframes view-in { from { opacity: 0; transform: translateY(8px); } }
+    .view.active { animation: view-in .26s cubic-bezier(.2, .7, .3, 1) both; }
+    /* builder Preview/Code/More/Data panels re-render on switch → animate each in */
+    .st-frame, .st-code, .st-more, .st-datawrap, .st-building {
+      animation: view-in .22s cubic-bezier(.2, .7, .3, 1) both;
+    }
+    /* click ripple — a white ink expands from the tap point on primary dark buttons */
+    .send, .st-sendc, .st-publish, .crt-chatbox-send, .st-data-add, .st-data-save {
+      position: relative; overflow: hidden;
+    }
+    .ripple-ink {
+      position: absolute; border-radius: 50%; pointer-events: none;
+      background: rgba(255, 255, 255, .5); transform: scale(0); opacity: .6;
+      animation: ripple-go .55s cubic-bezier(.25, .6, .3, 1) forwards;
+    }
+    @keyframes ripple-go { to { transform: scale(2.4); opacity: 0; } }
+    /* toast: spring pop-in (it already slides in via .show) */
+    .sb-toast.show { animation: toast-pop .34s cubic-bezier(.2, 1.45, .4, 1); }
+    @keyframes toast-pop { from { transform: translate(-50%, 14px) scale(.94); opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) {
+      .view.active, .st-frame, .st-code, .st-more, .st-datawrap, .st-building,
+      .sb-toast.show { animation: none; }
+      .ripple-ink { display: none; }
+    }
+
     /* ── Top bar ─────────────────────────────── */
     .topbar {
       display: flex; align-items: center; gap: 1.6rem;

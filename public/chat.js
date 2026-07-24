@@ -8893,6 +8893,26 @@ function initAuthGate() {
   initMktRotate();
   initMktCord();
   initCrt();   // the CRT is now the landing itself (channels + tuning)
+  // Click ripple on primary buttons — a white ink expands from the tap point.
+  if (!window.__rippleWired) {
+    window.__rippleWired = true;
+    const RIPPLE = '.send, .st-sendc, .st-publish, .crt-chatbox-send, .st-data-add, .st-data-save';
+    const reduceRipple = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    document.addEventListener('pointerdown', (e) => {
+      if (reduceRipple) return;
+      const btn = e.target.closest && e.target.closest(RIPPLE);
+      if (!btn || btn.disabled) return;
+      const r = btn.getBoundingClientRect();
+      const d = Math.max(r.width, r.height);
+      const ink = document.createElement('span');
+      ink.className = 'ripple-ink';
+      ink.style.width = ink.style.height = d + 'px';
+      ink.style.left = (e.clientX - r.left - d / 2) + 'px';
+      ink.style.top = (e.clientY - r.top - d / 2) + 'px';
+      btn.appendChild(ink);
+      ink.addEventListener('animationend', () => ink.remove());
+    }, { passive: true });
+  }
   if (window.Auth && Auth.isSignedIn()) enterApp();
   else showMarketing();
 }
