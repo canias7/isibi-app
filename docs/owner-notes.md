@@ -8135,3 +8135,16 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   NEXT: run it live at 25k + 60k to see the real full-pipeline ledger (does the fix-loop rescue the truncated
   App.jsx?). Still pending: code should own App.jsx/Nav.jsx (model rewrites them ~5x/build), and feature pages
   should get budget BEFORE admin (current planner reserves admin first, so at 25k the ONLY page built was Admin).
+
+- **2026-07-24 — ✅ FULL PIPELINE @ 25k COMPILED, within cap. (And: Anthropic credits ran out.)** First run of
+  runFullPipeline live. **25k total → compiled ✅ at 18,209/25,000 spent.** The trace proves the repair stages are
+  what saved it: generate:shell 9,300 + generate:admin 4,600 → validate → **schema-fix (2,000 reserved, spent only
+  309 — wrote isibi.schema.json)** → wiring-repair skipped → **lint-gate FAILED → lint-repair 2,000 → lint-recheck
+  CLEAN** → **compile FAILED → fix-loop 2,000 → compile-recheck OK**. So ~4.3k of repair budget turned a broken
+  build green, and the whole thing landed 6.8k under the cap. This CORRECTS my earlier claim that 25k can't compile —
+  it can, once ALL the stages run (owner was right to insist). Caveat: at 25k the app is still **shell + Admin only,
+  zero feature pages** (the admin-priority planner bug), so it runs but is thin. **The 60k run CRASHED: `anthropic
+  400 — "Your credit balance is too low"` — the Anthropic account is out of credits; no further live runs until it's
+  topped up (console.anthropic.com → Plans & Billing). The crash also skipped the commit-back, so no viewout for
+  this run.** Still pending (both now clearly worth doing): (1) code owns App.jsx/Nav.jsx, (2) feature pages get
+  budget BEFORE admin.
