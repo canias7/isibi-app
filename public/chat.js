@@ -2300,13 +2300,13 @@ function toggleDirMenu(e) {
   renderEffortLock();
 })();
 
-// ── Website-builder model picker (Auto / Sonnet 5 / Opus 4.8) — lives in the SITE-BUILDER composer (st-comp),
+// ── Website-builder model picker (Auto / Sonnet 5 / Opus 5) — lives in the SITE-BUILDER composer (st-comp),
 // sent as `picker` on a react-build. Auto routes per agent (Opus plans, Sonnet builds); Sonnet/Opus pin every agent.
 // The site composer re-renders, so the menu markup is emitted inline (buildPickerHTML) and wired per render.
 const BUILD_PICKERS = {
   auto:   { label: 'Auto',     desc: 'Opus plans, Sonnet builds — best mix' },
   sonnet: { label: 'Sonnet 5', desc: 'Every agent on Sonnet — fast' },
-  opus:   { label: 'Opus 4.8', desc: 'Every agent on Opus — most capable, slower' },
+  opus:   { label: 'Opus 5', desc: 'Every agent on Opus — most capable, slower' },
 };
 const BUILD_PICKER_KEY = 'zephyr_build_picker_v1';
 let buildPicker = localStorage.getItem(BUILD_PICKER_KEY) || 'auto';

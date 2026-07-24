@@ -46,10 +46,10 @@ jobs:
           BUILD_URL: "http://127.0.0.1:8080"
         run: node test/pipeline-eval.mjs
 
-      - name: Opus 4.8 (the hypothesis, same prompts, streamed + dumped)
+      - name: Opus 5 (the hypothesis, same prompts, streamed + dumped)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          EVAL_MODEL: "claude-opus-4-8"
+          EVAL_MODEL: "claude-opus-5"
           EVAL_ONLY: "2,4,7,21"
           EVAL_MAX_OUT: "32000"
           EVAL_STREAM: "1"

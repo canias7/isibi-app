@@ -8108,3 +8108,13 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   (executor skips reserve steps), test/pipeline-eval.mjs (EVAL_CHUNKED, thinking-off, per-call max_tokens, DIAG).
   Chunked eval @25k: gen 100% but compile 0% (pages truncate — shell eats the tiny budget). NEXT: re-run at ~60k
   total + save/screenshot the built app; wire thinking-off into worker.js.
+
+- **2026-07-24 — Opus 4.8 → Opus 5 across the builder.** Opus 5 (`claude-opus-5`) shipped and is now the recommended
+  Opus tier; 4.8 is legacy. Verified live from the docs (not memory): **same $5/$25 per MTok, same 1M context, same
+  128k max output (300k via the Batch `output-300k-2026-03-24` beta), same adaptive-thinking API shape, same latency
+  tier** — the wins are better agentic coding + a **May 2026** knowledge cutoff (vs Jan 2026). Pure model-ID swap, no
+  API changes, no price change. Changed: `builder/model-router.mjs` MODELS.opus, the chatbox picker label in
+  `public/chat.js` (BUILD_PICKERS.opus → "Opus 5"), and EVAL_MODEL in eval-opus.yml / eval-bounded.yml. Router 26/26
+  + multi-agent 26/26 still green. NOTE: Opus 5 still has adaptive thinking ON by default, so the
+  `thinking:{type:"disabled"}` fix on generation calls STILL applies (and is still needed). Tier above Opus if ever
+  wanted: **Fable 5** ($10/$50, thinking always-on — `{type:"disabled"}` returns 400 there, omit the param instead).

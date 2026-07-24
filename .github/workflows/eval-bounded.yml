@@ -48,10 +48,10 @@ jobs:
           BUILD_URL: "http://127.0.0.1:8080"
         run: node test/pipeline-eval.mjs
 
-      - name: Opus 4.8 — bounded to ~5 pages
+      - name: Opus 5 — bounded to ~5 pages
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          EVAL_MODEL: "claude-opus-4-8"
+          EVAL_MODEL: "claude-opus-5"
           EVAL_ONLY: "2,4,7"
           EVAL_MAX_CAPS: "2"
           EVAL_MAX_OUT: "32000"
