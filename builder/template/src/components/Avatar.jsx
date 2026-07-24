@@ -22,18 +22,24 @@ function initials(name) {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
+// xs is for inline bylines and dense lists; xl for a profile page. An unknown size falls back to md rather
+// than emitting NO size class — that would collapse the avatar to zero width and is invisible until you look.
+const SIZES = {
+  xs: 'h-5 w-5 text-[10px]',
+  sm: 'h-7 w-7 text-xs',
+  md: 'h-9 w-9 text-sm',
+  lg: 'h-12 w-12 text-base',
+  xl: 'h-16 w-16 text-xl',
+}
+
 export default function Avatar({ name = '', src, size = 'md', className }) {
-  const sizes = {
-    sm: 'h-7 w-7 text-xs',
-    md: 'h-9 w-9 text-sm',
-    lg: 'h-12 w-12 text-base',
-  }
+  const sizeClass = SIZES[size] || SIZES.md
   if (src) {
     return (
       <img
         src={src}
         alt={name ? `${name}'s avatar` : 'User avatar'}
-        className={cx('rounded-full object-cover shrink-0', sizes[size], className)}
+        className={cx('rounded-full object-cover shrink-0', sizeClass, className)}
       />
     )
   }
@@ -42,7 +48,7 @@ export default function Avatar({ name = '', src, size = 'md', className }) {
       className={cx(
         'rounded-full flex items-center justify-center font-semibold shrink-0',
         hashColor(name),
-        sizes[size],
+        sizeClass,
         className
       )}
       aria-label={name || 'User avatar'}

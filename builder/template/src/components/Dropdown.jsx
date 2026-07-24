@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
+import { MoreHorizontal } from 'lucide-react'
 import { cx } from '../lib/cx.js'
 
 // Dropdown — a click-triggered menu. `trigger` is any node; `items` are {label, onSelect, icon, danger} or
 // { separator: true }. Closes on outside click and Escape.
-export default function Dropdown({ trigger, items = [], align = 'right', className }) {
+export default function Dropdown({ trigger, items = [], align = 'right', label = 'More options', className }) {
   const [open, setOpen] = useState(false)
   const box = useRef(null)
   useEffect(() => {
@@ -17,7 +18,27 @@ export default function Dropdown({ trigger, items = [], align = 'right', classNa
 
   return (
     <div ref={box} className={cx('relative inline-block', className)}>
-      <span onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open}>{trigger}</span>
+      {trigger
+        // A caller's trigger is usually already a button, so wrapping it in another one would nest buttons
+        // (invalid HTML). Keep the span, but make it focusable and Enter/Space-operable — a click-only span
+        // is unreachable by keyboard.
+        ? (
+          <span role="button" tabIndex={0} aria-haspopup="menu" aria-expanded={open}
+            onClick={() => setOpen((o) => !o)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((o) => !o) } }}
+            className="inline-flex cursor-pointer rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+            {trigger}
+          </span>
+        )
+        // With NO trigger the old version rendered an empty, unclickable span — the menu existed but nothing
+        // could open it. Fall back to a real ⋯ button so `<Dropdown items={…} />` works on its own.
+        : (
+          <button type="button" aria-haspopup="menu" aria-expanded={open} aria-label={label}
+            onClick={() => setOpen((o) => !o)}
+            className="rounded-lg p-1.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+            <MoreHorizontal size={16} />
+          </button>
+        )}
       {open && (
         <div role="menu"
           className={cx(

@@ -8345,3 +8345,49 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   All 40 shipped WITH focus-visible states, which is a head start on the quality pass.
   **Also re-verified the whole path end-to-end**: the container replica compiles a page importing all 40 new
   components from a 6-file payload, so the round-6 build-server fix holds at 158.
+
+- **2026-07-24 — ROUND 8: 158 → 258. Owner asked for 100 more; here they are.** Before building, owner asked
+  whether we could just download from Material UI / Ant Design / Tailwind UI. Answer recorded so we don't
+  re-litigate it: **Tailwind UI is a hard no** (paid licence, and its terms forbid redistributing the components
+  inside a product that ships them to other people — which is exactly what the builder does). **MUI and Ant are
+  MIT so legally fine but the wrong shape** — each brings its own CSS-in-JS runtime (our container bakes exactly
+  six deps), each has a hard visual identity that would undo the per-app palettes, and neither reads our semantic
+  tokens, so theming would stop applying to anything we pulled in. **shadcn/ui + Radix is the one that would fit**
+  (MIT, copy-paste, Tailwind-native — it's what Lovable ships), but its ~50 components overlap ours heavily; the
+  real reason to take Radix is ACCESSIBILITY on the overlays, which is a quality-pass decision, not a count one.
+  **Owner's call: keep building ours.** So all 100 are hand-written against our tokens, no new dependencies.
+  Grouped by domain: **editorial** (ArticleHeader, AuthorBio, RelatedPosts, PullQuote, ReadingProgress, TagCloud,
+  ArchiveList, ShowMore) · **learning** (CourseCard, QuizQuestion, QuizResult, VideoChapters, AssignmentCard,
+  GradeTable, CertificateCard) · **property** (PropertyFeatures, PriceHistory, MortgageCalculator, AgentCard,
+  OpenHouseList) · **food** (DishCard, AllergenTags, OrderTypeToggle, TipSelector, ReservationSummary,
+  KitchenTicket) · **health** (PatientHeader, VitalsGrid, MedicationList, ConsentBlock, SymptomChecklist,
+  AppointmentCard) · **fitness** (WorkoutCard, ExerciseList, StreakCounter, MacroRing) · **events** (TicketCard,
+  EventSchedule, SpeakerCard, VenueInfo, AttendeeList, WaitlistForm) · **hiring** (JobCard, JobFilters,
+  ApplicationForm, SalaryRange, CompanyCard, FileDropzone, InterviewSlots) · **travel** (FlightCard,
+  ItineraryTimeline, TravelerForm, BaggageOptions, DestinationCard) · **finance** (AccountCard, TransactionList,
+  BudgetRing, CategoryBreakdown, CardVisual, TransferForm, ExchangeRate, StatementRow) · **support** (TicketRow,
+  SlaBadge, KnowledgeBaseSearch, LiveChatBubble) · **marketplace** (SellerCard, BidHistory, OfferCard) ·
+  **community** (PostComposer, FeedPost, StoryRing, MemberList, GroupCard, ModerationQueue) · **dev/API**
+  (EndpointRow, ParamTable, ServiceStatus, WebhookLog, EnvSelector) · **charts** (ScatterPlot, StackedBar,
+  RadarChart, MetricComparison, CohortTable, TopList) · **forms/surveys** (FormWizard, RepeaterField, NpsInput,
+  MatrixQuestion, RankOrder, DurationInput, TimezoneSelect) · **security** (SocialAuthButtons, TwoFactorSetup,
+  SessionList, PermissionMatrix) · **system** (ErrorPage, ComingSoon, ThemeToggle).
+  **Verified: all 258 compile; three showcase pages render with ZERO page errors.**
+  **Four real bugs caught, two of them latent in components that shipped rounds ago:**
+  (1) **Avatar silently collapsed on an unknown `size`** — the map had only sm/md/lg, so `size="xs"` emitted NO
+  size class at all and the avatar rendered at zero width. Added xs/xl and a fallback to md.
+  (2) **Dropdown with no `trigger` rendered an invisible, unclickable control** — the menu existed but nothing
+  could open it, and `<Dropdown items={…} />` looks complete. It now falls back to a real ⋯ button, and the
+  custom-trigger path got tabIndex + Enter/Space, because a click-only `<span>` is unreachable by keyboard.
+  (3) **TwoFactorSetup truncated the secret to "J…"** in a narrow column — a key you cannot read defeats the
+  entire type-it-by-hand fallback. Now `break-all` on its own row, never truncated.
+  (4) **SocialAuthButtons wrapped "Continue with Facebook" onto three lines** at four providers — past two it
+  now drops the verb and shows just the provider name.
+  Also fixed a React warning in PermissionMatrix (a keyed group needs a real `<Fragment key>`, not `<>`).
+  **focus-visible coverage is now 103/258** (every component added in rounds 7–8 has it) — still the main
+  quality gap, along with the literal `rounded-lg/xl` problem.
+  **Verified end-to-end again:** the container replica compiles a page importing ALL 258 components from a
+  five-file payload. The inventory in react-gen.mjs covers all 258 (~6.7k tokens, prompt-cached).
+  **Known, NOT fixed (template chrome, owner's call):** the shared `Nav` doesn't wrap or scroll its link row, so
+  an app with ~12+ pages overflows the viewport horizontally. Our test harness has 18 pages and overflows by
+  138px; a normal generated app (~8 pages) fits. Say the word and it's a one-line fix.
