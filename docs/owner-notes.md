@@ -8176,3 +8176,21 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   multi-agent agentGen) — production had the same budget-eating bug the eval exposed.
   STILL PENDING: feature pages should get budget BEFORE admin (at 25k the planner still spends on Admin before
   dropping 7 pages); harness commit-back needs `if: always()`.
+
+- **2026-07-24 — UI PRIMITIVES: the parts bin is now 34 components (was 12).** Owner's call — don't wait to harvest,
+  build the catalog now, because an unused template component costs ~nothing (0 output tokens, tree-shaken from the
+  bundle, only a few cached words in the prompt) while every used one saves tokens on every build forever.
+  Added 22, all hand-rolled with React + Tailwind + lucide only (NO new deps — no Radix/shadcn), matching the
+  existing conventions (`cx` helper, ink/brand/accent tokens, accessible, focus-visible rings):
+  **Forms** Checkbox · Radio (+RadioGroup) · Switch · Slider · Rating · SearchInput · FileInput (drag-drop);
+  **Layout/nav** Tabs (+TabPanel) · Accordion · Breadcrumb · Pagination (windowed w/ ellipses) · Stepper · Separator;
+  **Overlays** Drawer (side panel) · Dropdown (menu, outside-click + Esc) · Tooltip;
+  **Data/feedback** Stat (KPI tile) · Chart (Sparkline/LineChart/BarChart/DonutChart, pure SVG) · Progress · Alert ·
+  Timeline · Calendar (month grid for bookings, marks + minDate).
+  Chosen against the 25-prompt eval set + the 279 capabilities: dashboards need Stat/Chart/Progress, bookings need
+  Calendar/Stepper, listings need Pagination/SearchInput/Rating, forms need Checkbox/Radio/Switch/Slider/FileInput.
+  **Verified: all 34 compile (esbuild), a showcase page using every one builds clean (vite) and renders with ZERO
+  page errors** — screenshotted. Fixed one real bug found by the render: BarChart columns needed `h-full` or the
+  percentage bar heights collapsed to 0 against an auto-height parent. REACT_RULES now lists the whole catalog with
+  props, grouped Forms/Layout/Overlays/Data. Deliberately NOT copying shadcn's ~45 (most go unused in a given app);
+  the set is sized to what our capability registry actually generates.
