@@ -1,0 +1,47 @@
+# Throwaway: Sonnet 5, max_tokens 25000, NON-streaming (25k finishes well under the ~10-min non-streaming ceiling
+# and avoids the Sonnet streaming glitch), 2 prompts — the CRM (broke before) and the course platform (passed
+# before) — full scope, dump + compile on. Triggers on push to eval-s25-run. Delete branch when done.
+name: eval-s25
+
+on:
+  push:
+    branches: [eval-s25-run]
+
+jobs:
+  eval-s25:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Scaffold the build service
+        run: |
+          set -e
+          mkdir -p /tmp/buildapp
+          cp builder/package.json /tmp/buildapp/
+          cp -r builder/template/. /tmp/buildapp/
+          cd /tmp/buildapp
+          npm install --no-audit --no-fund --loglevel=error
+          npx playwright install --with-deps chromium || echo "WARN: chromium install failed (build-only, fine)"
+
+      - name: Start the build service
+        run: |
+          APP_DIR=/tmp/buildapp PORT=8080 node builder/build-server.mjs > /tmp/build-server.log 2>&1 &
+          for i in $(seq 1 20); do curl -sf http://127.0.0.1:8080/health && break || sleep 0.5; done
+          echo "build service up"
+
+      - name: Sonnet 5 @ 25k — CRM (broke) + course (passed)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EVAL_MODEL: "claude-sonnet-5"
+          EVAL_ONLY: "2,21"
+          EVAL_MAX_OUT: "25000"
+          EVAL_STREAM: "0"
+          EVAL_DUMP: "1"
+          EVAL_BUILD: "1"
+          EVAL_VISION: "0"
+          EVAL_REPAIR: "0"
+          BUILD_URL: "http://127.0.0.1:8080"
+        run: node test/pipeline-eval.mjs
