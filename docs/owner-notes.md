@@ -8148,3 +8148,31 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   topped up (console.anthropic.com → Plans & Billing). The crash also skipped the commit-back, so no viewout for
   this run.** Still pending (both now clearly worth doing): (1) code owns App.jsx/Nav.jsx, (2) feature pages get
   budget BEFORE admin.
+
+- **2026-07-24 — TEMPLATE THE BOILERPLATE (the Lovable lesson). Shell 16k → 5k.** Owner ran the same CRM prompt
+  through Lovable and compared file trees. Finding: **Lovable's model wrote ~5 files** (index/auth/leads routes + 2
+  SQL migrations). Its ~45 `components/ui/*` are **shadcn/ui shipped in a starter template** (0 tokens), its router
+  (`routeTree.gen.ts`) is **codegen from the file tree** (0 tokens), and it deliberately built **ONE feature page**
+  then offered chips ("Add deals & pipeline", "Enable lead filtering") to add more. **We were regenerating all of it
+  every build** — that was the ~16k shell overhead, self-inflicted. Fixes shipped:
+  (1) **`builder/template/` now carries the scaffold** (22 files): 12 UI components (Avatar/Badge/Button/Card/
+  EmptyState/Input/Modal/Select/Skeleton/Table/Textarea + a manifest-driven Nav), `lib/{api,auth,toast,cx}`,
+  `main.jsx`, `index.css` (+@layer container-page/card-surface) and `tailwind.config.js` (tokens ink-50..900,
+  brand-50..900, accent, canvas, font-display, shadow-soft, rounded-xl2). Promoted from the best generated build
+  (they compiled + rendered well), so it's proven code, not new code.
+  (2) **`builder/scaffold.mjs` generates routing in CODE ($0)**: `pageNamesFrom` → `src/routes.js` (the nav manifest)
+  + `src/App.jsx` (the <Routes> table), derived from the page files that exist. Creating `src/pages/Deals.jsx` now
+  auto-routes `/deals` AND adds its nav link. **This permanently kills the truncated-App.jsx failure class** (a
+  for-loop can't run out of budget) — that single file killed the whole 60k build. chunked-build re-scaffolds after
+  EVERY step and deletes any router the model emits anyway.
+  (3) **REACT_RULES rewritten**: "THE SCAFFOLD ALREADY EXISTS — DO NOT REWRITE IT", lists every component + its props,
+  the lib helpers, the design tokens, and "ROUTING IS GENERATED FOR YOU — never emit src/App.jsx". The model now
+  emits ONLY index.html, pages, genuinely-new components, and the schema. Same for the chunked shell/page prompts.
+  (4) `SHELL_TOKENS` 16000 → **5000**; validate no longer requires main.jsx (template-owned).
+  **Verified end-to-end at $0:** built an app from template + 7 page files only, `vite build` clean (1590 modules),
+  renders identically to the original — and the nav is now BETTER (auto-lists all 7 pages; the model's hardcoded nav
+  had missed Track Email). **Plan impact at 25k: 0 feature pages → 1; at 60k: 5 → 6.**
+  Also: **thinking:{type:"disabled"} applied to worker.js** (both react-build + react-revise streams and the
+  multi-agent agentGen) — production had the same budget-eating bug the eval exposed.
+  STILL PENDING: feature pages should get budget BEFORE admin (at 25k the planner still spends on Admin before
+  dropping 7 pages); harness commit-back needs `if: always()`.

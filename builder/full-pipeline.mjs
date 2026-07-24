@@ -85,7 +85,8 @@ export async function runFullPipeline(brief, cap, deps, opts = {}) {
   if (!Object.keys(files).length) return { ok: false, error: "generation produced no files", trace, spent };
 
   // ── 7. Validate (deterministic).
-  const haveCore = !!(files["index.html"] && files["src/App.jsx"] && files["src/main.jsx"]);
+  // main.jsx / index.css / components come from the TEMPLATE (0 tokens), so they're absent from `files` by design.
+  const haveCore = !!(files["index.html"] && files["src/App.jsx"] && files["src/pages/Home.jsx"]);
   t("validate", { cost: 0, ok: haveCore, fileCount: Object.keys(files).length });
 
   // ── 8. Schema-fix — the app calls the backend but never declared its tables.

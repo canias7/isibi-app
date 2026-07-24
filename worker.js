@@ -29348,7 +29348,10 @@ async function handleRequest(request, env, ctx) {
         const r = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-          body: JSON.stringify({ model: RB_MODEL, max_tokens: RB_MAX_OUT, stream: true, system, messages: [{ role: "user", content: userContent }] }),
+          // thinking DISABLED: Sonnet 5 defaults to adaptive thinking, which spends the max_tokens budget REASONING
+          // before it writes any code — measured eating 100% of the budget on tight steps (empty output, no files).
+          // The app plan is already computed for it, so generation just needs to WRITE. Frees the whole budget for code.
+          body: JSON.stringify({ model: RB_MODEL, max_tokens: RB_MAX_OUT, stream: true, thinking: { type: "disabled" }, system, messages: [{ role: "user", content: userContent }] }),
           signal: AbortSignal.timeout(300000),
         });
         if (!r.ok) { const d = await r.json().catch(() => ({})); const e = new Error("gen " + r.status); e.status = r.status; e.detail = JSON.stringify(d).slice(0, 500); throw e; }
@@ -29379,7 +29382,8 @@ async function handleRequest(request, env, ctx) {
         const r = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-          body: JSON.stringify({ model: task.model, max_tokens: 16000, system: task.system, messages: [{ role: "user", content: task.user }] }),
+          // thinking DISABLED (see the build path) — a slice's budget must go to code, not reasoning.
+          body: JSON.stringify({ model: task.model, max_tokens: 16000, thinking: { type: "disabled" }, system: task.system, messages: [{ role: "user", content: task.user }] }),
           signal: AbortSignal.timeout(150000),
         });
         if (!r.ok) { const d = await r.text().catch(() => ""); const e = new Error("agent " + r.status); e.status = r.status; e.detail = d.slice(0, 300); throw e; }
@@ -29669,7 +29673,8 @@ async function handleRequest(request, env, ctx) {
         const r = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-          body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: RB_MAX_OUT, stream: true, system, messages: [{ role: "user", content: userContent }] }),
+          // thinking DISABLED — same reason as the build path: adaptive thinking eats the output budget before code.
+          body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: RB_MAX_OUT, stream: true, thinking: { type: "disabled" }, system, messages: [{ role: "user", content: userContent }] }),
           signal: AbortSignal.timeout(300000),
         });
         if (!r.ok) { const d = await r.json().catch(() => ({})); const e = new Error("gen " + r.status); e.status = r.status; e.detail = JSON.stringify(d).slice(0, 500); throw e; }

@@ -12,6 +12,7 @@
 // so it unit-tests at $0 with a mock generate.
 
 import { buildPlan } from "./build-plan.mjs";
+import { scaffoldRouting } from "./scaffold.mjs";
 import { parseGeneratedFiles, REACT_RULES, REACT_REVISE_RULES } from "./react-gen.mjs";
 import { getCapability } from "./capability-registry.mjs";
 
@@ -34,16 +35,16 @@ function existingContext(files) {
 
 function shellPrompt(brief, spec) {
   const featurePages = (spec.capabilities || []).map((id) => pascal(id));
-  return "Build ONLY THE SHELL of this React app — NOT the feature pages. This is step 1 of a multi-step build; the " +
+  return "Build the OPENING of this React app — NOT the feature pages. This is step 1 of a multi-step build; the " +
     "feature pages are added in later steps.\n\nApp brief: " + brief + "\n\n" +
-    "Create ONLY these: index.html; src/main.jsx; src/App.jsx that routes ONLY Home at \"/\" and SignIn at \"/signin\" " +
-    "FOR NOW (later steps add more <Route>s); src/index.css; src/lib/api.js (the fetch helper for the per-site " +
-    "backend); an auth context and a toast/notification context; the FULL SHARED UI COMPONENT LIBRARY under " +
-    "src/components/ (Button, Card, Input, Select, Textarea, Modal, Badge, Table, EmptyState, Skeleton, Avatar, and " +
-    "a Nav) — everything the feature pages will reuse, designed so they slot in cleanly; a polished Home landing page " +
-    "(src/pages/Home.jsx); and a SignIn page (src/pages/SignIn.jsx). " +
-    "The feature pages that WILL be added later (do NOT create their files now): " + featurePages.join(", ") + ". " +
-    "Make the shell a COMPLETE, COMPILABLE base on its own. If this app needs a backend, emit isibi.schema.json now.";
+    "The scaffold (component library, lib/api, lib/auth, lib/toast, main.jsx, index.css, tailwind tokens) ALREADY " +
+    "EXISTS — import from it, never recreate it. Routing is generated for you, so do NOT emit src/App.jsx.\n\n" +
+    "Emit ONLY these files: `index.html` (real <title>, <meta name=description>, and the Google Fonts <link> for the " +
+    "display/body faces); `src/pages/Home.jsx` — a polished, specific landing page for THIS product, built from the " +
+    "existing components and design tokens; `src/pages/SignIn.jsx` — sign in / sign up using `useAuth()`; and " +
+    "`isibi.schema.json` if the app needs a backend. " +
+    "The feature pages added in later steps (do NOT create them now): " + featurePages.join(", ") + ". " +
+    "Because the chrome already exists, spend the whole budget on making Home genuinely good.";
 }
 
 function capDesc(capId) {
@@ -57,9 +58,9 @@ function pagesPrompt(brief, capIds, files, label) {
   return "ADD " + (label || "these feature page(s)") + " to the EXISTING app below. Reuse the shared components in " +
     "src/components/ and the api helper in src/lib/api.js. Match the existing design exactly.\n\nApp brief: " + brief +
     "\n\nPages to add:\n" + capIds.map(capDesc).join("\n") + "\n\n" +
-    "Emit ONLY: the new src/pages/*.jsx file(s); the updated src/App.jsx (ADD the new <Route>s, KEEP every existing " +
-    "route); and the updated Nav component (ADD links to the new pages, KEEP existing links). Do NOT rewrite the " +
-    "shared components or any other page.\n\n" + existingContext(files);
+    "Emit ONLY the new `src/pages/*.jsx` file(s) — nothing else. Routing and the nav link are generated for you the " +
+    "moment the page file exists, so do NOT emit src/App.jsx, src/routes.js, or Nav.jsx, and do NOT rewrite the " +
+    "shared components or any other page. Your entire budget goes into the page(s) themselves.\n\n" + existingContext(files);
 }
 
 // runChunkedBuild(brief, spec, cap, deps, opts) → { ok, files, plan, steps:[{step,kind,budget,out,files}], tokens }
@@ -87,10 +88,16 @@ export async function runChunkedBuild(brief, spec, cap, deps, opts = {}) {
     else { system = opts.editRules || REACT_REVISE_RULES; user = pagesPrompt(brief, step.pages, files, "these feature pages: " + step.pages.map(pascal).join(", ")); }
     const g = await deps.generate(system, user, step.budget);
     const f = parseGeneratedFiles(g.text || "");
+    // Routing is owned by CODE: drop any router the model emitted anyway, then regenerate it from the pages that
+    // now exist. Doing this after EVERY step keeps the app runnable mid-build and costs nothing.
+    delete f["src/App.jsx"]; delete f["src/routes.js"];
     for (const [p, v] of Object.entries(f)) files[p] = v;
+    files = scaffoldRouting(files).files;
     record(step.kind, step.budget, g, f);
   }
 
-  const ok = !!(files["index.html"] && files["src/App.jsx"] && files["src/main.jsx"]);
+  // main.jsx / index.css / the component library come from the TEMPLATE, so they are not in `files` — the build is
+  // valid when the model supplied the page content and the scaffold wired the router.
+  const ok = !!(files["index.html"] && files["src/App.jsx"] && files["src/pages/Home.jsx"]);
   return { ok, files, plan, steps, tokens: { in: totIn, inCached: totInCached, out: totOut } };
 }
