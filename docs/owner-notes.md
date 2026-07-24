@@ -8046,3 +8046,17 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   `.st-comp` row, `effort` added to both build + revise request bodies. **MULTI_AGENT master flag still OFF**
   — level 5 falls back to the 32k single-shot ceiling until it's flipped for a live (credit-spending) test.
   Renders clean in B&W; model-router 26/26 + multi-agent 26/26 still green.
+
+- **2026-07-24 — max_tokens A/B (16k vs 32k, NO timeout): single-shot is a dead end for heavy apps → multi-agent.**
+  Ran the pipeline eval in compare mode (`EVAL_COMPARE`, new) on 10 curated heavy backend apps (CRM, social,
+  marketplace, property-mgmt, ops dashboard, SaaS, job board, invoicing, help desk, course platform), non-streaming
+  (no timeout), compile on, repair/vision OFF (raw first-pass). Result: **16k → generated 0% / compiled 0% / avg
+  out 14,400** (everyone slammed the ceiling, cut mid-file); **32k → generated 40% / compiled 13% / avg out 25,449**
+  (given room they ballooned to ~25k and STILL truncate; some hit 32k again). So: more room genuinely helps (the cap
+  WAS strangling it), but best-case single-shot (32k, no clock) is still **13% compile** on real apps. Raising the
+  production 300s timeout is at most a partial patch (0% → ~13–40% band), never shippable. `lint clean` was 0% at
+  BOTH caps → structural/wiring issues on top of truncation. **Verdict: the completeness problem is structural, not
+  a token-budget knob — split the app (multi-agent), don't lengthen one stream.** Validates the effort step-ladder
+  (level 5 = fan-out). Cost ~$6.88 (CI run 30059674837, ~63 min for 20 sequential non-streaming gens). Next: wire
+  runMultiAgent into the eval for an apples-to-apples 32k-single vs multi-agent run, OR flip MULTI_AGENT for a live
+  test build. Harness: EVAL_COMPARE/EVAL_CAPS/EVAL_ONLY/EVAL_MAX_OUT in test/pipeline-eval.mjs.
