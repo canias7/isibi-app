@@ -8391,3 +8391,42 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   **Known, NOT fixed (template chrome, owner's call):** the shared `Nav` doesn't wrap or scroll its link row, so
   an app with ~12+ pages overflows the viewport horizontally. Our test harness has 18 pages and overflows by
   138px; a normal generated app (~8 pages) fits. Say the word and it's a one-line fix.
+
+- **2026-07-24 — SWITCHED THE WHOLE KIT TO TYPESCRIPT (258 .jsx → .tsx).** Owner asked whether TSX beats JSX
+  after reading it elsewhere; the answer at our scale is yes, so we converted. **The critical thing to know:
+  `.tsx` ALONE DOES NOTHING** — proved it by test: a `.tsx` file with a deliberate type error compiled clean in
+  6s and shipped the bad value into the bundle, because Vite/esbuild STRIPS types without checking them. The
+  benefit only exists because we also added `typescript` + `tsc --noEmit`.
+  **Design decisions, so nobody re-litigates them:**
+  (1) **tsc is ADVISORY, never a build gate.** It runs after a successful `vite build` and returns `typeErrors`
+  for the repair loop. A customer getting NOTHING because of a type error is worse than a shipped app with one.
+  Verified: a page with `size="enormous"` and a misspelled `varient=` still built and served, with both errors
+  reported back.
+  (2) **NOT `strict`.** The value is contract enforcement at the component boundary — a misspelled prop and an
+  invalid literal — and both come from the interfaces plus excess-property checking, which work at any
+  strictness. Full strict produced 465 errors of pure noise on ordinary React. Noise nobody can clear trains
+  everyone to ignore the checker.
+  (3) **Prop interfaces are CLOSED, data shapes are OPEN.** `AvatarProps` must reject a typo; `Person` must not
+  reject an attendee that also has a company and a ticket type. `src/lib/types.ts` holds the shared shapes with
+  an index signature; the per-component interfaces do not.
+  **The conversion is one reproducible script**, not a pile of seds — it runs from the committed .jsx baseline
+  every time, because one bad regex of mine (it matched across `${…}` inside a template literal) left 400 syntax
+  errors with no way back. 1,748 props typed, 17 literal unions inferred.
+  **tsc went 596 → 3 errors, and the 3 remaining are by design** (`routes.ts`/`App.tsx` are code-generated after
+  the check runs). All 258 compile, all 8 showcase pages render with ZERO page errors, CSS output is byte-identical
+  at 77.30 kB (the Tailwind content glob needed `{js,jsx,ts,tsx}` or everything purges), and the container replica
+  builds a page importing all 258 from a 5-file payload.
+  **THREE REAL BUGS the types caught immediately** — all the "silently wrong, looks fine" class:
+  (a) **`variant="outline"` did not exist.** Six call sites used it, REACT_RULES documented it, and Button only
+  implemented `secondary` — so those six buttons rendered with `variants[undefined]`, i.e. NO variant styling.
+  (b) **`Nav` passed `<Avatar size={32} />`** — a number, when Avatar takes `'xs'|'sm'|'md'|'lg'|'xl'`. Exactly
+  the Avatar bug found by hand in round 8, in a second place nobody had looked.
+  (c) **`EmptyState` implements `description`, the docs promised `message`, DataTable passed `message`** — so an
+  empty table's explanatory line silently never rendered.
+  All three are prose-vs-code drift, which is precisely the failure the compiler now prevents structurally.
+  **I WAS WRONG ABOUT THE TOKEN COST.** I told the owner +10–15% output per page. Measured against the real
+  generated CRM it is **~0.5%** (+100 tokens on ~20,500) — wrong by about 25×. The reason: page components take
+  no props and so need no annotation, `useState` infers, and the rules now say keep annotations LIGHT — only
+  inner components need an interface, and nine real pages contained three of them. Caveat: that is an estimate
+  of what the model WOULD write; a true measurement needs a live generation, which is still blocked on the
+  Anthropic balance.

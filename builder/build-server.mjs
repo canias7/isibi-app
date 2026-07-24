@@ -63,6 +63,32 @@ function runBuild() {
   });
 }
 
+// ADVISORY type check. Vite/esbuild strips types without checking them, so tsc is the only thing that
+// actually enforces the kit's prop contracts. It runs AFTER a successful build and its findings are returned
+// for the repair loop to act on — it can NEVER fail a build. A customer getting nothing because of a type
+// error is a worse outcome than a shipped app with a type error in it.
+const TSC_TIMEOUT = 45_000;
+function runTypecheck() {
+  return new Promise((resolve) => {
+    if (!fs.existsSync(path.join(APP, "tsconfig.json"))) return resolve({ ran: false, errors: [] });
+    const child = spawn("npx", ["tsc", "--noEmit", "--pretty", "false"], { cwd: APP, env: { ...process.env } });
+    let out = "";
+    child.stdout.on("data", (d) => { out += d; });
+    child.stderr.on("data", (d) => { out += d; });
+    const to = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} resolve({ ran: false, errors: [], note: "typecheck timed out" }); }, TSC_TIMEOUT);
+    child.on("close", () => {
+      clearTimeout(to);
+      const errors = out.split("\n")
+        .filter((l) => /error TS\d+/.test(l))
+        // The router is code-generated after this runs, so its absence is expected, not a finding.
+        .filter((l) => !/Cannot find module '\.\.?\/(routes|App)/.test(l))
+        .slice(0, 40);
+      resolve({ ran: true, errors });
+    });
+    child.on("error", () => { clearTimeout(to); resolve({ ran: false, errors: [] }); });
+  });
+}
+
 function collectDist(dir = DIST, base = "") {
   const out = {};
   if (!fs.existsSync(dir)) return out;
@@ -167,7 +193,9 @@ const server = http.createServer((req, res) => {
       if (r.code !== 0) return send(res, 200, { ok: false, error: (r.err || "build failed").slice(0, 4000) });
       const dist = collectDist();
       if (!dist["index.html"]) return send(res, 200, { ok: false, error: "build produced no index.html" });
-      return send(res, 200, { ok: true, files: dist });
+      // Advisory only — the build already succeeded, so `ok` stays true whatever tsc says.
+      const types = await runTypecheck();
+      return send(res, 200, { ok: true, files: dist, typeErrors: types.errors, typecheckRan: types.ran });
     } catch (e) {
       return send(res, 200, { ok: false, error: String(e && e.message || e).slice(0, 2000) });
     }

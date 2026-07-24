@@ -20,6 +20,8 @@ COPY template/ ./
 # Keep a PRISTINE copy. Each /build resets src/** (so one site's pages can't leak into the next), which would
 # otherwise delete the whole kit — the build service restores src/ from here before writing the generated files.
 RUN cp -a /app/src /app/.template-src
+# tsconfig.json ships with the template (COPY above). It is used ONLY by the advisory `tsc --noEmit` pass —
+# Vite transpiles .tsx via esbuild and never reads it.
 COPY build-server.mjs ./
 COPY vision-render.mjs ./
 
