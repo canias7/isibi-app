@@ -242,7 +242,10 @@ export async function runEvalCLI() {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) { console.error("ANTHROPIC_API_KEY not set — this runs live and spends credits; set it in CI."); process.exit(2); }
   const limit = parseInt(process.env.EVAL_LIMIT || "0", 10);
-  const prompts = limit > 0 ? PROMPTS.slice(0, limit) : PROMPTS;
+  // EVAL_ONLY: comma-separated 0-based indices to hand-pick specific prompts (overrides EVAL_LIMIT). Lets a small
+  // run target the heavy, discriminating apps instead of just the first N. EVAL_LIMIT still takes the first N.
+  const only = (process.env.EVAL_ONLY || "").split(",").map((s) => parseInt(s.trim(), 10)).filter((n) => Number.isInteger(n) && n >= 0 && n < PROMPTS.length);
+  const prompts = only.length ? only.map((i) => PROMPTS[i]) : (limit > 0 ? PROMPTS.slice(0, limit) : PROMPTS);
   const model = process.env.EVAL_MODEL || "claude-sonnet-5";
   const buildUrl = process.env.BUILD_URL || "http://127.0.0.1:8080";
   // Build a deps bundle at a given max_tokens cap. generate/revise both honor the cap; build/vision are shared.
