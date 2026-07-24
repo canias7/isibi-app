@@ -8213,3 +8213,19 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   the default export — exactly the mistake a model would make — so Sidebar now exports SidebarLayout BOTH ways.
   Kanban compiled + is wired but was behind a view toggle in the shot, so it is not visually verified yet.
   REACT_RULES lists all 55 grouped Forms/Layout/Pickers/Overlays/App-shells/Media with props.
+
+- **2026-07-24 — UI PRIMITIVES round 3: 55 → 72. The parts bin is DONE.** Added 17 more (no new deps):
+  **Media** Gallery (grid wired to Lightbox) · AudioPlayer (podcasts/lessons) · VideoEmbed (file or iframe);
+  **Social/detail** Comment (+CommentList, nestable replies) · ChatMessage (DMs, `mine` flips side) ·
+  DescriptionList (order/profile/invoice detail) · NotificationItem · ShareButtons (native share sheet → clipboard);
+  **Commerce/forms** PricingCard · Countdown · MultiSelect · InlineEdit (click-to-edit) · FormSection (+FormActions) ·
+  ButtonGroup; **Feedback/resilience** Spinner · **ErrorBoundary** (class component — stops one broken component
+  blanking the whole app); plus **Footer** (manifest-driven from routes.js, like Nav).
+  **Verified: all 72 compile; a third showcase exercising every round-3 component builds clean and renders with ZERO
+  page errors** — and two things that needed proving both passed: **ErrorBoundary actually caught a deliberate throw
+  and rendered its fallback**, and **Kanban is now visually confirmed** (was compiled-but-unseen last round).
+  **DELIBERATELY EXCLUDED, and why** — command palette / menubar / context-menu / hover-card / resizable panels /
+  tree view / masonry: genuinely rare in generated apps, would be dead weight. Rich-text editor, image cropper,
+  colour picker, maps: all need third-party deps, which breaks the "import ONLY from REACT_DEPS" contract.
+  Toast already exists as `lib/toast.jsx`. **At 72 we're past shadcn parity (~48) on the pieces our 279 capabilities
+  actually generate, and the remaining candidates are all rare-or-needs-a-dep. This is the natural stopping point.**
