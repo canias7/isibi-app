@@ -8,6 +8,7 @@
 // credits (one full generation per prompt).
 import { planApp } from "../builder/app-planner.mjs";
 import { getCapability } from "../builder/capability-registry.mjs";
+import { runChunkedBuild } from "../builder/chunked-build.mjs";
 import { pickStyleFamily } from "../builder/design-system.mjs";
 import { composeBuildPrompt } from "../builder/pipeline.mjs";
 import { lintGeneratedApp } from "../builder/app-linter.mjs";
@@ -95,19 +96,29 @@ export async function evaluatePrompt(prompt, deps = {}) {
     // Cap-aware scope so the build fits under the token cap and finishes instead of truncating. deps.capAware turns
     // on TRUE per-app sizing (capsForBudgetAdaptive weighs each app's own pages); deps.capabilityLimit is a manual
     // override. Either way the trimmed spec is a COMPLETE, self-contained app (planApp keeps pages/caps consistent).
+    // deps.chunked → build the FULL app across cap-sized steps (never shrink it). Otherwise cap-aware/manual scope.
     let capLimit = deps.capabilityLimit;
-    if (deps.capAware) capLimit = capsForBudgetAdaptive(prompt, deps.maxOut || 25000);
+    if (deps.capAware && !deps.chunked) capLimit = capsForBudgetAdaptive(prompt, deps.maxOut || 25000);
     const plan = planApp(prompt, capLimit != null ? { capabilityLimit: capLimit } : {});
     if (!plan.ok) { r.error = "plan failed"; return r; }
     r.pageCount = plan.spec.pages.length;
     r.capLimit = capLimit != null ? capLimit : null;
     r.capabilities = plan.spec.capabilities;
     r.family = pickStyleFamily(plan.spec.design_hints);
-    const user = composeBuildPrompt(plan.spec, r.family, { baseRules: "Build this as a polished React app. Output ONLY the file blocks." });
 
-    const g = await deps.generate(REACT_RULES, user);
-    r.tokens.in += g.usedIn || 0; r.tokens.inCached += g.usedInCached || 0; r.tokens.out += g.usedOut || 0;
-    let files = parseGeneratedFiles(g.text || "");
+    let files;
+    if (deps.chunked) {
+      // Chunked build: shell step + page-edit steps, each ≤ cap, so the FULL app finishes without truncating.
+      const cb = await runChunkedBuild(prompt, plan.spec, deps.maxOut || 25000, { generate: deps.generate });
+      files = cb.files || {};
+      r.tokens.in += cb.tokens.in || 0; r.tokens.inCached += cb.tokens.inCached || 0; r.tokens.out += cb.tokens.out || 0;
+      r.chunkSteps = cb.steps.length;
+    } else {
+      const user = composeBuildPrompt(plan.spec, r.family, { baseRules: "Build this as a polished React app. Output ONLY the file blocks." });
+      const g = await deps.generate(REACT_RULES, user);
+      r.tokens.in += g.usedIn || 0; r.tokens.inCached += g.usedInCached || 0; r.tokens.out += g.usedOut || 0;
+      files = parseGeneratedFiles(g.text || "");
+    }
     r.generated = !!(files["index.html"] && files["src/App.jsx"]);
 
     let lint = lintGeneratedApp(files);
@@ -361,7 +372,11 @@ export async function runEvalCLI() {
     // EVAL_CAP_AWARE: the planner reads the output budget and plans only as many pages as will FINISH under it
     // (via capsForBudget). EVAL_MAX_CAPS is the manual override. Either way, the trimmed spec is a COMPLETE app —
     // fewer pages, but self-contained (the planner keeps pages/capabilities consistent), so it finishes, not truncates.
-    if (process.env.EVAL_CAP_AWARE === "1") {
+    // EVAL_CHUNKED: build the FULL app across cap-sized steps (shell + page-edits) so every step finishes.
+    if (process.env.EVAL_CHUNKED === "1") {
+      deps.chunked = true; deps.maxOut = maxOut;
+      console.error(`[CHUNKED] maxOut=${maxOut} → full app built across cap-sized steps (shell + page-edits)`);
+    } else if (process.env.EVAL_CAP_AWARE === "1") {
       deps.capAware = true; deps.maxOut = maxOut; // true per-app sizing, computed per prompt in evaluatePrompt
       console.error(`[CAP-AWARE] maxOut=${maxOut} → adaptive per-app page sizing (weighs each app's own pages)`);
     } else if (process.env.EVAL_MAX_CAPS) {
