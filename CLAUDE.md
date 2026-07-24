@@ -23,6 +23,8 @@ Push to `main` → GitHub Actions → Wrangler → Cloudflare Workers → isibi.
 - **Always show UI changes as screenshots in the chat** (render the page headless and send the image) — the user reviews everything visually here.
 - The user directs design; don't restyle beyond what's asked.
 - Don't spend fal credits or Workers AI calls on tests without asking first.
+- **The website-builder component kit is TypeScript. New components go in `builder/template/src/components/` as `.tsx`, never `.jsx`** (owner's call 2026-07-24). Type the props (`interface XProps`), use the shared shapes in `src/lib/types.ts` rather than redefining them, and add the component to `COMPONENT_INVENTORY` in `builder/react-gen.mjs` in the same commit — a component missing from the inventory is invisible to the generator. `node builder/check-kit.mjs` enforces all three and runs in CI (`kit-check.yml`); run it before committing kit changes.
+- Generated app pages are `.tsx` too, with LIGHT annotations only — measured overhead is ~0.5%, and it stays that way because page components take no props and `useState` infers. Don't annotate every local.
 
 ## Credits & monetization (live)
 

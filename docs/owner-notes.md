@@ -8430,3 +8430,19 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   inner components need an interface, and nine real pages contained three of them. Caveat: that is an estimate
   of what the model WOULD write; a true measurement needs a live generation, which is still blocked on the
   Anthropic balance.
+
+- **2026-07-24 — TSX IS NOW THE RULE FOR COMPONENTS, AND IT IS ENFORCED.** Owner's call: from now on all kit
+  components are `.tsx`. Rather than write that down and trust it (the exact thing that produced three bugs
+  this session), it is a check: **`builder/check-kit.mjs`**, wired to CI in `kit-check.yml` on any change to
+  `builder/template/**` or `react-gen.mjs`. It guards the three invariants that have each already cost us a bug:
+  (1) components are `.tsx` — a stray `.jsx` still builds, so nothing else would tell you the kit had drifted;
+  (2) every component appears in `COMPONENT_INVENTORY` — it once fell three rounds behind and 47 of 118
+  components were invisible to the generator; and (3) every prop the inventory documents actually exists —
+  `variant="outline"`, `EmptyState message=` and `<Avatar size={32}/>` were all prose the code never honoured.
+  The workflow also runs `tsc` as a HARD gate on our own kit (it stays advisory at build time, where a customer
+  is waiting for an app).
+  **On its first run the check found two more drifts nobody had noticed:** the inventory documented
+  `EmptyState (icon, title, message, action)` when the component implements `description, actionLabel, onAction,
+  actionTo`. Corrected. Kit is now 258 components, 826 documented props verified, all invariants holding.
+  Deliberately kept OUT of `deploy.yml` — a drifted inventory should be loud, but it should not block shipping
+  the Worker.

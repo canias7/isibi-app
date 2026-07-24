@@ -1,0 +1,53 @@
+name: Component kit check
+
+# Runs on any change to the kit or the generator rules. Deliberately SEPARATE from deploy.yml: a drifted
+# inventory should be loud, but it should not block shipping the Worker.
+on:
+  push:
+    paths:
+      - "builder/template/**"
+      - "builder/react-gen.mjs"
+      - "builder/check-kit.mjs"
+      - ".github/workflows/kit-check.yml"
+  pull_request:
+    paths:
+      - "builder/template/**"
+      - "builder/react-gen.mjs"
+
+permissions:
+  contents: read
+
+jobs:
+  kit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Invariants that have each already cost us a real bug: components are .tsx, every component appears in
+      # COMPONENT_INVENTORY (it once fell three rounds behind), and every documented prop actually exists
+      # (variant="outline", EmptyState message= and <Avatar size={32}/> were all prose the code never honoured).
+      - name: Kit invariants
+        run: node builder/check-kit.mjs
+
+      # The kit must typecheck. tsc is advisory at BUILD time so a customer never loses an app to a type error —
+      # but in CI, on our own code, it is a hard gate.
+      - name: Typecheck the component kit
+        working-directory: builder/template
+        run: |
+          npm install --no-audit --no-fund --loglevel=error \
+            typescript@^5.6.2 @types/react@^18.3.5 @types/react-dom@^18.3.0 \
+            react@^18.3.1 react-dom@^18.3.1 react-router-dom@^6.26.0 \
+            lucide-react@^0.436.0 clsx@^2.1.1 tailwind-merge@^2.5.2
+          # routes.ts / App.tsx are code-generated per build, so their absence here is expected.
+          mkdir -p src/pages && echo 'export default function Home() { return <div/> }' > src/pages/Home.tsx
+          npx tsc --noEmit --pretty false 2>&1 | tee /tmp/tsc.txt || true
+          COUNT=$(grep -c "error TS" /tmp/tsc.txt | tr -d ' ' || echo 0)
+          EXPECTED=$(grep "error TS" /tmp/tsc.txt | grep -cE "Cannot find module '\.\.?/(routes|App)" || echo 0)
+          echo "tsc errors: $COUNT (expected/codegen-related: $EXPECTED)"
+          if [ "$COUNT" -gt "$EXPECTED" ]; then
+            grep "error TS" /tmp/tsc.txt | grep -vE "Cannot find module '\.\.?/(routes|App)" | head -30
+            exit 1
+          fi
