@@ -8118,3 +8118,20 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   + multi-agent 26/26 still green. NOTE: Opus 5 still has adaptive thinking ON by default, so the
   `thinking:{type:"disabled"}` fix on generation calls STILL applies (and is still needed). Tier above Opus if ever
   wanted: **Fable 5** ($10/$50, thinking always-on — `{type:"disabled"}` returns 400 there, omit the param instead).
+
+- **2026-07-24 — FULL-PIPELINE runner (builder/full-pipeline.mjs): all ~17 stages against ONE budget.** The earlier
+  chunked test only ran plan→generate→compile (3 of ~17 stages), so the reserves never fired — owner called it out.
+  Corrected: the react-build pipeline has **~17 stages** but only **SIX spend output tokens** — generate
+  (REACT_RULES, chunked), schema-fix (SCHEMA_REPAIR_RULES), **wiring-repair (WIRING_REPAIR_RULES — this one was
+  MISSING from the reserves)**, lint-repair (REACT_REVISE_RULES), fix-loop (REACT_FIX_RULES × attempts), vision-polish.
+  Everything else (auth/config/parse/credit gates, validate, charge, images/fal, compile/container, publish,
+  provision) costs 0 output tokens. `runFullPipeline(brief, cap, deps)` runs every stage with a shared LEDGER: each
+  model call's max_tokens = min(its reserve, budget actually remaining); when the budget runs dry later stages are
+  SKIPPED rather than overspending, so the cap is a real ceiling for the WHOLE build. `traceTable()` prints the
+  per-stage ledger (budget / spent / running / note). RESERVES now = schema 2000 · **wiring 1500** · lint 2000 ·
+  repair 4000 · vision 2000. Fixed two bugs found by the $0 mock: onStep belongs in runChunkedBuild's OPTS not deps
+  (generation sub-steps were missing from the trace), and traceTable mis-rendered the validate row. Mock run: 22
+  trace rows, schema-fix + lint-repair + fix-loop all fired, compile recovered on retry, 12k/25k within cap.
+  NEXT: run it live at 25k + 60k to see the real full-pipeline ledger (does the fix-loop rescue the truncated
+  App.jsx?). Still pending: code should own App.jsx/Nav.jsx (model rewrites them ~5x/build), and feature pages
+  should get budget BEFORE admin (current planner reserves admin first, so at 25k the ONLY page built was Admin).

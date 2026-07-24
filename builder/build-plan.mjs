@@ -19,7 +19,10 @@ export const BASE_PAGE = 1800;     // a feature page's floor
 export const PER_ROUTE = 700;      // each endpoint the page drives
 export const STEP_MAX = 9000;      // soft ceiling per generation step (small, reliable calls)
 export const SHELL_FRACTION = 0.6; // shell may claim at most this share of the generation budget
-export const RESERVES = { schema: 2000, lint: 2000, repair: 4000, vision: 2000 }; // default per-step reserves
+// Per-step reserves for the post-generation pipeline steps that spend output tokens. These are the FIVE repair-ish
+// model calls in the real react-build pipeline: schema-fix (SCHEMA_REPAIR_RULES), wiring-repair
+// (WIRING_REPAIR_RULES), lint-repair (REACT_REVISE_RULES), fix-loop (REACT_FIX_RULES), vision-polish.
+export const RESERVES = { schema: 2000, wiring: 1500, lint: 2000, repair: 4000, vision: 2000 };
 
 export function pageCost(capId, capFn = getCapability) {
   const c = capFn(capId);
@@ -39,11 +42,12 @@ export function buildPlan(spec, cap, opts = {}) {
   // 1) Reserve budget for the post-generation pipeline steps (they spend output tokens; the cap covers the WHOLE build).
   const reserves = {
     schema: opts.reserveSchema != null ? opts.reserveSchema : RESERVES.schema,
+    wiring: opts.reserveWiring != null ? opts.reserveWiring : RESERVES.wiring,
     lint: opts.reserveLint != null ? opts.reserveLint : RESERVES.lint,
     repair: opts.reserveRepair != null ? opts.reserveRepair : RESERVES.repair,
     vision: opts.vision ? (opts.reserveVision != null ? opts.reserveVision : RESERVES.vision) : 0,
   };
-  const reserveTotal = reserves.schema + reserves.lint + reserves.repair + reserves.vision;
+  const reserveTotal = reserves.schema + reserves.wiring + reserves.lint + reserves.repair + reserves.vision;
   const genBudget = Math.max(0, cap - reserveTotal);
   if (genBudget < shellEst) warnings.push(`only ${genBudget} tok left for generation after ${reserveTotal} reserved for repair/schema/vision — the shell (~${shellEst}) won't fully fit; raise the cap`);
 
@@ -68,6 +72,7 @@ export function buildPlan(spec, cap, opts = {}) {
 
   // 3) Reserved pipeline steps — conditional, run only if their step fires at build time; their budget is held aside.
   steps.push({ kind: "schema-fix", budget: reserves.schema, reserve: true });
+  steps.push({ kind: "wiring-repair", budget: reserves.wiring, reserve: true });
   steps.push({ kind: "lint-repair", budget: reserves.lint, reserve: true });
   steps.push({ kind: "fix-loop", budget: reserves.repair, reserve: true });
   if (reserves.vision) steps.push({ kind: "vision", budget: reserves.vision, reserve: true });
