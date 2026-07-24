@@ -156,19 +156,43 @@ export function formatScorecard({ results, summary }, opts = {}) {
   return L.join("\n");
 }
 
+// formatCompare — a side-by-side A/B of two (or more) runs at different max_tokens caps. The headline question
+// is completeness: with NO timeout, does a bigger cap actually reduce truncation (→ more apps generate + compile)?
+export function formatCompare(runs, opts = {}) {
+  // runs: [{ label, out }] where out = { results, summary }.
+  const inRate = opts.inRate || 3 / 1e6, cacheRate = opts.cacheRate || 0.3 / 1e6, outRate = opts.outRate || 15 / 1e6;
+  const costOf = (results) => results.reduce((s, r) => s + r.tokens.in * inRate + (r.tokens.inCached || 0) * cacheRate + r.tokens.out * outRate, 0);
+  const rows = [
+    ["generated a valid app", (s) => s.generated_pct + "%"],
+    ["backend routes all real", (s) => s.routes_valid_pct + "%"],
+    ["forms wired to a write", (s) => s.forms_wired_pct + "%"],
+    ["lint clean", (s) => s.lint_clean_pct + "%"],
+    ["compiled", (s) => (s.compiled_pct != null ? s.compiled_pct + "%" : "—")],
+    ["avg design score", (s) => (s.avg_design_score != null ? s.avg_design_score + "/100" : "—")],
+    ["avg tokens out", (s) => String(s.avg_tokens_out)],
+  ];
+  const L = [];
+  L.push("# max_tokens A/B — no timeout (non-streaming)\n");
+  L.push("| metric | " + runs.map((r) => r.label).join(" | ") + " |");
+  L.push("| --- | " + runs.map(() => "---").join(" | ") + " |");
+  for (const [name, fn] of rows) L.push(`| ${name} | ` + runs.map((r) => fn(r.out.summary)).join(" | ") + " |");
+  L.push(`| est. cost | ` + runs.map((r) => "$" + costOf(r.out.results).toFixed(2)).join(" | ") + " |");
+  return L.join("\n");
+}
+
 // makeAnthropicGenerate — a real generate(system, user) that calls the Anthropic Messages API. Needs a key.
 // The system prompt (the ~100k-token BACKEND_RULES) is marked cache_control:ephemeral, exactly like production —
 // so after the first prompt every subsequent call is a cache HIT (~10x cheaper input, 5-min TTL, sequential calls
 // land inside it). max_tokens 16000 mirrors production (worker.js GB_MAX_OUT/RB_MAX_OUT) so completeness numbers
 // are the real thing. usedIn counts fresh input tokens only (cache reads are billed at ~1/10 and reported apart),
 // so the est. cost reflects post-cache spend.
-export function makeAnthropicGenerate(apiKey, model = "claude-sonnet-5", fetchImpl = fetch) {
+export function makeAnthropicGenerate(apiKey, model = "claude-sonnet-5", fetchImpl = fetch, maxOut = 32000) {
   return async (system, user) => {
     const r = await fetchImpl("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({
-        model, max_tokens: 32000, stream: false,
+        model, max_tokens: maxOut, stream: false,
         system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
         messages: [{ role: "user", content: user }],
       }),
@@ -220,19 +244,41 @@ export async function runEvalCLI() {
   const limit = parseInt(process.env.EVAL_LIMIT || "0", 10);
   const prompts = limit > 0 ? PROMPTS.slice(0, limit) : PROMPTS;
   const model = process.env.EVAL_MODEL || "claude-sonnet-5";
-  const generate = makeAnthropicGenerate(key, model);
-  const deps = { generate };
-  if (process.env.EVAL_REPAIR === "1") deps.revise = generate;
   const buildUrl = process.env.BUILD_URL || "http://127.0.0.1:8080";
-  if (process.env.EVAL_BUILD === "1") deps.build = makeContainerBuild(buildUrl);
-  if (process.env.EVAL_VISION === "1") {
-    if (process.env.EVAL_BUILD !== "1") deps.build = makeContainerBuild(buildUrl); // vision renders the built dist
-    deps.render = makeContainerRender(buildUrl);
-    deps.critiqueOne = makeVisionCritique(key, model);
+  // Build a deps bundle at a given max_tokens cap. generate/revise both honor the cap; build/vision are shared.
+  const depsFor = (maxOut) => {
+    const generate = makeAnthropicGenerate(key, model, fetch, maxOut);
+    const deps = { generate };
+    if (process.env.EVAL_REPAIR === "1") deps.revise = generate;
+    if (process.env.EVAL_BUILD === "1") deps.build = makeContainerBuild(buildUrl);
+    if (process.env.EVAL_VISION === "1") {
+      if (process.env.EVAL_BUILD !== "1") deps.build = makeContainerBuild(buildUrl);
+      deps.render = makeContainerRender(buildUrl);
+      deps.critiqueOne = makeVisionCritique(key, model);
+    }
+    return deps;
+  };
+  const extras = [process.env.EVAL_REPAIR === "1" && "repair", process.env.EVAL_BUILD === "1" && "build", process.env.EVAL_VISION === "1" && "vision"].filter(Boolean).join("+") || "none";
+
+  // A/B compare mode: run the SAME prompts at two caps (default 16000 vs 32000), NO timeout, and print a side-by-side.
+  // The question it answers: with the timeout removed, does more room actually reduce truncation (more gen/compile)?
+  if (process.env.EVAL_COMPARE === "1") {
+    const caps = (process.env.EVAL_CAPS || "16000,32000").split(",").map((s) => parseInt(s.trim(), 10)).filter(Boolean);
+    const runs = [];
+    for (const cap of caps) {
+      console.error(`\n=== Running ${prompts.length} prompts @ max_tokens ${cap} (model ${model}; extras: ${extras}) ===`);
+      const out = await runEval(prompts, depsFor(cap));
+      runs.push({ label: `${(cap / 1000)}k`, out });
+      console.log(`\n<!-- scorecard @ ${cap} -->\n` + formatScorecard(out));
+    }
+    console.log("\n" + formatCompare(runs));
+    console.error("\nJSON:\n" + JSON.stringify(runs.map((r) => ({ cap: r.label, ...r.out.summary }))));
+    return;
   }
-  const extras = [process.env.EVAL_REPAIR === "1" && "repair", deps.build && "build", deps.render && "vision"].filter(Boolean).join("+") || "none";
-  console.error(`Running ${prompts.length} prompts through PIPELINE_V2 (model ${model}; extras: ${extras})…`);
-  const out = await runEval(prompts, deps);
+
+  const maxOut = parseInt(process.env.EVAL_MAX_OUT || "32000", 10);
+  console.error(`Running ${prompts.length} prompts through PIPELINE_V2 (model ${model}; max_tokens ${maxOut}; extras: ${extras})…`);
+  const out = await runEval(prompts, depsFor(maxOut));
   console.log(formatScorecard(out));
   console.error("\nJSON:\n" + JSON.stringify(out.summary));
 }
