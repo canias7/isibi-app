@@ -186,16 +186,45 @@ export function formatCompare(runs, opts = {}) {
 // land inside it). max_tokens 16000 mirrors production (worker.js GB_MAX_OUT/RB_MAX_OUT) so completeness numbers
 // are the real thing. usedIn counts fresh input tokens only (cache reads are billed at ~1/10 and reported apart),
 // so the est. cost reflects post-cache spend.
-export function makeAnthropicGenerate(apiKey, model = "claude-sonnet-5", fetchImpl = fetch, maxOut = 32000) {
+export function makeAnthropicGenerate(apiKey, model = "claude-sonnet-5", fetchImpl = fetch, maxOut = 32000, stream = false) {
   return async (system, user) => {
+    const body = {
+      model, max_tokens: maxOut, stream,
+      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
+      messages: [{ role: "user", content: user }],
+    };
+    // Streaming path: needed for slower/bigger generations (e.g. Opus) — non-streaming has a hard ~10-min ceiling,
+    // so a long single-shot would be killed and look like a model failure. Streaming keeps the connection alive.
+    // 15-min AbortSignal is a safety net, not the effective cap (deltas keep flowing well under it).
+    if (stream) {
+      const r = await fetchImpl("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+        body: JSON.stringify(body), signal: AbortSignal.timeout(900000),
+      });
+      if (!r.ok) throw new Error("anthropic " + r.status + ": " + (await r.text()).slice(0, 200));
+      const reader = r.body.getReader(); const dec = new TextDecoder();
+      let buf = "", text = "", usedIn = 0, usedInCached = 0, usedOut = 0;
+      for (;;) {
+        const { value, done } = await reader.read(); if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+          if (!line.startsWith("data:")) continue;
+          const js = line.slice(5).trim(); if (!js || js === "[DONE]") continue;
+          let ev; try { ev = JSON.parse(js); } catch { continue; }
+          if (ev.type === "content_block_delta" && ev.delta && ev.delta.type === "text_delta") text += ev.delta.text;
+          else if (ev.type === "message_start" && ev.message && ev.message.usage) { usedIn = (ev.message.usage.input_tokens || 0) + (ev.message.usage.cache_creation_input_tokens || 0); usedInCached = ev.message.usage.cache_read_input_tokens || 0; }
+          else if (ev.type === "message_delta" && ev.usage) usedOut = ev.usage.output_tokens || usedOut;
+        }
+      }
+      return { text, usedIn, usedInCached, usedOut };
+    }
     const r = await fetchImpl("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({
-        model, max_tokens: maxOut, stream: false,
-        system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content: user }],
-      }),
+      body: JSON.stringify(body),
     });
     if (!r.ok) throw new Error("anthropic " + r.status + ": " + (await r.text()).slice(0, 200));
     const j = await r.json();
@@ -248,9 +277,35 @@ export async function runEvalCLI() {
   const prompts = only.length ? only.map((i) => PROMPTS[i]) : (limit > 0 ? PROMPTS.slice(0, limit) : PROMPTS);
   const model = process.env.EVAL_MODEL || "claude-sonnet-5";
   const buildUrl = process.env.BUILD_URL || "http://127.0.0.1:8080";
+  const stream = process.env.EVAL_STREAM === "1";
+  // EVAL_DUMP: wrap generate to print, per prompt, the raw output shape — parsed file names+sizes, a truncation
+  // heuristic (unclosed final block / missing App.jsx), and token usage — so we SEE whether a failure is truncation
+  // vs finished-but-broken vs a parser miss, instead of trusting the pass/fail flags alone.
+  const dump = process.env.EVAL_DUMP === "1";
+  let dumpN = 0;
+  const withDump = (gen, maxOut) => async (system, user) => {
+    const g = await gen(system, user);
+    if (dump) {
+      const files = parseGeneratedFiles(g.text || "");
+      const names = Object.keys(files);
+      const sizes = names.map((n) => `${n}(${files[n].length}c)`).join(", ") || "NONE";
+      const raw = (g.text || "").trim();
+      // Real signals, reported separately so we can tell the failure modes apart:
+      //  hitCap  → output pinned at the token ceiling = truncated at the cap
+      //  hasApp  → the essential src/App.jsx block parsed out
+      //  tailOpen→ the response ends mid-expression (also a truncation tell, independent of the cap)
+      const hitCap = g.usedOut >= Math.floor(maxOut * 0.98);
+      const hasApp = names.includes("src/App.jsx");
+      const tailOpen = /[{([,=+\-*/<>&|:]$/.test(raw);
+      const label = (prompts[dumpN] || "?").slice(0, 46);
+      console.error(`\n[DUMP ${dumpN + 1}] "${label}"\n  out=${g.usedOut}/${maxOut}${hitCap ? " HIT-CAP" : ""} in=${g.usedIn} cached=${g.usedInCached} | hasApp=${hasApp} tailOpen=${tailOpen} | files=[${sizes}]\n  tail: …${raw.slice(-140).replace(/\n/g, "⏎")}`);
+      dumpN++;
+    }
+    return g;
+  };
   // Build a deps bundle at a given max_tokens cap. generate/revise both honor the cap; build/vision are shared.
   const depsFor = (maxOut) => {
-    const generate = makeAnthropicGenerate(key, model, fetch, maxOut);
+    const generate = withDump(makeAnthropicGenerate(key, model, fetch, maxOut, stream), maxOut);
     const deps = { generate };
     if (process.env.EVAL_REPAIR === "1") deps.revise = generate;
     if (process.env.EVAL_BUILD === "1") deps.build = makeContainerBuild(buildUrl);
