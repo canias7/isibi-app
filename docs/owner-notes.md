@@ -8247,3 +8247,22 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   pink accent, inverted neutrals, fully readable. warm-editorial: warm paper, serif display, amber accent. Same
   components, unrecognisably different apps.
   So the parts bin is shared but the *look* is per-app — which was the whole objection to templating.
+
+- **2026-07-24 — SECTION BLOCKS: 72 → 95 components. This is where the tokens actually go.** Owner pushed past 72;
+  correct call, and the right next tier wasn't more atoms — it was SECTIONS. A generated Home page was ~5,500 chars
+  of hand-written hero + features + testimonials + pricing + CTA; as blocks that drops to a few hundred chars of
+  props. Added 23:
+  **Landing sections** Hero (split/center/minimal) · FeatureGrid · HowItWorks · StatsBand · TestimonialGrid ·
+  LogoCloud · PricingTable (grid of PricingCards + monthly/yearly toggle) · FAQSection · ContactSection (copy +
+  wired form) · NewsletterSignup · TeamGrid · CTASection;
+  **App-shaped cards** ProductCard (shop) · ListingCard (property/rental) · EventCard (classes/gigs, w/ date chip
+  and spots-left) · ArticleCard (blog/episode/recipe) · MenuSection (restaurant);
+  **App patterns** OrderSummary (cart/checkout/invoice) · BookingWidget (Calendar + TimeSlots + confirm) ·
+  ReviewSummary (average + 5→1 breakdown bars) · AuthCard (sign-in shell) · ProfileHeader (member/seller banner) ·
+  ListDetailLayout (inbox/tickets master-detail).
+  **Verified: all 95 compile; a COMPLETE landing page assembled purely from section blocks builds clean and renders
+  with ZERO page errors** — and it rendered under the elegant-dark theme, proving the sections theme correctly too.
+  **Caught a real contrast bug by looking**: CTASection used `variant="outline"` on its brand band, which inherits
+  page colours — on a gold-accent theme the button was almost invisible against the gold band. Fixed to force
+  surface-on-brand for the primary and a bordered brandfg for the secondary. That class of bug is invisible to
+  compile checks and only shows up in a render.
