@@ -24,6 +24,7 @@ import { buildProjectMemory, memoryToPromptLine } from "./builder/project-memory
 // Multi-agent generation — behind MULTI_AGENT, a contract-first parallel fan-out (design/backend/shell/per-page
 // agents, each routed to its model via the Auto/Sonnet/Opus picker) instead of one single-shot stream.
 import { runMultiAgent } from "./builder/multi-agent.mjs";
+import { runChunkedBuild } from "./builder/chunked-build.mjs";
 // Effort ladder (1→5) for the builder composer. Levels 1–4 are single-shot with a rising
 // tokens-out ceiling; level 5 ("max") is the trip-wire that fans out to multi-agent (routed
 // by the model picker). Keys must match public/chat.js BUILD_EFFORTS. `max`'s 32000 is only
@@ -29454,14 +29455,14 @@ async function handleRequest(request, env, ctx) {
       const emit = (o) => writer.write(enc.encode(JSON.stringify(o) + "\n")).catch(() => {});
       // Stream a Sonnet generation, forwarding text deltas to onDelta and returning
       // the full text + token usage. Throws on a non-OK upstream (status carried).
-      const streamGen = async (system, userContent, onDelta) => {
+      const streamGen = async (system, userContent, onDelta, maxTokens) => {
         const r = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
           // thinking DISABLED: Sonnet 5 defaults to adaptive thinking, which spends the max_tokens budget REASONING
           // before it writes any code — measured eating 100% of the budget on tight steps (empty output, no files).
           // The app plan is already computed for it, so generation just needs to WRITE. Frees the whole budget for code.
-          body: JSON.stringify({ model: RB_MODEL, max_tokens: RB_MAX_OUT, stream: true, thinking: { type: "disabled" }, system, messages: [{ role: "user", content: userContent }] }),
+          body: JSON.stringify({ model: RB_MODEL, max_tokens: Math.max(1024, Math.min(RB_MAX_OUT, maxTokens || RB_MAX_OUT)), stream: true, thinking: { type: "disabled" }, system, messages: [{ role: "user", content: userContent }] }),
           signal: AbortSignal.timeout(300000),
         });
         if (!r.ok) { const d = await r.json().catch(() => ({})); const e = new Error("gen " + r.status); e.status = r.status; e.detail = JSON.stringify(d).slice(0, 500); throw e; }
@@ -29615,6 +29616,31 @@ async function handleRequest(request, env, ctx) {
               else emit({ ev: "note", msg: "multi-agent came up short — using single-shot" });
             } catch (e) { console.error("multi-agent failed, falling back to single-shot:", e && e.message); }
           }
+          // CHUNKED GENERATION. One 22k call has to write the shell AND every feature page, and when
+          // it runs out mid-file the whole build is lost — the truncated page cannot even be parsed.
+          // The chunked build spends the SAME total budget across several sub-9k calls instead: shell
+          // (or a starter adapt) first, then the pages in groups, each one small enough to finish.
+          // The reserves are zeroed because the worker meters its own repairs as it goes rather than
+          // drawing them from one ledger, so leaving them on would silently halve the budget.
+          if (!files && plan && plan.ok) {
+            try {
+              const cb = await runChunkedBuild(brief, plan.spec, RB_MAX_OUT, {
+                generate: async (system, user, maxTokens) => {
+                  const g = await streamGen(system, user, onDelta, maxTokens);
+                  flushCode(true);
+                  genIn += g.usedIn; genOut += g.usedOut;
+                  return g;
+                },
+              }, {
+                starter: starterId ? getStarter(starterId) : undefined,
+                schema: preSchema || undefined,
+                reserveSchema: 0, reserveWiring: 0, reserveLint: 0, reserveRepair: 0,
+                onStep: (st) => emit({ ev: "step", kind: st.kind, out: st.out, files: st.files }),
+              });
+              if (cb.ok) files = cb.files;
+              else emit({ ev: "note", msg: "chunked build came up short — using single-shot" });
+            } catch (e) { console.error("chunked build failed, falling back to single-shot:", e && e.message); }
+          }
           if (!files) {
             // An adapt step on a starter is an EDIT — REACT_REVISE_RULES says "return only the files
             // that change, each in full", which is what keeps it cheap. REACT_RULES would ask for a
@@ -29638,7 +29664,7 @@ async function handleRequest(request, env, ctx) {
           // The STARTER is the base; the model's output is the edit on top of it. Merged in this
           // order so an adapt step that rewrites Home replaces it, while every page it did not
           // mention survives — the whole point of seeding a working app.
-          if (starterId) files = { ...seedFiles, ...files };
+          if (starterId && !files["src/App.tsx"]) files = { ...seedFiles, ...files };
           if (!files["src/App.jsx"]) {
             // navOrder because a starter's pages form a JOURNEY (shop → cart → orders) and the
             // alphabetical default puts the checkout before the shop.

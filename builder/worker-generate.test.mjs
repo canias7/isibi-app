@@ -131,6 +131,45 @@ console.log("\na matched starter seeds a working app before the model is called"
   check("the starter declares a nav order", navOrder.length > 0, navOrder.join(" > "));
 }
 
+console.log("\ngeneration is chunked, so one truncated call cannot lose the build");
+{
+  const { runChunkedBuild } = await import("./chunked-build.mjs");
+  const { planApp } = await import("./app-planner.mjs");
+  const plan = planApp("A barbershop where customers book a cut with a specific barber");
+  check("the brief plans", plan.ok === true);
+
+  const calls = [];
+  const generate = async (system, user, maxTokens) => {
+    calls.push({ system, user, maxTokens });
+    // Whatever the step is, answer with one page — enough to exercise the packing and the merge.
+    const name = /Build the OPENING/.test(user) ? "Home" : `P${calls.length}`;
+    const body = /Build the OPENING/.test(user)
+      ? "===FILE: index.html===\n<!doctype html>\n\n===FILE: src/pages/Home.tsx===\nexport default function Home(){return null}\n\n===FILE: src/pages/SignIn.tsx===\nexport default function SignIn(){return null}\n"
+      : `===FILE: src/pages/${name}.tsx===\nexport default function ${name}(){return null}\n`;
+    return { text: body, usedIn: 100, usedOut: 500 };
+  };
+
+  // The same options the worker passes: reserves zeroed, because it meters its own repairs as it
+  // goes rather than drawing them from one ledger.
+  const RB_MAX_OUT = 22000;
+  const cb = await runChunkedBuild("A barbershop", plan.spec, RB_MAX_OUT, { generate },
+    { reserveSchema: 0, reserveWiring: 0, reserveLint: 0, reserveRepair: 0 });
+
+  check("it produced an app", cb.ok === true);
+  check("across more than one call", calls.length > 1, `${calls.length} call(s)`);
+  // The point of the whole exercise: no single call is big enough to run out mid-file.
+  check("no single call was given the whole budget", calls.every((c) => c.maxTokens < RB_MAX_OUT), calls.map((c) => c.maxTokens).join(" "));
+  check("and the steps together stay within it", calls.reduce((n, c) => n + c.maxTokens, 0) <= RB_MAX_OUT, String(calls.reduce((n, c) => n + c.maxTokens, 0)));
+  check("the router was generated for the pages it wrote", Boolean(cb.files["src/App.tsx"]));
+
+  // Zeroing the reserves is load-bearing: left at their defaults they consume ~11.7k of a 22k
+  // budget, and generation silently runs on half of what the caller thinks it gave it.
+  const withReserves = await runChunkedBuild("A barbershop", plan.spec, RB_MAX_OUT, { generate: async () => ({ text: "", usedIn: 0, usedOut: 0 }) }, {});
+  check("leaving the reserves on would halve the generation budget",
+    withReserves.plan.genBudget < RB_MAX_OUT * 0.6,
+    `${withReserves.plan.genBudget} of ${RB_MAX_OUT}`);
+}
+
 console.log("\nthe transcription above still matches the shipped worker");
 {
   // A test that paraphrases the code it guards is a test that passes while the product breaks —
@@ -159,6 +198,16 @@ console.log("\nthe transcription above still matches the shipped worker");
   check("and handed to the generation prompt", /THE DATABASE, ALREADY DECIDED/.test(worker));
   check("the plan is computed for every build, not just under the flag", /try \{ plan = planApp\(brief\); \}/.test(worker));
   check("a starter's nav order reaches the router", /navOrder\.length \? \{ navOrder \}/.test(worker));
+
+  check("generation is chunked", /await runChunkedBuild\(brief, plan\.spec, RB_MAX_OUT/.test(worker));
+  check("with the reserves zeroed so the budget is not halved", /reserveSchema: 0, reserveWiring: 0, reserveLint: 0, reserveRepair: 0/.test(worker));
+  // Without a per-call ceiling every chunked step would ask for the whole budget, which is the exact
+  // truncation the chunking exists to avoid.
+  check("each step gets its own token ceiling", /Math\.min\(RB_MAX_OUT, maxTokens \|\| RB_MAX_OUT\)/.test(worker));
+  check("single-shot remains the fallback", /chunked build came up short — using single-shot/.test(worker));
+  // The chunked build seeds and merges the starter itself; doing it again in the worker would put
+  // the starter's stale pages back over the ones the adapt step just rewrote.
+  check("the starter is not merged twice", /if \(starterId && !files\["src\/App\.tsx"\]\)/.test(worker));
 }
 
 console.log(failures ? `\n${failures} FAILED\n` : "\nall worker generate-step checks pass\n");
