@@ -8732,3 +8732,29 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   on (date,time) only catches exact collisions, which is right for the starter's fixed 30-minute grid and wrong
   for variable durations. That needs `INSERT … WHERE NOT EXISTS (overlapping)` as a single atomic statement —
   doable in SQLite, not done here.
+
+- **2026-07-25 — TRUE INTERVAL OVERLAP (`noOverlap`), the variable-duration case.** The partial unique index only
+  catches EXACT slot collisions, which is right for a fixed 30-minute grid and wrong the moment services have
+  different lengths — a 60-minute booking at 10:00 and a 30-minute one at 10:30 are distinct `(date,time)` pairs
+  and a unique index accepts both.
+  ```json
+  "noOverlap": { "on": ["date"], "start": "start_min", "end": "end_min", "where": "status:eq:confirmed" }
+  ```
+  **Race-free, not check-then-write.** The insert becomes ONE statement —
+  `INSERT … SELECT … WHERE NOT EXISTS (overlapping) RETURNING id` — so two simultaneous requests cannot both pass
+  a check. Zero rows back means the guard refused it → **409 `{code:'overlap'}`**. All four insert branches
+  (collect/feed/user/admin) go through one `insertRow` helper.
+  **Moves are guarded too**, or the constraint would only hold on creation and a reschedule could walk over
+  someone else's slot. `applyVersionedUpdate` reads the current row first (a PATCH may move only one end of the
+  range), merges, and puts the `NOT EXISTS` INSIDE the UPDATE — so the decision is still atomic. The guard
+  excludes the row's own id, or moving a booking would collide with itself. A blocked move used to fall through
+  to `{notFound:true}` → a 404 the page cannot act on; it now returns the overlap 409.
+  Intervals are HALF-OPEN: a booking ending at 11:00 and one starting at 11:00 do not conflict.
+  **Verified against real SQLite by lifting the shipped parser and guard out of worker.js** — 60m@10:00 vs
+  30m@10:30 refused · abutting bookings allowed at both ends · straddling refused · other day allowed ·
+  reschedule onto another booking refused · reschedule onto itself allowed · cancellation frees the range.
+  **`where` here is a bound parameter** (it is a runtime query, not DDL like the partial index), so unlike that
+  one it needs no character restriction.
+  **NOT YET USED:** the booking starter still stores `date` + `time` as text, so it needs numeric start/end
+  columns before it can declare this. `noOverlap` is opt-in and no starter declares it, so nothing changes for
+  existing apps until that happens.
