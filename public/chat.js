@@ -2300,13 +2300,13 @@ function toggleDirMenu(e) {
   renderEffortLock();
 })();
 
-// ── Website-builder model picker (Auto / Sonnet 5 / Opus 5) — lives in the SITE-BUILDER composer (st-comp),
+// ── Website-builder model picker (Auto / Sonnet 5 / Opus 4.8) — lives in the SITE-BUILDER composer (st-comp),
 // sent as `picker` on a react-build. Auto routes per agent (Opus plans, Sonnet builds); Sonnet/Opus pin every agent.
 // The site composer re-renders, so the menu markup is emitted inline (buildPickerHTML) and wired per render.
 const BUILD_PICKERS = {
   auto:   { label: 'Auto',     desc: 'Opus plans, Sonnet builds — best mix' },
   sonnet: { label: 'Sonnet 5', desc: 'Every agent on Sonnet — fast' },
-  opus:   { label: 'Opus 5', desc: 'Every agent on Opus — most capable, slower' },
+  opus:   { label: 'Opus 4.8', desc: 'Every agent on Opus — most capable, slower' },
 };
 const BUILD_PICKER_KEY = 'zephyr_build_picker_v1';
 let buildPicker = localStorage.getItem(BUILD_PICKER_KEY) || 'auto';
@@ -8928,6 +8928,26 @@ function initAuthGate() {
   initMktRotate();
   initMktCord();
   initCrt();   // the CRT is now the landing itself (channels + tuning)
+  // Click ripple on primary buttons — a white ink expands from the tap point.
+  if (!window.__rippleWired) {
+    window.__rippleWired = true;
+    const RIPPLE = '.send, .st-sendc, .st-publish, .crt-chatbox-send, .st-data-add, .st-data-save';
+    const reduceRipple = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    document.addEventListener('pointerdown', (e) => {
+      if (reduceRipple) return;
+      const btn = e.target.closest && e.target.closest(RIPPLE);
+      if (!btn || btn.disabled) return;
+      const r = btn.getBoundingClientRect();
+      const d = Math.max(r.width, r.height);
+      const ink = document.createElement('span');
+      ink.className = 'ripple-ink';
+      ink.style.width = ink.style.height = d + 'px';
+      ink.style.left = (e.clientX - r.left - d / 2) + 'px';
+      ink.style.top = (e.clientY - r.top - d / 2) + 'px';
+      btn.appendChild(ink);
+      ink.addEventListener('animationend', () => ink.remove());
+    }, { passive: true });
+  }
   if (window.Auth && Auth.isSignedIn()) enterApp();
   else showMarketing();
 }
