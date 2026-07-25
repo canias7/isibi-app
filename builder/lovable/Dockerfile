@@ -12,6 +12,10 @@ WORKDIR /app
 COPY template/package.json ./package.json
 RUN npm install --no-audit --no-fund --legacy-peer-deps --loglevel=error
 
+# Chromium for the runtime smoke check. Best-effort: the `||` means a download hiccup can never
+# fail the image build — the service still serves /build, and the check reports itself skipped.
+RUN npx playwright install --with-deps chromium || echo "WARN chromium unavailable, smoke check will report skipped"
+
 # The template: 46 shadcn components, the theme, the data client, the router entry.
 COPY template/ ./
 

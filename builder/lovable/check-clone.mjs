@@ -96,7 +96,16 @@ if (!/font-display/.test(RULES.SHELL_RULES) || !/MUST load that font/.test(RULES
 if (!/routeTree\.gen/.test(fs.readFileSync(path.join(TEMPLATE, '.gitignore'), 'utf8'))) {
   problems.push('routeTree.gen.ts is no longer gitignored — a stale committed copy would silently override the generated one')
 }
+// The smoke check imports playwright at runtime. Without the package it reports "not installed"
+// and silently degrades — which is what happened for seven live runs, so the one check that
+// catches a white-screening app had never actually run outside a local test.
 const pkg = JSON.parse(fs.readFileSync(path.join(TEMPLATE, 'package.json'), 'utf8'))
+if (!pkg.devDependencies?.playwright) {
+  problems.push('playwright is not a devDependency of the clone template, so the runtime smoke check can never run')
+}
+if (!/playwright install/.test(fs.readFileSync(path.join(here, 'Dockerfile'), 'utf8'))) {
+  problems.push('the Dockerfile does not install Chromium, so the smoke check would be skipped in the container')
+}
 if (!/tsr generate/.test(pkg.scripts?.build || '')) {
   problems.push('the build script no longer runs `tsr generate` first — a clean checkout would fail on "Could not resolve ./routeTree.gen"')
 }

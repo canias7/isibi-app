@@ -49,9 +49,11 @@ jobs:
         working-directory: builder/lovable/template
         run: npm install --no-audit --no-fund --legacy-peer-deps --loglevel=error
 
-      # The runtime smoke check needs a browser. Best-effort: without one the check reports
-      # skipped and the build still succeeds, exactly as it does in the container.
+      # The runtime smoke check needs BOTH the playwright package and a browser. Seven live runs
+      # reported it "skipped" because only the browser was ever installed — the package is a
+      # devDependency of the template, so the download has to run from there too.
       - name: Chromium for the smoke check
+        working-directory: builder/lovable/template
         run: |
           npx playwright install --with-deps chromium || echo "WARN chromium unavailable, smoke check will report skipped"
 
