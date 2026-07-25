@@ -98,7 +98,28 @@ if (!fs.existsSync(hookPath)) {
   if (!/QueryClientProvider/.test(main)) problems.push('main.tsx does not mount QueryClientProvider — useResource would throw in every generated app')
 }
 
-// ── 6. Whole-app starters ─────────────────────────────────────────────────────
+// ── 6. The Radix-backed five must stay Radix-backed ───────────────────────────
+// Modal, Dropdown, Popover, Tooltip and MultiSelect were hand-rolled and each was missing the invisible half of
+// its job — no focus trap in the dialog, no arrow keys in the menu, a popover that could not be opened from the
+// keyboard at all, a tooltip never announced to a screen reader, and overlays that rendered off-screen near a
+// window edge. Their PROPS did not change, which is the trap: someone can "simplify" one back to a plain div
+// and nothing visible breaks. This check is the thing that notices.
+const RADIX_BACKED = {
+  'Modal.tsx': '@radix-ui/react-dialog',
+  'Dropdown.tsx': '@radix-ui/react-dropdown-menu',
+  'Popover.tsx': '@radix-ui/react-popover',
+  'Tooltip.tsx': '@radix-ui/react-tooltip',
+  'MultiSelect.tsx': '@radix-ui/react-popover',
+}
+for (const [file, pkg] of Object.entries(RADIX_BACKED)) {
+  const p = path.join(COMPONENTS, file)
+  if (!fs.existsSync(p)) { problems.push(`${file} is missing`); continue }
+  if (!fs.readFileSync(p, 'utf8').includes(pkg)) {
+    problems.push(`${file} no longer imports ${pkg} — the accessibility behaviour it exists for (focus trap / keyboard nav / collision flipping) is gone`)
+  }
+}
+
+// ── 7. Whole-app starters ─────────────────────────────────────────────────────
 // A starter IS the app for anyone whose brief matches it, so a broken import or a hand-rolled fetch does not
 // degrade one build — it degrades every booking site we ever ship. These are the same invariants the kit has,
 // applied one layer up.

@@ -8575,3 +8575,43 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   **check-kit's raw-api guard was too strict** and had to be narrowed: it banned every `api.*` call on `/rows`,
   but SUB-ACTIONS (`/rows/<t>/<id>/restore`, `/stats`, `/duplicates`) are exactly what useResource does not wrap
   and api.js is the documented way to reach them. It now flags only bare list/record paths.
+
+- **2026-07-25 — RADIX UNDER FIVE COMPONENTS. We did NOT adopt shadcn/ui.** Owner asked what shadcn is and
+  whether to try it. Pulled it down and measured rather than guessing.
+  **What shadcn actually is:** not a library. A CLI COPIES the component source into your repo (MIT), so there is
+  no dependency and you own the file. That is a real difference from Material UI / Ant / Tailwind UI, which the
+  owner had already turned down. Underneath it is Radix (behaviour) + Tailwind (looks). ~50 components. It is
+  what v0 and Lovable build on.
+  **Measured, not assumed:** shadcn Button+Dialog+Select = 89.6 kB gzip vs our Button+Modal+Select at 54.5 kB.
+  Three components pulled 26 Radix packages. But the curve matters: the first three cost +35 kB, the next six
+  only +11.6 kB — a ~30 kB entry fee then ~2 kB each.
+  **Decision: don't adopt.** Three reasons. (1) Coverage — shadcn is a PRIMITIVES library of ~50; we have 258 and
+  the 218 domain components (BookingWidget, TicketRow, SlaBadge, Kanban, OrderTracker) are the thing that makes
+  the starters good. (2) Token cost — their compound API (`<Select><SelectTrigger><SelectValue/>…`) is ~6 lines
+  where ours is 1, and every generated page pays it, which cuts straight against the 25% we just saved.
+  (3) The rewrite would touch 258 components, 29 starter pages, the inventory, check-kit and the recipes.
+  **What we DID take: Radix under the five components where the invisible half is genuinely hard.** Props
+  unchanged, so not one call site or starter page moved. Deliberately NOT Select — ours wraps a native `<select>`,
+  which beats any custom listbox for screen readers and on phones.
+  **What was actually broken, proved with a keyboard-driven Playwright run:**
+    · Modal had NO focus trap — Tab from the last field walked out into the page behind it. Now Tab cycles
+      field1 → field2 → footer → close → field1 and never escapes (verified: `modal_escaped_to_page: false`).
+    · Dropdown had no arrow keys, no Home/End, no type-ahead, and no focus return to the trigger. Now
+      Enter opens → first item focused → ArrowDown → Enter fires the right action.
+    · Popover's trigger was a bare `<span onClick>` — **it could not be opened from a keyboard at all.** It also
+      registered document listeners on every render (no dependency array).
+    · Tooltip was never announced to a screen reader (no `aria-describedby` linking tip to trigger).
+    · MultiSelect could be opened by keyboard and then not navigated, and its remove-chip was a `<span>` with a
+      click handler, no tabIndex — unreachable.
+    · All five were absolutely positioned, so near a window edge they rendered off-screen instead of flipping.
+  **One bug I introduced and caught in the same run:** my first Tooltip wrapped the child in a `<span>` and put
+  `asChild` on the wrapper, so Radix hung `aria-describedby` on a non-focusable element — the exact defect I was
+  fixing. Now `asChild` lands on the child element itself when it is a single element.
+  **Cost on a REAL app (6-page booking starter, built through the real build server): 90,512 → 104,130 bytes
+  gzipped, +13.6 kB (+15%).** I had forecast ~30 kB, so it came in at under half — Radix's dialog/popover/menu/
+  tooltip share most of their core.
+  All 29 starter pages still render with zero console errors, and the New-lead / New-ticket / New-product modals
+  in three different starters all open, trap focus and close on Escape.
+  **Guarded:** check-kit asserts each of the five still imports its Radix package. The props did not change,
+  which is exactly the trap — someone could "simplify" one back to a plain div and nothing visible would break.
+  Proved by commenting out the Popover import and watching it fail.

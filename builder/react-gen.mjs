@@ -31,6 +31,9 @@ export function parseGeneratedFiles(text) {
 // told these are the ONLY importable packages.
 export const REACT_DEPS = [
   "react", "react-dom", "react-router-dom", "lucide-react", "clsx", "tailwind-merge", "@tanstack/react-query",
+  // Radix backs five kit components (Modal, Dropdown, Popover, Tooltip, MultiSelect). Pages never import it
+  // directly — they use our components — but it is a real dependency of the bundle.
+  "@radix-ui/react-dialog", "@radix-ui/react-dropdown-menu", "@radix-ui/react-popover", "@radix-ui/react-tooltip",
 ];
 
 // Backend protocol — shared by build + revise. Only when the site genuinely needs
