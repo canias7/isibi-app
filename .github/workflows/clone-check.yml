@@ -56,16 +56,11 @@ jobs:
         working-directory: builder/lovable/template
         run: npm run lint
 
-      # Compiling is not rendering. This mounts all 46 components and fails on any that throw.
+      # Compiling the template alone does not touch most of the 46 components. This mounts every one
+      # of them and typechecks. It used to be inline bash here, which is precisely why it went red
+      # for eight runs unnoticed — there was no way to run it locally next to the other suites.
       - name: Typecheck with every component exercised
-        working-directory: builder/lovable/template
-        run: |
-          cp ../smoke/render-all.tsx src/routes/
-          npx tsr generate
-          npx tsc --noEmit --pretty false 2>&1 | tee /tmp/tsc.txt || true
-          N=$(grep -c "error TS" /tmp/tsc.txt || true)
-          echo "type errors: $N"
-          if [ "$N" -gt 0 ]; then grep "error TS" /tmp/tsc.txt | head -20; exit 1; fi
+        run: node builder/lovable/smoke/check.mjs
 
       # End to end against the real template and a real vite build: the pipeline's output has to
       # compile and run in a browser, with each page's head/meta actually reaching the document.

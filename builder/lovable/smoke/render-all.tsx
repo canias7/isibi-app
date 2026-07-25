@@ -118,7 +118,10 @@ const CASES: Array<[string, ReactNode]> = [
   ['popover', <Popover><PopoverTrigger asChild><Button size="sm">x</Button></PopoverTrigger><PopoverContent>body</PopoverContent></Popover>],
   ['progress', <Progress value={50} />],
   ['radio-group', <RadioGroup defaultValue="a"><RadioGroupItem value="a" /></RadioGroup>],
-  ['resizable', <ResizablePanelGroup direction="horizontal" className="h-16 w-40"><ResizablePanel>A</ResizablePanel><ResizableHandle /><ResizablePanel>B</ResizablePanel></ResizablePanelGroup>],
+  // `orientation`, not `direction`: react-resizable-panels 4.x renamed it, and the template's
+  // resizable.tsx already wraps the 4.x Group/Panel/Separator API. This file had the 3.x prop name,
+  // which is what kept this step red.
+  ['resizable', <ResizablePanelGroup orientation="horizontal" className="h-16 w-40"><ResizablePanel>A</ResizablePanel><ResizableHandle /><ResizablePanel>B</ResizablePanel></ResizablePanelGroup>],
   ['scroll-area', <ScrollArea className="h-16 w-40">scrolling body</ScrollArea>],
   ['select', <Select><SelectTrigger><SelectValue placeholder="pick" /></SelectTrigger><SelectContent><SelectItem value="a">A</SelectItem></SelectContent></Select>],
   ['separator', <Separator />],
