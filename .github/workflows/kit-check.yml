@@ -13,6 +13,8 @@ on:
       - "builder/full-pipeline.mjs"
       - "builder/chunked-build.mjs"
       - "builder/build-plan.mjs"
+      - "builder/scaffold.mjs"
+      - "worker.js"
       - ".github/workflows/kit-check.yml"
   pull_request:
     paths:
@@ -44,6 +46,13 @@ jobs:
       # no spend. The pipeline had no test at all until the reorder needed one.
       - name: Pipeline order and wiring
         run: node builder/full-pipeline.test.mjs
+
+      # The LIVE builder's post-generation step. The generation rules and worker.js are one contract
+      # across two files, and when they drifted apart on 2026-07-24 every live build failed for
+      # months with nothing to notice it. This asserts both halves and pins the test to the shipped
+      # code so the transcription cannot go stale.
+      - name: Live builder generate step
+        run: node builder/worker-generate.test.mjs
 
       # The kit must typecheck. tsc is advisory at BUILD time so a customer never loses an app to a type error —
       # but in CI, on our own code, it is a hard gate.

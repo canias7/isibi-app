@@ -8,7 +8,8 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 // Generation meta-layers (Worker-safe: no node:/Playwright imports). Used only behind the PIPELINE_V2 flag to
 // enrich the build prompt (plan + design + the relevant capability slice) and lint the generated app pre-build.
 import { planApp, specToPrompt } from "./builder/app-planner.mjs";
-import { pickStyleFamily, designBrief, tokensToTailwindTheme } from "./builder/design-system.mjs";
+import { pickStyleFamily, getStyleFamily, designBrief, tokensToTailwindTheme } from "./builder/design-system.mjs";
+import { scaffoldRouting, scaffoldTheme, scaffoldDbTypes, scaffoldAgentsMd } from "./builder/scaffold.mjs";
 import { capabilityPrompt } from "./builder/capability-registry.mjs";
 import { lintGeneratedApp } from "./builder/app-linter.mjs";
 // Worker-safe vision-critique functions (fetch + JSON only; the Playwright render lives in the build container).
@@ -29527,9 +29528,12 @@ async function handleRequest(request, env, ctx) {
           // + the design brief + ONLY the capabilities this app needs — instead of relying on the model to recall
           // the whole catalog. Falls back to the base prompt on any error. Default (flag off) is unchanged.
           let genUser = "Build this as a polished React app. Output ONLY the file blocks.\n\n" + brief;
+          // Hoisted out of the try below: the scaffolds after generation need the same plan for the
+          // palette and the app name, and it was previously scoped to the PIPELINE_V2 branch alone.
+          let plan = null;
           if (env.PIPELINE_V2 === "1") {
             try {
-              const plan = planApp(brief);
+              plan = planApp(brief);
               if (plan.ok) {
                 const fam = pickStyleFamily(plan.spec.design_hints);
                 genUser = "Build this as a polished React app. Output ONLY the file blocks.\n\n"
@@ -29562,7 +29566,31 @@ async function handleRequest(request, env, ctx) {
             files = parseGeneratedFiles(g.text);
             genIn = g.usedIn; genOut = g.usedOut;
           }
-          if (!files["index.html"] || !files["src/main.jsx"] || !files["src/App.jsx"]) { emit({ ev: "error", stage: "generate", msg: "the generated project came out incomplete — try again" }); return; }
+          // ROUTING, THEME AND ROW TYPES ARE GENERATED IN CODE ($0) — and this is where the live path
+          // had been broken since 2026-07-24. On that date REACT_RULES became "**ROUTING IS GENERATED
+          // FOR YOU — never emit `src/App.tsx`, `src/routes.ts`, or a router**" and the template moved
+          // to `src/main.tsx`. Nothing here was updated: the model correctly stopped emitting
+          // src/App.jsx and src/main.jsx, and the completeness check below still demanded both, so
+          // every single build failed with "the generated project came out incomplete — try again".
+          // The scaffolds were written for exactly this and were never called from the worker.
+          //
+          // Guarded on the page shape rather than run unconditionally, because the multi-agent
+          // fan-out (flag-gated, off by default) still emits the older .jsx shell with its own
+          // App.jsx — scaffolding over that would replace a real router with an empty one.
+          if (!files["src/App.jsx"]) {
+            files = scaffoldRouting(files).files;
+            const famTokens = (getStyleFamily(pickStyleFamily((plan && plan.spec && plan.spec.design_hints) || {})) || {}).tokens;
+            if (famTokens) files = scaffoldTheme(files, famTokens);
+            files = scaffoldDbTypes(files);
+            files = scaffoldAgentsMd(files, { name: (plan && plan.spec && plan.spec.name) || "" });
+          }
+          // The real contract now: the model writes pages, the platform writes the router. main.tsx
+          // and the component kit come from the container template and are never in `files`.
+          const legacyShell = Boolean(files["src/App.jsx"]);
+          const complete = Boolean(files["index.html"]) && (legacyShell
+            ? Boolean(files["src/main.jsx"])
+            : Boolean(files["src/pages/Home.tsx"] && files["src/App.tsx"]));
+          if (!complete) { emit({ ev: "error", stage: "generate", msg: "the generated project came out incomplete — try again" }); return; }
           let schemaSpec = parseSchemaSpec(files); // pulled out of the build; provisioned after publish
           const fnSpecs = parseFunctionSpecs(files); // edge functions, likewise stripped + provisioned after publish
           genCredits += rbCredits(genIn, genOut);
