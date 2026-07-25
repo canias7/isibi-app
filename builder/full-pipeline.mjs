@@ -20,11 +20,11 @@ import { planApp } from "./app-planner.mjs";
 import { pickStyleFamily } from "./design-system.mjs";
 import { buildPlan } from "./build-plan.mjs";
 import { scaffoldDbTypes } from "./scaffold.mjs";
-import { matchStarter, getStarter } from "./starters.mjs";
+import { matchStarter, getStarter, starterFiles } from "./starters.mjs";
 import { applyBundle } from "./capability-bundles.mjs";
 import { runChunkedBuild } from "./chunked-build.mjs";
 import { lintGeneratedApp } from "./app-linter.mjs";
-import { parseGeneratedFiles, SCHEMA_REPAIR_RULES, WIRING_REPAIR_RULES, REACT_FIX_RULES, REACT_REVISE_RULES } from "./react-gen.mjs";
+import { parseGeneratedFiles, SCHEMA_FIRST_RULES, SCHEMA_REPAIR_RULES, WIRING_REPAIR_RULES, REACT_FIX_RULES, REACT_REVISE_RULES } from "./react-gen.mjs";
 import { buildCritiquePrompt } from "./vision-critique.mjs";
 
 const dumpFiles = (files, limit = 90000) =>
@@ -94,6 +94,36 @@ export async function runFullPipeline(brief, cap, deps, opts = {}) {
   t("starter", { cost: 0, matched: starter ? starter.id : null, pages: starter ? starter.pages : [], covered: bp.covered });
   t("plan", { cost: 0, capabilities: plan.spec.capabilities, pages: plan.spec.pages.length, family, genBudget: bp.genBudget, reserves: bp.reserves, dropped: bp.dropped });
 
+  // ── 5b. SCHEMA, before a single page is written.
+  //
+  // This used to happen at step 8, as a repair: generate everything, notice the app calls a
+  // database it never declared, then reverse-engineer the tables out of the JSX. That order is why
+  // schema-fix existed at all. Deciding the model first is what the Lovable clone does, and it
+  // changes what the page steps are working from — `src/lib/db-types.ts` is generated ($0) before
+  // the pages, so a page reads `data[0].customer_name` with no annotation and a column typo is a
+  // compile error instead of a runtime undefined.
+  //
+  // A STARTER already ships a schema designed alongside its pages, so there is nothing to decide.
+  const seeded = starter ? starterFiles(starter.id) : {};
+  let preSchema = seeded["isibi.schema.json"] || null;
+  if (preSchema) {
+    t("schema", { cost: 0, skipped: `the ${starter.id} starter ships its own schema` });
+  } else if (!(plan.spec.tables || []).length) {
+    // The planner derives tables from the selected capabilities' registry entries, so an empty list
+    // means a brochure site — nothing to persist, and a schema would provision tables no page reads.
+    t("schema", { cost: 0, skipped: "the plan declares no tables — nothing to persist" });
+  } else {
+    const r = await call("schema", SCHEMA_FIRST_RULES,
+      "Design the database for this app. No pages exist yet — you are deciding the data model they will be built against.\n\n" +
+      "App brief: " + brief + "\n\n" +
+      "Pages that will be built: " + (plan.spec.pages || []).map((p) => p.title || p.id).join(", ") + "\n" +
+      "Features that will be built: " + (plan.spec.capabilities || []).join(", ") + "\n" +
+      ((plan.spec.tables || []).length ? "Tables the planner expects: " + plan.spec.tables.join(", ") + "\n" : ""),
+      bp.reserves.schema);
+    preSchema = (r && r.files["isibi.schema.json"]) || null;
+    if (!preSchema && r) t("schema:empty", { cost: 0, warn: "the schema stage returned no schema file — the step-8 repair remains the fallback" });
+  }
+
   // ── 6. Generate (chunked: shell + page groups + admin), inside the plan's generation budget.
   const cb = await runChunkedBuild(brief, plan.spec, bp.genBudget + bp.reserveTotal, {
     generate: async (system, user, maxTokens) => {
@@ -105,6 +135,9 @@ export async function runFullPipeline(brief, cap, deps, opts = {}) {
   }, {
     vision: !!(deps.render && deps.critiqueOne),
     starter,
+    // Decided above, so the shell step no longer writes it and every page step is handed the real
+    // table list rather than inventing field names it will be patched for later.
+    schema: preSchema,
     // onStep belongs in OPTS (runChunkedBuild reads it from opts, not deps) — this is what puts each generation
     // sub-step (shell / page groups / admin) into the pipeline trace.
     onStep: (s) => t("generate:" + s.kind, { budget: s.budget, out: s.out, files: s.files, remaining: remaining() }),
@@ -129,7 +162,11 @@ export async function runFullPipeline(brief, cap, deps, opts = {}) {
       files = scaffoldDbTypes(files);
     }
   } else {
-    t("schema-fix", { cost: 0, skipped: files["isibi.schema.json"] ? "schema already declared" : "no backend calls" });
+    // Now the ordinary outcome rather than the lucky one: stage 5b decided the model, so there is
+    // nothing to reverse-engineer. The repair stays wired for the cases 5b skips or comes up empty.
+    t("schema-fix", { cost: 0, skipped: files["isibi.schema.json"]
+      ? (preSchema ? "schema was decided before the pages — nothing to repair" : "schema already declared")
+      : "no backend calls" });
   }
 
   // ── 9. Charge credits (accounting, no tokens).

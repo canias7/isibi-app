@@ -26,10 +26,17 @@ export const BASE_PAGE = 1800;     // a feature page's floor
 export const PER_ROUTE = 700;      // each endpoint the page drives
 export const STEP_MAX = 9000;      // soft ceiling per generation step (small, reliable calls)
 export const SHELL_FRACTION = 0.6; // shell may claim at most this share of the generation budget
-// Per-step reserves for the post-generation pipeline steps that spend output tokens. These are the FIVE repair-ish
-// model calls in the real react-build pipeline: schema-fix (SCHEMA_REPAIR_RULES), wiring-repair
-// (WIRING_REPAIR_RULES), lint-repair (REACT_REVISE_RULES), fix-loop (REACT_FIX_RULES), vision-polish.
-export const RESERVES = { schema: 2000, wiring: 1500, lint: 2000, repair: 4000, vision: 2000 };
+// Per-step reserves for the pipeline steps that spend output tokens outside generation: schema,
+// wiring-repair (WIRING_REPAIR_RULES), lint-repair (REACT_REVISE_RULES), fix-loop (REACT_FIX_RULES),
+// vision-polish.
+//
+// `schema` funds the SCHEMA-FIRST stage now, not the schema-fix repair — the model designs the data
+// model before any page is written, and the repair only runs when that stage was skipped or came
+// back empty. 2000 was sized for patching a schema out of finished JSX; designing one from scratch
+// costs more (the clone's equivalent stage measured 2578 output tokens on a three-table app), and a
+// truncated schema is worse than none — it declares half the tables and the pages are typed against
+// a model missing the rest.
+export const RESERVES = { schema: 3200, wiring: 1500, lint: 2000, repair: 4000, vision: 2000 };
 
 export function pageCost(capId, capFn = getCapability) {
   const c = capFn(capId);

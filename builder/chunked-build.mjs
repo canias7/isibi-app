@@ -46,7 +46,7 @@ function existingContext(files) {
     (pages.length ? "\nPages that already exist (do NOT rewrite them): " + pages.join(", ") : "");
 }
 
-function shellPrompt(brief, spec) {
+function shellPrompt(brief, spec, schema) {
   const featurePages = (spec.capabilities || []).map((id) => pascal(id));
   return "Build the OPENING of this React app — NOT the feature pages. This is step 1 of a multi-step build; the " +
     "feature pages are added in later steps.\n\nApp brief: " + brief + "\n\n" +
@@ -54,8 +54,12 @@ function shellPrompt(brief, spec) {
     "EXISTS — import from it, never recreate it. Routing is generated for you, so do NOT emit src/App.tsx.\n\n" +
     "Emit ONLY these files: `index.html` (real <title>, <meta name=description>, and the Google Fonts <link> for the " +
     "display/body faces); `src/pages/Home.tsx` — a polished, specific landing page for THIS product, built from the " +
-    "existing components and design tokens; `src/pages/SignIn.tsx` — sign in / sign up using `useAuth()`; and " +
-    "`isibi.schema.json` if the app needs a backend.\n\n" +
+    "existing components and design tokens; `src/pages/SignIn.tsx` — sign in / sign up using `useAuth()`" +
+    (schema
+      // The model would otherwise spend part of its budget re-deriving a data model that is already
+      // decided, and land on different column names than the pages will be built against.
+      ? ".\n\nTHE DATABASE IS ALREADY DECIDED — do NOT emit isibi.schema.json:\n" + String(schema).slice(0, 2000) + "\n"
+      : "; and `isibi.schema.json` if the app needs a backend.\n") + "\n" +
     "Home.tsx:\n" + renderRecipe(recipeForPage("Home")) + "\n\nSignIn.tsx:\n" + renderRecipe(recipeForPage("SignIn")) + "\n\n" +
     "The feature pages added in later steps (do NOT create them now): " + featurePages.join(", ") + ". " +
     "Because the chrome already exists, spend the whole budget on making Home genuinely good.";
@@ -99,9 +103,15 @@ function capDesc(capId) {
 }
 
 function pagesPrompt(brief, capIds, files, label) {
+  // The schema is decided before any page is written, so a page step can be told the exact table and
+  // column names instead of guessing them — which is what made the schema-fix repair necessary.
+  const schema = files["isibi.schema.json"];
   return "ADD " + (label || "these feature page(s)") + " to the EXISTING app below. Reuse the shared components in " +
     "src/components/ and read/write table data with `useResource` from src/lib/useResource.ts. Match the existing " +
     "design exactly.\n\nApp brief: " + brief +
+    (schema ? "\n\nTHE DATABASE, already created and typed in src/lib/db-types.ts. Use these exact table and column " +
+      "names — `useResource('<table>')` returns rows typed from this, so a name that is not here is a compile " +
+      "error:\n" + String(schema).slice(0, 2500) : "") +
     "\n\nPages to add:\n" + capIds.map(capDesc).join("\n") + "\n\n" +
     "Emit ONLY the new `src/pages/*.tsx` file(s) — nothing else. Routing and the nav link are generated for you the " +
     "moment the page file exists, so do NOT emit src/App.tsx, src/routes.js, or Nav.tsx, and do NOT rewrite the " +
@@ -124,6 +134,11 @@ export async function runChunkedBuild(brief, spec, cap, deps, opts = {}) {
   const navOrder = (starterId && (getStarter(starterId) || {}).navOrder) || [];
   let files = starterId ? starterFiles(starterId) : {};
   if (starterId) files = scaffoldRouting(files, { navOrder }).files;
+  // The SCHEMA is decided before generation now (full-pipeline stage 5b), so it is seeded here and
+  // the row types are generated from it BEFORE any page is written — that is the whole point of the
+  // reorder. It runs again at the end, because a starter adapt step may still extend the model.
+  if (opts.schema && !files["isibi.schema.json"]) files["isibi.schema.json"] = opts.schema;
+  if (files["isibi.schema.json"]) files = scaffoldDbTypes(files);
   let totIn = 0, totInCached = 0, totOut = 0;
   const steps = [];
   const record = (kind, budget, g, f) => {
@@ -135,7 +150,7 @@ export async function runChunkedBuild(brief, spec, cap, deps, opts = {}) {
   for (const step of plan.steps) {
     if (step.reserve) continue; // reserved pipeline steps (schema-fix/lint-repair/fix-loop/vision) run in the real pipeline, not here
     let system, user;
-    if (step.kind === "shell") { system = opts.shellRules || REACT_RULES; user = shellPrompt(brief, spec); }
+    if (step.kind === "shell") { system = opts.shellRules || REACT_RULES; user = shellPrompt(brief, spec, files["isibi.schema.json"]); }
     else if (step.kind === "adapt") { system = opts.editRules || REACT_REVISE_RULES; user = adaptPrompt(brief, spec, starterId, files); }
     else if (step.kind === "admin") { system = opts.editRules || REACT_REVISE_RULES; user = pagesPrompt(brief, [], files, "an Admin console page (src/pages/Admin.tsx) that manages the app's data (list/create/edit/delete across the admin-only endpoints)\n" + renderRecipe(recipeForPage("Admin"))); }
     else { system = opts.editRules || REACT_REVISE_RULES; user = pagesPrompt(brief, step.pages, files, "these feature pages: " + step.pages.map(pascal).join(", ")); }

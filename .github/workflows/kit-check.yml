@@ -10,6 +10,9 @@ on:
       - "builder/react-gen.mjs"
       - "builder/check-kit.mjs"
       - "builder/page-recipes.mjs"
+      - "builder/full-pipeline.mjs"
+      - "builder/chunked-build.mjs"
+      - "builder/build-plan.mjs"
       - ".github/workflows/kit-check.yml"
   pull_request:
     paths:
@@ -34,6 +37,13 @@ jobs:
       # (variant="outline", EmptyState message= and <Avatar size={32}/> were all prose the code never honoured).
       - name: Kit invariants
         run: node builder/check-kit.mjs
+
+      # Drives the whole pipeline with a stub model: proves the schema is decided BEFORE any page is
+      # written, that the page prompts are handed the real tables, that the row types exist by then,
+      # and that the schema-fix repair still catches a schema stage that comes back empty. No key,
+      # no spend. The pipeline had no test at all until the reorder needed one.
+      - name: Pipeline order and wiring
+        run: node builder/full-pipeline.test.mjs
 
       # The kit must typecheck. tsc is advisory at BUILD time so a customer never loses an app to a type error —
       # but in CI, on our own code, it is a hard gate.

@@ -102,6 +102,24 @@ export const BACKEND_RULES =
 // emit isibi.schema.json (common enough that it can't be optional — a shipped app
 // whose login/data silently 404s is a total failure). We ask for JUST the schema,
 // inferred from the app's own code, and provision it before publishing.
+// SCHEMA_FIRST_RULES — design the data model BEFORE a single page is written.
+//
+// Taken from the Lovable clone, where it measurably changes the output. Their order is
+// clarify → plan → DATABASE → pages, and the reason is not tidiness: a page written before the
+// schema exists invents its own field names, so the schema-fix pass afterwards is reverse-
+// engineering a data model out of JSX. Deciding first means the pages are generated against
+// db-types.ts, a column typo is a compile error, and the repair pass usually has nothing to do.
+//
+// This is the same declaration format as SCHEMA_REPAIR_RULES, which stays as the fallback for a
+// build where this stage was skipped or produced nothing.
+export const SCHEMA_FIRST_RULES =
+  "You are designing the DATABASE for a web app, before any page is written. Emit ONLY a single `===FILE: isibi.schema.json===` block whose body is the JSON schema — NO other files, NO prose, NO markdown fences. " +
+  "Declare every table the app needs to persist. Think about what has to survive a page refresh and what each screen must read: a booking app needs the bookings AND the things being booked; a shop needs products AND orders. Do NOT declare a table for content that is hard-coded copy. " +
+  "EVERY table MUST carry an `access` mode, or its rows are unscoped and anyone can read anyone's: each logged-in user's OWN private rows (their bookings, their saved items) = `user`; a public shared list everyone reads but only a logged-in visitor posts to (board / comments / reviews) = `feed`; a submit-only form only the owner reads (contact / waitlist / enquiries) = `collect`; owner-managed public content everyone reads (products / menu / posts) = `display`, OR `admin` when the app has an in-app admin screen that creates and edits that content. " +
+  "NEVER declare `id`, `created_at`, or `owner_id` — the platform adds those, and declaring them collides. " +
+  "Column types are `text|integer|real|boolean|json`. A column with a fixed set of values takes `\"enum\":[…]` and becomes a literal union in the generated types, so the app cannot write a status that does not exist. " +
+  "Body format EXACTLY: `{\"tables\":[{\"name\":\"<snake>\",\"access\":\"collect|display|user|feed|admin\",\"columns\":[{\"name\":\"<snake>\",\"type\":\"text|integer|real|boolean|json\",\"enum\":[…] }]}]}`. Output ONLY the isibi.schema.json file block.";
+
 export const SCHEMA_REPAIR_RULES =
   "A generated React app calls its per-site backend API but FORGOT to declare `isibi.schema.json`, so no database gets created and every `/auth` and `/rows` call fails on the live site. Given the project files, emit ONLY a single `===FILE: isibi.schema.json===` block whose body is the JSON schema — NO other files, NO prose, NO markdown fences. " +
   "Declare EVERY table the app reads or writes via `${API}/rows/<table>` (scan for each distinct `<table>`). Choose each table's access mode from how the code uses it: each logged-in user's OWN private rows (a dashboard, saved items, a personal to-do list) = `user`; a public shared list everyone reads but only a logged-in visitor posts to (board / comments / reviews) = `feed`; a submit-only form only the owner reads (contact / waitlist / orders) = `collect`; owner-managed public content everyone reads (products / menu / posts) = `display`, OR `admin` if the app has an in-app admin screen that creates/edits that content (checks `user.role === 'admin'`). If the app has login (`/auth/signup` or `/auth/login`), its per-user data tables are `user` (or `feed` for shared-but-authored lists). " +
