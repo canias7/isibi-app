@@ -16,6 +16,7 @@ import { scaffoldRouting, scaffoldTheme } from "./scaffold.mjs";
 import { getStyleFamily, pickStyleFamily } from "./design-system.mjs";
 import { parseGeneratedFiles, REACT_RULES, REACT_REVISE_RULES, COMPONENT_INVENTORY } from "./react-gen.mjs";
 import { getCapability } from "./capability-registry.mjs";
+import { recipeFor, recipeForPage, recipeForName, renderRecipe } from "./page-recipes.mjs";
 
 const pascal = (s) => String(s || "").replace(/(^|[-_ ])([a-z])/g, (_, __, c) => c.toUpperCase()).replace(/[-_ ]/g, "");
 
@@ -47,16 +48,27 @@ function shellPrompt(brief, spec) {
     "Emit ONLY these files: `index.html` (real <title>, <meta name=description>, and the Google Fonts <link> for the " +
     "display/body faces); `src/pages/Home.tsx` — a polished, specific landing page for THIS product, built from the " +
     "existing components and design tokens; `src/pages/SignIn.tsx` — sign in / sign up using `useAuth()`; and " +
-    "`isibi.schema.json` if the app needs a backend. " +
+    "`isibi.schema.json` if the app needs a backend.\n\n" +
+    "Home.tsx:\n" + renderRecipe(recipeForPage("Home")) + "\n\nSignIn.tsx:\n" + renderRecipe(recipeForPage("SignIn")) + "\n\n" +
     "The feature pages added in later steps (do NOT create them now): " + featurePages.join(", ") + ". " +
     "Because the chrome already exists, spend the whole budget on making Home genuinely good.";
 }
 
 function capDesc(capId) {
   const c = getCapability(capId);
-  if (!c) return "- " + pascal(capId) + " page (src/pages/" + pascal(capId) + ".tsx)";
+  // A brief can ask for something with no registry entry ("invoices"), and those were getting no shape at all —
+  // exactly the case recipes exist to fix. Fall back to matching on the page's own name.
+  if (!c) {
+    const guess = renderRecipe(recipeForName(pascal(capId)));
+    return "- " + pascal(capId) + " page (src/pages/" + pascal(capId) + ".tsx)" + (guess ? "\n" + guess : "");
+  }
+  // The SHAPE block is the instruction booklet: without it the model re-derives what a list page looks like on
+  // every build, and lands somewhere slightly different each time. The recipe is chosen from the capability's
+  // own route shape, so it stays right as capabilities are added.
+  const shape = renderRecipe(recipeFor(c));
   return "- " + pascal(capId) + " page (src/pages/" + pascal(capId) + ".tsx): " + (c.summary || c.title) +
-    "\n  Endpoints: " + (c.routes || []).map((r) => r.method + " " + r.path).join("; ");
+    "\n  Endpoints: " + (c.routes || []).map((r) => r.method + " " + r.path).join("; ") +
+    (shape ? "\n" + shape : "");
 }
 
 function pagesPrompt(brief, capIds, files, label) {
@@ -89,7 +101,7 @@ export async function runChunkedBuild(brief, spec, cap, deps, opts = {}) {
     if (step.reserve) continue; // reserved pipeline steps (schema-fix/lint-repair/fix-loop/vision) run in the real pipeline, not here
     let system, user;
     if (step.kind === "shell") { system = opts.shellRules || REACT_RULES; user = shellPrompt(brief, spec); }
-    else if (step.kind === "admin") { system = opts.editRules || REACT_REVISE_RULES; user = pagesPrompt(brief, [], files, "an Admin console page (src/pages/Admin.tsx) that manages the app's data (list/create/edit/delete across the admin-only endpoints)"); }
+    else if (step.kind === "admin") { system = opts.editRules || REACT_REVISE_RULES; user = pagesPrompt(brief, [], files, "an Admin console page (src/pages/Admin.tsx) that manages the app's data (list/create/edit/delete across the admin-only endpoints)\n" + renderRecipe(recipeForPage("Admin"))); }
     else { system = opts.editRules || REACT_REVISE_RULES; user = pagesPrompt(brief, step.pages, files, "these feature pages: " + step.pages.map(pascal).join(", ")); }
     const g = await deps.generate(system, user, step.budget);
     const f = parseGeneratedFiles(g.text || "");

@@ -63,8 +63,25 @@ for (const m of COMPONENT_INVENTORY.matchAll(/`([A-Z][A-Za-z0-9]*)\.tsx`\s*\(([^
   }
 }
 
+// ── 4. Page recipes may only name components that exist ───────────────────────
+// A recipe telling the model to use `<FilterPanel>` when the kit has `FilterBar` sends it hunting for a file
+// that isn't there. Same drift class as the inventory, so it gets the same guard.
+const { componentsNamedInRecipes, RECIPES, FIXED_RECIPES } = await import('./page-recipes.mjs')
+// A recipe may legitimately name a NAMED export (CommentList lives in Comment.tsx, FormActions in
+// FormSection.tsx), so the valid set is every exported symbol, not just filenames.
+const exported = new Set(components)
+for (const f of components) {
+  const src = fs.readFileSync(path.join(COMPONENTS, `${f}.tsx`), 'utf8')
+  for (const m of src.matchAll(/export (?:default )?(?:function|const|class)\s+([A-Z]\w*)/g)) exported.add(m[1])
+  for (const m of src.matchAll(/export \{([^}]*)\}/g)) m[1].split(',').forEach((x) => exported.add(x.trim().split(/\s+as\s+/).pop()))
+}
+// SHOUTED words are emphasis in the prose, not component names.
+const badRefs = componentsNamedInRecipes().filter((n) => n !== n.toUpperCase() && !exported.has(n))
+if (badRefs.length) problems.push(`page recipes name component(s) that do not exist: ${badRefs.join(', ')}`)
+
 // ── Report ────────────────────────────────────────────────────────────────────
-console.log(`kit check — ${components.length} components, ${checked} documented props verified`)
+const recipeCount = RECIPES.length + Object.keys(FIXED_RECIPES).length
+console.log(`kit check — ${components.length} components, ${checked} documented props verified, ${recipeCount} page recipes`)
 if (problems.length) {
   console.error(`\n${problems.length} problem(s):\n`)
   problems.forEach((p) => console.error(`  ✗ ${p}`))

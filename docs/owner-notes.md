@@ -8446,3 +8446,23 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   actionTo`. Corrected. Kit is now 258 components, 826 documented props verified, all invariants holding.
   Deliberately kept OUT of `deploy.yml` — a drifted inventory should be loud, but it should not block shipping
   the Worker.
+
+- **2026-07-24 — PAGE RECIPES: the "instruction booklet" for the 258 parts.** Owner's framing, and it is the
+  right one: the kit is a box of bricks with no instructions, so the model re-derived what a list page looks
+  like on EVERY build and landed somewhere slightly different each time. `builder/page-recipes.mjs` fixes that
+  with 13 short skeletons — crud-list, list-create, capture-form, tool-form, read-only, dashboard, booking,
+  checkout, feed, article, plus fixed ones for Home / SignIn / Admin.
+  **Recipes are SELECTED, never hand-assigned.** There are 279 capabilities; picking a layout for each by hand
+  would rot within a week. `recipeFor(cap)` reads the capability's own ROUTE SHAPE (reads? creates? deletes? is
+  it public?) and infers the kind, so a new capability gets the right recipe for free. Coverage: **260 of 279**
+  capabilities match a recipe; the other 19 are stateless utilities (csv, id-generate, config-validate) that are
+  backend primitives, not pages. A page with NO registry entry at all — a brief asking for "invoices" — falls
+  back to matching on its own name, so every page gets a shape.
+  **Cost: ~102 input tokens per page** (~614 on a six-page app), prompt-cached, against a component inventory
+  that already rides along at ~6,692. Cheap for the thing it replaces.
+  **Guarded, not just written down** — `check-kit.mjs` now validates that every component a recipe names really
+  exists (verified by planting `FilterPanel` and watching it fail). It resolves NAMED exports too, since a recipe
+  may legitimately reference CommentList (in Comment.tsx) or FormActions (in FormSection.tsx), and it ignores
+  quoted button copy so `a primary "New …" action` isn't read as a <New> component.
+  **Still missing, and bigger: whole-app starters.** Recipes tell the model what shape to build; a starter would
+  mean it EDITS a working CRM instead of writing one. That remains the largest lever.
