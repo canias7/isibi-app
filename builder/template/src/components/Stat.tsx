@@ -1,13 +1,14 @@
 import { TrendingUp, TrendingDown } from 'lucide-react'
 import { cx } from '../lib/cx.js'
 import type { ReactNode } from 'react'
+import { renderIcon, type IconSlot } from '../lib/icon.tsx'
 
 interface StatProps {
   label?: ReactNode
   value?: any
   delta?: any
   deltaLabel?: any
-  icon?: ReactNode
+  icon?: IconSlot
   hint?: ReactNode
   invertDelta?: boolean
   className?: string
@@ -21,7 +22,7 @@ export default function Stat({ label, value, delta, deltaLabel, icon, hint, inve
     <div className={cx('card-surface p-5', className)}>
       <div className="flex items-start justify-between gap-3">
         <span className="text-sm font-medium text-ink-500">{label}</span>
-        {icon && <span className="text-ink-300">{icon}</span>}
+        {icon && <span className="text-ink-300">{renderIcon(icon, 18)}</span>}
       </div>
       <div className="mt-2 font-display text-3xl font-semibold tracking-tight text-ink-900 tabular-nums">{value}</div>
       {(delta != null || hint) && (

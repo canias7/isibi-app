@@ -17,6 +17,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 // NOTE: vision-render (Playwright) is loaded LAZILY inside /critique — never at startup — so the build service
 // starts and serves /build even if Playwright/Chromium aren't present. /critique degrades to {ok:false} then.
 
@@ -125,8 +126,16 @@ export function isRealRuntimeError(text) {
 
 async function smokeTest(dist) {
   let chromium, dir, served, browser;
-  try { ({ chromium } = createRequire(import.meta.url)("playwright-core")); }
-  catch { return { ran: false, reason: "playwright-core not installed", errors: [] }; }
+  // Resolve from the APP, then from here. `createRequire(import.meta.url)` alone resolves upward
+  // from THIS file, so in any layout where the deps live with the app rather than beside the
+  // service — the eval runner, a scaffolded /tmp/buildapp — the package is never found and the
+  // check silently reports itself skipped. That is the fourth time this exact resolution mistake
+  // has hidden the smoke check, and the first one caught by an actual run rather than by reading.
+  for (const root of [APP, path.dirname(fileURLToPath(import.meta.url))]) {
+    try { ({ chromium } = createRequire(path.join(root, "package.json"))("playwright-core")); break; } catch {}
+  }
+  if (!chromium) { try { ({ chromium } = createRequire(import.meta.url)("playwright-core")); } catch {} }
+  if (!chromium) return { ran: false, reason: `playwright-core not resolvable from ${APP}`, errors: [] };
   try {
     dir = writeDistToTemp(dist);
     served = await serveDir(dir);

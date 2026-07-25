@@ -3,11 +3,12 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { ChevronRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { cx } from '../lib/cx.js'
 import type { ReactNode } from 'react'
+import { renderIcon, type IconSlot } from '../lib/icon.tsx'
 
 export interface SidebarItem {
   to?: string
   label?: string
-  icon?: ReactNode
+  icon?: IconSlot
   badge?: ReactNode
   /** A group heading with no link of its own. */
   section?: string
@@ -47,7 +48,7 @@ function SidebarLink({ item, collapsed, depth }: { item: SidebarItem; collapsed:
       aria-label={collapsed ? item.label : undefined}
       className={({ isActive }) => cx(linkClass(isActive, collapsed ? 0 : depth), collapsed && 'justify-center px-2')}
     >
-      {item.icon}
+      {renderIcon(item.icon)}
       {!collapsed && <span className="min-w-0 flex-1 truncate">{item.label}</span>}
       {!collapsed && item.badge != null && (
         <span className="rounded-full bg-ink-100 px-1.5 py-0.5 text-xs text-ink-600">{item.badge}</span>
@@ -71,7 +72,7 @@ function SidebarGroup({ item, collapsed, depth }: { item: SidebarItem; collapsed
   if (collapsed) {
     return (
       <div title={item.label} aria-label={item.label} className={cx(linkClass(holdsCurrent), 'justify-center px-2')}>
-        {item.icon}
+        {renderIcon(item.icon)}
       </div>
     )
   }
@@ -85,7 +86,7 @@ function SidebarGroup({ item, collapsed, depth }: { item: SidebarItem; collapsed
         onClick={() => setOpen(!shown)}
         className={cx(linkClass(false, depth), 'w-full text-left')}
       >
-        {item.icon}
+        {renderIcon(item.icon)}
         <span className="min-w-0 flex-1 truncate">{item.label}</span>
         <ChevronRight size={14} className={cx('shrink-0 transition-transform', shown && 'rotate-90')} />
       </button>

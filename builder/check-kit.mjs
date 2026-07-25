@@ -245,6 +245,27 @@ if (starterCount) {
   starterGap = coverage(BUNDLES).generateFromScratch
 }
 
+// ── 9. Icon slots must accept BOTH spellings ─────────────────────────────────
+// A live build failed on exactly this: EmptyState declared `icon?: IconComponent` and rendered
+// `<Icon/>`, while Stat/PageHeader/Sidebar/NotificationItem declared `icon?: ReactNode` and rendered
+// `{icon}`. Every starter and the shared docs pass the COMPONENT, so a generated page following the
+// majority hit TS2322 on code that reads correctly. The two spellings are indistinguishable from
+// COMPONENT_INVENTORY, so this cannot be left to the model to guess.
+{
+  const compDir = COMPONENTS;
+  for (const f of fs.readdirSync(compDir).filter((n) => n.endsWith(".tsx"))) {
+    const src = fs.readFileSync(path.join(compDir, f), "utf8");
+    if (/\bicon\??:\s*ReactNode\b/.test(src)) {
+      problems.push(`${f} declares \`icon?: ReactNode\`, which rejects \`icon={Inbox}\` — the form every starter and page recipe uses. Use IconSlot from src/lib/icon.tsx.`);
+    }
+  }
+  const helper = path.join(here, 'template/src/lib/icon.tsx');
+  if (!fs.existsSync(helper)) problems.push("src/lib/icon.tsx is missing — the components with an icon slot import renderIcon from it");
+  else if (!/typeof icon === "function"|typeof icon === 'function'/.test(fs.readFileSync(helper, "utf8"))) {
+    problems.push("renderIcon no longer instantiates a component icon, so `icon={Inbox}` would render nothing");
+  }
+}
+
 // ── Report ────────────────────────────────────────────────────────────────────
 const recipeCount = RECIPES.length + Object.keys(FIXED_RECIPES).length
 console.log(`kit check — ${components.length} components, ${checked} documented props verified, ${recipeCount} page recipes, ` +

@@ -1,12 +1,13 @@
 import Avatar from './Avatar.tsx'
 import { cx } from '../lib/cx.js'
 import type { ReactNode } from 'react'
+import { renderIcon, type IconSlot } from '../lib/icon.tsx'
 
 interface NotificationItemProps {
   title?: string
   body?: any
   time?: any
-  icon?: ReactNode
+  icon?: IconSlot
   avatar?: string
   unread?: boolean
   onClick?: (...args: any[]) => any
@@ -20,7 +21,7 @@ export default function NotificationItem({ title, body, time, icon, avatar, unre
       className={cx('flex w-full gap-3 px-4 py-3 text-left transition hover:bg-ink-50', unread && 'bg-brand-50/60', className)}>
       <span className="shrink-0">
         {avatar ? <Avatar name={title} src={avatar} size="sm" />
-          : <span className="grid h-9 w-9 place-items-center rounded-full bg-brand-100 text-brand-600">{icon}</span>}
+          : <span className="grid h-9 w-9 place-items-center rounded-full bg-brand-100 text-brand-600">{renderIcon(icon, 18)}</span>}
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline justify-between gap-2">
