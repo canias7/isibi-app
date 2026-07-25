@@ -103,6 +103,34 @@ console.log("\na genuinely incomplete generation is still rejected");
   check("a feature page but no Home", postGenerate({ "index.html": "<!doctype html>", "src/pages/Bookings.tsx": "x" }).complete === false);
 }
 
+console.log("\na matched starter seeds a working app before the model is called");
+{
+  const { matchStarter, getStarter, starterFiles } = await import("./starters.mjs");
+  const match = matchStarter("A barbershop where customers book a cut with a specific barber");
+  check("the brief matched a starter", Boolean(match), match ? match.id : "none");
+  const seed = starterFiles(match.id);
+  check("it seeds real pages for $0", Object.keys(seed).filter((f) => /^src\/pages\//.test(f)).length > 0);
+  check("including a schema", Boolean(seed["isibi.schema.json"]));
+
+  // The merge order is the whole point: the model's edit wins on the files it rewrote, and every
+  // page it never mentioned survives. Getting this backwards would throw away the free app.
+  const edit = { "index.html": "<!doctype html><title>Marco's</title>", "src/pages/Home.tsx": "export default function Home(){return <div>Marco's</div>}" };
+  const merged = { ...seed, ...edit };
+  check("the model's Home replaced the starter's", /Marco/.test(merged["src/pages/Home.tsx"]));
+  const untouched = Object.keys(seed).filter((f) => /^src\/pages\//.test(f) && f !== "src/pages/Home.tsx");
+  check("and the pages it did not mention survived", untouched.every((f) => merged[f] === seed[f]), `${untouched.length} page(s)`);
+
+  const { files, complete } = postGenerate(merged);
+  check("the merged app is accepted", complete === true);
+  check("and every starter page is routed", untouched.every((f) => {
+    const name = f.replace("src/pages/", "").replace(".tsx", "");
+    return (files["src/App.tsx"] || "").includes(name);
+  }), untouched.join(" "));
+
+  const navOrder = (getStarter(match.id) || {}).navOrder || [];
+  check("the starter declares a nav order", navOrder.length > 0, navOrder.join(" > "));
+}
+
 console.log("\nthe transcription above still matches the shipped worker");
 {
   // A test that paraphrases the code it guards is a test that passes while the product breaks —
@@ -113,12 +141,24 @@ console.log("\nthe transcription above still matches the shipped worker");
   const url = await import("node:url");
   const root = path.dirname(path.dirname(url.fileURLToPath(import.meta.url)));
   const worker = fs.readFileSync(path.join(root, "worker.js"), "utf8");
-  check("worker.js scaffolds the router after generation", /files = scaffoldRouting\(files\)\.files/.test(worker));
+  check("worker.js scaffolds the router after generation", /files = scaffoldRouting\(files[,)]/.test(worker));
   check("and generates the row types", /files = scaffoldDbTypes\(files\)/.test(worker));
   check("guarded on the legacy shell, so multi-agent is not clobbered", /if \(!files\["src\/App\.jsx"\]\) \{/.test(worker));
   check("the completeness check accepts the generated router", /files\["src\/pages\/Home\.tsx"\] && files\["src\/App\.tsx"\]/.test(worker));
   check("and no longer demands a router the rules forbid", !/!files\["src\/main\.jsx"\] \|\| !files\["src\/App\.jsx"\]/.test(worker));
   check("the scaffolds are actually imported", /import \{ scaffoldRouting, scaffoldTheme, scaffoldDbTypes, scaffoldAgentsMd \}/.test(worker));
+
+  // The three pieces that were harness-only until now. Each one is a single call the worker either
+  // makes or does not, and each fails invisibly: no starter just means a worse app, no schema step
+  // just means the old safety-net patch, wrong merge order just means the free app is discarded.
+  check("the worker matches a starter", /const match = matchStarter\(brief\)/.test(worker));
+  check("and seeds its files", /seedFiles = starterFiles\(starterId\)/.test(worker));
+  check("merging the model's edit OVER the starter, not under it", /files = \{ \.\.\.seedFiles, \.\.\.files \}/.test(worker));
+  check("an adapt step uses the revise rules, not a full rebuild", /starterId \? REACT_REVISE_RULES : REACT_RULES/.test(worker));
+  check("the schema is decided before generation", /SCHEMA_FIRST_RULES/.test(worker));
+  check("and handed to the generation prompt", /THE DATABASE, ALREADY DECIDED/.test(worker));
+  check("the plan is computed for every build, not just under the flag", /try \{ plan = planApp\(brief\); \}/.test(worker));
+  check("a starter's nav order reaches the router", /navOrder\.length \? \{ navOrder \}/.test(worker));
 }
 
 console.log(failures ? `\n${failures} FAILED\n` : "\nall worker generate-step checks pass\n");

@@ -3,7 +3,8 @@
 // call. Bundled by wrangler at deploy (see package.json).
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { Container, getContainer } from "@cloudflare/containers";
-import { parseGeneratedFiles, REACT_RULES, REACT_FIX_RULES, REACT_REVISE_RULES, SCHEMA_REPAIR_RULES, WIRING_REPAIR_RULES } from "./builder/react-gen.mjs";
+import { parseGeneratedFiles, REACT_RULES, REACT_FIX_RULES, REACT_REVISE_RULES, SCHEMA_FIRST_RULES, SCHEMA_REPAIR_RULES, WIRING_REPAIR_RULES } from "./builder/react-gen.mjs";
+import { matchStarter, getStarter, starterFiles, starterBrief } from "./builder/starters.mjs";
 import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis, eoqCalc, breakevenCalc, demandForecast, installmentPlan, taxCalc, commissionCalc } from "./worker-finance.mjs";
 // Generation meta-layers (Worker-safe: no node:/Playwright imports). Used only behind the PIPELINE_V2 flag to
 // enrich the build prompt (plan + design + the relevant capability slice) and lint the generated app pre-build.
@@ -29528,13 +29529,14 @@ async function handleRequest(request, env, ctx) {
           // + the design brief + ONLY the capabilities this app needs — instead of relying on the model to recall
           // the whole catalog. Falls back to the base prompt on any error. Default (flag off) is unchanged.
           let genUser = "Build this as a polished React app. Output ONLY the file blocks.\n\n" + brief;
-          // Hoisted out of the try below: the scaffolds after generation need the same plan for the
-          // palette and the app name, and it was previously scoped to the PIPELINE_V2 branch alone.
+          // The plan is DETERMINISTIC and free — no model call — so it is computed for every build,
+          // not just under PIPELINE_V2. Starters, the schema step and the palette all need it, and
+          // it was previously scoped to the flag's try block alone.
           let plan = null;
+          try { plan = planApp(brief); } catch (e) { console.error("planApp failed:", e && e.message); }
           if (env.PIPELINE_V2 === "1") {
             try {
-              plan = planApp(brief);
-              if (plan.ok) {
+              if (plan && plan.ok) {
                 const fam = pickStyleFamily(plan.spec.design_hints);
                 genUser = "Build this as a polished React app. Output ONLY the file blocks.\n\n"
                   + "=== APP PLAN ===\n" + specToPrompt(plan.spec)
@@ -29544,6 +29546,59 @@ async function handleRequest(request, env, ctx) {
                 emit({ ev: "plan", capabilities: plan.spec.capabilities, family: fam });
               }
             } catch (e) { console.error("PIPELINE_V2 enrich failed, using base prompt:", e && e.message); }
+          }
+
+          // WHOLE-APP STARTER. When one matches the brief, the app already exists — routed, themed
+          // and compiling — for zero tokens, and generation becomes an ADAPT edit instead of a build
+          // from scratch. This is the single biggest quality difference between what the eval
+          // pipeline produced and what the live builder shipped, and it was never wired in here.
+          let starterId = null, seedFiles = {}, navOrder = [];
+          try {
+            const match = matchStarter(brief);
+            if (match) {
+              starterId = match.id;
+              seedFiles = starterFiles(starterId);
+              navOrder = (getStarter(starterId) || {}).navOrder || [];
+              emit({ ev: "starter", id: starterId, pages: match.pages || [] });
+            }
+          } catch (e) { console.error("starter match failed, building from scratch:", e && e.message); }
+
+          // SCHEMA FIRST. Decide the data model before any page is written, so the pages are built
+          // against real table and column names instead of inventing them and being patched by the
+          // safety net below. A starter already ships a schema designed alongside its pages.
+          let preSchema = seedFiles["isibi.schema.json"] || null;
+          if (!preSchema && plan && plan.ok && (plan.spec.tables || []).length) {
+            emit({ ev: "phase", phase: "schema" });
+            try {
+              const sg = await streamGen(SCHEMA_FIRST_RULES,
+                "Design the database for this app. No pages exist yet — you are deciding the data model they will be built against.\n\n" +
+                "App brief: " + brief + "\n\n" +
+                "Pages that will be built: " + (plan.spec.pages || []).map((pg) => pg.title || pg.name || pg.id).join(", ") + "\n" +
+                "Features that will be built: " + (plan.spec.capabilities || []).join(", ") + "\n" +
+                "Tables the planner expects: " + plan.spec.tables.join(", ") + "\n", null);
+              preSchema = parseGeneratedFiles(sg.text || "")["isibi.schema.json"] || null;
+              const sc = rbCredits(sg.usedIn, sg.usedOut); genCredits += sc;
+              try { const b = await useCredits(auth, sc); if (b >= 0) balAfter = b; } catch {}
+            } catch (e) { console.error("schema step failed, the safety net will cover it:", e && e.message); }
+          }
+          if (preSchema) {
+            genUser += "\n\n=== THE DATABASE, ALREADY DECIDED ===\nDo NOT emit isibi.schema.json. Read and write these " +
+              "tables with `useResource('<table>')`, using these EXACT table and column names — the row types are " +
+              "generated from this, so a name that is not here is a compile error:\n" + String(preSchema).slice(0, 2500);
+          }
+          if (starterId) {
+            const shown = ["src/pages/Home.tsx"].filter((f) => seedFiles[f]);
+            const others = Object.keys(seedFiles).filter((f) => /^src\/pages\//.test(f) && !shown.includes(f));
+            genUser = "Adapt this WORKING app to the brief below. It already routes, compiles and looks right — this " +
+              "is an EDIT, not a rebuild.\n\nApp brief: " + brief + "\n\n" +
+              starterBrief(starterId) + "\n\n" +
+              "Emit `index.html` (real <title> and <meta name=description> for THIS business) and a rewritten " +
+              "`src/pages/Home.tsx` whose copy is specific to it. Emit another page ONLY if the brief needs something " +
+              "the app does not already do. Do NOT emit src/App.tsx or src/routes.ts — routing is generated for you.\n\n" +
+              (preSchema ? "The database is already decided — do NOT emit isibi.schema.json.\n\n" : "") +
+              "THE APP AS IT STANDS:\n\n" +
+              shown.map((f) => "===FILE: " + f + "===\n" + seedFiles[f]).join("\n\n") +
+              (others.length ? "\n\nAlso present and already correct — do not re-emit these: " + others.join(", ") : "");
           }
           emit({ ev: "phase", phase: "generating" });
           // MULTI_AGENT (flag-gated): fan out design/backend/shell/one-per-page agents IN PARALLEL against a fixed
@@ -29561,7 +29616,10 @@ async function handleRequest(request, env, ctx) {
             } catch (e) { console.error("multi-agent failed, falling back to single-shot:", e && e.message); }
           }
           if (!files) {
-            const g = await streamGen(REACT_RULES, genUser, onDelta);
+            // An adapt step on a starter is an EDIT — REACT_REVISE_RULES says "return only the files
+            // that change, each in full", which is what keeps it cheap. REACT_RULES would ask for a
+            // whole project back and throw away the app we just seeded for free.
+            const g = await streamGen(starterId ? REACT_REVISE_RULES : REACT_RULES, genUser, onDelta);
             flushCode(true);
             files = parseGeneratedFiles(g.text);
             genIn = g.usedIn; genOut = g.usedOut;
@@ -29577,8 +29635,14 @@ async function handleRequest(request, env, ctx) {
           // Guarded on the page shape rather than run unconditionally, because the multi-agent
           // fan-out (flag-gated, off by default) still emits the older .jsx shell with its own
           // App.jsx — scaffolding over that would replace a real router with an empty one.
+          // The STARTER is the base; the model's output is the edit on top of it. Merged in this
+          // order so an adapt step that rewrites Home replaces it, while every page it did not
+          // mention survives — the whole point of seeding a working app.
+          if (starterId) files = { ...seedFiles, ...files };
           if (!files["src/App.jsx"]) {
-            files = scaffoldRouting(files).files;
+            // navOrder because a starter's pages form a JOURNEY (shop → cart → orders) and the
+            // alphabetical default puts the checkout before the shop.
+            files = scaffoldRouting(files, navOrder.length ? { navOrder } : {}).files;
             const famTokens = (getStyleFamily(pickStyleFamily((plan && plan.spec && plan.spec.design_hints) || {})) || {}).tokens;
             if (famTokens) files = scaffoldTheme(files, famTokens);
             files = scaffoldDbTypes(files);
