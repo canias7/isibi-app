@@ -1,0 +1,55 @@
+name: Lovable-clone check
+
+# The clone is a parallel pipeline (builder/lovable/). Its generation rules are prose handed to a
+# model, so they drift from the template silently — a renamed token or a removed component leaves
+# the rules confidently describing something that no longer exists, and every generated app then
+# carries the same unbuildable mistake. This job is what notices.
+on:
+  push:
+    paths:
+      - "builder/lovable/**"
+      - ".github/workflows/clone-check.yml"
+  pull_request:
+    paths:
+      - "builder/lovable/**"
+
+permissions:
+  contents: read
+
+jobs:
+  clone:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Rules-vs-template invariants: every colour token the rules name is registered, light and
+      # dark define the same set, promised components exist, the route skeleton matches the real
+      # router API, and the build still generates the route tree first.
+      - name: Rules match the template
+        run: node builder/lovable/check-clone.mjs
+
+      # npm resolves an optional peer of @hookform/resolvers differently than the bun lockfile
+      # Lovable ships, hence --legacy-peer-deps. Same package set either way.
+      - name: Install
+        working-directory: builder/lovable/template
+        run: npm install --no-audit --no-fund --legacy-peer-deps --loglevel=error
+
+      # From a clean checkout there is no routeTree.gen.ts — it is generated. This is the exact
+      # state that failed before, so it is the state CI builds in.
+      - name: Build from a clean checkout
+        working-directory: builder/lovable/template
+        run: npm run build
+
+      # Compiling is not rendering. This mounts all 46 components and fails on any that throw.
+      - name: Typecheck with every component exercised
+        working-directory: builder/lovable/template
+        run: |
+          cp ../smoke/render-all.tsx src/routes/
+          npx tsr generate
+          npx tsc --noEmit --pretty false 2>&1 | tee /tmp/tsc.txt || true
+          N=$(grep -c "error TS" /tmp/tsc.txt || true)
+          echo "type errors: $N"
+          if [ "$N" -gt 0 ]; then grep "error TS" /tmp/tsc.txt | head -20; exit 1; fi
