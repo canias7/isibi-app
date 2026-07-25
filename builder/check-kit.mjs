@@ -135,10 +135,18 @@ if (fs.existsSync(STARTERS)) {
           }
         }
       }
-      // The whole point of useResource is that no page hand-rolls table I/O. A starter doing it teaches the
-      // model — which is reading the starter as its example — to do it too.
-      if (/api\.(get|post|patch|del)\(\s*[`'"]\/rows\//.test(src)) {
-        problems.push(`starter "${id}" ${p} calls api.* on /rows directly — table access goes through useResource`)
+      // The whole point of useResource is that no page hand-rolls plain table I/O. A starter doing it teaches
+      // the model — which reads the starter as its worked example — to do it too.
+      //
+      // SUB-ACTIONS are the exception and are allowed: `/rows/<t>/<id>/restore`, `/stats`, `/duplicates` and the
+      // rest are endpoints useResource deliberately does not wrap, and api.* is the documented way to reach them.
+      // Only a bare list/record path — `/rows/<t>` or `/rows/<t>/<id>` — is the thing being banned.
+      for (const m of src.matchAll(/api\.(get|post|patch|del)\(\s*[`'"]([^`'"]*)/g)) {
+        const route = m[2].replace(/\$\{[^}]*\}/g, ':x').split('?')[0]
+        const seg = route.split('/').filter(Boolean)          // ['rows', '<table>', …]
+        if (seg[0] !== 'rows') continue
+        const rest = seg.slice(2).filter((s) => s !== ':x' && !/^\d+$/.test(s))
+        if (!rest.length) problems.push(`starter "${id}" ${p} calls api.${m[1]}('${m[2]}') — plain table access goes through useResource`)
       }
     }
   }

@@ -1,8 +1,15 @@
 import { cx } from '../lib/cx.js'
-import type { Column } from '../lib/types.ts'
+
+// A Kanban column is a STAGE, not a table column — it was typed as the shared `Column` (which is {key, header},
+// the DataTable shape) and so rejected the {id, title} objects the component's own contract asks for.
+interface KanbanColumn {
+  id: string
+  title: string
+  tone?: string
+}
 
 interface KanbanProps {
-  columns?: Column[]
+  columns?: KanbanColumn[]
   items?: any[]
   renderCard?: any
   onMove?: (...args: any[]) => any

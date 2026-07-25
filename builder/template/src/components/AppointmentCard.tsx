@@ -17,7 +17,7 @@ interface AppointmentCardProps {
   remote?: any
   joinHref?: any
   status?: string
-  to: string
+  to?: string
   actions?: ReactNode
   className?: string
 }

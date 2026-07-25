@@ -8536,3 +8536,42 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   exist but the planner's raw capability picks go through unmodified — which is why a barbershop brief selected
   `CreditLimit` and `Timeoff`. Two lines to wire up, but it changes capability selection for every build, so it
   should be a deliberate decision rather than something slipped in beside starters.
+
+- **2026-07-25 — CRM + HELP DESK STARTERS. Five live, 29 pages.** Booking, commerce, content, crm, helpdesk.
+  Still generating from scratch: social, events, directory, loyalty, courses (check-kit prints that list every run).
+  **CORRECTION to yesterday's note.** I said the platform has no access mode for "members write their own rows,
+  the owner reads all of them". That was wrong — **`teamRead: true`** on a `user` table does exactly that: a
+  manager reads their whole downline via the recursive `_users.manager_id` chain while writes stay own-row, and
+  **`teamScope: true`** is the team-shared variant keyed on `team_id`. Both CRM and help desk are built on
+  `teamRead`. The narrower point still stands for the BOOKING case: customers are not reports of the shop owner,
+  so no existing mode gives a small-business owner sight of their customers' bookings.
+  **These two lean on the platform's own table features rather than reimplementing them in the UI:**
+  `transitions` (a deal cannot skip discovery→won; a ticket cannot skip open→closed — enforced server-side with a
+  409, so the dropdowns only ever offer moves that will be accepted), `sequence` (TKT-0001 assigned by the server;
+  a client-generated number would collide the moment two agents raise a ticket at once), `sla` (4h to first
+  reply), `trash` (the CRM admin page IS the bin), `fts`, `timestamps`, `defaultSort`.
+  **CRM admin is deliberately NOT "manage everyone's records"** — with teamRead, an admin role does not widen
+  visibility, so a page pretending otherwise would render an empty table and look broken. It manages the bin and
+  data hygiene, and says so on the page.
+  **A/B across all five briefs (mock generator, full step budgets): 108,800 → 81,800 output tokens (−25%),
+  pages 23 → 38, dropped capabilities 6 → 0.**
+  **The CRM row is the interesting one: it spends MORE (28,900 → 31,800, +10%) and that is the right outcome.**
+  Freeing the budget the starter's pages would have cost let the planner build 11 pages instead of 6 and drop
+  none instead of four. A starter either saves tokens or buys more app, depending on whether the cap was binding.
+  **Seven real bugs, six of them only findable by rendering:**
+    · `Kanban` was typed `columns?: Column[]` — the DataTable shape — though its own contract is `{id, title}`.
+    · **TEN components had `to: string` REQUIRED while the code already branched on its absence** (`if (to)
+      return <Link…>`). The codemod inferred "required" from a bare destructure with no default. Three others
+      (CourseCard, DestinationCard, JobCard) genuinely require it and were left alone.
+    · `UserCard` had no `onClick`, so a directory tile could navigate but not open a drawer. Added.
+    · A `<Modal>` renders nothing when closed but **its children are still evaluated**, so `editing.status` in the
+      JSX crashed the whole page the moment the modal shut. Hit Leads and Deals both.
+    · `PageHeader`'s `breadcrumb` is a NODE, not an array — passing `[{label,to}]` threw React error #31.
+    · `ListDetailLayout`'s `listWidth` is a Tailwind CLASS (`md:w-96`), not a length; passing `24rem` silently
+      collapsed the detail pane.
+    · `TopList` rendered "2leads" — `FunnelChart` spaces the same prop and TopList did not.
+  The last three were prose gaps as much as code: the inventory now documents Kanban's column shape,
+  PageHeader's breadcrumb node, UserCard's onClick and ListDetailLayout's listWidth.
+  **check-kit's raw-api guard was too strict** and had to be narrowed: it banned every `api.*` call on `/rows`,
+  but SUB-ACTIONS (`/rows/<t>/<id>/restore`, `/stats`, `/duplicates`) are exactly what useResource does not wrap
+  and api.js is the documented way to reach them. It now flags only bare list/record paths.

@@ -7,7 +7,7 @@ import { cx } from '../lib/cx.js'
 interface SellerCardProps {
   name?: string
   avatar?: string
-  to: string
+  to?: string
   verified?: any
   rating?: any
   reviewCount?: any

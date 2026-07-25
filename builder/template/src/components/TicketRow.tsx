@@ -17,7 +17,7 @@ interface TicketRowProps {
   replies?: any
   attachments?: any
   unread?: any
-  to: string
+  to?: string
   onSelect?: (...args: any[]) => any
   selected?: any
   className?: string

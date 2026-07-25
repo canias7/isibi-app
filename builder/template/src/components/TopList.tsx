@@ -45,7 +45,7 @@ export default function TopList({
                   </span>
                   {showShare && <span className="relative shrink-0 text-xs tabular-nums text-ink-400">{share.toFixed(1)}%</span>}
                   <span className="relative w-16 shrink-0 text-right text-sm font-medium tabular-nums text-ink-900">
-                    {(it.value || 0).toLocaleString()}{valueLabel}
+                    {(it.value || 0).toLocaleString()}{valueLabel && ` ${valueLabel}`}
                   </span>
                 </>
               )

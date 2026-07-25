@@ -8,7 +8,7 @@ interface WorkoutCardProps {
   focus?: any
   image?: string
   alt?: string
-  to: string
+  to?: string
   duration?: any
   level?: any
   calories?: any

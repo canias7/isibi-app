@@ -10,7 +10,7 @@ interface SpeakerCardProps {
   bio?: any
   talk?: any
   talkTime?: any
-  to: string
+  to?: string
   social?: any[]
   variant?: string
   className?: string

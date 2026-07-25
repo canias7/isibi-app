@@ -14,7 +14,7 @@ interface AssignmentCardProps {
   grade?: any
   points?: any
   attachments?: number
-  to: string
+  to?: string
   className?: string
 }
 

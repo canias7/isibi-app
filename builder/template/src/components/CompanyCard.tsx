@@ -12,7 +12,7 @@ interface CompanyCardProps {
   location?: any
   website?: any
   openRoles?: any
-  to: string
+  to?: string
   tags?: any[]
   className?: string
 }

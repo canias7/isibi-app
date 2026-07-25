@@ -10,7 +10,7 @@ interface GroupCardProps {
   description?: ReactNode
   cover?: string
   icon?: string
-  to: string
+  to?: string
   members?: any
   memberAvatars?: any[]
   posts?: any

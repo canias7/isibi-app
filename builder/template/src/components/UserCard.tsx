@@ -10,7 +10,9 @@ interface UserCardProps {
   role?: any
   avatar?: string
   bio?: any
-  to: string
+  to?: string
+  /** Click the whole tile without navigating — a directory that opens a drawer rather than a profile page. */
+  onClick?: (...args: any[]) => any
   stats?: any[]
   following?: any
   onToggleFollow?: (...args: any[]) => any
@@ -22,7 +24,7 @@ interface UserCardProps {
 // UserCard — the compact person card used in member directories, author bylines, "people you may know",
 // and as the body of a hover card. ProfileHeader is the full-width banner version; this is the tile.
 export default function UserCard({
-  name, role, avatar, bio, to, stats = [], following, onToggleFollow, actions, variant = 'card', className,
+  name, role, avatar, bio, to, onClick, stats = [], following, onToggleFollow, actions, variant = 'card', className,
 }: UserCardProps) {
   const inner = (
     <>
@@ -50,10 +52,12 @@ export default function UserCard({
       )}
     </>
   )
+  const interactive = (to || onClick) && onToggleFollow === undefined
   const cls = cx(variant === 'row' ? 'py-4' : 'card-surface p-5',
-    to && 'block transition hover:border-ink-200 hover:shadow-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500', className)
-  // A whole-card link would swallow the follow button's click, so link only when there's no inline action.
-  return to && onToggleFollow === undefined
-    ? <Link to={to} className={cls}>{inner}</Link>
-    : <div className={cls}>{inner}</div>
+    interactive && 'block w-full text-left transition hover:border-ink-200 hover:shadow-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500', className)
+  // A whole-card link would swallow the follow button's click, so only make the tile interactive when there is
+  // no inline action inside it. `onClick` (a drawer) wins over `to` (a profile page) when both are given.
+  if (interactive && onClick) return <button type="button" onClick={onClick} className={cls}>{inner}</button>
+  if (interactive && to) return <Link to={to} className={cls}>{inner}</Link>
+  return <div className={cls}>{inner}</div>
 }

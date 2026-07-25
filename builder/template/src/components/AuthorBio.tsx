@@ -9,7 +9,7 @@ interface AuthorBioProps {
   role?: any
   avatar?: string
   bio?: any
-  to: string
+  to?: string
   links?: LinkItem[]
   following?: any
   onToggleFollow?: (...args: any[]) => any
