@@ -119,6 +119,27 @@ for (const [file, pkg] of Object.entries(RADIX_BACKED)) {
   }
 }
 
+// ── 6b. Patterns taken from shadcn ────────────────────────────────────────────
+// Three things we adopted after reading their registry, each of which reverts invisibly:
+//  · cva() in Button — the variant keys are part of the TYPE, so `variant="primry"` is a compile error. Go back
+//    to a lookup object and the typo silently renders an unstyled button instead.
+//  · asChild via Radix Slot — lets `<Button asChild><a…>` be a real anchor. Drop it and call sites keep
+//    compiling (asChild just lands in ...props and is spread onto the DOM as an unknown attribute).
+//  · Sidebar's collapsible groups — a nav group holding the current route must open itself, and the disclosure
+//    must be a real button carrying aria-expanded. Both are easy to "tidy" away without anything looking broken.
+const SHADCN_PATTERNS = [
+  ['Button.tsx', /from 'class-variance-authority'/, 'no longer uses cva() — variant typos stop being compile errors'],
+  ['Button.tsx', /@radix-ui\/react-slot/, 'no longer imports Radix Slot — asChild silently does nothing'],
+  ['Button.tsx', /export const buttonVariants/, 'no longer exports buttonVariants — link-styled-as-button call sites must re-derive the classes'],
+  ['Sidebar.tsx', /aria-expanded/, 'nav group disclosure lost aria-expanded — a screen reader cannot tell open from closed'],
+  ['Sidebar.tsx', /holdsCurrent/, 'nav groups no longer auto-open on the current route — the user cannot see where they are'],
+]
+for (const [file, re, why] of SHADCN_PATTERNS) {
+  const p = path.join(COMPONENTS, file)
+  if (!fs.existsSync(p)) { problems.push(`${file} is missing`); continue }
+  if (!re.test(fs.readFileSync(p, 'utf8'))) problems.push(`${file} ${why}`)
+}
+
 // ── 7. Generated row types ────────────────────────────────────────────────────
 // db-types.ts is produced from isibi.schema.json at build time, and useResource reads it to type every row. Two
 // ways that silently stops working: the template default file goes missing (so the import fails), or someone

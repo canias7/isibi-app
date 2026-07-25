@@ -46,7 +46,8 @@ jobs:
             lucide-react@^0.436.0 clsx@^2.1.1 tailwind-merge@^2.5.2 \
             @tanstack/react-query@^5.59.0 \
             @radix-ui/react-dialog@^1.1.6 @radix-ui/react-dropdown-menu@^2.1.6 \
-            @radix-ui/react-popover@^1.1.6 @radix-ui/react-tooltip@^1.1.8
+            @radix-ui/react-popover@^1.1.6 @radix-ui/react-tooltip@^1.1.8 \
+            @radix-ui/react-slot@^1.1.2 class-variance-authority@^0.7.1
           # routes.ts / App.tsx are code-generated per build, so their absence here is expected.
           mkdir -p src/pages && echo 'export default function Home() { return <div/> }' > src/pages/Home.tsx
           npx tsc --noEmit --pretty false 2>&1 | tee /tmp/tsc.txt || true

@@ -8758,3 +8758,58 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   **NOT YET USED:** the booking starter still stores `date` + `time` as text, so it needs numeric start/end
   columns before it can declare this. `noOverlap` is opt-in and no starter declares it, so nothing changes for
   existing apps until that happens.
+
+---
+
+## 2026-07-25 — Read shadcn's actual registry, then took three things from it
+
+**The question:** if shadcn only has ~50 components, how does Lovable build any app — and should we switch to it?
+
+**Answered by downloading their registry rather than from memory:**
+
+```
+shadcn components today      62   (their docs page says ~70)
+shadcn blocks                42   BUT only four things with variations:
+                                  calendar ×20 · sidebar ×16 · login ×5 · dashboard ×1
+Lovable actually installs    46
+our kit                     258
+  ours shadcn also has       41
+  ours shadcn has nothing for 217
+```
+
+There is **not one business object in the whole library** — no booking widget, no cart line, no ticket queue.
+Everything they ship is a part (button, select) or app chrome (nav, login, a demo dashboard with 615 lines of
+fake data in a `data.json`). Their generality comes from the **AI writing domain components inline on every
+build**, not from the library. Confirmed in Marco's Barbershop zip: `src/components/` contains only `ui/`, and
+the whole app is 833 lines across 7 route files.
+
+Licence is MIT, commercial use, no attribution — using it was never the blocker. The blocker is that 217 of our
+258 have no counterpart, so "switch to shadcn" was never an available move.
+
+**What we took (all three verified in a browser, not just compiled):**
+- **`cva()` in Button** — variant keys are now part of the type, so `variant="primry"` is a compile error
+  instead of `variants[variant]` evaluating to `undefined` and rendering an unstyled button. Exports
+  `buttonVariants` so anything that must LOOK like a button can reuse the exact classes.
+- **`asChild` via Radix Slot** — `<Button asChild><a href="…">Read more</a></Button>` renders a real anchor
+  wearing button styling. The old `as`/`to` props still work; nothing was migrated.
+- **Sidebar collapsible groups + icon rail** — `{label, icon, children:[…]}` becomes a disclosure on a real
+  `<button>` with `aria-expanded`/`aria-controls`; a group holding the current route opens itself. `collapsible`
+  adds a 240px → 64px rail toggle, where links survive as icons carrying `aria-label`.
+
+**Cost: +0.53 kB gzipped** for all three (measured before/after on the booking starter, same build).
+
+**Verification:** check-kit green · kit typechecks clean · all 5 starters 0 type errors · real `vite build` passes
+· 20/20 browser assertions including keyboard operation of the disclosure and the rail.
+
+**check-kit now guards all three**, because each reverts invisibly — drop Slot and `asChild` just lands in
+`...props`; drop the auto-open and the nav still looks fine until you are three levels deep and cannot see where
+you are.
+
+### Correction worth recording
+Earlier in the session I claimed Lovable's booking app would double-book and would show empty availability.
+**Both were wrong** — I checked the zip. They have a `BEFORE INSERT` trigger using `tstzrange && tstzrange` and a
+`SECURITY DEFINER busy_slots(_day)` returning start/end only. Those are exactly our `noOverlap` and `publicView`,
+and we built ours *after* seeing theirs. Their RLS is careful too (roles in a separate table, `has_role` as a
+definer function, `REVOKE ALL` then explicit grants). The one real weakness: their trigger is check-then-write
+and takes no lock, so two simultaneous inserts can both pass — Postgres' own answer is an `EXCLUDE` constraint,
+which they did not use. Ours is a single atomic statement. That is a narrow race, not ignorance of the problem.
