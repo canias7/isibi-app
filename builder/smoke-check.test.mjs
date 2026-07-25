@@ -85,6 +85,16 @@ console.log("\nthe worker acts on what the check returns");
   check("the service returns the errors advisory", /[,{]\s*runtimeErrors: smoke\.errors/.test(server));
   check("and never fails the build on them", /ok: true, files: dist[\s\S]{0,200}runtimeErrors/.test(server));
   check("the caller can turn it off", /payload\.smoke === false/.test(server));
+
+  // A real run produced four findings from one bug: the app is hash-routed, so a second goto only
+  // changes the route and never reloads the document. When React died on /credit-limit the root
+  // stayed unmounted and every later route reported "rendered nothing" — with the crash labelled by
+  // whatever hash happened to be current. One page per route is what makes the output trustworthy.
+  check("each route gets its own page", /for \(const url of routeUrlsFrom\(\)\) \{\s*\n\s*const page = await browser\.newPage\(\)/.test(server));
+  check("and its own error list", /const here = \[\]/.test(server));
+  // With no backend, every data-driven page sits in its loading state and "mounted empty" fires on
+  // pages that are fine. An empty result set lets the page render its real empty state instead.
+  check("the backend is stubbed so loading states resolve", /page\.route\("\*\*\/api\/db\/\*\*"/.test(server));
 }
 
 console.log(failures ? `\n${failures} FAILED\n` : "\nall smoke-check checks pass\n");

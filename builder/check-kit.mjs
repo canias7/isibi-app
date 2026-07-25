@@ -261,8 +261,16 @@ if (starterCount) {
   }
   const helper = path.join(here, 'template/src/lib/icon.tsx');
   if (!fs.existsSync(helper)) problems.push("src/lib/icon.tsx is missing — the components with an icon slot import renderIcon from it");
-  else if (!/typeof icon === "function"|typeof icon === 'function'/.test(fs.readFileSync(helper, "utf8"))) {
-    problems.push("renderIcon no longer instantiates a component icon, so `icon={Inbox}` would render nothing");
+  else {
+    const src = fs.readFileSync(helper, "utf8");
+    // A lucide icon is `forwardRef(...)` — an OBJECT, not a function. The first version of renderIcon
+    // tested only for a function, so every icon fell through and got rendered as a child: React error
+    // #31 on a page that typechecked clean. Checking for a function alone is the bug, not the fix.
+    // Matched as the CODE form, not the bare word: the doc comment above it also says $$typeof, and a
+    // first version of this rule was satisfied by that comment while the branch itself was gone. Third
+    // time this exact trap has been hit — a checker must match what runs, never what explains it.
+    if (!/'\$\$typeof' in/.test(src)) problems.push("renderIcon does not recognise a forwardRef component (lucide icons are objects, not functions) — `icon={Inbox}` would throw React error #31 at runtime");
+    if (!/isValidElement/.test(src)) problems.push("renderIcon no longer checks isValidElement first, so an element would be mistaken for a component");
   }
 }
 

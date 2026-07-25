@@ -19,7 +19,15 @@ export type IconSlot = ReactNode | IconComponent
  */
 export function renderIcon(icon: IconSlot, size = 16): ReactNode {
   if (!icon) return null
-  if (typeof icon === 'function') return createElement(icon as IconComponent, { size })
+  // An already-built element goes through untouched — checked FIRST, because an element is also an
+  // object with $$typeof and would otherwise be mistaken for a component.
   if (isValidElement(icon)) return icon
+  // A lucide icon is `forwardRef(...)`, whose typeof is "object", NOT "function". The first version
+  // of this checked only for a function, so every lucide icon fell through to being rendered as a
+  // child — React error #31, "objects are not valid as a React child", on a page that typechecked
+  // clean. The runtime smoke check caught it; nothing else could have.
+  if (typeof icon === 'function' || (typeof icon === 'object' && icon !== null && '$$typeof' in (icon as object))) {
+    return createElement(icon as IconComponent, { size })
+  }
   return icon as ReactNode
 }

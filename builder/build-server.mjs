@@ -141,22 +141,35 @@ async function smokeTest(dist) {
     served = await serveDir(dir);
     const { chromiumExecutable } = await import("./vision-render.mjs");
     browser = await chromium.launch({ executablePath: chromiumExecutable(), args: ["--no-sandbox", "--disable-dev-shm-usage"] });
-    const page = await browser.newPage();
     const errors = [];
-    const at = () => page.url().split("#")[1] || "/";
-    page.on("pageerror", (e) => errors.push(`${at()}: ${String(e).split("\n")[0]}`));
-    page.on("console", (m) => { if (m.type() === "error" && isRealRuntimeError(m.text())) errors.push(`${at()}: ${m.text().split("\n")[0].slice(0, 200)}`); });
-    // Webfonts are not reachable from the build sandbox; a hanging request would look like a broken
-    // app rather than a missing network.
-    await page.route("**://fonts.googleapis.com/**", (r) => r.fulfill({ status: 200, contentType: "text/css", body: "" }));
-    await page.route("**://fonts.gstatic.com/**", (r) => r.fulfill({ status: 200, body: "" }));
+    // ONE PAGE PER ROUTE. Sharing a page looks cheaper and is wrong: this is a hash-routed SPA, so
+    // a second goto only changes the route — the document is never reloaded. When React dies on one
+    // route the root stays unmounted, and EVERY later route then reports "rendered nothing". A real
+    // run showed exactly that: one genuine crash on /credit-limit produced three more findings on
+    // routes that were fine, and the crash was attributed by reading the CURRENT hash, so the
+    // labelling drifted too. Isolation costs a browser page and buys a trustworthy result.
     for (const url of routeUrlsFrom()) {
+      const page = await browser.newPage();
+      const here = [];
+      page.on("pageerror", (e) => here.push(String(e).split("\n")[0]));
+      page.on("console", (m) => { if (m.type() === "error" && isRealRuntimeError(m.text())) here.push(m.text().split("\n")[0].slice(0, 200)); });
+      // Webfonts are not reachable from the build sandbox; a hanging request would look like a
+      // broken app rather than a missing network.
+      await page.route("**://fonts.googleapis.com/**", (r) => r.fulfill({ status: 200, contentType: "text/css", body: "" }));
+      await page.route("**://fonts.gstatic.com/**", (r) => r.fulfill({ status: 200, body: "" }));
+      // The backend does not exist here. Left to fail, every data-driven page sits in its loading
+      // state and "mounted empty" fires on pages that are perfectly fine. An empty result set is
+      // the honest stand-in: the page gets data, renders its empty state, and a page that STILL
+      // renders nothing is genuinely broken.
+      await page.route("**/api/db/**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ rows: [], total: 0 }) }));
       await page.goto(`${served.url}/#${url}`, { waitUntil: "load", timeout: 15000 }).catch(() => {});
-      await page.waitForTimeout(350);
+      await page.waitForTimeout(400);
       const empty = await page.evaluate(() => (document.getElementById("root")?.textContent || "").trim().length === 0).catch(() => false);
-      if (empty) errors.push(`${url}: rendered nothing — the page mounted empty`);
+      if (empty) here.push("rendered nothing — the page mounted empty");
+      for (const e of [...new Set(here)]) errors.push(`${url}: ${e}`);
+      await page.close().catch(() => {});
     }
-    return { ran: true, errors: [...new Set(errors)].slice(0, 20) };
+    return { ran: true, errors: errors.slice(0, 20) };
   } catch (e) {
     return { ran: false, reason: String((e && e.message) || e).slice(0, 200), errors: [] };
   } finally {
