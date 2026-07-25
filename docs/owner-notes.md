@@ -8466,3 +8466,29 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   quoted button copy so `a primary "New …" action` isn't read as a <New> component.
   **Still missing, and bigger: whole-app starters.** Recipes tell the model what shape to build; a starter would
   mean it EDITS a working CRM instead of writing one. That remains the largest lever.
+
+- **2026-07-25 — `useResource`: one hook is now the ONLY way a generated page talks to its database.** Owner
+  approved building on TanStack Query ("Yeag build tanstack"). The architecture is deliberate: **the hook is the
+  INTERFACE, the library is the ENGINE.** Pages write one line —
+  `const { data, loading, error, saving, create, update, remove } = useResource('leads')` — and never see a
+  query key or an `invalidateQueries` call. `useRecord('leads', id)` is the detail-page version, sharing the same
+  cache. If TanStack is ever ripped out, exactly one file changes.
+  **Why it exists:** every list page needs the same seven things (fetch, loading, error, create, update, delete,
+  refresh-after-write) and hand-written that is ~40 lines of useState/useEffect per page, of which the model got
+  a different subset right each time. The worst failure was SILENT — a create that saved but never refreshed the
+  list, which to the person using the app is indistinguishable from a broken save.
+  **Verified in a real browser, not asserted:** skeleton → 2 rows loaded → Create → 3 rows with no refetch
+  anywhere in the page → Update flips a row to archived → Remove drops back to 2 → a deliberately rejected write
+  surfaces the server's own 400 message ("name is required") to the page's catch block and leaves the table
+  untouched. Zero console errors throughout.
+  **Cost, measured on the SAME two-page app built through the real build server:** hand-rolled fetch 201,471
+  raw / 65,194 gzip → useResource 243,977 raw / **77,722 gzip (+12.5 kB)**. On the 258-component kitchen-sink
+  harness the same delta is only 6.8%, so the relative cost shrinks as apps get real. Bought with it: request
+  dedup, caching, retries and in-flight race handling we would otherwise own in every generated app.
+  **Guarded, not written down** — `check-kit.mjs` now asserts (a) the hook returns every key the generator rules
+  promise (proved by renaming `refetch`→`reload` and watching it fail) and (b) `main.tsx` still mounts
+  `QueryClientProvider`, because dropping it would crash every generated app on its first read with
+  "No QueryClient set". `@tanstack/react-query` added to `builder/package.json` dependencies (baked into the
+  build image) and to the kit-check CI install.
+  Rules updated in three places so the model can't miss it: `COMPONENT_INVENTORY` (which rides along with every
+  page step), `REACT_REVISE_RULES` (the edit path), and the crud-list / list-create / read-only recipes.

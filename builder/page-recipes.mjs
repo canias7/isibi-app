@@ -83,6 +83,7 @@ export const RECIPES = [
     title: 'Records list with detail + delete',
     when: (c) => has(c, 'GET') && has(c, 'DELETE'),
     skeleton: [
+      'useResource(<table>) for the data — data / loading / error / create / update / remove',
       'PageHeader — title + a primary "New …" action',
       'SearchFilterBar — search and any filters, above the table',
       'DataTable — the records, with StatusPill in the status column',
@@ -90,18 +91,20 @@ export const RECIPES = [
       'ConfirmDialog — ALWAYS before a delete',
       'EmptyState when there are no records; Skeleton while loading',
     ],
-    notes: 'DataTable has loading and empty states built in — pass `loading` rather than branching by hand.',
+    notes: 'DataTable has loading and empty states built in — pass `loading` rather than branching by hand. useResource refreshes the list after every write; do not refetch by hand.',
   },
   {
     id: 'list-create',
     title: 'Records list with an add form',
     when: (c) => has(c, 'GET') && has(c, 'POST'),
     skeleton: [
+      'useResource(<table>) for the data — data / loading / saving / create',
       'PageHeader — title + a primary "Add …" action',
       'DataTable or a card grid for the records',
       'Modal containing FormSection + fields + FormActions for the add form',
       'EmptyState when there are no records; Skeleton while loading',
     ],
+    notes: 'Await create(values) and close the modal on success; the list refreshes itself. Bind the submit button to `saving`.',
   },
   {
     id: 'capture-form',
@@ -134,6 +137,7 @@ export const RECIPES = [
     title: 'Read-only listing',
     when: (c) => has(c, 'GET'),
     skeleton: [
+      'useResource(<table>) for the data — read `data`, `loading`, `error`',
       'PageHeader',
       'SearchFilterBar if the list can get long',
       'A card grid (ListingCard / ProductCard / EventCard) or DataTable',

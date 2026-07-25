@@ -73,7 +73,8 @@ function capDesc(capId) {
 
 function pagesPrompt(brief, capIds, files, label) {
   return "ADD " + (label || "these feature page(s)") + " to the EXISTING app below. Reuse the shared components in " +
-    "src/components/ and the api helper in src/lib/api.js. Match the existing design exactly.\n\nApp brief: " + brief +
+    "src/components/ and read/write table data with `useResource` from src/lib/useResource.ts. Match the existing " +
+    "design exactly.\n\nApp brief: " + brief +
     "\n\nPages to add:\n" + capIds.map(capDesc).join("\n") + "\n\n" +
     "Emit ONLY the new `src/pages/*.tsx` file(s) — nothing else. Routing and the nav link are generated for you the " +
     "moment the page file exists, so do NOT emit src/App.tsx, src/routes.js, or Nav.tsx, and do NOT rewrite the " +

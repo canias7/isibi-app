@@ -40,7 +40,8 @@ jobs:
           npm install --no-audit --no-fund --loglevel=error \
             typescript@^5.6.2 @types/react@^18.3.5 @types/react-dom@^18.3.0 \
             react@^18.3.1 react-dom@^18.3.1 react-router-dom@^6.26.0 \
-            lucide-react@^0.436.0 clsx@^2.1.1 tailwind-merge@^2.5.2
+            lucide-react@^0.436.0 clsx@^2.1.1 tailwind-merge@^2.5.2 \
+            @tanstack/react-query@^5.59.0
           # routes.ts / App.tsx are code-generated per build, so their absence here is expected.
           mkdir -p src/pages && echo 'export default function Home() { return <div/> }' > src/pages/Home.tsx
           npx tsc --noEmit --pretty false 2>&1 | tee /tmp/tsc.txt || true

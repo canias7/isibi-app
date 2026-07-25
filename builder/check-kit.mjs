@@ -79,6 +79,25 @@ for (const f of components) {
 const badRefs = componentsNamedInRecipes().filter((n) => n !== n.toUpperCase() && !exported.has(n))
 if (badRefs.length) problems.push(`page recipes name component(s) that do not exist: ${badRefs.join(', ')}`)
 
+// ── 5. useResource: the documented shape must be the real shape ───────────────
+// The rules promise pages a specific set of keys off one destructure. Prose promising a key the hook does not
+// return is the same failure as `EmptyState message=` — except here the model writes `const { rows } = …`,
+// gets undefined, and the page renders blank with no error at all.
+const LIB = path.join(here, 'template/src/lib')
+const hookPath = path.join(LIB, 'useResource.ts')
+if (!fs.existsSync(hookPath)) {
+  problems.push('src/lib/useResource.ts is missing, but the generator rules tell every page to import it')
+} else {
+  const hook = fs.readFileSync(hookPath, 'utf8')
+  const promised = ['data', 'total', 'loading', 'error', 'saving', 'create', 'update', 'remove', 'refetch']
+  const returned = promised.filter((k) => new RegExp(`^\\s{4}${k}:`, 'm').test(hook))
+  const absent = promised.filter((k) => !returned.includes(k))
+  if (absent.length) problems.push(`useResource is documented as returning ${absent.join(', ')} but does not`)
+  // Every generated app crashes on its first read ("No QueryClient set") if the provider is ever dropped.
+  const main = fs.readFileSync(path.join(here, 'template/src/main.tsx'), 'utf8')
+  if (!/QueryClientProvider/.test(main)) problems.push('main.tsx does not mount QueryClientProvider — useResource would throw in every generated app')
+}
+
 // ── Report ────────────────────────────────────────────────────────────────────
 const recipeCount = RECIPES.length + Object.keys(FIXED_RECIPES).length
 console.log(`kit check — ${components.length} components, ${checked} documented props verified, ${recipeCount} page recipes`)
