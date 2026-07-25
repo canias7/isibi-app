@@ -152,7 +152,10 @@ console.log(`brief: ${BRIEF.slice(0, 120)}…\n`)
 
 const started = Date.now()
 const res = await runClonePipeline(BRIEF, CAP, { generate, build }, {
-  onStage: (r) => console.log(`  ${String(r.n).padStart(2)}. ${r.stage}${r.skipped ? ` — skipped (${r.skipped})` : r.out ? ` — ${r.out} tok` : ''}`),
+  // The theme stage merges the app's tokens INTO this. Without it applyTheme would have nothing to
+  // merge into and the app would ship with an empty stylesheet.
+  baseCss: fs.readFileSync(path.join(TEMPLATE, 'src/styles.css'), 'utf8'),
+  onStage: (r) => console.log(`  ${String(r.n).padStart(2)}. ${r.stage}${r.skipped ? ` — skipped (${r.skipped})` : r.warn ? ` — WARN ${r.warn}` : r.out ? ` — ${r.out} tok` : ''}`),
 })
 const seconds = Math.round((Date.now() - started) / 1000)
 

@@ -32,7 +32,9 @@ import { scaffoldDbTypes } from '../scaffold.mjs'
 // that hit its ceiling returned nothing usable — a truncated reply has no closing file block. The
 // stylesheet alone is ~150 lines because the model must return it COMPLETE, and a seat-grid page
 // is comfortably 250+ lines of code before any prose.
-export const RESERVES = { clarify: 700, plan: 1500, schema: 6000, theme: 5000, shell: 5000, repair: 6000 }
+// theme is small now because it returns JSON tokens rather than a whole stylesheet; shell is large
+// because __root.tsx must come back complete and a live run truncated it at 5000.
+export const RESERVES = { clarify: 700, plan: 1500, schema: 6000, theme: 1200, shell: 9000, repair: 6000 }
 // The iterate loop (their step 7). Picking files is cheap; rewriting them is where the budget goes.
 export const REVISE_RESERVES = { pick: 600, edit: 6000, repair: 4000 }
 export const PER_PAGE = 9000
@@ -132,6 +134,15 @@ export async function runClonePipeline(brief, cap, deps, opts = {}) {
       RESERVES.schema)
     merge(r?.files)
     schema = files['isibi.schema.json'] || null
+    // A live run returned three tables with no `access` at all, which leaves them unscoped. Catch
+    // it here rather than discovering it when a customer reads someone else's row.
+    if (schema) {
+      try {
+        const parsed = JSON.parse(schema)
+        const unscoped = (parsed.tables || []).filter((tb) => !tb.access).map((tb) => tb.name)
+        if (unscoped.length) t('schema:unscoped', { warn: `no access mode declared on: ${unscoped.join(', ')} — these tables are unscoped`, out: 0, remaining: remaining() })
+      } catch { t('schema:unparseable', { warn: 'the schema is not valid JSON', out: 0, remaining: remaining() }) }
+    }
     if (!schema) t('schema-missing', { warn: 'the plan named tables but no schema was returned; pages will be written without one', out: 0, remaining: remaining() })
 
     // Row types, generated from the schema for zero tokens — the same trick their template uses
@@ -155,13 +166,31 @@ export async function runClonePipeline(brief, cap, deps, opts = {}) {
   // invented (--color-tier-premium, --font-display: Fraunces), but whether that was its own call
   // or part of page generation is not visible from the output. It is a separate stage here so a
   // page can never reference a token that was never declared.
+  //
+  // The model returns only the tokens to ADD, as JSON, and they are merged into the base
+  // stylesheet in code. Asking for the complete file was the original design and it truncated on a
+  // live run — 5000 tokens spent, nothing returned, and the app silently kept the default theme.
+  // A 150-line base that never changes should not be re-emitted to add four colours.
   const themed = await call('theme',
-    `${OUTPUT_RULES}\n\n${STYLE_RULES}\n\nReturn the COMPLETE src/styles.css with this app's own tokens filled into the first ` +
-    '@theme block, and any new semantic colours added to BOTH :root and .dark plus registered in @theme inline. ' +
-    'Leave every existing base token exactly as it is.',
-    `${context}\n\nCurrent stylesheet:\n${opts.baseCss || '(the standard shadcn base)'}`,
-    RESERVES.theme)
-  merge(themed?.files)
+    `${STYLE_RULES}\n\nReturn JSON ONLY, no prose and no file block:\n` +
+    '{"fonts":{"--font-display":"\'Fraunces\', serif"},' +
+    '"colors":{"tier-premium":{"light":"oklch(0.86 0.09 60)","dark":"oklch(0.7 0.09 60)"}}}\n' +
+    'Every colour needs BOTH a light and a dark value in oklch. Name only what this app actually ' +
+    'needs beyond the base tokens — usually two to five. Return {} if the base set is enough.',
+    context, RESERVES.theme)
+  const tokens = safeJson(themed?.text)
+  if (!opts.baseCss) {
+    t('theme-merged', { warn: 'no base stylesheet supplied, so this app keeps the default theme', out: 0, remaining: remaining() })
+  } else if (tokens && (Object.keys(tokens.fonts || {}).length || Object.keys(tokens.colors || {}).length)) {
+    files['src/styles.css'] = applyTheme(opts.baseCss || '', tokens)
+    t('theme-merged', {
+      generated: 'src/styles.css',
+      added: [...Object.keys(tokens.fonts || {}), ...Object.keys(tokens.colors || {})].join(', '),
+      out: 0, remaining: remaining(),
+    })
+  } else {
+    t('theme-merged', { skipped: 'the base token set was enough', out: 0, remaining: remaining() })
+  }
 
   // ── 5. shell — __root.tsx, before the pages that render inside it ──────────
   const shell = await call('shell', `${OUTPUT_RULES}\n\n${SHELL_RULES}`,
@@ -313,6 +342,34 @@ export async function reviseApp(files, request, cap, deps, opts = {}) {
   }
 
   return { ok: !!build.ok, files: next, changed, untouched: Object.keys(files).length - changed.length, spent, cap, remaining: remaining(), build, trace }
+}
+
+/**
+ * Merge this app's tokens into the base stylesheet, deterministically and for zero tokens.
+ * A colour lands in four places, which is exactly the bookkeeping a model gets wrong: the raw
+ * value in :root and again in .dark, and a --color-<name> registration in @theme inline so
+ * Tailwind emits bg-<name>. Fonts go in the leading @theme block.
+ */
+export function applyTheme(baseCss, tokens) {
+  let css = String(baseCss || '')
+  // Merging into nothing would hand the app an empty stylesheet — every token gone, every page
+  // unstyled. Better to change nothing than to destroy the base.
+  if (!css.includes('@theme')) return css
+  const fonts = tokens.fonts || {}
+  const colors = tokens.colors || {}
+
+  const fontLines = Object.entries(fonts).map(([k, v]) => `  ${k}: ${v};`)
+  const themeColorLines = Object.keys(colors).map((n) => `  --color-${n}: var(--${n});`)
+  if (fontLines.length || themeColorLines.length) {
+    css = css.replace(/@theme \{[\s\S]*?\n\}/, `@theme {\n${[...fontLines, ...themeColorLines].join('\n')}\n}`)
+  }
+  const inject = (block, lines) =>
+    css.replace(new RegExp(`(${block}\\s*\\{)`), `$1\n${lines.join('\n')}`)
+  const light = Object.entries(colors).map(([n, v]) => `  --${n}: ${typeof v === 'string' ? v : v.light};`)
+  const dark = Object.entries(colors).map(([n, v]) => `  --${n}: ${typeof v === 'string' ? v : (v.dark || v.light)};`)
+  if (light.length) css = inject(':root', light)
+  if (dark.length) css = inject('\\.dark', dark)
+  return css
 }
 
 const firstLine = (s) => String(s || '').split('\n')[0].slice(0, 200)

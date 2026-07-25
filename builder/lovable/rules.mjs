@@ -184,7 +184,14 @@ export const PLAN_RULES =
 export const SCHEMA_RULES =
   "Design the database FIRST, before any page is written. Every page is then built against a data " +
   "model that already exists, instead of each page inventing its own field names. " +
-  "Declare tables in `isibi.schema.json`. Encode the brief's rules as schema constraints, because " +
+  "Declare tables in `isibi.schema.json`. **EVERY table MUST carry an `access` mode** — a table " +
+  "without one is unscoped, which means anyone can read anyone's rows. Pick from:\n" +
+  "· `user` — each person sees only their own rows (bookings, orders, tickets)\n" +
+  "· `admin` — staff write, everyone reads (services, products, articles)\n" +
+  "· `feed` — everyone reads, signed-in people add their own (comments, reviews)\n" +
+  "· `collect` — write-only from the public, staff read (contact forms, applications)\n" +
+  "· `display` — read-only reference data\n" +
+  "Encode the brief's rules as schema constraints too, because " +
   "the database is the only enforcement that cannot be bypassed: a slot only one booking may hold " +
   "→ a partial `unique` on the slot columns; a value from a fixed set → `enum`; a must-fill field → " +
   "`required`; a record belonging to a parent → a `ref` column; bounds → `min`/`max`. " +

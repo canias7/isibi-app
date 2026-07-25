@@ -168,7 +168,15 @@ async function smokeTest(routeUrls) {
 
 /** Chrome binaries on disk, newest build first. Used when the bundled browser does not match. */
 function discoverChrome() {
-  const roots = [process.env.PLAYWRIGHT_BROWSERS_PATH, '/opt/pw-browsers', '/ms-playwright'].filter(Boolean)
+  // A GitHub runner installs to ~/.cache/ms-playwright, which the first live run missed entirely —
+  // the smoke check reported "skipped" on a run that had a browser sitting right there.
+  const home = process.env.HOME || ''
+  const roots = [
+    process.env.PLAYWRIGHT_BROWSERS_PATH,
+    '/opt/pw-browsers',
+    '/ms-playwright',
+    home && path.join(home, '.cache/ms-playwright'),
+  ].filter(Boolean)
   const found = []
   for (const root of roots) {
     if (!fs.existsSync(root)) continue

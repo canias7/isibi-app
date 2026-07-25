@@ -95,11 +95,9 @@ const stub = async (system, user, maxTokens) => {
       }],
     }, null, 2))
   }
-  if (/Return the COMPLETE src\/styles\.css/.test(system)) {
-    // A real per-app theme edit: adds a token in oklch to @theme, :root and .dark, as the rules require.
-    const css = fs.readFileSync(path.join(TEMPLATE, 'src/styles.css'), 'utf8')
-      .replace(/@theme \{[\s\S]*?\}/, '@theme {\n  --color-tier-premium: oklch(0.86 0.09 60);\n}')
-    return out('===FILE: src/styles.css===\n' + css)
+  if (/Return JSON ONLY/.test(system)) {
+    // The theme stage returns TOKENS now; the pipeline merges them into the base itself.
+    return out('{"fonts":{"--font-display":"\'Fraunces\', serif"},"colors":{"tier-premium":{"light":"oklch(0.86 0.09 60)","dark":"oklch(0.7 0.09 60)"}}}')
   }
   if (/THE APP SHELL/.test(system)) {
     // A real shell: HeadContent so page meta lands, Outlet so pages render, site-wide fallback
@@ -167,7 +165,9 @@ const build = async (files) => {
 }
 
 console.log('\nrunning the clone pipeline against the real template')
-const res = await runClonePipeline('A theatre seat booking site for the Lumière.', 40000, { generate: stub, build })
+const res = await runClonePipeline('A theatre seat booking site for the Lumière.', 40000, { generate: stub, build }, {
+  baseCss: fs.readFileSync(path.join(TEMPLATE, 'src/styles.css'), 'utf8'),
+})
 console.log(traceSummary(res))
 
 console.log('\ndb-types generated for $0')
@@ -193,6 +193,7 @@ console.log('\nwhat the pipeline wrote')
   check('the generated types replaced the empty placeholder', !/export interface Tables \{\}/.test(types))
   const css = fs.readFileSync(path.join(WORK, 'src/styles.css'), 'utf8')
   check('the app token reached the stylesheet', css.includes('--color-tier-premium'))
+  check('the font token reached it too', css.includes('--font-display'))
   check('the base tokens survived the theme edit', css.includes('--color-muted-foreground') && css.includes('.dark'))
   const routes = fs.readdirSync(path.join(WORK, 'src/routes')).filter((f) => f.endsWith('.tsx'))
   check('three route files plus the root', routes.length === 4, routes.join(', '))

@@ -30,8 +30,8 @@ function stubModel({ failFirstBuild = false } = {}) {
       })
     } else if (/Design the database FIRST/.test(system)) {
       text = '===FILE: isibi.schema.json===\n{"tables":[{"name":"bookings","access":"user","columns":[{"name":"seat_id","type":"text","required":true}]}]}'
-    } else if (/Return the COMPLETE src\/styles\.css/.test(system)) {
-      text = '===FILE: src/styles.css===\n@theme {\n  --color-tier-premium: oklch(0.86 0.09 60);\n}\n'
+    } else if (/Return JSON ONLY/.test(system)) {
+      text = '{"fonts":{"--font-display":"\'Fraunces\', serif"},"colors":{"tier-premium":{"light":"oklch(0.86 0.09 60)","dark":"oklch(0.7 0.09 60)"}}}'
     } else if (/THE APP SHELL/.test(system)) {
       text = "===FILE: src/routes/__root.tsx===\nimport { HeadContent, Outlet } from '@tanstack/react-router'\n"
     } else if (/The build failed/.test(system)) {
@@ -65,7 +65,8 @@ console.log('\nparse + path helpers')
 
 console.log('\nstage order — the point of phase 3')
 const m = stubModel()
-const res = await runClonePipeline('A theatre seat booking site for the Lumière.', 40000, m)
+const BASE_CSS = '@theme {\n}\n\n@theme inline {\n  --color-background: var(--background);\n}\n\n:root {\n  --background: oklch(1 0 0);\n}\n\n.dark {\n  --background: oklch(0.129 0.042 264.695);\n}\n'
+const res = await runClonePipeline('A theatre seat booking site for the Lumière.', 40000, m, { baseCss: BASE_CSS })
 const order = res.trace.map((r) => r.stage)
 {
   check('run succeeded', res.ok === true)
@@ -97,10 +98,14 @@ console.log('\nfiles land where the plan said')
   check('schema written', paths.includes('isibi.schema.json'))
   check('app shell written', paths.includes('src/routes/__root.tsx'))
   check('stylesheet written', paths.includes('src/styles.css'))
+  check('the app tokens were merged into the base, not re-emitted by the model',
+    /--color-tier-premium: var\(--tier-premium\)/.test(res.files['src/styles.css'] || ''))
+  check('both light and dark values landed',
+    /:root \{\n  --tier-premium/.test(res.files['src/styles.css'] || '') && /\.dark \{\n  --tier-premium/.test(res.files['src/styles.css'] || ''))
   check('a route file per page', ['index', 'book', 'my-tickets'].every((p) => paths.includes(`src/routes/${p}.tsx`)), paths.join(', '))
   const shellPrompt = m.calls.find((c) => /THE APP SHELL/.test(c.system))
   check('the shell prompt lists every page so it can build the nav', ['/', '/book', '/my-tickets'].every((u) => shellPrompt?.user.includes(u)))
-  check('the shell prompt carries the stylesheet so fonts can be matched', /--color-tier-premium/.test(shellPrompt?.user || ''))
+  check('the shell prompt carries the merged stylesheet so fonts can be matched', /--font-display/.test(shellPrompt?.user || ''))
   check('nothing written outside src/ or the schema', paths.every((p) => p.startsWith('src/') || p === 'isibi.schema.json'))
 }
 

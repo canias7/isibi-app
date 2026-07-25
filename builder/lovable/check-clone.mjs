@@ -125,6 +125,15 @@ if (!fs.existsSync(TYPES)) problems.push('src/integrations/db/types.ts is missin
 else if (!/export interface Tables/.test(fs.readFileSync(TYPES, 'utf8'))) problems.push('types.ts no longer exports a Tables interface, which the client keys every row type off')
 if (!/@\/integrations\/db\/client/.test(RULES.DATA_RULES)) problems.push('DATA_RULES no longer tells the model where the database client lives')
 
+// A live run came back with three tables and no access mode on any of them, which leaves them
+// unscoped. The rule now lists the modes by name, so the checker holds it to that.
+if (!/EVERY table MUST carry an `access` mode/.test(RULES.SCHEMA_RULES)) {
+  problems.push('SCHEMA_RULES no longer requires an access mode per table — unscoped tables let anyone read anyone\'s rows')
+}
+for (const mode of ['user', 'admin', 'feed', 'collect', 'display']) {
+  if (!new RegExp('`' + mode + '`').test(RULES.SCHEMA_RULES)) problems.push(`SCHEMA_RULES no longer names the "${mode}" access mode, so the model cannot choose it`)
+}
+
 // ── 4. Hash history, because the rules promise it ─────────────────────────────
 const main = fs.readFileSync(path.join(TEMPLATE, 'src/main.tsx'), 'utf8')
 if (!/createHashHistory/.test(main)) {
