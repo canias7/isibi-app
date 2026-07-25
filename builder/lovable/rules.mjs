@@ -21,7 +21,11 @@ export const OUTPUT_RULES =
   "· Every file is COMPLETE and runnable. Never a diff, never a fragment, never `// … rest unchanged`.\n" +
   "· If you are running short on room, write LESS CODE — fewer comments, a smaller component — but " +
   "always finish the file. A truncated reply is worth nothing: it cannot be parsed and the whole " +
-  "step is wasted.";
+  "step is wasted.\n" +
+  "· AIM FOR UNDER ~250 LINES PER FILE. Lovable's own seat-picker page — a 12x18 grid with three " +
+  "price tiers, selection state and a running total — is 298 lines including its data. If yours is " +
+  "heading past that, you are over-building: cut comments, collapse repeated markup into a small " +
+  "local component, and drop anything the brief did not ask for.";
 
 export const ROUTE_RULES =
   "FILE-BASED ROUTING. One file per page under `src/routes/`. `index.tsx` is `/`, `book.tsx` is " +

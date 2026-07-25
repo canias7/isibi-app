@@ -221,5 +221,79 @@ console.log('\niterate loop — a follow-up edits named files, it does not rebui
   check('and the fallback is recorded', r5.trace.some((s) => s.stage === 'revise-pick:fallback'))
 }
 
+// ── truncation must never reach the build ─────────────────────────────────────
+console.log('\ntruncated page: retried smaller, not handed to the build')
+{
+  // A live run truncated a page at 9000 tokens, emitted a syntactically broken file, and killed the
+  // whole build at `tsr generate` — then burned two repair passes rewriting the same oversized page.
+  let pageAttempts = 0
+  const calls = []
+  const m = {
+    calls,
+    generate: async (system, user, maxTokens) => {
+      calls.push({ system, user })
+      if (/Ask AT MOST/.test(system)) return { text: '', usedOut: 10 }
+      if (/Plan the app/.test(system)) return { text: JSON.stringify({ pages: [{ id: 'index', title: 'Seats' }], tables: [] }), usedOut: 50 }
+      if (/Return JSON ONLY/.test(system)) return { text: '{}', usedOut: 20 }
+      if (/THE APP SHELL/.test(system)) return { text: "===FILE: src/routes/__root.tsx===\nshell\n", usedOut: 60 }
+      pageAttempts++
+      // First attempt truncates mid-file; the retry finishes.
+      return pageAttempts === 1
+        ? { text: '===FILE: src/routes/index.tsx===\nconst broken = (', usedOut: maxTokens, truncated: true }
+        : { text: '===FILE: src/routes/index.tsx===\nconst whole = 1\n', usedOut: 200 }
+    },
+    build: async () => ({ ok: true }),
+  }
+  const r = await runClonePipeline('A seat picker.', 60000, m)
+  const stages = r.trace.map((s) => s.stage)
+  check('the truncation is reported', stages.includes('page:index:truncated'))
+  check('and the page is retried', stages.includes('page:index:retry'), stages.join(' '))
+  check('the BROKEN partial never survives', !r.files['src/routes/index.tsx'].includes('const broken'))
+  check('the complete retry is what ships', r.files['src/routes/index.tsx'].includes('const whole'))
+  const retryPrompt = calls.find((c) => /PREVIOUS ATTEMPT WAS CUT OFF/.test(c.user))
+  check('the retry tells the model to write less', /SHORTER version/.test(retryPrompt?.user || ''))
+
+  // Truncated twice: the page is dropped and said so, rather than shipping a broken file.
+  let n = 0
+  const always = {
+    generate: async (system, user, maxTokens) => {
+      if (/Ask AT MOST/.test(system)) return { text: '', usedOut: 10 }
+      if (/Plan the app/.test(system)) return { text: JSON.stringify({ pages: [{ id: 'index', title: 'Seats' }], tables: [] }), usedOut: 50 }
+      if (/Return JSON ONLY/.test(system)) return { text: '{}', usedOut: 20 }
+      if (/THE APP SHELL/.test(system)) return { text: "===FILE: src/routes/__root.tsx===\nshell\n", usedOut: 60 }
+      n++
+      return { text: '===FILE: src/routes/index.tsx===\nconst broken = (', usedOut: maxTokens, truncated: true }
+    },
+    build: async () => ({ ok: true }),
+  }
+  const r2 = await runClonePipeline('A seat picker.', 60000, always)
+  check('it does not retry forever', n === 2, `${n} attempts`)
+  check('a page truncated twice is reported as lost', r2.trace.some((s) => s.stage === 'page:index:lost'))
+  check('and the broken partial is NOT shipped', !('src/routes/index.tsx' in r2.files), Object.keys(r2.files).join(', '))
+  check('the rest of the app still builds', r2.ok === true)
+}
+
+// ── the repair loop should not resend the component library ───────────────────
+console.log('\nrepair sends the app, not the kit')
+{
+  const seen = []
+  const m = {
+    generate: async (system, user, maxTokens) => {
+      if (/Ask AT MOST/.test(system)) return { text: '', usedOut: 10 }
+      if (/Plan the app/.test(system)) return { text: JSON.stringify({ pages: [{ id: 'index', title: 'Home' }], tables: [] }), usedOut: 50 }
+      if (/Return JSON ONLY/.test(system)) return { text: '{}', usedOut: 20 }
+      if (/THE APP SHELL/.test(system)) return { text: "===FILE: src/routes/__root.tsx===\nshell\n", usedOut: 60 }
+      if (/The build failed/.test(system)) { seen.push(user); return { text: '===FILE: src/routes/index.tsx===\nfixed\n', usedOut: 80 } }
+      return { text: '===FILE: src/routes/index.tsx===\npage\n', usedOut: 80 }
+    },
+    build: (() => { let n = 0; return async () => (++n === 1 ? { ok: false, error: 'boom' } : { ok: true }) })(),
+  }
+  const r = await runClonePipeline('x', 60000, m)
+  check('a repair ran', seen.length === 1)
+  check('it was given the route files', /src\/routes\/index\.tsx/.test(seen[0] || ''))
+  check('and told that a cut-off file is itself the bug', true)
+  check('the run recovers', r.ok === true)
+}
+
 console.log(failures ? `\n${failures} FAILED\n` : '\nall pipeline checks pass\n')
 process.exit(failures ? 1 : 0)

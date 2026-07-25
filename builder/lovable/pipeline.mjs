@@ -34,10 +34,10 @@ import { scaffoldDbTypes } from '../scaffold.mjs'
 // is comfortably 250+ lines of code before any prose.
 // theme is small now because it returns JSON tokens rather than a whole stylesheet; shell is large
 // because __root.tsx must come back complete and a live run truncated it at 5000.
-export const RESERVES = { clarify: 700, plan: 1500, schema: 6000, theme: 1200, shell: 9000, repair: 6000 }
+export const RESERVES = { clarify: 700, plan: 1500, schema: 6000, theme: 2500, shell: 9000, repair: 10000 }
 // The iterate loop (their step 7). Picking files is cheap; rewriting them is where the budget goes.
 export const REVISE_RESERVES = { pick: 600, edit: 6000, repair: 4000 }
-export const PER_PAGE = 9000
+export const PER_PAGE = 16000
 
 const FILE_RE = /===FILE:\s*(.+?)===\n([\s\S]*?)(?=\n===FILE:|$)/g
 
@@ -206,12 +206,37 @@ export async function runClonePipeline(brief, cap, deps, opts = {}) {
   const pageRules = buildPageRules({ preferComponents: opts.preferComponents })
   for (const page of pages) {
     const path = routePath(page.id)
-    const r = await call(`page:${page.id}`,
-      pageRules,
+    const ask = (extra = '') =>
       `${context}\n\nBuild the page at ${routeUrl(page.id)} — ${page.title || page.id}.\n` +
       (schema ? `\nThe database is already designed. Write against it exactly; do not invent field names.\n${schema}\n` : '') +
-      `\nReturn ONE complete file:\n===FILE: ${path}===`,
-      perPage)
+      extra +
+      `\nReturn ONE complete file:\n===FILE: ${path}===`
+
+    let r = await call(`page:${page.id}`, pageRules, ask(), perPage)
+
+    // A cut-off page is WORSE than no page: it is syntactically invalid, so `tsr generate` cannot
+    // parse the routes directory and the whole build dies before vite even starts. A live run then
+    // burned two repair passes trying to rewrite the same oversized file and was truncated each
+    // time. So a truncation is retried immediately, once, with an explicit instruction to write a
+    // smaller page — rather than handed to a build that cannot use it.
+    if (r?.g?.truncated) {
+      const partial = r.files[path]
+      if (partial) delete files[path]
+      r = await call(`page:${page.id}:retry`, pageRules,
+        ask('\nYOUR PREVIOUS ATTEMPT WAS CUT OFF before you finished the file. Write a SHORTER version ' +
+          'this time: fewer comments, simpler markup, smaller helper components, no decorative extras. ' +
+          'A complete simple page is worth far more than an unfinished elaborate one.\n'),
+        perPage)
+      // If the retry is ALSO cut off, its partial is just as unparseable as the first one. Shipping
+      // it would kill the build exactly as before, so it is dropped and the page is reported
+      // missing — an app short one page still builds; an app with half a page does not.
+      if (r?.g?.truncated) {
+        t(`page:${page.id}:lost`, { warn: 'truncated twice; dropped rather than shipped broken — this page is missing from the app', out: 0, remaining: remaining() })
+        r = null
+      } else if (!r?.files[path]) {
+        t(`page:${page.id}:lost`, { warn: 'the retry returned nothing; this page is missing from the app', out: 0, remaining: remaining() })
+      }
+    }
     merge(r?.files)
     if (r && !r.files[path]) t(`page:${page.id}:misfiled`, { warn: `expected ${path}, got ${Object.keys(r.files).join(', ') || 'nothing'}`, out: 0, remaining: remaining() })
   }
@@ -224,9 +249,14 @@ export async function runClonePipeline(brief, cap, deps, opts = {}) {
       build = await deps.build(files)
       t('build', { ok: !!build.ok, attempt: i, error: build.ok ? undefined : firstLine(build.error), out: 0, remaining: remaining() })
       if (build.ok || i === attempts) break
+      // Sending every file wastes the budget and invites a rewrite of things that were fine. Send
+      // the route files and the schema, which is where a build error in a generated app lives.
+      const suspect = Object.fromEntries(Object.entries(files).filter(([f]) =>
+        /^src\/routes\/.+\.tsx$/.test(f) || f === 'isibi.schema.json'))
       const r = await call(`repair:${i + 1}`,
-        `${pageRules}\n\nThe build failed. Return COMPLETE replacement files for ONLY the files that must change.`,
-        `Error:\n${String(build.error || '').slice(0, 4000)}\n\nFiles:\n${dump(files)}`,
+        `${pageRules}\n\nThe build failed. Return COMPLETE replacement files for ONLY the files that must ` +
+        'change. If a file looks cut off mid-expression, that is the bug — rewrite it SHORTER and finish it.',
+        `Error:\n${String(build.error || '').slice(0, 4000)}\n\nFiles:\n${dump(suspect)}`,
         RESERVES.repair)
       if (!r || !Object.keys(r.files).length) break
       merge(r.files)
