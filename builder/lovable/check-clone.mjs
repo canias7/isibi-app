@@ -65,6 +65,14 @@ const index = fs.readFileSync(path.join(TEMPLATE, 'src/routes/index.tsx'), 'utf8
 if (!/createFileRoute/.test(index)) problems.push('the template\'s own index.tsx does not use createFileRoute, but ROUTE_RULES tells the model to')
 if (!/createFileRoute\('\/book'\)/.test(RULES.ROUTE_RULES)) problems.push('ROUTE_RULES no longer shows a createFileRoute example')
 if (!/<Outlet\s*\/>/.test(root)) problems.push('__root.tsx has lost its <Outlet />, so no child route can render')
+// ROUTE_RULES makes a head/meta block mandatory on every page. Those blocks only reach the document
+// if the root route renders <HeadContent /> — TanStack Start supplies it server-side, and this app
+// is a client-rendered SPA. Without it every title and og tag is computed and thrown away, which is
+// invisible in the browser and cost a real debugging pass to find.
+if (!/<HeadContent\s*\/>/.test(root)) {
+  problems.push('__root.tsx does not render <HeadContent />, so every page\'s head/meta block would be silently discarded')
+}
+if (!/head:\s*\(\)/.test(RULES.ROUTE_RULES)) problems.push('ROUTE_RULES no longer requires a head block on each page')
 if (!/routeTree\.gen/.test(fs.readFileSync(path.join(TEMPLATE, '.gitignore'), 'utf8'))) {
   problems.push('routeTree.gen.ts is no longer gitignored — a stale committed copy would silently override the generated one')
 }

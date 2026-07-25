@@ -31,6 +31,12 @@ jobs:
       - name: Rules match the template
         run: node builder/lovable/check-clone.mjs
 
+      # Drives the pipeline with a stub model: proves the schema is decided BEFORE any page is
+      # written, that each page prompt is handed that schema, that the ledger caps spend, and that
+      # a failed build triggers a repair. No API key needed.
+      - name: Pipeline order and wiring
+        run: node builder/lovable/pipeline.test.mjs
+
       # npm resolves an optional peer of @hookform/resolvers differently than the bun lockfile
       # Lovable ships, hence --legacy-peer-deps. Same package set either way.
       - name: Install
@@ -53,3 +59,11 @@ jobs:
           N=$(grep -c "error TS" /tmp/tsc.txt || true)
           echo "type errors: $N"
           if [ "$N" -gt 0 ]; then grep "error TS" /tmp/tsc.txt | head -20; exit 1; fi
+
+      # End to end against the real template and a real vite build: the pipeline's output has to
+      # compile and run in a browser, with each page's head/meta actually reaching the document.
+      - name: End to end
+        working-directory: .
+        run: |
+          npx playwright install --with-deps chromium || echo "chromium unavailable; browser assertions will be skipped"
+          node builder/lovable/integration.test.mjs
