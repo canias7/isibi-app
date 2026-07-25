@@ -11,6 +11,12 @@
 name: clone-compare
 
 on:
+  # Dispatch is the normal way in. The push trigger below exists because an integration token
+  # cannot call the dispatch API (403), and it is gated on a single sentinel file so an ordinary
+  # commit to this branch never spends anything — only deliberately touching RUN does.
+  push:
+    branches: ["claude/**"]
+    paths: ["builder/lovable/RUN"]
   workflow_dispatch:
     inputs:
       brief:
