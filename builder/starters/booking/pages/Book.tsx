@@ -9,7 +9,7 @@ import Textarea from '../components/Textarea.tsx'
 import Alert from '../components/Alert.tsx'
 import Button from '../components/Button.tsx'
 import { FormSection } from '../components/FormSection.tsx'
-import { useResource } from '../lib/useResource.ts'
+import { useResource, usePublicRows } from '../lib/useResource.ts'
 import { useAuth } from '../lib/auth.tsx'
 
 // Opening hours the slot grid is generated from. A real business overrides these; keeping them here rather
@@ -32,7 +32,12 @@ function buildSlots(dateIso, taken) {
 export default function Book() {
   const { user } = useAuth()
   const { data: services } = useResource('services')
-  const { data: myBookings, saving, create } = useResource('bookings')
+  const { saving, create } = useResource('bookings')
+  // REAL availability. `bookings` is a `user` table, so reading it back only ever returns the caller's own rows —
+  // which used to mean the grid could grey out slots THIS visitor had booked and nothing else. The table's
+  // declared publicView returns {date, time} for every confirmed booking and nothing else, so a visitor sees
+  // what is genuinely taken without ever seeing who took it.
+  const { data: takenSlots } = usePublicRows('bookings')
 
   const [serviceId, setServiceId] = useState('')
   const [name, setName] = useState('')
@@ -43,9 +48,7 @@ export default function Book() {
 
   const active = services.filter((s) => s.active !== false)
   const chosen = active.find((s) => String(s.id) === String(serviceId)) || null
-  // Only the caller's own bookings come back from a `user` table, so this greys out the slots THEY already hold
-  // rather than everyone's. Real availability is enforced server-side.
-  const taken = new Set(myBookings.filter((b) => b.status !== 'cancelled').map((b) => b.date + ' ' + b.time))
+  const taken = new Set(takenSlots.map((b) => b.date + ' ' + b.time))
 
   const confirm = async ({ date, time }) => {
     setError('')

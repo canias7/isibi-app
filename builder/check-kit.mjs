@@ -134,6 +134,11 @@ if (!fs.existsSync(dbTypes)) {
   if (/values: Partial<Row> \| Record<string, any>/.test(hook)) {
     problems.push('useResource accepts `Record<string, any>` on writes again — that defeats the generated types (a bad enum value would type-check)')
   }
+  // usePublicRows is the ONLY way a page reads a table's public view; a hand-rolled fetch would skip the cache
+  // and, more importantly, hide from the reader that they are touching a deliberately-public endpoint.
+  if (!/export function usePublicRows/.test(hook)) {
+    problems.push('useResource.ts no longer exports usePublicRows — pages would hand-roll the public-view fetch')
+  }
   const { dbTypesModule } = await import('./scaffold.mjs')
   // The generator must survive a schema it has never seen, including an empty one.
   try {

@@ -8682,3 +8682,30 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
      containing `auth` produced an Auth page duplicating SignIn. Fixed in buildPlan.
   **Net on the barbershop brief: 10,500 → 9,100 output tokens, lint gate FAILED → clean, and five junk pages
   replaced with five real ones.**
+
+- **2026-07-25 — `publicView`: a declared, PII-filtered projection of an owner-scoped table.** The last thing
+  Lovable had that we didn't. Their `busy_slots(date)` is a SECURITY DEFINER SQL function returning start/end
+  times only; ours is declarative, in the schema, so the model doesn't write SQL for it.
+  ```json
+  { "name": "bookings", "access": "user",
+    "publicView": { "columns": ["date","time"], "where": ["status:eq:confirmed"] } }
+  ```
+  → `GET /rows/bookings/public` returns `[{date, time}]` to ANYONE, signed in or not.
+  **The hole it closes:** `bookings` is a `user` table, so reading it back only ever returns the caller's own
+  rows. The Book page could therefore grey out the slots THIS visitor had booked and nothing else — it had no way
+  to know what was genuinely taken. Widening the table's access is not the fix (that exposes who booked what).
+  The booking starter now uses it and shows real availability.
+  **Safety, all eight properties tested against the SHIPPED code** (the test lifts the real parser and the real
+  `buildD1Filter` out of worker.js rather than re-implementing them):
+  columns are an explicit allow-list, never a wildcard · `id` and `owner_id` are rejected AT DECLARATION TIME ·
+  the declared list is intersected with the table's real columns, so a typo yields fewer columns rather than a
+  leak · a caller may filter, but only on PUBLISHED columns (`?where=customer_name:eq:Marco` is dropped, not
+  honoured — that was the obvious probe) · declared filters may use unpublished columns (so `status:eq:confirmed`
+  works without publishing status) · no declaration means the endpoint 404s · a column name carrying SQL is
+  refused by the identifier pattern · rows are capped.
+  Owner scoping is deliberately NOT applied — that is the entire point. The safety comes from the projection.
+  Read from a page with `usePublicRows('bookings')`; check-kit fails if that hook disappears, since the
+  alternative is a page hand-rolling a fetch to a deliberately-public endpoint.
+  **Still not matched from their build:** the automated SQL security-linter pass (their second migration), and
+  a database-level overlap constraint. Our overlap prevention is client-side only — two people can still book
+  the same slot in a race. That is the next real gap in the booking starter.

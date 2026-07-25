@@ -133,4 +133,29 @@ export function useRecord<T extends string>(table: T, id?: string | number | nul
   }
 }
 
+/**
+ * usePublicRows(table) — the table's declared PUBLIC VIEW: a read-only, PII-filtered projection that anyone can
+ * read, including a signed-out visitor.
+ *
+ *   const { data } = usePublicRows('bookings', { where: 'date:eq:2026-08-04' })   // → [{ date, time }]
+ *
+ * Only exists when the table declares `publicView` in isibi.schema.json. It is the answer to "a visitor must see
+ * which slots are taken without seeing who took them" — widening the table itself would expose the booker.
+ * Rows come back with ONLY the published columns, so this is deliberately untyped.
+ */
+export function usePublicRows(table: string, params?: Record<string, any>) {
+  const q = useQuery({
+    queryKey: ['public', table, params || null],
+    queryFn: () => api.get(`/rows/${table}/public${qs(params)}`),
+    enabled: !!table,
+  })
+  return {
+    data: (q.data && q.data.rows) || [],
+    columns: (q.data && q.data.columns) || [],
+    loading: q.isPending,
+    error: (q.error as Error) || null,
+    refetch: () => { q.refetch() },
+  }
+}
+
 export default useResource

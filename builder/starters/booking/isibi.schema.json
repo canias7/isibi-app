@@ -4,26 +4,101 @@
       "name": "services",
       "access": "admin",
       "columns": [
-        { "name": "name", "type": "text", "required": true, "max": 80 },
-        { "name": "description", "type": "text", "max": 400 },
-        { "name": "duration_min", "type": "integer", "required": true, "min": 5, "max": 480, "default": 30 },
-        { "name": "price", "type": "real", "min": 0, "default": 0 },
-        { "name": "active", "type": "boolean", "default": true }
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "max": 80
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "max": 400
+        },
+        {
+          "name": "duration_min",
+          "type": "integer",
+          "required": true,
+          "min": 5,
+          "max": 480,
+          "default": 30
+        },
+        {
+          "name": "price",
+          "type": "real",
+          "min": 0,
+          "default": 0
+        },
+        {
+          "name": "active",
+          "type": "boolean",
+          "default": true
+        }
       ]
     },
     {
       "name": "bookings",
       "access": "user",
       "columns": [
-        { "name": "service_name", "type": "text", "required": true, "max": 80 },
-        { "name": "service_id", "type": "integer", "ref": "services" },
-        { "name": "date", "type": "text", "required": true, "max": 10 },
-        { "name": "time", "type": "text", "required": true, "max": 5 },
-        { "name": "customer_name", "type": "text", "required": true, "max": 80 },
-        { "name": "phone", "type": "text", "max": 32 },
-        { "name": "notes", "type": "text", "max": 500 },
-        { "name": "status", "type": "text", "enum": ["confirmed", "cancelled", "completed"], "default": "confirmed" }
-      ]
+        {
+          "name": "service_name",
+          "type": "text",
+          "required": true,
+          "max": 80
+        },
+        {
+          "name": "service_id",
+          "type": "integer",
+          "ref": "services"
+        },
+        {
+          "name": "date",
+          "type": "text",
+          "required": true,
+          "max": 10
+        },
+        {
+          "name": "time",
+          "type": "text",
+          "required": true,
+          "max": 5
+        },
+        {
+          "name": "customer_name",
+          "type": "text",
+          "required": true,
+          "max": 80
+        },
+        {
+          "name": "phone",
+          "type": "text",
+          "max": 32
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "max": 500
+        },
+        {
+          "name": "status",
+          "type": "text",
+          "enum": [
+            "confirmed",
+            "cancelled",
+            "completed"
+          ],
+          "default": "confirmed"
+        }
+      ],
+      "publicView": {
+        "columns": [
+          "date",
+          "time"
+        ],
+        "where": [
+          "status:eq:confirmed"
+        ]
+      }
     }
   ]
 }
