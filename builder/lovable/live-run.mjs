@@ -192,13 +192,19 @@ row('total .tsx lines', totalLines, '432')
 row('shadcn components imported', usesComponents, '0')
 row('database declared', hasSchema ? 'yes' : 'no', 'no — sold seats from hash()')
 row('reads through a real client', usesDbClient ? 'yes' : 'no', 'no — nothing persisted')
-row('runtime smoke check', res.build?.smoke?.ran ? (res.build.smoke.errors.length ? 'FAILED' : 'passed') : 'skipped', 'n/a')
+const smoke = res.build?.smoke
+row('runtime smoke check', smoke?.ran ? (smoke.errors.length ? 'FAILED' : 'passed') : 'skipped', 'n/a')
 row('model calls', calls, 'unknown')
 row('responses truncated', truncated ? `${truncated} — RAISE THE RESERVES` : 'none', 'n/a')
 row('output tokens', outTokens, 'unknown')
 row('wall clock', `${seconds}s`, 'unknown')
 row('est. cost', `$${cost.toFixed(3)}`, 'unknown')
 console.log('='.repeat(78))
+
+// A bare "skipped" hid a real wiring bug for eight runs: the one check that catches a white-screening
+// app was never running, and the scorecard said nothing about why. The reason is the whole signal.
+if (smoke && !smoke.ran) console.log(`\nsmoke check did not run: ${smoke.reason}`)
+if (smoke?.errors?.length) for (const e of smoke.errors) console.log(`  runtime error — ${e}`)
 
 if (hasSchema) {
   const s = JSON.parse(schemaText || '{}')

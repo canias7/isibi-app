@@ -106,6 +106,17 @@ if (!pkg.devDependencies?.playwright) {
 if (!/playwright install/.test(fs.readFileSync(path.join(here, 'Dockerfile'), 'utf8'))) {
   problems.push('the Dockerfile does not install Chromium, so the smoke check would be skipped in the container')
 }
+// …and having the package is not enough: it is installed under the APP, while build-server.mjs
+// lives here, so a bare `import('playwright')` resolves upward and misses it. That is what kept the
+// check skipped even after the package was added. It must resolve from APP, and read the chromium
+// export through .default — the resolved entry is CommonJS and the named export comes back undefined.
+const server = fs.readFileSync(path.join(here, 'build-server.mjs'), 'utf8')
+if (!/createRequire\(path\.join\(root, 'package\.json'\)\)\.resolve\('playwright'\)/.test(server)) {
+  problems.push('build-server.mjs no longer resolves playwright from APP, so CI would silently skip the smoke check again')
+}
+if (!/default\?\.chromium/.test(server)) {
+  problems.push('build-server.mjs reads only the named chromium export; playwright\'s CJS entry returns undefined for it')
+}
 if (!/tsr generate/.test(pkg.scripts?.build || '')) {
   problems.push('the build script no longer runs `tsr generate` first — a clean checkout would fail on "Could not resolve ./routeTree.gen"')
 }

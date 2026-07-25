@@ -24,7 +24,10 @@ import http from 'node:http'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { createRequire } from 'node:module'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
+const here = path.dirname(fileURLToPath(import.meta.url))
 const APP = process.env.APP_DIR || '/app'
 const SRC = path.join(APP, 'src')
 const DIST = path.join(APP, 'dist')
@@ -99,12 +102,33 @@ export function collectDist(dir = DIST, base = '') {
   return out
 }
 
+// playwright is a devDependency of the APP (the template), not of this file's own directory. A bare
+// `import('playwright')` resolves upward from builder/lovable/, so in CI — where the install happens
+// in builder/lovable/template — it never finds the package and the check silently reports itself
+// skipped. That is exactly what eight live runs did. Resolve from the app first, then fall back to
+// the normal lookup so a container that installs deps alongside this file still works.
+async function loadChromium() {
+  const roots = [APP, here].filter((r, i, a) => r && a.indexOf(r) === i)
+  for (const root of roots) {
+    let entry
+    try { entry = createRequire(path.join(root, 'package.json')).resolve('playwright') } catch { continue }
+    // The resolved entry is CommonJS; named-export detection is not guaranteed, so read through
+    // .default as well rather than trusting one shape.
+    try {
+      const mod = await import(pathToFileURL(entry).href)
+      const chromium = mod.chromium || mod.default?.chromium
+      if (chromium) return chromium
+    } catch { /* try the next root */ }
+  }
+  try { const mod = await import('playwright'); return mod.chromium || mod.default?.chromium || null } catch { return null }
+}
+
 // Serve a dist directory and load every route, collecting anything the page throws.
 // Best-effort by design: if Chromium is unavailable the check is skipped and the build still
 // succeeds. A missing checker must never cost a customer their app.
 async function smokeTest(routeUrls) {
-  let chromium
-  try { ({ chromium } = await import('playwright')) } catch { return { ran: false, reason: 'playwright not installed' } }
+  const chromium = await loadChromium()
+  if (!chromium) return { ran: false, reason: `playwright not resolvable from ${APP} or ${here}` }
 
   const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' }
   const server = http.createServer((q, r) => {
