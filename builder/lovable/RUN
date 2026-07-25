@@ -1,10 +1,1 @@
-# Touch this file and push to fire one clone-compare run.
-#
-# An integration token cannot call the workflow-dispatch API, so the workflow also triggers on a
-# push that changes THIS FILE and nothing else counts. That keeps a live generation deliberate:
-# ordinary commits to the branch never spend anything.
-#
-# Each run is roughly 6-8 model calls on the default seat-picker brief. A few cents on Sonnet.
-# The token cap in the workflow inputs is a hard ceiling, not a target.
-
-run: 7
+run 9 — smoke check should finally execute
