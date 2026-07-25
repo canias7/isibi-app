@@ -30,7 +30,7 @@ function stubModel({ failFirstBuild = false } = {}) {
       })
     } else if (/Design the database FIRST/.test(system)) {
       text = '===FILE: isibi.schema.json===\n{"tables":[{"name":"bookings","access":"user","columns":[{"name":"seat_id","type":"text","required":true}]}]}'
-    } else if (/Return JSON ONLY/.test(system)) {
+    } else if (/ONE JSON object/.test(system)) {
       text = '{"fonts":{"--font-display":"\'Fraunces\', serif"},"colors":{"tier-premium":{"light":"oklch(0.86 0.09 60)","dark":"oklch(0.7 0.09 60)"}}}'
     } else if (/THE APP SHELL/.test(system)) {
       text = "===FILE: src/routes/__root.tsx===\nimport { HeadContent, Outlet } from '@tanstack/react-router'\n"
@@ -221,6 +221,26 @@ console.log('\niterate loop — a follow-up edits named files, it does not rebui
   check('and the fallback is recorded', r5.trace.some((s) => s.stage === 'revise-pick:fallback'))
 }
 
+// ── a truncated theme is not a decision ───────────────────────────────────────
+console.log('\ntruncated theme is reported as a failure, not a choice')
+{
+  const m = {
+    generate: async (system, user, maxTokens) => {
+      if (/Ask AT MOST/.test(system)) return { text: '', usedOut: 10 }
+      if (/Plan the app/.test(system)) return { text: JSON.stringify({ pages: [{ id: 'index', title: 'Home' }], tables: [] }), usedOut: 50 }
+      if (/ONE JSON object/.test(system)) return { text: 'Let me think about the palette for a theatre…', usedOut: maxTokens, truncated: true }
+      if (/THE APP SHELL/.test(system)) return { text: "===FILE: src/routes/__root.tsx===\nshell\n", usedOut: 60 }
+      return { text: '===FILE: src/routes/index.tsx===\npage\n', usedOut: 60 }
+    },
+    build: async () => ({ ok: true }),
+  }
+  const r = await runClonePipeline('A theatre.', 40000, m, { baseCss: BASE_CSS })
+  const merged = r.trace.find((s) => s.stage === 'theme-merged')
+  check('it does NOT claim the base was enough', merged?.skipped !== 'the base token set was enough', merged?.skipped || merged?.warn)
+  check('it says the reply was cut off', /cut off/.test(merged?.warn || ''))
+  check('and that the default palette was a fallback, not a choice', /not a choice/.test(merged?.warn || ''))
+}
+
 // ── truncation must never reach the build ─────────────────────────────────────
 console.log('\ntruncated page: retried smaller, not handed to the build')
 {
@@ -234,7 +254,7 @@ console.log('\ntruncated page: retried smaller, not handed to the build')
       calls.push({ system, user })
       if (/Ask AT MOST/.test(system)) return { text: '', usedOut: 10 }
       if (/Plan the app/.test(system)) return { text: JSON.stringify({ pages: [{ id: 'index', title: 'Seats' }], tables: [] }), usedOut: 50 }
-      if (/Return JSON ONLY/.test(system)) return { text: '{}', usedOut: 20 }
+      if (/ONE JSON object/.test(system)) return { text: '{}', usedOut: 20 }
       if (/THE APP SHELL/.test(system)) return { text: "===FILE: src/routes/__root.tsx===\nshell\n", usedOut: 60 }
       pageAttempts++
       // First attempt truncates mid-file; the retry finishes.
@@ -259,7 +279,7 @@ console.log('\ntruncated page: retried smaller, not handed to the build')
     generate: async (system, user, maxTokens) => {
       if (/Ask AT MOST/.test(system)) return { text: '', usedOut: 10 }
       if (/Plan the app/.test(system)) return { text: JSON.stringify({ pages: [{ id: 'index', title: 'Seats' }], tables: [] }), usedOut: 50 }
-      if (/Return JSON ONLY/.test(system)) return { text: '{}', usedOut: 20 }
+      if (/ONE JSON object/.test(system)) return { text: '{}', usedOut: 20 }
       if (/THE APP SHELL/.test(system)) return { text: "===FILE: src/routes/__root.tsx===\nshell\n", usedOut: 60 }
       n++
       return { text: '===FILE: src/routes/index.tsx===\nconst broken = (', usedOut: maxTokens, truncated: true }
@@ -281,7 +301,7 @@ console.log('\nrepair sends the app, not the kit')
     generate: async (system, user, maxTokens) => {
       if (/Ask AT MOST/.test(system)) return { text: '', usedOut: 10 }
       if (/Plan the app/.test(system)) return { text: JSON.stringify({ pages: [{ id: 'index', title: 'Home' }], tables: [] }), usedOut: 50 }
-      if (/Return JSON ONLY/.test(system)) return { text: '{}', usedOut: 20 }
+      if (/ONE JSON object/.test(system)) return { text: '{}', usedOut: 20 }
       if (/THE APP SHELL/.test(system)) return { text: "===FILE: src/routes/__root.tsx===\nshell\n", usedOut: 60 }
       if (/The build failed/.test(system)) { seen.push(user); return { text: '===FILE: src/routes/index.tsx===\nfixed\n', usedOut: 80 } }
       return { text: '===FILE: src/routes/index.tsx===\npage\n', usedOut: 80 }

@@ -7,4 +7,4 @@
 # Each run is roughly 6-8 model calls on the default seat-picker brief. A few cents on Sonnet.
 # The token cap in the workflow inputs is a hard ceiling, not a target.
 
-run: 5
+run: 6

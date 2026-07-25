@@ -34,7 +34,7 @@ import { scaffoldDbTypes } from '../scaffold.mjs'
 // is comfortably 250+ lines of code before any prose.
 // theme is small now because it returns JSON tokens rather than a whole stylesheet; shell is large
 // because __root.tsx must come back complete and a live run truncated it at 5000.
-export const RESERVES = { clarify: 700, plan: 1500, schema: 6000, theme: 2500, shell: 9000, repair: 10000 }
+export const RESERVES = { clarify: 700, plan: 1500, schema: 6000, theme: 4000, shell: 9000, repair: 10000 }
 // The iterate loop (their step 7). Picking files is cheap; rewriting them is where the budget goes.
 export const REVISE_RESERVES = { pick: 600, edit: 6000, repair: 4000 }
 export const PER_PAGE = 16000
@@ -171,16 +171,29 @@ export async function runClonePipeline(brief, cap, deps, opts = {}) {
   // stylesheet in code. Asking for the complete file was the original design and it truncated on a
   // live run — 5000 tokens spent, nothing returned, and the app silently kept the default theme.
   // A 150-line base that never changes should not be re-emitted to add four colours.
+  // Deliberately NOT sent the full STYLE_RULES. This stage picks a handful of tokens; it does not
+  // need the guidance about which class to use where, and a long prose block invited the model to
+  // discuss the palette instead of returning it — a live run spent 2500 tokens and emitted nothing.
+  // OUTPUT_RULES cannot be used here either, since it demands ===FILE: blocks; this is JSON.
   const themed = await call('theme',
-    `${STYLE_RULES}\n\nReturn JSON ONLY, no prose and no file block:\n` +
-    '{"fonts":{"--font-display":"\'Fraunces\', serif"},' +
+    'You are choosing the handful of design tokens THIS app needs beyond a standard neutral base.\n' +
+    'Reply with ONE JSON object and nothing else. First character `{`, last character `}`. No prose, ' +
+    'no explanation, no markdown fence — a reply that starts with anything else is discarded.\n' +
+    '{"fonts":{"--font-display":"\'Fraunces\', serif","--font-sans":"\'Inter\', sans-serif"},' +
     '"colors":{"tier-premium":{"light":"oklch(0.86 0.09 60)","dark":"oklch(0.7 0.09 60)"}}}\n' +
-    'Every colour needs BOTH a light and a dark value in oklch. Name only what this app actually ' +
-    'needs beyond the base tokens — usually two to five. Return {} if the base set is enough.',
-    context, RESERVES.theme)
+    'Rules: every colour needs BOTH light and dark, in oklch. Name two to five colours at most, and ' +
+    'only ones the app genuinely needs (a price tier, a status, a brand accent) — the base already ' +
+    'has background, foreground, card, muted, primary, secondary, accent, destructive, border and ' +
+    'five chart colours. Pick fonts that suit this business. Return {} if the base is genuinely enough.',
+    `Business: ${context.slice(0, 800)}`, RESERVES.theme)
   const tokens = safeJson(themed?.text)
   if (!opts.baseCss) {
     t('theme-merged', { warn: 'no base stylesheet supplied, so this app keeps the default theme', out: 0, remaining: remaining() })
+  } else if (themed?.g?.truncated && !tokens) {
+    // "the base token set was enough" is a DECISION. Being cut off is not one, and reporting it as
+    // such hid a real failure for two runs — the app shipped with the default theme and the trace
+    // said everything was fine.
+    t('theme-merged', { warn: 'the theme reply was cut off, so this app fell back to the default palette — it was not a choice', out: 0, remaining: remaining() })
   } else if (tokens && (Object.keys(tokens.fonts || {}).length || Object.keys(tokens.colors || {}).length)) {
     files['src/styles.css'] = applyTheme(opts.baseCss || '', tokens)
     t('theme-merged', {
