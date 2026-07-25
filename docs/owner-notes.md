@@ -8492,3 +8492,47 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   build image) and to the kit-check CI install.
   Rules updated in three places so the model can't miss it: `COMPONENT_INVENTORY` (which rides along with every
   page step), `REACT_REVISE_RULES` (the edit path), and the crud-list / list-create / read-only recipes.
+
+- **2026-07-25 — WHOLE-APP STARTERS. The biggest remaining lever, built.** Recipes told the model what SHAPE to
+  build; it still wrote every page from scratch, and "from scratch" is where both the variance and the token
+  spend live. A starter is a COMPLETE, WORKING app already in the box, so the job changes from *write a booking
+  app* to *make this booking app be about Marco's barbershop*. Editing beats generating on every axis: fewer
+  tokens, no truncation risk, and the failure mode becomes "left something in that doesn't fit" instead of
+  "invented something broken".
+  **Three live: booking (6 pages), commerce (6), content (5)** — 17 pages, all authored by hand against the real
+  kit. Seven bundles still generate from scratch (social, events, crm, helpdesk, directory, loyalty, courses) and
+  `check-kit.mjs` prints that gap on every run so it can't quietly become permanent. Three good starters beat ten
+  mediocre ones: a starter IS the app for everyone it matches, so a weak one would actively lower output quality.
+  **It composes with what was already free.** A starter is ONLY its pages plus its schema — `scaffoldRouting`
+  already derives the router and nav from whichever page files exist, and `scaffoldTheme` already re-skins every
+  component per app. So seeding a starter yields a routed, themed, compiling app before a single token is spent.
+  **Matching delegates to the existing capability bundles** rather than carrying a second keyword list, so the
+  backend capability set and the front-end starter can never disagree about what kind of app is being built.
+  Coverage is DECLARED (`covers: [...]` in meta.json), not guessed from page names — name-matching alone silently
+  regenerated Book and MyBookings because the capability is called `bookings`.
+  **Measured A/B on the real pipeline (mock generator, full step budgets — the honest worst case):**
+    barbershop 17,600 → 5,000 output tokens (−72%), pages 4 → 6
+    ceramics shop 21,500 → 14,900 (−31%), pages 5 → 8
+    cycling blog 9,500 → 7,500 (−21%), pages 3 → 6
+    **total 48,600 → 27,400 (−44%), and every one gained a real isibi.schema.json it would otherwise have had to
+    repair its way to.** At a fixed 40k cap the barbershop went from dropping 3 of 6 capabilities to dropping none.
+  **Verified, not asserted:** all three build through the REAL build server with 0 type errors, and all 17 pages
+  were rendered headless against a stubbed backend — zero console errors, zero horizontal overflow.
+  **Two bugs the rendering caught that types could not** (both `any`-typed props): ProductCard renders `price`
+  verbatim, so passing a raw number printed "78" with no currency; and RelatedPosts showed a dangling "· date"
+  because the author was not passed through.
+  **One IA fix fell out of it:** the scaffold sorted nav links alphabetically, which for a shop read
+  "Home · Cart · Orders · Shop" — checkout before the thing being bought. `scaffoldRouting` now takes an optional
+  `navOrder` and each starter declares its own journey.
+  **Guarded** — check-kit validates that starter pages import only real components and real named exports, that
+  declared `covers` ids are real capabilities, that no starter calls `api.*` on `/rows` directly (the starter is
+  the model's worked example, so a hand-rolled fetch in one teaches it to write more), and that starters.data.mjs
+  is not stale. All four proved by planting a failure and watching each one fire. CI typechecks every starter.
+  **A real platform gap surfaced while modelling the booking data:** there is no access mode for "members write
+  their own rows, the owner reads all of them". `user` is owner-scoped with no admin override, `feed` makes every
+  row public, `collect` is write-only. So the booking Admin manages SERVICES and deliberately does not pretend it
+  can see other people's bookings. A `staff` access mode would fix a whole class of small-business app.
+  **Also noticed, NOT changed (owner's call):** `full-pipeline.mjs` never calls `applyBundle`, so the bundles
+  exist but the planner's raw capability picks go through unmodified — which is why a barbershop brief selected
+  `CreditLimit` and `Timeoff`. Two lines to wire up, but it changes capability selection for every build, so it
+  should be a deliberate decision rather than something slipped in beside starters.

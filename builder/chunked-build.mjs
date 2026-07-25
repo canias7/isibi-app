@@ -17,6 +17,7 @@ import { getStyleFamily, pickStyleFamily } from "./design-system.mjs";
 import { parseGeneratedFiles, REACT_RULES, REACT_REVISE_RULES, COMPONENT_INVENTORY } from "./react-gen.mjs";
 import { getCapability } from "./capability-registry.mjs";
 import { recipeFor, recipeForPage, recipeForName, renderRecipe } from "./page-recipes.mjs";
+import { starterFiles, starterBrief, getStarter } from "./starters.mjs";
 
 const pascal = (s) => String(s || "").replace(/(^|[-_ ])([a-z])/g, (_, __, c) => c.toUpperCase()).replace(/[-_ ]/g, "");
 
@@ -34,9 +35,15 @@ function existingContext(files) {
   // and the page step would rebuild a card/table/hero it already has. Ship the real inventory, plus anything the
   // shell step invented on top of it.
   const extra = Object.keys(files).filter((p) => /^src\/components\//.test(p));
+  // A starter can ship its own lib module (a cart, a domain helper) and its own pages. A later page step that
+  // does not know they exist re-implements them, which is the exact duplication starters are meant to remove.
+  const libs = Object.keys(files).filter((p) => /^src\/lib\//.test(p) && !keep.includes(p));
+  const pages = Object.keys(files).filter((p) => /^src\/pages\//.test(p));
   return "EXISTING FILES you must match (import from these, do not rewrite them):\n\n" + shown +
     "\n\nAVAILABLE SHARED COMPONENTS in src/components/ (import these, reuse — NEVER recreate one):\n" + COMPONENT_INVENTORY +
-    (extra.length ? "\nAlso built for this app: " + extra.join(", ") : "");
+    (extra.length ? "\nAlso built for this app: " + extra.join(", ") : "") +
+    (libs.length ? "\nApp-specific helpers already written — import them, do not reimplement: " + libs.join(", ") : "") +
+    (pages.length ? "\nPages that already exist (do NOT rewrite them): " + pages.join(", ") : "");
 }
 
 function shellPrompt(brief, spec) {
@@ -52,6 +59,26 @@ function shellPrompt(brief, spec) {
     "Home.tsx:\n" + renderRecipe(recipeForPage("Home")) + "\n\nSignIn.tsx:\n" + renderRecipe(recipeForPage("SignIn")) + "\n\n" +
     "The feature pages added in later steps (do NOT create them now): " + featurePages.join(", ") + ". " +
     "Because the chrome already exists, spend the whole budget on making Home genuinely good.";
+}
+
+// The ADAPT step, used instead of the shell step when a whole-app starter matched. The starter is ALREADY in
+// `files` — routed, themed and compiling — so this call is an edit, not a build. It gets the pages it may need to
+// change in full (Home carries all the copy; the schema carries the data model) and a manifest of the rest, and
+// it is told in as many words to emit only what actually changed.
+function adaptPrompt(brief, spec, starterId, files) {
+  const show = ["src/pages/Home.tsx", "isibi.schema.json"].filter((p) => files[p]);
+  const dump = show.map((p) => "===FILE: " + p + "===\n" + files[p]).join("\n\n");
+  const others = Object.keys(files).filter((p) => /^src\/pages\//.test(p) && !show.includes(p));
+  const featurePages = (spec.capabilities || []).map((id) => pascal(id));
+  return "Adapt this WORKING app to the brief below.\n\nApp brief: " + brief + "\n\n" + starterBrief(starterId) + "\n\n" +
+    "Emit `index.html` (real <title> and <meta name=description> for THIS business, plus the Google Fonts <link>), " +
+    "a rewritten `src/pages/Home.tsx` whose copy is specific to this business, and `isibi.schema.json` ONLY if the " +
+    "brief needs a column or table the starter's model does not already have. Do NOT emit src/App.tsx or " +
+    "src/routes.ts — routing is generated for you.\n\n" +
+    "Photography: use `@@IMG:<prompt>@@` STATIC-LITERAL tokens, rewritten to describe THIS business.\n\n" +
+    (featurePages.length ? "Extra pages are added in later steps (do NOT create them now): " + featurePages.join(", ") + ".\n\n" : "") +
+    "THE APP AS IT STANDS:\n\n" + dump +
+    (others.length ? "\n\nAlso present and already correct — do not re-emit these: " + others.join(", ") : "");
 }
 
 function capDesc(capId) {
@@ -89,7 +116,14 @@ export async function runChunkedBuild(brief, spec, cap, deps, opts = {}) {
   if (!deps || typeof deps.generate !== "function") return { ok: false, error: "deps.generate required" };
   const plan = buildPlan(spec, cap, opts);
   if (!plan.ok) return { ok: false, error: plan.error || "plan failed" };
-  let files = {};
+  // A matched STARTER is seeded before any generation: a complete, routed, compiling app for $0. Everything the
+  // model does after this is an edit on top of something that already works, which is the whole point.
+  const starterId = plan.starter || (opts.starter && opts.starter.id) || null;
+  // A starter declares its own nav sequence: these pages form a JOURNEY (shop → cart → orders) and the
+  // alphabetical default put the checkout before the shop.
+  const navOrder = (starterId && (getStarter(starterId) || {}).navOrder) || [];
+  let files = starterId ? starterFiles(starterId) : {};
+  if (starterId) files = scaffoldRouting(files, { navOrder }).files;
   let totIn = 0, totInCached = 0, totOut = 0;
   const steps = [];
   const record = (kind, budget, g, f) => {
@@ -102,6 +136,7 @@ export async function runChunkedBuild(brief, spec, cap, deps, opts = {}) {
     if (step.reserve) continue; // reserved pipeline steps (schema-fix/lint-repair/fix-loop/vision) run in the real pipeline, not here
     let system, user;
     if (step.kind === "shell") { system = opts.shellRules || REACT_RULES; user = shellPrompt(brief, spec); }
+    else if (step.kind === "adapt") { system = opts.editRules || REACT_REVISE_RULES; user = adaptPrompt(brief, spec, starterId, files); }
     else if (step.kind === "admin") { system = opts.editRules || REACT_REVISE_RULES; user = pagesPrompt(brief, [], files, "an Admin console page (src/pages/Admin.tsx) that manages the app's data (list/create/edit/delete across the admin-only endpoints)\n" + renderRecipe(recipeForPage("Admin"))); }
     else { system = opts.editRules || REACT_REVISE_RULES; user = pagesPrompt(brief, step.pages, files, "these feature pages: " + step.pages.map(pascal).join(", ")); }
     const g = await deps.generate(system, user, step.budget);
@@ -111,7 +146,7 @@ export async function runChunkedBuild(brief, spec, cap, deps, opts = {}) {
     delete f["src/App.tsx"]; delete f["src/routes.ts"];
     delete f["src/App.jsx"]; delete f["src/routes.js"]; // a model may still reach for the old names
     for (const [p, v] of Object.entries(f)) files[p] = v;
-    files = scaffoldRouting(files).files;
+    files = scaffoldRouting(files, { navOrder }).files;
     record(step.kind, step.budget, g, f);
   }
 

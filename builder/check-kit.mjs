@@ -98,9 +98,80 @@ if (!fs.existsSync(hookPath)) {
   if (!/QueryClientProvider/.test(main)) problems.push('main.tsx does not mount QueryClientProvider — useResource would throw in every generated app')
 }
 
+// ── 6. Whole-app starters ─────────────────────────────────────────────────────
+// A starter IS the app for anyone whose brief matches it, so a broken import or a hand-rolled fetch does not
+// degrade one build — it degrades every booking site we ever ship. These are the same invariants the kit has,
+// applied one layer up.
+const STARTERS = path.join(here, 'starters')
+let starterCount = 0, starterPages = 0
+if (fs.existsSync(STARTERS)) {
+  const { getCapability } = await import('./capability-registry.mjs')
+  const { readStarters } = await import('./build-starters.mjs')
+  let data
+  try { data = readStarters() } catch (e) { problems.push(`starters do not load: ${e.message}`); data = {} }
+
+  for (const [id, s] of Object.entries(data)) {
+    starterCount++
+    const pages = s.meta.pages || []
+    if (!pages.includes('Home')) problems.push(`starter "${id}" has no Home page — every app needs a landing route`)
+    if (!pages.includes('SignIn')) problems.push(`starter "${id}" has no SignIn page but declares member/admin roles`)
+    // Declared coverage is what stops a capability being generated, so a typo silently regenerates the page.
+    for (const c of s.meta.covers || []) if (!getCapability(c)) problems.push(`starter "${id}" claims to cover "${c}", which is not a real capability`)
+
+    for (const [p, src] of Object.entries(s.files)) {
+      if (!p.endsWith('.tsx')) continue
+      starterPages++
+      for (const m of src.matchAll(/from '\.\.\/components\/(\w+)\.tsx'/g)) {
+        if (!components.includes(m[1])) problems.push(`starter "${id}" ${p} imports ../components/${m[1]}.tsx, which does not exist`)
+      }
+      // Named imports must be real named exports — `import { FormActions } from './FormSection.tsx'`.
+      for (const m of src.matchAll(/import \{([^}]+)\} from '\.\.\/components\/(\w+)\.tsx'/g)) {
+        const file = path.join(COMPONENTS, `${m[2]}.tsx`)
+        if (!fs.existsSync(file)) continue
+        const body = fs.readFileSync(file, 'utf8')
+        for (const sym of m[1].split(',').map((x) => x.trim()).filter(Boolean)) {
+          if (!new RegExp(`export (?:function|const|class) ${sym}\\b`).test(body) && !new RegExp(`export \\{[^}]*\\b${sym}\\b`).test(body)) {
+            problems.push(`starter "${id}" ${p} imports { ${sym} } from ${m[2]}.tsx, which does not export it`)
+          }
+        }
+      }
+      // The whole point of useResource is that no page hand-rolls table I/O. A starter doing it teaches the
+      // model — which is reading the starter as its example — to do it too.
+      if (/api\.(get|post|patch|del)\(\s*[`'"]\/rows\//.test(src)) {
+        problems.push(`starter "${id}" ${p} calls api.* on /rows directly — table access goes through useResource`)
+      }
+    }
+  }
+
+  // The committed data module must match the authored files, or the pipeline ships a stale starter.
+  const dataPath = path.join(here, 'starters.data.mjs')
+  if (!fs.existsSync(dataPath)) problems.push('starters.data.mjs is missing — run `node builder/build-starters.mjs`')
+  else {
+    const { STARTER_DATA } = await import('./starters.data.mjs')
+    for (const [id, s] of Object.entries(data)) {
+      const built = STARTER_DATA[id]
+      if (!built) { problems.push(`starter "${id}" is not in starters.data.mjs — run \`node builder/build-starters.mjs\``); continue }
+      for (const [p, src] of Object.entries(s.files)) {
+        if (built.files[p] !== src) { problems.push(`starters.data.mjs is STALE for "${id}" (${p}) — run \`node builder/build-starters.mjs\``); break }
+      }
+    }
+  }
+}
+
+// Which app types still generate from scratch. Not a failure — a starter is a big thing to write — but the gap
+// should be visible on every run rather than something you have to remember to go and look up.
+let starterGap = []
+if (starterCount) {
+  const { BUNDLES } = await import('./capability-bundles.mjs')
+  const { coverage } = await import('./starters.mjs')
+  starterGap = coverage(BUNDLES).generateFromScratch
+}
+
 // ── Report ────────────────────────────────────────────────────────────────────
 const recipeCount = RECIPES.length + Object.keys(FIXED_RECIPES).length
-console.log(`kit check — ${components.length} components, ${checked} documented props verified, ${recipeCount} page recipes`)
+console.log(`kit check — ${components.length} components, ${checked} documented props verified, ${recipeCount} page recipes, ` +
+  `${starterCount} whole-app starter(s) / ${starterPages} starter pages`)
+if (starterGap.length) console.log(`  no starter yet (these still generate from scratch): ${starterGap.join(', ')}`)
 if (problems.length) {
   console.error(`\n${problems.length} problem(s):\n`)
   problems.forEach((p) => console.error(`  ✗ ${p}`))

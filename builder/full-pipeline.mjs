@@ -19,6 +19,7 @@
 import { planApp } from "./app-planner.mjs";
 import { pickStyleFamily } from "./design-system.mjs";
 import { buildPlan } from "./build-plan.mjs";
+import { matchStarter, getStarter } from "./starters.mjs";
 import { runChunkedBuild } from "./chunked-build.mjs";
 import { lintGeneratedApp } from "./app-linter.mjs";
 import { parseGeneratedFiles, SCHEMA_REPAIR_RULES, WIRING_REPAIR_RULES, REACT_FIX_RULES, REACT_REVISE_RULES } from "./react-gen.mjs";
@@ -64,7 +65,13 @@ export async function runFullPipeline(brief, cap, deps, opts = {}) {
   const plan = planApp(brief, opts.capabilityLimit != null ? { capabilityLimit: opts.capabilityLimit } : {});
   if (!plan.ok) return { ok: false, error: "plan failed", trace };
   const family = pickStyleFamily(plan.spec.design_hints);
-  const bp = buildPlan(plan.spec, cap, { vision: !!(deps.render && deps.critiqueOne) });
+  // A whole-app STARTER, if one fits the brief. opts.starter forces a specific id; opts.starter === false turns
+  // starters off entirely (used by the A/B harness to measure what they are worth).
+  const starter = opts.starter === false ? null
+    : opts.starter ? getStarter(opts.starter)
+    : (() => { const m = matchStarter(brief); return m ? getStarter(m.id) : null; })();
+  const bp = buildPlan(plan.spec, cap, { vision: !!(deps.render && deps.critiqueOne), starter });
+  t("starter", { cost: 0, matched: starter ? starter.id : null, pages: starter ? starter.pages : [], covered: bp.covered });
   t("plan", { cost: 0, capabilities: plan.spec.capabilities, pages: plan.spec.pages.length, family, genBudget: bp.genBudget, reserves: bp.reserves, dropped: bp.dropped });
 
   // ── 6. Generate (chunked: shell + page groups + admin), inside the plan's generation budget.
@@ -77,6 +84,7 @@ export async function runFullPipeline(brief, cap, deps, opts = {}) {
     },
   }, {
     vision: !!(deps.render && deps.critiqueOne),
+    starter,
     // onStep belongs in OPTS (runChunkedBuild reads it from opts, not deps) — this is what puts each generation
     // sub-step (shell / page groups / admin) into the pipeline trace.
     onStep: (s) => t("generate:" + s.kind, { budget: s.budget, out: s.out, files: s.files, remaining: remaining() }),
@@ -167,7 +175,7 @@ export async function runFullPipeline(brief, cap, deps, opts = {}) {
   t("provision-db", { cost: 0, skipped: files["isibi.schema.json"] ? "would provision declared tables" : "no schema" });
   t("done", { cost: 0, compiled, spent, cap, withinCap: spent <= cap });
 
-  return { ok: compiled, compiled, files, dist, plan: bp, spec: plan.spec, lint, error: compiled ? null : lastError, spent, cap, withinCap: spent <= cap, trace };
+  return { ok: compiled, compiled, files, dist, plan: bp, spec: plan.spec, starter: starter ? starter.id : null, lint, error: compiled ? null : lastError, spent, cap, withinCap: spent <= cap, trace };
 }
 
 // traceTable — a readable per-stage ledger: what each stage was allowed, what it actually spent, running total.

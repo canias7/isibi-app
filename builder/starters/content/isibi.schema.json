@@ -1,0 +1,28 @@
+{
+  "tables": [
+    {
+      "name": "posts",
+      "access": "admin",
+      "columns": [
+        { "name": "title", "type": "text", "required": true, "max": 160 },
+        { "name": "slug", "type": "text", "required": true, "max": 160 },
+        { "name": "excerpt", "type": "text", "max": 320 },
+        { "name": "body", "type": "text", "required": true },
+        { "name": "cover", "type": "text", "max": 400 },
+        { "name": "category", "type": "text", "max": 60 },
+        { "name": "author", "type": "text", "max": 80 },
+        { "name": "read_minutes", "type": "integer", "min": 1, "default": 4 },
+        { "name": "published", "type": "boolean", "default": false }
+      ]
+    },
+    {
+      "name": "comments",
+      "access": "feed",
+      "columns": [
+        { "name": "post_slug", "type": "text", "required": true, "max": 160 },
+        { "name": "author", "type": "text", "required": true, "max": 80 },
+        { "name": "body", "type": "text", "required": true, "max": 2000 }
+      ]
+    }
+  ]
+}

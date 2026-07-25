@@ -22,15 +22,21 @@ export function labelForPage(name) {
   return String(name).replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[-_]/g, " ").trim();
 }
 
-// pageNamesFrom(files) — the page components present, in a stable order: Home first, SignIn second, then the
-// feature pages alphabetically, with Admin last (it belongs at the end of a nav).
-export function pageNamesFrom(files) {
+// pageNamesFrom(files, order) — the page components present, in a stable order: Home first, SignIn second, then
+// the feature pages, with Admin last (it belongs at the end of a nav).
+//
+// `order` is an optional preferred sequence for the middle group. Alphabetical is a fine default for pages we
+// know nothing about, but it is wrong whenever the pages form a JOURNEY: a shop's nav read "Cart, Orders, Shop",
+// which puts the checkout before the thing being bought. A starter knows its own journey and declares it; any
+// page not named in `order` still appears, alphabetically, after the ones that are.
+export function pageNamesFrom(files, order = []) {
   const names = Object.keys(files || {})
     // Accept BOTH extensions: the kit is .tsx, but a model may still emit .jsx and the page should route.
     .map((p) => (p.match(/^src\/pages\/([A-Za-z0-9_]+)\.[jt]sx$/) || [])[1])
     .filter(Boolean);
   const rank = (n) => (n === "Home" ? 0 : n === "SignIn" ? 1 : n === "Admin" ? 3 : 2);
-  return [...new Set(names)].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  const pref = (n) => { const i = order.indexOf(n); return i === -1 ? order.length : i; };
+  return [...new Set(names)].sort((a, b) => rank(a) - rank(b) || pref(a) - pref(b) || a.localeCompare(b));
 }
 
 // pageExtsFrom(files) — name → the extension the page ACTUALLY has. The router must import the real file: if a
@@ -78,9 +84,9 @@ export function appModule(pages, exts = {}) {
 
 // scaffoldRouting(files) → the same files plus generated src/routes.ts and src/App.tsx. Any model-emitted App
 // is REPLACED: routing is owned by code. Returns { files, pages } so callers can log what got wired.
-export function scaffoldRouting(files) {
+export function scaffoldRouting(files, opts = {}) {
   const out = { ...(files || {}) };
-  const pages = pageNamesFrom(out);
+  const pages = pageNamesFrom(out, opts.navOrder || []);
   if (!pages.length) return { files: out, pages };
   out["src/routes.ts"] = routesModule(pages);
   out["src/App.tsx"] = appModule(pages, pageExtsFrom(out));

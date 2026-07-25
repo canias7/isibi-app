@@ -6,12 +6,15 @@ on:
   push:
     paths:
       - "builder/template/**"
+      - "builder/starters/**"
       - "builder/react-gen.mjs"
       - "builder/check-kit.mjs"
+      - "builder/page-recipes.mjs"
       - ".github/workflows/kit-check.yml"
   pull_request:
     paths:
       - "builder/template/**"
+      - "builder/starters/**"
       - "builder/react-gen.mjs"
 
 permissions:
@@ -52,3 +55,30 @@ jobs:
             grep "error TS" /tmp/tsc.txt | grep -vE "Cannot find module '\.\.?/(routes|App)" | head -30
             exit 1
           fi
+
+      # Each whole-app starter must typecheck against the real kit. A starter IS the app for every brief that
+      # matches it, so a broken page here is not one bad build — it is every booking site we ship.
+      - name: Typecheck the whole-app starters
+        working-directory: builder/template
+        run: |
+          FAIL=0
+          for dir in ../starters/*/; do
+            id=$(basename "$dir")
+            rm -rf src/pages && mkdir -p src/pages
+            cp "$dir"pages/*.tsx src/pages/
+            [ -d "$dir"lib ] && cp "$dir"lib/* src/lib/ || true
+            node -e "
+              const fs=require('node:fs');
+              import('../scaffold.mjs').then(({scaffoldRouting})=>{
+                const files={}; for (const f of fs.readdirSync('src/pages')) files['src/pages/'+f]='';
+                const out=scaffoldRouting(files).files;
+                fs.writeFileSync('src/App.tsx', out['src/App.tsx']);
+                fs.writeFileSync('src/routes.ts', out['src/routes.ts']);
+              });
+            "
+            npx tsc --noEmit --pretty false 2>&1 | tee /tmp/tsc-$id.txt >/dev/null || true
+            N=$(grep -c "error TS" /tmp/tsc-$id.txt | tr -d ' ' || echo 0)
+            echo "starter $id: $N type error(s)"
+            if [ "$N" -gt 0 ]; then grep "error TS" /tmp/tsc-$id.txt | head -20; FAIL=1; fi
+          done
+          exit $FAIL
