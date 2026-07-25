@@ -8813,3 +8813,46 @@ and we built ours *after* seeing theirs. Their RLS is careful too (roles in a se
 definer function, `REVOKE ALL` then explicit grants). The one real weakness: their trigger is check-then-write
 and takes no lock, so two simultaneous inserts can both pass — Postgres' own answer is an `EXCLUDE` constraint,
 which they did not use. Ours is a single atomic statement. That is a narrow race, not ignorance of the problem.
+
+---
+
+## 2026-07-25 — the live website builder was dead, and had been since 2026-07-24
+
+**The finding.** Going to wire the eval pipeline into the worker, I found the live path broken instead.
+Two commits four days apart landed on opposite sides of one contract:
+
+- **2026-07-20** — `worker.js`'s completeness check last touched. It required `src/main.jsx` AND `src/App.jsx`.
+- **2026-07-24** (`c8f9ef4`) — `REACT_RULES` became *"ROUTING IS GENERATED FOR YOU — never emit `src/App.tsx`,
+  `src/routes.ts`, or a router"*, and the template moved to `src/main.tsx`.
+
+The model did exactly what the rules said and emitted neither file. `worker.js` never called `scaffoldRouting`
+— the scaffolds were written for precisely this and are imported by `full-pipeline.mjs`, which the worker does
+not use. So **every build hit "the generated project came out incomplete — try again"**. Nothing noticed because
+the rules and the worker are one contract split across two files, and `worker.js` had no test.
+
+**Fixed**, plus the pieces that were eval-harness-only are now on the live path: whole-app **starters**
+(a matched brief seeds a working app for $0, generation becomes an adapt edit), **schema-first** (the data model
+is decided before any page is written and handed to the page prompts), **chunked generation** (same budget, split
+into sub-9k calls so one truncation cannot lose the build), and a **runtime smoke check**.
+
+**Verified with three real builds** (`live-build.yml`, sentinel-gated on `builder/LIVE_RUN`, ~$0.25 each).
+Final run: 8 pages, router generated, row types generated, 0 type errors, smoke check passed, 90s.
+
+### What only the real builds could find
+1. **The kit was split on `icon`.** `EmptyState` took `IconComponent` and rendered `<Icon/>`; `Stat`,
+   `PageHeader`, `Sidebar`, `NotificationItem` took `ReactNode` and rendered `{icon}`. Every starter and recipe
+   passes the COMPONENT, so a generated page following the majority failed to typecheck on correct-looking code.
+   Now one `IconSlot` accepts either.
+2. **`renderIcon` tested `typeof icon === 'function'`** — but a lucide icon is `forwardRef(…)`, an OBJECT. Every
+   icon fell through and rendered as a child: React error #31, **on a page with zero type errors**. I introduced
+   it while fixing (1). The runtime check caught it; nothing else could have.
+3. **`playwright` unresolvable, four separate times**, each reporting as something other than "no browser".
+
+### Two rules the code now carries in comments
+- **Graceful degradation and silent failure are the same code path unless the message distinguishes them.**
+  Four instances: a bare "skipped", a truncation reported as a decision, a smoke check that had never run, an
+  advisory finding with no reason attached.
+- **A checker must match what runs, never what explains it.** Three instances, including a guard satisfied by
+  the very comment documenting the branch it was guarding. Mutation-test every new assertion.
+
+**Not merged.** All of this is on `claude/chat-session-xy6jwe`; nothing has reached `main` or isibi.ai yet.
