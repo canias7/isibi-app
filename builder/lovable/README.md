@@ -75,6 +75,24 @@ still renders around the broken page, so "did anything mount" misses it too. The
 a console error carrying a real exception name, with network failures excluded because the smoke
 test runs with no backend reachable.
 
+## Running it for real
+
+`live-run.mjs` turns the pipeline's injectable `deps.generate` into an actual Claude call, builds
+the result through the real build service, and prints a scorecard beside the numbers measured from
+Lovable's own seat picker.
+
+It **cannot run from a dev sandbox**: `ANTHROPIC_API_KEY` lives in Actions secrets, which are
+write-only. Trigger `.github/workflows/clone-compare.yml` (workflow_dispatch) instead — that is the
+only place the key exists, and the only part of this whole clone that spends anything. Everything
+else is covered by `clone-check.yml` with no key and no cost.
+
+The default brief is the theatre seat picker, since that is the one prompt Lovable has already
+answered in this repo, so the comparison is like for like. The generated app is uploaded as an
+artifact so the output can be read rather than taken on trust.
+
+`--dry` runs the entire runner — pipeline, real vite build, smoke check, scorecard, artifact — with
+a stub model instead of the API. That is how the runner was verified before spending anything.
+
 ## Deliberate divergences
 
 | | Lovable | here | why |

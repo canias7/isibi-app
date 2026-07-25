@@ -1,0 +1,82 @@
+# Phase 5: run the Lovable-clone pipeline for real and compare it against Lovable's own output.
+#
+# Manually triggered, because this is the only part of the clone that SPENDS CREDITS and the only
+# part that needs ANTHROPIC_API_KEY — Actions secrets are write-only, so a live generation cannot be
+# run from a dev sandbox. Everything else (rules, pipeline order, build service) is covered by
+# clone-check.yml with no key and no spend.
+#
+# Cost: roughly 6-8 model calls for the default seat-picker brief — the clarify, plan, schema, theme
+# and shell stages, plus one per page. A few cents on Sonnet. The token cap is a hard ceiling: the
+# pipeline skips later stages rather than overspending it.
+name: clone-compare
+
+on:
+  workflow_dispatch:
+    inputs:
+      brief:
+        description: "What to build. Default is the theatre seat picker — the one brief Lovable has already answered in this repo, so the comparison is like for like."
+        required: false
+        default: ""
+      model:
+        description: "Model for every stage."
+        required: false
+        default: "claude-sonnet-5"
+      cap:
+        description: "Total output-token ceiling for the whole build."
+        required: false
+        default: "40000"
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # npm resolves an optional peer of @hookform/resolvers differently than the bun lockfile
+      # Lovable ships, hence --legacy-peer-deps. Same package set either way.
+      - name: Install the clone template
+        working-directory: builder/lovable/template
+        run: npm install --no-audit --no-fund --legacy-peer-deps --loglevel=error
+
+      # The runtime smoke check needs a browser. Best-effort: without it the check reports
+      # "skipped" and the build still succeeds, exactly as it does in the container.
+      - name: Chromium for the smoke check
+        run: npx playwright install --with-deps chromium || echo "WARN: chromium unavailable; the smoke check will report skipped"
+
+      # Rules must match the template before spending anything on a generation against them.
+      - name: Preflight
+        run: node builder/lovable/check-clone.mjs
+
+      # The brief goes through the environment rather than being interpolated into the command.
+      # A workflow input is arbitrary text; splicing it into a shell line is both fragile (quotes,
+      # newlines) and an injection point.
+      - name: Live run
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLONE_BRIEF: ${{ github.event.inputs.brief }}
+          CLONE_MODEL: ${{ github.event.inputs.model }}
+          CLONE_CAP: ${{ github.event.inputs.cap }}
+        run: |
+          # GITHUB_STEP_SUMMARY is rendered as markdown, so the scorecard's alignment only survives
+          # inside a fence.
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          node builder/lovable/live-run.mjs --out "$GITHUB_WORKSPACE/clone-out" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          status=${PIPESTATUS[0]}
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      # The generated app itself, so the output can be read rather than taken on trust.
+      - name: Upload the generated app
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clone-generated-app
+          path: clone-out
+          retention-days: 14
