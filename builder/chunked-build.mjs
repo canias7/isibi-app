@@ -12,7 +12,7 @@
 // so it unit-tests at $0 with a mock generate.
 
 import { buildPlan } from "./build-plan.mjs";
-import { scaffoldRouting, scaffoldTheme } from "./scaffold.mjs";
+import { scaffoldRouting, scaffoldTheme, scaffoldDbTypes, scaffoldAgentsMd } from "./scaffold.mjs";
 import { getStyleFamily, pickStyleFamily } from "./design-system.mjs";
 import { parseGeneratedFiles, REACT_RULES, REACT_REVISE_RULES, COMPONENT_INVENTORY } from "./react-gen.mjs";
 import { getCapability } from "./capability-registry.mjs";
@@ -156,6 +156,15 @@ export async function runChunkedBuild(brief, spec, cap, deps, opts = {}) {
   const famId = opts.family || pickStyleFamily((spec && spec.design_hints) || {});
   const fam = getStyleFamily(famId);
   if (fam) files = scaffoldTheme(files, fam.tokens);
+
+  // Row TYPES from the app's own schema ($0). `useResource('bookings')` returns a typed Booking with no
+  // annotation, a column typo becomes a compile error, and an enum column only accepts its declared values.
+  // Runs LAST so it sees whatever schema the build actually ended up with, including a late schema-fix.
+  files = scaffoldDbTypes(files);
+
+  // The rules, travelling with the code. Without this, a customer who downloads the repo hands their own coding
+  // agent 258 unfamiliar components and no idea which files are generated.
+  files = scaffoldAgentsMd(files, { name: (spec && spec.name) || "" });
 
   // main.jsx / index.css / the component library come from the TEMPLATE, so they are not in `files` — the build is
   // valid when the model supplied the page content and the scaffold wired the router.

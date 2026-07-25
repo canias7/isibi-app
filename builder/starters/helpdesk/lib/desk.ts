@@ -8,8 +8,13 @@
 /** Minutes to first response. Mirrors `sla.mins` in isibi.schema.json — change both together. */
 export const SLA_MINUTES = 240
 
-export const STATUSES = ['open', 'pending', 'resolved', 'closed']
-export const PRIORITIES = ['urgent', 'high', 'normal', 'low']
+// Mirrors the `enum` columns in isibi.schema.json, which the generated db-types.ts turns into the same literal
+// types — so a form can hold a TYPED value rather than a bare string that only fails at the server.
+export type TicketStatus = 'open' | 'pending' | 'resolved' | 'closed'
+export type Priority = 'urgent' | 'high' | 'normal' | 'low'
+
+export const STATUSES: TicketStatus[] = ['open', 'pending', 'resolved', 'closed']
+export const PRIORITIES: Priority[] = ['urgent', 'high', 'normal', 'low']
 
 /** Which statuses a ticket may move to next. Mirrors the schema's `transitions`. */
 export const NEXT_STATUS = {

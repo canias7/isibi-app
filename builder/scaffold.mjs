@@ -221,3 +221,159 @@ export function scaffoldTheme(files, tokens) {
   out['tailwind.config.js'] = tailwindConfig(themeFor(tokens));
   return out;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCHEMA → TYPESCRIPT. The app declares its tables in isibi.schema.json; this turns that declaration into real
+// types, in code, for $0. It is the same trick Lovable gets by generating types from its SQL migrations, and the
+// reason to copy it is that a hand-kept type and a real schema drift the first time anyone adds a column.
+//
+// What it buys, concretely: `useResource('bookings')` now returns `Booking[]` with no annotation at the call
+// site, a column typo is a compile error instead of `undefined` on screen, and an enum column becomes a literal
+// union — so `status: 'confirmd'` fails to build rather than being silently rejected by the server at runtime.
+//
+// Unknown table names still resolve to `any` rather than erroring, because a brief can name a table before the
+// schema catches up and a build must never die over that.
+
+const SQL_TO_TS = { text: 'string', integer: 'number', real: 'number', number: 'number', boolean: 'boolean', json: 'any' };
+
+// Table name → the interface name used in the generated file ("booking_notes" → "BookingNote").
+export function typeNameFor(table) {
+  const pascal = String(table).replace(/(^|[_-])([a-z0-9])/g, (_, __, c) => c.toUpperCase()).replace(/[_-]/g, '');
+  return pascal.replace(/ies$/, 'y').replace(/([^s])s$/, '$1'); // crude singular: Bookings → Booking, Categories → Category
+}
+
+function columnType(col) {
+  // An enum column is the highest-value case: the server rejects anything outside the set with a 400, so the
+  // union turns a runtime rejection into a compile error.
+  if (Array.isArray(col.enum) && col.enum.length) return col.enum.map((v) => `'${String(v).replace(/'/g, "\\'")}'`).join(' | ');
+  return SQL_TO_TS[String(col.type || 'text').toLowerCase()] || 'any';
+}
+
+// The columns the PLATFORM adds — they are never declared in the schema but every row comes back with them.
+function platformColumns(t) {
+  const cols = [['id', 'number'], ['created_at', 'string']];
+  if (t.access === 'user' || t.access === 'feed') cols.push(['owner_id', 'number']);
+  if (t.timestamps) cols.push(['updated_at', 'string']);
+  if (t.trash) cols.push(['deleted_at', 'string | null']);
+  if (t.teamScope && t.access === 'user') cols.push(['team_id', 'number | null']);
+  return cols;
+}
+
+// dbTypesModule(spec) → the source of src/lib/db-types.ts for one app's schema.
+export function dbTypesModule(spec) {
+  const tables = (spec && Array.isArray(spec.tables) ? spec.tables : []).filter((t) => t && t.name);
+  const head = '// GENERATED from isibi.schema.json — do not edit by hand. Change the schema and this follows.\n';
+  if (!tables.length) {
+    return head + '\n// This app declares no tables, so every useResource row stays `any`.\nexport interface Tables {}\n';
+  }
+  const blocks = tables.map((t) => {
+    const rows = [
+      ...platformColumns(t).map(([n, ty]) => `  ${n}: ${ty}`),
+      ...(Array.isArray(t.columns) ? t.columns : []).filter((c) => c && c.name).map((c) => {
+        // `required` mirrors the server's own validation: a required column is always present on a row that
+        // came back, everything else may be null.
+        const opt = c.required ? '' : '?';
+        const ty = columnType(c);
+        return `  ${c.name}${opt}: ${ty}${c.required ? '' : ' | null'}`;
+      }),
+    ];
+    return `/** \`${t.name}\` (access: ${t.access || 'user'}) */\nexport interface ${typeNameFor(t.name)} {\n${rows.join('\n')}\n}`;
+  });
+  const map = tables.map((t) => `  ${t.name}: ${typeNameFor(t.name)}`).join('\n');
+  return head + '\n' + blocks.join('\n\n') +
+    '\n\n/** Table name → row type. `useResource` reads this, so a known table needs no annotation. */\n' +
+    `export interface Tables {\n${map}\n}\n\nexport type TableName = keyof Tables\n`;
+}
+
+// scaffoldDbTypes(files) — write src/lib/db-types.ts from whatever isibi.schema.json the app ended up with.
+// Always emits a file, even with no schema, so `useResource` can import it unconditionally.
+export function scaffoldDbTypes(files) {
+  const out = { ...(files || {}) };
+  let spec = null;
+  try { spec = JSON.parse(out['isibi.schema.json'] || '{}'); } catch { spec = null; }
+  out['src/lib/db-types.ts'] = dbTypesModule(spec);
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AGENTS.md — the instructions that ship INSIDE the generated project.
+//
+// Everything the generator knows about how to work on an isibi app currently lives in our pipeline, which means
+// it evaporates the moment the code leaves us: a customer who downloads the repo and opens it in Cursor or
+// Claude Code hands their agent 258 unfamiliar components and no rules, and it starts hand-rolling fetch calls
+// and rewriting the router. This file is the rules travelling WITH the code.
+//
+// Generated, not written — so it is $0, and it can describe THIS app's real tables and pages rather than a
+// generic template that would go stale on the first schema change.
+
+const bullet = (s) => `- ${s}`;
+
+export function agentsMd(files, meta = {}) {
+  const spec = (() => { try { return JSON.parse(files['isibi.schema.json'] || '{}'); } catch { return {}; } })();
+  const tables = Array.isArray(spec.tables) ? spec.tables : [];
+  const pages = pageNamesFrom(files);
+  const name = meta.name || 'This app';
+
+  const ACCESS_NOTES = {
+    admin: 'anyone can read; only an admin account can write',
+    user: "each signed-in user sees only their OWN rows" ,
+    feed: 'everyone reads; a signed-in user posts and edits their own',
+    collect: 'write-only from the client — submissions cannot be read back',
+    display: 'everyone reads; the owner maintains it',
+  };
+
+  const L = [];
+  L.push(`# Working on ${name}`);
+  L.push('');
+  L.push('Generated by isibi. This file is for whatever coding agent opens this repo next — read it before');
+  L.push('changing anything, because several files here are produced by a program and editing them by hand is');
+  L.push('wasted work: the next build overwrites them.');
+  L.push('');
+  L.push('## Do not edit these — they are generated');
+  L.push(bullet('`src/App.tsx` and `src/routes.ts` — the router and the nav, derived from whichever files exist in `src/pages/`. To add a page, add the file; the route and the nav link appear on their own.'));
+  L.push(bullet('`tailwind.config.js` — the whole palette, computed from one base colour. Change the design tokens, never the hex values.'));
+  L.push(bullet('`src/lib/db-types.ts` — the row types, derived from `isibi.schema.json`. Change the schema and these follow.'));
+  L.push('');
+  L.push('## How to talk to the database');
+  L.push('```tsx');
+  L.push("const { data, loading, error, saving, create, update, remove } = useResource('" + (tables[0] ? tables[0].name : 'table') + "')");
+  L.push('```');
+  L.push(bullet('`data` is always an array and is TYPED from the schema — no annotation needed.'));
+  L.push(bullet('Writes refresh the list themselves. Never refetch by hand after a create or update.'));
+  L.push(bullet('`useRecord(table, id)` is the single-row version for a detail view.'));
+  L.push(bullet('Do NOT hand-roll `useState` + `useEffect` + `fetch` for table data — it loses the shared cache and the auto-refresh.'));
+  L.push(bullet('`api.*` from `src/lib/api.js` is only for what `useResource` does not wrap: `/auth/*` and sub-actions like `/rows/<t>/<id>/restore`.'));
+  L.push('');
+  if (tables.length) {
+    L.push('## This app\'s tables');
+    L.push('');
+    L.push('| table | access | means |');
+    L.push('| --- | --- | --- |');
+    for (const t of tables) L.push(`| \`${t.name}\` | ${t.access || 'user'} | ${ACCESS_NOTES[t.access] || 'see isibi.schema.json'} |`);
+    L.push('');
+    const gated = tables.filter((t) => t.transitions);
+    if (gated.length) {
+      L.push('Status changes are enforced SERVER-SIDE on ' + gated.map((t) => '`' + t.name + '`').join(', ') +
+        ' (see `transitions` in the schema). Offering a move the server will reject just produces a 409 the user cannot act on — only offer the legal ones.');
+      L.push('');
+    }
+  }
+  L.push('## The component kit');
+  L.push(bullet('`src/components/` holds the shared components. Import them; do not recreate a card, table, modal or empty state that already exists.'));
+  L.push(bullet('`Modal`, `Dropdown`, `Popover`, `Tooltip` and `MultiSelect` are backed by Radix for focus trapping and keyboard navigation. Do not replace them with plain divs.'));
+  L.push(bullet('Style with the semantic tokens (`ink-*`, `brand-*`, `accent-*`, `surface`, `canvas`) rather than literal colours, so the palette keeps working.'));
+  L.push('');
+  if (pages.length) { L.push('## Pages'); L.push(pages.map((p) => '`' + p + '`').join(' · ')); L.push(''); }
+  L.push('## House rules');
+  L.push(bullet('Every list needs a real empty state saying what will appear there — never a blank page.'));
+  L.push(bullet('Every form disables its submit while saving and shows the server\'s own error message on failure.'));
+  L.push(bullet('Confirm before anything destructive.'));
+  return L.join('\n') + '\n';
+}
+
+// scaffoldAgentsMd(files, meta) — write AGENTS.md into the file set.
+export function scaffoldAgentsMd(files, meta = {}) {
+  const out = { ...(files || {}) };
+  out['AGENTS.md'] = agentsMd(out, meta);
+  return out;
+}

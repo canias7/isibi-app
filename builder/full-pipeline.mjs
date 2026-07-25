@@ -19,6 +19,7 @@
 import { planApp } from "./app-planner.mjs";
 import { pickStyleFamily } from "./design-system.mjs";
 import { buildPlan } from "./build-plan.mjs";
+import { scaffoldDbTypes } from "./scaffold.mjs";
 import { matchStarter, getStarter } from "./starters.mjs";
 import { runChunkedBuild } from "./chunked-build.mjs";
 import { lintGeneratedApp } from "./app-linter.mjs";
@@ -29,8 +30,14 @@ const dumpFiles = (files, limit = 90000) =>
   Object.entries(files).map(([p, s]) => "===FILE: " + p + "===\n" + s).join("\n\n").slice(0, limit);
 
 // usesBackend — does the app call the per-site API? (drives the schema-fix stage, mirroring worker.js)
+//
+// `useResource('bookings')` / `useRecord('bookings', id)` are now the normal way a page reads a table, and they
+// build the `/rows/<table>` path INSIDE the hook — so a detector that only looks for that literal in page source
+// sees nothing and skips schema-fix, shipping an app that talks to a database it never declared.
 const usesBackend = (files) =>
-  Object.values(files).some((src) => /\/auth\/(signup|login)\b/.test(String(src)) || /\/rows\/[a-z_][a-z0-9_]*/i.test(String(src)));
+  Object.values(files).some((src) => /\/auth\/(signup|login)\b/.test(String(src))
+    || /\/rows\/[a-z_][a-z0-9_]*/i.test(String(src))
+    || /\buse(Resource|Record)\s*\(/.test(String(src)));
 
 export async function runFullPipeline(brief, cap, deps, opts = {}) {
   if (!deps || typeof deps.generate !== "function") return { ok: false, error: "deps.generate required" };
@@ -102,7 +109,12 @@ export async function runFullPipeline(brief, cap, deps, opts = {}) {
     const r = await call("schema-fix", SCHEMA_REPAIR_RULES,
       "This project calls the per-site backend API (/auth and/or /rows/<table>) but is MISSING its isibi.schema.json, so NO database is created and every backend call fails on the live site. Emit ONLY the isibi.schema.json file block declaring the tables it uses.\n\nProject files:\n\n" + dumpFiles(files),
       bp.reserves.schema);
-    if (r && r.files["isibi.schema.json"]) files["isibi.schema.json"] = r.files["isibi.schema.json"];
+    if (r && r.files["isibi.schema.json"]) {
+      files["isibi.schema.json"] = r.files["isibi.schema.json"];
+      // The schema arrived AFTER generation, so the row types have to be regenerated against it — otherwise the
+      // app ships with an empty `Tables` and every row silently falls back to `any`.
+      files = scaffoldDbTypes(files);
+    }
   } else {
     t("schema-fix", { cost: 0, skipped: files["isibi.schema.json"] ? "schema already declared" : "no backend calls" });
   }

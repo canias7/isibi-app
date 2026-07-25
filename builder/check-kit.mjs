@@ -119,7 +119,30 @@ for (const [file, pkg] of Object.entries(RADIX_BACKED)) {
   }
 }
 
-// ── 7. Whole-app starters ─────────────────────────────────────────────────────
+// ── 7. Generated row types ────────────────────────────────────────────────────
+// db-types.ts is produced from isibi.schema.json at build time, and useResource reads it to type every row. Two
+// ways that silently stops working: the template default file goes missing (so the import fails), or someone
+// widens useResource's write signature back to `Record<string, any>` — which was the original shape and which
+// quietly defeated the whole thing, letting a value outside a declared enum type-check and then be rejected by
+// the server at runtime.
+const dbTypes = path.join(LIB, 'db-types.ts')
+if (!fs.existsSync(dbTypes)) {
+  problems.push('src/lib/db-types.ts is missing — useResource imports it, so every build would fail')
+} else {
+  const hook = fs.existsSync(hookPath) ? fs.readFileSync(hookPath, 'utf8') : ''
+  if (!/from '\.\/db-types\.ts'/.test(hook)) problems.push('useResource no longer imports db-types.ts — rows would all fall back to `any`')
+  if (/values: Partial<Row> \| Record<string, any>/.test(hook)) {
+    problems.push('useResource accepts `Record<string, any>` on writes again — that defeats the generated types (a bad enum value would type-check)')
+  }
+  const { dbTypesModule } = await import('./scaffold.mjs')
+  // The generator must survive a schema it has never seen, including an empty one.
+  try {
+    const empty = dbTypesModule({})
+    if (!/export interface Tables/.test(empty)) problems.push('dbTypesModule does not emit a Tables interface for an empty schema')
+  } catch (e) { problems.push(`dbTypesModule throws on an empty schema: ${e.message}`) }
+}
+
+// ── 8. Whole-app starters ─────────────────────────────────────────────────────
 // A starter IS the app for anyone whose brief matches it, so a broken import or a hand-rolled fetch does not
 // degrade one build — it degrades every booking site we ever ship. These are the same invariants the kit has,
 // applied one layer up.

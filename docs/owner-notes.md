@@ -8615,3 +8615,32 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   **Guarded:** check-kit asserts each of the five still imports its Radix package. The props did not change,
   which is exactly the trap — someone could "simplify" one back to a plain div and nothing visible would break.
   Proved by commenting out the Popover import and watching it fail.
+
+- **2026-07-25 — SCHEMA → TYPESCRIPT, and AGENTS.md. Both lifted from the Lovable codebase.** Unzipped their
+  actual output and accounted for all 89 files: 75.4% copied (46 shadcn components verbatim — I diffed them
+  against a fresh shadcn pull and they are 97–99.8% identical after formatting), 6.9% program-generated
+  (`routeTree.gen.ts`, `supabase/types.ts`), 17.8% AI-written (7 route files, 131 lines of SQL, the theme).
+  Ours on the same job is 94.8 / 2.4 / **2.8%** — the gap is entirely the starter: they wrote 866 lines of pages,
+  we adapt 77.
+  **1. Row types from the schema.** `scaffoldDbTypes` turns `isibi.schema.json` into `src/lib/db-types.ts`, and
+  `useResource<T>` resolves `RowOf<T>` from it. `useResource('bookings')` now returns `Booking[]` with no
+  annotation. Proved both halves with a deliberate error: a typo'd column and a value outside a declared enum
+  BOTH fail the build now (`Property 'custmer_name' does not exist on type 'Booking'. Did you mean
+  'customer_name'?` / `Type '"confirmd"' is not assignable to '"confirmed" | "cancelled" | "completed"'`).
+  Unknown tables still resolve to `any` — a brief can name a table before the schema catches up and a build must
+  never die over that.
+  **The enum half only worked after tightening `create`/`update` to `Partial<Row>`.** The original signature had
+  `| Record<string, any>` on it, which silently swallowed everything — the typo was caught, the bad enum was not.
+  check-kit now fails if that escape hatch comes back, because nothing visible breaks when it does.
+  **That tightening broke the CRM and help desk, correctly**, and the fix is the pattern worth keeping: form
+  state now holds the UNION (`'discovery' as Stage`) and casts ONCE where the `<select>` hands back a string,
+  instead of casting at the write. The generator rules say to do it that way.
+  **2. A real bug this surfaced.** `usesBackend()` — the thing that decides whether to run schema-fix — matched
+  the literal `/rows/` in page source. But `useResource('widgets')` builds that path INSIDE the hook, so page
+  source no longer contains it: **any app using the database without declaring a schema would have silently
+  shipped with no backend.** Fixed in `full-pipeline.mjs` AND in worker.js (two call sites there). This is the
+  cost of changing a convention — the detectors that keyed off the old one go quiet rather than loud.
+  **3. AGENTS.md**, generated per app, listing its real tables and access modes, which files are code-generated
+  and must not be hand-edited, how to use useResource, and the house rules. Costs nothing and travels with the
+  code — which our pipeline rules do not.
+  All five starters build with 0 type errors, all 29 pages render clean, modals still trap focus.

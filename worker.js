@@ -29465,7 +29465,7 @@ async function handleRequest(request, env, ctx) {
           // site. Models omit it often enough that this can't be optional: ask for
           // JUST the schema (inferred from the app's own code) and provision it.
           if (!schemaSpec) {
-            const usesBackend = Object.values(files).some((src) => /\/auth\/(signup|login)\b/.test(String(src)) || /\/rows\/[a-z_][a-z0-9_]*/i.test(String(src)));
+            const usesBackend = Object.values(files).some((src) => /\/auth\/(signup|login)\b/.test(String(src)) || /\/rows\/[a-z_][a-z0-9_]*/i.test(String(src)) || /\buse(Resource|Record)\s*\(/.test(String(src))); // useResource() builds the /rows/ path inside the hook, so page source no longer contains the literal
             if (usesBackend) {
               const dump = Object.entries(files).map(([p, s]) => "===FILE: " + p + "===\n" + s).join("\n\n").slice(0, 90000);
               try {
@@ -29487,7 +29487,7 @@ async function handleRequest(request, env, ctx) {
           // correct code reads `/api/db/${slug}/…`, which none of these match) and
           // hand the app back for a URL-only rewrite. Only when a backend is used.
           {
-            const usesBackend2 = Object.values(files).some((src) => /\/auth\/(signup|login)\b/.test(String(src)) || /\/rows\/[a-z_][a-z0-9_]*/i.test(String(src)) || /\/api\/db\b/.test(String(src)));
+            const usesBackend2 = Object.values(files).some((src) => /\/auth\/(signup|login)\b/.test(String(src)) || /\/rows\/[a-z_][a-z0-9_]*/i.test(String(src)) || /\/api\/db\b/.test(String(src)) || /\buse(Resource|Record)\s*\(/.test(String(src)));
             const brokenWiring = Object.values(files).some((src) => {
               const s = String(src);
               return /\/api\/db\/(auth|rows)\b/.test(s)                              // "/api/db/auth…" or "/api/db/rows…" — slug missing

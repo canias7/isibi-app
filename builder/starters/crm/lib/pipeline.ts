@@ -4,21 +4,21 @@
 // don't: a board column, a funnel step, a dashboard total and a stage dropdown all have to mean the same thing.
 // The `stage` values here mirror the enum in isibi.schema.json — the server rejects anything else.
 
-export interface Stage {
-  id: string
+export interface StageDef {
+  id: Stage
   title: string
   /** Default likelihood of closing, used to weight the forecast until a rep overrides it on the deal. */
   probability: number
 }
 
 /** Open stages, in pipeline order. `won` and `lost` are terminal and deliberately not on the board's path. */
-export const STAGES: Stage[] = [
+export const STAGES: StageDef[] = [
   { id: 'discovery', title: 'Discovery', probability: 20 },
   { id: 'proposal', title: 'Proposal', probability: 50 },
   { id: 'negotiation', title: 'Negotiation', probability: 75 },
 ]
 
-export const CLOSED: Stage[] = [
+export const CLOSED: StageDef[] = [
   { id: 'won', title: 'Won', probability: 100 },
   { id: 'lost', title: 'Lost', probability: 0 },
 ]
@@ -27,8 +27,15 @@ export const ALL_STAGES = [...STAGES, ...CLOSED]
 
 export const stageTitle = (id) => (ALL_STAGES.find((s) => s.id === id) || { title: id }).title
 
-export const LEAD_STATUSES = ['new', 'contacted', 'qualified', 'unqualified']
-export const LEAD_SOURCES = ['website', 'referral', 'outbound', 'event', 'inbound-call', 'other']
+// These unions mirror the `enum` columns in isibi.schema.json, which the generated db-types.ts turns into the
+// same literal types. Declaring them here lets a form hold a TYPED value all the way through instead of a bare
+// `string` that only fails when the server rejects it.
+export type Stage = 'discovery' | 'proposal' | 'negotiation' | 'won' | 'lost'
+export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'unqualified'
+export type LeadSource = 'website' | 'referral' | 'outbound' | 'event' | 'inbound-call' | 'other'
+
+export const LEAD_STATUSES: LeadStatus[] = ['new', 'contacted', 'qualified', 'unqualified']
+export const LEAD_SOURCES: LeadSource[] = ['website', 'referral', 'outbound', 'event', 'inbound-call', 'other']
 
 /** Currency, one implementation. Whole dollars — a pipeline figure with cents in it reads as false precision. */
 export const money = (n) => '$' + Math.round(Number(n) || 0).toLocaleString('en-US')

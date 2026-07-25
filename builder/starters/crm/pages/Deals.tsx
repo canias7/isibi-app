@@ -17,9 +17,10 @@ import { FormSection, FormActions } from '../components/FormSection.tsx'
 import { useResource } from '../lib/useResource.ts'
 import { useAuth } from '../lib/auth.tsx'
 import { STAGES, ALL_STAGES, money, shortMoney, weightedValue, winRate } from '../lib/pipeline.ts'
+import type { Stage } from '../lib/pipeline.ts'
 import { KanbanSquare, Trophy, XCircle } from 'lucide-react'
 
-const blank = { title: '', company: '', value: '', stage: 'discovery', probability: '20', close_date: '', lost_reason: '' }
+const blank = { title: '', company: '', value: '', stage: 'discovery' as Stage, probability: '20', close_date: '', lost_reason: '' }
 
 // Mirrors the schema's `transitions` block. The server rejects anything else with a 409, so the board and the
 // stage dropdown only ever offer moves that will be accepted.
@@ -197,8 +198,11 @@ export default function Deals() {
                 label="Stage"
                 value={form.stage}
                 onChange={(e) => {
-                  const next = ALL_STAGES.find((s) => s.id === e.target.value)
-                  setForm({ ...form, stage: e.target.value, probability: next ? String(next.probability) : form.probability })
+                  // The one cast in the flow: a <select> hands back `string`, and this is where it becomes a
+                  // known stage. Everything downstream — including the write — stays typed.
+                  const value = e.target.value as Stage
+                  const next = ALL_STAGES.find((s) => s.id === value)
+                  setForm({ ...form, stage: value, probability: next ? String(next.probability) : form.probability })
                 }}
               >
                 {stageChoices.map((s) => <option key={s} value={s}>{s}</option>)}

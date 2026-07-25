@@ -21,9 +21,10 @@ import { FormSection, FormActions } from '../components/FormSection.tsx'
 import { useResource } from '../lib/useResource.ts'
 import { useAuth } from '../lib/auth.tsx'
 import { PRIORITIES, STATUSES, NEXT_STATUS, minutesLeft, queueOrder, ago, isLive, CANNED } from '../lib/desk.ts'
+import type { Priority, TicketStatus } from '../lib/desk.ts'
 import { Inbox } from 'lucide-react'
 
-const blank = { subject: '', body: '', requester: '', requester_email: '', priority: 'normal', category: '' }
+const blank = { subject: '', body: '', requester: '', requester_email: '', priority: 'normal' as Priority, category: '' }
 
 export default function Tickets() {
   const { user } = useAuth()
@@ -62,7 +63,7 @@ export default function Tickets() {
       requester_email: (form.requester_email || '').trim() || user?.email || '',
       priority: form.priority,
       category: (form.category || '').trim(),
-      status: 'open',
+      status: 'open' as TicketStatus,
     }
     if (!body.subject) return setFormError('Give the ticket a subject.')
     if (!body.body) return setFormError('Describe what happened — a subject on its own is not enough to act on.')
@@ -232,7 +233,7 @@ export default function Tickets() {
               <Input label="Their email" type="email" value={form.requester_email} onChange={(e) => setForm({ ...form, requester_email: e.target.value })} placeholder={user?.email || ''} />
             </div>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <Select label="Priority" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>
+              <Select label="Priority" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value as Priority })}>
                 {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
               </Select>
               <Input label="Category" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="Billing" />

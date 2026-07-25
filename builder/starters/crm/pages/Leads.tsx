@@ -18,11 +18,12 @@ import { FormSection, FormActions } from '../components/FormSection.tsx'
 import { useResource } from '../lib/useResource.ts'
 import { useAuth } from '../lib/auth.tsx'
 import { LEAD_SOURCES, LEAD_STATUSES, money } from '../lib/pipeline.ts'
+import type { LeadSource, LeadStatus } from '../lib/pipeline.ts'
 import { UserPlus } from 'lucide-react'
 
 // Number fields are held as strings while editing — <input type="number"> hands back a string and coercing on
 // every keystroke makes the field impossible to clear. Coerced once, on save.
-const blank = { name: '', company: '', email: '', phone: '', source: 'website', status: 'new', value: '', notes: '' }
+const blank = { name: '', company: '', email: '', phone: '', source: 'website' as LeadSource, status: 'new' as LeadStatus, value: '', notes: '' }
 
 // The server enforces these moves (schema `transitions`), so offering an illegal one just produces a 400 the
 // user cannot act on. The dropdown shows only what will actually be accepted.
@@ -213,10 +214,10 @@ export default function Leads() {
               <Input label="Phone" type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
             </div>
             <div className="mt-4 grid gap-4 sm:grid-cols-3">
-              <Select label="Source" value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })}>
+              <Select label="Source" value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value as LeadSource })}>
                 {LEAD_SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
               </Select>
-              <Select label="Status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+              <Select label="Status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as LeadStatus })}>
                 {statusChoices.map((s) => <option key={s} value={s}>{s}</option>)}
               </Select>
               <Input label="Value" type="number" min={0} step={100} value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} />

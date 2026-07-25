@@ -13,6 +13,12 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from './api.js'
+import type { Tables } from './db-types.ts'
+
+// RowOf<'bookings'> is the Booking interface generated from the app's schema; RowOf<anything else> is `any`.
+// The fallback is deliberate — a brief can name a table before the schema catches up, and a build must never
+// die over that. Known tables get precision, unknown ones behave exactly as they did before.
+type RowOf<T> = T extends keyof Tables ? Tables[T] : any
 
 export interface ResourceOptions {
   /** Query string sent with the list read — filters, sort, limit. `where` may be a single value or an array. */
@@ -33,8 +39,11 @@ export interface Resource<Row = any> {
   error: Error | null
   /** True while a create/update/delete is in flight — wire it to the submit button's `disabled`. */
   saving: boolean
-  create: (values: Partial<Row> | Record<string, any>) => Promise<any>
-  update: (id: string | number, values: Partial<Row> | Record<string, any>) => Promise<any>
+  // Partial<Row> ONLY, deliberately — an escape hatch of `| Record<string, any>` was here first and it silently
+  // defeated the whole point: a column typo or a value outside a declared enum type-checked fine and was then
+  // rejected by the server at runtime, which is exactly the failure the generated types exist to move forward.
+  create: (values: Partial<Row>) => Promise<any>
+  update: (id: string | number, values: Partial<Row>) => Promise<any>
   remove: (id: string | number) => Promise<any>
   refetch: () => void
 }
@@ -57,9 +66,12 @@ const qs = (params?: Record<string, any>) => {
  *   const { data, loading, error, create, update, remove, saving } = useResource('bookings')
  *   const { data: mine } = useResource('bookings', { params: { where: 'status:eq:confirmed', limit: 20 } })
  *
+ * `data` is typed from the app's own schema — `data[0].customer_name` is checked, and a status column declared
+ * as an enum only accepts its declared values. No annotation needed at the call site.
+ *
  * The table must be declared in isibi.schema.json or every call 404s.
  */
-export function useResource<Row = any>(table: string, options: ResourceOptions = {}): Resource<Row> {
+export function useResource<T extends string>(table: T, options: ResourceOptions = {}): Resource<RowOf<T>> {
   const { params, enabled = true, auth = true } = options
   const qc = useQueryClient()
   // The key carries the params, so two components reading the same table with different filters do not fight
@@ -106,7 +118,7 @@ export function useResource<Row = any>(table: string, options: ResourceOptions =
  *   const { id } = useParams()
  *   const { data: booking, loading } = useRecord('bookings', id)
  */
-export function useRecord<Row = any>(table: string, id?: string | number | null, options: ResourceOptions = {}) {
+export function useRecord<T extends string>(table: T, id?: string | number | null, options: ResourceOptions = {}) {
   const { enabled = true, auth = true } = options
   const q = useQuery({
     queryKey: ['rows', table, 'one', String(id ?? '')],
@@ -114,7 +126,7 @@ export function useRecord<Row = any>(table: string, id?: string | number | null,
     enabled: enabled && !!table && id !== undefined && id !== null && id !== '',
   })
   return {
-    data: ((q.data && q.data.row) || null) as Row | null,
+    data: ((q.data && q.data.row) || null) as RowOf<T> | null,
     loading: q.isPending && enabled && id != null,
     error: (q.error as Error) || null,
     refetch: () => { q.refetch() },
