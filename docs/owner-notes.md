@@ -8709,3 +8709,26 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   **Still not matched from their build:** the automated SQL security-linter pass (their second migration), and
   a database-level overlap constraint. Our overlap prevention is client-side only — two people can still book
   the same slot in a race. That is the next real gap in the booking starter.
+
+- **2026-07-25 — the double-booking race, closed. NOT with `tstzrange`.** Owner asked whether we could use it.
+  **No — `tstzrange` is PostgreSQL and our per-site DB is Cloudflare D1, i.e. SQLite: no range types, no
+  exclusion constraints, no `&&`.** But the effect is reachable, and most of it already existed.
+  **Composite UNIQUE was already supported** — `unique:[["date","time"]]` has always emitted a real
+  `CREATE UNIQUE INDEX`. Nobody had used it, so the booking starter was racing for no reason.
+  **What was missing is the PARTIAL index**, and it is the difference between race-free and race-free-and-usable:
+  a plain `UNIQUE(date,time)` also means a CANCELLED booking holds the slot forever, because an index does not
+  care about status. Added `unique:[{columns:[…], where:"status:eq:confirmed"}]` → `CREATE UNIQUE INDEX … WHERE
+  "status" = 'confirmed'`. SQLite has had partial indexes since 3.8.
+  **Proved in real SQLite, not asserted:** two customers racing for 10:00 → second REFUSED; 10:30 fine; same time
+  next day fine; **after a cancellation the slot frees up and rebooks**; two cancelled rows in one slot coexist.
+  And the control case — the same test without the `WHERE` — shows the slot dead forever after one cancellation.
+  **Injection surface, deliberately tiny:** a partial index's WHERE is baked into DDL and cannot be
+  parameterised, so the parser accepts ONLY `col:eq|ne:literal`, requires the column to be real, and rejects any
+  value containing a quote or SQL punctuation. Tested: `status:eq:x' OR '1'='1` and `status:eq:a);DROP TABLE t;--`
+  are both REJECTED, as is `contains:` and an unknown column.
+  The starter declares it, and Book.tsx now handles the resulting **409 `{code:'duplicate'}`** with "Someone just
+  took that time" and refreshes availability — the greyed-out grid is a courtesy, the constraint is the guarantee.
+  **Still not done:** true INTERVAL overlap (a 60-minute service at 10:00 vs a 30-minute at 10:30). A unique index
+  on (date,time) only catches exact collisions, which is right for the starter's fixed 30-minute grid and wrong
+  for variable durations. That needs `INSERT … WHERE NOT EXISTS (overlapping)` as a single atomic statement —
+  doable in SQLite, not done here.

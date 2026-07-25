@@ -37,7 +37,7 @@ export default function Book() {
   // which used to mean the grid could grey out slots THIS visitor had booked and nothing else. The table's
   // declared publicView returns {date, time} for every confirmed booking and nothing else, so a visitor sees
   // what is genuinely taken without ever seeing who took it.
-  const { data: takenSlots } = usePublicRows('bookings')
+  const { data: takenSlots, refetch: refreshTaken } = usePublicRows('bookings')
 
   const [serviceId, setServiceId] = useState('')
   const [name, setName] = useState('')
@@ -69,7 +69,15 @@ export default function Book() {
       })
       setConfirmed({ date, time, service: chosen.name, customer })
     } catch (err) {
-      setError(err.message || 'That time could not be booked. Please pick another.')
+      // 409 {code:'duplicate'} is the database refusing a slot that was taken between this page loading and
+      // this click. It is the ONLY thing that actually prevents a double booking — the greyed-out grid is a
+      // courtesy, not a guarantee — so say plainly what happened and refresh the availability.
+      if (err.code === 'duplicate' || err.status === 409) {
+        setError('Someone just took that time. The grid has been refreshed — please pick another slot.')
+        refreshTaken()
+      } else {
+        setError(err.message || 'That time could not be booked. Please pick another.')
+      }
     }
   }
 

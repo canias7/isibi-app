@@ -3253,16 +3253,35 @@ async function applySiteSchema(env, uuid, spec) {
     {
       const hasOwner = (access === "user" || access === "feed");
       const colSet = new Set(colNames.map((n) => String(n).toLowerCase()));
+      // A group may be a bare column, an array of columns, or {columns:[…], where:"status:eq:confirmed"} —
+      // the last form becomes a PARTIAL unique index. That matters for anything slot-shaped: a plain
+      // UNIQUE(date,time) stops two people booking 10:00, but it also means a CANCELLED booking keeps
+      // occupying the slot forever, because an index does not care about status. Scoping the index to the
+      // rows that actually hold the slot is the difference between "race-free" and "race-free and usable".
+      const partialWhere = (spec) => {
+        // Deliberately only eq/ne against a literal: a partial index's WHERE is baked into DDL, so it cannot
+        // be parameterised and anything richer would mean building SQL out of user text.
+        const m = String(spec || "").match(/^([a-z_][a-z0-9_]{0,40}):(eq|ne):([\s\S]{0,60})$/i);
+        if (!m) return null;
+        const col = m[1].toLowerCase();
+        if (!colSet.has(col)) return null;
+        const val = m[3];
+        if (!/^[\w .:@+/-]{0,60}$/.test(val)) return null; // no quotes, no SQL punctuation
+        return sqlIdent(col) + (m[2].toLowerCase() === "eq" ? " = '" : " <> '") + val + "'";
+      };
       const mkIndexes = async (groups, perUser) => {
         const raw = Array.isArray(groups) ? groups : (groups ? [groups] : []);
-        const many = raw.length && Array.isArray(raw[0]) ? raw : (raw.length ? [raw] : []);
+        const many = raw.length && (Array.isArray(raw[0]) || (raw[0] && typeof raw[0] === "object")) ? raw : (raw.length ? [raw] : []);
         let gi = 0;
         for (const g of many) {
-          const gcols = (Array.isArray(g) ? g : [g]).map((c) => String(c).toLowerCase()).filter((c) => colSet.has(c));
+          const isObj = g && typeof g === "object" && !Array.isArray(g);
+          const src = isObj ? (Array.isArray(g.columns) ? g.columns : [g.columns]) : g;
+          const gcols = (Array.isArray(src) ? src : [src]).map((c) => String(c).toLowerCase()).filter((c) => colSet.has(c));
           if (!gcols.length) continue;
           const idxCols = (perUser && hasOwner ? ["owner_id"] : []).concat(gcols);
+          const where = isObj ? partialWhere(g.where) : null;
           const idxName = sqlIdent("ux_" + t.name + "_" + (perUser ? "u" : "g") + "_" + (gi++));
-          try { await cfD1Query(env, uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + idxName + " ON " + tn + " (" + idxCols.map(sqlIdent).join(",") + ")"); } catch (e) { console.error("unique index failed:", t.name, e && e.detail); }
+          try { await cfD1Query(env, uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + idxName + " ON " + tn + " (" + idxCols.map(sqlIdent).join(",") + ")" + (where ? " WHERE " + where : "")); } catch (e) { console.error("unique index failed:", t.name, e && e.detail); }
         }
       };
       await mkIndexes(t.unique, false);
