@@ -120,6 +120,50 @@ row("runtime smoke check", bd.smokeRan ? ((bd.runtimeErrors || []).length ? `${b
 row("wall clock", `${seconds}s`);
 row("est. cost", `$${((inTok / 1e6) * 3 + (outTok / 1e6) * 15).toFixed(3)}`);
 console.log("=".repeat(70));
+
+// ── screenshots ───────────────────────────────────────────────────────────────
+// The scorecard says a site was produced. A picture says what was produced. Serve the real dist and
+// photograph every route, so the output can be LOOKED at rather than inferred from a row of ticks.
+if (bd.ok && process.env.LIVE_SHOTS !== "0") {
+  const out = process.env.LIVE_SHOT_DIR || "shots";
+  try {
+    const { createRequire } = await import("node:module");
+    const { chromium } = createRequire(path.join(process.env.BUILD_APP_DIR || "/tmp/buildapp", "package.json"))("playwright-core");
+    const http = await import("node:http");
+    const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json" };
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "shot-"));
+    for (const [rel, v] of Object.entries(bd.files)) {
+      const full = path.join(dir, rel);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, v.t != null ? v.t : Buffer.from(v.b, "base64"));
+    }
+    const srv = http.createServer((q, r) => {
+      let p = path.join(dir, decodeURIComponent(q.url.split("?")[0]));
+      if (!fs.existsSync(p) || fs.statSync(p).isDirectory()) p = path.join(dir, "index.html");
+      r.writeHead(200, { "content-type": MIME[path.extname(p)] || "application/octet-stream" });
+      r.end(fs.readFileSync(p));
+    });
+    await new Promise((r) => srv.listen(0, r));
+    const port = srv.address().port;
+    const browser = await chromium.launch({ args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+    fs.mkdirSync(out, { recursive: true });
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 2 });
+    // Same two stubs the smoke check uses: fonts are unreachable here, and an empty result set lets a
+    // data page render its real empty state instead of sitting in a spinner for the photo.
+    await page.route("**://fonts.googleapis.com/**", (r) => r.fulfill({ status: 200, contentType: "text/css", body: "" }));
+    await page.route("**/api/db/**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ rows: [], total: 0 }) }));
+    const routes = [...(files["src/routes.ts"] || "").matchAll(/to: '([^']*)'/g)].map((m) => m[1]);
+    for (const url of routes.length ? routes : ["/"]) {
+      await page.goto(`http://127.0.0.1:${port}/#${url}`, { waitUntil: "load", timeout: 20000 }).catch(() => {});
+      await page.waitForTimeout(900);
+      const name = (url === "/" ? "home" : url.replace(/^\//, "").replace(/\//g, "-")) + ".png";
+      await page.screenshot({ path: path.join(out, name), fullPage: true });
+      console.log(`  shot  ${name}`);
+    }
+    await browser.close(); srv.close(); fs.rmSync(dir, { recursive: true, force: true });
+  } catch (e) { console.log(`  screenshots unavailable: ${String((e && e.message) || e).slice(0, 160)}`); }
+}
+
 for (const e of (bd.runtimeErrors || [])) console.log(`  runtime — ${e}`);
 for (const e of (bd.typeErrors || []).slice(0, 8)) console.log(`  type    — ${e}`);
 if (!bd.ok) console.log(`\nbuild error:\n${String(bd.error || "").slice(0, 1500)}`);

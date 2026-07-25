@@ -66,6 +66,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           BUILD_URL: "http://127.0.0.1:8080"
+          BUILD_APP_DIR: /tmp/buildapp
           LIVE_BRIEF: ${{ inputs.brief }}
         run: |
           echo '```' >> "$GITHUB_STEP_SUMMARY"
@@ -74,6 +75,17 @@ jobs:
           status=$?
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           exit $status
+
+      # The scorecard says a site was produced; the screenshots show WHAT was produced. This is the
+      # only place the generated design can actually be looked at.
+      - name: Screenshots of the generated site
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-site
+          path: shots
+          retention-days: 14
+          if-no-files-found: warn
 
       - name: Build service log
         if: always()
