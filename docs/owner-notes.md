@@ -8644,3 +8644,41 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   and must not be hand-edited, how to use useResource, and the house rules. Costs nothing and travels with the
   code — which our pipeline rules do not.
   All five starters build with 0 type errors, all 29 pages render clean, modals still trap focus.
+
+- **2026-07-25 — SIDE-BY-SIDE WITH LOVABLE ON THE SAME BRIEF. The trace found three live bugs.**
+  Could not do a real generation on our side — **no ANTHROPIC_API_KEY in the environment**, so the model calls
+  are mocked. The stages, budgets, routing decisions and file flow in the trace below are all real; only the text
+  a model would have written is fake.
+  **CORRECTION to yesterday's note:** their `AGENTS.md` is NOT agent instructions — it is a nine-line warning
+  about not force-pushing, because commits sync back into the Lovable editor. Our generated AGENTS.md (tables,
+  access modes, which files are code-generated, house rules) is substantially more than theirs. I got that wrong
+  from the file name.
+  **`.lovable/project.json` says `"template": "tanstack_start_ts_current"` with a revision hash** — so they do
+  have a versioned template, but it is a STACK template (one for everything), not an app-type starter. Different
+  layer from ours.
+  **Their backend is the genuinely impressive part.** Two migrations 14 seconds apart: the first creates the
+  schema with RLS, a `has_role` SECURITY DEFINER function, a `handle_new_user` trigger, a `tstzrange` overlap
+  trigger that makes double-booking impossible AT THE DATABASE, and `busy_slots(date)` — a function returning
+  start/end times ONLY, no PII, so an anonymous visitor can see real availability. The second migration is a
+  security-hardening pass (REVOKE EXECUTE on the SECURITY DEFINER functions from public/anon) — almost certainly
+  an automated linter, not the model's idea. **We have no equivalent of either.** `busy_slots` in particular
+  solves the exact hole in our booking starter: our `bookings` table is `user`-scoped, so the Book page can only
+  grey out the caller's OWN slots and has no way to know real availability. A privacy-filtered derived view is a
+  platform capability we lack.
+  **THREE REAL BUGS the trace exposed, all now fixed:**
+  1. **The app linter has been dead since the TSX migration.** It required `src/main.jsx` / `src/App.jsx`, and
+     every rule filtered on `/\.jsx?$/` — which matches nothing now. So it reported "no page under src/pages/"
+     while looking straight at six of them, failed the lint gate on EVERY build, and burned the 2,000-token
+     lint-repair reserve on a repair that could not possibly work. Worse, it was silently linting NOTHING: no
+     import check, no route check, no dead-link check has run since the migration. Fixed with one shared
+     `SOURCE` matcher, and it now knows the TEMPLATE provides `src/components/*` and `src/lib/*` (derived from
+     COMPONENT_INVENTORY, so it cannot fall behind). All five starters lint clean.
+  2. **`applyBundle` was never called** — flagged twice before as the owner's decision, but the trace made the
+     cost concrete: for a barbershop the planner picked `lists`, `price-lists`, `credit-limit`, `deposit-holds`
+     and `export`, and spent 7,000 tokens building them. With the bundle applied it builds `rooms`, `no-shows`,
+     `reminders`, `notifications`, `waitlist`. Same money, useful pages. applyBundle only ever ADDS, so no
+     planner pick is discarded — the curated core just goes first and the long tail falls off the budget.
+  3. **`auth` was becoming a page.** The planner skips `auth`/`rows` as pages; buildPlan did not, so a bundle
+     containing `auth` produced an Auth page duplicating SignIn. Fixed in buildPlan.
+  **Net on the barbershop brief: 10,500 → 9,100 output tokens, lint gate FAILED → clean, and five junk pages
+  replaced with five real ones.**

@@ -21,6 +21,7 @@ import { pickStyleFamily } from "./design-system.mjs";
 import { buildPlan } from "./build-plan.mjs";
 import { scaffoldDbTypes } from "./scaffold.mjs";
 import { matchStarter, getStarter } from "./starters.mjs";
+import { applyBundle } from "./capability-bundles.mjs";
 import { runChunkedBuild } from "./chunked-build.mjs";
 import { lintGeneratedApp } from "./app-linter.mjs";
 import { parseGeneratedFiles, SCHEMA_REPAIR_RULES, WIRING_REPAIR_RULES, REACT_FIX_RULES, REACT_REVISE_RULES } from "./react-gen.mjs";
@@ -71,6 +72,18 @@ export async function runFullPipeline(brief, cap, deps, opts = {}) {
   // ── 5. Plan (deterministic, ~free).
   const plan = planApp(brief, opts.capabilityLimit != null ? { capabilityLimit: opts.capabilityLimit } : {});
   if (!plan.ok) return { ok: false, error: "plan failed", trace };
+  // BUNDLES were built for this and then never wired in: the planner's raw keyword scoring picked `credit-limit`
+  // and `deposit-holds` for a barbershop while `hours`, `waitlist` and `reminders` went unbuilt. applyBundle puts
+  // the curated core for the matched app type FIRST, so the essentials are built and the planner's long tail
+  // falls off the end of the budget instead of the middle. It only ever ADDS — no planner pick is discarded.
+  const bundled = applyBundle(brief, plan.spec.capabilities);
+  if (bundled.bundle) {
+    plan.spec.capabilities = bundled.capabilities;
+    t("bundle", { cost: 0, matched: bundled.bundle.id, added: bundled.added });
+  } else {
+    t("bundle", { cost: 0, skipped: "no bundle matched this brief" });
+  }
+
   const family = pickStyleFamily(plan.spec.design_hints);
   // A whole-app STARTER, if one fits the brief. opts.starter forces a specific id; opts.starter === false turns
   // starters off entirely (used by the A/B harness to measure what they are worth).

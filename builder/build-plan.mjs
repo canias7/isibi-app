@@ -77,7 +77,11 @@ export function buildPlan(spec, cap, opts = {}) {
   const adminCost = admin ? Math.min(stepMax, BASE_PAGE + 4 * PER_ROUTE) : 0;
   let pageBudget = genBudget - shellBudget - adminCost;
   const included = [], dropped = [], covered = [];
+  // `auth` and `rows` are platform plumbing, not pages — the planner already skips them, and a bundle that
+  // includes `auth` was producing an Auth page that duplicated SignIn.
+  const NOT_A_PAGE = new Set(["auth", "rows"]);
   for (const id of spec.capabilities) {
+    if (NOT_A_PAGE.has(id)) { covered.push(id); continue; }
     // A capability the starter already has a page for costs nothing — this is the point of a starter.
     if (starterCovers.has(id) || starterPages.has(pascalPage(id))) { covered.push(id); continue; }
     const cost = pageCost(id, capFn);
