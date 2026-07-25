@@ -14,6 +14,7 @@ on:
       - "builder/chunked-build.mjs"
       - "builder/build-plan.mjs"
       - "builder/scaffold.mjs"
+      - "builder/build-server.mjs"
       - "worker.js"
       - ".github/workflows/kit-check.yml"
   pull_request:
@@ -53,6 +54,12 @@ jobs:
       # code so the transcription cannot go stale.
       - name: Live builder generate step
         run: node builder/worker-generate.test.mjs
+
+      # The runtime smoke check's two decisions — which routes to load, which console errors count.
+      # Both fail quietly: a wrong route list never opens whole pages, and a wrong filter either
+      # floods the repair loop with expected network noise or drops the one error that mattered.
+      - name: Runtime smoke check
+        run: node builder/smoke-check.test.mjs
 
       # The kit must typecheck. tsc is advisory at BUILD time so a customer never loses an app to a type error —
       # but in CI, on our own code, it is a hard gate.

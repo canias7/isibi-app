@@ -29761,6 +29761,33 @@ async function handleRequest(request, env, ctx) {
           if (!bd.ok) { emit({ ev: "error", stage: "build", msg: "the site didn't compile — try rephrasing or send it again", detail: String(bd.error || "").slice(0, 400), cost: genCredits + imgCredits, balance: balAfter }); return; }
           let dist = bd.files || {};
           if (!dist["index.html"]) { emit({ ev: "error", stage: "build", msg: "the build produced no page — try again", cost: genCredits + imgCredits, balance: balAfter }); return; }
+          // RUNTIME REPAIR. The build service loads every route headlessly after a successful
+          // compile, because esbuild does not resolve names: a page referencing an undefined
+          // variable compiles clean and then white-screens. One repair pass, then ship regardless —
+          // the check is advisory, and an app with one broken page beats no app at all.
+          if (Array.isArray(bd.runtimeErrors) && bd.runtimeErrors.length) {
+            emit({ ev: "phase", phase: "fixing", runtime: bd.runtimeErrors.length });
+            try {
+              const dump = Object.entries(files).map(([pp, src]) => "===FILE: " + pp + "===\n" + src).join("\n\n").slice(0, 90000);
+              const rg = await streamGen(REACT_FIX_RULES,
+                "The app COMPILES but CRASHES in the browser. Every route was loaded headlessly and these errors " +
+                "were thrown — a name that does not exist, a value used before it is defined, or a component " +
+                "rendered with something undefined. Return ONLY the corrected file(s):\n\n" +
+                bd.runtimeErrors.join("\n") + "\n\nProject files:\n\n" + dump, onDelta);
+              flushCode(true);
+              const rf = parseGeneratedFiles(rg.text || "");
+              const rc = rbCredits(rg.usedIn, rg.usedOut); genCredits += rc;
+              try { const b = await useCredits(auth, rc); if (b >= 0) balAfter = b; } catch {}
+              if (Object.keys(rf).length) {
+                for (const [pp, v] of Object.entries(rf)) files[pp] = v;
+                const rb2 = await buildInContainer(files);
+                // Only take the rebuild if it actually compiled — a repair that breaks the build
+                // would otherwise turn a working-but-flawed app into no app.
+                if (rb2.bd && rb2.bd.ok && rb2.bd.files && rb2.bd.files["index.html"]) { bd = rb2.bd; dist = rb2.bd.files; }
+                emit({ ev: "runtime-repair", fixed: Array.isArray(bd.runtimeErrors) ? bd.runtimeErrors.length === 0 : null });
+              }
+            } catch (e) { console.error("runtime repair failed, shipping as built:", e && e.message); }
+          }
           // PIPELINE_V2 + VISION_REPAIR (both flags): render the built site, have the vision model critique the
           // screenshots, and — if it looks weak — do ONE revise + rebuild. The container screenshots (it has the
           // browser); the Worker runs the vision model (it has the key). Costs an extra build + a few vision calls,

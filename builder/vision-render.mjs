@@ -7,7 +7,7 @@ import { existsSync } from "node:fs";
 const require = createRequire(import.meta.url);
 
 // Locate the pre-installed Chromium (build image sets PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers).
-function chromiumExecutable() {
+export function chromiumExecutable() {
   const cands = [
     process.env.CHROMIUM_PATH,
     "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",

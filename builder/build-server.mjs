@@ -16,6 +16,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createRequire } from "node:module";
 // NOTE: vision-render (Playwright) is loaded LAZILY inside /critique — never at startup — so the build service
 // starts and serves /build even if Playwright/Chromium aren't present. /critique degrades to {ok:false} then.
 
@@ -87,6 +88,73 @@ function runTypecheck() {
     });
     child.on("error", () => { clearTimeout(to); resolve({ ran: false, errors: [] }); });
   });
+}
+
+// ── RUNTIME SMOKE CHECK ───────────────────────────────────────────────────────
+// esbuild does not resolve names, so a page that references an undefined variable compiles perfectly
+// and then white-screens in the browser. The build reports ok:true and the customer gets a blank
+// page. Every route is loaded headlessly here instead, and anything thrown is returned for the fix
+// loop — ADVISORY, exactly like the typecheck: a customer getting nothing is worse than a customer
+// getting an app with one broken page, so this can never fail a build on its own.
+
+/**
+ * The hash URLs the built app actually serves, read from the GENERATED src/routes.ts rather than
+ * re-deriving them. That file is the router's own source of truth, so the two cannot disagree.
+ */
+export function routeUrlsFrom(src = SRC) {
+  const f = path.join(src, "routes.ts");
+  if (!fs.existsSync(f)) return ["/"];
+  const urls = [...fs.readFileSync(f, "utf8").matchAll(/to:\s*'([^']*)'/g)].map((m) => m[1]).filter(Boolean);
+  return urls.length ? [...new Set(urls)] : ["/"];
+}
+
+/**
+ * Is this console error a real fault, or the smoke check's own environment?
+ *
+ * React 19 does NOT rethrow a render error to window.onerror — it logs it — and the app shell still
+ * renders around the hole, so neither "did anything throw" nor "did anything mount" catches the
+ * commonest white-screen. A console error carrying a real exception name is the reliable signal.
+ * The check runs with no backend reachable, so a data-driven page will always fail its requests;
+ * those are expected and must not be reported as faults.
+ */
+export function isRealRuntimeError(text) {
+  const line = String(text || "").split("\n")[0];
+  if (!/^(?:Uncaught\s+)?(?:[A-Z]\w*)?Error: /.test(line)) return false;
+  return !/Failed to fetch|NetworkError|ERR_|net::|fetch failed|Load failed|401|403|404/i.test(line);
+}
+
+async function smokeTest(dist) {
+  let chromium, dir, served, browser;
+  try { ({ chromium } = createRequire(import.meta.url)("playwright-core")); }
+  catch { return { ran: false, reason: "playwright-core not installed", errors: [] }; }
+  try {
+    dir = writeDistToTemp(dist);
+    served = await serveDir(dir);
+    const { chromiumExecutable } = await import("./vision-render.mjs");
+    browser = await chromium.launch({ executablePath: chromiumExecutable(), args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+    const page = await browser.newPage();
+    const errors = [];
+    const at = () => page.url().split("#")[1] || "/";
+    page.on("pageerror", (e) => errors.push(`${at()}: ${String(e).split("\n")[0]}`));
+    page.on("console", (m) => { if (m.type() === "error" && isRealRuntimeError(m.text())) errors.push(`${at()}: ${m.text().split("\n")[0].slice(0, 200)}`); });
+    // Webfonts are not reachable from the build sandbox; a hanging request would look like a broken
+    // app rather than a missing network.
+    await page.route("**://fonts.googleapis.com/**", (r) => r.fulfill({ status: 200, contentType: "text/css", body: "" }));
+    await page.route("**://fonts.gstatic.com/**", (r) => r.fulfill({ status: 200, body: "" }));
+    for (const url of routeUrlsFrom()) {
+      await page.goto(`${served.url}/#${url}`, { waitUntil: "load", timeout: 15000 }).catch(() => {});
+      await page.waitForTimeout(350);
+      const empty = await page.evaluate(() => (document.getElementById("root")?.textContent || "").trim().length === 0).catch(() => false);
+      if (empty) errors.push(`${url}: rendered nothing — the page mounted empty`);
+    }
+    return { ran: true, errors: [...new Set(errors)].slice(0, 20) };
+  } catch (e) {
+    return { ran: false, reason: String((e && e.message) || e).slice(0, 200), errors: [] };
+  } finally {
+    try { if (browser) await browser.close(); } catch {}
+    try { if (served) await served.close(); } catch {}
+    try { if (dir) fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+  }
 }
 
 function collectDist(dir = DIST, base = "") {
@@ -193,13 +261,19 @@ const server = http.createServer((req, res) => {
       if (r.code !== 0) return send(res, 200, { ok: false, error: (r.err || "build failed").slice(0, 4000) });
       const dist = collectDist();
       if (!dist["index.html"]) return send(res, 200, { ok: false, error: "build produced no index.html" });
-      // Advisory only — the build already succeeded, so `ok` stays true whatever tsc says.
+      // Both advisory — the build already succeeded, so `ok` stays true whatever these say. The
+      // smoke check catches what tsc cannot: a page that compiles and then throws in the browser.
       const types = await runTypecheck();
-      return send(res, 200, { ok: true, files: dist, typeErrors: types.errors, typecheckRan: types.ran });
+      const smoke = payload.smoke === false ? { ran: false, reason: "disabled by caller", errors: [] } : await smokeTest(dist);
+      return send(res, 200, { ok: true, files: dist, typeErrors: types.errors, typecheckRan: types.ran, runtimeErrors: smoke.errors, smokeRan: smoke.ran, smokeReason: smoke.reason });
     } catch (e) {
       return send(res, 200, { ok: false, error: String(e && e.message || e).slice(0, 2000) });
     }
   });
 });
-const PORT = process.env.PORT || 8080;
-server.listen(PORT, () => console.log("isibi build-service on :" + PORT));
+// NO_SERVER lets a test import this module for its pure helpers (route derivation, the console-error
+// filter) without binding a port — two test runs in CI would otherwise collide on 8080.
+if (process.env.NO_SERVER !== "1") {
+  const PORT = process.env.PORT || 8080;
+  server.listen(PORT, () => console.log("isibi build-service on :" + PORT));
+}
