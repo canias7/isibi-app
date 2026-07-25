@@ -254,6 +254,15 @@ export async function runClonePipeline(brief, cap, deps, opts = {}) {
     if (r && !r.files[path]) t(`page:${page.id}:misfiled`, { warn: `expected ${path}, got ${Object.keys(r.files).join(', ') || 'nothing'}`, out: 0, remaining: remaining() })
   }
 
+  // ── 5b. sitemap ($0, deterministic — the routes are already known) ──────────
+  const sitemap = scaffoldSitemap(files, opts.siteUrl)
+  if (sitemap) {
+    files['public/sitemap.xml'] = sitemap
+    t('sitemap', { out: 0, files: ['public/sitemap.xml'], remaining: remaining() })
+  } else {
+    t('sitemap', { skipped: opts.siteUrl ? 'no crawlable routes' : 'no site URL — a relative <loc> is invalid and would be discarded', out: 0, remaining: remaining() })
+  }
+
   // ── 6 + 7. build, then repair on failure ────────────────────────────────────
   let build = { ok: true, skipped: 'no build function supplied' }
   if (typeof deps.build === 'function') {
@@ -413,6 +422,47 @@ export function applyTheme(baseCss, tokens) {
   if (light.length) css = inject(':root', light)
   if (dark.length) css = inject('\\.dark', dark)
   return css
+}
+
+/**
+ * The URLs a built app actually serves, derived from its route files. Mirrors the router's own
+ * conventions: `index` is the parent path, a leading `_` is a LAYOUT and contributes no segment,
+ * and a `$param` route has no single URL so it is left out.
+ */
+export function routeUrls(files) {
+  const urls = []
+  for (const p of Object.keys(files)) {
+    const m = /^src\/routes\/(.+)\.tsx$/.exec(p)
+    if (!m || m[1].startsWith('__')) continue
+    const parts = m[1].split('/')
+    if (parts.some((s) => s.includes('$'))) continue
+    // `_authenticated/orders.tsx` is `/orders` — but it is behind a login, so it does not belong in
+    // a sitemap either. Dropping the whole subtree is both simpler and more correct than mapping it.
+    if (parts.some((s) => s.startsWith('_'))) continue
+    const last = parts[parts.length - 1]
+    const path = last === 'index' ? parts.slice(0, -1).join('/') : parts.join('/')
+    urls.push('/' + path)
+  }
+  return [...new Set(urls)].sort()
+}
+
+/**
+ * public/sitemap.xml, deterministically and for zero tokens.
+ *
+ * Lovable generates one too — and theirs is broken. Their sitemap route hard-codes
+ * `const BASE_URL = ""`, so every entry comes out as `<loc>/book</loc>`. The sitemap protocol
+ * requires a fully-qualified URL, so a crawler discards the file. Rather than copy the bug, this
+ * returns null when the site URL is unknown, and the pipeline records that it skipped. An absent
+ * sitemap costs nothing; an invalid one is a file that looks like coverage and provides none.
+ */
+export function scaffoldSitemap(files, siteUrl) {
+  const base = String(siteUrl || '').replace(/\/+$/, '')
+  if (!/^https?:\/\//.test(base)) return null
+  const entries = routeUrls(files).map((u) =>
+    `  <url>\n    <loc>${base}${u === '/' ? '/' : u}</loc>\n    <changefreq>weekly</changefreq>\n` +
+    `    <priority>${u === '/' ? '1.0' : '0.7'}</priority>\n  </url>`)
+  if (!entries.length) return null
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${entries.join('\n')}\n</urlset>\n`
 }
 
 const firstLine = (s) => String(s || '').split('\n')[0].slice(0, 200)

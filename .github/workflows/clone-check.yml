@@ -49,6 +49,13 @@ jobs:
         working-directory: builder/lovable/template
         run: npm run build
 
+      # The template now ships an eslint config, so a customer who downloads the repo can run
+      # `npm run lint`. That is only worth shipping if it passes here first — a config that reports
+      # 138 errors on a freshly generated app is worse than no config at all.
+      - name: Lint
+        working-directory: builder/lovable/template
+        run: npm run lint
+
       # Compiling is not rendering. This mounts all 46 components and fails on any that throw.
       - name: Typecheck with every component exercised
         working-directory: builder/lovable/template

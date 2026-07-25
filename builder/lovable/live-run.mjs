@@ -140,6 +140,7 @@ if (fs.existsSync(path.join(TEMPLATE, 'node_modules'))) {
   fs.symlinkSync(path.join(TEMPLATE, 'node_modules'), path.join(APP, 'node_modules'))
 }
 fs.cpSync(path.join(APP, 'src'), path.join(APP, '.template-src'), { recursive: true })
+fs.cpSync(path.join(APP, 'public'), path.join(APP, '.template-public'), { recursive: true })
 
 process.env.APP_DIR = APP
 process.env.NO_SERVER = '1'

@@ -63,7 +63,7 @@ if (claimed !== present.size) problems.push(`COMPONENT_RULES says the kit holds 
 const root = fs.readFileSync(path.join(TEMPLATE, 'src/routes/__root.tsx'), 'utf8')
 const index = fs.readFileSync(path.join(TEMPLATE, 'src/routes/index.tsx'), 'utf8')
 if (!/createFileRoute/.test(index)) problems.push('the template\'s own index.tsx does not use createFileRoute, but ROUTE_RULES tells the model to')
-if (!/createFileRoute\('\/book'\)/.test(RULES.ROUTE_RULES)) problems.push('ROUTE_RULES no longer shows a createFileRoute example')
+if (!/createFileRoute\(["']\/book["']\)/.test(RULES.ROUTE_RULES)) problems.push('ROUTE_RULES no longer shows a createFileRoute example')
 if (!/<Outlet\s*\/>/.test(root)) problems.push('__root.tsx has lost its <Outlet />, so no child route can render')
 // ROUTE_RULES makes a head/meta block mandatory on every page. Those blocks only reach the document
 // if the root route renders <HeadContent /> — TanStack Start supplies it server-side, and this app
@@ -138,7 +138,10 @@ if (!fs.existsSync(CLIENT)) {
     if (!declared) problems.push(`DATA_RULES shows the model \`db…${method}(\)\` but the client does not define ${method}`)
   }
   if (!/publicFrom/.test(client)) problems.push('the client has lost publicFrom, so a signed-out visitor could not read a declared publicView')
-  if (!/from '.\/types'/.test(client)) problems.push('the client no longer imports the generated row types, so every row would fall back to any')
+  // Quote-agnostic on purpose: the template is Prettier-formatted with double quotes, and a checker
+  // that pins the quote style fails the next time `npm run format` runs rather than the next time
+  // something actually breaks.
+  if (!/from ["']\.\/types["']/.test(client)) problems.push('the client no longer imports the generated row types, so every row would fall back to any')
 }
 const TYPES = path.join(TEMPLATE, 'src/integrations/db/types.ts')
 if (!fs.existsSync(TYPES)) problems.push('src/integrations/db/types.ts is missing — the client imports it, so nothing would compile')
@@ -154,8 +157,54 @@ for (const mode of ['user', 'admin', 'feed', 'collect', 'display']) {
   if (!new RegExp('`' + mode + '`').test(RULES.SCHEMA_RULES)) problems.push(`SCHEMA_RULES no longer names the "${mode}" access mode, so the model cannot choose it`)
 }
 
-// ── 4. Hash history, because the rules promise it ─────────────────────────────
 const main = fs.readFileSync(path.join(TEMPLATE, 'src/main.tsx'), 'utf8')
+
+// ── 3d. The pieces both of their apps ship and ours did not ──────────────────
+// Found by re-diffing the two zips against this template: fifteen files are in BOTH of their apps
+// and were absent here. These are the ones that carry behaviour rather than infrastructure we
+// deliberately replaced (their SSR entry, their Supabase client).
+for (const [rel, why] of [
+  ['src/lib/error-reporting.ts', 'a production white-screen would produce no signal at all'],
+  ['src/lib/error-page.tsx', 'a thrown route would unmount the tree and show a blank page'],
+  ['eslint.config.js', 'a customer who downloads the repo has nothing to run'],
+  ['.prettierrc', 'formatting drifts between the vendored components and generated pages'],
+  ['README.md', 'the repo arrives with no explanation of how it fits together'],
+  ['public/robots.txt', 'a published site with no robots.txt is a crawl gamble'],
+  ['public/favicon.svg', 'the browser tab falls back to a blank page icon'],
+  ['.isibi/project.json', 'an app cannot be traced back to the template revision that built it'],
+]) {
+  if (!fs.existsSync(path.join(TEMPLATE, rel))) problems.push(`${rel} is missing — ${why}`)
+}
+// The error page only helps if the router is told to use it, and the global handlers only fire if
+// something installs them. Both are one line in main.tsx and both fail silently when dropped.
+// Matching the bare word would be satisfied by the comment that explains it, which a mutation test
+// caught doing exactly that. Match the property being set.
+if (!/defaultErrorComponent\s*:/.test(main)) {
+  problems.push('main.tsx does not set defaultErrorComponent, so a thrown route white-screens instead of rendering ErrorPage')
+}
+if (!/installErrorReporting\(\)/.test(main)) {
+  problems.push('main.tsx never calls installErrorReporting(), so nothing catches an error outside React')
+}
+// Their _authenticated layout route is the one pattern from their zip that changes generated code on
+// every app with a login. Without it in the rules, each page hand-rolls its own check or forgets.
+if (!/_authenticated/.test(RULES.ROUTE_RULES) || !/beforeLoad/.test(RULES.ROUTE_RULES)) {
+  problems.push('ROUTE_RULES no longer teaches the _authenticated layout route, so auth checks scatter across pages')
+}
+// The rules' code examples are handed to the model verbatim. If they contradict the Prettier config
+// the template ships, every generated page lands failing the lint script we just gave the customer.
+const pr = JSON.parse(fs.readFileSync(path.join(TEMPLATE, '.prettierrc'), 'utf8'))
+if (pr.singleQuote === false && /from '@tanstack/.test(RULES.ROUTE_RULES)) {
+  problems.push('ROUTE_RULES shows single-quoted imports but .prettierrc sets singleQuote:false — generated pages would lint dirty')
+}
+// public/ is writeable now (the sitemap lands there) and Vite copies it into dist verbatim, so it
+// must be restored between builds or one customer's sitemap is published under another's domain.
+// `wipePublic()` alone matches the function DEFINITION, so deleting only the call slipped through.
+// The call is what matters, and it must sit alongside the src wipe on the same build path.
+if (!/wipeSrc\(\);\s*wipePublic\(\)/.test(server) || !/\.template-public/.test(server)) {
+  problems.push('build-server.mjs does not restore public/ between builds — a generated sitemap.xml would leak into the next site')
+}
+
+// ── 4. Hash history, because the rules promise it ─────────────────────────────
 if (!/createHashHistory/.test(main)) {
   problems.push('main.tsx no longer uses hash history, but ROUTE_RULES tells the model the # is handled for it')
 }

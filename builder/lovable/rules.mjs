@@ -22,6 +22,9 @@ export const OUTPUT_RULES =
   "· If you are running short on room, write LESS CODE — fewer comments, a smaller component — but " +
   "always finish the file. A truncated reply is worth nothing: it cannot be parsed and the whole " +
   "step is wasted.\n" +
+  "· The project is Prettier-formatted, and it ships an eslint config a customer can actually run: " +
+  "**double quotes, semicolons, trailing commas, 100-column lines.** Code in a different style is " +
+  "not wrong, it is just noise in the first `npm run lint` they try.\n" +
   "· AIM FOR UNDER ~250 LINES PER FILE. Lovable's own seat-picker page — a 12x18 grid with three " +
   "price tiers, selection state and a running total — is 298 lines including its data. If yours is " +
   "heading past that, you are over-building: cut comments, collapse repeated markup into a small " +
@@ -34,21 +37,41 @@ export const ROUTE_RULES =
   "`src/routeTree.gen.ts` is generated; never write or import it directly. " +
   "EVERY route file has exactly this shape:\n" +
   "```tsx\n" +
-  "import { createFileRoute } from '@tanstack/react-router'\n\n" +
-  "export const Route = createFileRoute('/book')({\n" +
+  "import { createFileRoute } from \"@tanstack/react-router\";\n\n" +
+  "export const Route = createFileRoute(\"/book\")({\n" +
   "  head: () => ({ meta: [\n" +
-  "    { title: '<Page> — <Business name>' },\n" +
-  "    { name: 'description', content: '<one sentence, written for a search result>' },\n" +
-  "    { property: 'og:title', content: '<same as title>' },\n" +
-  "    { property: 'og:description', content: '<same as description>' },\n" +
+  "    { title: \"<Page> — <Business name>\" },\n" +
+  "    { name: \"description\", content: \"<one sentence, written for a search result>\" },\n" +
+  "    { property: \"og:title\", content: \"<same as title>\" },\n" +
+  "    { property: \"og:description\", content: \"<same as description>\" },\n" +
   "  ] }),\n" +
   "  component: BookPage,\n" +
-  "})\n\n" +
+  "});\n\n" +
   "function BookPage() { … }\n" +
   "```\n" +
   "The `head` block is not optional — every page carries its own title, description and og tags. " +
   "Internal links are `<Link to=\"/book\">` from `@tanstack/react-router`; the router uses hash " +
-  "history and handles the `#` for you, so never write it yourself.";
+  "history and handles the `#` for you, so never write it yourself.\n\n" +
+  "PAGES BEHIND A LOGIN go under `src/routes/_authenticated/`, and the gate is ONE file that wraps " +
+  "all of them — never a check repeated inside each page. `src/routes/_authenticated/route.tsx`:\n" +
+  "```tsx\n" +
+  "import { Outlet, createFileRoute, redirect } from \"@tanstack/react-router\";\n" +
+  "import { db } from \"@/integrations/db/client\";\n\n" +
+  "export const Route = createFileRoute(\"/_authenticated\")({\n" +
+  "  beforeLoad: async () => {\n" +
+  "    const { data } = await db.auth.getSession();\n" +
+  "    if (!data?.user) throw redirect({ to: \"/auth\" });\n" +
+  "    return { user: data.user };\n" +
+  "  },\n" +
+  "  component: () => <Outlet />,\n" +
+  "});\n" +
+  "```\n" +
+  "The `_` prefix means the segment is a LAYOUT, not a URL: `_authenticated/orders.tsx` is still " +
+  "`/orders`. `beforeLoad` runs before the page renders, so a signed-out visitor is redirected " +
+  "instead of seeing the page flash and then empty out. Anything the gate returns is on the route " +
+  "context, so a child page reads the signed-in user with `Route.useRouteContext()` rather than " +
+  "fetching it again. If you create this folder you MUST also create the `/auth` page it redirects " +
+  "to, or the redirect goes nowhere.";
 
 // Derived by diffing their two apps: 66 of 73 shared files are byte-identical, and __root.tsx is
 // one of the seven that are not. It is written per app and carries the whole chrome — header, nav,
@@ -67,9 +90,9 @@ export const SHELL_RULES =
   "or the CSS silently falls back to the generic stack and the app looks nothing like it should:\n" +
   "```tsx\n" +
   "links: [\n" +
-  "  { rel: 'preconnect', href: 'https://fonts.googleapis.com' },\n" +
-  "  { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossOrigin: 'anonymous' },\n" +
-  "  { rel: 'stylesheet', href: 'https://fonts.googleapis.com/css2?family=<Family>:wght@400;500;600&display=swap' },\n" +
+  "  { rel: \"preconnect\", href: \"https://fonts.googleapis.com\" },\n" +
+  "  { rel: \"preconnect\", href: \"https://fonts.gstatic.com\", crossOrigin: \"anonymous\" },\n" +
+  "  { rel: \"stylesheet\", href: \"https://fonts.googleapis.com/css2?family=<Family>:wght@400;500;600&display=swap\" },\n" +
   "]\n" +
   "```\n" +
   "Pick fonts that suit the business rather than defaulting to the same pairing every time.";
@@ -117,7 +140,7 @@ export const ACCESSIBILITY_RULES =
 
 export const DATA_RULES =
   "DATA. The app has a typed database client at `@/integrations/db/client`. Import it as " +
-  "`import { db } from '@/integrations/db/client'`. Never write a bare `fetch` to the database.\n" +
+  "`import { db } from \"@/integrations/db/client\"`. Never write a bare `fetch` to the database.\n" +
   "```ts\n" +
   "const { data, error } = await db.from('bookings').select().eq('status', 'confirmed').order('date')\n" +
   "const { error }       = await db.from('bookings').insert({ seat: 'G7', status: 'confirmed' })\n" +

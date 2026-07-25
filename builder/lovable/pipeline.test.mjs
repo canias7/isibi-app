@@ -4,7 +4,7 @@
 //
 // Run: node builder/lovable/pipeline.test.mjs
 
-import { runClonePipeline, parseFiles, routePath, routeUrl, traceSummary } from './pipeline.mjs'
+import { runClonePipeline, parseFiles, routePath, routeUrl, traceSummary, routeUrls, scaffoldSitemap } from './pipeline.mjs'
 
 let failures = 0
 const check = (name, ok, detail = '') => {
@@ -313,6 +313,57 @@ console.log('\nrepair sends the app, not the kit')
   check('it was given the route files', /src\/routes\/index\.tsx/.test(seen[0] || ''))
   check('and told that a cut-off file is itself the bug', true)
   check('the run recovers', r.ok === true)
+}
+
+console.log('\nsitemap — Lovable generates one and theirs is invalid')
+{
+  const files = {
+    'src/routes/index.tsx': '', 'src/routes/book.tsx': '', 'src/routes/blog/index.tsx': '',
+    'src/routes/blog/$slug.tsx': '', 'src/routes/__root.tsx': '',
+    'src/routes/_authenticated/route.tsx': '', 'src/routes/_authenticated/orders.tsx': '',
+    'isibi.schema.json': '{}',
+  }
+  const urls = routeUrls(files)
+  check('index becomes the parent path', urls.includes('/') && urls.includes('/blog'))
+  check('a normal page is listed', urls.includes('/book'))
+  check('__root is not a URL', !urls.includes('/__root'))
+  check('a $param route has no single URL, so it is skipped', !urls.some((u) => u.includes('$')))
+  // /orders resolves fine in the router — it is excluded because it is behind a login, and a
+  // sitemap advertising it just points crawlers at a redirect.
+  check('a route behind _authenticated is excluded', !urls.includes('/orders'), urls.join(' '))
+
+  const xml = scaffoldSitemap(files, 'https://example.com/')
+  check('every loc is absolute', /<loc>https:\/\/example\.com\/book<\/loc>/.test(xml || ''))
+  check('the trailing slash on the site URL is not doubled', !/example\.com\/\/+/.test(xml || ''))
+  check('the home page keeps its slash', /<loc>https:\/\/example\.com\/<\/loc>/.test(xml || ''))
+  // The bug in their output: BASE_URL is hard-coded to "" so every entry is a relative <loc>, which
+  // the sitemap protocol does not allow. Emitting nothing beats emitting a file crawlers discard.
+  check('no site URL emits nothing rather than a relative loc', scaffoldSitemap(files, '') === null)
+  check('a non-http site URL is refused', scaffoldSitemap(files, 'example.com') === null)
+  check('an app with no crawlable routes emits nothing', scaffoldSitemap({ 'src/routes/__root.tsx': '' }, 'https://x.com') === null)
+}
+
+console.log('\nsitemap reaches the app only when it can be written')
+{
+  const files = {}
+  const m = {
+    generate: async (system) => {
+      if (/Ask AT MOST/.test(system)) return { text: '', usedOut: 10 }
+      if (/Plan the app/.test(system)) return { text: JSON.stringify({ pages: [{ id: 'index', title: 'Home' }], tables: [] }), usedOut: 50 }
+      if (/ONE JSON object/.test(system)) return { text: '{}', usedOut: 20 }
+      if (/THE APP SHELL/.test(system)) return { text: '===FILE: src/routes/__root.tsx===\nshell\n', usedOut: 60 }
+      return { text: '===FILE: src/routes/index.tsx===\npage\n', usedOut: 80 }
+    },
+    build: async (f) => { Object.assign(files, f); return { ok: true } },
+  }
+  const withUrl = await runClonePipeline('x', 60000, m, { siteUrl: 'https://acme.test' })
+  check('the sitemap is in the files handed to the build', Boolean(withUrl.files['public/sitemap.xml']))
+  check('and the stage is traced', withUrl.trace.some((r) => r.stage === 'sitemap' && !r.skipped))
+
+  const without = await runClonePipeline('x', 60000, m)
+  check('with no site URL there is no sitemap file', !without.files['public/sitemap.xml'])
+  const skip = without.trace.find((r) => r.stage === 'sitemap')
+  check('and the trace says why, not just "skipped"', /site URL/.test(skip?.skipped || ''), skip?.skipped || '')
 }
 
 console.log(failures ? `\n${failures} FAILED\n` : '\nall pipeline checks pass\n')

@@ -36,6 +36,7 @@ console.log(`\nAPP_DIR: ${APP}`)
 fs.cpSync(TEMPLATE, APP, { recursive: true, filter: (s) => !s.includes('node_modules') && !s.includes('/dist') })
 fs.symlinkSync(path.join(TEMPLATE, 'node_modules'), path.join(APP, 'node_modules'))
 fs.cpSync(path.join(APP, 'src'), path.join(APP, '.template-src'), { recursive: true })
+fs.cpSync(path.join(APP, 'public'), path.join(APP, '.template-public'), { recursive: true })
 
 console.log('\nwrite allowlist')
 {
@@ -112,6 +113,25 @@ console.log('\na second build does not inherit the first')
   check('second build succeeded', r2.ok === true, r2.error ? r2.error.split('\n')[0] : '')
   check("the first build's page is gone", !fs.existsSync(path.join(APP, 'src/routes/book.tsx')))
   check('the component library survived again', fs.readdirSync(path.join(APP, 'src/components/ui')).length === 46)
+}
+
+// public/ became writeable when the sitemap stage landed, and Vite copies it into dist verbatim.
+// So without a wipe, site A's sitemap.xml is PUBLISHED under site B's domain — a crawler is handed
+// another customer's URLs. src/ was already wiped; this is the same fault in the directory nobody
+// thought to protect because until now nothing could write there.
+console.log('\none site\'s public/ does not reach the next')
+{
+  const siteA = await buildFiles({
+    'src/routes/index.tsx': pageSrc('/', 'A'),
+    'public/sitemap.xml': '<?xml version="1.0"?><urlset><url><loc>https://site-a.test/</loc></url></urlset>',
+  })
+  check('site A built with its sitemap', siteA.ok === true, siteA.error?.split('\n')[0] || '')
+  check('and it was published', Boolean(siteA.files['sitemap.xml']), Object.keys(siteA.files).join(' ').slice(0, 80))
+
+  const siteB = await buildFiles({ 'src/routes/index.tsx': pageSrc('/', 'B') })
+  check('site B built', siteB.ok === true, siteB.error?.split('\n')[0] || '')
+  check("site A's sitemap did NOT leak into site B", !siteB.files['sitemap.xml'])
+  check('but the template\'s own public files survived', Boolean(siteB.files['robots.txt'] && siteB.files['favicon.svg']))
 }
 
 console.log('\nfailure paths')

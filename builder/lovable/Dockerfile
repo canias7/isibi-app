@@ -19,10 +19,11 @@ RUN npx playwright install --with-deps chromium || echo "WARN chromium unavailab
 # The template: 46 shadcn components, the theme, the data client, the router entry.
 COPY template/ ./
 
-# A pristine copy of src/. Every build wipes src/ so one site's pages cannot leak into the next,
-# which would otherwise delete the component library along with them; the service restores from
-# here before writing the generated files.
-RUN cp -a /app/src /app/.template-src
+# A pristine copy of src/ and public/. Every build wipes both so one site's files cannot leak into
+# the next — which would otherwise delete the component library along with them, and would publish
+# one customer's sitemap.xml under another customer's domain. The service restores from here before
+# writing the generated files.
+RUN cp -a /app/src /app/.template-src && cp -a /app/public /app/.template-public
 
 # routeTree.gen.ts is derived and gitignored, so it is absent here. The service runs `tsr generate`
 # before every build; this warms the first one and proves at image-build time that the toolchain

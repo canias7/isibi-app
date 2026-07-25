@@ -31,7 +31,9 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const APP = process.env.APP_DIR || '/app'
 const SRC = path.join(APP, 'src')
 const DIST = path.join(APP, 'dist')
+const PUBLIC = path.join(APP, 'public')
 const TEMPLATE_SRC = path.join(APP, '.template-src')
+const TEMPLATE_PUBLIC = path.join(APP, '.template-public')
 const MAX_BODY = 12 * 1024 * 1024
 const BUILD_TIMEOUT = 120_000
 const TSR_TIMEOUT = 30_000
@@ -47,7 +49,10 @@ export function safeRel(rel) {
   if (!p || p.startsWith('/') || p.includes('..')) return null
   if (p === 'package.json' || p.startsWith('node_modules')) return null
   if (p === 'src/routeTree.gen.ts') return null
-  if (!/^(index\.html|vite\.config\.ts|isibi\.schema\.json|src\/.+)$/.test(p)) return null
+  // public/ is allowed only for the three generated text assets. Vite copies public/ into dist
+  // verbatim and without transforming it, so a wide allowlist here would be an unreviewed path
+  // straight onto the published site.
+  if (!/^(index\.html|vite\.config\.ts|isibi\.schema\.json|src\/.+|public\/[\w-]+\.(?:xml|txt|svg))$/.test(p)) return null
   return p
 }
 
@@ -61,6 +66,18 @@ function wipeSrc() {
     if (fs.existsSync(TEMPLATE_SRC)) { fs.cpSync(TEMPLATE_SRC, SRC, { recursive: true }); return }
   } catch {}
   fs.mkdirSync(SRC, { recursive: true })
+}
+
+// public/ needs the same treatment, and for a sharper reason: it is now WRITEABLE (the generated
+// sitemap lands there) and Vite copies it into dist verbatim. Left alone, one site's sitemap.xml
+// survives into the next build and gets published under the wrong domain — pointing a crawler at
+// another customer's URLs.
+function wipePublic() {
+  try { fs.rmSync(PUBLIC, { recursive: true, force: true }) } catch {}
+  try {
+    if (fs.existsSync(TEMPLATE_PUBLIC)) { fs.cpSync(TEMPLATE_PUBLIC, PUBLIC, { recursive: true }); return }
+  } catch {}
+  fs.mkdirSync(PUBLIC, { recursive: true })
 }
 function wipeDist() { try { fs.rmSync(DIST, { recursive: true, force: true }) } catch {} }
 
@@ -233,7 +250,7 @@ export function routeUrlsFrom(dir = path.join(APP, 'src/routes')) {
 }
 
 export async function buildFiles(files, opts = {}) {
-  wipeSrc(); wipeDist()
+  wipeSrc(); wipePublic(); wipeDist()
 
   const written = [], rejected = []
   for (const [rel, src] of Object.entries(files || {})) {

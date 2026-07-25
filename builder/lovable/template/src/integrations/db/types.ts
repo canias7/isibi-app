@@ -6,6 +6,7 @@
 // enum column becomes a literal union.
 
 /** Table name → row type. Empty until this app declares a schema. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- empty is the point: no tables yet
 export interface Tables {}
 
-export type TableName = keyof Tables
+export type TableName = keyof Tables;

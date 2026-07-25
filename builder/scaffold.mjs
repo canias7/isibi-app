@@ -264,7 +264,11 @@ export function dbTypesModule(spec) {
   const tables = (spec && Array.isArray(spec.tables) ? spec.tables : []).filter((t) => t && t.name);
   const head = '// GENERATED from isibi.schema.json — do not edit by hand. Change the schema and this follows.\n';
   if (!tables.length) {
-    return head + '\n// This app declares no tables, so every useResource row stays `any`.\nexport interface Tables {}\n';
+    // The disable comment is not decoration: an empty interface is a lint error under the clone
+    // template's eslint config, so without it a table-less app ships failing its own `npm run lint`.
+    return head + '\n// This app declares no tables, so every useResource row stays `any`.\n' +
+      '// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- empty is the point: no tables yet\n' +
+      'export interface Tables {}\n';
   }
   const blocks = tables.map((t) => {
     const rows = [
