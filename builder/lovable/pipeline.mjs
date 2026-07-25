@@ -29,6 +29,8 @@ import { scaffoldDbTypes } from '../scaffold.mjs'
 
 // Reserves per stage. Pages get whatever is left after the fixed stages are set aside.
 export const RESERVES = { clarify: 700, plan: 1200, schema: 2000, theme: 900, shell: 2200, repair: 4000 }
+// The iterate loop (their step 7). Picking files is cheap; rewriting them is where the budget goes.
+export const REVISE_RESERVES = { pick: 600, edit: 6000, repair: 4000 }
 export const PER_PAGE = 3500
 
 const FILE_RE = /===FILE:\s*(.+?)===\n([\s\S]*?)(?=\n===FILE:|$)/g
@@ -207,6 +209,101 @@ export async function runClonePipeline(brief, cap, deps, opts = {}) {
   }
 }
 
+/**
+ * reviseApp — their step 7, the part a build pipeline alone does not give you.
+ *
+ * After the first build, every follow-up ("make the seats bigger", "add a cancel button") is a
+ * TARGETED EDIT to named files, not a rebuild. Lovable's transcripts show exactly that: a message
+ * arrives, specific files are rewritten, the rest of the app is untouched.
+ *
+ * Two steps rather than one, because handing the model every file to change three lines is both
+ * expensive and a good way to have it rewrite something it was not asked to touch:
+ *   1 pick — given only the file LIST and the request, name the files that must change (cheap)
+ *   2 edit — given the FULL SOURCE of just those files, return complete replacements
+ * Then build, and repair on failure exactly as the first build does.
+ *
+ * Returns the same shape as runClonePipeline, so a caller can treat a build and a revision alike.
+ */
+export async function reviseApp(files, request, cap, deps, opts = {}) {
+  if (!deps || typeof deps.generate !== 'function') return { ok: false, error: 'deps.generate required' }
+  if (!files || !Object.keys(files).length) return { ok: false, error: 'nothing to revise' }
+
+  const trace = []
+  const t = (stage, info) => { const r = { n: trace.length + 1, stage, ...info }; trace.push(r); if (opts.onStage) opts.onStage(r); return r }
+  let spent = 0
+  const remaining = () => Math.max(0, cap - spent)
+  const call = async (stage, system, user, reserve) => {
+    const budget = Math.min(reserve, remaining())
+    if (budget < 300) { t(stage, { skipped: 'budget exhausted', out: 0, remaining: remaining() }); return null }
+    const g = await deps.generate(system, user, budget)
+    spent += g?.usedOut || 0
+    const parsed = parseFiles(g?.text || '')
+    t(stage, { budget, out: g?.usedOut || 0, files: Object.keys(parsed), remaining: remaining() })
+    return { g, files: parsed, text: g?.text || '' }
+  }
+
+  const next = { ...files }
+  // Files the app owns and a revision may touch. The component library and the generated route
+  // tree are off limits — a follow-up about a booking form has no business rewriting Button.
+  const editable = Object.keys(next).filter((f) =>
+    f === 'isibi.schema.json' || f === 'src/styles.css' || /^src\/routes\/.+\.tsx$/.test(f))
+
+  // ── 1. pick ─────────────────────────────────────────────────────────────────
+  const picked = await call('revise-pick',
+    'You are deciding the smallest set of files to change. Return JSON only: {"files":["src/routes/book.tsx"]}. ' +
+    'Name only files that MUST change for the request. Fewer is better — a file you list will be rewritten in full.',
+    `Request: ${request}\n\nFiles you may change:\n${editable.join('\n')}`,
+    REVISE_RESERVES.pick)
+  const asked = safeJson(picked?.text)?.files
+  let targets = Array.isArray(asked) ? asked.filter((f) => editable.includes(f)) : []
+  const refused = Array.isArray(asked) ? asked.filter((f) => !editable.includes(f)) : []
+  if (refused.length) t('revise-pick:refused', { warn: `not editable, ignored: ${refused.join(', ')}`, out: 0, remaining: remaining() })
+  if (!targets.length) {
+    // Better to attempt the likeliest file than to fail silently on an unparseable pick.
+    targets = editable.filter((f) => f.startsWith('src/routes/')).slice(0, 1)
+    t('revise-pick:fallback', { warn: `no usable pick; defaulting to ${targets.join(', ') || 'nothing'}`, out: 0, remaining: remaining() })
+  }
+  if (!targets.length) return { ok: false, error: 'no editable files', files: next, spent, cap, trace }
+
+  // ── 2. edit ─────────────────────────────────────────────────────────────────
+  const rules = buildPageRules({ preferComponents: opts.preferComponents })
+  const edited = await call('revise-edit',
+    `${rules}\n\nYou are editing an app that already works. Change ONLY what the request asks for and ` +
+    'return each changed file COMPLETE — not a diff, not a fragment. Leave everything else exactly as it is.',
+    `Request: ${request}\n\n` +
+    (next['isibi.schema.json'] ? `The database (do not contradict it):\n${next['isibi.schema.json']}\n\n` : '') +
+    `Files to change:\n${dump(Object.fromEntries(targets.map((f) => [f, next[f]])))}`,
+    REVISE_RESERVES.edit)
+
+  const changed = Object.keys(edited?.files || {}).filter((f) => editable.includes(f))
+  for (const f of changed) next[f] = edited.files[f]
+  const ignored = Object.keys(edited?.files || {}).filter((f) => !editable.includes(f))
+  if (ignored.length) t('revise-edit:ignored', { warn: `returned files outside the editable set, discarded: ${ignored.join(', ')}`, out: 0, remaining: remaining() })
+  if (!changed.length) return { ok: false, error: 'the revision returned no usable files', files: next, spent, cap, trace }
+
+  // ── 3. build, repair on failure ─────────────────────────────────────────────
+  let build = { ok: true, skipped: 'no build function supplied' }
+  if (typeof deps.build === 'function') {
+    const attempts = opts.fixAttempts ?? 2
+    for (let i = 0; i <= attempts; i++) {
+      build = await deps.build(next)
+      t('build', { ok: !!build.ok, attempt: i, error: build.ok ? undefined : firstLine(build.error), out: 0, remaining: remaining() })
+      if (build.ok || i === attempts) break
+      const fix = await call(`repair:${i + 1}`,
+        `${rules}\n\nThe build failed after your edit. Return COMPLETE replacement files for ONLY what must change.`,
+        `Error:\n${String(build.error || '').slice(0, 4000)}\n\nFiles:\n${dump(Object.fromEntries(changed.map((f) => [f, next[f]])))}`,
+        REVISE_RESERVES.repair)
+      const fixed = Object.keys(fix?.files || {}).filter((f) => editable.includes(f))
+      if (!fixed.length) break
+      for (const f of fixed) next[f] = fix.files[f]
+    }
+  } else {
+    t('build', { skipped: 'no build function supplied', out: 0, remaining: remaining() })
+  }
+
+  return { ok: !!build.ok, files: next, changed, untouched: Object.keys(files).length - changed.length, spent, cap, remaining: remaining(), build, trace }
+}
+
 const firstLine = (s) => String(s || '').split('\n')[0].slice(0, 200)
 const dump = (files, limit = 60000) =>
   Object.entries(files).map(([p, s]) => `===FILE: ${p}===\n${s}`).join('\n\n').slice(0, limit)
@@ -230,4 +327,4 @@ export function traceSummary(result) {
   return lines.join('\n') + `\n  spent ${result.spent} / cap ${result.cap}`
 }
 
-export default { runClonePipeline, parseFiles, routePath, routeUrl, traceSummary, RESERVES, PER_PAGE }
+export default { runClonePipeline, reviseApp, parseFiles, routePath, routeUrl, traceSummary, RESERVES, REVISE_RESERVES, PER_PAGE }

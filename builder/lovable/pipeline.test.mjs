@@ -145,5 +145,76 @@ console.log('\ndegrades sensibly')
 console.log('\n── trace of the primary run ──')
 console.log(traceSummary(res))
 
+
+// ── the iterate loop (their step 7) ───────────────────────────────────────────
+console.log('\niterate loop — a follow-up edits named files, it does not rebuild')
+{
+  const { reviseApp } = await import('./pipeline.mjs')
+
+  const app = {
+    'isibi.schema.json': '{"tables":[{"name":"bookings"}]}',
+    'src/styles.css': '@theme {}',
+    'src/routes/index.tsx': 'export const Route = 1',
+    'src/routes/book.tsx': 'export const Route = 2',
+    'src/routes/__root.tsx': 'export const Route = 3',
+    'src/components/ui/button.tsx': 'export const Button = 4',   // library — must be off limits
+    'src/routeTree.gen.ts': 'generated',                          // derived — must be off limits
+  }
+
+  const calls = []
+  const mk = ({ pick, edit, failFirstBuild = false } = {}) => {
+    let built = 0
+    return {
+      calls,
+      builtCount: () => built,
+      generate: async (system, user, maxTokens) => {
+        calls.push({ system, user })
+        if (/smallest set of files/.test(system)) return { text: pick ?? '{"files":["src/routes/book.tsx"]}', usedOut: 50 }
+        if (/The build failed after your edit/.test(system)) return { text: '===FILE: src/routes/book.tsx===\nexport const Route = 99\n', usedOut: 80 }
+        return { text: edit ?? '===FILE: src/routes/book.tsx===\nexport const Route = 22\n', usedOut: 120 }
+      },
+      build: async () => { built++; return failFirstBuild && built === 1 ? { ok: false, error: 'TS1005: expected' } : { ok: true } },
+    }
+  }
+
+  const m1 = mk()
+  const r1 = await reviseApp(app, 'Make the seats bigger.', 20000, m1)
+  check('revision succeeded', r1.ok === true)
+  check('it picked files before editing', r1.trace[0].stage === 'revise-pick')
+  check('only the named file changed', JSON.stringify(r1.changed) === '["src/routes/book.tsx"]', JSON.stringify(r1.changed))
+  check('the change landed', r1.files['src/routes/book.tsx'].includes('22'))
+  check('every other file is byte-identical', Object.keys(app).filter((f) => f !== 'src/routes/book.tsx').every((f) => r1.files[f] === app[f]))
+  const pickPrompt = m1.calls[0].user
+  check('the pick step is shown the file list, not the source', !pickPrompt.includes('export const Route'))
+  check('the pick step is not offered the component library', !pickPrompt.includes('components/ui/button'))
+  check('nor the generated route tree', !pickPrompt.includes('routeTree.gen'))
+  const editPrompt = m1.calls[1].user
+  check('the edit step gets the full source of just that file', editPrompt.includes('export const Route = 2') && !editPrompt.includes('export const Route = 1'))
+  check('and is shown the schema so it cannot contradict it', editPrompt.includes('"tables"'))
+
+  // A model asking to rewrite the component library must be refused, not obeyed.
+  const m2 = mk({ pick: '{"files":["src/components/ui/button.tsx","src/routes/book.tsx"]}' })
+  const r2 = await reviseApp(app, 'Restyle everything.', 20000, m2)
+  check('a pick outside the editable set is refused', !r2.changed.includes('src/components/ui/button.tsx'), JSON.stringify(r2.changed))
+  check('and the refusal is recorded', r2.trace.some((s) => s.stage === 'revise-pick:refused'))
+  check('the component library is untouched on disk', r2.files['src/components/ui/button.tsx'] === app['src/components/ui/button.tsx'])
+
+  // Same for an edit step that returns a file it was never allowed to touch.
+  const m3 = mk({ edit: '===FILE: src/routeTree.gen.ts===\nhacked\n\n===FILE: src/routes/book.tsx===\nexport const Route = 33\n' })
+  const r3 = await reviseApp(app, 'Tweak it.', 20000, m3)
+  check('an edit outside the editable set is discarded', r3.files['src/routeTree.gen.ts'] === 'generated')
+  check('while the legitimate edit still applies', r3.files['src/routes/book.tsx'].includes('33'))
+
+  const m4 = mk({ failFirstBuild: true })
+  const r4 = await reviseApp(app, 'Break it then fix it.', 20000, m4)
+  check('a failed build after a revision triggers a repair', r4.trace.some((s) => s.stage.startsWith('repair:')))
+  check('and it rebuilds', m4.builtCount() === 2, `${m4.builtCount()} builds`)
+  check('ending ok', r4.ok === true)
+
+  const r5 = await reviseApp(app, 'x', 20000, mk({ pick: 'not json at all' }))
+  check('an unparseable pick falls back rather than failing', r5.ok === true && r5.changed.length === 1)
+  check('and the fallback is recorded', r5.trace.some((s) => s.stage === 'revise-pick:fallback'))
+}
+
 console.log(failures ? `\n${failures} FAILED\n` : '\nall pipeline checks pass\n')
 process.exit(failures ? 1 : 0)
