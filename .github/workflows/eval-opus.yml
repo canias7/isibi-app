@@ -1,0 +1,61 @@
+# Throwaway head-to-head: Sonnet 5 vs Opus 4.8 on the same 4 heavy prompts (CRM, social, marketplace, course),
+# STREAMING (so slow Opus gens aren't killed by the ~10-min non-streaming ceiling), 32k cap, compile on, DUMP on
+# (prints each output's file list + truncation signals). Triggers on push to eval-opus-run. Delete branch when done.
+name: eval-opus
+
+on:
+  push:
+    branches: [eval-opus-run]
+
+jobs:
+  eval-opus:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Scaffold the build service
+        run: |
+          set -e
+          mkdir -p /tmp/buildapp
+          cp builder/package.json /tmp/buildapp/
+          cp -r builder/template/. /tmp/buildapp/
+          cd /tmp/buildapp
+          npm install --no-audit --no-fund --loglevel=error
+          npx playwright install --with-deps chromium || echo "WARN: chromium install failed (build-only, fine)"
+
+      - name: Start the build service
+        run: |
+          APP_DIR=/tmp/buildapp PORT=8080 node builder/build-server.mjs > /tmp/build-server.log 2>&1 &
+          for i in $(seq 1 20); do curl -sf http://127.0.0.1:8080/health && break || sleep 0.5; done
+          echo "build service up"
+
+      - name: Sonnet 5 (baseline, same prompts, streamed + dumped)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EVAL_MODEL: "claude-sonnet-5"
+          EVAL_ONLY: "2,4,7,21"
+          EVAL_MAX_OUT: "32000"
+          EVAL_STREAM: "1"
+          EVAL_DUMP: "1"
+          EVAL_BUILD: "1"
+          EVAL_VISION: "0"
+          EVAL_REPAIR: "0"
+          BUILD_URL: "http://127.0.0.1:8080"
+        run: node test/pipeline-eval.mjs
+
+      - name: Opus 5 (the hypothesis, same prompts, streamed + dumped)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EVAL_MODEL: "claude-opus-5"
+          EVAL_ONLY: "2,4,7,21"
+          EVAL_MAX_OUT: "32000"
+          EVAL_STREAM: "1"
+          EVAL_DUMP: "1"
+          EVAL_BUILD: "1"
+          EVAL_VISION: "0"
+          EVAL_REPAIR: "0"
+          BUILD_URL: "http://127.0.0.1:8080"
+        run: node test/pipeline-eval.mjs

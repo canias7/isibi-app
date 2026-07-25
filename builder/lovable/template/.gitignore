@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# produced by `tsr generate` before every build
+src/routeTree.gen.ts

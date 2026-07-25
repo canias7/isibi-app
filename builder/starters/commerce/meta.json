@@ -1,0 +1,25 @@
+{
+  "id": "commerce",
+  "title": "Online store",
+  "summary": "Customers browse a product catalogue, add to a cart held in the browser, and check out into an order they can then track. The owner manages products from an admin console.",
+  "tables": [
+    "products",
+    "orders"
+  ],
+  "roles": [
+    "visitor",
+    "member",
+    "admin"
+  ],
+  "covers": [
+    "cart",
+    "coupons",
+    "shipping",
+    "inventory-count"
+  ],
+  "navOrder": [
+    "Shop",
+    "Cart",
+    "Orders"
+  ]
+}

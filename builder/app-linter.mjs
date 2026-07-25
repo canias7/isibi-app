@@ -11,10 +11,25 @@
 //
 // Errors block; warnings advise. The route check is the high-value one the registry unlocks: a generated app
 // that calls an endpoint that doesn't exist is caught before it ever ships.
-import { parseGeneratedFiles, REACT_DEPS } from "./react-gen.mjs";
+import { parseGeneratedFiles, REACT_DEPS, COMPONENT_INVENTORY } from "./react-gen.mjs";
 import { getCapability } from "./capability-registry.mjs";
 
 const ALLOWED_IMPORTS = new Set([...REACT_DEPS, "react-dom/client", "react/jsx-runtime"]);
+// Every rule below scans SOURCE files, and since the TSX migration those are .tsx. The old `/\.jsx?$/` filters
+// silently matched nothing, so the whole linter was inspecting an empty set — it reported "no page under
+// src/pages/" while looking straight at six of them. One shared matcher now, so this cannot drift again.
+const SOURCE = /\.[jt]sx?$/;
+
+// Files the TEMPLATE provides. They are never in a generated file set — the build image already has them — so an
+// import of one resolves even though nothing "emitted" it. Derived from COMPONENT_INVENTORY, which check-kit
+// already guarantees matches the real kit, so this list cannot fall behind the components it describes.
+const TEMPLATE_FILES = new Set([
+  ...[...COMPONENT_INVENTORY.matchAll(/`([A-Z][A-Za-z0-9]*)\.tsx`/g)].map((m) => `src/components/${m[1]}.tsx`),
+  "src/components/Nav.tsx",
+  "src/lib/api.js", "src/lib/auth.tsx", "src/lib/toast.tsx", "src/lib/cx.js",
+  "src/lib/types.ts", "src/lib/useResource.ts", "src/lib/db-types.ts",
+  "src/main.tsx", "src/index.css", "src/routes.ts", "src/App.tsx",
+]);
 const FORBIDDEN_FILES = [/^package\.json$/, /^package-lock\.json$/, /^vite\.config\./, /(^|\/)node_modules\//];
 
 function stripComments(js) {
@@ -30,7 +45,7 @@ function resolves(fromPath, spec, files) {
   for (const p of parts) { if (p === "." || p === "") continue; if (p === "..") stack.pop(); else stack.push(p); }
   const target = stack.join("/");
   const cands = [target, target + ".jsx", target + ".js", target + ".tsx", target + ".ts", target + "/index.jsx", target + "/index.js"];
-  return cands.some((c) => files[c] != null) || /\.(css|svg|png|jpg|json)$/.test(target);
+  return cands.some((c) => files[c] != null || TEMPLATE_FILES.has(c)) || /\.(css|svg|png|jpg|json)$/.test(target);
 }
 
 export function lintGeneratedApp(input, opts = {}) {
@@ -42,13 +57,12 @@ export function lintGeneratedApp(input, opts = {}) {
 
   if (!paths.length) { err("empty", "no files were produced"); return { ok: false, errors, warnings, fileCount: 0 }; }
 
-  // R1 — required files.
+  // R1 — required files. `main.tsx` and `index.css` come from the TEMPLATE and are deliberately absent from a
+  // generated file set, so their absence is not an error — only their presence in a WRONG state would be.
   const has = (re) => paths.some((p) => re.test(p));
   if (!files["index.html"]) err("required-file", "index.html is missing");
-  if (!files["src/main.jsx"]) err("required-file", "src/main.jsx is missing");
-  if (!files["src/App.jsx"]) err("required-file", "src/App.jsx is missing");
-  if (!files["src/index.css"]) err("required-file", "src/index.css is missing");
-  if (!has(/^src\/pages\/.+\.jsx$/)) err("required-file", "no page under src/pages/");
+  if (!files["src/App.tsx"] && !files["src/App.jsx"]) err("required-file", "src/App.tsx is missing (the scaffold generates it)");
+  if (!has(/^src\/pages\/.+\.[jt]sx$/)) err("required-file", "no page under src/pages/");
 
   // R2 — forbidden files.
   for (const p of paths) for (const re of FORBIDDEN_FILES) if (re.test(p)) err("forbidden-file", `must not emit ${p}`);
@@ -57,7 +71,7 @@ export function lintGeneratedApp(input, opts = {}) {
   const html = files["index.html"] || "";
   if (html) {
     if (!/id=["']root["']/.test(html)) err("index-html", "index.html has no <div id=\"root\">");
-    if (!/<script[^>]+type=["']module["'][^>]+src=["'][^"']*main\.jsx["']/.test(html)) err("index-html", "index.html does not load /src/main.jsx as a module");
+    if (!/<script[^>]+type=["']module["'][^>]+src=["'][^"']*main\.[jt]sx["']/.test(html)) err("index-html", "index.html does not load /src/main.tsx as a module");
     if (!/<title>[^<]*\S[^<]*<\/title>/.test(html)) warn("index-html", "index.html has no non-empty <title>");
     if (!/<meta[^>]+name=["']description["']/.test(html)) warn("index-html", "index.html has no <meta name=\"description\">");
     if (/<script[^>]+src=["']https?:/i.test(html) || /<link[^>]+href=["']https?:/i.test(html)) err("external", "index.html loads an external script/stylesheet (not allowed)");
@@ -70,13 +84,14 @@ export function lintGeneratedApp(input, opts = {}) {
   }
 
   // R5 — HashRouter, never BrowserRouter (so refresh works on static hosting).
-  const allJs = paths.filter((p) => /\.jsx?$/.test(p)).map((p) => stripComments(files[p])).join("\n");
+  const allJs = paths.filter((p) => SOURCE.test(p)).map((p) => stripComments(files[p])).join("\n");
   if (/\bBrowserRouter\b/.test(allJs)) err("router", "uses BrowserRouter — must use HashRouter (breaks on refresh under a sub-path)");
-  const main = files["src/main.jsx"] || "";
-  if (main && !/\bHashRouter\b/.test(stripComments(main) + stripComments(files["src/App.jsx"] || ""))) warn("router", "HashRouter not found in main.jsx/App.jsx");
+  // main.tsx is templated (it mounts HashRouter), so only complain when the app actually shipped its own.
+  const main = files["src/main.tsx"] || files["src/main.jsx"] || "";
+  if (main && !/\bHashRouter\b/.test(stripComments(main) + stripComments(files["src/App.tsx"] || files["src/App.jsx"] || ""))) warn("router", "HashRouter not found in main/App");
 
   // R6 — imports resolve to the allow-list or a local file.
-  for (const p of paths.filter((x) => /\.jsx?$/.test(x))) {
+  for (const p of paths.filter((x) => SOURCE.test(x))) {
     const src = stripComments(files[p]);
     for (const m of src.matchAll(/\bimport\s+(?:[^'"]*?\sfrom\s+)?["']([^"']+)["']/g)) {
       const spec = m[1];
@@ -89,7 +104,7 @@ export function lintGeneratedApp(input, opts = {}) {
   // R7 — every ${API}/<segment> call points to a real capability.
   const knownSeg = opts.isKnownSegment || ((seg) => !!getCapability(seg));
   const badRoutes = new Set(), seenRoutes = new Set();
-  for (const p of paths.filter((x) => /\.jsx?$/.test(x))) {
+  for (const p of paths.filter((x) => SOURCE.test(x))) {
     const src = stripComments(files[p]);
     // `${API}/<seg>` (template), `API + '/<seg>'` (concat), and a literal `/api/db/<slug>/<seg>`.
     for (const m of src.matchAll(/\$\{API\}\/([a-z0-9-]+)/g)) { seenRoutes.add(m[1]); if (!knownSeg(m[1])) badRoutes.add(m[1]); }
@@ -99,7 +114,7 @@ export function lintGeneratedApp(input, opts = {}) {
   for (const seg of badRoutes) err("api-route", `calls ${"${API}"}/${seg} but no such capability exists`);
 
   // R8 — fake buttons / dead links (warnings).
-  for (const p of paths.filter((x) => /\.jsx$/.test(x))) {
+  for (const p of paths.filter((x) => SOURCE.test(x))) {
     const src = files[p];
     if (/onClick=\{\s*\(\s*\)\s*=>\s*\{\s*\}\s*\}/.test(src)) warn("fake-button", `${p}: an onClick handler that does nothing`);
     if (/<a\b(?![^>]*onClick)[^>]*href=["']#["']/.test(src)) warn("dead-link", `${p}: <a href="#"> with no onClick (dead link)`);
@@ -109,7 +124,11 @@ export function lintGeneratedApp(input, opts = {}) {
   // R9 — forms + uploads are wired (warnings).
   if (/<form\b/.test(allJs)) {
     if (!/onSubmit=/.test(allJs)) warn("form", "a <form> exists but no onSubmit handler is defined");
-    if (!/method:\s*["'](POST|PUT|PATCH)["']|fetch\([^)]*\{[^}]*method/i.test(allJs) && !/fetch\(/.test(allJs)) warn("form", "forms present but no write (POST/PUT/PATCH) fetch found");
+    // A write is now normally `create(...)`/`update(...)` from useResource rather than a raw fetch, so looking
+    // only for fetch flagged every correctly-written page.
+    const writes = /method:\s*["'](POST|PUT|PATCH)["']|fetch\([^)]*\{[^}]*method/i.test(allJs) || /\bfetch\(/.test(allJs)
+      || /\buse(Resource|Record)\s*\(/.test(allJs) || /\bapi\.(post|patch|del)\(/.test(allJs);
+    if (!writes) warn("form", "forms present but nothing writes — no useResource create/update and no POST fetch");
   }
   if (/type=["']file["']/.test(allJs) && !/\$\{API\}\/(save|upload)/.test(allJs)) warn("upload", "a file input exists but nothing posts to /save or /upload");
 

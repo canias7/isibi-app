@@ -16,6 +16,8 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 // NOTE: vision-render (Playwright) is loaded LAZILY inside /critique — never at startup — so the build service
 // starts and serves /build even if Playwright/Chromium aren't present. /critique degrades to {ok:false} then.
 
@@ -37,7 +39,18 @@ function safeRel(rel) {
   return p;
 }
 
-function wipeSrc() { try { fs.rmSync(SRC, { recursive: true, force: true }); } catch {} fs.mkdirSync(SRC, { recursive: true }); }
+// Reset src/ for a fresh build. src/ must be wiped so one site's pages can't leak into the next, but the shipped
+// UI kit (components/, lib/, main.jsx, index.css) lives there too — so restore it from the pristine copy the image
+// baked at /app/.template-src. Without this the generated pages import components that no longer exist and every
+// build fails to compile. Falls back to an empty src/ if the copy is missing (older image).
+const TEMPLATE_SRC = path.join(APP, ".template-src");
+function wipeSrc() {
+  try { fs.rmSync(SRC, { recursive: true, force: true }); } catch {}
+  try {
+    if (fs.existsSync(TEMPLATE_SRC)) { fs.cpSync(TEMPLATE_SRC, SRC, { recursive: true }); return; }
+  } catch {}
+  fs.mkdirSync(SRC, { recursive: true });
+}
 function wipeDist() { try { fs.rmSync(DIST, { recursive: true, force: true }); } catch {} }
 
 function runBuild() {
@@ -50,6 +63,120 @@ function runBuild() {
     child.on("close", (code) => { clearTimeout(to); resolve({ code, err: (err + "\n" + out).trim() }); });
     child.on("error", (e) => { clearTimeout(to); resolve({ code: -1, err: String(e && e.message || e) }); });
   });
+}
+
+// ADVISORY type check. Vite/esbuild strips types without checking them, so tsc is the only thing that
+// actually enforces the kit's prop contracts. It runs AFTER a successful build and its findings are returned
+// for the repair loop to act on — it can NEVER fail a build. A customer getting nothing because of a type
+// error is a worse outcome than a shipped app with a type error in it.
+const TSC_TIMEOUT = 45_000;
+function runTypecheck() {
+  return new Promise((resolve) => {
+    if (!fs.existsSync(path.join(APP, "tsconfig.json"))) return resolve({ ran: false, errors: [] });
+    const child = spawn("npx", ["tsc", "--noEmit", "--pretty", "false"], { cwd: APP, env: { ...process.env } });
+    let out = "";
+    child.stdout.on("data", (d) => { out += d; });
+    child.stderr.on("data", (d) => { out += d; });
+    const to = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} resolve({ ran: false, errors: [], note: "typecheck timed out" }); }, TSC_TIMEOUT);
+    child.on("close", () => {
+      clearTimeout(to);
+      const errors = out.split("\n")
+        .filter((l) => /error TS\d+/.test(l))
+        // The router is code-generated after this runs, so its absence is expected, not a finding.
+        .filter((l) => !/Cannot find module '\.\.?\/(routes|App)/.test(l))
+        .slice(0, 40);
+      resolve({ ran: true, errors });
+    });
+    child.on("error", () => { clearTimeout(to); resolve({ ran: false, errors: [] }); });
+  });
+}
+
+// ── RUNTIME SMOKE CHECK ───────────────────────────────────────────────────────
+// esbuild does not resolve names, so a page that references an undefined variable compiles perfectly
+// and then white-screens in the browser. The build reports ok:true and the customer gets a blank
+// page. Every route is loaded headlessly here instead, and anything thrown is returned for the fix
+// loop — ADVISORY, exactly like the typecheck: a customer getting nothing is worse than a customer
+// getting an app with one broken page, so this can never fail a build on its own.
+
+/**
+ * The hash URLs the built app actually serves, read from the GENERATED src/routes.ts rather than
+ * re-deriving them. That file is the router's own source of truth, so the two cannot disagree.
+ */
+export function routeUrlsFrom(src = SRC) {
+  const f = path.join(src, "routes.ts");
+  if (!fs.existsSync(f)) return ["/"];
+  const urls = [...fs.readFileSync(f, "utf8").matchAll(/to:\s*'([^']*)'/g)].map((m) => m[1]).filter(Boolean);
+  return urls.length ? [...new Set(urls)] : ["/"];
+}
+
+/**
+ * Is this console error a real fault, or the smoke check's own environment?
+ *
+ * React 19 does NOT rethrow a render error to window.onerror — it logs it — and the app shell still
+ * renders around the hole, so neither "did anything throw" nor "did anything mount" catches the
+ * commonest white-screen. A console error carrying a real exception name is the reliable signal.
+ * The check runs with no backend reachable, so a data-driven page will always fail its requests;
+ * those are expected and must not be reported as faults.
+ */
+export function isRealRuntimeError(text) {
+  const line = String(text || "").split("\n")[0];
+  if (!/^(?:Uncaught\s+)?(?:[A-Z]\w*)?Error: /.test(line)) return false;
+  return !/Failed to fetch|NetworkError|ERR_|net::|fetch failed|Load failed|401|403|404/i.test(line);
+}
+
+async function smokeTest(dist) {
+  let chromium, dir, served, browser;
+  // Resolve from the APP, then from here. `createRequire(import.meta.url)` alone resolves upward
+  // from THIS file, so in any layout where the deps live with the app rather than beside the
+  // service — the eval runner, a scaffolded /tmp/buildapp — the package is never found and the
+  // check silently reports itself skipped. That is the fourth time this exact resolution mistake
+  // has hidden the smoke check, and the first one caught by an actual run rather than by reading.
+  for (const root of [APP, path.dirname(fileURLToPath(import.meta.url))]) {
+    try { ({ chromium } = createRequire(path.join(root, "package.json"))("playwright-core")); break; } catch {}
+  }
+  if (!chromium) { try { ({ chromium } = createRequire(import.meta.url)("playwright-core")); } catch {} }
+  if (!chromium) return { ran: false, reason: `playwright-core not resolvable from ${APP}`, errors: [] };
+  try {
+    dir = writeDistToTemp(dist);
+    served = await serveDir(dir);
+    const { chromiumExecutable } = await import("./vision-render.mjs");
+    browser = await chromium.launch({ executablePath: chromiumExecutable(), args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+    const errors = [];
+    // ONE PAGE PER ROUTE. Sharing a page looks cheaper and is wrong: this is a hash-routed SPA, so
+    // a second goto only changes the route — the document is never reloaded. When React dies on one
+    // route the root stays unmounted, and EVERY later route then reports "rendered nothing". A real
+    // run showed exactly that: one genuine crash on /credit-limit produced three more findings on
+    // routes that were fine, and the crash was attributed by reading the CURRENT hash, so the
+    // labelling drifted too. Isolation costs a browser page and buys a trustworthy result.
+    for (const url of routeUrlsFrom()) {
+      const page = await browser.newPage();
+      const here = [];
+      page.on("pageerror", (e) => here.push(String(e).split("\n")[0]));
+      page.on("console", (m) => { if (m.type() === "error" && isRealRuntimeError(m.text())) here.push(m.text().split("\n")[0].slice(0, 200)); });
+      // Webfonts are not reachable from the build sandbox; a hanging request would look like a
+      // broken app rather than a missing network.
+      await page.route("**://fonts.googleapis.com/**", (r) => r.fulfill({ status: 200, contentType: "text/css", body: "" }));
+      await page.route("**://fonts.gstatic.com/**", (r) => r.fulfill({ status: 200, body: "" }));
+      // The backend does not exist here. Left to fail, every data-driven page sits in its loading
+      // state and "mounted empty" fires on pages that are perfectly fine. An empty result set is
+      // the honest stand-in: the page gets data, renders its empty state, and a page that STILL
+      // renders nothing is genuinely broken.
+      await page.route("**/api/db/**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ rows: [], total: 0 }) }));
+      await page.goto(`${served.url}/#${url}`, { waitUntil: "load", timeout: 15000 }).catch(() => {});
+      await page.waitForTimeout(400);
+      const empty = await page.evaluate(() => (document.getElementById("root")?.textContent || "").trim().length === 0).catch(() => false);
+      if (empty) here.push("rendered nothing — the page mounted empty");
+      for (const e of [...new Set(here)]) errors.push(`${url}: ${e}`);
+      await page.close().catch(() => {});
+    }
+    return { ran: true, errors: errors.slice(0, 20) };
+  } catch (e) {
+    return { ran: false, reason: String((e && e.message) || e).slice(0, 200), errors: [] };
+  } finally {
+    try { if (browser) await browser.close(); } catch {}
+    try { if (served) await served.close(); } catch {}
+    try { if (dir) fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+  }
 }
 
 function collectDist(dir = DIST, base = "") {
@@ -156,11 +283,19 @@ const server = http.createServer((req, res) => {
       if (r.code !== 0) return send(res, 200, { ok: false, error: (r.err || "build failed").slice(0, 4000) });
       const dist = collectDist();
       if (!dist["index.html"]) return send(res, 200, { ok: false, error: "build produced no index.html" });
-      return send(res, 200, { ok: true, files: dist });
+      // Both advisory — the build already succeeded, so `ok` stays true whatever these say. The
+      // smoke check catches what tsc cannot: a page that compiles and then throws in the browser.
+      const types = await runTypecheck();
+      const smoke = payload.smoke === false ? { ran: false, reason: "disabled by caller", errors: [] } : await smokeTest(dist);
+      return send(res, 200, { ok: true, files: dist, typeErrors: types.errors, typecheckRan: types.ran, runtimeErrors: smoke.errors, smokeRan: smoke.ran, smokeReason: smoke.reason });
     } catch (e) {
       return send(res, 200, { ok: false, error: String(e && e.message || e).slice(0, 2000) });
     }
   });
 });
-const PORT = process.env.PORT || 8080;
-server.listen(PORT, () => console.log("isibi build-service on :" + PORT));
+// NO_SERVER lets a test import this module for its pure helpers (route derivation, the console-error
+// filter) without binding a port — two test runs in CI would otherwise collide on 8080.
+if (process.env.NO_SERVER !== "1") {
+  const PORT = process.env.PORT || 8080;
+  server.listen(PORT, () => console.log("isibi build-service on :" + PORT));
+}

@@ -3,12 +3,14 @@
 // call. Bundled by wrangler at deploy (see package.json).
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { Container, getContainer } from "@cloudflare/containers";
-import { parseGeneratedFiles, REACT_RULES, REACT_FIX_RULES, REACT_REVISE_RULES, SCHEMA_REPAIR_RULES, WIRING_REPAIR_RULES } from "./builder/react-gen.mjs";
+import { parseGeneratedFiles, REACT_RULES, REACT_FIX_RULES, REACT_REVISE_RULES, SCHEMA_FIRST_RULES, SCHEMA_REPAIR_RULES, WIRING_REPAIR_RULES } from "./builder/react-gen.mjs";
+import { matchStarter, getStarter, starterFiles, starterBrief } from "./builder/starters.mjs";
 import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis, eoqCalc, breakevenCalc, demandForecast, installmentPlan, taxCalc, commissionCalc } from "./worker-finance.mjs";
 // Generation meta-layers (Worker-safe: no node:/Playwright imports). Used only behind the PIPELINE_V2 flag to
 // enrich the build prompt (plan + design + the relevant capability slice) and lint the generated app pre-build.
 import { planApp, specToPrompt } from "./builder/app-planner.mjs";
-import { pickStyleFamily, designBrief, tokensToTailwindTheme } from "./builder/design-system.mjs";
+import { pickStyleFamily, getStyleFamily, designBrief, tokensToTailwindTheme } from "./builder/design-system.mjs";
+import { scaffoldRouting, scaffoldTheme, scaffoldDbTypes, scaffoldAgentsMd } from "./builder/scaffold.mjs";
 import { capabilityPrompt } from "./builder/capability-registry.mjs";
 import { lintGeneratedApp } from "./builder/app-linter.mjs";
 // Worker-safe vision-critique functions (fetch + JSON only; the Playwright render lives in the build container).
@@ -22,6 +24,13 @@ import { buildProjectMemory, memoryToPromptLine } from "./builder/project-memory
 // Multi-agent generation — behind MULTI_AGENT, a contract-first parallel fan-out (design/backend/shell/per-page
 // agents, each routed to its model via the Auto/Sonnet/Opus picker) instead of one single-shot stream.
 import { runMultiAgent } from "./builder/multi-agent.mjs";
+import { runChunkedBuild } from "./builder/chunked-build.mjs";
+// Effort ladder (1→5) for the builder composer. Levels 1–4 are single-shot with a rising
+// tokens-out ceiling; level 5 ("max") is the trip-wire that fans out to multi-agent (routed
+// by the model picker). Keys must match public/chat.js BUILD_EFFORTS. `max`'s 32000 is only
+// the single-shot FALLBACK used when the multi-agent flag is off.
+const RB_EFFORT_OUT = { low: 8000, medium: 14000, high: 22000, ultra: 32000, max: 32000 };
+const rbEffortKey = (v) => (RB_EFFORT_OUT[String(v || "").toLowerCase()] ? String(v).toLowerCase() : "high");
 // Game builder (Phase 3): same generate→build→publish pipeline, engine swapped for
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
@@ -3053,7 +3062,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: !!(def.requireVerified || def.verifiedOnly || def.emailVerified), audit: !!(def.audit || def.auditLog || def.changelog), history: !!(def.history || def.versions || def.snapshots || def.revisions), archivable: !!(def.archivable || def.archive), sync: !!(def.sync || def.syncable || def.offline), searchWeights: (() => { const w = def.searchWeights || def.searchRank || def.searchBoost; if (!w || typeof w !== "object" || Array.isArray(w)) return null; const out = {}; for (const [k, v] of Object.entries(w)) { const n = Number(v); if (/^[a-z0-9_]{1,40}$/i.test(k) && Number.isFinite(n) && n > 0) out[k.toLowerCase()] = Math.min(n, 100); } return Object.keys(out).length ? out : null; })(), rateLimit: (() => { const n = parseInt(def.rateLimit != null ? def.rateLimit : (def.writeLimit != null ? def.writeLimit : (def.throttle != null ? def.throttle : def.maxPerMinute)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000) : 0; })(), geo: (() => { const g = def.geo || def.location; if (g && typeof g === "object" && g.lat && g.lng) { const la = String(g.lat).toLowerCase(), ln = String(g.lng).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(la) && /^[a-z0-9_]{1,40}$/.test(ln)) return { lat: la, lng: ln }; } return null; })(), transitions: (() => { const raw = def.transitions || def.stateMachine || def.stages; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const out = {}; for (const [col, m] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col) || !m || typeof m !== "object" || Array.isArray(m)) continue; const cm = {}; for (const [from, tos] of Object.entries(m)) { if (String(from).length > 60) continue; const arr = (Array.isArray(tos) ? tos : [tos]).map((x) => String(x)).filter((x) => x.length <= 60).slice(0, 24); if (arr.length) cm[from] = arr; } if (Object.keys(cm).length) out[col.toLowerCase()] = cm; } return Object.keys(out).length ? out : null; })(), formulas: (() => { const src = def.formulas || def.formula || def.calc; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? tpl.trim().split(/\s+/) : null); if (!arr) continue; const toks = arr.filter((x) => (typeof x === "string" || typeof x === "number") && String(x).length <= 40).map(String).slice(0, 24); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), fieldRoles: (() => { const raw = def.fieldRoles || def.fieldSecurity || def.secureFields; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const out = {}; for (const [col, roles] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col)) continue; const arr = (Array.isArray(roles) ? roles : [roles]).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)).slice(0, 24); if (arr.length) out[col.toLowerCase()] = arr; } return Object.keys(out).length ? out : null; })(), teamRead: !!(def.teamRead || def.teamVisible || def.managerRead || def.hierarchyRead), currency: (() => { const c = def.currency || def.money || def.multiCurrency; if (!c || typeof c !== "object" || Array.isArray(c)) return null; const amount = String(c.amount || c.value || c.field || "").toLowerCase(); const code = String(c.code || c.currency || c.currencyField || c.codeField || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(amount) || !/^[a-z0-9_]{1,40}$/.test(code)) return null; const base = String(c.base || c.baseCurrency || "USD").toUpperCase().slice(0, 8); if (!/^[A-Z]{2,8}$/.test(base)) return null; const rates = {}; const raw = c.rates || c.rate; if (raw && typeof raw === "object" && !Array.isArray(raw)) { for (const [k, v] of Object.entries(raw)) { const cc = String(k).toUpperCase(); const n = Number(v); if (/^[A-Z]{2,8}$/.test(cc) && Number.isFinite(n) && n > 0) rates[cc] = n; } } rates[base] = 1; let as = String(c.as || c.into || (amount + "_base")).toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(as)) as = amount + "_base"; return { amount, code, base, rates, as }; })(), approval: (() => { const a = def.approval || def.approvals || def.signoff; if (!a || typeof a !== "object" || Array.isArray(a)) return null; const src = Array.isArray(a.approvers) ? a.approvers : (Array.isArray(a.roles) ? a.roles : [a.approvers || a.roles]); const approvers = src.map((x) => String(x == null ? "" : x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)); const uniq = [...new Set(approvers)].slice(0, 12); if (!uniq.length) return null; let status = String(a.status || a.field || a.statusField || "approval_status").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(status)) status = "approval_status"; return { approvers: uniq, status }; })(), sequence: (() => { const s = def.sequence || def.autoNumber || def.recordNumber || def.numbering; if (!s || typeof s !== "object" || Array.isArray(s)) return null; const field = String(s.field || s.column || s.into || "number").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(field)) return null; let prefix = String(s.prefix == null ? "" : s.prefix).slice(0, 16); if (!/^[A-Za-z0-9_\-\/#.]*$/.test(prefix)) prefix = ""; let pad = parseInt(s.pad != null ? s.pad : s.padding, 10); pad = (Number.isFinite(pad) && pad > 0) ? Math.min(pad, 12) : 0; let start = parseInt(s.start != null ? s.start : s.from, 10); start = Number.isFinite(start) ? start : 1; return { field, prefix, pad, start }; })(), roundRobin: (() => { const r = def.roundRobin || def.autoAssign || def.leadRouting || def.assignRoundRobin; if (!r) return null; const src = r === true ? ["user"] : (Array.isArray(r) ? r : (Array.isArray(r.among) ? r.among : (Array.isArray(r.roles) ? r.roles : [r.among || r.roles || r.role]))); const among = src.map((x) => String(x == null ? "" : x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)); const uniq = [...new Set(among)].slice(0, 24); return uniq.length ? { among: uniq } : null; })(), assignBy: (() => { const a = def.assignBy || def.territory || def.assignmentRules || def.routeBy; if (!a || typeof a !== "object" || Array.isArray(a)) return null; const field = String(a.field || a.on || a.by || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(field)) return null; const rawMap = a.map || a.rules || a.routes; const map = {}; if (rawMap && typeof rawMap === "object" && !Array.isArray(rawMap)) { for (const [k, v] of Object.entries(rawMap)) { const key = String(k).toLowerCase().trim(); const val = String(v == null ? "" : v).trim(); if (key && val && (/^\d+$/.test(val) || val.includes("@")) && val.length <= 120) map[key] = val; } } if (!Object.keys(map).length) return null; const d0 = a.default != null ? String(a.default).trim() : ""; const dfl = (d0 && (/^\d+$/.test(d0) || d0.includes("@")) && d0.length <= 120) ? d0 : null; return { field, map, default: dfl }; })(), sla: (() => { const s = def.sla || def.deadline || def.responseTime; if (!s || typeof s !== "object" || Array.isArray(s)) return null; const mins = slaMinutes(s.mins != null ? s.mins : (s.within != null ? s.within : (s.minutes != null ? s.minutes : s.duration))); if (!mins) return null; let start = String(s.start || s.from || s.since || "created_at").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(start)) start = "created_at"; let doneField = null, doneValues = null; const d = s.done || s.until || s.stopWhen; if (d && typeof d === "object" && !Array.isArray(d)) { const df = String(d.field || d.column || "").toLowerCase(); const vals = (Array.isArray(d.values) ? d.values : (d.value != null ? [d.value] : [])).map((x) => String(x)).filter((x) => x.length <= 60).slice(0, 24); if (/^[a-z0-9_]{1,40}$/.test(df) && vals.length) { doneField = df; doneValues = vals; } } let escalate = null; const e = s.escalate || s.then || s.onBreach; if (e && typeof e === "object" && !Array.isArray(e)) { const to0 = e.to != null ? String(e.to).trim() : ""; const toV = (to0 && (/^\d+$/.test(to0) || to0.includes("@")) && to0.length <= 120) ? to0 : null; const ef = String(e.field || e.column || "").toLowerCase(); const efV = /^[a-z0-9_]{1,40}$/.test(ef) ? ef : null; const ev = e.value != null ? String(e.value).slice(0, 120) : null; const hasField = !!(efV && ev != null); if (toV || hasField) escalate = { to: toV, field: hasField ? efV : null, value: hasField ? ev : null }; } return { start, mins, doneField, doneValues, escalate }; })(), mask: (() => { const m = def.mask || def.maskFields; if (!m || typeof m !== "object" || Array.isArray(m)) return null; const out = {}; for (const [col, cfg] of Object.entries(m)) { if (!/^[a-z0-9_]{1,40}$/i.test(col)) continue; const c = (cfg && typeof cfg === "object" && !Array.isArray(cfg)) ? cfg : {}; const roles = (Array.isArray(c.roles) ? c.roles : []).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)).slice(0, 24); let keep = parseInt(c.keep != null ? c.keep : c.show, 10); keep = (Number.isFinite(keep) && keep >= 0) ? Math.min(keep, 12) : 4; const char = (String(c.char || "•").slice(0, 1)) || "•"; out[col.toLowerCase()] = { roles, keep, char }; } return Object.keys(out).length ? out : null; })(), jsonShapes: (() => { const raw = def.jsonShapes || def.jsonShape || def.shapes; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const TYPES = new Set(["string", "number", "boolean", "array", "object"]); const out = {}; for (const [col, shape] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col) || !shape || typeof shape !== "object" || Array.isArray(shape)) continue; const fields = {}; for (const [f, ty] of Object.entries(shape)) { const t2 = String(ty).toLowerCase(); if (/^[a-z0-9_]{1,40}$/i.test(f) && TYPES.has(t2)) fields[f] = t2; } if (Object.keys(fields).length) out[col.toLowerCase()] = fields; } return Object.keys(out).length ? out : null; })(), fts: (() => { const x = def.fts || def.fullText || def.fullTextSearch; if (x === true || x === 1) return true; if (Array.isArray(x)) { const cols = x.map((c) => String(c).toLowerCase()).filter((c) => /^[a-z0-9_]{1,40}$/.test(c)).slice(0, 12); return cols.length ? cols : null; } return null; })(), webhooks: (() => { const w = def.webhooks || def.emitEvents || def.fireWebhooks; if (w === true || w === 1) return true; if (Array.isArray(w)) { const acts = [...new Set(w.map((a) => String(a).toLowerCase()).filter((a) => ["created", "updated", "deleted"].includes(a)))]; return acts.length ? acts : null; } return null; })(), teamScope: !!(def.teamScope || def.teamShared || def.sharedTeam || def.teamData) });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: !!(def.requireVerified || def.verifiedOnly || def.emailVerified), audit: !!(def.audit || def.auditLog || def.changelog), history: !!(def.history || def.versions || def.snapshots || def.revisions), archivable: !!(def.archivable || def.archive), sync: !!(def.sync || def.syncable || def.offline), searchWeights: (() => { const w = def.searchWeights || def.searchRank || def.searchBoost; if (!w || typeof w !== "object" || Array.isArray(w)) return null; const out = {}; for (const [k, v] of Object.entries(w)) { const n = Number(v); if (/^[a-z0-9_]{1,40}$/i.test(k) && Number.isFinite(n) && n > 0) out[k.toLowerCase()] = Math.min(n, 100); } return Object.keys(out).length ? out : null; })(), rateLimit: (() => { const n = parseInt(def.rateLimit != null ? def.rateLimit : (def.writeLimit != null ? def.writeLimit : (def.throttle != null ? def.throttle : def.maxPerMinute)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000) : 0; })(), geo: (() => { const g = def.geo || def.location; if (g && typeof g === "object" && g.lat && g.lng) { const la = String(g.lat).toLowerCase(), ln = String(g.lng).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(la) && /^[a-z0-9_]{1,40}$/.test(ln)) return { lat: la, lng: ln }; } return null; })(), transitions: (() => { const raw = def.transitions || def.stateMachine || def.stages; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const out = {}; for (const [col, m] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col) || !m || typeof m !== "object" || Array.isArray(m)) continue; const cm = {}; for (const [from, tos] of Object.entries(m)) { if (String(from).length > 60) continue; const arr = (Array.isArray(tos) ? tos : [tos]).map((x) => String(x)).filter((x) => x.length <= 60).slice(0, 24); if (arr.length) cm[from] = arr; } if (Object.keys(cm).length) out[col.toLowerCase()] = cm; } return Object.keys(out).length ? out : null; })(), formulas: (() => { const src = def.formulas || def.formula || def.calc; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? tpl.trim().split(/\s+/) : null); if (!arr) continue; const toks = arr.filter((x) => (typeof x === "string" || typeof x === "number") && String(x).length <= 40).map(String).slice(0, 24); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), fieldRoles: (() => { const raw = def.fieldRoles || def.fieldSecurity || def.secureFields; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const out = {}; for (const [col, roles] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col)) continue; const arr = (Array.isArray(roles) ? roles : [roles]).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)).slice(0, 24); if (arr.length) out[col.toLowerCase()] = arr; } return Object.keys(out).length ? out : null; })(), teamRead: !!(def.teamRead || def.teamVisible || def.managerRead || def.hierarchyRead), currency: (() => { const c = def.currency || def.money || def.multiCurrency; if (!c || typeof c !== "object" || Array.isArray(c)) return null; const amount = String(c.amount || c.value || c.field || "").toLowerCase(); const code = String(c.code || c.currency || c.currencyField || c.codeField || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(amount) || !/^[a-z0-9_]{1,40}$/.test(code)) return null; const base = String(c.base || c.baseCurrency || "USD").toUpperCase().slice(0, 8); if (!/^[A-Z]{2,8}$/.test(base)) return null; const rates = {}; const raw = c.rates || c.rate; if (raw && typeof raw === "object" && !Array.isArray(raw)) { for (const [k, v] of Object.entries(raw)) { const cc = String(k).toUpperCase(); const n = Number(v); if (/^[A-Z]{2,8}$/.test(cc) && Number.isFinite(n) && n > 0) rates[cc] = n; } } rates[base] = 1; let as = String(c.as || c.into || (amount + "_base")).toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(as)) as = amount + "_base"; return { amount, code, base, rates, as }; })(), approval: (() => { const a = def.approval || def.approvals || def.signoff; if (!a || typeof a !== "object" || Array.isArray(a)) return null; const src = Array.isArray(a.approvers) ? a.approvers : (Array.isArray(a.roles) ? a.roles : [a.approvers || a.roles]); const approvers = src.map((x) => String(x == null ? "" : x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)); const uniq = [...new Set(approvers)].slice(0, 12); if (!uniq.length) return null; let status = String(a.status || a.field || a.statusField || "approval_status").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(status)) status = "approval_status"; return { approvers: uniq, status }; })(), sequence: (() => { const s = def.sequence || def.autoNumber || def.recordNumber || def.numbering; if (!s || typeof s !== "object" || Array.isArray(s)) return null; const field = String(s.field || s.column || s.into || "number").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(field)) return null; let prefix = String(s.prefix == null ? "" : s.prefix).slice(0, 16); if (!/^[A-Za-z0-9_\-\/#.]*$/.test(prefix)) prefix = ""; let pad = parseInt(s.pad != null ? s.pad : s.padding, 10); pad = (Number.isFinite(pad) && pad > 0) ? Math.min(pad, 12) : 0; let start = parseInt(s.start != null ? s.start : s.from, 10); start = Number.isFinite(start) ? start : 1; return { field, prefix, pad, start }; })(), roundRobin: (() => { const r = def.roundRobin || def.autoAssign || def.leadRouting || def.assignRoundRobin; if (!r) return null; const src = r === true ? ["user"] : (Array.isArray(r) ? r : (Array.isArray(r.among) ? r.among : (Array.isArray(r.roles) ? r.roles : [r.among || r.roles || r.role]))); const among = src.map((x) => String(x == null ? "" : x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)); const uniq = [...new Set(among)].slice(0, 24); return uniq.length ? { among: uniq } : null; })(), assignBy: (() => { const a = def.assignBy || def.territory || def.assignmentRules || def.routeBy; if (!a || typeof a !== "object" || Array.isArray(a)) return null; const field = String(a.field || a.on || a.by || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(field)) return null; const rawMap = a.map || a.rules || a.routes; const map = {}; if (rawMap && typeof rawMap === "object" && !Array.isArray(rawMap)) { for (const [k, v] of Object.entries(rawMap)) { const key = String(k).toLowerCase().trim(); const val = String(v == null ? "" : v).trim(); if (key && val && (/^\d+$/.test(val) || val.includes("@")) && val.length <= 120) map[key] = val; } } if (!Object.keys(map).length) return null; const d0 = a.default != null ? String(a.default).trim() : ""; const dfl = (d0 && (/^\d+$/.test(d0) || d0.includes("@")) && d0.length <= 120) ? d0 : null; return { field, map, default: dfl }; })(), sla: (() => { const s = def.sla || def.deadline || def.responseTime; if (!s || typeof s !== "object" || Array.isArray(s)) return null; const mins = slaMinutes(s.mins != null ? s.mins : (s.within != null ? s.within : (s.minutes != null ? s.minutes : s.duration))); if (!mins) return null; let start = String(s.start || s.from || s.since || "created_at").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(start)) start = "created_at"; let doneField = null, doneValues = null; const d = s.done || s.until || s.stopWhen; if (d && typeof d === "object" && !Array.isArray(d)) { const df = String(d.field || d.column || "").toLowerCase(); const vals = (Array.isArray(d.values) ? d.values : (d.value != null ? [d.value] : [])).map((x) => String(x)).filter((x) => x.length <= 60).slice(0, 24); if (/^[a-z0-9_]{1,40}$/.test(df) && vals.length) { doneField = df; doneValues = vals; } } let escalate = null; const e = s.escalate || s.then || s.onBreach; if (e && typeof e === "object" && !Array.isArray(e)) { const to0 = e.to != null ? String(e.to).trim() : ""; const toV = (to0 && (/^\d+$/.test(to0) || to0.includes("@")) && to0.length <= 120) ? to0 : null; const ef = String(e.field || e.column || "").toLowerCase(); const efV = /^[a-z0-9_]{1,40}$/.test(ef) ? ef : null; const ev = e.value != null ? String(e.value).slice(0, 120) : null; const hasField = !!(efV && ev != null); if (toV || hasField) escalate = { to: toV, field: hasField ? efV : null, value: hasField ? ev : null }; } return { start, mins, doneField, doneValues, escalate }; })(), mask: (() => { const m = def.mask || def.maskFields; if (!m || typeof m !== "object" || Array.isArray(m)) return null; const out = {}; for (const [col, cfg] of Object.entries(m)) { if (!/^[a-z0-9_]{1,40}$/i.test(col)) continue; const c = (cfg && typeof cfg === "object" && !Array.isArray(cfg)) ? cfg : {}; const roles = (Array.isArray(c.roles) ? c.roles : []).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)).slice(0, 24); let keep = parseInt(c.keep != null ? c.keep : c.show, 10); keep = (Number.isFinite(keep) && keep >= 0) ? Math.min(keep, 12) : 4; const char = (String(c.char || "•").slice(0, 1)) || "•"; out[col.toLowerCase()] = { roles, keep, char }; } return Object.keys(out).length ? out : null; })(), jsonShapes: (() => { const raw = def.jsonShapes || def.jsonShape || def.shapes; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const TYPES = new Set(["string", "number", "boolean", "array", "object"]); const out = {}; for (const [col, shape] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col) || !shape || typeof shape !== "object" || Array.isArray(shape)) continue; const fields = {}; for (const [f, ty] of Object.entries(shape)) { const t2 = String(ty).toLowerCase(); if (/^[a-z0-9_]{1,40}$/i.test(f) && TYPES.has(t2)) fields[f] = t2; } if (Object.keys(fields).length) out[col.toLowerCase()] = fields; } return Object.keys(out).length ? out : null; })(), fts: (() => { const x = def.fts || def.fullText || def.fullTextSearch; if (x === true || x === 1) return true; if (Array.isArray(x)) { const cols = x.map((c) => String(c).toLowerCase()).filter((c) => /^[a-z0-9_]{1,40}$/.test(c)).slice(0, 12); return cols.length ? cols : null; } return null; })(), webhooks: (() => { const w = def.webhooks || def.emitEvents || def.fireWebhooks; if (w === true || w === 1) return true; if (Array.isArray(w)) { const acts = [...new Set(w.map((a) => String(a).toLowerCase()).filter((a) => ["created", "updated", "deleted"].includes(a)))]; return acts.length ? acts : null; } return null; })(), noOverlap: (() => { /* INTERVAL exclusivity: no two live rows may occupy overlapping [start,end) ranges within the same group. A partial UNIQUE index only catches EXACT collisions, which is wrong the moment services have different lengths — a 60-minute booking at 10:00 and a 30-minute one at 10:30 are distinct (date,time) pairs and both would be accepted. Enforced as a single atomic INSERT..WHERE NOT EXISTS, so it is race-free rather than a check-then-write. */ const o = def.noOverlap || def.noDoubleBooking || def.exclusive; if (!o || typeof o !== "object" || Array.isArray(o)) return null; const start = String(o.start || o.from || "").toLowerCase(), end = String(o.end || o.to || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(start) || !/^[a-z0-9_]{1,40}$/.test(end) || start === end) return null; const on = (Array.isArray(o.on) ? o.on : (o.on != null ? [o.on] : [])).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,40}$/.test(x)).slice(0, 4); /* This predicate is a runtime query, not DDL, so the value is a bound parameter and needs no character restriction — unlike the partial-index WHERE above. */ const wm = String(o.where == null ? "" : o.where).match(/^([a-z_][a-z0-9_]{0,40}):(eq|ne):([\s\S]{0,80})$/i); const where = wm ? { col: wm[1].toLowerCase(), op: wm[2].toLowerCase(), val: wm[3] } : null; return { start, end, on, where }; })(), publicView: (() => { /* A PII-filtered, read-only projection of an owner-scoped table, readable by ANYONE. The case it exists for: a booking app whose `bookings` are `user`-scoped, where a visitor must see which slots are taken without seeing who took them. Columns are an explicit allow-list — never a wildcard, never id/owner_id — so a table can only leak exactly what it declares. */ const p = def.publicView || def.publicFields || def.sharedView; if (!p || typeof p !== "object" || Array.isArray(p)) return null; const cols = (Array.isArray(p.columns) ? p.columns : (Array.isArray(p.fields) ? p.fields : [])).map((c) => String(c).toLowerCase()).filter((c) => /^[a-z0-9_]{1,40}$/.test(c) && c !== "owner_id" && c !== "id"); const uniq = [...new Set(cols)].slice(0, 12); if (!uniq.length) return null; const rawW = p.where != null ? (Array.isArray(p.where) ? p.where : [p.where]) : []; const where = rawW.map((w) => String(w)).filter((w) => /^[a-z_][a-z0-9_]{0,40}:(eq|ne|lt|lte|gt|gte|contains|startswith|endswith|in|nin|between|isnull|notnull):[\s\S]{0,80}$/i.test(w)).slice(0, 6); let lim = parseInt(p.limit, 10); lim = (Number.isFinite(lim) && lim > 0) ? Math.min(lim, 2000) : 500; return { columns: uniq, where, limit: lim }; })() });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -3247,16 +3256,35 @@ async function applySiteSchema(env, uuid, spec) {
     {
       const hasOwner = (access === "user" || access === "feed");
       const colSet = new Set(colNames.map((n) => String(n).toLowerCase()));
+      // A group may be a bare column, an array of columns, or {columns:[…], where:"status:eq:confirmed"} —
+      // the last form becomes a PARTIAL unique index. That matters for anything slot-shaped: a plain
+      // UNIQUE(date,time) stops two people booking 10:00, but it also means a CANCELLED booking keeps
+      // occupying the slot forever, because an index does not care about status. Scoping the index to the
+      // rows that actually hold the slot is the difference between "race-free" and "race-free and usable".
+      const partialWhere = (spec) => {
+        // Deliberately only eq/ne against a literal: a partial index's WHERE is baked into DDL, so it cannot
+        // be parameterised and anything richer would mean building SQL out of user text.
+        const m = String(spec || "").match(/^([a-z_][a-z0-9_]{0,40}):(eq|ne):([\s\S]{0,60})$/i);
+        if (!m) return null;
+        const col = m[1].toLowerCase();
+        if (!colSet.has(col)) return null;
+        const val = m[3];
+        if (!/^[\w .:@+/-]{0,60}$/.test(val)) return null; // no quotes, no SQL punctuation
+        return sqlIdent(col) + (m[2].toLowerCase() === "eq" ? " = '" : " <> '") + val + "'";
+      };
       const mkIndexes = async (groups, perUser) => {
         const raw = Array.isArray(groups) ? groups : (groups ? [groups] : []);
-        const many = raw.length && Array.isArray(raw[0]) ? raw : (raw.length ? [raw] : []);
+        const many = raw.length && (Array.isArray(raw[0]) || (raw[0] && typeof raw[0] === "object")) ? raw : (raw.length ? [raw] : []);
         let gi = 0;
         for (const g of many) {
-          const gcols = (Array.isArray(g) ? g : [g]).map((c) => String(c).toLowerCase()).filter((c) => colSet.has(c));
+          const isObj = g && typeof g === "object" && !Array.isArray(g);
+          const src = isObj ? (Array.isArray(g.columns) ? g.columns : [g.columns]) : g;
+          const gcols = (Array.isArray(src) ? src : [src]).map((c) => String(c).toLowerCase()).filter((c) => colSet.has(c));
           if (!gcols.length) continue;
           const idxCols = (perUser && hasOwner ? ["owner_id"] : []).concat(gcols);
+          const where = isObj ? partialWhere(g.where) : null;
           const idxName = sqlIdent("ux_" + t.name + "_" + (perUser ? "u" : "g") + "_" + (gi++));
-          try { await cfD1Query(env, uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + idxName + " ON " + tn + " (" + idxCols.map(sqlIdent).join(",") + ")"); } catch (e) { console.error("unique index failed:", t.name, e && e.detail); }
+          try { await cfD1Query(env, uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + idxName + " ON " + tn + " (" + idxCols.map(sqlIdent).join(",") + ")" + (where ? " WHERE " + where : "")); } catch (e) { console.error("unique index failed:", t.name, e && e.detail); }
         }
       };
       await mkIndexes(t.unique, false);
@@ -3350,7 +3378,7 @@ async function applySiteSchema(env, uuid, spec) {
       } catch (e) { console.error("fts setup failed:", t.name, e && e.detail); }
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, refModes: Object.keys(refModes).length ? refModes : null, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified, audit: !!t.audit, history: !!t.history, archivable: !!t.archivable, sync: !!t.sync, searchWeights: t.searchWeights || null, rateLimit: t.rateLimit || 0, geo: t.geo || null, transitions: t.transitions || null, formulas: t.formulas || null, fieldRoles: t.fieldRoles || null, teamRead: !!t.teamRead, currency: t.currency || null, approval: t.approval || null, sequence: t.sequence || null, roundRobin: t.roundRobin || null, assignBy: t.assignBy || null, sla: t.sla || null, mask: t.mask || null, jsonShapes: t.jsonShapes || null, fts: t.fts || null, webhooks: t.webhooks || null, teamScope: !!t.teamScope });
+    norm.push({ name: t.name, access, columns: colNames, refs, refModes: Object.keys(refModes).length ? refModes : null, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified, audit: !!t.audit, history: !!t.history, archivable: !!t.archivable, sync: !!t.sync, searchWeights: t.searchWeights || null, rateLimit: t.rateLimit || 0, geo: t.geo || null, transitions: t.transitions || null, formulas: t.formulas || null, fieldRoles: t.fieldRoles || null, teamRead: !!t.teamRead, currency: t.currency || null, approval: t.approval || null, sequence: t.sequence || null, roundRobin: t.roundRobin || null, assignBy: t.assignBy || null, sla: t.sla || null, mask: t.mask || null, jsonShapes: t.jsonShapes || null, fts: t.fts || null, webhooks: t.webhooks || null, teamScope: !!t.teamScope, publicView: t.publicView || null, noOverlap: t.noOverlap || null });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -27942,7 +27970,7 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: true, op, affected: ex.changes || 0, soft: !!def.trash });
         } catch (e) { console.error("bulk failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "bulk failed" }, { status: 502 }); }
       }
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|histogram|changes|facets|near|tree|duplicates|overdue|events|validate|profile)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals|notes|timeline|escalate|attach|diff|clone)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|histogram|changes|facets|near|tree|duplicates|overdue|events|validate|profile|public)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals|notes|timeline|escalate|attach|diff|clone)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
@@ -27956,6 +27984,7 @@ async function handleRequest(request, env, ctx) {
         const isEvents = dm[3] === "events";
         const isValidate = dm[3] === "validate";
         const isProfile = dm[3] === "profile";
+        const isPublicView = dm[3] === "public";
         const isIncr = dm[4] === "incr";
         const isRestore = dm[4] === "restore";
         const isTags = dm[4] === "tags";
@@ -27973,7 +28002,7 @@ async function handleRequest(request, env, ctx) {
         const isNotes = dm[4] === "notes";
         const isTimeline = dm[4] === "timeline";
         const isAttach = dm[4] === "attach";
-        const rowId = dm[3] && !["stats", "histogram", "changes", "facets", "near", "tree", "duplicates", "overdue", "events", "validate"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
+        const rowId = dm[3] && !["stats", "histogram", "changes", "facets", "near", "tree", "duplicates", "overdue", "events", "validate", "profile", "public"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
         if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
@@ -28098,13 +28127,32 @@ async function handleRequest(request, env, ctx) {
           const applyVersionedUpdate = async (use, body, scopeSql, scopeParams) => {
             const v = versionBits(def, url, request);
             const setSql = use.map((c) => sqlIdent(c) + "=?").join(",") + v.setFrag + tsFrag;
-            const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + setSql + " WHERE id=?" + scopeSql + v.guardSql, use.map((c) => body[c]).concat([rowId], scopeParams, v.guardParams));
+            // MOVING a row has to respect the interval guard too, or the constraint only holds on creation and a
+            // reschedule can walk straight over someone else's slot. The current row is read first because a
+            // PATCH may move only one end of the range and the other has to come from what is already stored;
+            // the DECISION still happens inside the UPDATE, so two simultaneous moves cannot both win.
+            // (`overlapGuard` is declared further down — it is initialised long before this ever runs.)
+            let ovSql = "", ovParams = [], ovActive = false;
+            const ov = def.noOverlap;
+            if (ov && use.some((c) => c === ov.start || c === ov.end || ov.on.includes(c))) {
+              const cur = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?", [rowId]);
+              if (cur[0]) {
+                const merged = Object.assign({}, cur[0]); for (const c of use) merged[c] = body[c];
+                const g = overlapGuard(merged, rowId);
+                if (g) { ovActive = true; ovSql = " AND NOT EXISTS (" + g.sql + ")"; ovParams = g.params; }
+              }
+            }
+            const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + setSql + " WHERE id=?" + scopeSql + v.guardSql + ovSql, use.map((c) => body[c]).concat([rowId], scopeParams, v.guardParams, ovParams));
             if (ex.changes > 0) { let version; if (v.on) { try { const r = await cfD1Query(env, uuid, 'SELECT "_version" AS v FROM ' + tn + " WHERE id=?", [rowId]); version = r[0] && r[0].v; } catch {} } return { ok: true, version }; }
             if (v.on && v.want != null) { const r = await cfD1Query(env, uuid, 'SELECT "_version" AS v FROM ' + tn + " WHERE id=?" + scopeSql, [rowId].concat(scopeParams)); if (r[0]) return { conflict: r[0].v }; }
+            // The row exists and the only thing that could have stopped the write is the guard — reporting a 404
+            // here would be a lie the page cannot act on.
+            if (ovActive) { const r = await cfD1Query(env, uuid, "SELECT 1 FROM " + tn + " WHERE id=?" + scopeSql, [rowId].concat(scopeParams)); if (r[0]) return { overlap: true }; }
             return { notFound: true };
           };
           const versionResp = (r) => r.conflict !== undefined
             ? Response.json({ ok: false, error: "this record changed since you loaded it — reload and try again", code: "conflict", version: r.conflict }, { status: 409 })
+            : r.overlap ? Response.json({ ok: false, error: "that time overlaps an existing booking", code: "overlap" }, { status: 409 })
             : r.notFound ? Response.json({ ok: false, error: "not found" }, { status: 404 })
               : Response.json({ ok: true, version: r.version });
 
@@ -28144,6 +28192,37 @@ async function handleRequest(request, env, ctx) {
           // single-GET, stats, and bulk.
           const visClause = [trashClause, expiresClause, publishClause, archivedClause].filter(Boolean).join(" AND ");
           const withVisible = (base) => { if (!visClause) return base; const c = base && base.clause ? base.clause + " AND " + visClause : visClause; return { clause: c, params: base ? base.params.slice() : [] }; };
+          // INTERVAL OVERLAP guard. `noOverlap:{start,end,on:[…],where}` means no two live rows may hold
+          // overlapping [start,end) ranges within the same group — the thing a unique index cannot express once
+          // durations vary. Built as ONE statement (`INSERT … SELECT … WHERE NOT EXISTS`) so it is genuinely
+          // race-free: a check-then-insert would still let two simultaneous requests both pass the check.
+          // Intervals are HALF-OPEN, so a booking ending at 11:00 and one starting at 11:00 do not conflict.
+          const overlapGuard = (values, excludeId) => {
+            const ov = def.noOverlap;
+            if (!ov) return null;
+            const st = Number(values[ov.start]), en = Number(values[ov.end]);
+            if (!Number.isFinite(st) || !Number.isFinite(en)) return null; // nothing comparable — let the write through
+            const conds = [sqlIdent(ov.start) + " < ?", sqlIdent(ov.end) + " > ?"];
+            const params = [en, st];
+            // A row being MOVED must not be treated as clashing with itself.
+            if (excludeId != null) { conds.push("id <> ?"); params.push(excludeId); }
+            for (const g of ov.on) { conds.push(sqlIdent(g) + (values[g] == null ? " IS NULL" : " = ?")); if (values[g] != null) params.push(values[g]); }
+            if (ov.where) { conds.push(sqlIdent(ov.where.col) + (ov.where.op === "eq" ? " = ?" : " <> ?")); params.push(ov.where.val); }
+            if (visClause) conds.push(visClause);
+            return { sql: "SELECT 1 FROM " + tn + " WHERE " + conds.join(" AND "), params };
+          };
+          // insertRow(cols, vals) → { rows, blocked }. `blocked` means the guard refused it; the caller turns
+          // that into a 409 the page can show ("someone just took that time").
+          const insertRow = async (cols, vals) => {
+            const values = {}; cols.forEach((c, i) => { values[c] = vals[i]; });
+            const g = overlapGuard(values);
+            const list = "(" + cols.map(sqlIdent).join(",") + ")";
+            if (!g) return { rows: await cfD1Query(env, uuid, "INSERT INTO " + tn + " " + list + " VALUES (" + cols.map(() => "?").join(",") + ") RETURNING id", vals), blocked: false };
+            const rows = await cfD1Query(env, uuid, "INSERT INTO " + tn + " " + list + " SELECT " + cols.map(() => "?").join(",") + " WHERE NOT EXISTS (" + g.sql + ") RETURNING id", vals.concat(g.params));
+            return { rows, blocked: !rows.length };
+          };
+          const overlap409 = () => Response.json({ ok: false, error: "that time overlaps an existing booking", code: "overlap" }, { status: 409 });
+
           // On a trash table, DELETE soft-deletes (sets deleted_at) unless `?hard=1`;
           // otherwise it's a real cascade delete. Returns true if a row was affected.
           const doDelete = async (scopeSql, scopeParams) => {
@@ -28684,6 +28763,44 @@ async function handleRequest(request, env, ctx) {
             const tree = (rootId > 0 && byId.has(rootId)) ? [byId.get(rootId)] : roots;
             return Response.json({ ok: true, tree, total: rows.length });
           }
+          // PUBLIC VIEW — GET /rows/<t>/public. A read-only, PII-filtered projection of a table that is
+          // otherwise owner-scoped, readable by ANYONE including a signed-out visitor.
+          //
+          // The case it exists for: a booking app's `bookings` table is `user` access, so a customer can only
+          // ever read their OWN rows — which means the booking form has no way to know which slots are actually
+          // taken and can only grey out the ones that visitor booked themselves. Widening the table is not the
+          // answer (it would expose who booked what). A declared projection is:
+          //
+          //   "publicView": { "columns": ["date","time"], "where": ["status:eq:confirmed"] }
+          //
+          // Only the listed columns are selected — the allow-list is explicit, `id` and `owner_id` are rejected
+          // at declaration time, and the SELECT is built from the intersection with the table's real columns, so
+          // a typo yields fewer columns rather than a leak. Owner scoping is deliberately NOT applied (that is
+          // the whole point); the safety comes from the projection, not from the row filter.
+          if (isPublicView) {
+            if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            const pv = def.publicView;
+            if (!pv) return Response.json({ ok: false, error: "this table declares no publicView" }, { status: 404 });
+            // Intersect with the table's REAL columns so a declaration can never name something unvetted.
+            const allowLC = new Set(allow.map((c) => String(c).toLowerCase()).concat(["created_at"]));
+            const cols = pv.columns.filter((c) => allowLC.has(c));
+            if (!cols.length) return Response.json({ ok: false, error: "publicView names no real column" }, { status: 400 });
+            // Declared filters use the table's full column set (an app may filter on a column it does not
+            // expose, e.g. status). The CALLER may only filter on columns that are actually published.
+            const u2 = new URL("https://x/");
+            pv.where.forEach((w) => u2.searchParams.append("where", w));
+            const declared = buildD1Filter(u2, allow, withVisible(null));
+            const u3 = new URL("https://x/");
+            url.searchParams.getAll("where").slice(0, 6).forEach((w) => u3.searchParams.append("where", w));
+            const caller = buildD1Filter(u3, cols, null);
+            const clauses = [declared.whereSql.replace(/^\s*WHERE\s+/i, ""), caller.whereSql.replace(/^\s*WHERE\s+/i, "")].filter(Boolean);
+            const whereSql = clauses.length ? " WHERE " + clauses.join(" AND ") : "";
+            const lim = Math.min(pv.limit, Math.max(1, parseInt(url.searchParams.get("limit") || String(pv.limit), 10) || pv.limit));
+            const sql = "SELECT " + cols.map(sqlIdent).join(",") + " FROM " + tn + whereSql + " LIMIT " + lim;
+            const rows = await cfD1Query(env, uuid, sql, declared.params.concat(caller.params));
+            return Response.json({ ok: true, rows, total: rows.length, columns: cols, publicView: true });
+          }
+
           // Nearby / geo search — GET /rows/<t>/near?lat=&lng=&radius=<km>[&limit=]. A cheap
           // bounding-box prefilter in SQL (no trig needed) narrows candidates, then exact
           // haversine distance in JS filters + sorts. Each row comes back with `_distance_km`.
@@ -29118,7 +29235,7 @@ async function handleRequest(request, env, ctx) {
             if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, null, def)));
             if (await maybeSlug(env, uuid, def, tn, body)) use.push("slug"); // auto-slug (adds body.slug + the column)
             if (await maybeSequence(env, uuid, def, tn, body)) use.push(def.sequence.field); // auto-number
-            await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + use.map(sqlIdent).join(",") + ") VALUES (" + use.map(() => "?").join(",") + ")", use.map((c) => body[c]));
+            { const _r = await insertRow(use, use.map((c) => body[c])); if (_r.blocked) return overlap409(); }
             fireInsertTriggers(env, ctx, slug, table, body);
             return Response.json({ ok: true });
           }
@@ -29153,7 +29270,7 @@ async function handleRequest(request, env, ctx) {
               if (await maybeSequence(env, uuid, def, tn, body)) use.push(def.sequence.field); // auto-number
               const rrOwner = await resolveAssignee(env, uuid, def, table, body, userId);
               const c2 = use.concat(["owner_id"]), v2 = use.map((c) => body[c]).concat([rrOwner]);
-              await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + c2.map(sqlIdent).join(",") + ") VALUES (" + c2.map(() => "?").join(",") + ")", v2);
+              { const _r = await insertRow(c2, v2); if (_r.blocked) return overlap409(); }
               fireInsertTriggers(env, ctx, slug, table, body);
               return Response.json(rrOwner !== userId ? { ok: true, owner_id: rrOwner } : { ok: true });
             }
@@ -29192,7 +29309,7 @@ async function handleRequest(request, env, ctx) {
               if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, null, def)));
               if (await maybeSlug(env, uuid, def, tn, body)) use.push("slug"); // auto-slug
               if (await maybeSequence(env, uuid, def, tn, body)) use.push(def.sequence.field); // auto-number
-              const _ins = await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + use.map(sqlIdent).join(",") + ") VALUES (" + use.map(() => "?").join(",") + ") RETURNING id", use.map((c) => body[c]));
+              const _g = await insertRow(use, use.map((c) => body[c])); if (_g.blocked) return overlap409(); const _ins = _g.rows;
               fireInsertTriggers(env, ctx, slug, table, body);
               autoFireWebhooks(env, ctx, uuid, def, "created", Object.assign({ id: _ins[0] && _ins[0].id }, body));
               return Response.json({ ok: true });
@@ -29255,7 +29372,7 @@ async function handleRequest(request, env, ctx) {
             if (await maybeSequence(env, uuid, def, tn, body)) use.push(def.sequence.field); // auto-number
             const rrOwner = await resolveAssignee(env, uuid, def, table, body, userId);
             const c2 = use.concat(["owner_id"], teamStamp != null ? ["team_id"] : []), v2 = use.map((c) => body[c]).concat([rrOwner], teamStamp != null ? [teamStamp] : []);
-            const _ins = await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + c2.map(sqlIdent).join(",") + ") VALUES (" + c2.map(() => "?").join(",") + ") RETURNING id", v2);
+            const _g2 = await insertRow(c2, v2); if (_g2.blocked) return overlap409(); const _ins = _g2.rows;
             fireInsertTriggers(env, ctx, slug, table, body);
             autoFireWebhooks(env, ctx, uuid, def, "created", Object.assign({ id: _ins[0] && _ins[0].id, owner_id: rrOwner, team_id: teamStamp }, body));
             return Response.json(rrOwner !== userId ? { ok: true, owner_id: rrOwner } : { ok: true });
@@ -29306,10 +29423,14 @@ async function handleRequest(request, env, ctx) {
       let rb; try { rb = await request.json(); } catch { return Response.json({ ok: false, error: "invalid JSON" }, { status: 400 }); }
       const brief = typeof rb.brief === "string" ? rb.brief.trim().slice(0, 4000) : "";
       if (!brief) return Response.json({ ok: false, error: "no brief" }, { status: 400 });
-      // Chatbox model picker: auto (route per agent) | sonnet | opus. Only used when MULTI_AGENT is on.
+      // Chatbox model picker: auto (route per agent) | sonnet | opus. Drives per-agent routing at max effort.
       const reqPicker = ["auto", "sonnet", "opus"].includes(String(rb.picker || "").toLowerCase()) ? String(rb.picker).toLowerCase() : "auto";
+      // Effort dial (low→max). Levels 1–4 scale tokens-out on the single-shot stream; "max" (level 5) fans out
+      // to multi-agent using the picked model(s). Multi-agent still needs its master flag on to actually run.
+      const reqEffort = rbEffortKey(rb.effort);
+      const wantMulti = reqEffort === "max";
       const auth = request.headers.get("Authorization") || "";
-      const CREDIT_USD = 0.008, RB_MAX_OUT = 32000, RB_MAX_IMAGES = 6;
+      const CREDIT_USD = 0.008, RB_MAX_OUT = RB_EFFORT_OUT[reqEffort], RB_MAX_IMAGES = 6;
       const RB_IMG_CREDITS = Math.max(1, Math.ceil(SITE_IMG_USD / CREDIT_USD));
       // Build model: always Sonnet 5 (owner's call 2026-07-21). Haiku was dropped from
       // the builder — it mis-wired the backend API often enough to ship dead apps, so
@@ -29334,11 +29455,14 @@ async function handleRequest(request, env, ctx) {
       const emit = (o) => writer.write(enc.encode(JSON.stringify(o) + "\n")).catch(() => {});
       // Stream a Sonnet generation, forwarding text deltas to onDelta and returning
       // the full text + token usage. Throws on a non-OK upstream (status carried).
-      const streamGen = async (system, userContent, onDelta) => {
+      const streamGen = async (system, userContent, onDelta, maxTokens) => {
         const r = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-          body: JSON.stringify({ model: RB_MODEL, max_tokens: RB_MAX_OUT, stream: true, system, messages: [{ role: "user", content: userContent }] }),
+          // thinking DISABLED: Sonnet 5 defaults to adaptive thinking, which spends the max_tokens budget REASONING
+          // before it writes any code — measured eating 100% of the budget on tight steps (empty output, no files).
+          // The app plan is already computed for it, so generation just needs to WRITE. Frees the whole budget for code.
+          body: JSON.stringify({ model: RB_MODEL, max_tokens: Math.max(1024, Math.min(RB_MAX_OUT, maxTokens || RB_MAX_OUT)), stream: true, thinking: { type: "disabled" }, system, messages: [{ role: "user", content: userContent }] }),
           signal: AbortSignal.timeout(300000),
         });
         if (!r.ok) { const d = await r.json().catch(() => ({})); const e = new Error("gen " + r.status); e.status = r.status; e.detail = JSON.stringify(d).slice(0, 500); throw e; }
@@ -29369,7 +29493,8 @@ async function handleRequest(request, env, ctx) {
         const r = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-          body: JSON.stringify({ model: task.model, max_tokens: 16000, system: task.system, messages: [{ role: "user", content: task.user }] }),
+          // thinking DISABLED (see the build path) — a slice's budget must go to code, not reasoning.
+          body: JSON.stringify({ model: task.model, max_tokens: 16000, thinking: { type: "disabled" }, system: task.system, messages: [{ role: "user", content: task.user }] }),
           signal: AbortSignal.timeout(150000),
         });
         if (!r.ok) { const d = await r.text().catch(() => ""); const e = new Error("agent " + r.status); e.status = r.status; e.detail = d.slice(0, 300); throw e; }
@@ -29405,10 +29530,14 @@ async function handleRequest(request, env, ctx) {
           // + the design brief + ONLY the capabilities this app needs — instead of relying on the model to recall
           // the whole catalog. Falls back to the base prompt on any error. Default (flag off) is unchanged.
           let genUser = "Build this as a polished React app. Output ONLY the file blocks.\n\n" + brief;
+          // The plan is DETERMINISTIC and free — no model call — so it is computed for every build,
+          // not just under PIPELINE_V2. Starters, the schema step and the palette all need it, and
+          // it was previously scoped to the flag's try block alone.
+          let plan = null;
+          try { plan = planApp(brief); } catch (e) { console.error("planApp failed:", e && e.message); }
           if (env.PIPELINE_V2 === "1") {
             try {
-              const plan = planApp(brief);
-              if (plan.ok) {
+              if (plan && plan.ok) {
                 const fam = pickStyleFamily(plan.spec.design_hints);
                 genUser = "Build this as a polished React app. Output ONLY the file blocks.\n\n"
                   + "=== APP PLAN ===\n" + specToPrompt(plan.spec)
@@ -29419,26 +29548,139 @@ async function handleRequest(request, env, ctx) {
               }
             } catch (e) { console.error("PIPELINE_V2 enrich failed, using base prompt:", e && e.message); }
           }
+
+          // WHOLE-APP STARTER. When one matches the brief, the app already exists — routed, themed
+          // and compiling — for zero tokens, and generation becomes an ADAPT edit instead of a build
+          // from scratch. This is the single biggest quality difference between what the eval
+          // pipeline produced and what the live builder shipped, and it was never wired in here.
+          let starterId = null, seedFiles = {}, navOrder = [];
+          try {
+            const match = matchStarter(brief);
+            if (match) {
+              starterId = match.id;
+              seedFiles = starterFiles(starterId);
+              navOrder = (getStarter(starterId) || {}).navOrder || [];
+              emit({ ev: "starter", id: starterId, pages: match.pages || [] });
+            }
+          } catch (e) { console.error("starter match failed, building from scratch:", e && e.message); }
+
+          // SCHEMA FIRST. Decide the data model before any page is written, so the pages are built
+          // against real table and column names instead of inventing them and being patched by the
+          // safety net below. A starter already ships a schema designed alongside its pages.
+          let preSchema = seedFiles["isibi.schema.json"] || null;
+          if (!preSchema && plan && plan.ok && (plan.spec.tables || []).length) {
+            emit({ ev: "phase", phase: "schema" });
+            try {
+              const sg = await streamGen(SCHEMA_FIRST_RULES,
+                "Design the database for this app. No pages exist yet — you are deciding the data model they will be built against.\n\n" +
+                "App brief: " + brief + "\n\n" +
+                "Pages that will be built: " + (plan.spec.pages || []).map((pg) => pg.title || pg.name || pg.id).join(", ") + "\n" +
+                "Features that will be built: " + (plan.spec.capabilities || []).join(", ") + "\n" +
+                "Tables the planner expects: " + plan.spec.tables.join(", ") + "\n", null);
+              preSchema = parseGeneratedFiles(sg.text || "")["isibi.schema.json"] || null;
+              const sc = rbCredits(sg.usedIn, sg.usedOut); genCredits += sc;
+              try { const b = await useCredits(auth, sc); if (b >= 0) balAfter = b; } catch {}
+            } catch (e) { console.error("schema step failed, the safety net will cover it:", e && e.message); }
+          }
+          if (preSchema) {
+            genUser += "\n\n=== THE DATABASE, ALREADY DECIDED ===\nDo NOT emit isibi.schema.json. Read and write these " +
+              "tables with `useResource('<table>')`, using these EXACT table and column names — the row types are " +
+              "generated from this, so a name that is not here is a compile error:\n" + String(preSchema).slice(0, 2500);
+          }
+          if (starterId) {
+            const shown = ["src/pages/Home.tsx"].filter((f) => seedFiles[f]);
+            const others = Object.keys(seedFiles).filter((f) => /^src\/pages\//.test(f) && !shown.includes(f));
+            genUser = "Adapt this WORKING app to the brief below. It already routes, compiles and looks right — this " +
+              "is an EDIT, not a rebuild.\n\nApp brief: " + brief + "\n\n" +
+              starterBrief(starterId) + "\n\n" +
+              "Emit `index.html` (real <title> and <meta name=description> for THIS business) and a rewritten " +
+              "`src/pages/Home.tsx` whose copy is specific to it. Emit another page ONLY if the brief needs something " +
+              "the app does not already do. Do NOT emit src/App.tsx or src/routes.ts — routing is generated for you.\n\n" +
+              (preSchema ? "The database is already decided — do NOT emit isibi.schema.json.\n\n" : "") +
+              "THE APP AS IT STANDS:\n\n" +
+              shown.map((f) => "===FILE: " + f + "===\n" + seedFiles[f]).join("\n\n") +
+              (others.length ? "\n\nAlso present and already correct — do not re-emit these: " + others.join(", ") : "");
+          }
           emit({ ev: "phase", phase: "generating" });
           // MULTI_AGENT (flag-gated): fan out design/backend/shell/one-per-page agents IN PARALLEL against a fixed
           // contract, each routed to its model via the picker (Auto: Opus plans, Sonnet generates). Each slice is
           // small → no truncation; concurrent → wall-clock is the slowest slice. Falls back to the single-shot
           // stream on ANY failure, so the flag is never worse than off.
           let files, genIn = 0, genOut = 0;
-          if (env.MULTI_AGENT === "1") {
+          // Level 5 (max effort) is the trip-wire for the parallel fan-out; lower efforts always go single-shot.
+          // The MULTI_AGENT env flag is the master kill-switch — with it off, max effort just uses the 32k ceiling.
+          if (env.MULTI_AGENT === "1" && wantMulti) {
             try {
               const ma = await runMultiAgent(brief, { generate: agentGen }, { picker: reqPicker });
               if (ma.ok) { files = ma.files; genIn = ma.tokens.in; genOut = ma.tokens.out; emit({ ev: "agents", count: ma.agents.length, models: [...new Set(ma.agents.map((a) => a.model))], picker: reqPicker }); }
               else emit({ ev: "note", msg: "multi-agent came up short — using single-shot" });
             } catch (e) { console.error("multi-agent failed, falling back to single-shot:", e && e.message); }
           }
+          // CHUNKED GENERATION. One 22k call has to write the shell AND every feature page, and when
+          // it runs out mid-file the whole build is lost — the truncated page cannot even be parsed.
+          // The chunked build spends the SAME total budget across several sub-9k calls instead: shell
+          // (or a starter adapt) first, then the pages in groups, each one small enough to finish.
+          // The reserves are zeroed because the worker meters its own repairs as it goes rather than
+          // drawing them from one ledger, so leaving them on would silently halve the budget.
+          if (!files && plan && plan.ok) {
+            try {
+              const cb = await runChunkedBuild(brief, plan.spec, RB_MAX_OUT, {
+                generate: async (system, user, maxTokens) => {
+                  const g = await streamGen(system, user, onDelta, maxTokens);
+                  flushCode(true);
+                  genIn += g.usedIn; genOut += g.usedOut;
+                  return g;
+                },
+              }, {
+                starter: starterId ? getStarter(starterId) : undefined,
+                schema: preSchema || undefined,
+                reserveSchema: 0, reserveWiring: 0, reserveLint: 0, reserveRepair: 0,
+                onStep: (st) => emit({ ev: "step", kind: st.kind, out: st.out, files: st.files }),
+              });
+              if (cb.ok) files = cb.files;
+              else emit({ ev: "note", msg: "chunked build came up short — using single-shot" });
+            } catch (e) { console.error("chunked build failed, falling back to single-shot:", e && e.message); }
+          }
           if (!files) {
-            const g = await streamGen(REACT_RULES, genUser, onDelta);
+            // An adapt step on a starter is an EDIT — REACT_REVISE_RULES says "return only the files
+            // that change, each in full", which is what keeps it cheap. REACT_RULES would ask for a
+            // whole project back and throw away the app we just seeded for free.
+            const g = await streamGen(starterId ? REACT_REVISE_RULES : REACT_RULES, genUser, onDelta);
             flushCode(true);
             files = parseGeneratedFiles(g.text);
             genIn = g.usedIn; genOut = g.usedOut;
           }
-          if (!files["index.html"] || !files["src/main.jsx"] || !files["src/App.jsx"]) { emit({ ev: "error", stage: "generate", msg: "the generated project came out incomplete — try again" }); return; }
+          // ROUTING, THEME AND ROW TYPES ARE GENERATED IN CODE ($0) — and this is where the live path
+          // had been broken since 2026-07-24. On that date REACT_RULES became "**ROUTING IS GENERATED
+          // FOR YOU — never emit `src/App.tsx`, `src/routes.ts`, or a router**" and the template moved
+          // to `src/main.tsx`. Nothing here was updated: the model correctly stopped emitting
+          // src/App.jsx and src/main.jsx, and the completeness check below still demanded both, so
+          // every single build failed with "the generated project came out incomplete — try again".
+          // The scaffolds were written for exactly this and were never called from the worker.
+          //
+          // Guarded on the page shape rather than run unconditionally, because the multi-agent
+          // fan-out (flag-gated, off by default) still emits the older .jsx shell with its own
+          // App.jsx — scaffolding over that would replace a real router with an empty one.
+          // The STARTER is the base; the model's output is the edit on top of it. Merged in this
+          // order so an adapt step that rewrites Home replaces it, while every page it did not
+          // mention survives — the whole point of seeding a working app.
+          if (starterId && !files["src/App.tsx"]) files = { ...seedFiles, ...files };
+          if (!files["src/App.jsx"]) {
+            // navOrder because a starter's pages form a JOURNEY (shop → cart → orders) and the
+            // alphabetical default puts the checkout before the shop.
+            files = scaffoldRouting(files, navOrder.length ? { navOrder } : {}).files;
+            const famTokens = (getStyleFamily(pickStyleFamily((plan && plan.spec && plan.spec.design_hints) || {})) || {}).tokens;
+            if (famTokens) files = scaffoldTheme(files, famTokens);
+            files = scaffoldDbTypes(files);
+            files = scaffoldAgentsMd(files, { name: (plan && plan.spec && plan.spec.name) || "" });
+          }
+          // The real contract now: the model writes pages, the platform writes the router. main.tsx
+          // and the component kit come from the container template and are never in `files`.
+          const legacyShell = Boolean(files["src/App.jsx"]);
+          const complete = Boolean(files["index.html"]) && (legacyShell
+            ? Boolean(files["src/main.jsx"])
+            : Boolean(files["src/pages/Home.tsx"] && files["src/App.tsx"]));
+          if (!complete) { emit({ ev: "error", stage: "generate", msg: "the generated project came out incomplete — try again" }); return; }
           let schemaSpec = parseSchemaSpec(files); // pulled out of the build; provisioned after publish
           const fnSpecs = parseFunctionSpecs(files); // edge functions, likewise stripped + provisioned after publish
           genCredits += rbCredits(genIn, genOut);
@@ -29449,7 +29691,7 @@ async function handleRequest(request, env, ctx) {
           // site. Models omit it often enough that this can't be optional: ask for
           // JUST the schema (inferred from the app's own code) and provision it.
           if (!schemaSpec) {
-            const usesBackend = Object.values(files).some((src) => /\/auth\/(signup|login)\b/.test(String(src)) || /\/rows\/[a-z_][a-z0-9_]*/i.test(String(src)));
+            const usesBackend = Object.values(files).some((src) => /\/auth\/(signup|login)\b/.test(String(src)) || /\/rows\/[a-z_][a-z0-9_]*/i.test(String(src)) || /\buse(Resource|Record)\s*\(/.test(String(src))); // useResource() builds the /rows/ path inside the hook, so page source no longer contains the literal
             if (usesBackend) {
               const dump = Object.entries(files).map(([p, s]) => "===FILE: " + p + "===\n" + s).join("\n\n").slice(0, 90000);
               try {
@@ -29471,7 +29713,7 @@ async function handleRequest(request, env, ctx) {
           // correct code reads `/api/db/${slug}/…`, which none of these match) and
           // hand the app back for a URL-only rewrite. Only when a backend is used.
           {
-            const usesBackend2 = Object.values(files).some((src) => /\/auth\/(signup|login)\b/.test(String(src)) || /\/rows\/[a-z_][a-z0-9_]*/i.test(String(src)) || /\/api\/db\b/.test(String(src)));
+            const usesBackend2 = Object.values(files).some((src) => /\/auth\/(signup|login)\b/.test(String(src)) || /\/rows\/[a-z_][a-z0-9_]*/i.test(String(src)) || /\/api\/db\b/.test(String(src)) || /\buse(Resource|Record)\s*\(/.test(String(src)));
             const brokenWiring = Object.values(files).some((src) => {
               const s = String(src);
               return /\/api\/db\/(auth|rows)\b/.test(s)                              // "/api/db/auth…" or "/api/db/rows…" — slug missing
@@ -29545,6 +29787,33 @@ async function handleRequest(request, env, ctx) {
           if (!bd.ok) { emit({ ev: "error", stage: "build", msg: "the site didn't compile — try rephrasing or send it again", detail: String(bd.error || "").slice(0, 400), cost: genCredits + imgCredits, balance: balAfter }); return; }
           let dist = bd.files || {};
           if (!dist["index.html"]) { emit({ ev: "error", stage: "build", msg: "the build produced no page — try again", cost: genCredits + imgCredits, balance: balAfter }); return; }
+          // RUNTIME REPAIR. The build service loads every route headlessly after a successful
+          // compile, because esbuild does not resolve names: a page referencing an undefined
+          // variable compiles clean and then white-screens. One repair pass, then ship regardless —
+          // the check is advisory, and an app with one broken page beats no app at all.
+          if (Array.isArray(bd.runtimeErrors) && bd.runtimeErrors.length) {
+            emit({ ev: "phase", phase: "fixing", runtime: bd.runtimeErrors.length });
+            try {
+              const dump = Object.entries(files).map(([pp, src]) => "===FILE: " + pp + "===\n" + src).join("\n\n").slice(0, 90000);
+              const rg = await streamGen(REACT_FIX_RULES,
+                "The app COMPILES but CRASHES in the browser. Every route was loaded headlessly and these errors " +
+                "were thrown — a name that does not exist, a value used before it is defined, or a component " +
+                "rendered with something undefined. Return ONLY the corrected file(s):\n\n" +
+                bd.runtimeErrors.join("\n") + "\n\nProject files:\n\n" + dump, onDelta);
+              flushCode(true);
+              const rf = parseGeneratedFiles(rg.text || "");
+              const rc = rbCredits(rg.usedIn, rg.usedOut); genCredits += rc;
+              try { const b = await useCredits(auth, rc); if (b >= 0) balAfter = b; } catch {}
+              if (Object.keys(rf).length) {
+                for (const [pp, v] of Object.entries(rf)) files[pp] = v;
+                const rb2 = await buildInContainer(files);
+                // Only take the rebuild if it actually compiled — a repair that breaks the build
+                // would otherwise turn a working-but-flawed app into no app.
+                if (rb2.bd && rb2.bd.ok && rb2.bd.files && rb2.bd.files["index.html"]) { bd = rb2.bd; dist = rb2.bd.files; }
+                emit({ ev: "runtime-repair", fixed: Array.isArray(bd.runtimeErrors) ? bd.runtimeErrors.length === 0 : null });
+              }
+            } catch (e) { console.error("runtime repair failed, shipping as built:", e && e.message); }
+          }
           // PIPELINE_V2 + VISION_REPAIR (both flags): render the built site, have the vision model critique the
           // screenshots, and — if it looks weak — do ONE revise + rebuild. The container screenshots (it has the
           // browser); the Worker runs the vision model (it has the key). Costs an extra build + a few vision calls,
@@ -29636,13 +29905,15 @@ async function handleRequest(request, env, ctx) {
       const slug = typeof rv.slug === "string" ? rv.slug.replace(/[^a-z0-9-]/gi, "").slice(0, 60) : "";
       const instruction = typeof rv.instruction === "string" ? rv.instruction.trim().slice(0, 2000) : "";
       if (!slug || !instruction) return Response.json({ ok: false, error: "missing slug or instruction" }, { status: 400 });
+      // Effort dial scales the revise stream's tokens-out too (no fan-out on revises — they're incremental).
+      const reqEffort = rbEffortKey(rv.effort);
       // Load the persisted source + verify ownership.
       let srcObj = null;
       try { const o = await env.SITES_BUCKET.get("sitesrc/" + slug + ".json"); if (o) srcObj = JSON.parse(await o.text()); } catch {}
       if (!srcObj || !srcObj.files) return Response.json({ ok: false, error: "this site can't be edited yet — rebuild it first", need: "rebuild" }, { status: 409 });
       if (srcObj.uid && srcObj.uid !== rvUser.id) return UNAUTHED();
       const auth = request.headers.get("Authorization") || "";
-      const CREDIT_USD = 0.008, RB_MAX_OUT = 32000, RB_MAX_IMAGES = 4;
+      const CREDIT_USD = 0.008, RB_MAX_OUT = RB_EFFORT_OUT[reqEffort], RB_MAX_IMAGES = 4;
       const RB_IMG_CREDITS = Math.max(1, Math.ceil(SITE_IMG_USD / CREDIT_USD));
       const rbCredits = (i, o) => Math.max(1, Math.ceil((i * 3e-6 + o * 15e-6) / CREDIT_USD));
       let bal0; try { bal0 = await readCredits(auth); } catch { bal0 = 0; }
@@ -29655,7 +29926,8 @@ async function handleRequest(request, env, ctx) {
         const r = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-          body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: RB_MAX_OUT, stream: true, system, messages: [{ role: "user", content: userContent }] }),
+          // thinking DISABLED — same reason as the build path: adaptive thinking eats the output budget before code.
+          body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: RB_MAX_OUT, stream: true, thinking: { type: "disabled" }, system, messages: [{ role: "user", content: userContent }] }),
           signal: AbortSignal.timeout(300000),
         });
         if (!r.ok) { const d = await r.json().catch(() => ({})); const e = new Error("gen " + r.status); e.status = r.status; e.detail = JSON.stringify(d).slice(0, 500); throw e; }

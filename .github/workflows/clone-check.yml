@@ -1,0 +1,78 @@
+name: Lovable-clone check
+
+# The clone is a parallel pipeline (builder/lovable/). Its generation rules are prose handed to a
+# model, so they drift from the template silently — a renamed token or a removed component leaves
+# the rules confidently describing something that no longer exists, and every generated app then
+# carries the same unbuildable mistake. This job is what notices.
+on:
+  push:
+    paths:
+      - "builder/lovable/**"
+      - ".github/workflows/clone-check.yml"
+  pull_request:
+    paths:
+      - "builder/lovable/**"
+
+permissions:
+  contents: read
+
+jobs:
+  clone:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Rules-vs-template invariants: every colour token the rules name is registered, light and
+      # dark define the same set, promised components exist, the route skeleton matches the real
+      # router API, and the build still generates the route tree first.
+      - name: Rules match the template
+        run: node builder/lovable/check-clone.mjs
+
+      # Drives the pipeline with a stub model: proves the schema is decided BEFORE any page is
+      # written, that each page prompt is handed that schema, that the ledger caps spend, and that
+      # a failed build triggers a repair. No API key needed.
+      - name: Pipeline order and wiring
+        run: node builder/lovable/pipeline.test.mjs
+
+      # npm resolves an optional peer of @hookform/resolvers differently than the bun lockfile
+      # Lovable ships, hence --legacy-peer-deps. Same package set either way.
+      - name: Install
+        working-directory: builder/lovable/template
+        run: npm install --no-audit --no-fund --legacy-peer-deps --loglevel=error
+
+      # From a clean checkout there is no routeTree.gen.ts — it is generated. This is the exact
+      # state that failed before, so it is the state CI builds in.
+      - name: Build from a clean checkout
+        working-directory: builder/lovable/template
+        run: npm run build
+
+      # The template now ships an eslint config, so a customer who downloads the repo can run
+      # `npm run lint`. That is only worth shipping if it passes here first — a config that reports
+      # 138 errors on a freshly generated app is worse than no config at all.
+      - name: Lint
+        working-directory: builder/lovable/template
+        run: npm run lint
+
+      # Compiling the template alone does not touch most of the 46 components. This mounts every one
+      # of them and typechecks. It used to be inline bash here, which is precisely why it went red
+      # for eight runs unnoticed — there was no way to run it locally next to the other suites.
+      - name: Typecheck with every component exercised
+        run: node builder/lovable/smoke/check.mjs
+
+      # End to end against the real template and a real vite build: the pipeline's output has to
+      # compile and run in a browser, with each page's head/meta actually reaching the document.
+      - name: End to end
+        working-directory: .
+        run: |
+          npx playwright install --with-deps chromium || echo "chromium unavailable; browser assertions will be skipped"
+          node builder/lovable/integration.test.mjs
+
+      # The build service, against a real APP_DIR and a real vite build: the write allowlist, the
+      # src wipe-and-restore, tsr generate, dist collection, the advisory typecheck, and the
+      # runtime smoke check that catches an app which compiles and then white-screens.
+      - name: Build service
+        run: node builder/lovable/build-server.test.mjs
+

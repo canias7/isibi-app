@@ -1,0 +1,113 @@
+name: Component kit check
+
+# Runs on any change to the kit or the generator rules. Deliberately SEPARATE from deploy.yml: a drifted
+# inventory should be loud, but it should not block shipping the Worker.
+on:
+  push:
+    paths:
+      - "builder/template/**"
+      - "builder/starters/**"
+      - "builder/react-gen.mjs"
+      - "builder/check-kit.mjs"
+      - "builder/page-recipes.mjs"
+      - "builder/full-pipeline.mjs"
+      - "builder/chunked-build.mjs"
+      - "builder/build-plan.mjs"
+      - "builder/scaffold.mjs"
+      - "builder/build-server.mjs"
+      - "worker.js"
+      - ".github/workflows/kit-check.yml"
+  pull_request:
+    paths:
+      - "builder/template/**"
+      - "builder/starters/**"
+      - "builder/react-gen.mjs"
+
+permissions:
+  contents: read
+
+jobs:
+  kit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Invariants that have each already cost us a real bug: components are .tsx, every component appears in
+      # COMPONENT_INVENTORY (it once fell three rounds behind), and every documented prop actually exists
+      # (variant="outline", EmptyState message= and <Avatar size={32}/> were all prose the code never honoured).
+      - name: Kit invariants
+        run: node builder/check-kit.mjs
+
+      # Drives the whole pipeline with a stub model: proves the schema is decided BEFORE any page is
+      # written, that the page prompts are handed the real tables, that the row types exist by then,
+      # and that the schema-fix repair still catches a schema stage that comes back empty. No key,
+      # no spend. The pipeline had no test at all until the reorder needed one.
+      - name: Pipeline order and wiring
+        run: node builder/full-pipeline.test.mjs
+
+      # The LIVE builder's post-generation step. The generation rules and worker.js are one contract
+      # across two files, and when they drifted apart on 2026-07-24 every live build failed for
+      # months with nothing to notice it. This asserts both halves and pins the test to the shipped
+      # code so the transcription cannot go stale.
+      - name: Live builder generate step
+        run: node builder/worker-generate.test.mjs
+
+      # The runtime smoke check's two decisions — which routes to load, which console errors count.
+      # Both fail quietly: a wrong route list never opens whole pages, and a wrong filter either
+      # floods the repair loop with expected network noise or drops the one error that mattered.
+      - name: Runtime smoke check
+        run: node builder/smoke-check.test.mjs
+
+      # The kit must typecheck. tsc is advisory at BUILD time so a customer never loses an app to a type error —
+      # but in CI, on our own code, it is a hard gate.
+      - name: Typecheck the component kit
+        working-directory: builder/template
+        run: |
+          npm install --no-audit --no-fund --loglevel=error \
+            typescript@^5.6.2 @types/react@^18.3.5 @types/react-dom@^18.3.0 \
+            react@^18.3.1 react-dom@^18.3.1 react-router-dom@^6.26.0 \
+            lucide-react@^0.436.0 clsx@^2.1.1 tailwind-merge@^2.5.2 \
+            @tanstack/react-query@^5.59.0 \
+            @radix-ui/react-dialog@^1.1.6 @radix-ui/react-dropdown-menu@^2.1.6 \
+            @radix-ui/react-popover@^1.1.6 @radix-ui/react-tooltip@^1.1.8 \
+            @radix-ui/react-slot@^1.1.2 class-variance-authority@^0.7.1
+          # routes.ts / App.tsx are code-generated per build, so their absence here is expected.
+          mkdir -p src/pages && echo 'export default function Home() { return <div/> }' > src/pages/Home.tsx
+          npx tsc --noEmit --pretty false 2>&1 | tee /tmp/tsc.txt || true
+          COUNT=$(grep -c "error TS" /tmp/tsc.txt | tr -d ' ' || echo 0)
+          EXPECTED=$(grep "error TS" /tmp/tsc.txt | grep -cE "Cannot find module '\.\.?/(routes|App)" || echo 0)
+          echo "tsc errors: $COUNT (expected/codegen-related: $EXPECTED)"
+          if [ "$COUNT" -gt "$EXPECTED" ]; then
+            grep "error TS" /tmp/tsc.txt | grep -vE "Cannot find module '\.\.?/(routes|App)" | head -30
+            exit 1
+          fi
+
+      # Each whole-app starter must typecheck against the real kit. A starter IS the app for every brief that
+      # matches it, so a broken page here is not one bad build — it is every booking site we ship.
+      - name: Typecheck the whole-app starters
+        working-directory: builder/template
+        run: |
+          FAIL=0
+          for dir in ../starters/*/; do
+            id=$(basename "$dir")
+            rm -rf src/pages && mkdir -p src/pages
+            cp "$dir"pages/*.tsx src/pages/
+            [ -d "$dir"lib ] && cp "$dir"lib/* src/lib/ || true
+            node -e "
+              const fs=require('node:fs');
+              import('../scaffold.mjs').then(({scaffoldRouting})=>{
+                const files={}; for (const f of fs.readdirSync('src/pages')) files['src/pages/'+f]='';
+                const out=scaffoldRouting(files).files;
+                fs.writeFileSync('src/App.tsx', out['src/App.tsx']);
+                fs.writeFileSync('src/routes.ts', out['src/routes.ts']);
+              });
+            "
+            npx tsc --noEmit --pretty false 2>&1 | tee /tmp/tsc-$id.txt >/dev/null || true
+            N=$(grep -c "error TS" /tmp/tsc-$id.txt | tr -d ' ' || echo 0)
+            echo "starter $id: $N type error(s)"
+            if [ "$N" -gt 0 ]; then grep "error TS" /tmp/tsc-$id.txt | head -20; FAIL=1; fi
+          done
+          exit $FAIL

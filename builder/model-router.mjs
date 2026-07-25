@@ -1,4 +1,4 @@
-// Model router — the "Auto" brain behind the chatbox picker (Auto / Sonnet 5 / Opus 4.8).
+// Model router — the "Auto" brain behind the chatbox picker (Auto / Sonnet 5 / Opus 5).
 //
 // Encodes the routing table locked with the owner: Opus is the ARCHITECT + EMERGENCY expert (planning, hard
 // integration, repeated difficult repair); Sonnet does all the generative bulk (design, frontend, backend, tests,
@@ -9,7 +9,9 @@
 //
 // WORKER-SAFE: pure, no node:module. The picker is a plain function so it's trivially $0-testable.
 
-export const MODELS = { opus: "claude-opus-4-8", sonnet: "claude-sonnet-5" };
+// Opus 5 (2026-07-24): drop-in replacement for Opus 4.8 — same $5/$25 pricing, 1M context, 128k max output, same
+// adaptive-thinking API shape; better agentic coding + a May-2026 knowledge cutoff (vs Jan 2026). 4.8 is now legacy.
+export const MODELS = { opus: "claude-opus-5", sonnet: "claude-sonnet-5" };
 
 // role → default tier under "Auto".
 export const ROLE_ROUTES = {

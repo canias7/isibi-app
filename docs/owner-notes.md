@@ -8031,3 +8031,828 @@ building it under the same pipeline. Round-2 batches are numbered from batch298.
   ground/boundary-walls/platforms/projectiles/pickups. Worker needs NO change (model-ref parse already grabs any
   `.glb`, copyModels copies only referenced props per game). Modelpack now 8.4MB / 48 files (46 props + robot +
   soldier); container rebuild. Next increment ideas: more props per theme, per-genre enemy models, generated 3D.
+
+- **2026-07-23 — BUILDER EFFORT DIAL (1→5), level 5 = multi-agent trip-wire.** Owner's design: two
+  independent dials in the site-builder composer. **Model picker (WHO)** = Auto/Sonnet/Opus (existing).
+  **Effort dial (HOW HARD, new)** = Low/Medium/High/Ultra/Max. Levels 1–4 keep the picked model and just
+  scale tokens-out on the single-shot stream (`RB_EFFORT_OUT` = 8k/14k/22k/32k/32k); **level 5 (Max) is the
+  trip-wire → multi-agent fan-out**, inheriting the model picker (Sonnet→all-Sonnet, Opus→all-Opus,
+  Auto→mixed per task). Worker: `RB_EFFORT_OUT`/`rbEffortKey` module consts; react-build parses `rb.effort`
+  → `reqEffort`/`wantMulti`, `RB_MAX_OUT` is now effort-scaled (drives both the credit-reservation gate and
+  the stream `max_tokens`); the multi-agent branch is now gated `env.MULTI_AGENT==="1" && wantMulti` (was
+  flag-only). react-revise scales its ceiling by effort too (no fan-out on revises). Client (chat.js):
+  `BUILD_EFFORTS`/`buildEffort` (localStorage `zephyr_build_effort_v1`, default `high`), `buildEffortHTML`/
+  `setBuildEffort`/`wireBuildEffort` mirroring the model picker, emitted next to `buildPickerHTML()` in the
+  `.st-comp` row, `effort` added to both build + revise request bodies. **MULTI_AGENT master flag still OFF**
+  — level 5 falls back to the 32k single-shot ceiling until it's flipped for a live (credit-spending) test.
+  Renders clean in B&W; model-router 26/26 + multi-agent 26/26 still green.
+
+- **2026-07-24 — max_tokens A/B (16k vs 32k, NO timeout): single-shot is a dead end for heavy apps → multi-agent.**
+  Ran the pipeline eval in compare mode (`EVAL_COMPARE`, new) on 10 curated heavy backend apps (CRM, social,
+  marketplace, property-mgmt, ops dashboard, SaaS, job board, invoicing, help desk, course platform), non-streaming
+  (no timeout), compile on, repair/vision OFF (raw first-pass). Result: **16k → generated 0% / compiled 0% / avg
+  out 14,400** (everyone slammed the ceiling, cut mid-file); **32k → generated 40% / compiled 13% / avg out 25,449**
+  (given room they ballooned to ~25k and STILL truncate; some hit 32k again). So: more room genuinely helps (the cap
+  WAS strangling it), but best-case single-shot (32k, no clock) is still **13% compile** on real apps. Raising the
+  production 300s timeout is at most a partial patch (0% → ~13–40% band), never shippable. `lint clean` was 0% at
+  BOTH caps → structural/wiring issues on top of truncation. **Verdict: the completeness problem is structural, not
+  a token-budget knob — split the app (multi-agent), don't lengthen one stream.** Validates the effort step-ladder
+  (level 5 = fan-out). Cost ~$6.88 (CI run 30059674837, ~63 min for 20 sequential non-streaming gens). Next: wire
+  runMultiAgent into the eval for an apples-to-apples 32k-single vs multi-agent run, OR flip MULTI_AGENT for a live
+  test build. Harness: EVAL_COMPARE/EVAL_CAPS/EVAL_ONLY/EVAL_MAX_OUT in test/pipeline-eval.mjs.
+
+- **2026-07-24 — Sonnet-vs-Opus head-to-head (4 heavy prompts, streamed, 32k, DUMP on): truncation confirmed, and
+  "build in pieces" is the fix — not a bigger model.** Opus beat Sonnet (generated 75% vs 25%, compiled 25% vs 0%),
+  BUT the dumps show the real story: the ONLY app that compiled (course platform, Opus) is the ONLY one that DIDN'T
+  hit the 32k cap — it finished at 22,396 tokens with a clean tail and **compiled + linted clean**. All 3 that hit
+  the cap (CRM/social/marketplace, out=32000) truncated → failed. So: (1) failure mode = TRUNCATION, not
+  finished-but-broken (the finished app was clean); (2) the linter isn't miscalibrated (it passed the complete app,
+  failed the cut-off ones — earlier "0% lint" was a truncation artifact); (3) Opus helps (tighter code pushes one
+  more app under the line) but does NOT solve it — heavy apps still overflow one shot. The success/failure split was
+  literally PAGE COUNT: course = 3 pages (~22k, fit ✅); CRM = 8+ pages (>32k, cut ❌). Each page is only ~5–10k
+  chars = fits comfortably alone. **Conclusion: generate per-page (unit-sized), not whole-app-in-one-call. A smarter
+  model isn't the fix; smaller units are.** Directly backs the incremental/multi-agent direction. Caveat: Sonnet's
+  numbers are understated by a NEW harness bug — 3 of 4 Sonnet streamed responses returned files=[NONE]/empty text
+  despite 32k billed out (streaming-parser glitch on some responses; Opus run was clean). Cost ~$4.53 (CI run
+  30098163900). New harness knobs: EVAL_STREAM, EVAL_DUMP (prints per-prompt hitCap/hasApp/tailOpen + file list).
+
+- **2026-07-24 — CHUNKED BUILD, step 1 of N: the build planner (builder/build-plan.mjs).** After proving single-shot
+  dead-ends even bounded (the ~16k fixed overhead — scaffolding + shared component library + Home + SignIn — eats
+  the budget before feature pages, so pages get starved/truncated; and page sizes vary 2× run-to-run so estimation
+  alone can't save it), the direction is the owner's: the OUTPUT CAP governs EVERY step of the pipeline, and the
+  planner lays out the whole build as cap-sized steps so each FINISHES. `buildPlan(spec, cap)` takes the FULL app
+  (never shrunk) and emits an ordered plan: step 1 = SHELL (scaffold + components + Home + SignIn, ~16k, built
+  ONCE), steps 2..N = feature pages BIN-PACKED into groups each ≤ cap*0.85 (run as EDITS onto the shell, so they
+  only output their own pages — no shell re-payment), + an Admin step. Per-page cost estimated from each capability's
+  route count (heavy CRUD vs light read). Demo: the full 8-cap CRM → 5 steps at 25k, each under budget (was: one
+  32k blob that truncated). NEXT: the executor (shell build → page-edit loop, MEASURING real tokens after the shell
+  to re-bin remaining pages — estimate to plan, measure to correct), then an eval run (does the chunked CRM finish +
+  compile?), then wire into worker behind a flag. Also still open: the intermittent Sonnet files=[NONE]/empty-output
+  flake (diag logging now armed in pipeline-eval to catch it next occurrence).
+
+- **2026-07-24 — CHUNKED BUILD: whole-pipeline budgeting + the thinking-off breakthrough.** Two big things.
+  (1) **Thinking was the real bug.** The [DIAG] logging caught it: Sonnet 5's default adaptive thinking spent the
+  ENTIRE max_tokens budget on reasoning (`blocks=[thinking]`) before writing any code — on small chunked steps it
+  ate 100% → empty files. That's the intermittent `files=[NONE]` that sabotaged EVERY prior run. Fix:
+  `thinking:{type:"disabled"}` on generation calls (valid on Sonnet 5 + Opus 4.8; omit for Fable). We already
+  pre-plan, so generation just needs to WRITE. After the fix: generated 0%→100%, shells come out complete with
+  App.jsx + all components. **PRODUCTION LIKELY AFFECTED** — worker.js calls Sonnet 5 without disabling thinking,
+  so real builds are probably bleeding budget/timeout to thinking too; apply the same fix to worker.js react-build.
+  (2) **buildPlan now budgets the WHOLE 13-step pipeline against ONE cap** (owner's model: Σ of every token-spending
+  step ≤ cap, not just generation). Reserves come off the top — schema-fix 2k, lint-repair 2k, fix-loop 4k, vision
+  2k — and generation (shell + page-groups + admin) gets `cap − reserves`, split into ≤9k steps. Reserve steps
+  carry `reserve:true`; the executor skips them (they run in the real pipeline). Honest math it exposes: **CRM @ 25k
+  total = shell + admin + repair reserve, ALL 8 pages dropped**; **CRM @ 60k total = shell + 5 pages + admin + repair
+  reserve (2 dropped)**. So 25k total only fits a shell; a real multi-page app needs ~55–60k total once repair is
+  budgeted. Files: builder/build-plan.mjs (RESERVES, whole-pipeline buildPlan, planSummary), builder/chunked-build.mjs
+  (executor skips reserve steps), test/pipeline-eval.mjs (EVAL_CHUNKED, thinking-off, per-call max_tokens, DIAG).
+  Chunked eval @25k: gen 100% but compile 0% (pages truncate — shell eats the tiny budget). NEXT: re-run at ~60k
+  total + save/screenshot the built app; wire thinking-off into worker.js.
+
+- **2026-07-24 — Opus 4.8 → Opus 5 across the builder.** Opus 5 (`claude-opus-5`) shipped and is now the recommended
+  Opus tier; 4.8 is legacy. Verified live from the docs (not memory): **same $5/$25 per MTok, same 1M context, same
+  128k max output (300k via the Batch `output-300k-2026-03-24` beta), same adaptive-thinking API shape, same latency
+  tier** — the wins are better agentic coding + a **May 2026** knowledge cutoff (vs Jan 2026). Pure model-ID swap, no
+  API changes, no price change. Changed: `builder/model-router.mjs` MODELS.opus, the chatbox picker label in
+  `public/chat.js` (BUILD_PICKERS.opus → "Opus 5"), and EVAL_MODEL in eval-opus.yml / eval-bounded.yml. Router 26/26
+  + multi-agent 26/26 still green. NOTE: Opus 5 still has adaptive thinking ON by default, so the
+  `thinking:{type:"disabled"}` fix on generation calls STILL applies (and is still needed). Tier above Opus if ever
+  wanted: **Fable 5** ($10/$50, thinking always-on — `{type:"disabled"}` returns 400 there, omit the param instead).
+
+- **2026-07-24 — FULL-PIPELINE runner (builder/full-pipeline.mjs): all ~17 stages against ONE budget.** The earlier
+  chunked test only ran plan→generate→compile (3 of ~17 stages), so the reserves never fired — owner called it out.
+  Corrected: the react-build pipeline has **~17 stages** but only **SIX spend output tokens** — generate
+  (REACT_RULES, chunked), schema-fix (SCHEMA_REPAIR_RULES), **wiring-repair (WIRING_REPAIR_RULES — this one was
+  MISSING from the reserves)**, lint-repair (REACT_REVISE_RULES), fix-loop (REACT_FIX_RULES × attempts), vision-polish.
+  Everything else (auth/config/parse/credit gates, validate, charge, images/fal, compile/container, publish,
+  provision) costs 0 output tokens. `runFullPipeline(brief, cap, deps)` runs every stage with a shared LEDGER: each
+  model call's max_tokens = min(its reserve, budget actually remaining); when the budget runs dry later stages are
+  SKIPPED rather than overspending, so the cap is a real ceiling for the WHOLE build. `traceTable()` prints the
+  per-stage ledger (budget / spent / running / note). RESERVES now = schema 2000 · **wiring 1500** · lint 2000 ·
+  repair 4000 · vision 2000. Fixed two bugs found by the $0 mock: onStep belongs in runChunkedBuild's OPTS not deps
+  (generation sub-steps were missing from the trace), and traceTable mis-rendered the validate row. Mock run: 22
+  trace rows, schema-fix + lint-repair + fix-loop all fired, compile recovered on retry, 12k/25k within cap.
+  NEXT: run it live at 25k + 60k to see the real full-pipeline ledger (does the fix-loop rescue the truncated
+  App.jsx?). Still pending: code should own App.jsx/Nav.jsx (model rewrites them ~5x/build), and feature pages
+  should get budget BEFORE admin (current planner reserves admin first, so at 25k the ONLY page built was Admin).
+
+- **2026-07-24 — ✅ FULL PIPELINE @ 25k COMPILED, within cap. (And: Anthropic credits ran out.)** First run of
+  runFullPipeline live. **25k total → compiled ✅ at 18,209/25,000 spent.** The trace proves the repair stages are
+  what saved it: generate:shell 9,300 + generate:admin 4,600 → validate → **schema-fix (2,000 reserved, spent only
+  309 — wrote isibi.schema.json)** → wiring-repair skipped → **lint-gate FAILED → lint-repair 2,000 → lint-recheck
+  CLEAN** → **compile FAILED → fix-loop 2,000 → compile-recheck OK**. So ~4.3k of repair budget turned a broken
+  build green, and the whole thing landed 6.8k under the cap. This CORRECTS my earlier claim that 25k can't compile —
+  it can, once ALL the stages run (owner was right to insist). Caveat: at 25k the app is still **shell + Admin only,
+  zero feature pages** (the admin-priority planner bug), so it runs but is thin. **The 60k run CRASHED: `anthropic
+  400 — "Your credit balance is too low"` — the Anthropic account is out of credits; no further live runs until it's
+  topped up (console.anthropic.com → Plans & Billing). The crash also skipped the commit-back, so no viewout for
+  this run.** Still pending (both now clearly worth doing): (1) code owns App.jsx/Nav.jsx, (2) feature pages get
+  budget BEFORE admin.
+
+- **2026-07-24 — TEMPLATE THE BOILERPLATE (the Lovable lesson). Shell 16k → 5k.** Owner ran the same CRM prompt
+  through Lovable and compared file trees. Finding: **Lovable's model wrote ~5 files** (index/auth/leads routes + 2
+  SQL migrations). Its ~45 `components/ui/*` are **shadcn/ui shipped in a starter template** (0 tokens), its router
+  (`routeTree.gen.ts`) is **codegen from the file tree** (0 tokens), and it deliberately built **ONE feature page**
+  then offered chips ("Add deals & pipeline", "Enable lead filtering") to add more. **We were regenerating all of it
+  every build** — that was the ~16k shell overhead, self-inflicted. Fixes shipped:
+  (1) **`builder/template/` now carries the scaffold** (22 files): 12 UI components (Avatar/Badge/Button/Card/
+  EmptyState/Input/Modal/Select/Skeleton/Table/Textarea + a manifest-driven Nav), `lib/{api,auth,toast,cx}`,
+  `main.jsx`, `index.css` (+@layer container-page/card-surface) and `tailwind.config.js` (tokens ink-50..900,
+  brand-50..900, accent, canvas, font-display, shadow-soft, rounded-xl2). Promoted from the best generated build
+  (they compiled + rendered well), so it's proven code, not new code.
+  (2) **`builder/scaffold.mjs` generates routing in CODE ($0)**: `pageNamesFrom` → `src/routes.js` (the nav manifest)
+  + `src/App.jsx` (the <Routes> table), derived from the page files that exist. Creating `src/pages/Deals.jsx` now
+  auto-routes `/deals` AND adds its nav link. **This permanently kills the truncated-App.jsx failure class** (a
+  for-loop can't run out of budget) — that single file killed the whole 60k build. chunked-build re-scaffolds after
+  EVERY step and deletes any router the model emits anyway.
+  (3) **REACT_RULES rewritten**: "THE SCAFFOLD ALREADY EXISTS — DO NOT REWRITE IT", lists every component + its props,
+  the lib helpers, the design tokens, and "ROUTING IS GENERATED FOR YOU — never emit src/App.jsx". The model now
+  emits ONLY index.html, pages, genuinely-new components, and the schema. Same for the chunked shell/page prompts.
+  (4) `SHELL_TOKENS` 16000 → **5000**; validate no longer requires main.jsx (template-owned).
+  **Verified end-to-end at $0:** built an app from template + 7 page files only, `vite build` clean (1590 modules),
+  renders identically to the original — and the nav is now BETTER (auto-lists all 7 pages; the model's hardcoded nav
+  had missed Track Email). **Plan impact at 25k: 0 feature pages → 1; at 60k: 5 → 6.**
+  Also: **thinking:{type:"disabled"} applied to worker.js** (both react-build + react-revise streams and the
+  multi-agent agentGen) — production had the same budget-eating bug the eval exposed.
+  STILL PENDING: feature pages should get budget BEFORE admin (at 25k the planner still spends on Admin before
+  dropping 7 pages); harness commit-back needs `if: always()`.
+
+- **2026-07-24 — UI PRIMITIVES: the parts bin is now 34 components (was 12).** Owner's call — don't wait to harvest,
+  build the catalog now, because an unused template component costs ~nothing (0 output tokens, tree-shaken from the
+  bundle, only a few cached words in the prompt) while every used one saves tokens on every build forever.
+  Added 22, all hand-rolled with React + Tailwind + lucide only (NO new deps — no Radix/shadcn), matching the
+  existing conventions (`cx` helper, ink/brand/accent tokens, accessible, focus-visible rings):
+  **Forms** Checkbox · Radio (+RadioGroup) · Switch · Slider · Rating · SearchInput · FileInput (drag-drop);
+  **Layout/nav** Tabs (+TabPanel) · Accordion · Breadcrumb · Pagination (windowed w/ ellipses) · Stepper · Separator;
+  **Overlays** Drawer (side panel) · Dropdown (menu, outside-click + Esc) · Tooltip;
+  **Data/feedback** Stat (KPI tile) · Chart (Sparkline/LineChart/BarChart/DonutChart, pure SVG) · Progress · Alert ·
+  Timeline · Calendar (month grid for bookings, marks + minDate).
+  Chosen against the 25-prompt eval set + the 279 capabilities: dashboards need Stat/Chart/Progress, bookings need
+  Calendar/Stepper, listings need Pagination/SearchInput/Rating, forms need Checkbox/Radio/Switch/Slider/FileInput.
+  **Verified: all 34 compile (esbuild), a showcase page using every one builds clean (vite) and renders with ZERO
+  page errors** — screenshotted. Fixed one real bug found by the render: BarChart columns needed `h-full` or the
+  percentage bar heights collapsed to 0 against an auto-height parent. REACT_RULES now lists the whole catalog with
+  props, grouped Forms/Layout/Overlays/Data. Deliberately NOT copying shadcn's ~45 (most go unused in a given app);
+  the set is sized to what our capability registry actually generates.
+
+- **2026-07-24 — UI PRIMITIVES round 2: 34 → 55 components.** Owner pushed that 34 was short of a real catalog —
+  correct. Added 21 more, again with NO new deps (React + Tailwind + lucide only), same tokens/conventions:
+  **Pickers** Combobox (searchable select) · TagInput · SegmentedControl · DatePicker (field + calendar popover) ·
+  **TimeSlots** (appointment picker w/ taken slots) · QuantityStepper (cart) · OtpInput;
+  **Overlays** Popover · **ConfirmDialog** (the destructive-action gate) · Lightbox;
+  **App shells & data views** **PageHeader** (title/description/actions — every inner page) · **Sidebar**
+  (+SidebarLayout, dashboard rail) · **DataTable** (sortable + built-in loading/empty states) · **Kanban**
+  (HTML5 drag-drop stage board — the CRM pipeline, task boards) · FilterBar (active filter chips);
+  **Media & misc** Carousel · AspectRatio · AvatarGroup · Collapsible · ProgressRing (circular gauge) · CopyButton.
+  Gap analysis was done against shadcn's catalog AND our 279 capabilities — deliberately skipped command palette,
+  menubar, resizable, context-menu, hover-card (rare in generated apps); added app-shaped molecules shadcn lacks
+  (PageHeader, DataTable, Kanban, TimeSlots) because our capability set generates those constantly.
+  **Verified: all 55 compile; a second showcase page exercising every new one builds clean and renders with ZERO
+  page errors** (screenshotted — DataTable sorting, DatePicker formatting, TimeSlots taken-state, ProgressRing,
+  Sidebar, OTP all correct). Caught a real API footgun while testing: my page imported `{SidebarLayout}` when it was
+  the default export — exactly the mistake a model would make — so Sidebar now exports SidebarLayout BOTH ways.
+  Kanban compiled + is wired but was behind a view toggle in the shot, so it is not visually verified yet.
+  REACT_RULES lists all 55 grouped Forms/Layout/Pickers/Overlays/App-shells/Media with props.
+
+- **2026-07-24 — UI PRIMITIVES round 3: 55 → 72. The parts bin is DONE.** Added 17 more (no new deps):
+  **Media** Gallery (grid wired to Lightbox) · AudioPlayer (podcasts/lessons) · VideoEmbed (file or iframe);
+  **Social/detail** Comment (+CommentList, nestable replies) · ChatMessage (DMs, `mine` flips side) ·
+  DescriptionList (order/profile/invoice detail) · NotificationItem · ShareButtons (native share sheet → clipboard);
+  **Commerce/forms** PricingCard · Countdown · MultiSelect · InlineEdit (click-to-edit) · FormSection (+FormActions) ·
+  ButtonGroup; **Feedback/resilience** Spinner · **ErrorBoundary** (class component — stops one broken component
+  blanking the whole app); plus **Footer** (manifest-driven from routes.js, like Nav).
+  **Verified: all 72 compile; a third showcase exercising every round-3 component builds clean and renders with ZERO
+  page errors** — and two things that needed proving both passed: **ErrorBoundary actually caught a deliberate throw
+  and rendered its fallback**, and **Kanban is now visually confirmed** (was compiled-but-unseen last round).
+  **DELIBERATELY EXCLUDED, and why** — command palette / menubar / context-menu / hover-card / resizable panels /
+  tree view / masonry: genuinely rare in generated apps, would be dead weight. Rich-text editor, image cropper,
+  colour picker, maps: all need third-party deps, which breaks the "import ONLY from REACT_DEPS" contract.
+  Toast already exists as `lib/toast.jsx`. **At 72 we're past shadcn parity (~48) on the pieces our 279 capabilities
+  actually generate, and the remaining candidates are all rare-or-needs-a-dep. This is the natural stopping point.**
+
+- **2026-07-24 — PER-APP PALETTES: same 72 components, different look per app ($0).** The last gap — every generated
+  app looked identical because the template shipped one fixed blue/slate palette. Fixed WITHOUT touching component
+  logic, by making the components fully token-driven and generating token VALUES per app:
+  (1) **De-hardcoded the components**: `bg-white`→`bg-surface` (42 occurrences / 31 files), `text-white`→`text-brandfg`
+  on brand/accent fills (13) and →`text-canvas` on ink-900 fills (3), `border/ring-white`→`-surface`. Lightbox keeps
+  literal white (it sits over a photo). index.css likewise.
+  (2) **`themeFor()` + `tailwindConfig()` in scaffold.mjs** turn any style family's flat tokens into full 50..900
+  scales via HSL ramps (hue preserved, neutrals given a whisper of the accent hue so they read chosen, not default
+  grey). **The ink ramp is SEMANTIC, not literal** — on a dark family it INVERTS, so `text-ink-900` stays "strongest
+  text" (near-white) and `bg-ink-100` stays a subtle fill, with zero component changes. `isDark()` (relative
+  luminance) picks the direction.
+  (3) **chunked-build calls `scaffoldTheme`** using the family `pickStyleFamily` already chooses from design_hints.
+  **Verified by building the SAME app under all 5 families — minimal-light, warm-editorial, playful, studio-dark,
+  elegant-dark — all 5 compile and render with ZERO page errors**, screenshotted. studio-dark: near-black canvas,
+  pink accent, inverted neutrals, fully readable. warm-editorial: warm paper, serif display, amber accent. Same
+  components, unrecognisably different apps.
+  So the parts bin is shared but the *look* is per-app — which was the whole objection to templating.
+
+- **2026-07-24 — SECTION BLOCKS: 72 → 95 components. This is where the tokens actually go.** Owner pushed past 72;
+  correct call, and the right next tier wasn't more atoms — it was SECTIONS. A generated Home page was ~5,500 chars
+  of hand-written hero + features + testimonials + pricing + CTA; as blocks that drops to a few hundred chars of
+  props. Added 23:
+  **Landing sections** Hero (split/center/minimal) · FeatureGrid · HowItWorks · StatsBand · TestimonialGrid ·
+  LogoCloud · PricingTable (grid of PricingCards + monthly/yearly toggle) · FAQSection · ContactSection (copy +
+  wired form) · NewsletterSignup · TeamGrid · CTASection;
+  **App-shaped cards** ProductCard (shop) · ListingCard (property/rental) · EventCard (classes/gigs, w/ date chip
+  and spots-left) · ArticleCard (blog/episode/recipe) · MenuSection (restaurant);
+  **App patterns** OrderSummary (cart/checkout/invoice) · BookingWidget (Calendar + TimeSlots + confirm) ·
+  ReviewSummary (average + 5→1 breakdown bars) · AuthCard (sign-in shell) · ProfileHeader (member/seller banner) ·
+  ListDetailLayout (inbox/tickets master-detail).
+  **Verified: all 95 compile; a COMPLETE landing page assembled purely from section blocks builds clean and renders
+  with ZERO page errors** — and it rendered under the elegant-dark theme, proving the sections theme correctly too.
+  **Caught a real contrast bug by looking**: CTASection used `variant="outline"` on its brand band, which inherits
+  page colours — on a gold-accent theme the button was almost invisible against the gold band. Fixed to force
+  surface-on-brand for the primary and a bordered brandfg for the secondary. That class of bug is invisible to
+  compile checks and only shows up in a render.
+
+- **2026-07-24 — DASHBOARD/ADMIN BLOCKS: 95 → 105.** The app-side counterpart to the landing sections. Added 10:
+  **DashboardShell** (page frame: header + toolbar + grid) · **StatRow** (KPI strip) · **ChartPanel** (titled chart
+  card w/ range switcher + summary figure) · **ActivityFeed** (who-did-what) · **SettingsLayout** (section nav +
+  panel) · **StatusPill** (auto-maps common status words — paid/pending/overdue/won/lost — to a tone so pages stop
+  hand-rolling it) · **BulkActionBar** (floating bar when rows are selected) · **SearchFilterBar** (list toolbar) ·
+  **CartLineItem** · **InvoiceTable** (line items + totals + amount due).
+  **Verified: all 105 compile; a full SaaS dashboard assembled purely from these blocks builds clean and renders
+  with ZERO page errors** (screenshotted — KPIs, chart w/ range switcher, activity feed, DataTable + StatusPills,
+  bulk bar, cart, order summary, invoice totals, settings). Known nit: BulkActionBar is `sticky bottom-4`, so in a
+  short container it can float over content — fine at page level, worth remembering.
+  **NEXT (owner's sequencing): components first, THEN the quality pass.** Quality gaps already measured and waiting:
+  **73 of 105 components have NO focus-visible state**; **114 literal `rounded-lg/xl` vs 11 themed** so a family's
+  radius barely applies (playful isn't playful — it's just purple); **~8 transform/motion usages total**. The fix is
+  a DESIGN LANGUAGE layer (radius/density/elevation/motion scales per family), not more components.
+
+- **2026-07-24 — CAPABILITY BLOCKS: 105 → 118. The parts bin now covers the backend.** Last component round: the
+  gap left was capabilities the backend already serves that had no UI at all. Added 13:
+  **SeatPicker** (venue seat map: rows/tiers, taken seats disabled, maxSeats enforced) · **WeekSchedule**
+  (timetables/rotas/opening hours) · **OrderTracker** (fulfilment progress) · **LessonList** (course curriculum,
+  completion + progress bar + locked lessons) · **CompareTable** (plan/feature comparison) · **AddressForm**
+  (shipping/billing with the right autoComplete attrs) · **PaymentForm** (card field layout — carries a code comment
+  that raw card numbers must never be POSTed to your own backend; wire it to the provider's tokenizer) ·
+  **WishlistButton** (save heart, incl. a floating-over-image variant) · **Leaderboard** (referrals/challenges) ·
+  **Poll** (community voting w/ result bars) · **ChatComposer** (Enter sends, Shift+Enter newlines) ·
+  **AnnouncementBar** (promo strip above the nav) · **CookieConsent** (choice persisted to localStorage).
+  **Verified: all 118 compile; a showcase page renders with ZERO page errors, and the interactive paths were
+  clicked through** — seat selection respects maxSeats and refuses taken seats, the poll reveals bars on vote,
+  messages send, hearts toggle, both bars dismiss.
+
+- **2026-07-24 — TWO REAL BUGS FOUND WHILE WIRING ROUND 6 IN (both would have bitten in production):**
+  **(1) The model was never told about 47 of the 118 components.** `REACT_RULES` still listed the round-3 inventory,
+  so every section block, dashboard block and capability block added since was INVISIBLE to the generator — it would
+  hand-roll a hero it already had. Fixed by extracting the inventory into one exported `COMPONENT_INVENTORY`
+  (~2.5k tokens, prompt-cached) covering all 118, and — this is the bigger half — **feeding it to the per-page
+  steps too**. `existingContext()` in chunked-build.mjs advertised "AVAILABLE SHARED COMPONENTS" built from the
+  files dict, which after templating is EMPTY (the kit lives in the template, not in `files`), so the page steps —
+  where most output tokens go — were told the library was empty. Both paths now get the real list.
+  **(2) The build container was DELETING the entire component library on every build.** `wipeSrc()` in
+  build-server.mjs `rm -rf`s `/app/src` before writing the incoming files, and the Worker only sends model-generated
+  files — so the kit the Dockerfile baked into `/app/src` was gone by the time `vite build` ran. Every templated
+  app would have failed to compile in the real container; it only ever worked in the local harness because that
+  directory had the components on disk. Fixed: the Dockerfile keeps a pristine `/app/.template-src`, and `wipeSrc()`
+  restores src/ from it before writing (falls back to an empty src/ on an older image). **Proved both directions
+  locally** against a replica of the image layout: with the pristine copy a 6-file payload (index.html + 2 pages +
+  scaffolded App/routes/tailwind) compiles clean pulling all 118 components from the template; with it removed the
+  same payload fails to resolve the imports.
+
+- **2026-07-24 — ROUND 7: 118 → 158. The gaps a universal builder still had.** Owner asked for more; these are the
+  40 things a real app reaches for that were still being hand-written every time. Added:
+  **Long-form/docs** Prose (the typography wrapper — a docs page was ~900 chars of className soup per article) ·
+  TableOfContents (sticky rail, highlights the section in view) · CodeBlock (filename bar, tabs, line numbers,
+  copy) · Callout (the aside INSIDE prose — Alert is the app-level one) · FeedbackWidget ("was this helpful?");
+  **Advanced fields** RangeSlider (two-handle price filter — every marketplace needs it) · DateRangePicker
+  (check-in/check-out; Calendar only does one date) · PasswordInput (show/hide + strength) · CurrencyInput ·
+  PhoneInput · ImageUploader (drag-drop + previews) · ColorPicker · SignaturePad (canvas, pointer events);
+  **Navigation** CommandPalette (⌘K — the one control that makes an app feel like a product) · KeyboardShortcuts
+  ("?" sheet, exports {Kbd}) · TreeView;
+  **Analytics** HeatMap (contribution calendar) · FunnelChart (stages + drop-off) · GanttChart (project timelines);
+  **Marketing sections** BentoGrid (asymmetric mosaic — hierarchy, not a spreadsheet of equal cards) · SplitFeature
+  (the alternating zig-zag row) · Marquee (seamless CSS loop, pauses on hover, still under reduced motion) ·
+  StatsCounter (counts up on scroll, exports {useCountUp}) · DeviceFrame (browser/phone/laptop chrome) ·
+  ImageCompare (before/after wipe) · Masonry · MapEmbed (a REAL map via OpenStreetMap — no library, no API key);
+  **SaaS surfaces** OnboardingChecklist · UsageMeter · TeamSwitcher · NotificationCenter · InviteMembers ·
+  ApiKeyRow (masked + reveal + revoke) · OfflineBanner;
+  **Social/commerce** UserCard · FollowButton · ReactionBar · VariantPicker (size/colour, sold-out stays visible
+  and struck through) · PromoCodeInput · ShippingOptions.
+  **Verified: all 158 compile; two showcase pages render with ZERO page errors, and the behaviour was measured, not
+  eyeballed** — the counters reach 2,400+ once scrolled into view, the marquee's transform actually advances
+  (−132px → −155px over 700ms), the compare slider's clip-path moves on drag (50% → 18%), the palette filters and
+  groups, the shortcut sheet opens.
+  **Two real bugs caught by looking at the render** (the same pattern that caught BarChart, SidebarLayout and
+  CTASection in earlier rounds): (1) GanttChart shaded the REMAINING portion of each bar, so an unfinished task
+  looked emphasised — flipped so solid = done, with the track and fill as SIBLINGS (opacity on a parent would have
+  faded the fill too); (2) HeatMap's month labels collided into "JanFeb" when two months landed in adjacent
+  columns — now it remembers where the last label went and skips the crowded ones.
+  All 40 shipped WITH focus-visible states, which is a head start on the quality pass.
+  **Also re-verified the whole path end-to-end**: the container replica compiles a page importing all 40 new
+  components from a 6-file payload, so the round-6 build-server fix holds at 158.
+
+- **2026-07-24 — ROUND 8: 158 → 258. Owner asked for 100 more; here they are.** Before building, owner asked
+  whether we could just download from Material UI / Ant Design / Tailwind UI. Answer recorded so we don't
+  re-litigate it: **Tailwind UI is a hard no** (paid licence, and its terms forbid redistributing the components
+  inside a product that ships them to other people — which is exactly what the builder does). **MUI and Ant are
+  MIT so legally fine but the wrong shape** — each brings its own CSS-in-JS runtime (our container bakes exactly
+  six deps), each has a hard visual identity that would undo the per-app palettes, and neither reads our semantic
+  tokens, so theming would stop applying to anything we pulled in. **shadcn/ui + Radix is the one that would fit**
+  (MIT, copy-paste, Tailwind-native — it's what Lovable ships), but its ~50 components overlap ours heavily; the
+  real reason to take Radix is ACCESSIBILITY on the overlays, which is a quality-pass decision, not a count one.
+  **Owner's call: keep building ours.** So all 100 are hand-written against our tokens, no new dependencies.
+  Grouped by domain: **editorial** (ArticleHeader, AuthorBio, RelatedPosts, PullQuote, ReadingProgress, TagCloud,
+  ArchiveList, ShowMore) · **learning** (CourseCard, QuizQuestion, QuizResult, VideoChapters, AssignmentCard,
+  GradeTable, CertificateCard) · **property** (PropertyFeatures, PriceHistory, MortgageCalculator, AgentCard,
+  OpenHouseList) · **food** (DishCard, AllergenTags, OrderTypeToggle, TipSelector, ReservationSummary,
+  KitchenTicket) · **health** (PatientHeader, VitalsGrid, MedicationList, ConsentBlock, SymptomChecklist,
+  AppointmentCard) · **fitness** (WorkoutCard, ExerciseList, StreakCounter, MacroRing) · **events** (TicketCard,
+  EventSchedule, SpeakerCard, VenueInfo, AttendeeList, WaitlistForm) · **hiring** (JobCard, JobFilters,
+  ApplicationForm, SalaryRange, CompanyCard, FileDropzone, InterviewSlots) · **travel** (FlightCard,
+  ItineraryTimeline, TravelerForm, BaggageOptions, DestinationCard) · **finance** (AccountCard, TransactionList,
+  BudgetRing, CategoryBreakdown, CardVisual, TransferForm, ExchangeRate, StatementRow) · **support** (TicketRow,
+  SlaBadge, KnowledgeBaseSearch, LiveChatBubble) · **marketplace** (SellerCard, BidHistory, OfferCard) ·
+  **community** (PostComposer, FeedPost, StoryRing, MemberList, GroupCard, ModerationQueue) · **dev/API**
+  (EndpointRow, ParamTable, ServiceStatus, WebhookLog, EnvSelector) · **charts** (ScatterPlot, StackedBar,
+  RadarChart, MetricComparison, CohortTable, TopList) · **forms/surveys** (FormWizard, RepeaterField, NpsInput,
+  MatrixQuestion, RankOrder, DurationInput, TimezoneSelect) · **security** (SocialAuthButtons, TwoFactorSetup,
+  SessionList, PermissionMatrix) · **system** (ErrorPage, ComingSoon, ThemeToggle).
+  **Verified: all 258 compile; three showcase pages render with ZERO page errors.**
+  **Four real bugs caught, two of them latent in components that shipped rounds ago:**
+  (1) **Avatar silently collapsed on an unknown `size`** — the map had only sm/md/lg, so `size="xs"` emitted NO
+  size class at all and the avatar rendered at zero width. Added xs/xl and a fallback to md.
+  (2) **Dropdown with no `trigger` rendered an invisible, unclickable control** — the menu existed but nothing
+  could open it, and `<Dropdown items={…} />` looks complete. It now falls back to a real ⋯ button, and the
+  custom-trigger path got tabIndex + Enter/Space, because a click-only `<span>` is unreachable by keyboard.
+  (3) **TwoFactorSetup truncated the secret to "J…"** in a narrow column — a key you cannot read defeats the
+  entire type-it-by-hand fallback. Now `break-all` on its own row, never truncated.
+  (4) **SocialAuthButtons wrapped "Continue with Facebook" onto three lines** at four providers — past two it
+  now drops the verb and shows just the provider name.
+  Also fixed a React warning in PermissionMatrix (a keyed group needs a real `<Fragment key>`, not `<>`).
+  **focus-visible coverage is now 103/258** (every component added in rounds 7–8 has it) — still the main
+  quality gap, along with the literal `rounded-lg/xl` problem.
+  **Verified end-to-end again:** the container replica compiles a page importing ALL 258 components from a
+  five-file payload. The inventory in react-gen.mjs covers all 258 (~6.7k tokens, prompt-cached).
+  **Known, NOT fixed (template chrome, owner's call):** the shared `Nav` doesn't wrap or scroll its link row, so
+  an app with ~12+ pages overflows the viewport horizontally. Our test harness has 18 pages and overflows by
+  138px; a normal generated app (~8 pages) fits. Say the word and it's a one-line fix.
+
+- **2026-07-24 — SWITCHED THE WHOLE KIT TO TYPESCRIPT (258 .jsx → .tsx).** Owner asked whether TSX beats JSX
+  after reading it elsewhere; the answer at our scale is yes, so we converted. **The critical thing to know:
+  `.tsx` ALONE DOES NOTHING** — proved it by test: a `.tsx` file with a deliberate type error compiled clean in
+  6s and shipped the bad value into the bundle, because Vite/esbuild STRIPS types without checking them. The
+  benefit only exists because we also added `typescript` + `tsc --noEmit`.
+  **Design decisions, so nobody re-litigates them:**
+  (1) **tsc is ADVISORY, never a build gate.** It runs after a successful `vite build` and returns `typeErrors`
+  for the repair loop. A customer getting NOTHING because of a type error is worse than a shipped app with one.
+  Verified: a page with `size="enormous"` and a misspelled `varient=` still built and served, with both errors
+  reported back.
+  (2) **NOT `strict`.** The value is contract enforcement at the component boundary — a misspelled prop and an
+  invalid literal — and both come from the interfaces plus excess-property checking, which work at any
+  strictness. Full strict produced 465 errors of pure noise on ordinary React. Noise nobody can clear trains
+  everyone to ignore the checker.
+  (3) **Prop interfaces are CLOSED, data shapes are OPEN.** `AvatarProps` must reject a typo; `Person` must not
+  reject an attendee that also has a company and a ticket type. `src/lib/types.ts` holds the shared shapes with
+  an index signature; the per-component interfaces do not.
+  **The conversion is one reproducible script**, not a pile of seds — it runs from the committed .jsx baseline
+  every time, because one bad regex of mine (it matched across `${…}` inside a template literal) left 400 syntax
+  errors with no way back. 1,748 props typed, 17 literal unions inferred.
+  **tsc went 596 → 3 errors, and the 3 remaining are by design** (`routes.ts`/`App.tsx` are code-generated after
+  the check runs). All 258 compile, all 8 showcase pages render with ZERO page errors, CSS output is byte-identical
+  at 77.30 kB (the Tailwind content glob needed `{js,jsx,ts,tsx}` or everything purges), and the container replica
+  builds a page importing all 258 from a 5-file payload.
+  **THREE REAL BUGS the types caught immediately** — all the "silently wrong, looks fine" class:
+  (a) **`variant="outline"` did not exist.** Six call sites used it, REACT_RULES documented it, and Button only
+  implemented `secondary` — so those six buttons rendered with `variants[undefined]`, i.e. NO variant styling.
+  (b) **`Nav` passed `<Avatar size={32} />`** — a number, when Avatar takes `'xs'|'sm'|'md'|'lg'|'xl'`. Exactly
+  the Avatar bug found by hand in round 8, in a second place nobody had looked.
+  (c) **`EmptyState` implements `description`, the docs promised `message`, DataTable passed `message`** — so an
+  empty table's explanatory line silently never rendered.
+  All three are prose-vs-code drift, which is precisely the failure the compiler now prevents structurally.
+  **I WAS WRONG ABOUT THE TOKEN COST.** I told the owner +10–15% output per page. Measured against the real
+  generated CRM it is **~0.5%** (+100 tokens on ~20,500) — wrong by about 25×. The reason: page components take
+  no props and so need no annotation, `useState` infers, and the rules now say keep annotations LIGHT — only
+  inner components need an interface, and nine real pages contained three of them. Caveat: that is an estimate
+  of what the model WOULD write; a true measurement needs a live generation, which is still blocked on the
+  Anthropic balance.
+
+- **2026-07-24 — TSX IS NOW THE RULE FOR COMPONENTS, AND IT IS ENFORCED.** Owner's call: from now on all kit
+  components are `.tsx`. Rather than write that down and trust it (the exact thing that produced three bugs
+  this session), it is a check: **`builder/check-kit.mjs`**, wired to CI in `kit-check.yml` on any change to
+  `builder/template/**` or `react-gen.mjs`. It guards the three invariants that have each already cost us a bug:
+  (1) components are `.tsx` — a stray `.jsx` still builds, so nothing else would tell you the kit had drifted;
+  (2) every component appears in `COMPONENT_INVENTORY` — it once fell three rounds behind and 47 of 118
+  components were invisible to the generator; and (3) every prop the inventory documents actually exists —
+  `variant="outline"`, `EmptyState message=` and `<Avatar size={32}/>` were all prose the code never honoured.
+  The workflow also runs `tsc` as a HARD gate on our own kit (it stays advisory at build time, where a customer
+  is waiting for an app).
+  **On its first run the check found two more drifts nobody had noticed:** the inventory documented
+  `EmptyState (icon, title, message, action)` when the component implements `description, actionLabel, onAction,
+  actionTo`. Corrected. Kit is now 258 components, 826 documented props verified, all invariants holding.
+  Deliberately kept OUT of `deploy.yml` — a drifted inventory should be loud, but it should not block shipping
+  the Worker.
+
+- **2026-07-24 — PAGE RECIPES: the "instruction booklet" for the 258 parts.** Owner's framing, and it is the
+  right one: the kit is a box of bricks with no instructions, so the model re-derived what a list page looks
+  like on EVERY build and landed somewhere slightly different each time. `builder/page-recipes.mjs` fixes that
+  with 13 short skeletons — crud-list, list-create, capture-form, tool-form, read-only, dashboard, booking,
+  checkout, feed, article, plus fixed ones for Home / SignIn / Admin.
+  **Recipes are SELECTED, never hand-assigned.** There are 279 capabilities; picking a layout for each by hand
+  would rot within a week. `recipeFor(cap)` reads the capability's own ROUTE SHAPE (reads? creates? deletes? is
+  it public?) and infers the kind, so a new capability gets the right recipe for free. Coverage: **260 of 279**
+  capabilities match a recipe; the other 19 are stateless utilities (csv, id-generate, config-validate) that are
+  backend primitives, not pages. A page with NO registry entry at all — a brief asking for "invoices" — falls
+  back to matching on its own name, so every page gets a shape.
+  **Cost: ~102 input tokens per page** (~614 on a six-page app), prompt-cached, against a component inventory
+  that already rides along at ~6,692. Cheap for the thing it replaces.
+  **Guarded, not just written down** — `check-kit.mjs` now validates that every component a recipe names really
+  exists (verified by planting `FilterPanel` and watching it fail). It resolves NAMED exports too, since a recipe
+  may legitimately reference CommentList (in Comment.tsx) or FormActions (in FormSection.tsx), and it ignores
+  quoted button copy so `a primary "New …" action` isn't read as a <New> component.
+  **Still missing, and bigger: whole-app starters.** Recipes tell the model what shape to build; a starter would
+  mean it EDITS a working CRM instead of writing one. That remains the largest lever.
+
+- **2026-07-25 — `useResource`: one hook is now the ONLY way a generated page talks to its database.** Owner
+  approved building on TanStack Query ("Yeag build tanstack"). The architecture is deliberate: **the hook is the
+  INTERFACE, the library is the ENGINE.** Pages write one line —
+  `const { data, loading, error, saving, create, update, remove } = useResource('leads')` — and never see a
+  query key or an `invalidateQueries` call. `useRecord('leads', id)` is the detail-page version, sharing the same
+  cache. If TanStack is ever ripped out, exactly one file changes.
+  **Why it exists:** every list page needs the same seven things (fetch, loading, error, create, update, delete,
+  refresh-after-write) and hand-written that is ~40 lines of useState/useEffect per page, of which the model got
+  a different subset right each time. The worst failure was SILENT — a create that saved but never refreshed the
+  list, which to the person using the app is indistinguishable from a broken save.
+  **Verified in a real browser, not asserted:** skeleton → 2 rows loaded → Create → 3 rows with no refetch
+  anywhere in the page → Update flips a row to archived → Remove drops back to 2 → a deliberately rejected write
+  surfaces the server's own 400 message ("name is required") to the page's catch block and leaves the table
+  untouched. Zero console errors throughout.
+  **Cost, measured on the SAME two-page app built through the real build server:** hand-rolled fetch 201,471
+  raw / 65,194 gzip → useResource 243,977 raw / **77,722 gzip (+12.5 kB)**. On the 258-component kitchen-sink
+  harness the same delta is only 6.8%, so the relative cost shrinks as apps get real. Bought with it: request
+  dedup, caching, retries and in-flight race handling we would otherwise own in every generated app.
+  **Guarded, not written down** — `check-kit.mjs` now asserts (a) the hook returns every key the generator rules
+  promise (proved by renaming `refetch`→`reload` and watching it fail) and (b) `main.tsx` still mounts
+  `QueryClientProvider`, because dropping it would crash every generated app on its first read with
+  "No QueryClient set". `@tanstack/react-query` added to `builder/package.json` dependencies (baked into the
+  build image) and to the kit-check CI install.
+  Rules updated in three places so the model can't miss it: `COMPONENT_INVENTORY` (which rides along with every
+  page step), `REACT_REVISE_RULES` (the edit path), and the crud-list / list-create / read-only recipes.
+
+- **2026-07-25 — WHOLE-APP STARTERS. The biggest remaining lever, built.** Recipes told the model what SHAPE to
+  build; it still wrote every page from scratch, and "from scratch" is where both the variance and the token
+  spend live. A starter is a COMPLETE, WORKING app already in the box, so the job changes from *write a booking
+  app* to *make this booking app be about Marco's barbershop*. Editing beats generating on every axis: fewer
+  tokens, no truncation risk, and the failure mode becomes "left something in that doesn't fit" instead of
+  "invented something broken".
+  **Three live: booking (6 pages), commerce (6), content (5)** — 17 pages, all authored by hand against the real
+  kit. Seven bundles still generate from scratch (social, events, crm, helpdesk, directory, loyalty, courses) and
+  `check-kit.mjs` prints that gap on every run so it can't quietly become permanent. Three good starters beat ten
+  mediocre ones: a starter IS the app for everyone it matches, so a weak one would actively lower output quality.
+  **It composes with what was already free.** A starter is ONLY its pages plus its schema — `scaffoldRouting`
+  already derives the router and nav from whichever page files exist, and `scaffoldTheme` already re-skins every
+  component per app. So seeding a starter yields a routed, themed, compiling app before a single token is spent.
+  **Matching delegates to the existing capability bundles** rather than carrying a second keyword list, so the
+  backend capability set and the front-end starter can never disagree about what kind of app is being built.
+  Coverage is DECLARED (`covers: [...]` in meta.json), not guessed from page names — name-matching alone silently
+  regenerated Book and MyBookings because the capability is called `bookings`.
+  **Measured A/B on the real pipeline (mock generator, full step budgets — the honest worst case):**
+    barbershop 17,600 → 5,000 output tokens (−72%), pages 4 → 6
+    ceramics shop 21,500 → 14,900 (−31%), pages 5 → 8
+    cycling blog 9,500 → 7,500 (−21%), pages 3 → 6
+    **total 48,600 → 27,400 (−44%), and every one gained a real isibi.schema.json it would otherwise have had to
+    repair its way to.** At a fixed 40k cap the barbershop went from dropping 3 of 6 capabilities to dropping none.
+  **Verified, not asserted:** all three build through the REAL build server with 0 type errors, and all 17 pages
+  were rendered headless against a stubbed backend — zero console errors, zero horizontal overflow.
+  **Two bugs the rendering caught that types could not** (both `any`-typed props): ProductCard renders `price`
+  verbatim, so passing a raw number printed "78" with no currency; and RelatedPosts showed a dangling "· date"
+  because the author was not passed through.
+  **One IA fix fell out of it:** the scaffold sorted nav links alphabetically, which for a shop read
+  "Home · Cart · Orders · Shop" — checkout before the thing being bought. `scaffoldRouting` now takes an optional
+  `navOrder` and each starter declares its own journey.
+  **Guarded** — check-kit validates that starter pages import only real components and real named exports, that
+  declared `covers` ids are real capabilities, that no starter calls `api.*` on `/rows` directly (the starter is
+  the model's worked example, so a hand-rolled fetch in one teaches it to write more), and that starters.data.mjs
+  is not stale. All four proved by planting a failure and watching each one fire. CI typechecks every starter.
+  **A real platform gap surfaced while modelling the booking data:** there is no access mode for "members write
+  their own rows, the owner reads all of them". `user` is owner-scoped with no admin override, `feed` makes every
+  row public, `collect` is write-only. So the booking Admin manages SERVICES and deliberately does not pretend it
+  can see other people's bookings. A `staff` access mode would fix a whole class of small-business app.
+  **Also noticed, NOT changed (owner's call):** `full-pipeline.mjs` never calls `applyBundle`, so the bundles
+  exist but the planner's raw capability picks go through unmodified — which is why a barbershop brief selected
+  `CreditLimit` and `Timeoff`. Two lines to wire up, but it changes capability selection for every build, so it
+  should be a deliberate decision rather than something slipped in beside starters.
+
+- **2026-07-25 — CRM + HELP DESK STARTERS. Five live, 29 pages.** Booking, commerce, content, crm, helpdesk.
+  Still generating from scratch: social, events, directory, loyalty, courses (check-kit prints that list every run).
+  **CORRECTION to yesterday's note.** I said the platform has no access mode for "members write their own rows,
+  the owner reads all of them". That was wrong — **`teamRead: true`** on a `user` table does exactly that: a
+  manager reads their whole downline via the recursive `_users.manager_id` chain while writes stay own-row, and
+  **`teamScope: true`** is the team-shared variant keyed on `team_id`. Both CRM and help desk are built on
+  `teamRead`. The narrower point still stands for the BOOKING case: customers are not reports of the shop owner,
+  so no existing mode gives a small-business owner sight of their customers' bookings.
+  **These two lean on the platform's own table features rather than reimplementing them in the UI:**
+  `transitions` (a deal cannot skip discovery→won; a ticket cannot skip open→closed — enforced server-side with a
+  409, so the dropdowns only ever offer moves that will be accepted), `sequence` (TKT-0001 assigned by the server;
+  a client-generated number would collide the moment two agents raise a ticket at once), `sla` (4h to first
+  reply), `trash` (the CRM admin page IS the bin), `fts`, `timestamps`, `defaultSort`.
+  **CRM admin is deliberately NOT "manage everyone's records"** — with teamRead, an admin role does not widen
+  visibility, so a page pretending otherwise would render an empty table and look broken. It manages the bin and
+  data hygiene, and says so on the page.
+  **A/B across all five briefs (mock generator, full step budgets): 108,800 → 81,800 output tokens (−25%),
+  pages 23 → 38, dropped capabilities 6 → 0.**
+  **The CRM row is the interesting one: it spends MORE (28,900 → 31,800, +10%) and that is the right outcome.**
+  Freeing the budget the starter's pages would have cost let the planner build 11 pages instead of 6 and drop
+  none instead of four. A starter either saves tokens or buys more app, depending on whether the cap was binding.
+  **Seven real bugs, six of them only findable by rendering:**
+    · `Kanban` was typed `columns?: Column[]` — the DataTable shape — though its own contract is `{id, title}`.
+    · **TEN components had `to: string` REQUIRED while the code already branched on its absence** (`if (to)
+      return <Link…>`). The codemod inferred "required" from a bare destructure with no default. Three others
+      (CourseCard, DestinationCard, JobCard) genuinely require it and were left alone.
+    · `UserCard` had no `onClick`, so a directory tile could navigate but not open a drawer. Added.
+    · A `<Modal>` renders nothing when closed but **its children are still evaluated**, so `editing.status` in the
+      JSX crashed the whole page the moment the modal shut. Hit Leads and Deals both.
+    · `PageHeader`'s `breadcrumb` is a NODE, not an array — passing `[{label,to}]` threw React error #31.
+    · `ListDetailLayout`'s `listWidth` is a Tailwind CLASS (`md:w-96`), not a length; passing `24rem` silently
+      collapsed the detail pane.
+    · `TopList` rendered "2leads" — `FunnelChart` spaces the same prop and TopList did not.
+  The last three were prose gaps as much as code: the inventory now documents Kanban's column shape,
+  PageHeader's breadcrumb node, UserCard's onClick and ListDetailLayout's listWidth.
+  **check-kit's raw-api guard was too strict** and had to be narrowed: it banned every `api.*` call on `/rows`,
+  but SUB-ACTIONS (`/rows/<t>/<id>/restore`, `/stats`, `/duplicates`) are exactly what useResource does not wrap
+  and api.js is the documented way to reach them. It now flags only bare list/record paths.
+
+- **2026-07-25 — RADIX UNDER FIVE COMPONENTS. We did NOT adopt shadcn/ui.** Owner asked what shadcn is and
+  whether to try it. Pulled it down and measured rather than guessing.
+  **What shadcn actually is:** not a library. A CLI COPIES the component source into your repo (MIT), so there is
+  no dependency and you own the file. That is a real difference from Material UI / Ant / Tailwind UI, which the
+  owner had already turned down. Underneath it is Radix (behaviour) + Tailwind (looks). ~50 components. It is
+  what v0 and Lovable build on.
+  **Measured, not assumed:** shadcn Button+Dialog+Select = 89.6 kB gzip vs our Button+Modal+Select at 54.5 kB.
+  Three components pulled 26 Radix packages. But the curve matters: the first three cost +35 kB, the next six
+  only +11.6 kB — a ~30 kB entry fee then ~2 kB each.
+  **Decision: don't adopt.** Three reasons. (1) Coverage — shadcn is a PRIMITIVES library of ~50; we have 258 and
+  the 218 domain components (BookingWidget, TicketRow, SlaBadge, Kanban, OrderTracker) are the thing that makes
+  the starters good. (2) Token cost — their compound API (`<Select><SelectTrigger><SelectValue/>…`) is ~6 lines
+  where ours is 1, and every generated page pays it, which cuts straight against the 25% we just saved.
+  (3) The rewrite would touch 258 components, 29 starter pages, the inventory, check-kit and the recipes.
+  **What we DID take: Radix under the five components where the invisible half is genuinely hard.** Props
+  unchanged, so not one call site or starter page moved. Deliberately NOT Select — ours wraps a native `<select>`,
+  which beats any custom listbox for screen readers and on phones.
+  **What was actually broken, proved with a keyboard-driven Playwright run:**
+    · Modal had NO focus trap — Tab from the last field walked out into the page behind it. Now Tab cycles
+      field1 → field2 → footer → close → field1 and never escapes (verified: `modal_escaped_to_page: false`).
+    · Dropdown had no arrow keys, no Home/End, no type-ahead, and no focus return to the trigger. Now
+      Enter opens → first item focused → ArrowDown → Enter fires the right action.
+    · Popover's trigger was a bare `<span onClick>` — **it could not be opened from a keyboard at all.** It also
+      registered document listeners on every render (no dependency array).
+    · Tooltip was never announced to a screen reader (no `aria-describedby` linking tip to trigger).
+    · MultiSelect could be opened by keyboard and then not navigated, and its remove-chip was a `<span>` with a
+      click handler, no tabIndex — unreachable.
+    · All five were absolutely positioned, so near a window edge they rendered off-screen instead of flipping.
+  **One bug I introduced and caught in the same run:** my first Tooltip wrapped the child in a `<span>` and put
+  `asChild` on the wrapper, so Radix hung `aria-describedby` on a non-focusable element — the exact defect I was
+  fixing. Now `asChild` lands on the child element itself when it is a single element.
+  **Cost on a REAL app (6-page booking starter, built through the real build server): 90,512 → 104,130 bytes
+  gzipped, +13.6 kB (+15%).** I had forecast ~30 kB, so it came in at under half — Radix's dialog/popover/menu/
+  tooltip share most of their core.
+  All 29 starter pages still render with zero console errors, and the New-lead / New-ticket / New-product modals
+  in three different starters all open, trap focus and close on Escape.
+  **Guarded:** check-kit asserts each of the five still imports its Radix package. The props did not change,
+  which is exactly the trap — someone could "simplify" one back to a plain div and nothing visible would break.
+  Proved by commenting out the Popover import and watching it fail.
+
+- **2026-07-25 — SCHEMA → TYPESCRIPT, and AGENTS.md. Both lifted from the Lovable codebase.** Unzipped their
+  actual output and accounted for all 89 files: 75.4% copied (46 shadcn components verbatim — I diffed them
+  against a fresh shadcn pull and they are 97–99.8% identical after formatting), 6.9% program-generated
+  (`routeTree.gen.ts`, `supabase/types.ts`), 17.8% AI-written (7 route files, 131 lines of SQL, the theme).
+  Ours on the same job is 94.8 / 2.4 / **2.8%** — the gap is entirely the starter: they wrote 866 lines of pages,
+  we adapt 77.
+  **1. Row types from the schema.** `scaffoldDbTypes` turns `isibi.schema.json` into `src/lib/db-types.ts`, and
+  `useResource<T>` resolves `RowOf<T>` from it. `useResource('bookings')` now returns `Booking[]` with no
+  annotation. Proved both halves with a deliberate error: a typo'd column and a value outside a declared enum
+  BOTH fail the build now (`Property 'custmer_name' does not exist on type 'Booking'. Did you mean
+  'customer_name'?` / `Type '"confirmd"' is not assignable to '"confirmed" | "cancelled" | "completed"'`).
+  Unknown tables still resolve to `any` — a brief can name a table before the schema catches up and a build must
+  never die over that.
+  **The enum half only worked after tightening `create`/`update` to `Partial<Row>`.** The original signature had
+  `| Record<string, any>` on it, which silently swallowed everything — the typo was caught, the bad enum was not.
+  check-kit now fails if that escape hatch comes back, because nothing visible breaks when it does.
+  **That tightening broke the CRM and help desk, correctly**, and the fix is the pattern worth keeping: form
+  state now holds the UNION (`'discovery' as Stage`) and casts ONCE where the `<select>` hands back a string,
+  instead of casting at the write. The generator rules say to do it that way.
+  **2. A real bug this surfaced.** `usesBackend()` — the thing that decides whether to run schema-fix — matched
+  the literal `/rows/` in page source. But `useResource('widgets')` builds that path INSIDE the hook, so page
+  source no longer contains it: **any app using the database without declaring a schema would have silently
+  shipped with no backend.** Fixed in `full-pipeline.mjs` AND in worker.js (two call sites there). This is the
+  cost of changing a convention — the detectors that keyed off the old one go quiet rather than loud.
+  **3. AGENTS.md**, generated per app, listing its real tables and access modes, which files are code-generated
+  and must not be hand-edited, how to use useResource, and the house rules. Costs nothing and travels with the
+  code — which our pipeline rules do not.
+  All five starters build with 0 type errors, all 29 pages render clean, modals still trap focus.
+
+- **2026-07-25 — SIDE-BY-SIDE WITH LOVABLE ON THE SAME BRIEF. The trace found three live bugs.**
+  Could not do a real generation on our side — **no ANTHROPIC_API_KEY in the environment**, so the model calls
+  are mocked. The stages, budgets, routing decisions and file flow in the trace below are all real; only the text
+  a model would have written is fake.
+  **CORRECTION to yesterday's note:** their `AGENTS.md` is NOT agent instructions — it is a nine-line warning
+  about not force-pushing, because commits sync back into the Lovable editor. Our generated AGENTS.md (tables,
+  access modes, which files are code-generated, house rules) is substantially more than theirs. I got that wrong
+  from the file name.
+  **`.lovable/project.json` says `"template": "tanstack_start_ts_current"` with a revision hash** — so they do
+  have a versioned template, but it is a STACK template (one for everything), not an app-type starter. Different
+  layer from ours.
+  **Their backend is the genuinely impressive part.** Two migrations 14 seconds apart: the first creates the
+  schema with RLS, a `has_role` SECURITY DEFINER function, a `handle_new_user` trigger, a `tstzrange` overlap
+  trigger that makes double-booking impossible AT THE DATABASE, and `busy_slots(date)` — a function returning
+  start/end times ONLY, no PII, so an anonymous visitor can see real availability. The second migration is a
+  security-hardening pass (REVOKE EXECUTE on the SECURITY DEFINER functions from public/anon) — almost certainly
+  an automated linter, not the model's idea. **We have no equivalent of either.** `busy_slots` in particular
+  solves the exact hole in our booking starter: our `bookings` table is `user`-scoped, so the Book page can only
+  grey out the caller's OWN slots and has no way to know real availability. A privacy-filtered derived view is a
+  platform capability we lack.
+  **THREE REAL BUGS the trace exposed, all now fixed:**
+  1. **The app linter has been dead since the TSX migration.** It required `src/main.jsx` / `src/App.jsx`, and
+     every rule filtered on `/\.jsx?$/` — which matches nothing now. So it reported "no page under src/pages/"
+     while looking straight at six of them, failed the lint gate on EVERY build, and burned the 2,000-token
+     lint-repair reserve on a repair that could not possibly work. Worse, it was silently linting NOTHING: no
+     import check, no route check, no dead-link check has run since the migration. Fixed with one shared
+     `SOURCE` matcher, and it now knows the TEMPLATE provides `src/components/*` and `src/lib/*` (derived from
+     COMPONENT_INVENTORY, so it cannot fall behind). All five starters lint clean.
+  2. **`applyBundle` was never called** — flagged twice before as the owner's decision, but the trace made the
+     cost concrete: for a barbershop the planner picked `lists`, `price-lists`, `credit-limit`, `deposit-holds`
+     and `export`, and spent 7,000 tokens building them. With the bundle applied it builds `rooms`, `no-shows`,
+     `reminders`, `notifications`, `waitlist`. Same money, useful pages. applyBundle only ever ADDS, so no
+     planner pick is discarded — the curated core just goes first and the long tail falls off the budget.
+  3. **`auth` was becoming a page.** The planner skips `auth`/`rows` as pages; buildPlan did not, so a bundle
+     containing `auth` produced an Auth page duplicating SignIn. Fixed in buildPlan.
+  **Net on the barbershop brief: 10,500 → 9,100 output tokens, lint gate FAILED → clean, and five junk pages
+  replaced with five real ones.**
+
+- **2026-07-25 — `publicView`: a declared, PII-filtered projection of an owner-scoped table.** The last thing
+  Lovable had that we didn't. Their `busy_slots(date)` is a SECURITY DEFINER SQL function returning start/end
+  times only; ours is declarative, in the schema, so the model doesn't write SQL for it.
+  ```json
+  { "name": "bookings", "access": "user",
+    "publicView": { "columns": ["date","time"], "where": ["status:eq:confirmed"] } }
+  ```
+  → `GET /rows/bookings/public` returns `[{date, time}]` to ANYONE, signed in or not.
+  **The hole it closes:** `bookings` is a `user` table, so reading it back only ever returns the caller's own
+  rows. The Book page could therefore grey out the slots THIS visitor had booked and nothing else — it had no way
+  to know what was genuinely taken. Widening the table's access is not the fix (that exposes who booked what).
+  The booking starter now uses it and shows real availability.
+  **Safety, all eight properties tested against the SHIPPED code** (the test lifts the real parser and the real
+  `buildD1Filter` out of worker.js rather than re-implementing them):
+  columns are an explicit allow-list, never a wildcard · `id` and `owner_id` are rejected AT DECLARATION TIME ·
+  the declared list is intersected with the table's real columns, so a typo yields fewer columns rather than a
+  leak · a caller may filter, but only on PUBLISHED columns (`?where=customer_name:eq:Marco` is dropped, not
+  honoured — that was the obvious probe) · declared filters may use unpublished columns (so `status:eq:confirmed`
+  works without publishing status) · no declaration means the endpoint 404s · a column name carrying SQL is
+  refused by the identifier pattern · rows are capped.
+  Owner scoping is deliberately NOT applied — that is the entire point. The safety comes from the projection.
+  Read from a page with `usePublicRows('bookings')`; check-kit fails if that hook disappears, since the
+  alternative is a page hand-rolling a fetch to a deliberately-public endpoint.
+  **Still not matched from their build:** the automated SQL security-linter pass (their second migration), and
+  a database-level overlap constraint. Our overlap prevention is client-side only — two people can still book
+  the same slot in a race. That is the next real gap in the booking starter.
+
+- **2026-07-25 — the double-booking race, closed. NOT with `tstzrange`.** Owner asked whether we could use it.
+  **No — `tstzrange` is PostgreSQL and our per-site DB is Cloudflare D1, i.e. SQLite: no range types, no
+  exclusion constraints, no `&&`.** But the effect is reachable, and most of it already existed.
+  **Composite UNIQUE was already supported** — `unique:[["date","time"]]` has always emitted a real
+  `CREATE UNIQUE INDEX`. Nobody had used it, so the booking starter was racing for no reason.
+  **What was missing is the PARTIAL index**, and it is the difference between race-free and race-free-and-usable:
+  a plain `UNIQUE(date,time)` also means a CANCELLED booking holds the slot forever, because an index does not
+  care about status. Added `unique:[{columns:[…], where:"status:eq:confirmed"}]` → `CREATE UNIQUE INDEX … WHERE
+  "status" = 'confirmed'`. SQLite has had partial indexes since 3.8.
+  **Proved in real SQLite, not asserted:** two customers racing for 10:00 → second REFUSED; 10:30 fine; same time
+  next day fine; **after a cancellation the slot frees up and rebooks**; two cancelled rows in one slot coexist.
+  And the control case — the same test without the `WHERE` — shows the slot dead forever after one cancellation.
+  **Injection surface, deliberately tiny:** a partial index's WHERE is baked into DDL and cannot be
+  parameterised, so the parser accepts ONLY `col:eq|ne:literal`, requires the column to be real, and rejects any
+  value containing a quote or SQL punctuation. Tested: `status:eq:x' OR '1'='1` and `status:eq:a);DROP TABLE t;--`
+  are both REJECTED, as is `contains:` and an unknown column.
+  The starter declares it, and Book.tsx now handles the resulting **409 `{code:'duplicate'}`** with "Someone just
+  took that time" and refreshes availability — the greyed-out grid is a courtesy, the constraint is the guarantee.
+  **Still not done:** true INTERVAL overlap (a 60-minute service at 10:00 vs a 30-minute at 10:30). A unique index
+  on (date,time) only catches exact collisions, which is right for the starter's fixed 30-minute grid and wrong
+  for variable durations. That needs `INSERT … WHERE NOT EXISTS (overlapping)` as a single atomic statement —
+  doable in SQLite, not done here.
+
+- **2026-07-25 — TRUE INTERVAL OVERLAP (`noOverlap`), the variable-duration case.** The partial unique index only
+  catches EXACT slot collisions, which is right for a fixed 30-minute grid and wrong the moment services have
+  different lengths — a 60-minute booking at 10:00 and a 30-minute one at 10:30 are distinct `(date,time)` pairs
+  and a unique index accepts both.
+  ```json
+  "noOverlap": { "on": ["date"], "start": "start_min", "end": "end_min", "where": "status:eq:confirmed" }
+  ```
+  **Race-free, not check-then-write.** The insert becomes ONE statement —
+  `INSERT … SELECT … WHERE NOT EXISTS (overlapping) RETURNING id` — so two simultaneous requests cannot both pass
+  a check. Zero rows back means the guard refused it → **409 `{code:'overlap'}`**. All four insert branches
+  (collect/feed/user/admin) go through one `insertRow` helper.
+  **Moves are guarded too**, or the constraint would only hold on creation and a reschedule could walk over
+  someone else's slot. `applyVersionedUpdate` reads the current row first (a PATCH may move only one end of the
+  range), merges, and puts the `NOT EXISTS` INSIDE the UPDATE — so the decision is still atomic. The guard
+  excludes the row's own id, or moving a booking would collide with itself. A blocked move used to fall through
+  to `{notFound:true}` → a 404 the page cannot act on; it now returns the overlap 409.
+  Intervals are HALF-OPEN: a booking ending at 11:00 and one starting at 11:00 do not conflict.
+  **Verified against real SQLite by lifting the shipped parser and guard out of worker.js** — 60m@10:00 vs
+  30m@10:30 refused · abutting bookings allowed at both ends · straddling refused · other day allowed ·
+  reschedule onto another booking refused · reschedule onto itself allowed · cancellation frees the range.
+  **`where` here is a bound parameter** (it is a runtime query, not DDL like the partial index), so unlike that
+  one it needs no character restriction.
+  **NOT YET USED:** the booking starter still stores `date` + `time` as text, so it needs numeric start/end
+  columns before it can declare this. `noOverlap` is opt-in and no starter declares it, so nothing changes for
+  existing apps until that happens.
+
+---
+
+## 2026-07-25 — Read shadcn's actual registry, then took three things from it
+
+**The question:** if shadcn only has ~50 components, how does Lovable build any app — and should we switch to it?
+
+**Answered by downloading their registry rather than from memory:**
+
+```
+shadcn components today      62   (their docs page says ~70)
+shadcn blocks                42   BUT only four things with variations:
+                                  calendar ×20 · sidebar ×16 · login ×5 · dashboard ×1
+Lovable actually installs    46
+our kit                     258
+  ours shadcn also has       41
+  ours shadcn has nothing for 217
+```
+
+There is **not one business object in the whole library** — no booking widget, no cart line, no ticket queue.
+Everything they ship is a part (button, select) or app chrome (nav, login, a demo dashboard with 615 lines of
+fake data in a `data.json`). Their generality comes from the **AI writing domain components inline on every
+build**, not from the library. Confirmed in Marco's Barbershop zip: `src/components/` contains only `ui/`, and
+the whole app is 833 lines across 7 route files.
+
+Licence is MIT, commercial use, no attribution — using it was never the blocker. The blocker is that 217 of our
+258 have no counterpart, so "switch to shadcn" was never an available move.
+
+**What we took (all three verified in a browser, not just compiled):**
+- **`cva()` in Button** — variant keys are now part of the type, so `variant="primry"` is a compile error
+  instead of `variants[variant]` evaluating to `undefined` and rendering an unstyled button. Exports
+  `buttonVariants` so anything that must LOOK like a button can reuse the exact classes.
+- **`asChild` via Radix Slot** — `<Button asChild><a href="…">Read more</a></Button>` renders a real anchor
+  wearing button styling. The old `as`/`to` props still work; nothing was migrated.
+- **Sidebar collapsible groups + icon rail** — `{label, icon, children:[…]}` becomes a disclosure on a real
+  `<button>` with `aria-expanded`/`aria-controls`; a group holding the current route opens itself. `collapsible`
+  adds a 240px → 64px rail toggle, where links survive as icons carrying `aria-label`.
+
+**Cost: +0.53 kB gzipped** for all three (measured before/after on the booking starter, same build).
+
+**Verification:** check-kit green · kit typechecks clean · all 5 starters 0 type errors · real `vite build` passes
+· 20/20 browser assertions including keyboard operation of the disclosure and the rail.
+
+**check-kit now guards all three**, because each reverts invisibly — drop Slot and `asChild` just lands in
+`...props`; drop the auto-open and the nav still looks fine until you are three levels deep and cannot see where
+you are.
+
+### Correction worth recording
+Earlier in the session I claimed Lovable's booking app would double-book and would show empty availability.
+**Both were wrong** — I checked the zip. They have a `BEFORE INSERT` trigger using `tstzrange && tstzrange` and a
+`SECURITY DEFINER busy_slots(_day)` returning start/end only. Those are exactly our `noOverlap` and `publicView`,
+and we built ours *after* seeing theirs. Their RLS is careful too (roles in a separate table, `has_role` as a
+definer function, `REVOKE ALL` then explicit grants). The one real weakness: their trigger is check-then-write
+and takes no lock, so two simultaneous inserts can both pass — Postgres' own answer is an `EXCLUDE` constraint,
+which they did not use. Ours is a single atomic statement. That is a narrow race, not ignorance of the problem.
+
+---
+
+## 2026-07-25 — the live website builder was dead, and had been since 2026-07-24
+
+**The finding.** Going to wire the eval pipeline into the worker, I found the live path broken instead.
+Two commits four days apart landed on opposite sides of one contract:
+
+- **2026-07-20** — `worker.js`'s completeness check last touched. It required `src/main.jsx` AND `src/App.jsx`.
+- **2026-07-24** (`c8f9ef4`) — `REACT_RULES` became *"ROUTING IS GENERATED FOR YOU — never emit `src/App.tsx`,
+  `src/routes.ts`, or a router"*, and the template moved to `src/main.tsx`.
+
+The model did exactly what the rules said and emitted neither file. `worker.js` never called `scaffoldRouting`
+— the scaffolds were written for precisely this and are imported by `full-pipeline.mjs`, which the worker does
+not use. So **every build hit "the generated project came out incomplete — try again"**. Nothing noticed because
+the rules and the worker are one contract split across two files, and `worker.js` had no test.
+
+**Fixed**, plus the pieces that were eval-harness-only are now on the live path: whole-app **starters**
+(a matched brief seeds a working app for $0, generation becomes an adapt edit), **schema-first** (the data model
+is decided before any page is written and handed to the page prompts), **chunked generation** (same budget, split
+into sub-9k calls so one truncation cannot lose the build), and a **runtime smoke check**.
+
+**Verified with three real builds** (`live-build.yml`, sentinel-gated on `builder/LIVE_RUN`, ~$0.25 each).
+Final run: 8 pages, router generated, row types generated, 0 type errors, smoke check passed, 90s.
+
+### What only the real builds could find
+1. **The kit was split on `icon`.** `EmptyState` took `IconComponent` and rendered `<Icon/>`; `Stat`,
+   `PageHeader`, `Sidebar`, `NotificationItem` took `ReactNode` and rendered `{icon}`. Every starter and recipe
+   passes the COMPONENT, so a generated page following the majority failed to typecheck on correct-looking code.
+   Now one `IconSlot` accepts either.
+2. **`renderIcon` tested `typeof icon === 'function'`** — but a lucide icon is `forwardRef(…)`, an OBJECT. Every
+   icon fell through and rendered as a child: React error #31, **on a page with zero type errors**. I introduced
+   it while fixing (1). The runtime check caught it; nothing else could have.
+3. **`playwright` unresolvable, four separate times**, each reporting as something other than "no browser".
+
+### Two rules the code now carries in comments
+- **Graceful degradation and silent failure are the same code path unless the message distinguishes them.**
+  Four instances: a bare "skipped", a truncation reported as a decision, a smoke check that had never run, an
+  advisory finding with no reason attached.
+- **A checker must match what runs, never what explains it.** Three instances, including a guard satisfied by
+  the very comment documenting the branch it was guarding. Mutation-test every new assertion.
+
+**Not merged.** All of this is on `claude/chat-session-xy6jwe`; nothing has reached `main` or isibi.ai yet.
