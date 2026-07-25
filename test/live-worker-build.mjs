@@ -12,6 +12,9 @@
 // Needs ANTHROPIC_API_KEY and a build service at BUILD_URL. SPENDS CREDITS — one schema call plus a
 // chunked generation (~4 calls).
 
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { planApp } from "../builder/app-planner.mjs";
 import { matchStarter, getStarter, starterFiles } from "../builder/starters.mjs";
 import { runChunkedBuild } from "../builder/chunked-build.mjs";
@@ -145,7 +148,18 @@ if (bd.ok && process.env.LIVE_SHOTS !== "0") {
     });
     await new Promise((r) => srv.listen(0, r));
     const port = srv.address().port;
-    const browser = await chromium.launch({ args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+    // The installed browser can belong to a different playwright build than the package (true in the
+    // dev sandbox), so fall back to whatever chrome is actually on disk before giving up.
+    const onDisk = ["/opt/pw-browsers", process.env.PLAYWRIGHT_BROWSERS_PATH, path.join(process.env.HOME || "", ".cache/ms-playwright")]
+      .filter((r) => r && fs.existsSync(r))
+      .flatMap((r) => fs.readdirSync(r).filter((d) => d.startsWith("chromium")).sort().reverse()
+        .flatMap((d) => ["chrome-linux/chrome", "chrome-linux/headless_shell"].map((x) => path.join(r, d, x))))
+      .filter((f) => fs.existsSync(f));
+    let browser;
+    for (const opts of [{ args: ["--no-sandbox", "--disable-dev-shm-usage"] }, ...onDisk.map((executablePath) => ({ executablePath, args: ["--no-sandbox", "--disable-dev-shm-usage"] }))]) {
+      try { browser = await chromium.launch(opts); break } catch {}
+    }
+    if (!browser) throw new Error("no chromium could be launched");
     fs.mkdirSync(out, { recursive: true });
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 2 });
     // Same two stubs the smoke check uses: fonts are unreachable here, and an empty result set lets a
@@ -161,7 +175,7 @@ if (bd.ok && process.env.LIVE_SHOTS !== "0") {
       console.log(`  shot  ${name}`);
     }
     await browser.close(); srv.close(); fs.rmSync(dir, { recursive: true, force: true });
-  } catch (e) { console.log(`  screenshots unavailable: ${String((e && e.message) || e).slice(0, 160)}`); }
+  } catch (e) { console.log(`  SCREENSHOTS FAILED: ${String((e && e.stack) || e).split("\n").slice(0, 3).join(" | ").slice(0, 400)}`); }
 }
 
 for (const e of (bd.runtimeErrors || [])) console.log(`  runtime — ${e}`);
