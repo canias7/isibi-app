@@ -12,10 +12,9 @@
 
 export const ROUTE_RULES =
   "FILE-BASED ROUTING. One file per page under `src/routes/`. `index.tsx` is `/`, `book.tsx` is " +
-  "`/book`, `users/$id.tsx` is `/users/:id` (bare `$`, no braces), `_layout.tsx` is a layout route, " +
-  "`__root.tsx` is the app shell and already exists — don't rewrite it. NEVER create `src/pages/`, " +
-  "`app/layout.tsx`, or any Next.js/Remix convention. `src/routeTree.gen.ts` is generated; never " +
-  "write or import it directly. " +
+  "`/book`, `users/$id.tsx` is `/users/:id` (bare `$`, no braces), `_layout.tsx` is a layout route. " +
+  "NEVER create `src/pages/`, `app/layout.tsx`, or any Next.js/Remix convention. " +
+  "`src/routeTree.gen.ts` is generated; never write or import it directly. " +
   "EVERY route file has exactly this shape:\n" +
   "```tsx\n" +
   "import { createFileRoute } from '@tanstack/react-router'\n\n" +
@@ -33,6 +32,30 @@ export const ROUTE_RULES =
   "The `head` block is not optional — every page carries its own title, description and og tags. " +
   "Internal links are `<Link to=\"/book\">` from `@tanstack/react-router`; the router uses hash " +
   "history and handles the `#` for you, so never write it yourself.";
+
+// Derived by diffing their two apps: 66 of 73 shared files are byte-identical, and __root.tsx is
+// one of the seven that are not. It is written per app and carries the whole chrome — header, nav,
+// footer, site-wide meta, favicon and the webfont <link>s.
+export const SHELL_RULES =
+  "THE APP SHELL — `src/routes/__root.tsx`. This is a file you WRITE, not one you leave alone. It " +
+  "wraps every page and holds everything that is the same on all of them:\n" +
+  "· the header, nav and footer — the site chrome, with `<Link to=\"/…\">` for each page\n" +
+  "· `<HeadContent />`, which is what makes each page's own head block reach the document\n" +
+  "· `<Outlet />`, where the current page renders — never remove it\n" +
+  "· SITE-WIDE meta in its own `head`: title, description, author, `og:title`, `og:description`, " +
+  "`og:type`, `twitter:card`. These are the fallback for any page that does not set its own, so " +
+  "they must name THIS business — leaving a placeholder there is a bug.\n" +
+  "· `links`: the favicon, and the WEBFONTS.\n" +
+  "**If you set `--font-display` or `--font-sans` in `src/styles.css`, you MUST load that font here**, " +
+  "or the CSS silently falls back to the generic stack and the app looks nothing like it should:\n" +
+  "```tsx\n" +
+  "links: [\n" +
+  "  { rel: 'preconnect', href: 'https://fonts.googleapis.com' },\n" +
+  "  { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossOrigin: 'anonymous' },\n" +
+  "  { rel: 'stylesheet', href: 'https://fonts.googleapis.com/css2?family=<Family>:wght@400;500;600&display=swap' },\n" +
+  "]\n" +
+  "```\n" +
+  "Pick fonts that suit the business rather than defaulting to the same pairing every time.";
 
 export const STYLE_RULES =
   "STYLING — SEMANTIC TOKENS, NOT RAW COLOURS. The app has a design system in `src/styles.css`. " +

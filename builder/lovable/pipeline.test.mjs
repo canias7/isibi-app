@@ -32,6 +32,8 @@ function stubModel({ failFirstBuild = false } = {}) {
       text = '===FILE: isibi.schema.json===\n{"tables":[{"name":"bookings","access":"user","columns":[{"name":"seat_id","type":"text","required":true}]}]}'
     } else if (/Return the COMPLETE src\/styles\.css/.test(system)) {
       text = '===FILE: src/styles.css===\n@theme {\n  --color-tier-premium: oklch(0.86 0.09 60);\n}\n'
+    } else if (/THE APP SHELL/.test(system)) {
+      text = "===FILE: src/routes/__root.tsx===\nimport { HeadContent, Outlet } from '@tanstack/react-router'\n"
     } else if (/The build failed/.test(system)) {
       text = '===FILE: src/routes/book.tsx===\nexport const Route = "repaired"\n'
     } else {
@@ -74,6 +76,10 @@ const order = res.trace.map((r) => r.stage)
   check('clarify ran first', order[0] === 'clarify')
   check('plan ran before schema', order.indexOf('plan') < iSchema)
   check('theme ran before the first page', order.indexOf('theme') < iFirstPage)
+  const iShell = order.indexOf('shell')
+  check('shell stage ran', iShell >= 0)
+  check('shell ran after theme (so it can see the font tokens)', iShell > order.indexOf('theme'))
+  check('SHELL RUNS BEFORE THE PAGES THAT RENDER INSIDE IT', iShell < iFirstPage, `shell at ${iShell}, first page at ${iFirstPage}`)
   check('build ran last', order[order.length - 1] === 'build')
 }
 
@@ -89,8 +95,12 @@ console.log('\nfiles land where the plan said')
 {
   const paths = Object.keys(res.files).sort()
   check('schema written', paths.includes('isibi.schema.json'))
+  check('app shell written', paths.includes('src/routes/__root.tsx'))
   check('stylesheet written', paths.includes('src/styles.css'))
   check('a route file per page', ['index', 'book', 'my-tickets'].every((p) => paths.includes(`src/routes/${p}.tsx`)), paths.join(', '))
+  const shellPrompt = m.calls.find((c) => /THE APP SHELL/.test(c.system))
+  check('the shell prompt lists every page so it can build the nav', ['/', '/book', '/my-tickets'].every((u) => shellPrompt?.user.includes(u)))
+  check('the shell prompt carries the stylesheet so fonts can be matched', /--color-tier-premium/.test(shellPrompt?.user || ''))
   check('nothing written outside src/ or the schema', paths.every((p) => p.startsWith('src/') || p === 'isibi.schema.json'))
 }
 

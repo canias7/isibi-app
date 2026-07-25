@@ -73,6 +73,26 @@ if (!/<HeadContent\s*\/>/.test(root)) {
   problems.push('__root.tsx does not render <HeadContent />, so every page\'s head/meta block would be silently discarded')
 }
 if (!/head:\s*\(\)/.test(RULES.ROUTE_RULES)) problems.push('ROUTE_RULES no longer requires a head block on each page')
+
+// ── 3b. The shell rules, derived from diffing their two apps ──────────────────
+// 66 of the 73 files the two Lovable apps share are byte-identical; __root.tsx is one of the seven
+// that are not. It is written per app and carries the header/nav, the site-wide fallback meta and
+// the webfont <link>s. An earlier version of these rules told the model to leave it alone, which
+// would have produced apps with no chrome and no fonts.
+if (/don't rewrite it|already exists — don't/.test(RULES.ROUTE_RULES)) {
+  problems.push('ROUTE_RULES still tells the model not to write __root.tsx, but Lovable writes it per app')
+}
+for (const [needle, why] of [
+  ['<HeadContent />', 'without it every page\'s head block is discarded'],
+  ['<Outlet />', 'without it no page renders'],
+  ['fonts.googleapis.com', 'a --font-* token with no font loaded falls back silently'],
+  ['og:title', 'the site-wide fallback meta is what a link preview uses'],
+]) {
+  if (!RULES.SHELL_RULES.includes(needle)) problems.push(`SHELL_RULES no longer mentions ${needle} — ${why}`)
+}
+if (!/font-display/.test(RULES.SHELL_RULES) || !/MUST load that font/.test(RULES.SHELL_RULES)) {
+  problems.push('SHELL_RULES no longer ties --font-display to actually loading the font, so the CSS token would silently fall back')
+}
 if (!/routeTree\.gen/.test(fs.readFileSync(path.join(TEMPLATE, '.gitignore'), 'utf8'))) {
   problems.push('routeTree.gen.ts is no longer gitignored — a stale committed copy would silently override the generated one')
 }

@@ -11,18 +11,23 @@
 //   2 plan      pages, routes, tables                           (model)
 //   3 schema    isibi.schema.json — BEFORE any page             (model)
 //   4 theme     this app's own tokens in src/styles.css         (model, cheap)
-//   5 pages     one complete file per route, one call each      (model, the bulk)
-//   6 build     compile                                         (free)
-//   7 repair    feed compile errors back, loop                  (model, only on failure)
+//   5 shell     __root.tsx — nav, site meta, webfont links       (model)
+//   6 pages     one complete file per route, one call each      (model, the bulk)
+//   7 build     compile                                         (free)
+//   8 repair    feed compile errors back, loop                  (model, only on failure)
+//
+// Stage 5 exists because diffing their two apps showed __root.tsx is one of only seven shared
+// files that DIFFER between them — it is written per app, and it carries the header, nav, footer,
+// site-wide meta and the Google Fonts <link>s that make `--font-display` actually resolve.
 //
 // Pure and injectable, same shape as full-pipeline.mjs: deps.generate(system, user, maxTokens) and
 // deps.build(files). Everything is driven through a single shared ledger, so the sum of every model
 // call is <= cap and later stages are skipped rather than overspending.
 
-import { buildPageRules, PLAN_RULES, SCHEMA_RULES, STYLE_RULES } from './rules.mjs'
+import { buildPageRules, PLAN_RULES, SCHEMA_RULES, STYLE_RULES, SHELL_RULES } from './rules.mjs'
 
 // Reserves per stage. Pages get whatever is left after the fixed stages are set aside.
-export const RESERVES = { clarify: 700, plan: 1200, schema: 2000, theme: 900, repair: 4000 }
+export const RESERVES = { clarify: 700, plan: 1200, schema: 2000, theme: 900, shell: 2200, repair: 4000 }
 export const PER_PAGE = 3500
 
 const FILE_RE = /===FILE:\s*(.+?)===\n([\s\S]*?)(?=\n===FILE:|$)/g
@@ -131,7 +136,15 @@ export async function runClonePipeline(brief, cap, deps, opts = {}) {
     RESERVES.theme)
   merge(themed?.files)
 
-  // ── 5. pages — one complete file per route, one call each, as they do ───────
+  // ── 5. shell — __root.tsx, before the pages that render inside it ──────────
+  const shell = await call('shell', SHELL_RULES,
+    `${context}\n\nPages in this app: ${pages.map((p) => routeUrl(p.id)).join(', ')}.\n` +
+    (files['src/styles.css'] ? `\nThe stylesheet you must match (note any --font-* tokens — load those fonts):\n${files['src/styles.css'].slice(0, 2500)}\n` : '') +
+    '\nReturn ONE complete file:\n===FILE: src/routes/__root.tsx===',
+    RESERVES.shell)
+  merge(shell?.files)
+
+  // ── 6. pages — one complete file per route, one call each, as they do ──────
   const fixed = RESERVES.repair
   const perPage = Math.max(1200, Math.min(PER_PAGE, Math.floor((remaining() - fixed) / Math.max(1, pages.length))))
   const pageRules = buildPageRules({ preferComponents: opts.preferComponents })

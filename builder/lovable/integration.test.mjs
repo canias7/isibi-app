@@ -89,6 +89,51 @@ const stub = async (system, user, maxTokens) => {
       .replace(/@theme \{[\s\S]*?\}/, '@theme {\n  --color-tier-premium: oklch(0.86 0.09 60);\n}')
     return out('===FILE: src/styles.css===\n' + css)
   }
+  if (/THE APP SHELL/.test(system)) {
+    // A real shell: HeadContent so page meta lands, Outlet so pages render, site-wide fallback
+    // meta naming the business, and the webfont links that make --font-display resolve.
+    return out(`===FILE: src/routes/__root.tsx===
+import { HeadContent, Link, Outlet, createRootRouteWithContext } from '@tanstack/react-router'
+import type { QueryClient } from '@tanstack/react-query'
+
+export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
+  head: () => ({
+    meta: [
+      { charSet: 'utf-8' },
+      { name: 'viewport', content: 'width=device-width, initial-scale=1' },
+      { title: 'Lumière Theatre' },
+      { name: 'description', content: 'Tonight at the Lumière.' },
+      { property: 'og:title', content: 'Lumière Theatre' },
+      { property: 'og:type', content: 'website' },
+    ],
+    links: [
+      { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
+      { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossOrigin: 'anonymous' },
+      { rel: 'stylesheet', href: 'https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&display=swap' },
+    ],
+  }),
+  component: RootLayout,
+})
+
+function RootLayout() {
+  return (
+    <>
+      <HeadContent />
+      <div className="min-h-screen bg-background text-foreground">
+        <header className="border-b border-border" data-shell="header">
+          <nav className="mx-auto flex max-w-6xl gap-5 px-6 py-4 text-sm">
+            <Link to="/">Tonight</Link>
+            <Link to="/book">Book</Link>
+            <Link to="/my-tickets">My tickets</Link>
+          </nav>
+        </header>
+        <Outlet />
+      </div>
+    </>
+  )
+}
+`)
+  }
   const m = user.match(/Build the page at (\S+) — (.+)/)
   if (m) return out(page(m[1], m[2].trim(), 'Body copy.'))
   return out('')
@@ -128,6 +173,12 @@ console.log('\nwhat the pipeline wrote')
   check('the base tokens survived the theme edit', css.includes('--color-muted-foreground') && css.includes('.dark'))
   const routes = fs.readdirSync(path.join(WORK, 'src/routes')).filter((f) => f.endsWith('.tsx'))
   check('three route files plus the root', routes.length === 4, routes.join(', '))
+  const rootSrc = fs.readFileSync(path.join(WORK, 'src/routes/__root.tsx'), 'utf8')
+  check('the pipeline wrote the app shell', /createRootRouteWithContext/.test(rootSrc))
+  check('the shell kept <HeadContent />', /<HeadContent\s*\/>/.test(rootSrc))
+  check('the shell kept <Outlet />', /<Outlet\s*\/>/.test(rootSrc))
+  check('site-wide meta names the business, not a placeholder', /Lumière/.test(rootSrc) && !/Lovable App|Generated Project/.test(rootSrc))
+  check('the font token declared in CSS is actually loaded in the shell', css.includes('--font-display') ? /fonts\.googleapis\.com/.test(rootSrc) : true)
 }
 
 console.log('\nthe built app runs')
@@ -148,16 +199,29 @@ console.log('\nthe built app runs')
   const errors = []
   pg.on('pageerror', (e) => errors.push(String(e).split('\n')[0]))
 
-  await pg.goto('http://localhost:4630/#/'); await pg.waitForTimeout(700)
+  // The shell loads webfonts from Google. This sandbox has no route to them, so the request hangs
+  // and delays first paint. Fulfil it locally: the assertion that matters is that the <link> is in
+  // the document, not that the network can reach it.
+  let fontRequests = 0
+  await pg.route('**://fonts.googleapis.com/**', (route) => { fontRequests++; route.fulfill({ status: 200, contentType: 'text/css', body: '' }) })
+  await pg.route('**://fonts.gstatic.com/**', (route) => route.fulfill({ status: 200, body: '' }))
+
+  await pg.goto('http://localhost:4630/#/', { waitUntil: 'networkidle' }); await pg.waitForTimeout(700)
   check('the home route renders', (await pg.locator('[data-page="/"]').count()) === 1)
   check('the page title came from the head block', (await pg.title()).includes('Lumière'), await pg.title())
 
-  await pg.goto('http://localhost:4630/#/book'); await pg.waitForTimeout(600)
+  await pg.goto('http://localhost:4630/#/book', { waitUntil: 'networkidle' }); await pg.waitForTimeout(600)
   check('a generated route renders', (await pg.locator('[data-page="/book"]').count()) === 1)
   check('its own head/meta applied', (await pg.title()).includes('Choose seats'), await pg.title())
 
   const bg = await pg.evaluate(() => getComputedStyle(document.body).backgroundColor)
   check('theme tokens are live on the page', bg && bg !== 'rgba(0, 0, 0, 0)', bg)
+  check('the shell renders around every page', (await pg.locator('[data-shell="header"]').count()) === 1)
+  const fontLink = await pg.locator('link[href*="fonts.googleapis.com"]').count()
+  check('the webfont link reached the document head', fontLink > 0, `${fontLink} link(s)`)
+  check('the browser actually requested the font', fontRequests > 0, `${fontRequests} request(s)`)
+  await pg.getByRole('link', { name: 'My tickets' }).click(); await pg.waitForTimeout(500)
+  check('shell nav navigates between generated pages', (await pg.locator('[data-page="/my-tickets"]').count()) === 1)
   check('no runtime errors', errors.length === 0, errors[0] || '')
 
   await browser.close(); server.close()
