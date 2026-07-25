@@ -10,6 +10,19 @@
 // <div>/<button> with Tailwind classes drawn from the shadcn TOKEN set. These rules reproduce
 // that, because the goal is to mirror what they do, not to improve on it.
 
+// Learned from the first live run: five of nine stages spent their entire budget and returned
+// nothing, because the model explained what it was about to do and was truncated before it ever
+// emitted a file block. The format instruction has to be the first thing it reads and the last.
+export const OUTPUT_RULES =
+  "OUTPUT FORMAT — this overrides every other instinct. Reply with file blocks and NOTHING else:\n" +
+  "```\n===FILE: src/routes/book.tsx===\n<the complete file>\n```\n" +
+  "· Your very first characters must be `===FILE:`. No preamble, no \"Here's the…\", no summary " +
+  "afterwards, no markdown fences around the code.\n" +
+  "· Every file is COMPLETE and runnable. Never a diff, never a fragment, never `// … rest unchanged`.\n" +
+  "· If you are running short on room, write LESS CODE — fewer comments, a smaller component — but " +
+  "always finish the file. A truncated reply is worth nothing: it cannot be parsed and the whole " +
+  "step is wasted.";
+
 export const ROUTE_RULES =
   "FILE-BASED ROUTING. One file per page under `src/routes/`. `index.tsx` is `/`, `book.tsx` is " +
   "`/book`, `users/$id.tsx` is `/users/:id` (bare `$`, no braces), `_layout.tsx` is a layout route. " +
@@ -146,12 +159,15 @@ export const LITERAL_MIRROR_COMPONENT_RULES =
 
 export function buildPageRules({ preferComponents = PREFER_COMPONENTS } = {}) {
   return [
+    OUTPUT_RULES,
     ROUTE_RULES,
     STYLE_RULES,
     LAYOUT_RULES,
     ACCESSIBILITY_RULES,
     DATA_RULES,
     preferComponents ? COMPONENT_RULES : LITERAL_MIRROR_COMPONENT_RULES,
+    // Repeated at the end deliberately: it is the instruction most often lost in a long system prompt.
+    "REMINDER: reply with `===FILE: …===` blocks and nothing else. Start with `===FILE:`.",
   ].join("\n\n");
 }
 
@@ -175,4 +191,4 @@ export const SCHEMA_RULES =
   "If a table is owner-scoped but a visitor must see which slots are taken, add a `publicView` " +
   "listing only the non-identifying columns — never widen the table's access to solve it.";
 
-export default { buildPageRules, ROUTE_RULES, STYLE_RULES, LAYOUT_RULES, ACCESSIBILITY_RULES, DATA_RULES, COMPONENT_RULES, PLAN_RULES, SCHEMA_RULES };
+export default { buildPageRules, OUTPUT_RULES, ROUTE_RULES, STYLE_RULES, LAYOUT_RULES, ACCESSIBILITY_RULES, DATA_RULES, COMPONENT_RULES, PLAN_RULES, SCHEMA_RULES };

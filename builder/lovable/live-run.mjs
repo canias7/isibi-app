@@ -52,7 +52,7 @@ if (!KEY && !DRY) {
 }
 
 // ── the model adapter: what makes deps.generate real ──────────────────────────
-let calls = 0, inTokens = 0, outTokens = 0
+let calls = 0, inTokens = 0, outTokens = 0, truncated = 0
 async function generate(system, user, maxTokens) {
   calls++
   if (DRY) return dryGenerate(system, user, maxTokens)
@@ -81,9 +81,14 @@ async function generate(system, user, maxTokens) {
     const j = await r.json()
     inTokens += j.usage?.input_tokens || 0
     outTokens += j.usage?.output_tokens || 0
+    // stop_reason is the difference between "the model had nothing to say" and "we cut it off
+    // mid-sentence". The first live run reported five stages as "(no files)" when every one of
+    // them had actually been truncated at exactly its reserve.
+    if (j.stop_reason === 'max_tokens') truncated++
     return {
       text: (j.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('\n'),
       usedOut: j.usage?.output_tokens || 0,
+      truncated: j.stop_reason === 'max_tokens',
     }
   }
   return { text: '', usedOut: 0 }
@@ -186,6 +191,7 @@ row('database declared', hasSchema ? 'yes' : 'no', 'no — sold seats from hash(
 row('reads through a real client', usesDbClient ? 'yes' : 'no', 'no — nothing persisted')
 row('runtime smoke check', res.build?.smoke?.ran ? (res.build.smoke.errors.length ? 'FAILED' : 'passed') : 'skipped', 'n/a')
 row('model calls', calls, 'unknown')
+row('responses truncated', truncated ? `${truncated} — RAISE THE RESERVES` : 'none', 'n/a')
 row('output tokens', outTokens, 'unknown')
 row('wall clock', `${seconds}s`, 'unknown')
 row('est. cost', `$${cost.toFixed(3)}`, 'unknown')

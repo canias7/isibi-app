@@ -24,14 +24,18 @@
 // deps.build(files). Everything is driven through a single shared ledger, so the sum of every model
 // call is <= cap and later stages are skipped rather than overspending.
 
-import { buildPageRules, PLAN_RULES, SCHEMA_RULES, STYLE_RULES, SHELL_RULES } from './rules.mjs'
+import { buildPageRules, PLAN_RULES, SCHEMA_RULES, STYLE_RULES, SHELL_RULES, OUTPUT_RULES } from './rules.mjs'
 import { scaffoldDbTypes } from '../scaffold.mjs'
 
 // Reserves per stage. Pages get whatever is left after the fixed stages are set aside.
-export const RESERVES = { clarify: 700, plan: 1200, schema: 2000, theme: 900, shell: 2200, repair: 4000 }
+// Sized from a real run, not guessed. The first live attempt used 2000/900/3500 and every stage
+// that hit its ceiling returned nothing usable — a truncated reply has no closing file block. The
+// stylesheet alone is ~150 lines because the model must return it COMPLETE, and a seat-grid page
+// is comfortably 250+ lines of code before any prose.
+export const RESERVES = { clarify: 700, plan: 1500, schema: 6000, theme: 5000, shell: 5000, repair: 6000 }
 // The iterate loop (their step 7). Picking files is cheap; rewriting them is where the budget goes.
 export const REVISE_RESERVES = { pick: 600, edit: 6000, repair: 4000 }
-export const PER_PAGE = 3500
+export const PER_PAGE = 9000
 
 const FILE_RE = /===FILE:\s*(.+?)===\n([\s\S]*?)(?=\n===FILE:|$)/g
 
@@ -40,7 +44,12 @@ export function parseFiles(text) {
   const out = {}
   for (const m of String(text || '').matchAll(FILE_RE)) {
     const p = m[1].trim().replace(/^\/+/, '')
-    if (p) out[p] = m[2].replace(/\s+$/, '') + '\n'
+    if (!p) continue
+    // Models often wrap the body in a markdown fence despite being told not to. Stripping it here
+    // is cheaper than losing a whole generation to three backticks.
+    let body = m[2].replace(/\s+$/, '')
+    body = body.replace(/^\s*```[a-zA-Z]*\n/, '').replace(/\n```\s*$/, '')
+    out[p] = body + '\n'
   }
   return out
 }
@@ -80,7 +89,9 @@ export async function runClonePipeline(brief, cap, deps, opts = {}) {
     const g = await deps.generate(system, user, budget)
     spent += g?.usedOut || 0
     const files = parseFiles(g?.text || '')
-    t(stage, { budget, out: g?.usedOut || 0, files: Object.keys(files), remaining: remaining() })
+    // A truncated reply and an empty one look identical downstream, and they need opposite fixes.
+    if (g?.truncated) t(`${stage}:truncated`, { warn: `cut off at ${budget} tokens — raise the reserve for ${stage}`, out: 0, remaining: remaining() })
+    t(stage, { budget, out: g?.usedOut || 0, truncated: !!g?.truncated, files: Object.keys(files), remaining: remaining() })
     return { g, files, text: g?.text || '' }
   }
 
@@ -115,7 +126,7 @@ export async function runClonePipeline(brief, cap, deps, opts = {}) {
   // ── 3. schema — BEFORE pages. This is the whole point of the reordering. ────
   let schema = null
   if (needsDb) {
-    const r = await call('schema', SCHEMA_RULES,
+    const r = await call('schema', `${OUTPUT_RULES}\n\n${SCHEMA_RULES}`,
       `${context}\n\nTables the app needs: ${(plan.tables || []).join(', ')}\n\n` +
       'Return ONE file block:\n===FILE: isibi.schema.json===\n{ "tables": [ … ] }',
       RESERVES.schema)
@@ -145,7 +156,7 @@ export async function runClonePipeline(brief, cap, deps, opts = {}) {
   // or part of page generation is not visible from the output. It is a separate stage here so a
   // page can never reference a token that was never declared.
   const themed = await call('theme',
-    `${STYLE_RULES}\n\nReturn the COMPLETE src/styles.css with this app's own tokens filled into the first ` +
+    `${OUTPUT_RULES}\n\n${STYLE_RULES}\n\nReturn the COMPLETE src/styles.css with this app's own tokens filled into the first ` +
     '@theme block, and any new semantic colours added to BOTH :root and .dark plus registered in @theme inline. ' +
     'Leave every existing base token exactly as it is.',
     `${context}\n\nCurrent stylesheet:\n${opts.baseCss || '(the standard shadcn base)'}`,
@@ -153,7 +164,7 @@ export async function runClonePipeline(brief, cap, deps, opts = {}) {
   merge(themed?.files)
 
   // ── 5. shell — __root.tsx, before the pages that render inside it ──────────
-  const shell = await call('shell', SHELL_RULES,
+  const shell = await call('shell', `${OUTPUT_RULES}\n\n${SHELL_RULES}`,
     `${context}\n\nPages in this app: ${pages.map((p) => routeUrl(p.id)).join(', ')}.\n` +
     (files['src/styles.css'] ? `\nThe stylesheet you must match (note any --font-* tokens — load those fonts):\n${files['src/styles.css'].slice(0, 2500)}\n` : '') +
     '\nReturn ONE complete file:\n===FILE: src/routes/__root.tsx===',
