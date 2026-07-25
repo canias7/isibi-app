@@ -37,8 +37,9 @@ fs.symlinkSync(path.join(TEMPLATE, 'node_modules'), path.join(WORK, 'node_module
 // The unit test only cares about control flow, so its pages are stubs. Here they have to be real
 // TSX using the real router API and the real token names, or the build is not testing anything.
 const page = (route, title, body) => `===FILE: src/routes/${route === '/' ? 'index' : route.slice(1)}.tsx===
-import { createFileRoute } from '@tanstack/react-router'
-import { Link } from '@tanstack/react-router'
+import { createFileRoute, Link } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
+import { db } from '@/integrations/db/client'
 
 export const Route = createFileRoute('${route}')({
   head: () => ({ meta: [
@@ -51,6 +52,17 @@ export const Route = createFileRoute('${route}')({
 })
 
 function Page() {
+  // Exercises the real client against the real GENERATED types: the seat column exists on Booking
+  // because the schema stage declared it, so a typo here would fail the build.
+  const { data: taken } = useQuery({
+    queryKey: ['bookings', '${route}'],
+    queryFn: async () => {
+      const { data, error } = await db.publicFrom('bookings').select().eq('status', 'confirmed').order('seat')
+      if (error) throw new Error(error.message)
+      return (data ?? []).map((b) => b.seat)
+    },
+  })
+  void taken
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-6xl px-6 py-10">
@@ -158,6 +170,13 @@ console.log('\nrunning the clone pipeline against the real template')
 const res = await runClonePipeline('A theatre seat booking site for the Lumière.', 40000, { generate: stub, build })
 console.log(traceSummary(res))
 
+console.log('\ndb-types generated for $0')
+{
+  const gen = res.trace.find((r) => r.stage === 'db-types')
+  check('the pipeline generated row types', !!gen, gen ? gen.generated : 'stage never ran')
+  check('it cost nothing', gen?.out === 0)
+}
+
 console.log('\nbuild')
 check('pipeline reports success', res.ok === true, res.build?.error ? res.build.error.split('\n')[0] : '')
 check('vite produced a bundle', fs.existsSync(path.join(WORK, 'dist/index.html')))
@@ -168,6 +187,10 @@ console.log('\nwhat the pipeline wrote')
   const schema = JSON.parse(fs.readFileSync(path.join(WORK, 'isibi.schema.json'), 'utf8'))
   check('schema on disk and parseable', Array.isArray(schema.tables) && schema.tables.length === 1)
   check('the schema kept its publicView', !!schema.tables[0].publicView)
+  const types = fs.readFileSync(path.join(WORK, 'src/integrations/db/types.ts'), 'utf8')
+  check('row types were generated from the schema', /export interface Booking/.test(types), types.split('\n').find((l) => l.includes('interface Booking')) || '')
+  check('the enum column became a literal union', /'held' \| 'confirmed'/.test(types))
+  check('the generated types replaced the empty placeholder', !/export interface Tables \{\}/.test(types))
   const css = fs.readFileSync(path.join(WORK, 'src/styles.css'), 'utf8')
   check('the app token reached the stylesheet', css.includes('--color-tier-premium'))
   check('the base tokens survived the theme edit', css.includes('--color-muted-foreground') && css.includes('.dark'))

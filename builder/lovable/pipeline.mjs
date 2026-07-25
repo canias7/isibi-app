@@ -25,6 +25,7 @@
 // call is <= cap and later stages are skipped rather than overspending.
 
 import { buildPageRules, PLAN_RULES, SCHEMA_RULES, STYLE_RULES, SHELL_RULES } from './rules.mjs'
+import { scaffoldDbTypes } from '../scaffold.mjs'
 
 // Reserves per stage. Pages get whatever is left after the fixed stages are set aside.
 export const RESERVES = { clarify: 700, plan: 1200, schema: 2000, theme: 900, shell: 2200, repair: 4000 }
@@ -119,6 +120,19 @@ export async function runClonePipeline(brief, cap, deps, opts = {}) {
     merge(r?.files)
     schema = files['isibi.schema.json'] || null
     if (!schema) t('schema-missing', { warn: 'the plan named tables but no schema was returned; pages will be written without one', out: 0, remaining: remaining() })
+
+    // Row types, generated from the schema for zero tokens — the same trick their template uses
+    // (their integrations/supabase/types.ts is stamped "automatically generated"). With this in
+    // place `db.from('bookings')` returns typed rows and a column typo is a compile error rather
+    // than undefined on screen.
+    if (schema) {
+      const gen = scaffoldDbTypes({ 'isibi.schema.json': schema })
+      const emitted = gen['src/lib/db-types.ts']
+      if (emitted) {
+        files['src/integrations/db/types.ts'] = emitted
+        t('db-types', { generated: 'src/integrations/db/types.ts', out: 0, remaining: remaining() })
+      }
+    }
   } else {
     t('schema', { skipped: 'the plan declares no tables', out: 0, remaining: remaining() })
   }

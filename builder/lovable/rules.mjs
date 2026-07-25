@@ -99,7 +99,21 @@ export const ACCESSIBILITY_RULES =
   "keyboard. Form inputs are tied to their label with `htmlFor`/`id`.";
 
 export const DATA_RULES =
-  "DATA. Read and write through TanStack Query (`useQuery`, `useMutation`), which is already " +
+  "DATA. The app has a typed database client at `@/integrations/db/client`. Import it as " +
+  "`import { db } from '@/integrations/db/client'`. Never write a bare `fetch` to the database.\n" +
+  "```ts\n" +
+  "const { data, error } = await db.from('bookings').select().eq('status', 'confirmed').order('date')\n" +
+  "const { error }       = await db.from('bookings').insert({ seat: 'G7', status: 'confirmed' })\n" +
+  "await db.from('bookings').update(id, { status: 'cancelled' })\n" +
+  "await db.from('bookings').delete(id)\n" +
+  "const { data: session } = await db.auth.getSession()   // also signUp / signIn / signOut\n" +
+  "```\n" +
+  "Row types come from `@/integrations/db/types`, generated from the schema — so a column that is " +
+  "not in the schema is a compile error, not a blank cell in production. " +
+  "**`db.publicFrom(table)`** reads a table's declared `publicView`: the PII-filtered projection any " +
+  "visitor may see. Use it when someone signed out must know which slots are taken without seeing " +
+  "who took them.\n" +
+  "Wrap every read in TanStack Query (`useQuery`) and every write in `useMutation`, both already " +
   "installed and provided. Never hand-roll `useState` + `useEffect` fetch plumbing. " +
   "**A write must invalidate what it changed** (`queryClient.invalidateQueries`), or the list the " +
   "user is looking at will not update and they will submit twice. " +

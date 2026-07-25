@@ -101,6 +101,30 @@ if (!/tsr generate/.test(pkg.scripts?.build || '')) {
   problems.push('the build script no longer runs `tsr generate` first — a clean checkout would fail on "Could not resolve ./routeTree.gen"')
 }
 
+// ── 3c. The data client the rules point at must exist and match them ─────────
+// DATA_RULES hands the model a concrete API — db.from(...).select().eq(...), db.publicFrom, and
+// db.auth. Their template ships a Supabase client for this; ours ships an equivalent over the
+// per-app REST API. If the rules and the client drift, every generated page calls a method that
+// is not there, and the failure reads as a bad generation rather than a stale instruction.
+const CLIENT = path.join(TEMPLATE, 'src/integrations/db/client.ts')
+if (!fs.existsSync(CLIENT)) {
+  problems.push('src/integrations/db/client.ts is missing, but DATA_RULES tells every page to import it')
+} else {
+  const client = fs.readFileSync(CLIENT, 'utf8')
+  const methods = [...RULES.DATA_RULES.matchAll(/db\.(?:from\([^)]*\)\.)?([a-zA-Z]+)\(/g)].map((m) => m[1])
+  for (const method of new Set(methods)) {
+    if (method === 'from') continue
+    const declared = new RegExp(`\\b(?:async )?${method}\\s*[(<]|${method}:\\s*(?:async )?[({]`).test(client)
+    if (!declared) problems.push(`DATA_RULES shows the model \`db…${method}(\)\` but the client does not define ${method}`)
+  }
+  if (!/publicFrom/.test(client)) problems.push('the client has lost publicFrom, so a signed-out visitor could not read a declared publicView')
+  if (!/from '.\/types'/.test(client)) problems.push('the client no longer imports the generated row types, so every row would fall back to any')
+}
+const TYPES = path.join(TEMPLATE, 'src/integrations/db/types.ts')
+if (!fs.existsSync(TYPES)) problems.push('src/integrations/db/types.ts is missing — the client imports it, so nothing would compile')
+else if (!/export interface Tables/.test(fs.readFileSync(TYPES, 'utf8'))) problems.push('types.ts no longer exports a Tables interface, which the client keys every row type off')
+if (!/@\/integrations\/db\/client/.test(RULES.DATA_RULES)) problems.push('DATA_RULES no longer tells the model where the database client lives')
+
 // ── 4. Hash history, because the rules promise it ─────────────────────────────
 const main = fs.readFileSync(path.join(TEMPLATE, 'src/main.tsx'), 'utf8')
 if (!/createHashHistory/.test(main)) {
