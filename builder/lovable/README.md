@@ -53,6 +53,28 @@ vocabulary, plus provisioning for whoever downloads the repo later.
 
 Both are reproduced here, because the point is to mirror what they do, not to improve on it.
 
+## The build service
+
+`Dockerfile` + `build-server.mjs`, deliberately separate from `builder/Dockerfile` — the two stacks
+cannot share an image (React 19 + Tailwind v4 + TanStack Router here, React 18 + Tailwind v3 +
+react-router there). Same HTTP contract, so the Worker can talk to either.
+
+Three differences forced by the stack: `tsr generate` runs before vite (the route tree is derived
+and absent from a clean checkout), there is no `tailwind.config.js`/`postcss.config.js` under
+Tailwind v4, and the config is `vite.config.ts`.
+
+One addition neither service had: **a runtime smoke check**. esbuild does not resolve names, so a
+page referencing an undefined variable compiles cleanly and then white-screens. Every route is
+loaded headlessly after the build and a crash fails it, which puts the error in front of the repair
+loop instead of a customer. Lovable's equivalent (`lib/lovable-error-reporting.ts`) catches the same
+class of fault in production instead.
+
+Getting that check to actually fire took two fixes worth remembering: **React 19 does not rethrow a
+render error to `window.onerror`**, it logs it — so `pageerror` never fires — and the app shell
+still renders around the broken page, so "did anything mount" misses it too. The reliable signal is
+a console error carrying a real exception name, with network failures excluded because the smoke
+test runs with no backend reachable.
+
 ## Deliberate divergences
 
 | | Lovable | here | why |

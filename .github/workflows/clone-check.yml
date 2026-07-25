@@ -67,3 +67,10 @@ jobs:
         run: |
           npx playwright install --with-deps chromium || echo "chromium unavailable; browser assertions will be skipped"
           node builder/lovable/integration.test.mjs
+
+      # The build service, against a real APP_DIR and a real vite build: the write allowlist, the
+      # src wipe-and-restore, tsr generate, dist collection, the advisory typecheck, and the
+      # runtime smoke check that catches an app which compiles and then white-screens.
+      - name: Build service
+        run: node builder/lovable/build-server.test.mjs
+
