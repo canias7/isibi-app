@@ -111,11 +111,26 @@ if (!/playwright install/.test(fs.readFileSync(path.join(here, 'Dockerfile'), 'u
 // check skipped even after the package was added. It must resolve from APP, and read the chromium
 // export through .default — the resolved entry is CommonJS and the named export comes back undefined.
 const server = fs.readFileSync(path.join(here, 'build-server.mjs'), 'utf8')
-if (!/createRequire\(path\.join\(root, 'package\.json'\)\)\.resolve\('playwright'\)/.test(server)) {
-  problems.push('build-server.mjs no longer resolves playwright from APP, so CI would silently skip the smoke check again')
+const chromiumMod = fs.existsSync(path.join(here, 'chromium.mjs')) ? fs.readFileSync(path.join(here, 'chromium.mjs'), 'utf8') : ''
+if (!chromiumMod) problems.push('chromium.mjs is missing — the smoke check and the integration test both resolve the browser through it')
+if (!/createRequire\(path\.join\(root, 'package\.json'\)\)\.resolve\('playwright'\)/.test(chromiumMod)) {
+  problems.push('chromium.mjs no longer resolves playwright from the given roots, so CI would silently skip the smoke check again')
 }
-if (!/default\?\.chromium/.test(server)) {
-  problems.push('build-server.mjs reads only the named chromium export; playwright\'s CJS entry returns undefined for it')
+if (!/default\?\.chromium/.test(chromiumMod)) {
+  problems.push('chromium.mjs reads only the named chromium export; playwright\'s CJS entry returns undefined for it')
+}
+// Every browser call site must go through it. Three of them hard-coded a different wrong path
+// before this was one function, and each failure reported as something other than "no browser".
+for (const [file, why] of [
+  ['build-server.mjs', 'the runtime smoke check would silently report itself skipped'],
+  ['integration.test.mjs', 'a hard-coded sandbox path dies in CI'],
+]) {
+  const src = fs.readFileSync(path.join(here, file), 'utf8')
+  // Static `from './chromium.mjs'` or dynamic `import('./chromium.mjs')` both count.
+  if (!/(?:from|import\()\s*'\.\/chromium\.mjs'/.test(src)) problems.push(`${file} does not resolve the browser through chromium.mjs — ${why}`)
+  // Match the import itself, not prose: the comment explaining the old hard-coded path mentions it,
+  // and a first attempt at this rule flagged its own documentation.
+  if (/import\(\s*['"][^'"]*node_modules\/playwright/.test(src)) problems.push(`${file} hard-codes a playwright path; it exists on one machine and nowhere else`)
 }
 if (!/tsr generate/.test(pkg.scripts?.build || '')) {
   problems.push('the build script no longer runs `tsr generate` first — a clean checkout would fail on "Could not resolve ./routeTree.gen"')

@@ -207,7 +207,10 @@ console.log('\nwhat the pipeline wrote')
 
 console.log('\nthe built app runs')
 {
-  const { chromium } = await import('/opt/node22/lib/node_modules/playwright/index.mjs')
+  // This used to hard-code /opt/node22/lib/node_modules/playwright/index.mjs — a path that exists in
+  // the dev sandbox and nowhere else, so the step died in CI the moment an earlier failure stopped
+  // masking it. Resolution lives in chromium.mjs now, shared with the build service's smoke check.
+  const { launchChromium } = await import('./chromium.mjs')
   const { createServer } = await import('node:http')
   const ROOT = path.join(WORK, 'dist')
   const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' }
@@ -218,7 +221,8 @@ console.log('\nthe built app runs')
     r.end(fs.readFileSync(p))
   }).listen(4630)
 
-  const browser = await chromium.launch()
+  const { browser, reason } = await launchChromium([path.join(here, 'template')])
+  if (!browser) { server.close(); console.error(`\n  ✗ no browser: ${reason}`); process.exit(1) }
   const pg = await browser.newPage()
   const errors = []
   pg.on('pageerror', (e) => errors.push(String(e).split('\n')[0]))

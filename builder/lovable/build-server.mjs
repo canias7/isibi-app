@@ -24,8 +24,8 @@ import http from 'node:http'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
-import { createRequire } from 'node:module'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
+import { launchChromium } from './chromium.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const APP = process.env.APP_DIR || '/app'
@@ -119,33 +119,10 @@ export function collectDist(dir = DIST, base = '') {
   return out
 }
 
-// playwright is a devDependency of the APP (the template), not of this file's own directory. A bare
-// `import('playwright')` resolves upward from builder/lovable/, so in CI — where the install happens
-// in builder/lovable/template — it never finds the package and the check silently reports itself
-// skipped. That is exactly what eight live runs did. Resolve from the app first, then fall back to
-// the normal lookup so a container that installs deps alongside this file still works.
-async function loadChromium() {
-  const roots = [APP, here].filter((r, i, a) => r && a.indexOf(r) === i)
-  for (const root of roots) {
-    let entry
-    try { entry = createRequire(path.join(root, 'package.json')).resolve('playwright') } catch { continue }
-    // The resolved entry is CommonJS; named-export detection is not guaranteed, so read through
-    // .default as well rather than trusting one shape.
-    try {
-      const mod = await import(pathToFileURL(entry).href)
-      const chromium = mod.chromium || mod.default?.chromium
-      if (chromium) return chromium
-    } catch { /* try the next root */ }
-  }
-  try { const mod = await import('playwright'); return mod.chromium || mod.default?.chromium || null } catch { return null }
-}
-
 // Serve a dist directory and load every route, collecting anything the page throws.
 // Best-effort by design: if Chromium is unavailable the check is skipped and the build still
 // succeeds. A missing checker must never cost a customer their app.
 async function smokeTest(routeUrls) {
-  const chromium = await loadChromium()
-  if (!chromium) return { ran: false, reason: `playwright not resolvable from ${APP} or ${here}` }
 
   const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' }
   const server = http.createServer((q, r) => {
@@ -157,18 +134,10 @@ async function smokeTest(routeUrls) {
   await new Promise((r) => server.listen(0, r))
   const port = server.address().port
 
-  // In the container the bundled browser matches the playwright version and the plain launch works.
-  // Elsewhere (CI, a dev box, this sandbox) the installed browser can belong to a different
-  // playwright build, so fall back to whatever chrome binary is actually on disk before giving up.
-  let browser
-  const launchErrors = []
-  for (const opts of [{}, ...discoverChrome().map((executablePath) => ({ executablePath }))]) {
-    try { browser = await chromium.launch(opts); break } catch (e) { launchErrors.push(String(e?.message || e).split('\n')[0]) }
-  }
-  if (!browser) {
-    server.close()
-    return { ran: false, reason: `chromium failed to launch: ${launchErrors[0]?.slice(0, 140)}` }
-  }
+  // Resolution and the launch fallback both live in chromium.mjs — three call sites got this wrong
+  // three different ways before it was one function.
+  const { browser, reason } = await launchChromium([APP])
+  if (!browser) { server.close(); return { ran: false, reason } }
 
   const errors = []
   try {
@@ -205,30 +174,6 @@ async function smokeTest(routeUrls) {
     server.close()
   }
   return { ran: true, errors: [...new Set(errors)].slice(0, 20) }
-}
-
-/** Chrome binaries on disk, newest build first. Used when the bundled browser does not match. */
-function discoverChrome() {
-  // A GitHub runner installs to ~/.cache/ms-playwright, which the first live run missed entirely —
-  // the smoke check reported "skipped" on a run that had a browser sitting right there.
-  const home = process.env.HOME || ''
-  const roots = [
-    process.env.PLAYWRIGHT_BROWSERS_PATH,
-    '/opt/pw-browsers',
-    '/ms-playwright',
-    home && path.join(home, '.cache/ms-playwright'),
-  ].filter(Boolean)
-  const found = []
-  for (const root of roots) {
-    if (!fs.existsSync(root)) continue
-    for (const dir of fs.readdirSync(root).filter((d) => d.startsWith('chromium')).sort().reverse()) {
-      for (const rel of ['chrome-linux/chrome', 'chrome-linux/headless_shell']) {
-        const full = path.join(root, dir, rel)
-        if (fs.existsSync(full)) found.push(full)
-      }
-    }
-  }
-  return found
 }
 
 /** Route file paths → the hash URLs the built SPA serves. */
