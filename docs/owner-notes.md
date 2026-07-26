@@ -8927,3 +8927,50 @@ had to fail, and two didn't at first:
 2. **A `stop <= off` "no forward progress" guard could never fire** (`body ≥ off+2`, and `body > end` already
    returned). No mutation of it failed because it was unreachable. Deleted it — a guard that cannot fire reads
    as protection that isn't there.
+
+## 2026-07-26 — the 30s Gemini edit was unreachable: Seedance's 15s cap was applied to every model
+
+Found by running a real 30s edit end-to-end (the owner asked for one). The submit came back
+**400 `video references are capped at 15 seconds combined`** — no charge, but no render either.
+
+**Cause.** `vrefCombinedSecs` is the combined length of Seedance's `@Video1-3` references, and fal caps
+those at 15s. But it falls back to the plain clip length when there are no extras, and the check ran for
+**every model**:
+
+```js
+const vrefCombinedSecs = extraClipUris.length ? (…) : clipSecondsReal;
+if (vrefCombinedSecs > 15.5) return 400
+```
+
+`extraClipUris` is only ever populated for `bytedance/*`, so every other family was silently held to
+Seedance's limit:
+
+| model | its real limit | what the server allowed |
+|---|---|---|
+| Gemini `/edit` | 30s | 15.5s ❌ |
+| Veo `/extend-video` | 23s | 15.5s ❌ |
+| Kling o3 `/video-to-video/edit` | 15s | ✓ |
+| Seedance references | 15s | ✓ (the case it was written for) |
+
+**Nothing caught it** because the client's `CLIP_LIMITS` says 30s, `estimatePrice` quotes 30s, and
+`clipEditMax` bills 30s — three places agreeing with each other and disagreeing with the one gate that
+actually decides. The user-visible shape was: attach a 25s clip, see ✦488, press send, get a Seedance
+error naming a feature you weren't using.
+
+**Fix.** `clipLengthError(model, clipSecs, combinedRefSecs)` — Seedance keeps the combined-reference
+rule; everyone else gets the ceiling their own endpoint takes, from `CLIP_MAX_S` (Gemini 30 · Veo 23 ·
+o3 15 · LipSync 10), 0.05s tolerance to match fal's and the client's.
+
+**Deleting the cap was not an option.** fal renders and bills the WHOLE clip on the edit paths, and our
+`clipBillSecs` caps only what we *charge* — a 10-minute upload would have billed the user ✦488 while
+costing far more upstream. An unlisted model keeps the old blanket 15.5s so no new hole opens.
+
+**An unmeasurable clip (0) still passes**, exactly as before, and bills the consumer's maximum. Note the
+interaction with this morning's webm fix: until today, an unmeasurable container was the *only* way a
+clip over 15.5s reached fal at all — it passed this gate as 0 and then billed the 30s cap. Measuring
+webm correctly closed that accident, which is what surfaced this.
+
+**Tests** (`test/backend/clip-duration.test.mjs`, now 38): the gate is lifted from `worker.js` along with
+both constants — hard-coding 15.5 in the test would let the shipped default drift from what the file
+claims to check. Mutation-tested: reverting to the blanket cap, dropping the Seedance branch, removing
+the unlisted-model fallback, and widening the tolerance each fail.
