@@ -197,7 +197,10 @@ console.log("\nthe transcription above still matches the shipped worker");
   check("the schema is decided before generation", /SCHEMA_FIRST_RULES/.test(worker));
   check("and handed to the generation prompt", /THE DATABASE, ALREADY DECIDED/.test(worker));
   check("the plan is computed for every build, not just under the flag", /try \{ plan = planApp\(brief\); \}/.test(worker));
-  check("a starter's nav order reaches the router", /navOrder\.length \? \{ navOrder \}/.test(worker));
+  check("a starter's nav order reaches the router", /scaffoldRouting\(files, \{ navOrder[,}]/.test(worker));
+  // The business name too: it comes from the app's own <title> via the generated routes module, and
+  // without the fallback threaded through, a title-less build falls back to nothing.
+  check("and the business name reaches it", /brand: \(plan && plan\.spec && plan\.spec\.name\)/.test(worker));
 
   check("generation is chunked", /await runChunkedBuild\(brief, plan\.spec, RB_MAX_OUT/.test(worker));
   check("with the reserves zeroed so the budget is not halved", /reserveSchema: 0, reserveWiring: 0, reserveLint: 0, reserveRepair: 0/.test(worker));

@@ -8856,3 +8856,31 @@ Final run: 8 pages, router generated, row types generated, 0 type errors, smoke 
   the very comment documenting the branch it was guarding. Mutation-test every new assertion.
 
 **Not merged.** All of this is on `claude/chat-session-xy6jwe`; nothing has reached `main` or isibi.ai yet.
+
+### Addendum — what five more live builds found (runs 4–8)
+
+Each run cost ~$0.25 and each one found something the static suites had passed.
+
+- **The nav said "Pipeline" on every starter-matched site.** The brand lives in the shared `Nav`, and
+  the adapt step is only ever asked for `index.html` and `Home.tsx` — so no generation step could
+  have fixed it. Now derived in code ($0) from the app's own `<title>` (which the model already
+  writes with the real business name) and carried in the generated `src/routes.ts`, which the nav
+  already reads. Confirmed live: "Fade & Co. Barbershop".
+- **A named import of a default export failed the WHOLE build.** `import { PageHeader }` — rollup
+  rejects it and no page compiles. `COMPONENT_INVENTORY` documented named exports where they exist
+  ("default Card + {CardHeader…}") but never stated the baseline, so the model generalised. One
+  sentence now states it; check-kit also verifies every component named in the inventory really has
+  a default export, so the rule cannot become a lie.
+- **The live harness was stricter than the worker** — it did a single build where the worker runs a
+  2-attempt fix loop, so it reported a failure the real pipeline would have recovered from. It has
+  the loop now and says "yes — after N fix pass(es)" rather than hiding it.
+
+**Still open (advisory, nothing ships broken):** run 8 reported
+`ConfirmDialog … { tone: string; loading: boolean }` not assignable to `ConfirmDialogProps`. `tone`
+IS documented in COMPONENT_INVENTORY, so either the prop is documented and not implemented, or it is
+typed as a narrow union that `string` does not satisfy. check-kit has a "documented props must be
+real" rule, so that rule has a hole worth finding.
+
+**Deployment state:** the outage fix, starters, schema-first, chunked generation and the smoke check
+are MERGED and live (PR #802). The brand fix, the import-convention rule and the screenshot tooling
+are on `claude/chat-session-xy6jwe` and NOT yet deployed.

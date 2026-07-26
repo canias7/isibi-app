@@ -29668,7 +29668,7 @@ async function handleRequest(request, env, ctx) {
           if (!files["src/App.jsx"]) {
             // navOrder because a starter's pages form a JOURNEY (shop → cart → orders) and the
             // alphabetical default puts the checkout before the shop.
-            files = scaffoldRouting(files, navOrder.length ? { navOrder } : {}).files;
+            files = scaffoldRouting(files, { navOrder, brand: (plan && plan.spec && plan.spec.name) || "" }).files;
             const famTokens = (getStyleFamily(pickStyleFamily((plan && plan.spec && plan.spec.design_hints) || {})) || {}).tokens;
             if (famTokens) files = scaffoldTheme(files, famTokens);
             files = scaffoldDbTypes(files);

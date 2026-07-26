@@ -133,7 +133,8 @@ export async function runChunkedBuild(brief, spec, cap, deps, opts = {}) {
   // alphabetical default put the checkout before the shop.
   const navOrder = (starterId && (getStarter(starterId) || {}).navOrder) || [];
   let files = starterId ? starterFiles(starterId) : {};
-  if (starterId) files = scaffoldRouting(files, { navOrder }).files;
+  const brand = (spec && spec.name) || "";
+  if (starterId) files = scaffoldRouting(files, { navOrder, brand }).files;
   // The SCHEMA is decided before generation now (full-pipeline stage 5b), so it is seeded here and
   // the row types are generated from it BEFORE any page is written — that is the whole point of the
   // reorder. It runs again at the end, because a starter adapt step may still extend the model.
@@ -161,7 +162,7 @@ export async function runChunkedBuild(brief, spec, cap, deps, opts = {}) {
     delete f["src/App.tsx"]; delete f["src/routes.ts"];
     delete f["src/App.jsx"]; delete f["src/routes.js"]; // a model may still reach for the old names
     for (const [p, v] of Object.entries(f)) files[p] = v;
-    files = scaffoldRouting(files, { navOrder }).files;
+    files = scaffoldRouting(files, { navOrder, brand }).files;
     record(step.kind, step.budget, g, f);
   }
 
