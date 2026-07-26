@@ -447,6 +447,12 @@ function clipIssue() {
   const { dur, w, h, type } = clipMeta;
   const fmtOk = !type || !lim.formats || lim.formats.some((f) => type.includes(f) || (f === 'mov' && type.includes('quicktime')));
   if (!fmtOk) return 'This model needs an ' + lim.formats.join(' or ') + ' clip. Re-export your video as MP4 and attach it again.';
+  // A webm written without a Duration element (MediaRecorder captures often
+  // are) decodes with duration === Infinity. It used to fall through to the
+  // max-duration branch below and read "That clip is Infinitys"; the server
+  // can't measure one either, so it would bill the model's maximum. Say what's
+  // actually wrong and how to fix it.
+  if (dur && !Number.isFinite(dur)) return 'I couldn’t read that clip’s length — its container doesn’t record one. Re-export it as MP4 and attach it again.';
   if (dur) {
     if (dur < lim.minDur) return 'That clip is ' + dur.toFixed(1) + 's — this model needs at least ' + lim.minDur + 's. Attach a longer clip.';
     // fal's own tolerance is 0.05s (its 422 says "maximum is 15.05 seconds") —
@@ -4458,11 +4464,12 @@ function estimatePrice(textForAudio, shotsOverride, soundOverride) {
   const isLite8 = /veo3\.1\/lite/.test(model) && !!(attachments.ffirst || attachments.flast);
   const isClipEdit = !!attachments.clip && (/kling-video\/o3/.test(model) || /gemini/.test(model));
   const clipEditMax = /gemini/.test(model) ? 30 : 15;
-  // The worker byte-measures MP4/MOV only; any other container (e.g. a webm
-  // screen recording) it can't measure → it bills the max. Quote the max too
-  // for those so the shown price matches the charge (2026-07-17). Measurable
-  // formats keep the browser-measured length.
-  const clipMeasurable = clipMeta && /mp4|quicktime|mov/i.test(clipMeta.type || '');
+  // The worker byte-measures MP4/MOV (moov→mvhd) and WebM/MKV (EBML Info→
+  // Duration); a container it can't measure bills the max, so quote the max
+  // too for those and the shown price matches the charge (2026-07-17).
+  // Measurable formats keep the browser-measured length. Keep this list in
+  // step with videoDurationFromDataUri in worker.js — that is the parity.
+  const clipMeasurable = clipMeta && /mp4|quicktime|mov|webm|matroska/i.test(clipMeta.type || '');
   const clipEditSecs = Math.min(clipEditMax, Math.ceil((clipMeasurable && clipMeta.dur) || clipEditMax));
   // Veo refs win over a clip (the worker routes reference-to-video first).
   const billDur = shots ? shots.reduce((t, s) => t + s.duration, 0)
