@@ -274,6 +274,26 @@ if (starterCount) {
   }
 }
 
+// ── 10. The import convention must be stated, not inferred ───────────────────
+// A live build died on `import { PageHeader } from '../components/PageHeader.tsx'` — a named import
+// of a default export, which rollup rejects and which fails the WHOLE site, not just that page. The
+// inventory documents named exports where they exist ("default Card + {CardHeader…}") but never
+// stated the baseline, so the model generalised from those examples. Costs one sentence to prevent.
+{
+  const { REACT_RULES: RR } = await import('./react-gen.mjs');
+  if (!/EVERY component is a DEFAULT export/.test(RR)) {
+    problems.push("REACT_RULES no longer states that components are default exports — a named import of a default export is a hard build failure, and the inventory's `default X + {Y}` entries invite the wrong guess");
+  }
+  // Every component the inventory names must actually HAVE a default export, or the rule is a lie.
+  for (const n of named) {
+    const f = path.join(COMPONENTS, `${n}.tsx`);
+    if (!fs.existsSync(f)) continue;
+    if (!/export default/.test(fs.readFileSync(f, 'utf8'))) {
+      problems.push(`${n}.tsx has no default export, but REACT_RULES tells the model every component does`);
+    }
+  }
+}
+
 // ── Report ────────────────────────────────────────────────────────────────────
 const recipeCount = RECIPES.length + Object.keys(FIXED_RECIPES).length
 console.log(`kit check — ${components.length} components, ${checked} documented props verified, ${recipeCount} page recipes, ` +

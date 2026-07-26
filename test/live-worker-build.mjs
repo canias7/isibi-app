@@ -20,7 +20,7 @@ import { matchStarter, getStarter, starterFiles } from "../builder/starters.mjs"
 import { runChunkedBuild } from "../builder/chunked-build.mjs";
 import { scaffoldRouting, scaffoldTheme, scaffoldDbTypes, scaffoldAgentsMd } from "../builder/scaffold.mjs";
 import { pickStyleFamily, getStyleFamily } from "../builder/design-system.mjs";
-import { parseGeneratedFiles, SCHEMA_FIRST_RULES } from "../builder/react-gen.mjs";
+import { parseGeneratedFiles, SCHEMA_FIRST_RULES, REACT_FIX_RULES } from "../builder/react-gen.mjs";
 
 const KEY = process.env.ANTHROPIC_API_KEY;
 const BUILD_URL = process.env.BUILD_URL || "http://127.0.0.1:8080";
@@ -104,7 +104,24 @@ const complete = Boolean(files["index.html"]) && (legacyShell
 const br = await fetch(`${BUILD_URL}/build`, {
   method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ files }),
 });
-const bd = await br.json().catch(() => ({ ok: false, error: "build service returned no JSON" }));
+let bd = await br.json().catch(() => ({ ok: false, error: "build service returned no JSON" }));
+
+// THE FIX LOOP, because the worker has one and a harness without it reports failures the real
+// pipeline recovers from. Run 5 died on `import { PageHeader }` — a named import of a default
+// export — which is exactly what this pass is for.
+let fixes = 0;
+while (!bd.ok && fixes < 2) {
+  fixes++;
+  const dump = Object.entries(files).map(([pp, src]) => `===FILE: ${pp}===\n${src}`).join("\n\n").slice(0, 90000);
+  const fg = await generate(REACT_FIX_RULES,
+    `The Vite build FAILED with this error:\n\n${String(bd.error || "").slice(0, 2000)}\n\nCurrent project files:\n\n${dump}\n\nReturn the corrected file(s).`, 6000);
+  const fixed = parseGeneratedFiles(fg.text || "");
+  if (!Object.keys(fixed).length) break;
+  for (const [pp, v] of Object.entries(fixed)) files[pp] = v;
+  console.log(`  fix ${fixes}    rewrote ${Object.keys(fixed).join(", ")}`);
+  const rb = await fetch(`${BUILD_URL}/build`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ files }) });
+  bd = await rb.json().catch(() => ({ ok: false, error: "build service returned no JSON" }));
+}
 const seconds = Math.round((Date.now() - t0) / 1000);
 
 // ── the scorecard ─────────────────────────────────────────────────────────────
@@ -112,7 +129,7 @@ const pages = Object.keys(files).filter((f) => /^src\/pages\/.+\.tsx$/.test(f));
 const row = (k, v) => console.log(`  ${k.padEnd(30)}${v}`);
 console.log("\n" + "=".repeat(70));
 row("completeness check", complete ? "passed" : "FAILED — the old bug is back");
-row("built ok", bd.ok ? "yes" : `NO — ${String(bd.error || "").split("\n")[0].slice(0, 34)}`);
+row("built ok", bd.ok ? (fixes ? `yes — after ${fixes} fix pass(es)` : "yes") : `NO — ${String(bd.error || "").split("\n")[0].slice(0, 34)}`);
 row("pages", `${pages.length} — ${pages.map((p) => p.replace("src/pages/", "").replace(".tsx", "")).join(", ")}`);
 row("router generated", files["src/App.tsx"] ? "yes" : "no");
 row("row types generated", /export interface Tables \{[^}]*\w/.test(files["src/lib/db-types.ts"] || "") ? "yes" : "empty");
