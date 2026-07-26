@@ -7,7 +7,7 @@ import { useAuth } from '../lib/auth.tsx'
 import Button from './Button.tsx'
 import Avatar from './Avatar.tsx'
 import { cx } from '../lib/cx.js'
-import { navLinks } from '../routes.js'
+import { navLinks, brand } from '../routes.js'
 
 
 export default function Nav() {
@@ -22,7 +22,7 @@ export default function Nav() {
           <span className="h-8 w-8 rounded-lg bg-brand-600 text-brandfg flex items-center justify-center">
             <LayoutDashboard size={17} />
           </span>
-          Pipeline
+          {brand}
         </Link>
 
         <nav className="hidden md:flex items-center gap-1">

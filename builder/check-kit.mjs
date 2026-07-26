@@ -294,6 +294,26 @@ if (starterCount) {
   }
 }
 
+// ── 11. The nav must show the app's own name ─────────────────────────────────
+// A live build shipped a barbershop whose header read "Pipeline" — the kit's placeholder. The brand
+// lives in the shared Nav, which the model is deliberately never asked to write, so no generation
+// step could ever have fixed it. It comes from the generated routes module now.
+{
+  const nav = fs.readFileSync(path.join(COMPONENTS, 'Nav.tsx'), 'utf8');
+  if (/>\s*Pipeline\s*</.test(nav) || /^\s*Pipeline\s*$/m.test(nav)) {
+    problems.push('Nav.tsx hard-codes the "Pipeline" placeholder as the brand — every generated site would ship with the wrong name in its header');
+  }
+  if (!/\bbrand\b/.test(nav)) problems.push('Nav.tsx no longer renders the generated `brand`, so the header cannot show the business name');
+  const { routesModule, brandFrom } = await import('./scaffold.mjs');
+  if (!/export const brand/.test(routesModule(['Home'], 'X'))) {
+    problems.push('routesModule no longer exports `brand`, which Nav imports — the app would not compile');
+  }
+  // The placeholder must never survive into a generated app, whatever the model emitted.
+  if (/pipeline/i.test(brandFrom({ 'index.html': '<title>Pipeline</title>' }, 'Barber Co'))) {
+    problems.push('brandFrom lets the "Pipeline" placeholder through instead of falling back');
+  }
+}
+
 // ── Report ────────────────────────────────────────────────────────────────────
 const recipeCount = RECIPES.length + Object.keys(FIXED_RECIPES).length
 console.log(`kit check — ${components.length} components, ${checked} documented props verified, ${recipeCount} page recipes, ` +
