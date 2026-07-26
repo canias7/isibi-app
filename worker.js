@@ -291,8 +291,11 @@ function audioDurationFromDataUri(dataUri) {
   return durMp3(b);
 }
 
-// Real duration of a video clip data URI (mp4/mov both use moov→mvhd) — so
-// LipSync billing measures the clip instead of trusting the client's claim.
+// Real duration of a video clip data URI — mp4/mov (moov→mvhd) and webm/mkv
+// (EBML Info→Duration) — so billing measures the clip instead of trusting the
+// client's claim. The clip slot accepts any video/* the browser can hold, and
+// an unmeasurable container bills the consumer's never-undercharge maximum: a
+// 5s webm on Gemini's clip edit used to bill the 30s cap (~6× over).
 function videoDurationFromDataUri(dataUri) {
   if (typeof dataUri !== "string") return null;
   const comma = dataUri.indexOf(",");
@@ -303,7 +306,10 @@ function videoDurationFromDataUri(dataUri) {
     b = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i);
   } catch { return null; }
-  return durMp4(b, new DataView(b.buffer, b.byteOffset, b.byteLength));
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const mp4 = durMp4(b, dv);
+  if (mp4 != null) return mp4;
+  return durWebm(b, dv);
 }
 
 // RIFF/WAVE: duration = data-chunk bytes / byteRate (exact for PCM).
@@ -355,6 +361,78 @@ function durMp4(b, dv) {
   }
   const ts = dv.getUint32(p + 12), dur = dv.getUint32(p + 16);
   return ts ? dur / ts : null;
+}
+
+// Matroska/WebM (EBML): Segment → Info → Duration, counted in TimecodeScale
+// units (default 1 ms). Returns null when the file carries no Duration — a
+// MediaRecorder capture often doesn't — so the caller keeps its maximum rather
+// than inventing a figure it is about to bill.
+function durWebm(b, dv) {
+  if (b.length < 4) return null;
+  if (b[0] !== 0x1a || b[1] !== 0x45 || b[2] !== 0xdf || b[3] !== 0xa3) return null; // EBML magic
+  // An EBML variable-int: the first set bit marks its width (1-8 bytes). IDs
+  // keep that marker (Segment really is 0x18538067); sizes drop it, and a size
+  // whose value bits are all 1s means "unknown length".
+  const vint = (off, isId) => {
+    if (off >= b.length) return null;
+    const first = b[off];
+    if (!first) return null; // no marker in the first byte — not one we handle
+    let len = 1;
+    while (len <= 8 && !(first & (0x80 >> (len - 1)))) len++;
+    if (len > (isId ? 4 : 8) || off + len > b.length) return null;
+    const mask = 0xff >> len;
+    let val = isId ? first : first & mask;
+    let unknown = (first & mask) === mask;
+    for (let i = 1; i < len; i++) {
+      val = val * 256 + b[off + i]; // * not << : a 4-byte ID overflows 32-bit ops
+      if (b[off + i] !== 0xff) unknown = false;
+    }
+    return { val, len, unknown };
+  };
+  // Walk one level of children as visit(id, contentStart, contentEnd). Bails on
+  // anything it can't size instead of guessing — a mis-skip would read garbage
+  // as the duration, and this figure gets billed.
+  const walk = (start, end, visit) => {
+    let off = start;
+    while (off < end) {
+      const id = vint(off, true);
+      if (!id) return;
+      const size = vint(off + id.len, false);
+      if (!size) return;
+      const body = off + id.len + size.len;
+      if (body > end) return;
+      // Only the Segment may declare an unknown length (streamed files); it
+      // then runs to the end of the buffer. Anything else: stop.
+      if (size.unknown && id.val !== 0x18538067) return;
+      // stop > off always (body is at least off+2 and body > end already
+      // returned), so the walk cannot stall.
+      const stop = size.unknown ? end : Math.min(body + size.val, end);
+      if (visit(id.val, body, stop) === false) return;
+      off = stop;
+    }
+  };
+  let scale = 1000000; // TimecodeScale default: 1 ms in nanoseconds
+  let ticks = 0;
+  walk(0, b.length, (id, from, to) => {
+    if (id !== 0x18538067) return; // Segment
+    walk(from, to, (sid, sfrom, sto) => {
+      if (sid !== 0x1549a966) return; // Info
+      walk(sfrom, sto, (iid, ifrom, ito) => {
+        if (iid === 0x2ad7b1) { // TimecodeScale (uint)
+          let v = 0;
+          for (let i = ifrom; i < ito; i++) v = v * 256 + b[i];
+          if (v > 0) scale = v;
+        } else if (iid === 0x4489) { // Duration (IEEE float, 4 or 8 bytes)
+          if (ito - ifrom === 4) ticks = dv.getFloat32(ifrom);
+          else if (ito - ifrom === 8) ticks = dv.getFloat64(ifrom);
+        }
+      });
+      return false; // Info read — nothing after it matters
+    });
+    return false;
+  });
+  const secs = (ticks * scale) / 1e9;
+  return Number.isFinite(secs) && secs > 0 ? secs : null;
 }
 
 // MPEG audio: honour a Xing/Info VBR header (exact frame count) else assume CBR

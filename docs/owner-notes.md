@@ -4928,7 +4928,7 @@ Breakdown: 9 high · 19 medium · 33 low. Full evidence per finding below.
   - evidence: pollAndDeliver claims delivery (line 5371 claimDelivery(statusUrl)) BEFORE the save phase — which can run for minutes (saveOutput retries, burnImageWatermark, saveVideoWithQr's ffmpeg burn, lines 5379-5411) — and only clears the record at endGen (5413). If the tab dies in that window, the claim (keyed by TAB_ID, blocking for 3600e3 ms per claimAt check at line 4065) belongs to a dead tab. On the next boot, resumeOne re-polls, sees COMPLETED, fetches the result, then line 5371 returns false → `jobBumpTries(origin); pauseGen(origin, false); return;` — no deliverAgent call, no scheduleResume (aut
 
 #### MEDIUM (19)
-- **public/chat.js:4550** <billing-parity> — Gemini clip-edit quote uses the browser-measured clip duration, but the worker can only byte-measure mp4/mov — any other container (e.g. webm) makes clipSecondsReal 0 and bills the 30s maximum, so the user sees a quote for the real length and is charged up to ~6x more.
+- ✅ **FIXED 2026-07-26** (see the entry at the end of this file) — **public/chat.js:4550** <billing-parity> — Gemini clip-edit quote uses the browser-measured clip duration, but the worker can only byte-measure mp4/mov — any other container (e.g. webm) makes clipSecondsReal 0 and bills the 30s maximum, so the user sees a quote for the real length and is charged up to ~6x more.
   - evidence: Client quote (chat.js:4548-4550): `clipEditSecs = Math.min(clipEditMax, Math.ceil((clipMeta && clipMeta.dur) || clipEditMax))` — browsers decode webm fine, so a 5s webm quotes 0.13*5 = $0.65 (82 credits). Worker: videoDurationFromDataUri (worker.js:270-279) parses only mp4/mov moov/mvhd, so a webm clip yields clipSecondsReal=0 and worker.js:2418 bills the max: `Math.min(clipEditMax, Math.ceil(clipSecondsReal || clipEditMax))` = 30s -> 0.13*30 = $3.90 (488 credits). CLIP_LIMITS has no format restriction for Gemini (chat.js:442, only maxDur:30; the o3 edit is protected by its mp4/mov formats lis
 - **public/chat.js:4978** <provider-leak> — Error-step output is only half-scrubbed: data.reply goes through scrubProvider but data.prompt (fixedPrompt, written by Claude from the RAW fal error) is rendered into review cards unscrubbed — in explainFailure and offerReword.
   - evidence: Line 4977 scrubs the reply ('deliverAgent(origin, scrubProvider(data.reply))' with a comment noting a real fal-naming leak slipped through 2026-07-17), but line 4978 'if (data.prompt ...) reviewPrompt(data.prompt)' and offerReword lines 5002-5003 'saveToChat(origin, { t: "review", prompt: String(data.prompt) ... }); threadAppend(buildReviewCard(String(data.prompt), kind))' display the model-authored prompt with no scrub. The error step's input is the verbatim upstream error (worker.js:3770 'Raw error: ${errText}', up to 700 chars including fal hostnames), so the same incident class that alread
@@ -8884,3 +8884,46 @@ real" rule, so that rule has a hole worth finding.
 **Deployment state:** the outage fix, starters, schema-first, chunked generation and the smoke check
 are MERGED and live (PR #802). The brand fix, the import-convention rule and the screenshot tooling
 are on `claude/chat-session-xy6jwe` and NOT yet deployed.
+
+## 2026-07-26 — Gemini clip edit: a webm was billed at the 30s cap (the MEDIUM billing-parity finding)
+
+**The bug.** Gemini Omni Flash's `/edit` endpoint has no duration input — fal renders and bills the WHOLE
+source clip — so the worker byte-measures the clip and, when it can't, bills the model's maximum rather than
+undercharge. `videoDurationFromDataUri` only parsed mp4/mov (`moov→mvhd`). Nothing restricts the clip slot to
+those: `CLIP_LIMITS['google/gemini-omni-flash']` is just `{maxDur:30}` and the file input takes `video/*`, so a
+**webm went through unmeasured and billed the 30s cap**. A 5s screen recording cost ✦488 instead of ✦82.
+
+**Fix — the server can now measure webm/mkv.** New `durWebm(b, dv)` in `worker.js`: EBML `Segment → Info →
+Duration`, in `TimecodeScale` units (default 1 ms). `videoDurationFromDataUri` tries mp4 then webm, same shape
+as `audioDurationFromDataUri`. No file with a Duration element is unmeasurable any more.
+
+- **How I know the parser is right:** `public/login-bg.mp4` and `public/login-bg.webm` are the same clip. The
+  existing (already trusted for billing) mp4 parser and the new EBML one both read **9.625s**. Two independent
+  parsers, two containers, one source — that agreement is the anchor; the synthetic EBML docs in the test only
+  probe structure.
+- **The other half — the quote.** `clipMeasurable` in `chat.js` listed the formats the SERVER can measure, so
+  it has to move in step or the parity breaks the other way (quote low, charge high). Widened to webm/matroska,
+  with a comment naming `videoDurationFromDataUri` as the thing to keep it aligned with.
+- **A webm with no Duration element** (MediaRecorder captures often have none) decodes as
+  `duration === Infinity`. It hit the max-duration branch and said *"That clip is Infinitys — this model maxes
+  out at 30s"*. It now says the length couldn't be read and to re-export as MP4 — still rejected, which is the
+  safe outcome, since the server can't measure one either and would bill the cap.
+- **Also fixed for free:** LipSync bills the input clip's seconds rolled up to the next 5s, with unknown → the
+  10s max; a webm there was billing 10s. Its `formats` list rejects webm today, so it's latent, not live.
+
+**Result on this repo's own 9.625s webm:** ✦488 → ✦163, quote and charge agreeing at every step.
+
+**Test:** `test/backend/clip-duration.test.mjs` (25/25) — lifts the real `videoDurationFromDataUri`/`durMp4`/
+`durWebm` out of `worker.js` by brace-matching so it can't test a stale copy. Run it with
+`node --import ./test/backend/register.mjs test/backend/clip-duration.test.mjs`.
+
+**Mutation-tested, per the rule from 2026-07-25** — and it earned its keep. Five mutations:
+dropping the webm fallback, wrong TimecodeScale default, float32-vs-float64, and the unknown-size guard all
+had to fail, and two didn't at first:
+1. **The unknown-size guard had no test that failed without it.** Only the Segment may declare an unknown
+   length; walking past any other one's true end reads a *following* element as its content. Added the case
+   that discriminates — an unknown-size `Info` followed by a stray `Duration`, which the permissive version
+   adopts and bills as 99s.
+2. **A `stop <= off` "no forward progress" guard could never fire** (`body ≥ off+2`, and `body > end` already
+   returned). No mutation of it failed because it was unreachable. Deleted it — a guard that cannot fire reads
+   as protection that isn't there.
