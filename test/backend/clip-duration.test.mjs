@@ -105,4 +105,32 @@ t.eq(api.videoDurationFromDataUri("data:video/webm,notbase64"), null, "a non-bas
 t.eq(api.durMp4(webm, dvOf(webm)), null, "the mp4 parser rejects a webm (so the dispatch order is safe)");
 t.eq(read(mp4), null, "the webm parser rejects an mp4");
 
+
+
+// --- Clip LENGTH gate ---------------------------------------------------
+// The 15s figure is Seedance's reference-to-video cap. It used to be applied to
+// every model, so Gemini's 30s edit and Veo's 23s extend were unreachable —
+// the client attached the clip, quoted a price, and the server 400'd.
+// Both constants come out of worker.js too — hard-coding 15.5 here would let
+// the shipped default drift away from what this file claims to check.
+const capsSrc = src.slice(
+  src.indexOf("const CLIP_MAX_S ="),
+  src.indexOf("\n", src.indexOf("const CLIP_MAX_DEFAULT_S =")),
+);
+const gate = new Function(`${capsSrc}\n${lift("clipLengthError")}\nreturn clipLengthError;`)();
+
+t.eq(gate("google/gemini-omni-flash", 30, 30), "", "Gemini takes a 30s clip edit (the case that was blocked)");
+t.eq(gate("google/gemini-omni-flash", 30.03, 30.03), "", "0.05s tolerance matches fal's and the client's");
+t.ok(gate("google/gemini-omni-flash", 45, 45), "Gemini still refuses 45s — fal bills the whole clip");
+t.eq(gate("fal-ai/veo3.1", 23, 23), "", "Veo extend takes its 23s input");
+t.ok(gate("fal-ai/veo3.1", 24, 24), "Veo extend refuses 24s");
+t.eq(gate("fal-ai/kling-video/o3/pro/text-to-video", 15, 15), "", "o3 edit keeps its 15s");
+t.ok(gate("fal-ai/kling-video/o3/pro/text-to-video", 16, 16), "o3 edit refuses 16s");
+t.ok(gate("fal-ai/kling-video/lipsync/audio-to-video", 11, 11), "LipSync refuses 11s");
+t.eq(gate("bytedance/seedance-2.0/text-to-video", 15, 15), "", "Seedance keeps its 15s combined-reference cap");
+t.ok(gate("bytedance/seedance-2.0/text-to-video", 9, 20), "Seedance measures the COMBINED references, not slot #1 alone");
+t.eq(gate("bytedance/seedance-2.0/text-to-video", 20, 12), "", "…and only the combined figure — a long slot #1 with short extras is fine");
+t.eq(gate("google/gemini-omni-flash", 0, 0), "", "an unmeasurable clip passes and bills the maximum instead");
+t.ok(gate("some/unlisted-model", 20, 20), "an unlisted model keeps the old blanket 15s (no new cost hole)");
+
 t.done();

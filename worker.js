@@ -435,6 +435,41 @@ function durWebm(b, dv) {
   return Number.isFinite(secs) && secs > 0 ? secs : null;
 }
 
+// How long an attached clip may be, per model. These are the EDIT/EXTEND
+// endpoints, where fal renders — and bills — the whole source clip, so this is
+// a real-money guard and not only a UX one. Mirrors CLIP_LIMITS in chat.js,
+// which rejects at attach; the server keeps its own copy because the client's
+// is not a guarantee. An unlisted model keeps the old blanket 15s.
+const CLIP_MAX_S = {
+  "google/gemini-omni-flash": 30,                    // conversational edit (our cap; fal documents none)
+  "fal-ai/veo3.1": 23,                               // extend: fal's 30s ceiling minus the 7s it adds
+  "fal-ai/veo3.1/fast": 23,
+  "fal-ai/kling-video/o3/pro/text-to-video": 15,     // video-to-video/edit
+  "fal-ai/kling-video/o3/standard/text-to-video": 15,
+  "fal-ai/kling-video/lipsync/audio-to-video": 10,
+};
+const CLIP_MAX_DEFAULT_S = 15.5;
+
+// Gate an attached clip on length. The 15s figure is SEEDANCE's — fal caps its
+// reference-to-video inputs at 15s combined across @Video1-3 — and it used to
+// be applied to every model, which made Gemini's 30s edit and Veo's 23s extend
+// unreachable: the client happily attached a 25s clip, quoted it, and the
+// server 400'd. Each family now gets the ceiling its own endpoint takes.
+// Returns an error string for the caller to 400 with, or "" when it may run.
+// Tolerance matches fal's own 0.05s (and the client's), so a 30.03s clip that
+// passes at attach doesn't die here.
+function clipLengthError(model, clipSecs, combinedRefSecs) {
+  if (model.startsWith("bytedance/")) {
+    return combinedRefSecs > 15.5 ? "video references are capped at 15 seconds combined" : "";
+  }
+  const cap = CLIP_MAX_S[model] || CLIP_MAX_DEFAULT_S;
+  // Unmeasurable (0) still passes — the billing basis falls back to the
+  // consumer's own maximum, which is the never-undercharge behaviour.
+  return clipSecs > cap + 0.05
+    ? `this model takes clips up to ${cap} seconds — trim it and try again`
+    : "";
+}
+
 // MPEG audio: honour a Xing/Info VBR header (exact frame count) else assume CBR
 // from the first frame's bitrate over the remaining bytes.
 const MP3_BR = {
@@ -7788,8 +7823,9 @@ async function handleRequest(request, env, ctx) {
       const vrefCombinedSecs = extraClipUris.length
         ? (clipSecondsReal && extraClipSecs.every((s) => s > 0) ? clipSecondsReal + extraClipSecs.reduce((t, s) => t + s, 0) : 0)
         : clipSecondsReal;
-      if (vrefCombinedSecs > 15.5) {
-        return Response.json({ error: "video references are capped at 15 seconds combined" }, { status: 400 });
+      const clipTooLong = clipDataUri ? clipLengthError(model, clipSecondsReal, vrefCombinedSecs) : "";
+      if (clipTooLong) {
+        return Response.json({ error: clipTooLong }, { status: 400 });
       }
       let clip = clipDataUri;
       if (clip) {
