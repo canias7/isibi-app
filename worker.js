@@ -29610,6 +29610,45 @@ async function handleRequest(request, env, ctx) {
               (others.length ? "\n\nAlso present and already correct — do not re-emit these: " + others.join(", ") : "");
           }
           emit({ ev: "phase", phase: "generating" });
+
+          // ── THE LOVABLE-CLONE PIPELINE ────────────────────────────────────────────────────────
+          // CLONE_BUILDER makes the clone the builder: clarify → plan → schema → theme → shell →
+          // pages → build → repair, on React 19 + Tailwind v4 + TanStack Router with the 46 shadcn
+          // primitives, in its own container. Every domain component is written inline per build,
+          // which is how Lovable actually works — no starters, no 258-component kit.
+          //
+          // Flag-gated ONLY so it can be switched off without a redeploy if a real build goes wrong;
+          // the intent is that this IS the builder. Any failure falls through to the legacy path
+          // below rather than losing the customer's build.
+          let cloneRes = null;
+          if (env.CLONE_BUILDER === "1" && env.CLONE_BUILD_CONTAINER) {
+            try {
+              const { runClonePipeline } = await import("./builder/lovable/pipeline.mjs");
+              const { BASE_CSS } = await import("./builder/lovable/base-css.data.mjs");
+              cloneRes = await runClonePipeline(brief, RB_MAX_OUT, {
+                generate: async (system, user, maxTokens) => {
+                  const g = await streamGen(system, user, onDelta, maxTokens);
+                  flushCode(true);
+                  genIn += g.usedIn; genOut += g.usedOut;
+                  return g;
+                },
+                build: async (f) => {
+                  const c = getContainer(env.CLONE_BUILD_CONTAINER);
+                  const br = await c.fetch(new Request("http://build/build", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ files: f }) }));
+                  return await br.json().catch(() => ({ ok: false, error: "clone build service returned no JSON" }));
+                },
+              }, {
+                // The stylesheet the theme stage merges each app's palette into. It ships as data
+                // because the Worker has no filesystem; without it applyTheme has nothing to merge
+                // into and the app would go out with no styles at all.
+                baseCss: BASE_CSS,
+                onStage: (r) => emit({ ev: "step", kind: r.stage, out: r.out || 0, files: r.files || [], skipped: r.skipped || undefined }),
+              });
+              if (cloneRes && cloneRes.ok) files = cloneRes.files;
+              else { emit({ ev: "note", msg: "clone pipeline came up short — using the legacy builder" }); cloneRes = null; }
+            } catch (e) { console.error("clone pipeline failed, falling back:", e && e.message); cloneRes = null; }
+          }
+
           // MULTI_AGENT (flag-gated): fan out design/backend/shell/one-per-page agents IN PARALLEL against a fixed
           // contract, each routed to its model via the picker (Auto: Opus plans, Sonnet generates). Each slice is
           // small → no truncation; concurrent → wall-clock is the slowest slice. Falls back to the single-shot
@@ -29672,8 +29711,8 @@ async function handleRequest(request, env, ctx) {
           // The STARTER is the base; the model's output is the edit on top of it. Merged in this
           // order so an adapt step that rewrites Home replaces it, while every page it did not
           // mention survives — the whole point of seeding a working app.
-          if (starterId && !files["src/App.tsx"]) files = { ...seedFiles, ...files };
-          if (!files["src/App.jsx"]) {
+          if (!cloneRes && starterId && !files["src/App.tsx"]) files = { ...seedFiles, ...files };
+          if (!cloneRes && !files["src/App.jsx"]) {
             // navOrder because a starter's pages form a JOURNEY (shop → cart → orders) and the
             // alphabetical default puts the checkout before the shop.
             files = scaffoldRouting(files, { navOrder, brand: (plan && plan.spec && plan.spec.name) || "" }).files;
@@ -29685,9 +29724,11 @@ async function handleRequest(request, env, ctx) {
           // The real contract now: the model writes pages, the platform writes the router. main.tsx
           // and the component kit come from the container template and are never in `files`.
           const legacyShell = Boolean(files["src/App.jsx"]);
-          const complete = Boolean(files["index.html"]) && (legacyShell
-            ? Boolean(files["src/main.jsx"])
-            : Boolean(files["src/pages/Home.tsx"] && files["src/App.tsx"]));
+          const complete = cloneRes
+            ? Boolean(files["index.html"] && files["src/routes/index.tsx"] && files["src/routes/__root.tsx"])
+            : Boolean(files["index.html"]) && (legacyShell
+              ? Boolean(files["src/main.jsx"])
+              : Boolean(files["src/pages/Home.tsx"] && files["src/App.tsx"]));
           if (!complete) { emit({ ev: "error", stage: "generate", msg: "the generated project came out incomplete — try again" }); return; }
           let schemaSpec = parseSchemaSpec(files); // pulled out of the build; provisioned after publish
           const fnSpecs = parseFunctionSpecs(files); // edge functions, likewise stripped + provisioned after publish
@@ -29700,7 +29741,7 @@ async function handleRequest(request, env, ctx) {
           // JUST the schema (inferred from the app's own code) and provision it.
           if (!schemaSpec) {
             const usesBackend = Object.values(files).some((src) => /\/auth\/(signup|login)\b/.test(String(src)) || /\/rows\/[a-z_][a-z0-9_]*/i.test(String(src)) || /\buse(Resource|Record)\s*\(/.test(String(src))); // useResource() builds the /rows/ path inside the hook, so page source no longer contains the literal
-            if (usesBackend) {
+            if (usesBackend && !cloneRes) {
               const dump = Object.entries(files).map(([p, s]) => "===FILE: " + p + "===\n" + s).join("\n\n").slice(0, 90000);
               try {
                 const sg = await streamGen(SCHEMA_REPAIR_RULES, "This project calls the per-site backend API (/auth and/or /rows/<table>) but is MISSING its isibi.schema.json, so NO database is created and every backend call fails on the live site. Emit ONLY the isibi.schema.json file block declaring the tables it uses.\n\nProject files:\n\n" + dump, null);
@@ -29729,7 +29770,7 @@ async function handleRequest(request, env, ctx) {
                 || /["'`]\/api\/db["'`]\s*\+\s*["'`]\/(auth|rows)/.test(s);         // "/api/db" + "/auth…"
             });
             const derivesSlug = Object.values(files).some((src) => /split\(\s*["']\/["']\s*\)\s*(\[\s*2\s*\]|\.at\(\s*2\s*\))/.test(String(src)));
-            if (usesBackend2 && brokenWiring && !derivesSlug) {
+            if (usesBackend2 && brokenWiring && !derivesSlug && !cloneRes) {
               const dump = Object.entries(files).map(([p, s]) => "===FILE: " + p + "===\n" + s).join("\n\n").slice(0, 90000);
               try {
                 const wg = await streamGen(WIRING_REPAIR_RULES, "This project's backend calls are MISSING the site slug, so every /auth and /rows request 404s on the live site. Re-point EVERY backend call through `const API = '/api/db/' + (location.pathname.split('/')[2] || '')`. Return ONLY the corrected file(s).\n\nProject files:\n\n" + dump, null);
@@ -29744,7 +29785,7 @@ async function handleRequest(request, env, ctx) {
           // PIPELINE_V2 (flag-gated): a static lint gate BEFORE we spend on images/compile — catches structural
           // problems the compiler won't (a call to an endpoint that doesn't exist, a disallowed import, a fake
           // button, a missing required file). Hard errors trigger one targeted revise; warnings are just reported.
-          if (env.PIPELINE_V2 === "1") {
+          if (env.PIPELINE_V2 === "1" && !cloneRes) {
             try {
               const lint = lintGeneratedApp(files);
               emit({ ev: "lint", ok: lint.ok, errors: lint.errors.length, warnings: lint.warnings.length });
@@ -29772,9 +29813,14 @@ async function handleRequest(request, env, ctx) {
           // compile error, hand the exact error + current files back to Sonnet,
           // graft the corrected files, re-inject any new images, and rebuild.
           emit({ ev: "phase", phase: "compiling" });
-          let { bd, buildMs } = await buildInContainer(files);
+          // The clone pipeline compiles AND repairs inside itself, against its own container and its
+          // own stack. Rebuilding here would send React 19 + TanStack sources to the React 18 image
+          // and fail on every import, so its result IS the build.
+          let bd, buildMs = 0;
+          if (cloneRes) bd = cloneRes.build || { ok: false, error: "clone pipeline returned no build" };
+          else ({ bd, buildMs } = await buildInContainer(files));
           let attempt = 0;
-          while (!bd.ok && attempt < 2) {
+          while (!cloneRes && !bd.ok && attempt < 2) {
             attempt++;
             emit({ ev: "phase", phase: "fixing", attempt });
             const errText = String(bd.error || "compile failed").slice(0, 2000);
@@ -29799,7 +29845,7 @@ async function handleRequest(request, env, ctx) {
           // compile, because esbuild does not resolve names: a page referencing an undefined
           // variable compiles clean and then white-screens. One repair pass, then ship regardless —
           // the check is advisory, and an app with one broken page beats no app at all.
-          if (Array.isArray(bd.runtimeErrors) && bd.runtimeErrors.length) {
+          if (!cloneRes && Array.isArray(bd.runtimeErrors) && bd.runtimeErrors.length) {
             emit({ ev: "phase", phase: "fixing", runtime: bd.runtimeErrors.length });
             try {
               const dump = Object.entries(files).map(([pp, src]) => "===FILE: " + pp + "===\n" + src).join("\n\n").slice(0, 90000);
@@ -29826,7 +29872,7 @@ async function handleRequest(request, env, ctx) {
           // screenshots, and — if it looks weak — do ONE revise + rebuild. The container screenshots (it has the
           // browser); the Worker runs the vision model (it has the key). Costs an extra build + a few vision calls,
           // so it's a separate opt-in on top of PIPELINE_V2. Fully guarded; any error leaves the build as-is.
-          if (env.PIPELINE_V2 === "1" && env.VISION_REPAIR === "1") {
+          if (env.PIPELINE_V2 === "1" && env.VISION_REPAIR === "1" && !cloneRes) {
             try {
               emit({ ev: "phase", phase: "reviewing" });
               const cr = await critiqueInContainer(dist, ["/"]);
