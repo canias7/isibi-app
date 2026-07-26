@@ -182,7 +182,9 @@ console.log("\nthe transcription above still matches the shipped worker");
   const worker = fs.readFileSync(path.join(root, "worker.js"), "utf8");
   check("worker.js scaffolds the router after generation", /files = scaffoldRouting\(files[,)]/.test(worker));
   check("and generates the row types", /files = scaffoldDbTypes\(files\)/.test(worker));
-  check("guarded on the legacy shell, so multi-agent is not clobbered", /if \(!files\["src\/App\.jsx"\]\) \{/.test(worker));
+  // Tolerant of extra guards in front (the clone pipeline adds `!cloneRes &&`) but still requires
+  // the legacy-shell condition itself — the point is that a .jsx app is never scaffolded over.
+  check("guarded on the legacy shell, so multi-agent is not clobbered", /if \([^)]*!files\["src\/App\.jsx"\]\) \{/.test(worker));
   check("the completeness check accepts the generated router", /files\["src\/pages\/Home\.tsx"\] && files\["src\/App\.tsx"\]/.test(worker));
   check("and no longer demands a router the rules forbid", !/!files\["src\/main\.jsx"\] \|\| !files\["src\/App\.jsx"\]/.test(worker));
   check("the scaffolds are actually imported", /import \{ scaffoldRouting, scaffoldTheme, scaffoldDbTypes, scaffoldAgentsMd \}/.test(worker));
@@ -210,7 +212,7 @@ console.log("\nthe transcription above still matches the shipped worker");
   check("single-shot remains the fallback", /chunked build came up short — using single-shot/.test(worker));
   // The chunked build seeds and merges the starter itself; doing it again in the worker would put
   // the starter's stale pages back over the ones the adapt step just rewrote.
-  check("the starter is not merged twice", /if \(starterId && !files\["src\/App\.tsx"\]\)/.test(worker));
+  check("the starter is not merged twice", /if \([^)]*starterId && !files\["src\/App\.tsx"\]\)/.test(worker));
 }
 
 console.log(failures ? `\n${failures} FAILED\n` : "\nall worker generate-step checks pass\n");

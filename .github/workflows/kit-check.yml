@@ -16,6 +16,10 @@ on:
       - "builder/scaffold.mjs"
       - "builder/build-server.mjs"
       - "worker.js"
+      # The test files themselves. Without this a change to a test — including a FIX for a test CI
+      # just failed on — triggers no workflow at all, so the next signal comes only when some other
+      # file happens to change. Exactly what happened here.
+      - "builder/*.test.mjs"
       - ".github/workflows/kit-check.yml"
   pull_request:
     paths:

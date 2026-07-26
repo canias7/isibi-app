@@ -31,6 +31,15 @@ jobs:
       - name: Rules match the template
         run: node builder/lovable/check-clone.mjs
 
+      # The clone now IS the builder, so the wiring into worker.js is part of the contract: every
+      # legacy post-generation step reads a different file layout and would fail on clone output in a
+      # way that looks like a bad generation. Also fails if the generated stylesheet data is stale —
+      # that one is silent and total, since a missing baseCss ships an app with no styles at all.
+      - name: Wired into the live builder
+        run: |
+          node builder/lovable/build-base-css.mjs --check
+          node builder/lovable/worker-wiring.test.mjs
+
       # Drives the pipeline with a stub model: proves the schema is decided BEFORE any page is
       # written, that each page prompt is handed that schema, that the ledger caps spend, and that
       # a failed build triggers a repair. No API key needed.
