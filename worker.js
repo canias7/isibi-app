@@ -44,6 +44,14 @@ export class BuildContainer extends Container {
   sleepAfter = "3m";
 }
 
+// The Lovable-clone build service. Same shape as BuildContainer, different image: React 19 +
+// Tailwind v4 + TanStack Router cannot share a node_modules with React 18 + Tailwind v3, so the two
+// stacks are two containers rather than one with a switch.
+export class CloneBuildContainer extends Container {
+  defaultPort = 8080;
+  sleepAfter = "3m";
+}
+
 // Game build-service container (Phase 3). Same shape as BuildContainer; the image
 // (./builder-game/Dockerfile) bakes kaplay + a headless Chromium for the smoke test.
 export class GameBuildContainer extends Container {

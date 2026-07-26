@@ -34,6 +34,16 @@
       "instance_type": "standard-1"
     },
     {
+      // The Lovable-clone build service. A SEPARATE image from BuildContainer by necessity, not by
+      // choice: that one is React 18 + Tailwind v3 + react-router, this one is React 19 + Tailwind
+      // v4 + TanStack Router. The two stacks cannot share a node_modules, so they cannot share an
+      // image.
+      "class_name": "CloneBuildContainer",
+      "image": "./builder/lovable/Dockerfile",
+      "max_instances": 5,
+      "instance_type": "standard-1"
+    },
+    {
       "class_name": "GameBuildContainer",
       "image": "./builder-game/Dockerfile",
       "max_instances": 5,
@@ -43,12 +53,14 @@
   "durable_objects": {
     "bindings": [
       { "class_name": "BuildContainer", "name": "BUILD_CONTAINER" },
+      { "class_name": "CloneBuildContainer", "name": "CLONE_BUILD_CONTAINER" },
       { "class_name": "GameBuildContainer", "name": "GAME_BUILD_CONTAINER" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["BuildContainer"] },
-    { "tag": "v2", "new_sqlite_classes": ["GameBuildContainer"] }
+    { "tag": "v2", "new_sqlite_classes": ["GameBuildContainer"] },
+    { "tag": "v3", "new_sqlite_classes": ["CloneBuildContainer"] }
   ],
   // Auto-reply engine: wake every 2 minutes to answer new inbound DMs for
   // accounts that have DM auto-reply switched on (see scheduled() in worker.js).
