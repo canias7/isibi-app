@@ -58,6 +58,22 @@ console.log('\nthe completeness check knows the clone\'s shape')
   check('the legacy branch is untouched', /files\["src\/pages\/Home\.tsx"\] && files\["src\/App\.tsx"\]/.test(worker))
 }
 
+console.log('\nfollow-up edits on a clone app go to the clone\'s own loop')
+{
+  // Detected from the app's SHAPE, not a flag: a site the clone built must stay editable by the
+  // clone even if CLONE_BUILDER is later switched off, or its next edit is handed a src/pages/
+  // contract for an app that has none.
+  check('a clone app is recognised by its root layout', /files\["src\/routes\/__root\.tsx"\] && env\.CLONE_BUILD_CONTAINER/.test(worker))
+  check('and revised by reviseApp', /await reviseApp\(files, instruction, RB_MAX_OUT/.test(worker))
+  check('through the clone container', /const cc = getContainer\(env\.CLONE_BUILD_CONTAINER\)/.test(worker))
+  check('the legacy edit prompt is skipped', /if \(!cloneRevise\) \{/.test(worker))
+  check('and so is the legacy rebuild', /while \(!cloneRevise && !bd\.ok/.test(worker))
+  // reviseApp sizes each of its steps, so the revise stream needs a per-call ceiling like the
+  // build one — without it every step asks for the whole budget.
+  check('the revise stream takes a per-call ceiling', /const streamGen = async \(system, userContent, onDelta, maxTokens\)/.test(worker))
+  check('a backend added by an edit is still picked up', /the clone edit may have extended the backend/.test(worker))
+}
+
 console.log('\nthe container is declared, bound and migrated')
 {
   const wrangler = fs.readFileSync(path.join(here, '../../wrangler.jsonc'), 'utf8')

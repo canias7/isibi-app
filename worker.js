@@ -29976,12 +29976,12 @@ async function handleRequest(request, env, ctx) {
       const { readable, writable } = new TransformStream();
       const writer = writable.getWriter();
       const emit = (o) => writer.write(enc.encode(JSON.stringify(o) + "\n")).catch(() => {});
-      const streamGen = async (system, userContent, onDelta) => {
+      const streamGen = async (system, userContent, onDelta, maxTokens) => {
         const r = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
           // thinking DISABLED — same reason as the build path: adaptive thinking eats the output budget before code.
-          body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: RB_MAX_OUT, stream: true, thinking: { type: "disabled" }, system, messages: [{ role: "user", content: userContent }] }),
+          body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: Math.max(1024, Math.min(RB_MAX_OUT, maxTokens || RB_MAX_OUT)), stream: true, thinking: { type: "disabled" }, system, messages: [{ role: "user", content: userContent }] }),
           signal: AbortSignal.timeout(300000),
         });
         if (!r.ok) { const d = await r.json().catch(() => ({})); const e = new Error("gen " + r.status); e.status = r.status; e.detail = JSON.stringify(d).slice(0, 500); throw e; }
@@ -30019,10 +30019,43 @@ async function handleRequest(request, env, ctx) {
         let files = srcObj.files;
         try {
           emit({ ev: "phase", phase: "generating" });
+
+          // A CLONE app is edited by the clone's own loop: pick the files that must change, rewrite
+          // only those, rebuild, repair. Detected from the app's own shape rather than a flag — the
+          // stored source is what decides, so a site built by the clone stays editable by the clone
+          // even if CLONE_BUILDER is later switched off. Editing it with the legacy path would hand
+          // the model a src/pages/ contract for an app that has none.
+          let cloneRevise = null;
+          if (files["src/routes/__root.tsx"] && env.CLONE_BUILD_CONTAINER) {
+            try {
+              const { reviseApp } = await import("./builder/lovable/pipeline.mjs");
+              const rv = await reviseApp(files, instruction, RB_MAX_OUT, {
+                generate: async (system, user, maxTokens) => {
+                  const g = await streamGen(system, user, onDelta, maxTokens);
+                  flushCode(true);
+                  const c = rbCredits(g.usedIn, g.usedOut); genCredits += c;
+                  try { const b = await useCredits(auth, c); if (b >= 0) balAfter = b; } catch {}
+                  return g;
+                },
+                build: async (f) => {
+                  const cc = getContainer(env.CLONE_BUILD_CONTAINER);
+                  const br = await cc.fetch(new Request("http://build/build", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ files: f }) }));
+                  return await br.json().catch(() => ({ ok: false, error: "clone build service returned no JSON" }));
+                },
+              }, { onStage: (r) => emit({ ev: "step", kind: r.stage, out: r.out || 0, files: r.files || [], skipped: r.skipped || undefined }) });
+              if (rv && rv.ok) { files = rv.files; cloneRevise = rv; emit({ ev: "targets", incremental: true, files: rv.changed || [] }); }
+              else { emit({ ev: "error", stage: "generate", msg: (rv && rv.error) || "I couldn't apply that change — try rewording it" }); return; }
+            } catch (e) {
+              console.error("clone revise failed:", e && e.message);
+              emit({ ev: "error", stage: "generate", msg: "I couldn't apply that change — try again" }); return;
+            }
+          }
+
           // Behind INCREMENTAL_EDIT: send only the files this edit touches (+ a compact index of the rest), so a
           // localized change costs a fraction of the input. Global edits (theme/font/site-wide) fall back to the
           // whole app automatically. Flag OFF → the original whole-app dump, byte-for-byte.
-          let editUser;
+          let editUser, schemaSpec = parseSchemaSpec(files);
+          if (!cloneRevise) {
           if (env.INCREMENTAL_EDIT === "1") {
             const sel = selectEditTargets(files, instruction);
             const ep = composeEditPrompt(files, instruction, sel, { cap: 120000 });
@@ -30043,9 +30076,11 @@ async function handleRequest(request, env, ctx) {
           const changed = parseGeneratedFiles(g.text);
           if (!Object.keys(changed).length) { emit({ ev: "error", stage: "generate", msg: "I couldn't apply that change — try rewording it" }); return; }
           for (const [p, v] of Object.entries(changed)) files[p] = v;
-          const schemaSpec = parseSchemaSpec(files); // a revise can add/extend the backend
+          schemaSpec = parseSchemaSpec(files); // a revise can add/extend the backend
           genCredits += rbCredits(g.usedIn, g.usedOut);
           try { const b = await useCredits(auth, rbCredits(g.usedIn, g.usedOut)); if (b >= 0) balAfter = b; } catch {}
+          } // end legacy revise generation
+          else schemaSpec = parseSchemaSpec(files); // the clone edit may have extended the backend too
           emit({ ev: "phase", phase: "images" });
           {
             const imgBudget = Math.max(0, Math.min(RB_MAX_IMAGES, Math.floor(balAfter / RB_IMG_CREDITS)));
@@ -30054,9 +30089,13 @@ async function handleRequest(request, env, ctx) {
             if (inj.charged > 0) { const c = inj.charged * RB_IMG_CREDITS; imgCredits += c; try { const b = await useCredits(auth, c); if (b >= 0) balAfter = b; } catch {} }
           }
           emit({ ev: "phase", phase: "compiling" });
-          let { bd, buildMs } = await buildInContainer(files);
+          // reviseApp compiled and repaired against the clone's own container; rebuilding here would
+          // send React 19 + TanStack sources to the React 18 image.
+          let bd, buildMs = 0;
+          if (cloneRevise) bd = cloneRevise.build || { ok: false, error: "clone revise returned no build" };
+          else ({ bd, buildMs } = await buildInContainer(files));
           let attempt = 0;
-          while (!bd.ok && attempt < 2) {
+          while (!cloneRevise && !bd.ok && attempt < 2) {
             attempt++;
             emit({ ev: "phase", phase: "fixing", attempt });
             const errText = String(bd.error || "compile failed").slice(0, 2000);
