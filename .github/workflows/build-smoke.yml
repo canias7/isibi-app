@@ -1,0 +1,31 @@
+# Production smoke test for the builder send path. Drives the deployed Worker
+# over HTTP with a throwaway user, then removes the user and its Neon project.
+#
+# Manual only: it spends a real Sonnet call, so it must never fire on push.
+name: build smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Base URL to test against'
+        required: false
+        default: 'https://isibi.ai'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --no-audit --no-fund
+      - name: build smoke
+        env:
+          SMOKE_BASE_URL: ${{ inputs.base_url }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        run: node test/integration/build-smoke.mjs
