@@ -221,6 +221,77 @@ async function falBalanceUSD(env) {
 // longer folded in here. AI usage is a separate paid product (the AI
 // Orchestrator add-on), metered against its own $19.99 budget, so charging it
 // again on the generation would double-bill.
+// WHICH duration a render is billed on. Several endpoints ignore the duration
+// picker entirely, and getting this wrong is how a 15s Gemini edit billed $3.90
+// while the button said 5s. Extracted from the request handler so it can be
+// unit-tested: it used to be an inline ternary chain inside a 400-line branch,
+// which meant the only way to check it was to spend money.
+//
+//  · extend-video      fal's schema pins the output at 7s ("const": "7s")
+//  · Veo reference     schema pins it at 8s, and the input build forces "8s"
+//  · Lite first&last   renders 8s whatever the picker says
+//  · clip edits        o3/Gemini have NO duration input — fal renders and bills
+//                      the WHOLE source clip, so the bill follows the measured
+//                      length. Only the server's own byte measurement is
+//                      trusted; unparseable bills the model's max, because a
+//                      client-claimed duration could undercharge a long clip.
+//  · multi-shot        one continuous render of the summed shot lengths
+// Durations each model actually offers, mirroring MODEL_OPTS in chat.js and
+// fal's own duration enums. The request handler's generic 1..20 gate accepted
+// ANY of them for ANY model and billed it: a stale or hand-rolled client could
+// ask Gemini for 15s, and Gemini is a proven silent clamper — it would render
+// 10 and we would charge 15. Same shape as the 30s clip cap. Reject instead;
+// nothing has been spent at that point.
+// Kept in step with the client by test/backend/model-config.test.mjs.
+const MODEL_DURATIONS = {
+  "fal-ai/veo3.1": [4, 6, 8],
+  "fal-ai/veo3.1/fast": [4, 6, 8],
+  "fal-ai/veo3.1/lite": [4, 6, 8],
+  "bytedance/seedance-2.0/text-to-video": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  "bytedance/seedance-2.0/fast/text-to-video": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  "bytedance/seedance-2.0/mini/text-to-video": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  "fal-ai/kling-video/o3/pro/text-to-video": [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  "fal-ai/kling-video/o3/standard/text-to-video": [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  "fal-ai/kling-video/v3/pro/text-to-video": [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  "fal-ai/kling-video/v3/standard/text-to-video": [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  "google/gemini-omni-flash": [3, 4, 5, 6, 7, 8, 9, 10],
+};
+
+// True when the chosen endpoint discards the picker's duration: a clip edit or
+// extend, reference-to-video, or first-&-last. billableDuration is what decides
+// the charge for those, so durationError must not 400 on a figure fal never
+// reads. Kept beside durationError because the pair is one decision.
+function ignoresPickerDuration({ clip, refs, first, last }) {
+  return !!clip || (Array.isArray(refs) && refs.length > 0) || (!!first && !!last);
+}
+
+// "" when the duration is one this model renders. Endpoints that ignore the
+// picker entirely (extend, the clip edits, reference-to-video) are billed by
+// billableDuration, not this — so a value they discard is not worth a 400.
+function durationError(model, duration, endpointIgnoresDuration) {
+  const allowed = MODEL_DURATIONS[model];
+  if (!allowed || duration == null || endpointIgnoresDuration) return "";
+  if (allowed.includes(duration)) return "";
+  const list = allowed.length > 4
+    ? `${allowed[0]}-${allowed[allowed.length - 1]} seconds`
+    : `${allowed.join(", ")} seconds`;
+  return `this model renders ${list} — ${duration}s is not one of them`;
+}
+
+function billableDuration({ endpoint, model, duration, useShots, shots, clip, clipSecondsReal }) {
+  if (endpoint.includes("/extend-video")) return 7;
+  if (model.includes("veo") && endpoint.includes("/reference-to-video")) return 8;
+  if (model.endsWith("veo3.1/lite") && endpoint.includes("/first-last-frame")) return 8;
+  const isClipEdit = !!clip &&
+    (endpoint.includes("/video-to-video/edit") || endpoint.endsWith("gemini-omni-flash/edit"));
+  if (isClipEdit) {
+    const max = endpoint.includes("/video-to-video/edit") ? 15 : 30;
+    return Math.min(max, Math.ceil(clipSecondsReal || max));
+  }
+  if (useShots) return (shots || []).reduce((t, s) => t + Number(s.duration), 0);
+  return duration;
+}
+
 function creditCost(kind, model, { duration, quality, num, chars, audioSeconds, v2v, clipSeconds, soundOff, vrefSeconds, img4k, gptQuality, gptSize }) {
   let usd;
   // GPT Image 2 is priced by quality tier; Nano Banana Pro 4K bills double the
@@ -7913,6 +7984,20 @@ async function handleRequest(request, env, ctx) {
           ? Number(body.duration)
           : null;
 
+      // That 1..20 accepts any duration for ANY model and then bills it. Gemini
+      // is a proven silent clamper — asked for 15s it renders 10 and reports
+      // COMPLETED, so the user pays 15 for 10. Hold each model to fal's own
+      // enum. The exemption reads the DERIVED first/last/refs, i.e. the images
+      // that survived validation, not whatever the body claimed. Placement is
+      // load-bearing twice over: below `duration` (declared just above — using
+      // it any earlier is a temporal dead zone that ReferenceErrors on every
+      // video request) and above the fal submit and the ledger, so a 400 here
+      // has cost nothing.
+      if (genKind === "video") {
+        const durBad = durationError(model, duration, ignoresPickerDuration({ clip, refs, first, last }));
+        if (durBad) return Response.json({ error: durBad }, { status: 400 });
+      }
+
       const quality =
         typeof body.quality === "string" && /^(\d{3,4}p|4k)$/.test(body.quality)
           ? body.quality
@@ -8373,31 +8458,9 @@ async function handleRequest(request, env, ctx) {
       }
 
       // Endpoint-specific billing shape (verified on fal's pricing pages):
-      // Veo extend always outputs a 7s clip (schema const) regardless of the
-      // duration picker; Veo reference-to-video always renders 8s (schema const
-      // — the input build forces "8s", so billing must too); Ray's image-to-video
-      const isVeoRef = model.includes("veo") && endpoint.includes("/reference-to-video");
-      // Lite first-&-last renders (and bills) 8s regardless of the picker.
-      const isLiteFixed8 = model.endsWith("veo3.1/lite") && endpoint.includes("/first-last-frame");
-      // The o3/Gemini clip edits have NO duration input — fal renders (and
-      // bills) the WHOLE source clip, so the bill follows the clip's measured
-      // length, never the duration picker (a real 15s edit billed $2.52 while
-      // the picker said 5s). Unmeasurable → the model's max, never undercharge:
-      // the client validates o3 clips to 3-15s and Gemini clips to 30s.
-      const isClipEdit = !!clip && (endpoint.includes("/video-to-video/edit") || endpoint.endsWith("gemini-omni-flash/edit"));
-      const clipEditMax = endpoint.includes("/video-to-video/edit") ? 15 : 30;
-      // Only the server-side byte measurement is trusted; unparseable bills the
-      // max (a client-claimed duration could undercharge a long clip).
-      const clipBillSecs = isClipEdit ? Math.min(clipEditMax, Math.ceil(clipSecondsReal || clipEditMax)) : 0;
-      // Multi-shot bills on the SUM of the shot durations (one continuous render
-      // of that total length) at the model's per-second rate.
-      const shotSecs = useShots ? shots.reduce((t, s) => t + Number(s.duration), 0) : 0;
-      const billDuration = endpoint.includes("/extend-video") ? 7
-        : isVeoRef ? 8
-        : isLiteFixed8 ? 8
-        : isClipEdit ? clipBillSecs
-        : useShots ? shotSecs
-        : duration;
+      const billDuration = billableDuration({
+        endpoint, model, duration, useShots, shots, clip, clipSecondsReal,
+      });
       const genCost = creditCost(genKind, model, {
         duration: billDuration,
         // Veo extend outputs 720p ONLY (fal OpenAPI: resolution const) — bill
