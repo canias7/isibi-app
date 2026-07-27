@@ -236,6 +236,48 @@ async function falBalanceUSD(env) {
 //                      trusted; unparseable bills the model's max, because a
 //                      client-claimed duration could undercharge a long clip.
 //  · multi-shot        one continuous render of the summed shot lengths
+// Durations each model actually offers, mirroring MODEL_OPTS in chat.js and
+// fal's own duration enums. The request handler's generic 1..20 gate accepted
+// ANY of them for ANY model and billed it: a stale or hand-rolled client could
+// ask Gemini for 15s, and Gemini is a proven silent clamper — it would render
+// 10 and we would charge 15. Same shape as the 30s clip cap. Reject instead;
+// nothing has been spent at that point.
+// Kept in step with the client by test/backend/model-config.test.mjs.
+const MODEL_DURATIONS = {
+  "fal-ai/veo3.1": [4, 6, 8],
+  "fal-ai/veo3.1/fast": [4, 6, 8],
+  "fal-ai/veo3.1/lite": [4, 6, 8],
+  "bytedance/seedance-2.0/text-to-video": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  "bytedance/seedance-2.0/fast/text-to-video": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  "bytedance/seedance-2.0/mini/text-to-video": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  "fal-ai/kling-video/o3/pro/text-to-video": [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  "fal-ai/kling-video/o3/standard/text-to-video": [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  "fal-ai/kling-video/v3/pro/text-to-video": [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  "fal-ai/kling-video/v3/standard/text-to-video": [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  "google/gemini-omni-flash": [3, 4, 5, 6, 7, 8, 9, 10],
+};
+
+// True when the chosen endpoint discards the picker's duration: a clip edit or
+// extend, reference-to-video, or first-&-last. billableDuration is what decides
+// the charge for those, so durationError must not 400 on a figure fal never
+// reads. Kept beside durationError because the pair is one decision.
+function ignoresPickerDuration({ clip, refs, first, last }) {
+  return !!clip || (Array.isArray(refs) && refs.length > 0) || (!!first && !!last);
+}
+
+// "" when the duration is one this model renders. Endpoints that ignore the
+// picker entirely (extend, the clip edits, reference-to-video) are billed by
+// billableDuration, not this — so a value they discard is not worth a 400.
+function durationError(model, duration, endpointIgnoresDuration) {
+  const allowed = MODEL_DURATIONS[model];
+  if (!allowed || duration == null || endpointIgnoresDuration) return "";
+  if (allowed.includes(duration)) return "";
+  const list = allowed.length > 4
+    ? `${allowed[0]}-${allowed[allowed.length - 1]} seconds`
+    : `${allowed.join(", ")} seconds`;
+  return `this model renders ${list} — ${duration}s is not one of them`;
+}
+
 function billableDuration({ endpoint, model, duration, useShots, shots, clip, clipSecondsReal }) {
   if (endpoint.includes("/extend-video")) return 7;
   if (model.includes("veo") && endpoint.includes("/reference-to-video")) return 8;
@@ -7941,6 +7983,20 @@ async function handleRequest(request, env, ctx) {
         Number(body.duration) <= 20
           ? Number(body.duration)
           : null;
+
+      // That 1..20 accepts any duration for ANY model and then bills it. Gemini
+      // is a proven silent clamper — asked for 15s it renders 10 and reports
+      // COMPLETED, so the user pays 15 for 10. Hold each model to fal's own
+      // enum. The exemption reads the DERIVED first/last/refs, i.e. the images
+      // that survived validation, not whatever the body claimed. Placement is
+      // load-bearing twice over: below `duration` (declared just above — using
+      // it any earlier is a temporal dead zone that ReferenceErrors on every
+      // video request) and above the fal submit and the ledger, so a 400 here
+      // has cost nothing.
+      if (genKind === "video") {
+        const durBad = durationError(model, duration, ignoresPickerDuration({ clip, refs, first, last }));
+        if (durBad) return Response.json({ error: durBad }, { status: 400 });
+      }
 
       const quality =
         typeof body.quality === "string" && /^(\d{3,4}p|4k)$/.test(body.quality)

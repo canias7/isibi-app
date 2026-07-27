@@ -9060,3 +9060,54 @@ fault — I modelled a Seedance clip as a plain generation when the worker bills
 
 Manual, not CI (they need a browser and a session). README documents the env vars. They exist because
 every static check passed on the night the caps were wrong.
+
+## 2026-07-27 — the server accepted any duration for any model, and billed it
+
+The last hole of the audit, and the same shape as the other four: the client's picker offers each
+model exactly the durations fal renders, and the server checked **`1..20` for every model** and then
+billed whatever it let through. Nothing about that gate was model-aware.
+
+Gemini is a proven silent clamper — that is the whole reason its clip cap is 10 rather than the
+documented nothing. Ask fal's `google/gemini-omni-flash` for 15 seconds and it renders 10, reports
+COMPLETED, and we charge for 15. A stale tab, a retried request, or anyone posting to `/api/video`
+directly was enough. Veo is worse in a quieter way: its enum is 4/6/8, so a 5 doesn't get clamped, it
+gets a 422 after the clip has been staged.
+
+`MODEL_DURATIONS` in `worker.js` now mirrors the picker model-for-model, and `durationError` refuses
+anything off the list before the fal submit and before the ledger. Endpoints that ignore the picker
+entirely — extend, the clip edits, reference-to-video, first-&-last — are exempt, because
+`billableDuration` is what decides their charge; that exemption is its own function
+(`ignoresPickerDuration`) so it can be asserted rather than assumed.
+
+### The bug I wrote twice while fixing the bug
+
+Both of my first two attempts put the gate **above `const duration`**. That is a temporal dead zone:
+`ReferenceError: Cannot access 'duration' before initialization` on **every video request**. It is
+invisible to `node --check` (TDZ is a runtime error), and invisible to a unit test on the lifted
+function (the function is fine — the call site isn't). The first attempt also read `body.refs` /
+`body.first` directly to dodge the same problem for those, which made the exemption broader than
+reality: `refs: ["junk"]` would have exempted a request whose refs didn't survive validation.
+
+So the test now **executes the shipped statements** — the real source slice from the `first`/`last`
+derivation through the gate, with `dataImage` and `Response` stubbed — instead of only asserting the
+lifted function. A gate that drifts above any const it reads throws there. Position assertions still
+cover the other direction, which execution can't see: a 400 issued *after* the submit has already
+cost money.
+
+### Mutation-tested, 13/13
+
+Gemini's list drifting back to 3..15 on one side, and on both sides at once; Veo's enum becoming a
+4..8 range; a model losing its entry; `includes` becoming a min/max comparison; the validator
+neutered; the exemption dropped, always-true, and `&&` flipped to `||`; the handler not calling it;
+and the gate moved above `duration` and below the submit. Each is caught by an assertion that names
+the actual defect — I reran the last one on its own to confirm it trips "the gate runs before the job
+is submitted" and not just the slice lift.
+
+**Pre-existing and not mine:** `test/backend/critique-endpoint.test.mjs` throws at line 36 on `main`
+too (verified by stashing). Untouched here.
+
+### Still unverified against real fal
+
+**Veo extend's 23s input cap.** It comes from fal's schema, not from a render. Confirming it costs a
+real generation (~✦132 on Veo Fast) and the balance is ✦19, so it stays on the list until there's a
+top-up and you say go.
