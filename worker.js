@@ -4,6 +4,7 @@
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { Container, getContainer } from "@cloudflare/containers";
 import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, connForDatabase, dbNameForSite } from "./site-db.mjs";
+import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent } from "./site-schema.mjs";
 import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis, eoqCalc, breakevenCalc, demandForecast, installmentPlan, taxCalc, commissionCalc } from "./worker-finance.mjs";
 // Game builder (Phase 3): same generate→build→publish pipeline, engine swapped for
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
@@ -2393,449 +2394,9 @@ async function siteQuery(env, db, sql, params) { return sqlQuery(db, sql, params
 async function siteExec(env, db, sql, params) { return sqlExec(db, sql, params); }
 // Declared column type → Postgres type. TEXT/INTEGER/REAL/NUMERIC are spelled the
 // same in both dialects, so only the aliases below need mapping.
-const PG_TYPES = { text: "TEXT", string: "TEXT", integer: "INTEGER", int: "INTEGER", real: "REAL", float: "REAL", number: "REAL", numeric: "NUMERIC", blob: "BYTEA", boolean: "INTEGER", bool: "INTEGER", json: "TEXT", array: "TEXT", object: "TEXT" };
-// JSON/array columns store as TEXT: an object/array value is JSON-stringified on write
-// and re-parsed on read, so an app can keep nested/flexible data in one column.
-function slaMinutes(v) {
-  if (typeof v === "number") return Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
-  const s = String(v == null ? "" : v).trim().toLowerCase();
-  const m = s.match(/^(\d+(?:\.\d+)?)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|week|weeks)?$/);
-  if (!m) return 0;
-  const n = parseFloat(m[1]); const u = m[2] || "min";
-  const mult = u[0] === "w" ? 10080 : u[0] === "d" ? 1440 : u[0] === "h" ? 60 : 1;
-  const mins = Math.floor(n * mult);
-  return mins > 0 ? mins : 0;
-}
-// SLA / time-based deadlines — a table declaring `sla:{start,mins,done}` gets a read-time `_sla`
-// on each row describing its deadline and whether it's overdue. The clock runs from `start` (a date
-// column, default created_at) for `mins` minutes; if the row's `done` status column holds a
-// stop value the clock is MET (never overdue). Pure read-time (no cron) — powers "overdue" badges,
-// urgency sorting, and the /overdue queue (which computes the same thing in SQL for filtering).
-const SAFE_IDENT = /^[a-z_][a-z0-9_]{0,40}$/i;
-function sqlIdent(name) { if (!SAFE_IDENT.test(String(name || ""))) throw Object.assign(new Error("bad identifier: " + name), { bad: true }); return '"' + name + '"'; }
-
-// SQLite let a trigger carry its body inline (CREATE TRIGGER … BEGIN … END).
-// Postgres does not: every trigger is a function plus a trigger that calls it.
-// This emits both, and is idempotent — CREATE OR REPLACE on the function, and a
-// DROP before the trigger — so re-applying a schema is safe the way it was before.
-//
-// `body` is plpgsql and may use NEW/OLD. BEFORE triggers return NEW so the row
-// they edited is what gets written; AFTER triggers return NULL (ignored).
-// Bodies are dollar-quoted and carry no bound parameters.
-async function pgTrigger(env, db, name, { timing, event, table, when, body, returns }) {
-  const fn = sqlIdent(name + "_fn");
-  const trg = sqlIdent(name);
-  await siteQuery(env, db,
-    "CREATE OR REPLACE FUNCTION " + fn + "() RETURNS TRIGGER AS $trg$ BEGIN " + body +
-    " RETURN " + (returns || (timing === "BEFORE" ? "NEW" : "NULL")) + "; END; $trg$ LANGUAGE plpgsql");
-  await siteQuery(env, db, "DROP TRIGGER IF EXISTS " + trg + " ON " + table);
-  await siteQuery(env, db, "CREATE TRIGGER " + trg + " " + timing + " " + event + " ON " + table +
-    " FOR EACH ROW" + (when ? " WHEN (" + when + ")" : "") + " EXECUTE FUNCTION " + fn + "()");
-}
-// Auto-slug: a url-safe, lowercase, dash-joined key derived from a source column
-// ("My First Post!" → "my-first-post"), used for pretty per-row URLs. Uniqueness is
-// enforced with a UNIQUE INDEX; on collision we append -2, -3, … (also deduping within
-// a single batch via `extraTaken`). Diacritics are folded; empty → "item".
-function slugify(s) {
-  return String(s == null ? "" : s).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
-}
-function normalizeSchema(spec) {
-  if (!spec || typeof spec !== "object") return { tables: [] };
-  const out = [];
-  const coerceCol = (c) => {
-    if (typeof c === "string") return { name: c, type: "text" };
-    if (c && typeof c === "object" && c.name) return { name: c.name, type: c.type || c.dataType || "text", pk: c.pk || c.primary, notnull: c.notnull || c.required || c.notNull, unique: c.unique, ref: c.ref || c.references || c.foreignKey || c.fk, max: (c.max !== undefined ? c.max : (c.maxLength !== undefined ? c.maxLength : c.maxlength)), min: (c.min !== undefined ? c.min : c.minLength), format: c.format, enum: c.enum || c.oneOf || c.values, pattern: c.pattern || c.regex, default: (c.default !== undefined ? c.default : c.defaultValue), immutable: !!(c.immutable || c.readonly || c.readOnly || c.writeOnce), onDelete: (() => { const m = String(c.onDelete || c.on_delete || c.onDeleteAction || "").toLowerCase().replace(/[^a-z]/g, ""); return (m === "setnull" || m === "cascade" || m === "restrict") ? m : null; })() };
-    return null;
-  };
-  const coerceTable = (name, def) => {
-    if (!name || !def || typeof def !== "object") return;
-    const access = ["collect", "display", "user", "feed", "admin"].includes(def.access) ? def.access : "collect";
-    const src = def.columns || def.fields || def.cols || def.schema;
-    let cols = [];
-    if (Array.isArray(src)) cols = src.map(coerceCol);
-    else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: !!(def.requireVerified || def.verifiedOnly || def.emailVerified), audit: !!(def.audit || def.auditLog || def.changelog), history: !!(def.history || def.versions || def.snapshots || def.revisions), archivable: !!(def.archivable || def.archive), sync: !!(def.sync || def.syncable || def.offline), searchWeights: (() => { const w = def.searchWeights || def.searchRank || def.searchBoost; if (!w || typeof w !== "object" || Array.isArray(w)) return null; const out = {}; for (const [k, v] of Object.entries(w)) { const n = Number(v); if (/^[a-z0-9_]{1,40}$/i.test(k) && Number.isFinite(n) && n > 0) out[k.toLowerCase()] = Math.min(n, 100); } return Object.keys(out).length ? out : null; })(), rateLimit: (() => { const n = parseInt(def.rateLimit != null ? def.rateLimit : (def.writeLimit != null ? def.writeLimit : (def.throttle != null ? def.throttle : def.maxPerMinute)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000) : 0; })(), geo: (() => { const g = def.geo || def.location; if (g && typeof g === "object" && g.lat && g.lng) { const la = String(g.lat).toLowerCase(), ln = String(g.lng).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(la) && /^[a-z0-9_]{1,40}$/.test(ln)) return { lat: la, lng: ln }; } return null; })(), transitions: (() => { const raw = def.transitions || def.stateMachine || def.stages; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const out = {}; for (const [col, m] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col) || !m || typeof m !== "object" || Array.isArray(m)) continue; const cm = {}; for (const [from, tos] of Object.entries(m)) { if (String(from).length > 60) continue; const arr = (Array.isArray(tos) ? tos : [tos]).map((x) => String(x)).filter((x) => x.length <= 60).slice(0, 24); if (arr.length) cm[from] = arr; } if (Object.keys(cm).length) out[col.toLowerCase()] = cm; } return Object.keys(out).length ? out : null; })(), formulas: (() => { const src = def.formulas || def.formula || def.calc; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? tpl.trim().split(/\s+/) : null); if (!arr) continue; const toks = arr.filter((x) => (typeof x === "string" || typeof x === "number") && String(x).length <= 40).map(String).slice(0, 24); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), fieldRoles: (() => { const raw = def.fieldRoles || def.fieldSecurity || def.secureFields; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const out = {}; for (const [col, roles] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col)) continue; const arr = (Array.isArray(roles) ? roles : [roles]).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)).slice(0, 24); if (arr.length) out[col.toLowerCase()] = arr; } return Object.keys(out).length ? out : null; })(), teamRead: !!(def.teamRead || def.teamVisible || def.managerRead || def.hierarchyRead), currency: (() => { const c = def.currency || def.money || def.multiCurrency; if (!c || typeof c !== "object" || Array.isArray(c)) return null; const amount = String(c.amount || c.value || c.field || "").toLowerCase(); const code = String(c.code || c.currency || c.currencyField || c.codeField || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(amount) || !/^[a-z0-9_]{1,40}$/.test(code)) return null; const base = String(c.base || c.baseCurrency || "USD").toUpperCase().slice(0, 8); if (!/^[A-Z]{2,8}$/.test(base)) return null; const rates = {}; const raw = c.rates || c.rate; if (raw && typeof raw === "object" && !Array.isArray(raw)) { for (const [k, v] of Object.entries(raw)) { const cc = String(k).toUpperCase(); const n = Number(v); if (/^[A-Z]{2,8}$/.test(cc) && Number.isFinite(n) && n > 0) rates[cc] = n; } } rates[base] = 1; let as = String(c.as || c.into || (amount + "_base")).toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(as)) as = amount + "_base"; return { amount, code, base, rates, as }; })(), approval: (() => { const a = def.approval || def.approvals || def.signoff; if (!a || typeof a !== "object" || Array.isArray(a)) return null; const src = Array.isArray(a.approvers) ? a.approvers : (Array.isArray(a.roles) ? a.roles : [a.approvers || a.roles]); const approvers = src.map((x) => String(x == null ? "" : x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)); const uniq = [...new Set(approvers)].slice(0, 12); if (!uniq.length) return null; let status = String(a.status || a.field || a.statusField || "approval_status").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(status)) status = "approval_status"; return { approvers: uniq, status }; })(), sequence: (() => { const s = def.sequence || def.autoNumber || def.recordNumber || def.numbering; if (!s || typeof s !== "object" || Array.isArray(s)) return null; const field = String(s.field || s.column || s.into || "number").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(field)) return null; let prefix = String(s.prefix == null ? "" : s.prefix).slice(0, 16); if (!/^[A-Za-z0-9_\-\/#.]*$/.test(prefix)) prefix = ""; let pad = parseInt(s.pad != null ? s.pad : s.padding, 10); pad = (Number.isFinite(pad) && pad > 0) ? Math.min(pad, 12) : 0; let start = parseInt(s.start != null ? s.start : s.from, 10); start = Number.isFinite(start) ? start : 1; return { field, prefix, pad, start }; })(), roundRobin: (() => { const r = def.roundRobin || def.autoAssign || def.leadRouting || def.assignRoundRobin; if (!r) return null; const src = r === true ? ["user"] : (Array.isArray(r) ? r : (Array.isArray(r.among) ? r.among : (Array.isArray(r.roles) ? r.roles : [r.among || r.roles || r.role]))); const among = src.map((x) => String(x == null ? "" : x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)); const uniq = [...new Set(among)].slice(0, 24); return uniq.length ? { among: uniq } : null; })(), assignBy: (() => { const a = def.assignBy || def.territory || def.assignmentRules || def.routeBy; if (!a || typeof a !== "object" || Array.isArray(a)) return null; const field = String(a.field || a.on || a.by || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(field)) return null; const rawMap = a.map || a.rules || a.routes; const map = {}; if (rawMap && typeof rawMap === "object" && !Array.isArray(rawMap)) { for (const [k, v] of Object.entries(rawMap)) { const key = String(k).toLowerCase().trim(); const val = String(v == null ? "" : v).trim(); if (key && val && (/^\d+$/.test(val) || val.includes("@")) && val.length <= 120) map[key] = val; } } if (!Object.keys(map).length) return null; const d0 = a.default != null ? String(a.default).trim() : ""; const dfl = (d0 && (/^\d+$/.test(d0) || d0.includes("@")) && d0.length <= 120) ? d0 : null; return { field, map, default: dfl }; })(), sla: (() => { const s = def.sla || def.deadline || def.responseTime; if (!s || typeof s !== "object" || Array.isArray(s)) return null; const mins = slaMinutes(s.mins != null ? s.mins : (s.within != null ? s.within : (s.minutes != null ? s.minutes : s.duration))); if (!mins) return null; let start = String(s.start || s.from || s.since || "created_at").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(start)) start = "created_at"; let doneField = null, doneValues = null; const d = s.done || s.until || s.stopWhen; if (d && typeof d === "object" && !Array.isArray(d)) { const df = String(d.field || d.column || "").toLowerCase(); const vals = (Array.isArray(d.values) ? d.values : (d.value != null ? [d.value] : [])).map((x) => String(x)).filter((x) => x.length <= 60).slice(0, 24); if (/^[a-z0-9_]{1,40}$/.test(df) && vals.length) { doneField = df; doneValues = vals; } } let escalate = null; const e = s.escalate || s.then || s.onBreach; if (e && typeof e === "object" && !Array.isArray(e)) { const to0 = e.to != null ? String(e.to).trim() : ""; const toV = (to0 && (/^\d+$/.test(to0) || to0.includes("@")) && to0.length <= 120) ? to0 : null; const ef = String(e.field || e.column || "").toLowerCase(); const efV = /^[a-z0-9_]{1,40}$/.test(ef) ? ef : null; const ev = e.value != null ? String(e.value).slice(0, 120) : null; const hasField = !!(efV && ev != null); if (toV || hasField) escalate = { to: toV, field: hasField ? efV : null, value: hasField ? ev : null }; } return { start, mins, doneField, doneValues, escalate }; })(), mask: (() => { const m = def.mask || def.maskFields; if (!m || typeof m !== "object" || Array.isArray(m)) return null; const out = {}; for (const [col, cfg] of Object.entries(m)) { if (!/^[a-z0-9_]{1,40}$/i.test(col)) continue; const c = (cfg && typeof cfg === "object" && !Array.isArray(cfg)) ? cfg : {}; const roles = (Array.isArray(c.roles) ? c.roles : []).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)).slice(0, 24); let keep = parseInt(c.keep != null ? c.keep : c.show, 10); keep = (Number.isFinite(keep) && keep >= 0) ? Math.min(keep, 12) : 4; const char = (String(c.char || "•").slice(0, 1)) || "•"; out[col.toLowerCase()] = { roles, keep, char }; } return Object.keys(out).length ? out : null; })(), jsonShapes: (() => { const raw = def.jsonShapes || def.jsonShape || def.shapes; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const TYPES = new Set(["string", "number", "boolean", "array", "object"]); const out = {}; for (const [col, shape] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col) || !shape || typeof shape !== "object" || Array.isArray(shape)) continue; const fields = {}; for (const [f, ty] of Object.entries(shape)) { const t2 = String(ty).toLowerCase(); if (/^[a-z0-9_]{1,40}$/i.test(f) && TYPES.has(t2)) fields[f] = t2; } if (Object.keys(fields).length) out[col.toLowerCase()] = fields; } return Object.keys(out).length ? out : null; })(), fts: (() => { const x = def.fts || def.fullText || def.fullTextSearch; if (x === true || x === 1) return true; if (Array.isArray(x)) { const cols = x.map((c) => String(c).toLowerCase()).filter((c) => /^[a-z0-9_]{1,40}$/.test(c)).slice(0, 12); return cols.length ? cols : null; } return null; })(), webhooks: (() => { const w = def.webhooks || def.emitEvents || def.fireWebhooks; if (w === true || w === 1) return true; if (Array.isArray(w)) { const acts = [...new Set(w.map((a) => String(a).toLowerCase()).filter((a) => ["created", "updated", "deleted"].includes(a)))]; return acts.length ? acts : null; } return null; })(), noOverlap: (() => { /* INTERVAL exclusivity: no two live rows may occupy overlapping [start,end) ranges within the same group. A partial UNIQUE index only catches EXACT collisions, which is wrong the moment services have different lengths — a 60-minute booking at 10:00 and a 30-minute one at 10:30 are distinct (date,time) pairs and both would be accepted. Enforced as a single atomic INSERT..WHERE NOT EXISTS, so it is race-free rather than a check-then-write. */ const o = def.noOverlap || def.noDoubleBooking || def.exclusive; if (!o || typeof o !== "object" || Array.isArray(o)) return null; const start = String(o.start || o.from || "").toLowerCase(), end = String(o.end || o.to || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(start) || !/^[a-z0-9_]{1,40}$/.test(end) || start === end) return null; const on = (Array.isArray(o.on) ? o.on : (o.on != null ? [o.on] : [])).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,40}$/.test(x)).slice(0, 4); /* This predicate is a runtime query, not DDL, so the value is a bound parameter and needs no character restriction — unlike the partial-index WHERE above. */ const wm = String(o.where == null ? "" : o.where).match(/^([a-z_][a-z0-9_]{0,40}):(eq|ne):([\s\S]{0,80})$/i); const where = wm ? { col: wm[1].toLowerCase(), op: wm[2].toLowerCase(), val: wm[3] } : null; return { start, end, on, where }; })(), publicView: (() => { /* A PII-filtered, read-only projection of an owner-scoped table, readable by ANYONE. The case it exists for: a booking app whose `bookings` are `user`-scoped, where a visitor must see which slots are taken without seeing who took them. Columns are an explicit allow-list — never a wildcard, never id/owner_id — so a table can only leak exactly what it declares. */ const p = def.publicView || def.publicFields || def.sharedView; if (!p || typeof p !== "object" || Array.isArray(p)) return null; const cols = (Array.isArray(p.columns) ? p.columns : (Array.isArray(p.fields) ? p.fields : [])).map((c) => String(c).toLowerCase()).filter((c) => /^[a-z0-9_]{1,40}$/.test(c) && c !== "owner_id" && c !== "id"); const uniq = [...new Set(cols)].slice(0, 12); if (!uniq.length) return null; const rawW = p.where != null ? (Array.isArray(p.where) ? p.where : [p.where]) : []; const where = rawW.map((w) => String(w)).filter((w) => /^[a-z_][a-z0-9_]{0,40}:(eq|ne|lt|lte|gt|gte|contains|startswith|endswith|in|nin|between|isnull|notnull):[\s\S]{0,80}$/i.test(w)).slice(0, 6); let lim = parseInt(p.limit, 10); lim = (Number.isFinite(lim) && lim > 0) ? Math.min(lim, 2000) : 500; return { columns: uniq, where, limit: lim }; })() });
-  };
-  const t = spec.tables || spec;
-  if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
-  else if (t && typeof t === "object") Object.entries(t).forEach(([n, def]) => coerceTable(n, def));
-  // Per-app rate-limit config — the owner tunes the data API's per-IP caps (requests
-  // per minute) for reads and writes; `{read, write}` (aliases rateLimits/rate/
-  // apiRateLimit, a bare number = both). Clamped to sane bounds; absent → platform
-  // defaults (300 read / 60 write). Threaded through to the persisted schema so it's
-  // loaded with the spec (no extra per-request read).
-  const rlSrc = spec.rateLimits || spec.rate || spec.apiRateLimit || spec.rateLimit;
-  let rateLimits = null;
-  if (rlSrc != null) {
-    const clamp = (v) => { const n = parseInt(v, 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 100000) : 0; };
-    if (typeof rlSrc === "number" || typeof rlSrc === "string") { const b = clamp(rlSrc); if (b) rateLimits = { read: b, write: b }; }
-    else if (typeof rlSrc === "object" && !Array.isArray(rlSrc)) {
-      const read = clamp(rlSrc.read != null ? rlSrc.read : rlSrc.get);
-      const write = clamp(rlSrc.write != null ? rlSrc.write : (rlSrc.post != null ? rlSrc.post : rlSrc.mutate));
-      if (read || write) rateLimits = { read: read || 0, write: write || 0 };
-    }
-  }
-  return rateLimits ? { tables: out, rateLimits } : { tables: out };
-}
-async function applySiteSchema(env, uuid, spec) {
-  spec = normalizeSchema(spec);
-  const tables = (spec && Array.isArray(spec.tables)) ? spec.tables.slice(0, 24) : [];
-  const made = [], norm = [];
-  for (const t of tables) {
-    if (!t || !t.name) continue;
-    const tn = sqlIdent(t.name);
-    // access = who can read/write via the public data API:
-    //   collect  — anyone can INSERT; nobody reads publicly (owner reads in-app)
-    //   display  — anyone can READ; no public writes (owner-managed content)
-    //   user     — requires the site's own login; each visitor sees only THEIR rows
-    //   feed     — anyone READS; a logged-in visitor posts + edits only their OWN rows
-    //   admin    — anyone READS; only an 'admin' site-user WRITES (shared, in-app CMS)
-    const access = ["collect", "display", "user", "feed", "admin"].includes(t.access) ? t.access : "collect";
-    const cols = []; let hasPk = false;
-    const colNames = []; const numCols = []; const jsonCols = []; const seen = new Set(); const refs = {}; const refModes = {}; const rules = {};
-    const appAdds = []; // [name-type] for each declared app column, ALTER-added on re-apply so a REVISE that adds a field actually gets the column (CREATE IF NOT EXISTS won't)
-    // Auto-slug config: table-level `"slug":"title"` or `{"from":"title"}` → the platform
-    // adds+fills a unique url-safe `slug` column derived from that source column on insert.
-    let slugFrom = null;
-    if (typeof t.slug === "string" && SAFE_IDENT.test(t.slug)) slugFrom = t.slug.toLowerCase();
-    else if (t.slug && typeof t.slug === "object" && typeof t.slug.from === "string" && SAFE_IDENT.test(t.slug.from)) slugFrom = t.slug.from.toLowerCase();
-    // RBAC: an `admin`-access table may name extra custom roles allowed to WRITE (the
-    // built-in `admin` role always can). Role names are short safe identifiers.
-    const writeRoles = (access === "admin" && Array.isArray(t.writeRoles)) ? t.writeRoles.map((r) => String(r).toLowerCase()).filter((r) => /^[a-z0-9_]{1,24}$/.test(r)).slice(0, 16) : null;
-    // id / created_at / owner_id are ALWAYS platform-managed — we add them below.
-    // Skip any the model declared itself (the rules say not to, but models don't
-    // always comply) and skip duplicate column names, else CREATE TABLE would have
-    // two columns of the same name → D1 error 7500 and the whole backend fails.
-    const MANAGED = new Set(["id", "created_at", "owner_id"]);
-    for (const c of (Array.isArray(t.columns) ? t.columns.slice(0, 48) : [])) {
-      if (!c || !c.name) continue;
-      const low = String(c.name).toLowerCase();
-      if (MANAGED.has(low) || seen.has(low)) continue;
-      seen.add(low);
-      const cn = sqlIdent(c.name);
-      const ctype = String(c.type || "text").toLowerCase();
-      const ty = PG_TYPES[ctype] || "TEXT";
-      const isNum = ["integer", "int", "real", "float", "number", "numeric"].includes(ctype);
-      const isJson = ["json", "array", "object"].includes(ctype);
-      let def = cn + " " + ty;
-      if (c.pk) { def += " PRIMARY KEY"; if (ty === "INTEGER") def += " GENERATED BY DEFAULT AS IDENTITY"; hasPk = true; }
-      if (c.notnull || c.required) def += " NOT NULL";
-      if (c.unique) def += " UNIQUE";
-      // Column DEFAULT — a server-side default applied when the writer omits the field.
-      // Safely literalized: numbers as-is, booleans as 0/1, strings single-quote-escaped.
-      if (c.default !== undefined && c.default !== null && !c.pk) {
-        let dl = null;
-        // Computed default tokens (dynamic per-insert): `@now`/`now`/`timestamp` →
-        // current datetime, `@today`/`today` → current date, `@uuid`/`uuid` → a random
-        // uuid-shaped id. Emitted as a SQL DEFAULT expression so the DB fills it when the
-        // writer omits the field (no insert-path plumbing). A bare literal string default
-        // still works for anything that isn't one of these reserved words.
-        const COMPUTED = { now: "(to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS'))", timestamp: "(to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS'))", today: "(to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD'))", uuid: "(gen_random_uuid()::text)" };
-        const tok = typeof c.default === "string" ? c.default.trim().toLowerCase().replace(/^@/, "") : null;
-        if (tok && COMPUTED[tok]) dl = COMPUTED[tok];
-        else if (typeof c.default === "number" && Number.isFinite(c.default)) dl = String(c.default);
-        else if (typeof c.default === "boolean") dl = c.default ? "1" : "0";
-        else if (typeof c.default === "string" && c.default.length <= 200) dl = "'" + c.default.replace(/'/g, "''") + "'";
-        if (dl != null) def += " DEFAULT " + dl;
-      }
-      cols.push(def); colNames.push(c.name); if (isNum) numCols.push(String(c.name).toLowerCase()); if (isJson) jsonCols.push(String(c.name).toLowerCase());
-      appAdds.push(cn + " " + ty); // bare type only — ALTER ADD COLUMN can't carry NOT NULL/UNIQUE/PK on a populated table; required-ness is enforced at the API layer anyway
-      // A declared foreign key (`ref`/`references`) is stored as metadata only — the
-      // column stays a plain integer id; the `expand` reader uses refs to join. Not a
-      // SQL FK (D1 has FKs off by default), so app-side integrity, platform-side join.
-      if (c.ref && SAFE_IDENT.test(String(c.ref))) { refs[low] = String(c.ref); if (c.onDelete) refModes[low] = c.onDelete; } // onDelete: setnull|cascade(default)|restrict
-      // validation rules (enforced on writes): required, length/value bounds, format,
-      // allowed-set (enum) and regex pattern.
-      const rule = {};
-      if (c.notnull || c.required) rule.required = true;
-      if (isNum) { const nmn = Number(c.min); if (Number.isFinite(nmn)) rule.numMin = nmn; const nmx = Number(c.max); if (Number.isFinite(nmx)) rule.numMax = nmx; }
-      else { const mx = parseInt(c.max, 10); if (mx > 0) rule.max = Math.min(mx, 100000); const mn = parseInt(c.min, 10); if (mn > 0) rule.minLen = Math.min(mn, 100000); }
-      const fmt = String(c.format || "").toLowerCase(); if (["email", "url", "number"].includes(fmt)) rule.format = fmt;
-      if (Array.isArray(c.enum) && c.enum.length) rule.enum = c.enum.map((x) => String(x)).slice(0, 100);
-      if (typeof c.pattern === "string" && c.pattern.length && c.pattern.length <= 300) rule.pattern = c.pattern;
-      if (c.immutable) rule.immutable = true; // write-once: set on insert, rejected on any later edit
-      if (Object.keys(rule).length) rules[low] = rule;
-    }
-    if (!hasPk) cols.unshift('"id" INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY');
-    // Auto-slug column (unless the app already declared its own `slug`): a UNIQUE url-safe key.
-    if (slugFrom && !seen.has("slug")) { cols.push('"slug" TEXT'); colNames.push("slug"); seen.add("slug"); }
-    if (access === "user" || access === "feed") { cols.push('"owner_id" INTEGER'); } // stamps the author / scopes rows
-    if (t.teamScope && access === "user") cols.push('"team_id" INTEGER'); // team-scoped: rows are shared across a team (read), stamped on insert
-    if (t.trash) cols.push('"deleted_at" TEXT'); // soft-delete: NULL = live, timestamp = trashed
-    if (t.version) cols.push('"_version" INTEGER NOT NULL DEFAULT 1'); // optimistic-concurrency row version
-    if (t.timestamps || t.sync) cols.push('"updated_at" TEXT DEFAULT (to_char(now() AT TIME ZONE \'UTC\',\'YYYY-MM-DD HH24:MI:SS\'))'); // auto edit-tracking (also required by sync): set on insert, bumped on every UPDATE
-    if (t.ordered) cols.push('"position" REAL'); // manual sort order — auto-assigned to end on insert (trigger below), midpoint-reordered via /move
-    if (t.expires) cols.push('"expires_at" TEXT'); // TTL — app sets it; reads hide rows past it
-    if (t.pinnable) cols.push('"pinned" INTEGER DEFAULT 0'); // featured/sticky — app sets 0/1; pinned rows list first
-    if (t.scheduled) cols.push('"publish_at" TEXT'); // scheduled publish — hidden until this time (app-set)
-    if (t.approval) cols.push(sqlIdent(t.approval.status) + " TEXT"); // approval state — endpoint-set only (NOT app-writable), queryable
-    if (t.sequence) cols.push(sqlIdent(t.sequence.field) + " TEXT"); // auto-number — stamped on insert (NOT app-writable), queryable/sortable
-    if (t.archivable) cols.push('"archived_at" TEXT'); // soft archive — reads hide archived rows by default
-    cols.push('"created_at" TEXT DEFAULT (to_char(now() AT TIME ZONE \'UTC\',\'YYYY-MM-DD HH24:MI:SS\'))');
-    await siteQuery(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
-    // Schema evolution for APP columns: CREATE IF NOT EXISTS is a no-op on an existing table,
-    // so a REVISE that adds a new field (e.g. "add a due_date to tasks") would never get the
-    // column and every write to it fails ("data error"). ADD COLUMN is idempotent here (the
-    // "duplicate column" error on a fresh table is swallowed), so this backfills any newly
-    // declared column onto a pre-existing table without disturbing existing data.
-    for (const add of appAdds) { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + " ADD COLUMN IF NOT EXISTS " + add); } catch {} }
-    // Schema evolution: CREATE IF NOT EXISTS is a no-op for a table that already exists,
-    // so a revise that CHANGES a table's access mode (display→user/feed) or turns on
-    // trash would otherwise leave the newly-required platform columns missing — and its
-    // scoped writes / soft-deletes would silently fail. ADD COLUMN is idempotent here
-    // (a "duplicate column" error on a fresh table is swallowed), so re-declaring safely
-    // backfills owner_id / deleted_at onto a pre-existing table.
-    if (access === "user" || access === "feed") { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "owner_id" INTEGER'); } catch {} }
-    if (t.teamScope && access === "user") { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "team_id" INTEGER'); } catch {} }
-    if (t.trash) { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "deleted_at" TEXT'); } catch {} }
-    if (t.version) { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "_version" INTEGER NOT NULL DEFAULT 1'); } catch {} }
-    // Auto updated_at backfill on a pre-existing table (ALTER ADD COLUMN can't carry a
-    // datetime() default, so seed existing rows to created_at; new inserts on a table
-    // revised THIS way get updated_at on their first edit — fresh tables get the CREATE
-    // default above, so the common path is fully automatic).
-    if (t.timestamps || t.sync) { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "updated_at" TEXT'); } catch {} try { await siteQuery(env, uuid, "UPDATE " + tn + ' SET "updated_at"=created_at WHERE "updated_at" IS NULL'); } catch {} }
-    // Re-apply hygiene: DROP the flag-driven triggers first, so turning a flag OFF on a
-    // revise (e.g. removing `audit`) actually REMOVES its trigger instead of leaving a stale
-    // one behind. A left-behind AFTER trigger keeps firing into its side table (_audit /
-    // _history) and rolls back every subsequent write ("data error") — a real bug when a
-    // schema is re-applied without a flag it previously had. Each conditional block below
-    // recreates its trigger only when the flag is still set. (Names are fixed per table; the
-    // per-column enforceRefs triggers are left alone — columns are never dropped.)
-    for (const suf of ["_del", "_pos", "_max", "_aud_i", "_aud_u", "_aud_d", "_hist"]) {
-      try { await siteQuery(env, uuid, "DROP TRIGGER IF EXISTS " + sqlIdent("trg_" + t.name + suf)); } catch {}
-    }
-    // Sync (offline-first) — record deletes as tombstones so a client can pull edits AND
-    // deletes since a timestamp via /changes?sync=. `updated_at` (above) covers inserts+edits.
-    if (t.sync) {
-      try { await siteQuery(env, uuid, "CREATE TABLE IF NOT EXISTS _deletes (row_table TEXT, row_id INTEGER, at TEXT)"); } catch {}
-      try {
-        await pgTrigger(env, uuid, "trg_" + t.name + "_del", {
-          timing: "AFTER", event: "DELETE", table: tn,
-          body: "INSERT INTO _deletes (row_table,row_id,at) VALUES ('" + t.name.replace(/'/g, "''") + "', OLD.id, to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS'));",
-          returns: "OLD",
-        });
-      } catch (e) { console.error("delete tombstone trigger failed:", t.name, e && e.detail); }
-    }
-    // Manual ordering: a `position` column auto-assigned to the END of its scope on insert
-    // (per-owner on user/feed, global otherwise) by an AFTER INSERT trigger, so the app
-    // never manages positions itself; rows are reordered by the /move endpoint (midpoints,
-    // REAL, so no renumber). Backfill existing rows to a stable initial order (by id).
-    if (t.ordered) {
-      try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "position" REAL'); } catch {}
-      try { await siteQuery(env, uuid, "UPDATE " + tn + ' SET "position"=id WHERE "position" IS NULL'); } catch {}
-      const scoped = (access === "user" || access === "feed");
-      const trg = sqlIdent("trg_" + t.name + "_pos");
-      // Postgres can assign the position in a BEFORE INSERT instead of updating the
-      // row back afterwards. `IS NOT DISTINCT FROM` is the null-safe comparison
-      // SQLite spelled `IS`.
-      const maxScope = scoped ? ' WHERE "owner_id" IS NOT DISTINCT FROM NEW."owner_id"' : "";
-      try {
-        await pgTrigger(env, uuid, "trg_" + t.name + "_pos", {
-          timing: "BEFORE", event: "INSERT", table: tn,
-          when: 'NEW."position" IS NULL',
-          body: 'SELECT COALESCE(MAX("position"),0)+1 INTO NEW."position" FROM ' + tn + maxScope + ";",
-        });
-      } catch (e) { console.error("position trigger failed:", t.name, e && e.detail); }
-    }
-    if (t.expires) { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "expires_at" TEXT'); } catch {} }
-    if (t.pinnable) { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "pinned" INTEGER DEFAULT 0'); } catch {} }
-    if (t.scheduled) { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "publish_at" TEXT'); } catch {} }
-    if (t.approval) { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + " ADD COLUMN IF NOT EXISTS " + sqlIdent(t.approval.status) + " TEXT"); } catch {} }
-    if (t.sequence) { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + " ADD COLUMN IF NOT EXISTS " + sqlIdent(t.sequence.field) + " TEXT"); } catch {} }
-    if (t.archivable) { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "archived_at" TEXT'); } catch {} }
-    // Auto-slug: backfill the column on a pre-existing table + a UNIQUE index to police
-    // collisions (SQLite lets a UNIQUE index hold many NULLs, so slug-less rows are fine).
-    if (slugFrom) {
-      try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "slug" TEXT'); } catch {}
-      try { await siteQuery(env, uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + sqlIdent("ux_" + t.name + "_slug") + " ON " + tn + ' ("slug")'); } catch (e) { console.error("slug index failed:", t.name, e && e.detail); }
-    }
-    // Composite UNIQUE constraints (declared at the TABLE level, race-free — enforced
-    // by a real UNIQUE INDEX in D1; a violation surfaces to the data API as a 409).
-    //   unique: [...]      → a group of columns that must be globally unique
-    //   oncePerUser: [...] → unique PER author on user/feed tables (owner_id + cols):
-    //                        "one review per member per product", "one RSVP per event".
-    // Accepts a single group ["a","b"] or many [["a"],["b","c"]].
-    {
-      const hasOwner = (access === "user" || access === "feed");
-      const colSet = new Set(colNames.map((n) => String(n).toLowerCase()));
-      // A group may be a bare column, an array of columns, or {columns:[…], where:"status:eq:confirmed"} —
-      // the last form becomes a PARTIAL unique index. That matters for anything slot-shaped: a plain
-      // UNIQUE(date,time) stops two people booking 10:00, but it also means a CANCELLED booking keeps
-      // occupying the slot forever, because an index does not care about status. Scoping the index to the
-      // rows that actually hold the slot is the difference between "race-free" and "race-free and usable".
-      const partialWhere = (spec) => {
-        // Deliberately only eq/ne against a literal: a partial index's WHERE is baked into DDL, so it cannot
-        // be parameterised and anything richer would mean building SQL out of user text.
-        const m = String(spec || "").match(/^([a-z_][a-z0-9_]{0,40}):(eq|ne):([\s\S]{0,60})$/i);
-        if (!m) return null;
-        const col = m[1].toLowerCase();
-        if (!colSet.has(col)) return null;
-        const val = m[3];
-        if (!/^[\w .:@+/-]{0,60}$/.test(val)) return null; // no quotes, no SQL punctuation
-        return sqlIdent(col) + (m[2].toLowerCase() === "eq" ? " = '" : " <> '") + val + "'";
-      };
-      const mkIndexes = async (groups, perUser) => {
-        const raw = Array.isArray(groups) ? groups : (groups ? [groups] : []);
-        const many = raw.length && (Array.isArray(raw[0]) || (raw[0] && typeof raw[0] === "object")) ? raw : (raw.length ? [raw] : []);
-        let gi = 0;
-        for (const g of many) {
-          const isObj = g && typeof g === "object" && !Array.isArray(g);
-          const src = isObj ? (Array.isArray(g.columns) ? g.columns : [g.columns]) : g;
-          const gcols = (Array.isArray(src) ? src : [src]).map((c) => String(c).toLowerCase()).filter((c) => colSet.has(c));
-          if (!gcols.length) continue;
-          const idxCols = (perUser && hasOwner ? ["owner_id"] : []).concat(gcols);
-          const where = isObj ? partialWhere(g.where) : null;
-          const idxName = sqlIdent("ux_" + t.name + "_" + (perUser ? "u" : "g") + "_" + (gi++));
-          try { await siteQuery(env, uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + idxName + " ON " + tn + " (" + idxCols.map(sqlIdent).join(",") + ")" + (where ? " WHERE " + where : "")); } catch (e) { console.error("unique index failed:", t.name, e && e.detail); }
-        }
-      };
-      await mkIndexes(t.unique, false);
-      await mkIndexes(t.oncePerUser, true);
-      // Case-insensitive UNIQUE — `uniqueCI:["email"]` → a UNIQUE INDEX over lower(col), so
-      // "A@x.com" and "a@x.com" collide (usernames, emails, slugs). Race-free like `unique`;
-      // a violation surfaces as the same 409 duplicate. One column per group.
-      { let ci = 0;
-        for (const raw of (Array.isArray(t.uniqueCI) ? t.uniqueCI : (t.uniqueCI ? [t.uniqueCI] : []))) {
-          const col = String(Array.isArray(raw) ? raw[0] : raw).toLowerCase();
-          if (!colSet.has(col)) continue;
-          try { await siteQuery(env, uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + sqlIdent("ux_" + t.name + "_ci_" + (ci++)) + " ON " + tn + " (lower(" + sqlIdent(col) + "))"); } catch (e) { console.error("uniqueCI index failed:", t.name, e && e.detail); }
-        }
-      }
-    }
-    // Max-rows quota — `maxRows:N` caps how many rows the table may hold (scoped per-owner
-    // on user/feed, global otherwise), enforced by a BEFORE INSERT trigger that ABORTs once
-    // the cap is reached. Zero insert-path plumbing; the abort surfaces to the data API as a
-    // clean 409 "limit reached". Free-tier caps, "max 100 todos per user", etc.
-    if (t.maxRows > 0) {
-      const scoped = (access === "user" || access === "feed");
-      const cntScope = scoped ? ' WHERE "owner_id" IS NOT DISTINCT FROM NEW."owner_id"' : "";
-      try {
-        await pgTrigger(env, uuid, "trg_" + t.name + "_max", {
-          timing: "BEFORE", event: "INSERT", table: tn,
-          body: "IF (SELECT COUNT(*) FROM " + tn + cntScope + ") >= " + Math.floor(t.maxRows) +
-                " THEN RAISE EXCEPTION 'row limit reached'; END IF;",
-        });
-      } catch (e) { console.error("maxRows trigger failed:", t.name, e && e.detail); }
-    }
-    // Referential integrity — `enforceRefs:true` refuses a write whose foreign-key column
-    // points at a NON-existent parent (no orphan comments / line-items). A BEFORE INSERT and
-    // BEFORE UPDATE trigger per ref column RAISEs when the fk is set but the parent id is
-    // missing; the abort maps to a clean 400 in the data API. Complements the delete-time
-    // cascade (which stops orphans when a parent is removed). NULL fk = allowed (optional link).
-    if (t.enforceRefs) {
-      for (const col of Object.keys(refs)) {
-        const parent = refs[col];
-        if (!SAFE_IDENT.test(String(parent)) || !SAFE_IDENT.test(String(col))) continue;
-        const cn = sqlIdent(col), pn = sqlIdent(parent);
-        const guard = "IF NEW." + cn + " IS NOT NULL AND NOT EXISTS (SELECT 1 FROM " + pn +
-                      " WHERE id=NEW." + cn + ") THEN RAISE EXCEPTION 'missing parent'; END IF;";
-        try { await pgTrigger(env, uuid, "trg_" + t.name + "_ref_" + col + "_i", { timing: "BEFORE", event: "INSERT", table: tn, body: guard }); } catch (e) { console.error("ref trigger i failed:", t.name, col, e && e.detail); }
-        try { await pgTrigger(env, uuid, "trg_" + t.name + "_ref_" + col + "_u", { timing: "BEFORE", event: "UPDATE OF " + cn, table: tn, body: guard }); } catch (e) { console.error("ref trigger u failed:", t.name, col, e && e.detail); }
-      }
-    }
-    // Audit log — `audit:true` records every write to the table (insert/update/delete) in a
-    // shared `_audit` trail via AFTER triggers (no write-path plumbing). Captures table, row
-    // id, action, time, and the actor (owner_id on user/feed tables, else NULL). The app's
-    // admin reads it at GET /api/db/<slug>/audit. Compliance, "who changed this", activity.
-    if (t.audit) {
-      try { await siteQuery(env, uuid, "CREATE TABLE IF NOT EXISTS _audit (id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, row_table TEXT, row_id INTEGER, action TEXT, actor_id INTEGER, at TEXT)"); } catch {}
-      const hasOwner = (access === "user" || access === "feed");
-      const actNew = hasOwner ? 'NEW."owner_id"' : "NULL";
-      const actOld = hasOwner ? 'OLD."owner_id"' : "NULL";
-      const AT = "to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')";
-      const mk = (suffix, event, idRef, actor, action) => pgTrigger(env, uuid, "trg_" + t.name + "_aud_" + suffix, {
-        timing: "AFTER", event, table: tn,
-        body: "INSERT INTO _audit (row_table,row_id,action,actor_id,at) VALUES ('" + t.name.replace(/'/g, "''") +
-              "', " + idRef + ", '" + action + "', " + actor + ", " + AT + ");",
-        returns: event === "DELETE" ? "OLD" : "NEW",
-      });
-      try { await mk("i", "INSERT", "NEW.id", actNew, "insert"); } catch (e) { console.error("audit trigger i failed:", t.name, e && e.detail); }
-      try { await mk("u", "UPDATE", "NEW.id", actNew, "update"); } catch (e) { console.error("audit trigger u failed:", t.name, e && e.detail); }
-      try { await mk("d", "DELETE", "OLD.id", actOld, "delete"); } catch (e) { console.error("audit trigger d failed:", t.name, e && e.detail); }
-    }
-    // Row history / revert — `history:true` snapshots a row's OLD data columns (as JSON, via
-    // json_object) into `_history` on every UPDATE (BEFORE UPDATE trigger). The owner/admin
-    // can view the timeline and restore any prior version. Undo, revision history, audit-of-content.
-    if (t.history && colNames.length) {
-      try { await siteQuery(env, uuid, "CREATE TABLE IF NOT EXISTS _history (id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, row_table TEXT, row_id INTEGER, snapshot TEXT, at TEXT)"); } catch {}
-      const jsonPairs = colNames.map((cn) => "'" + String(cn).replace(/'/g, "''") + "', OLD." + sqlIdent(cn)).join(", ");
-      try {
-        await pgTrigger(env, uuid, "trg_" + t.name + "_hist", {
-          timing: "BEFORE", event: "UPDATE", table: tn,
-          body: "INSERT INTO _history (row_table,row_id,snapshot,at) VALUES ('" + t.name.replace(/'/g, "''") +
-                "', OLD.id, json_build_object(" + jsonPairs + ")::text, to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS'));",
-        });
-      } catch (e) { console.error("history trigger failed:", t.name, e && e.detail); }
-    }
-    // FULL-TEXT SEARCH — `fts:true` (all text cols) or `fts:["title","body"]`. Postgres
-    // indexes in place: a GENERATED tsvector column over those columns plus a GIN index,
-    // queried (ranked, ts_rank) via `?fts=<query>` on the list read. This replaces the
-    // SQLite FTS5 shadow table and its three sync triggers — the column is maintained by
-    // the database itself, so it cannot drift from the row the way a shadow table could.
-    // Re-applying a schema recreates the column when the indexed set changes.
-    if (t.fts) {
-      try {
-        const textCols = colNames.filter((c) => { const lc = String(c).toLowerCase(); return !numCols.includes(lc) && !jsonCols.includes(lc); });
-        const want = Array.isArray(t.fts) ? textCols.filter((c) => t.fts.includes(String(c).toLowerCase())) : textCols;
-        const tsv = sqlIdent("_fts");
-        if (want.length) {
-          // to_tsvector is only IMMUTABLE with an explicit regconfig, which a generated
-          // column requires; COALESCE keeps a NULL column from nulling the whole document.
-          const doc = want.map((c) => "COALESCE(" + sqlIdent(c) + ",'')").join(" || ' ' || ");
-          await siteQuery(env, uuid, "ALTER TABLE " + tn + " DROP COLUMN IF EXISTS " + tsv);
-          await siteQuery(env, uuid, "ALTER TABLE " + tn + " ADD COLUMN " + tsv +
-            " tsvector GENERATED ALWAYS AS (to_tsvector('english', " + doc + ")) STORED");
-          await siteQuery(env, uuid, "CREATE INDEX IF NOT EXISTS " + sqlIdent("idx_" + t.name + "_fts") +
-            " ON " + tn + " USING GIN (" + tsv + ")");
-        }
-      } catch (e) { console.error("fts setup failed:", t.name, e && e.detail); }
-    }
-    made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, refModes: Object.keys(refModes).length ? refModes : null, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified, audit: !!t.audit, history: !!t.history, archivable: !!t.archivable, sync: !!t.sync, searchWeights: t.searchWeights || null, rateLimit: t.rateLimit || 0, geo: t.geo || null, transitions: t.transitions || null, formulas: t.formulas || null, fieldRoles: t.fieldRoles || null, teamRead: !!t.teamRead, currency: t.currency || null, approval: t.approval || null, sequence: t.sequence || null, roundRobin: t.roundRobin || null, assignBy: t.assignBy || null, sla: t.sla || null, mask: t.mask || null, jsonShapes: t.jsonShapes || null, fts: t.fts || null, webhooks: t.webhooks || null, teamScope: !!t.teamScope, publicView: t.publicView || null, noOverlap: t.noOverlap || null });
-  }
-  // Persist the normalized access rules + column allow-list in the site's own DB so
-  // the data API can enforce them per request. MERGE into whatever's already
-  // persisted (don't replace): a revise may re-emit a schema with only the new/
-  // changed table, and replacing would strip the pre-existing tables from the
-  // API's allow-list — their data still exists (CREATE IF NOT EXISTS above never
-  // drops it) but the data API would 404 them. Re-declared tables win; untouched
-  // ones are preserved. (A revise cannot silently drop a table this way.)
-  await siteQuery(env, uuid, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
-  let mergedTables = norm;
-  let rateLimits = spec.rateLimits || null; // this run's per-app rate config (if any)
-  try {
-    const prev = await loadSiteSchema(env, uuid);
-    if (prev && Array.isArray(prev.tables) && prev.tables.length) {
-      const byName = new Map();
-      for (const t of prev.tables) if (t && t.name) byName.set(String(t.name).toLowerCase(), t);
-      for (const t of norm) byName.set(String(t.name).toLowerCase(), t); // this run overrides
-      mergedTables = Array.from(byName.values());
-    }
-    if (!rateLimits && prev && prev.rateLimits) rateLimits = prev.rateLimits; // preserve prior tuning when unspecified
-  } catch {}
-  const metaOut = { tables: mergedTables }; if (rateLimits) metaOut.rateLimits = rateLimits;
-  await siteQuery(env, uuid, "INSERT INTO _meta (k,v) VALUES ('schema', ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", [JSON.stringify(metaOut)]);
-  return made;
-}
-// Load the persisted access rules for a site's tables (from its own _meta.schema).
-async function loadSiteSchema(env, uuid) {
-  try { const rows = await siteQuery(env, uuid, "SELECT v FROM _meta WHERE k='schema'"); if (rows[0] && rows[0].v) return JSON.parse(rows[0].v); } catch {}
-  return { tables: [] };
-}
 function tableDef(spec, name) { return (spec && Array.isArray(spec.tables)) ? spec.tables.find((t) => t && String(t.name).toLowerCase() === String(name).toLowerCase()) : null; }
 // Does this isibi user own the React site <slug>? Proven from the generated source's
 // stored uid (sitesrc/<slug>.json), falling back to the D1 backend ledger.
-function parseSchemaSpec(files) {
-  const key = Object.keys(files).find((k) => /(^|\/)isibi\.schema\.json$/i.test(k));
-  if (!key) return null;
-  let spec = null; try { spec = JSON.parse(files[key]); } catch {}
-  delete files[key];
-  return spec;
-}
-// Pull declared edge functions out of a React build's `isibi.functions.json`
-// (body `{"functions":[{"name":"x","steps":[…],"schedule":?,"verify":?}]}` or a
-// bare array). Strips the file (never ships as a static asset). Returns validated
-// [{name, spec}] ready for persistSiteFunctions.
 const _metBuf = new Map();
 function recordSiteHit(env, ctx, slug, status) {
   let b = _metBuf.get(slug);
@@ -2872,23 +2433,6 @@ async function createNotification(env, uuid, userId, n) {
 }
 // Invite-only signup — the owner can require a valid invite code to register.
 // Flag in _meta ('invite_only'='1'); codes live in `_invites` (code, uses_left).
-function maskFields(def, rows, role) {
-  const mk = def && def.mask;
-  if (!mk || !Array.isArray(rows) || !rows.length) return rows;
-  const r = String(role || "public").toLowerCase();
-  if (r === "admin") return rows;
-  for (const [col, cfg] of Object.entries(mk)) {
-    if ((cfg.roles || []).includes(r)) continue; // allowed to see the full value
-    const keep = cfg.keep || 0, ch = cfg.char || "•";
-    for (const row of rows) {
-      if (!row || row[col] == null || row[col] === "") continue;
-      const s = String(row[col]);
-      const tail = keep > 0 ? s.slice(-keep) : "";
-      row[col] = ch.repeat(Math.min(Math.max(0, s.length - tail.length), 32)) + tail;
-    }
-  }
-  return rows;
-}
 const _sbEnc = new TextEncoder();
 function _b64(bytes) { let s = ""; for (const b of bytes) s += String.fromCharCode(b); return btoa(s); }
 function _b64url(s) { return s.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); }
@@ -5151,6 +4695,53 @@ async function handleRequest(request, env, ctx) {
       try { const old = await env.SITES_BUCKET.list({ prefix: "games/" + slug + "/" }); for (const ob of (old.objects || [])) await env.SITES_BUCKET.delete(ob.key); } catch {}
       try { await env.SITES_BUCKET.delete("gamesrc/" + slug + ".json"); } catch {}
       return Response.json({ ok: true, slug });
+    }
+
+    // Website builder — provision this site's database and apply its declared
+    // schema. Called when a build starts, so the generated site has somewhere to
+    // put data from the first request. Idempotent: re-running for the same slug
+    // reuses the database and re-applies the schema (all DDL here is additive
+    // or IF NOT EXISTS), which is what a revise needs.
+    //
+    // The caller's Neon project is created on first build, not at signup.
+    if (url.pathname === "/api/site/build" && request.method === "POST") {
+      const bu = await authUser(request);
+      if (!bu) return UNAUTHED();
+      if (!siteDbConfigured(env)) return Response.json({ ok: false, error: "site database not configured", need: "NEON_API_KEY" }, { status: 501 });
+      if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, error: "service key not configured" }, { status: 501 });
+
+      const body = await request.json().catch(() => ({}));
+      const slug = String(body.slug || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60);
+      if (!slug) return Response.json({ ok: false, error: "no slug" }, { status: 400 });
+
+      // A site's slug is claimed by whoever built it first; a second user cannot
+      // publish over someone else's site by guessing the name.
+      try {
+        const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=uid`, { headers: svcHeaders(env) });
+        const rows = await g.json().catch(() => []);
+        if (Array.isArray(rows) && rows[0] && rows[0].uid !== bu.id) {
+          return Response.json({ ok: false, error: "that name is taken" }, { status: 409 });
+        }
+      } catch {}
+
+      const spec = normalizeSchema(body.schema || {});
+      if (!spec.tables.length) return Response.json({ ok: false, error: "schema declares no tables" }, { status: 400 });
+
+      let db;
+      try {
+        db = await ensureSiteBackend(env, slug, bu.id);
+      } catch (e) {
+        console.error("site provision failed:", slug, e && (e.detail || e.message));
+        return Response.json({ ok: false, error: "could not provision the database", detail: String(e && (e.detail || e.message)).slice(0, 300) }, { status: 502 });
+      }
+
+      try {
+        const made = await applySiteSchema(db, spec);
+        return Response.json({ ok: true, slug, tables: made });
+      } catch (e) {
+        console.error("schema apply failed:", slug, e && (e.detail || e.message));
+        return Response.json({ ok: false, error: "could not apply the schema", detail: String(e && (e.detail || e.message)).slice(0, 300) }, { status: 502 });
+      }
     }
 
     // Sonnet 5 director: chats, reads intent (rerun/revise/new), writes prompts.

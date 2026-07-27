@@ -1,0 +1,31 @@
+# End-to-end check of the per-site Postgres layer against a real Neon account.
+# Provisions a throwaway project, applies a schema, exercises the triggers and
+# full-text search, then deletes the project. Runs on changes to that layer.
+name: neon e2e
+
+on:
+  push:
+    paths:
+      - 'site-db.mjs'
+      - 'site-schema.mjs'
+      - 'test/integration/neon-e2e.mjs'
+      - '.github/workflows/neon-e2e.yml'
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    # A hung provisioning call should not burn a job slot for six hours.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --no-audit --no-fund
+      - name: unit tests
+        run: npm test
+      - name: end-to-end against Neon
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        run: node test/integration/neon-e2e.mjs
