@@ -3,6 +3,7 @@
 // call. Bundled by wrangler at deploy (see package.json).
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { Container, getContainer } from "@cloudflare/containers";
+import { neonConfigured, sqlQuery, sqlExec } from "./site-db.mjs";
 import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis, eoqCalc, breakevenCalc, demandForecast, installmentPlan, taxCalc, commissionCalc } from "./worker-finance.mjs";
 // Game builder (Phase 3): same generate→build→publish pipeline, engine swapped for
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
@@ -2132,7 +2133,7 @@ async function runSiteFunction(env, row, input, slug) {
   const getD1 = async () => {
     if (d1uuid === undefined) {
       d1uuid = null;
-      if (d1Configured(env)) { try { const u = await siteBackendBySlug(env, slug); if (u) { d1uuid = u; d1schema = await loadSiteSchema(env, u); } } catch {} }
+      if (siteDbConfigured(env)) { try { const u = await siteBackendBySlug(env, slug); if (u) { d1uuid = u; d1schema = await loadSiteSchema(env, u); } } catch {} }
     }
     return d1uuid;
   };
@@ -2144,7 +2145,7 @@ async function runSiteFunction(env, row, input, slug) {
         const def = uuid ? tableDef(d1schema, String(st.collection || "")) : null;
         if (uuid && def) {
           const lim = Math.min(200, Math.max(1, parseInt(st.limit || 20, 10) || 20));
-          const rows = await cfD1Query(env, uuid, "SELECT * FROM " + sqlIdent(def.name) + " ORDER BY id DESC LIMIT ?", [lim]);
+          const rows = await siteQuery(env, uuid, "SELECT * FROM " + sqlIdent(def.name) + " ORDER BY id DESC LIMIT ?", [lim]);
           data.steps[st.as] = { records: rows, count: rows.length };
         } else {
           const r = await fetch(`${SUPABASE_URL}/rest/v1/site_collections?slug=eq.${encodeURIComponent(slug)}&collection=eq.${encodeURIComponent(st.collection)}&select=data,created_at&order=created_at.desc&limit=${st.limit || 20}`, { headers: svc, signal: AbortSignal.timeout(8000) });
@@ -2158,7 +2159,7 @@ async function runSiteFunction(env, row, input, slug) {
         const def = uuid ? tableDef(d1schema, String(st.collection || "")) : null;
         if (uuid && def) {
           const use = d1Cols(def).filter((c) => rec && rec[c] !== undefined);
-          if (use.length) { await cfD1Query(env, uuid, "INSERT INTO " + sqlIdent(def.name) + " (" + use.map(sqlIdent).join(",") + ") VALUES (" + use.map(() => "?").join(",") + ")", use.map((c) => rec[c])); }
+          if (use.length) { await siteQuery(env, uuid, "INSERT INTO " + sqlIdent(def.name) + " (" + use.map(sqlIdent).join(",") + ") VALUES (" + use.map(() => "?").join(",") + ")", use.map((c) => rec[c])); }
           data.steps[st.as || "saved"] = { ok: true };
         } else {
           // Legacy collections. Bound abuse: same ≤500-per-(slug,collection) cap as /api/site/data.
@@ -2373,33 +2374,26 @@ async function injectGameAssets(files, env, budget) {
   return { files: out, assets, charged };
 }
 
-// ---- Layer-2: per-site backend on Cloudflare D1 --------------------------------
-// Each built site that needs data/auth gets its OWN D1 database, created on demand
-// via the Cloudflare REST API and addressed by its UUID — a query for site A can
-// only ever reach site A's database (hard isolation, one Worker, many DBs). The
-// slug→UUID map lives in Supabase (site_backends, service-key writes). Requires two
-// Worker secrets: CF_ACCOUNT_ID + CF_D1_API_TOKEN (token scoped to D1:Edit).
-function d1Configured(env) { return !!(env.CF_ACCOUNT_ID && env.CF_D1_API_TOKEN); }
-function d1Params(params) {
-  return (params || []).map((v) => (v === true ? 1 : v === false ? 0 : v === undefined ? null : v));
-}
-// Run SQL against ONE site's D1 database (by UUID). Returns the first statement's
-// result rows. Always parameterize — never string-concat user input into `sql`.
-async function cfD1Query(env, uuid, sql, params) {
-  const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/d1/database/${uuid}/query`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${env.CF_D1_API_TOKEN}`, "content-type": "application/json" },
-    body: JSON.stringify({ sql, params: d1Params(params) }),
-  });
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok || d.success === false) { const e = new Error("d1 query failed"); e.detail = JSON.stringify(d.errors || d).slice(0, 400); throw e; }
-  const first = Array.isArray(d.result) ? d.result[0] : d.result;
-  return (first && first.results) || [];
-}
-// Same as cfD1Query but also returns how many rows the statement changed
-// (meta.changes) — used by scoped UPDATE/DELETE to tell "done" from "matched
-// nothing" (e.g. a visitor trying to edit a row that isn't theirs → 0 changes).
-const D1_TYPES = { text: "TEXT", string: "TEXT", integer: "INTEGER", int: "INTEGER", real: "REAL", float: "REAL", number: "REAL", numeric: "NUMERIC", blob: "BLOB", boolean: "INTEGER", bool: "INTEGER", json: "TEXT", array: "TEXT", object: "TEXT" };
+// ---- Layer-2: per-site backend on Neon Postgres ---------------------------------
+// Each built site that needs data/auth gets its OWN Postgres database — one Neon
+// project per isibi user, one database inside it per site — so a query for site A
+// can only ever reach site A's database. The slug→connection map lives in Supabase
+// (site_backends, service-key writes). Requires ONE Worker secret: NEON_API_KEY.
+// Provisioning and the query layer live in ./site-db.mjs.
+//
+// `db` here is a Neon connection string. It threads through the schema engine in
+// the position D1's database UUID used to occupy.
+function siteDbConfigured(env) { return neonConfigured(env); }
+// Run SQL against ONE site's database. Returns the result rows.
+// Always parameterize — never string-concat user input into `sql`.
+async function siteQuery(env, db, sql, params) { return sqlQuery(db, sql, params); }
+// Same as siteQuery but also reports how many rows the statement changed — used by
+// scoped UPDATE/DELETE to tell "done" from "matched nothing" (e.g. a visitor trying
+// to edit a row that isn't theirs → 0 changes).
+async function siteExec(env, db, sql, params) { return sqlExec(db, sql, params); }
+// Declared column type → Postgres type. TEXT/INTEGER/REAL/NUMERIC are spelled the
+// same in both dialects, so only the aliases below need mapping.
+const PG_TYPES = { text: "TEXT", string: "TEXT", integer: "INTEGER", int: "INTEGER", real: "REAL", float: "REAL", number: "REAL", numeric: "NUMERIC", blob: "BYTEA", boolean: "INTEGER", bool: "INTEGER", json: "TEXT", array: "TEXT", object: "TEXT" };
 // JSON/array columns store as TEXT: an object/array value is JSON-stringified on write
 // and re-parsed on read, so an app can keep nested/flexible data in one column.
 function slaMinutes(v) {
@@ -2501,11 +2495,11 @@ async function applySiteSchema(env, uuid, spec) {
       seen.add(low);
       const cn = sqlIdent(c.name);
       const ctype = String(c.type || "text").toLowerCase();
-      const ty = D1_TYPES[ctype] || "TEXT";
+      const ty = PG_TYPES[ctype] || "TEXT";
       const isNum = ["integer", "int", "real", "float", "number", "numeric"].includes(ctype);
       const isJson = ["json", "array", "object"].includes(ctype);
       let def = cn + " " + ty;
-      if (c.pk) { def += " PRIMARY KEY"; if (ty === "INTEGER") def += " AUTOINCREMENT"; hasPk = true; }
+      if (c.pk) { def += " PRIMARY KEY"; if (ty === "INTEGER") def += " GENERATED BY DEFAULT AS IDENTITY"; hasPk = true; }
       if (c.notnull || c.required) def += " NOT NULL";
       if (c.unique) def += " UNIQUE";
       // Column DEFAULT — a server-side default applied when the writer omits the field.
@@ -2517,7 +2511,7 @@ async function applySiteSchema(env, uuid, spec) {
         // uuid-shaped id. Emitted as a SQL DEFAULT expression so the DB fills it when the
         // writer omits the field (no insert-path plumbing). A bare literal string default
         // still works for anything that isn't one of these reserved words.
-        const COMPUTED = { now: "(datetime('now'))", timestamp: "(datetime('now'))", today: "(date('now'))", uuid: "(lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-'||hex(randomblob(2))||'-'||hex(randomblob(2))||'-'||hex(randomblob(6))))" };
+        const COMPUTED = { now: "(now())", timestamp: "(now())", today: "(current_date)", uuid: "(gen_random_uuid()::text)" };
         const tok = typeof c.default === "string" ? c.default.trim().toLowerCase().replace(/^@/, "") : null;
         if (tok && COMPUTED[tok]) dl = COMPUTED[tok];
         else if (typeof c.default === "number" && Number.isFinite(c.default)) dl = String(c.default);
@@ -2543,7 +2537,7 @@ async function applySiteSchema(env, uuid, spec) {
       if (c.immutable) rule.immutable = true; // write-once: set on insert, rejected on any later edit
       if (Object.keys(rule).length) rules[low] = rule;
     }
-    if (!hasPk) cols.unshift('"id" INTEGER PRIMARY KEY AUTOINCREMENT');
+    if (!hasPk) cols.unshift('"id" INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY');
     // Auto-slug column (unless the app already declared its own `slug`): a UNIQUE url-safe key.
     if (slugFrom && !seen.has("slug")) { cols.push('"slug" TEXT'); colNames.push("slug"); seen.add("slug"); }
     if (access === "user" || access === "feed") { cols.push('"owner_id" INTEGER'); } // stamps the author / scopes rows
@@ -2559,28 +2553,28 @@ async function applySiteSchema(env, uuid, spec) {
     if (t.sequence) cols.push(sqlIdent(t.sequence.field) + " TEXT"); // auto-number — stamped on insert (NOT app-writable), queryable/sortable
     if (t.archivable) cols.push('"archived_at" TEXT'); // soft archive — reads hide archived rows by default
     cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
-    await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
+    await siteQuery(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
     // Schema evolution for APP columns: CREATE IF NOT EXISTS is a no-op on an existing table,
     // so a REVISE that adds a new field (e.g. "add a due_date to tasks") would never get the
     // column and every write to it fails ("data error"). ADD COLUMN is idempotent here (the
     // "duplicate column" error on a fresh table is swallowed), so this backfills any newly
     // declared column onto a pre-existing table without disturbing existing data.
-    for (const add of appAdds) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + " ADD COLUMN " + add); } catch {} }
+    for (const add of appAdds) { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + " ADD COLUMN IF NOT EXISTS " + add); } catch {} }
     // Schema evolution: CREATE IF NOT EXISTS is a no-op for a table that already exists,
     // so a revise that CHANGES a table's access mode (display→user/feed) or turns on
     // trash would otherwise leave the newly-required platform columns missing — and its
     // scoped writes / soft-deletes would silently fail. ADD COLUMN is idempotent here
     // (a "duplicate column" error on a fresh table is swallowed), so re-declaring safely
     // backfills owner_id / deleted_at onto a pre-existing table.
-    if (access === "user" || access === "feed") { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "owner_id" INTEGER'); } catch {} }
-    if (t.teamScope && access === "user") { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "team_id" INTEGER'); } catch {} }
-    if (t.trash) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "deleted_at" TEXT'); } catch {} }
-    if (t.version) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "_version" INTEGER NOT NULL DEFAULT 1'); } catch {} }
+    if (access === "user" || access === "feed") { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "owner_id" INTEGER'); } catch {} }
+    if (t.teamScope && access === "user") { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "team_id" INTEGER'); } catch {} }
+    if (t.trash) { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "deleted_at" TEXT'); } catch {} }
+    if (t.version) { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "_version" INTEGER NOT NULL DEFAULT 1'); } catch {} }
     // Auto updated_at backfill on a pre-existing table (ALTER ADD COLUMN can't carry a
     // datetime() default, so seed existing rows to created_at; new inserts on a table
     // revised THIS way get updated_at on their first edit — fresh tables get the CREATE
     // default above, so the common path is fully automatic).
-    if (t.timestamps || t.sync) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "updated_at" TEXT'); } catch {} try { await cfD1Query(env, uuid, "UPDATE " + tn + ' SET "updated_at"=created_at WHERE "updated_at" IS NULL'); } catch {} }
+    if (t.timestamps || t.sync) { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "updated_at" TEXT'); } catch {} try { await siteQuery(env, uuid, "UPDATE " + tn + ' SET "updated_at"=created_at WHERE "updated_at" IS NULL'); } catch {} }
     // Re-apply hygiene: DROP the flag-driven triggers first, so turning a flag OFF on a
     // revise (e.g. removing `audit`) actually REMOVES its trigger instead of leaving a stale
     // one behind. A left-behind AFTER trigger keeps firing into its side table (_audit /
@@ -2589,42 +2583,42 @@ async function applySiteSchema(env, uuid, spec) {
     // recreates its trigger only when the flag is still set. (Names are fixed per table; the
     // per-column enforceRefs triggers are left alone — columns are never dropped.)
     for (const suf of ["_del", "_pos", "_max", "_aud_i", "_aud_u", "_aud_d", "_hist"]) {
-      try { await cfD1Query(env, uuid, "DROP TRIGGER IF EXISTS " + sqlIdent("trg_" + t.name + suf)); } catch {}
+      try { await siteQuery(env, uuid, "DROP TRIGGER IF EXISTS " + sqlIdent("trg_" + t.name + suf)); } catch {}
     }
     // Sync (offline-first) — record deletes as tombstones so a client can pull edits AND
     // deletes since a timestamp via /changes?sync=. `updated_at` (above) covers inserts+edits.
     if (t.sync) {
-      try { await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _deletes (row_table TEXT, row_id INTEGER, at TEXT)"); } catch {}
-      try { await cfD1Query(env, uuid, "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_del") + " AFTER DELETE ON " + tn + " BEGIN INSERT INTO _deletes (row_table,row_id,at) VALUES ('" + t.name.replace(/'/g, "''") + "', OLD.id, datetime('now')); END"); } catch (e) { console.error("delete tombstone trigger failed:", t.name, e && e.detail); }
+      try { await siteQuery(env, uuid, "CREATE TABLE IF NOT EXISTS _deletes (row_table TEXT, row_id INTEGER, at TEXT)"); } catch {}
+      try { await siteQuery(env, uuid, "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_del") + " AFTER DELETE ON " + tn + " BEGIN INSERT INTO _deletes (row_table,row_id,at) VALUES ('" + t.name.replace(/'/g, "''") + "', OLD.id, now()); END"); } catch (e) { console.error("delete tombstone trigger failed:", t.name, e && e.detail); }
     }
     // Manual ordering: a `position` column auto-assigned to the END of its scope on insert
     // (per-owner on user/feed, global otherwise) by an AFTER INSERT trigger, so the app
     // never manages positions itself; rows are reordered by the /move endpoint (midpoints,
     // REAL, so no renumber). Backfill existing rows to a stable initial order (by id).
     if (t.ordered) {
-      try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "position" REAL'); } catch {}
-      try { await cfD1Query(env, uuid, "UPDATE " + tn + ' SET "position"=id WHERE "position" IS NULL'); } catch {}
+      try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "position" REAL'); } catch {}
+      try { await siteQuery(env, uuid, "UPDATE " + tn + ' SET "position"=id WHERE "position" IS NULL'); } catch {}
       const scoped = (access === "user" || access === "feed");
       const trg = sqlIdent("trg_" + t.name + "_pos");
       const maxScope = scoped ? ' WHERE "owner_id" IS NEW."owner_id"' : "";
       try {
-        await cfD1Query(env, uuid,
+        await siteQuery(env, uuid,
           "CREATE TRIGGER IF NOT EXISTS " + trg + " AFTER INSERT ON " + tn + ' WHEN NEW."position" IS NULL BEGIN' +
           ' UPDATE ' + tn + ' SET "position"=(SELECT COALESCE(MAX("position"),0)+1 FROM ' + tn + maxScope + ") WHERE id=NEW.id;" +
           " END");
       } catch (e) { console.error("position trigger failed:", t.name, e && e.detail); }
     }
-    if (t.expires) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "expires_at" TEXT'); } catch {} }
-    if (t.pinnable) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "pinned" INTEGER DEFAULT 0'); } catch {} }
-    if (t.scheduled) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "publish_at" TEXT'); } catch {} }
-    if (t.approval) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + " ADD COLUMN " + sqlIdent(t.approval.status) + " TEXT"); } catch {} }
-    if (t.sequence) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + " ADD COLUMN " + sqlIdent(t.sequence.field) + " TEXT"); } catch {} }
-    if (t.archivable) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "archived_at" TEXT'); } catch {} }
+    if (t.expires) { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "expires_at" TEXT'); } catch {} }
+    if (t.pinnable) { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "pinned" INTEGER DEFAULT 0'); } catch {} }
+    if (t.scheduled) { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "publish_at" TEXT'); } catch {} }
+    if (t.approval) { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + " ADD COLUMN IF NOT EXISTS " + sqlIdent(t.approval.status) + " TEXT"); } catch {} }
+    if (t.sequence) { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + " ADD COLUMN IF NOT EXISTS " + sqlIdent(t.sequence.field) + " TEXT"); } catch {} }
+    if (t.archivable) { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "archived_at" TEXT'); } catch {} }
     // Auto-slug: backfill the column on a pre-existing table + a UNIQUE index to police
     // collisions (SQLite lets a UNIQUE index hold many NULLs, so slug-less rows are fine).
     if (slugFrom) {
-      try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "slug" TEXT'); } catch {}
-      try { await cfD1Query(env, uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + sqlIdent("ux_" + t.name + "_slug") + " ON " + tn + ' ("slug")'); } catch (e) { console.error("slug index failed:", t.name, e && e.detail); }
+      try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "slug" TEXT'); } catch {}
+      try { await siteQuery(env, uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + sqlIdent("ux_" + t.name + "_slug") + " ON " + tn + ' ("slug")'); } catch (e) { console.error("slug index failed:", t.name, e && e.detail); }
     }
     // Composite UNIQUE constraints (declared at the TABLE level, race-free — enforced
     // by a real UNIQUE INDEX in D1; a violation surfaces to the data API as a 409).
@@ -2663,7 +2657,7 @@ async function applySiteSchema(env, uuid, spec) {
           const idxCols = (perUser && hasOwner ? ["owner_id"] : []).concat(gcols);
           const where = isObj ? partialWhere(g.where) : null;
           const idxName = sqlIdent("ux_" + t.name + "_" + (perUser ? "u" : "g") + "_" + (gi++));
-          try { await cfD1Query(env, uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + idxName + " ON " + tn + " (" + idxCols.map(sqlIdent).join(",") + ")" + (where ? " WHERE " + where : "")); } catch (e) { console.error("unique index failed:", t.name, e && e.detail); }
+          try { await siteQuery(env, uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + idxName + " ON " + tn + " (" + idxCols.map(sqlIdent).join(",") + ")" + (where ? " WHERE " + where : "")); } catch (e) { console.error("unique index failed:", t.name, e && e.detail); }
         }
       };
       await mkIndexes(t.unique, false);
@@ -2675,7 +2669,7 @@ async function applySiteSchema(env, uuid, spec) {
         for (const raw of (Array.isArray(t.uniqueCI) ? t.uniqueCI : (t.uniqueCI ? [t.uniqueCI] : []))) {
           const col = String(Array.isArray(raw) ? raw[0] : raw).toLowerCase();
           if (!colSet.has(col)) continue;
-          try { await cfD1Query(env, uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + sqlIdent("ux_" + t.name + "_ci_" + (ci++)) + " ON " + tn + " (lower(" + sqlIdent(col) + "))"); } catch (e) { console.error("uniqueCI index failed:", t.name, e && e.detail); }
+          try { await siteQuery(env, uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + sqlIdent("ux_" + t.name + "_ci_" + (ci++)) + " ON " + tn + " (lower(" + sqlIdent(col) + "))"); } catch (e) { console.error("uniqueCI index failed:", t.name, e && e.detail); }
         }
       }
     }
@@ -2687,7 +2681,7 @@ async function applySiteSchema(env, uuid, spec) {
       const scoped = (access === "user" || access === "feed");
       const cntScope = scoped ? ' WHERE "owner_id" IS NEW."owner_id"' : "";
       try {
-        await cfD1Query(env, uuid,
+        await siteQuery(env, uuid,
           "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_max") + " BEFORE INSERT ON " + tn +
           " WHEN (SELECT COUNT(*) FROM " + tn + cntScope + ") >= " + Math.floor(t.maxRows) +
           " BEGIN SELECT RAISE(ABORT, 'row limit reached'); END");
@@ -2704,8 +2698,8 @@ async function applySiteSchema(env, uuid, spec) {
         if (!SAFE_IDENT.test(String(parent)) || !SAFE_IDENT.test(String(col))) continue;
         const cn = sqlIdent(col), pn = sqlIdent(parent);
         const cond = "NEW." + cn + " IS NOT NULL AND NOT EXISTS (SELECT 1 FROM " + pn + " WHERE id=NEW." + cn + ")";
-        try { await cfD1Query(env, uuid, "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_ref_" + col + "_i") + " BEFORE INSERT ON " + tn + " WHEN " + cond + " BEGIN SELECT RAISE(ABORT, 'missing parent'); END"); } catch (e) { console.error("ref trigger (i) failed:", t.name, col, e && e.detail); }
-        try { await cfD1Query(env, uuid, "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_ref_" + col + "_u") + " BEFORE UPDATE OF " + cn + " ON " + tn + " WHEN " + cond + " BEGIN SELECT RAISE(ABORT, 'missing parent'); END"); } catch (e) { console.error("ref trigger (u) failed:", t.name, col, e && e.detail); }
+        try { await siteQuery(env, uuid, "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_ref_" + col + "_i") + " BEFORE INSERT ON " + tn + " WHEN " + cond + " BEGIN SELECT RAISE(ABORT, 'missing parent'); END"); } catch (e) { console.error("ref trigger (i) failed:", t.name, col, e && e.detail); }
+        try { await siteQuery(env, uuid, "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_ref_" + col + "_u") + " BEFORE UPDATE OF " + cn + " ON " + tn + " WHEN " + cond + " BEGIN SELECT RAISE(ABORT, 'missing parent'); END"); } catch (e) { console.error("ref trigger (u) failed:", t.name, col, e && e.detail); }
       }
     }
     // Audit log — `audit:true` records every write to the table (insert/update/delete) in a
@@ -2713,25 +2707,25 @@ async function applySiteSchema(env, uuid, spec) {
     // id, action, time, and the actor (owner_id on user/feed tables, else NULL). The app's
     // admin reads it at GET /api/db/<slug>/audit. Compliance, "who changed this", activity.
     if (t.audit) {
-      try { await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _audit (id INTEGER PRIMARY KEY AUTOINCREMENT, row_table TEXT, row_id INTEGER, action TEXT, actor_id INTEGER, at TEXT)"); } catch {}
+      try { await siteQuery(env, uuid, "CREATE TABLE IF NOT EXISTS _audit (id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, row_table TEXT, row_id INTEGER, action TEXT, actor_id INTEGER, at TEXT)"); } catch {}
       const hasOwner = (access === "user" || access === "feed");
       const actNew = hasOwner ? 'NEW."owner_id"' : "NULL";
       const actOld = hasOwner ? 'OLD."owner_id"' : "NULL";
-      const mk = (suffix, when, idRef, actor, action) => "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_aud_" + suffix) + " AFTER " + when + " ON " + tn + " BEGIN INSERT INTO _audit (row_table,row_id,action,actor_id,at) VALUES ('" + t.name.replace(/'/g, "''") + "', " + idRef + ", '" + action + "', " + actor + ", datetime('now')); END";
-      try { await cfD1Query(env, uuid, mk("i", "INSERT", "NEW.id", actNew, "insert")); } catch (e) { console.error("audit trigger i failed:", t.name, e && e.detail); }
-      try { await cfD1Query(env, uuid, mk("u", "UPDATE", "NEW.id", actNew, "update")); } catch (e) { console.error("audit trigger u failed:", t.name, e && e.detail); }
-      try { await cfD1Query(env, uuid, mk("d", "DELETE", "OLD.id", actOld, "delete")); } catch (e) { console.error("audit trigger d failed:", t.name, e && e.detail); }
+      const mk = (suffix, when, idRef, actor, action) => "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_aud_" + suffix) + " AFTER " + when + " ON " + tn + " BEGIN INSERT INTO _audit (row_table,row_id,action,actor_id,at) VALUES ('" + t.name.replace(/'/g, "''") + "', " + idRef + ", '" + action + "', " + actor + ", now()); END";
+      try { await siteQuery(env, uuid, mk("i", "INSERT", "NEW.id", actNew, "insert")); } catch (e) { console.error("audit trigger i failed:", t.name, e && e.detail); }
+      try { await siteQuery(env, uuid, mk("u", "UPDATE", "NEW.id", actNew, "update")); } catch (e) { console.error("audit trigger u failed:", t.name, e && e.detail); }
+      try { await siteQuery(env, uuid, mk("d", "DELETE", "OLD.id", actOld, "delete")); } catch (e) { console.error("audit trigger d failed:", t.name, e && e.detail); }
     }
     // Row history / revert — `history:true` snapshots a row's OLD data columns (as JSON, via
     // json_object) into `_history` on every UPDATE (BEFORE UPDATE trigger). The owner/admin
     // can view the timeline and restore any prior version. Undo, revision history, audit-of-content.
     if (t.history && colNames.length) {
-      try { await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _history (id INTEGER PRIMARY KEY AUTOINCREMENT, row_table TEXT, row_id INTEGER, snapshot TEXT, at TEXT)"); } catch {}
+      try { await siteQuery(env, uuid, "CREATE TABLE IF NOT EXISTS _history (id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, row_table TEXT, row_id INTEGER, snapshot TEXT, at TEXT)"); } catch {}
       const jsonPairs = colNames.map((cn) => "'" + String(cn).replace(/'/g, "''") + "', OLD." + sqlIdent(cn)).join(", ");
       try {
-        await cfD1Query(env, uuid,
+        await siteQuery(env, uuid,
           "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_hist") + " BEFORE UPDATE ON " + tn +
-          " BEGIN INSERT INTO _history (row_table,row_id,snapshot,at) VALUES ('" + t.name.replace(/'/g, "''") + "', OLD.id, json_object(" + jsonPairs + "), datetime('now')); END");
+          " BEGIN INSERT INTO _history (row_table,row_id,snapshot,at) VALUES ('" + t.name.replace(/'/g, "''") + "', OLD.id, json_object(" + jsonPairs + "), now()); END");
       } catch (e) { console.error("history trigger failed:", t.name, e && e.detail); }
     }
     // FULL-TEXT SEARCH — `fts:true` (all text cols) or `fts:["title","body"]` builds an FTS5 virtual
@@ -2746,13 +2740,13 @@ async function applySiteSchema(env, uuid, spec) {
         if (want.length) {
           const bodyNew = want.map((c) => "COALESCE(NEW." + sqlIdent(c) + ",'')").join(" || ' ' || ");
           const backfill = want.map((c) => "COALESCE(" + sqlIdent(c) + ",'')").join(" || ' ' || ");
-          await cfD1Query(env, uuid, "DROP TABLE IF EXISTS " + ftsT);
-          await cfD1Query(env, uuid, "CREATE VIRTUAL TABLE " + ftsT + " USING fts5(body)");
-          await cfD1Query(env, uuid, "INSERT INTO " + ftsT + " (rowid, body) SELECT id, " + backfill + " FROM " + tn);
-          for (const suf of ["_fts_i", "_fts_u", "_fts_d"]) { try { await cfD1Query(env, uuid, "DROP TRIGGER IF EXISTS " + sqlIdent("trg_" + t.name + suf)); } catch {} }
-          await cfD1Query(env, uuid, "CREATE TRIGGER " + sqlIdent("trg_" + t.name + "_fts_i") + " AFTER INSERT ON " + tn + " BEGIN INSERT INTO " + ftsT + "(rowid, body) VALUES (NEW.id, " + bodyNew + "); END");
-          await cfD1Query(env, uuid, "CREATE TRIGGER " + sqlIdent("trg_" + t.name + "_fts_u") + " AFTER UPDATE ON " + tn + " BEGIN DELETE FROM " + ftsT + " WHERE rowid=OLD.id; INSERT INTO " + ftsT + "(rowid, body) VALUES (NEW.id, " + bodyNew + "); END");
-          await cfD1Query(env, uuid, "CREATE TRIGGER " + sqlIdent("trg_" + t.name + "_fts_d") + " AFTER DELETE ON " + tn + " BEGIN DELETE FROM " + ftsT + " WHERE rowid=OLD.id; END");
+          await siteQuery(env, uuid, "DROP TABLE IF EXISTS " + ftsT);
+          await siteQuery(env, uuid, "CREATE VIRTUAL TABLE " + ftsT + " USING fts5(body)");
+          await siteQuery(env, uuid, "INSERT INTO " + ftsT + " (rowid, body) SELECT id, " + backfill + " FROM " + tn);
+          for (const suf of ["_fts_i", "_fts_u", "_fts_d"]) { try { await siteQuery(env, uuid, "DROP TRIGGER IF EXISTS " + sqlIdent("trg_" + t.name + suf)); } catch {} }
+          await siteQuery(env, uuid, "CREATE TRIGGER " + sqlIdent("trg_" + t.name + "_fts_i") + " AFTER INSERT ON " + tn + " BEGIN INSERT INTO " + ftsT + "(rowid, body) VALUES (NEW.id, " + bodyNew + "); END");
+          await siteQuery(env, uuid, "CREATE TRIGGER " + sqlIdent("trg_" + t.name + "_fts_u") + " AFTER UPDATE ON " + tn + " BEGIN DELETE FROM " + ftsT + " WHERE rowid=OLD.id; INSERT INTO " + ftsT + "(rowid, body) VALUES (NEW.id, " + bodyNew + "); END");
+          await siteQuery(env, uuid, "CREATE TRIGGER " + sqlIdent("trg_" + t.name + "_fts_d") + " AFTER DELETE ON " + tn + " BEGIN DELETE FROM " + ftsT + " WHERE rowid=OLD.id; END");
         }
       } catch (e) { console.error("fts setup failed:", t.name, e && e.detail); }
     }
@@ -2766,7 +2760,7 @@ async function applySiteSchema(env, uuid, spec) {
   // API's allow-list — their data still exists (CREATE IF NOT EXISTS above never
   // drops it) but the data API would 404 them. Re-declared tables win; untouched
   // ones are preserved. (A revise cannot silently drop a table this way.)
-  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
+  await siteQuery(env, uuid, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
   let mergedTables = norm;
   let rateLimits = spec.rateLimits || null; // this run's per-app rate config (if any)
   try {
@@ -2780,12 +2774,12 @@ async function applySiteSchema(env, uuid, spec) {
     if (!rateLimits && prev && prev.rateLimits) rateLimits = prev.rateLimits; // preserve prior tuning when unspecified
   } catch {}
   const metaOut = { tables: mergedTables }; if (rateLimits) metaOut.rateLimits = rateLimits;
-  await cfD1Query(env, uuid, "INSERT INTO _meta (k,v) VALUES ('schema', ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", [JSON.stringify(metaOut)]);
+  await siteQuery(env, uuid, "INSERT INTO _meta (k,v) VALUES ('schema', ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", [JSON.stringify(metaOut)]);
   return made;
 }
 // Load the persisted access rules for a site's tables (from its own _meta.schema).
 async function loadSiteSchema(env, uuid) {
-  try { const rows = await cfD1Query(env, uuid, "SELECT v FROM _meta WHERE k='schema'"); if (rows[0] && rows[0].v) return JSON.parse(rows[0].v); } catch {}
+  try { const rows = await siteQuery(env, uuid, "SELECT v FROM _meta WHERE k='schema'"); if (rows[0] && rows[0].v) return JSON.parse(rows[0].v); } catch {}
   return { tables: [] };
 }
 function tableDef(spec, name) { return (spec && Array.isArray(spec.tables)) ? spec.tables.find((t) => t && String(t.name).toLowerCase() === String(name).toLowerCase()) : null; }
@@ -2813,8 +2807,8 @@ async function flushSiteMetrics(env, slug, agg) {
   try {
     const uuid = await siteBackendBySlug(env, slug); if (!uuid) return;
     const day = new Date().toISOString().slice(0, 10);
-    await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _metrics (day TEXT PRIMARY KEY, reqs INTEGER DEFAULT 0, errs INTEGER DEFAULT 0)");
-    await cfD1Query(env, uuid, "INSERT INTO _metrics (day,reqs,errs) VALUES (?,?,?) ON CONFLICT(day) DO UPDATE SET reqs=reqs+excluded.reqs, errs=errs+excluded.errs", [day, agg.reqs, agg.errs]);
+    await siteQuery(env, uuid, "CREATE TABLE IF NOT EXISTS _metrics (day TEXT PRIMARY KEY, reqs INTEGER DEFAULT 0, errs INTEGER DEFAULT 0)");
+    await siteQuery(env, uuid, "INSERT INTO _metrics (day,reqs,errs) VALUES (?,?,?) ON CONFLICT(day) DO UPDATE SET reqs=reqs+excluded.reqs, errs=errs+excluded.errs", [day, agg.reqs, agg.errs]);
   } catch {}
 }
 // Visitor analytics — a built app POSTs page views + custom events. Each event is
@@ -2826,14 +2820,14 @@ async function flushSiteMetrics(env, slug, agg) {
 const _notifsReady = new Set();
 async function ensureNotifications(env, uuid) {
   if (_notifsReady.has(uuid)) return;
-  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, type TEXT, text TEXT, link TEXT, read INTEGER DEFAULT 0, created_at TEXT)");
+  await siteQuery(env, uuid, "CREATE TABLE IF NOT EXISTS _notifications (id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, user_id INTEGER NOT NULL, type TEXT, text TEXT, link TEXT, read INTEGER DEFAULT 0, created_at TEXT)");
   _notifsReady.add(uuid);
 }
 async function createNotification(env, uuid, userId, n) {
   const uid = parseInt(userId, 10);
   if (!(uid > 0)) return false;
   await ensureNotifications(env, uuid);
-  await cfD1Query(env, uuid, "INSERT INTO _notifications (user_id,type,text,link,created_at) VALUES (?,?,?,?,?)", [uid, String(n.type || "").slice(0, 40), String(n.text || "").slice(0, 500), String(n.link || "").slice(0, 400), new Date().toISOString()]);
+  await siteQuery(env, uuid, "INSERT INTO _notifications (user_id,type,text,link,created_at) VALUES (?,?,?,?,?)", [uid, String(n.type || "").slice(0, 40), String(n.text || "").slice(0, 500), String(n.link || "").slice(0, 400), new Date().toISOString()]);
   return true;
 }
 // Invite-only signup — the owner can require a valid invite code to register.
@@ -2893,19 +2887,19 @@ async function ensureAuthExtras(env, uuid) {
     "ALTER TABLE _users ADD COLUMN totp_enabled INTEGER DEFAULT 0",
     "ALTER TABLE _users ADD COLUMN token_epoch INTEGER DEFAULT 0",
     "ALTER TABLE _users ADD COLUMN manager_id INTEGER", // team/hierarchy: this member reports to <manager_id> (for teamRead visibility)
-  ]) { try { await cfD1Query(env, uuid, sql); } catch {} }
+  ]) { try { await siteQuery(env, uuid, sql); } catch {} }
   _authExtrasDone.add(uuid);
 }
 // Ensure a site's D1 has the _users + _meta tables and a per-site signing secret.
 async function initSiteAuth(env, uuid) {
-  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE NOT NULL, pass_salt TEXT NOT NULL, pass_hash TEXT NOT NULL, failed INTEGER DEFAULT 0, locked_until INTEGER, role TEXT DEFAULT 'user', verified INTEGER DEFAULT 0, verify_token TEXT, verify_exp INTEGER, created_at TEXT DEFAULT (datetime('now')))");
-  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
+  await siteQuery(env, uuid, "CREATE TABLE IF NOT EXISTS _users (id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, email TEXT UNIQUE NOT NULL, pass_salt TEXT NOT NULL, pass_hash TEXT NOT NULL, failed INTEGER DEFAULT 0, locked_until INTEGER, role TEXT DEFAULT 'user', verified INTEGER DEFAULT 0, verify_token TEXT, verify_exp INTEGER, created_at TEXT DEFAULT (now()))");
+  await siteQuery(env, uuid, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
   await ensureAuthExtras(env, uuid);
-  const rows = await cfD1Query(env, uuid, "SELECT v FROM _meta WHERE k='auth_secret'");
+  const rows = await siteQuery(env, uuid, "SELECT v FROM _meta WHERE k='auth_secret'");
   if (rows[0] && rows[0].v) return rows[0].v;
   const secret = _b64(crypto.getRandomValues(new Uint8Array(32)));
-  await cfD1Query(env, uuid, "INSERT OR IGNORE INTO _meta (k,v) VALUES ('auth_secret', ?)", [secret]);
-  const r2 = await cfD1Query(env, uuid, "SELECT v FROM _meta WHERE k='auth_secret'");
+  await siteQuery(env, uuid, "INSERT INTO _meta (k,v) VALUES ('auth_secret', ?) ON CONFLICT (k) DO NOTHING", [secret]);
+  const r2 = await siteQuery(env, uuid, "SELECT v FROM _meta WHERE k='auth_secret'");
   return (r2[0] && r2[0].v) || secret;
 }
 // Email a built-site visitor a signed 24h "verify your email" link (→ /verify). Sent
@@ -3024,14 +3018,14 @@ async function handleRequest(request, env, ctx) {
         a.back{display:inline-block;margin-top:1.3rem;color:#ffb84d;text-decoration:none;font-weight:600}
       </style></head><body><div class="card"><div class="badge${ok ? "" : " bad"}">${ok ? "&#10003;" : "!"}</div><h1>${heading}</h1><p>${body}</p>${back ? `<a class="back" href="${back}">Go to the app &#8594;</a>` : ""}</div></body></html>`;
       const page = (h, b, ok, back) => new Response(card(h, b, ok, back), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
-      if (!slug || !token || !env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return page("Invalid link", "This verification link is invalid. Try requesting a new one from the app.", false);
+      if (!slug || !token || !env.SUPABASE_SERVICE_KEY || !siteDbConfigured(env)) return page("Invalid link", "This verification link is invalid. Try requesting a new one from the app.", false);
       try {
         const uuid = await siteBackendBySlug(env, slug);
         if (!uuid) return page("Invalid link", "This verification link is invalid or has expired.", false);
         const secret = await initSiteAuth(env, uuid);
         const p = await verifySiteUserToken(secret, token);
         if (!p || p.purpose !== "verify" || p.slug !== slug || !p.sub) return page("Link expired", "This verification link is invalid or has expired. Request a new one from the app.", false);
-        await cfD1Query(env, uuid, "UPDATE _users SET verified=1, verify_token=NULL, verify_exp=NULL WHERE id=?", [p.sub]);
+        await siteQuery(env, uuid, "UPDATE _users SET verified=1, verify_token=NULL, verify_exp=NULL WHERE id=?", [p.sub]);
         return page("Email verified", "Your email is confirmed — you're all set. You can close this tab and head back to the app.", true, "/s/" + slug + "/");
       } catch (e) {
         console.error("verify failed:", e && e.message, e && e.detail);
