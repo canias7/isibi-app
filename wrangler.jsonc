@@ -19,30 +19,16 @@
   "r2_buckets": [
     { "binding": "SITES_BUCKET", "bucket_name": "isibi-sites" }
   ],
-  // React-builder build-service (Phase 3): a container that runs `vite build` on
-  // AI-generated React projects. Image built from ./builder/Dockerfile at deploy;
-  // the Worker talks to it via the BUILD_CONTAINER Durable Object binding.
-  // instance_type "standard" (4 GiB) so the compile has memory headroom.
   // Game build-service (Phase 3): runs `vite build` on AI-generated kaplay games
   // AND a headless-Chromium runtime smoke test. Image ./builder-game/Dockerfile;
   // the Worker talks to it via the GAME_BUILD_CONTAINER Durable Object binding.
+  //
+  // The two website-builder containers (BuildContainer → ./builder/Dockerfile,
+  // CloneBuildContainer → ./builder/lovable/Dockerfile) were removed 2026-07-27
+  // along with the rest of the builder. Both Dockerfiles are deleted, so leaving
+  // either entry here would fail the image build and take the whole deploy with
+  // it — the v4 migration below retires the classes.
   "containers": [
-    {
-      "class_name": "BuildContainer",
-      "image": "./builder/Dockerfile",
-      "max_instances": 5,
-      "instance_type": "standard-1"
-    },
-    {
-      // The Lovable-clone build service. A SEPARATE image from BuildContainer by necessity, not by
-      // choice: that one is React 18 + Tailwind v3 + react-router, this one is React 19 + Tailwind
-      // v4 + TanStack Router. The two stacks cannot share a node_modules, so they cannot share an
-      // image.
-      "class_name": "CloneBuildContainer",
-      "image": "./builder/lovable/Dockerfile",
-      "max_instances": 5,
-      "instance_type": "standard-1"
-    },
     {
       "class_name": "GameBuildContainer",
       "image": "./builder-game/Dockerfile",
@@ -52,15 +38,16 @@
   ],
   "durable_objects": {
     "bindings": [
-      { "class_name": "BuildContainer", "name": "BUILD_CONTAINER" },
-      { "class_name": "CloneBuildContainer", "name": "CLONE_BUILD_CONTAINER" },
       { "class_name": "GameBuildContainer", "name": "GAME_BUILD_CONTAINER" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["BuildContainer"] },
     { "tag": "v2", "new_sqlite_classes": ["GameBuildContainer"] },
-    { "tag": "v3", "new_sqlite_classes": ["CloneBuildContainer"] }
+    { "tag": "v3", "new_sqlite_classes": ["CloneBuildContainer"] },
+    // Retires the two builder containers. A Durable Object class that disappears
+    // from the Worker without a deleted_classes migration fails the deploy.
+    { "tag": "v4", "deleted_classes": ["BuildContainer", "CloneBuildContainer"] }
   ],
   // Auto-reply engine: wake every 2 minutes to answer new inbound DMs for
   // accounts that have DM auto-reply switched on (see scheduled() in worker.js).

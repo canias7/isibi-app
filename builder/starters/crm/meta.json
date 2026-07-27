@@ -1,9 +1,0 @@
-{
-  "id": "crm",
-  "title": "Sales CRM",
-  "summary": "Reps work their own leads, deals and contacts; a manager sees the whole downline's pipeline. Deals move through stages on a drag-and-drop board, and the dashboard reports on the numbers.",
-  "tables": ["leads", "deals", "contacts"],
-  "roles": ["visitor", "member", "admin"],
-  "covers": ["leads", "deals", "contacts", "activity", "dashboard", "kpi", "reports", "winloss", "forecast-categories"],
-  "navOrder": ["Dashboard", "Leads", "Deals", "Contacts"]
-}

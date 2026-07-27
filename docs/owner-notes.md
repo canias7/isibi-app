@@ -9147,3 +9147,71 @@ Total cost of settling this: **✦88.** Every cap in the app is now measured or 
 **Ledger note:** topped the account up by ✦300 with a direct `UPDATE public.credits` (18.25 → 318.25),
 not a Stripe purchase — the mint-gated `add_credits` needs `CREDITS_MINT_SECRET`, which lives in
 GitHub Actions. Balance after the test: **✦230.25.** Say the word if you want the 300 removed.
+
+## 2026-07-27 — deleted the website builder, kept the shadcn UI
+
+Owner's call, after digging into how the builder should actually work: **delete everything, rebuild
+from zero, leave only the shadcn files.** No replacement was built and no builder work was done —
+this commit is demolition only.
+
+### What went — 385 files
+
+| | |
+|---|---|
+| `builder/` generation engine | 368 files — the 258-component kit, the 5 starters (booking/commerce/content/crm/helpdesk), `capability-registry.json`, page recipes, `full-pipeline.mjs`, `pipeline.mjs`, `chunked-build`, `multi-agent`, `scaffold`, `react-gen.mjs` (280 KB of rules + `COMPONENT_INVENTORY`), the whole Lovable-clone pipeline, both Dockerfiles |
+| `worker.js` | ~1,340 lines — the 12 `./builder/*` imports, `/api/site/react-build`, `/api/site/react-revise`, the legacy static Gemini builder at `/api/site` POST, `/api/site/build-health`, the `RB_EFFORT_OUT` effort ladder, and the `BuildContainer` + `CloneBuildContainer` classes |
+| tests | 17 files (13 in `test/backend/`, 4 harnesses in `test/`) |
+| CI | 13 workflows — every `eval-*`, `clone-*`, `kit-check`, `live-build`, `pipeline-eval`, `vision-check`. Only `deploy.yml` and `fal-wm-test.yml` remain |
+
+### The only survivor: `builder/lovable/template/`
+
+Kept **whole**, 72 files — the 46 shadcn `src/components/ui/*.tsx` (new-york), the shadcn theme in
+`styles.css`, `components.json`, and the React 19 + Tailwind v4 + TanStack Router scaffold around
+them. Owner asked for TanStack to stay, so nothing inside the template was touched.
+
+An earlier pass had pulled out just the 48-file dependency closure (46 components + `lib/utils.ts`
+for `cn` + `hooks/use-mobile.tsx` for `sidebar.tsx`) and moved it to `builder/ui/`. That was reverted
+on the clarification — the whole template stays, at its original path.
+
+### What deliberately survived, and why
+
+**The per-site backend and hosting runtime.** Deleting the *generator* is not the same as deleting
+the *platform*, and published customer sites run on the platform. Untouched: `/api/site/publish`,
+`/preview`, `/unpublish`, `/api/site/auth/*`, `/data`, `/secrets`, `/collections`, `/fn`, all
+`/api/site/backend/*`, the `/api/db/<slug>/*` data API, and the `/s/<slug>/` serving route — along
+with every backend feature behind them (`noOverlap`, partial unique indexes, `publicView`,
+`teamRead`, `transitions`, `sequence`, `sla`, `trash`). `isibi.schema.json` remains the table format
+the runtime reads, so a rebuilt generator that emits one gets all of it for free.
+
+The **Game Studio** (`builder-game/`, `GameBuildContainer`) is a separate product and was not
+touched. It only ever referenced `builder/` in provenance comments, never in code.
+
+### The deploy trap this could have hit
+
+Deleting `builder/Dockerfile` and `builder/lovable/Dockerfile` while `wrangler.jsonc` still declared
+containers pointing at them would have **failed the image build and taken the whole deploy down** —
+including the media app, which has nothing to do with the builder. Both container entries and their
+DO bindings are removed, and a **`v4` migration with `deleted_classes: ["BuildContainer",
+"CloneBuildContainer"]`** retires the classes; a Durable Object class that vanishes from the Worker
+without one is a hard deploy failure. `GameBuildContainer` is the only container left and its image
+still exists (asserted).
+
+### Verification
+
+- `node --check worker.js` clean; `wrangler.jsonc` parses, every declared image exists on disk.
+- **The full offline backend suite — 384 files — run against the REAL `worker.js`.** 379 passed.
+  Of the 5 failures, **4 were confirmed pre-existing** by running them in a `git worktree` at
+  untouched `HEAD` (`batch157`, `batch158`, `batch161` — teamScope/team_id; `critique-endpoint`,
+  already recorded as failing on `main` on 2026-07-25). The 5th, `test/backend/eval.test.mjs`,
+  **passed on HEAD and failed here** — it imported the deleted `test/pipeline-eval.mjs`. That one was
+  mine, and it was deleted as part of the same orphaned-eval-harness set. Grepping for `builder/`
+  had missed it because it referenced the harness by its `test/` path, not by `builder/`.
+
+### Live behaviour now
+
+The builder UI in `public/chat.js` is untouched and still posts to `/api/site/react-build`. That
+path no longer exists, so it hits the worker's existing JSON 404 fallthrough and the chat shows
+*"⚠️ That didn't come together — you weren't charged."* Nothing charges, nothing half-builds. Left
+as-is deliberately: the instruction was to delete, not to make the builder work. **If you want a
+truer message before the rebuild lands, say so — the frontend already has a 501 branch that reads
+"the build engine isn't switched on yet."**

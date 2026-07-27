@@ -1,9 +1,0 @@
-{
-  "id": "helpdesk",
-  "title": "Help desk",
-  "summary": "An agent queue with SLA countdowns and a threaded reply view, plus a public knowledge base readers can search before they raise anything.",
-  "tables": ["tickets", "replies", "articles"],
-  "roles": ["visitor", "member", "admin"],
-  "covers": ["tickets", "sla-timers", "faq", "canned", "escalation-rules", "feedback", "glossary"],
-  "navOrder": ["Tickets", "KnowledgeBase"]
-}
