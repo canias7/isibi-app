@@ -400,9 +400,9 @@ function readClipMeta(dataUri) {
     };
     try { v.currentTime = Math.min(0.1, (v.duration || 1) / 2); }
     catch (e) { try { v.src = ''; } catch (e2) {} }
-    // Passed the basic checks — probe fps and quietly conform it if the model
-    // requires a range the clip misses (see normalizeClipFps), and downscale
-    // an over-resolution reference clip into the model's pixel band.
+    // Passed the basic checks — now probe fps and pixel area, and REJECT the
+    // clip if it misses either (normalizeClipFps / normalizeClipArea). Both
+    // used to re-encode it for the user; neither does now.
     normalizeClipFps();
     normalizeClipArea();
   };
@@ -434,8 +434,8 @@ const CLIP_LIMITS = {
   // Seedance @Video1 reference: mp4/mov, 2-15s, <50MB total, and a pixel-AREA
   // band of ~480p-720p (schema: "between ~480p (640x640) and ~720p (834x1112)"
   // — an area constraint: 0.41-0.93MP; 1280×720 fits, 1080p doesn't). Clips
-  // over the band are downscaled on-device for free (normalizeClipArea);
-  // under-band clips are rejected (upscaling can't add detail fal needs).
+  // over the band are rejected too (normalizeClipArea) — we don't re-encode
+  // the user's footage; under-band clips can't be upscaled into detail either.
   // The clip is a REFERENCE (reference-to-video), not a re-render.
   'bytedance/seedance-2.0/text-to-video': { minDur: 2, maxDur: 15, minArea: 409600, maxArea: 927408, formats: ['mp4', 'mov'] },
   'bytedance/seedance-2.0/fast/text-to-video': { minDur: 2, maxDur: 15, minArea: 409600, maxArea: 927408, formats: ['mp4', 'mov'] },
@@ -469,7 +469,7 @@ function clipIssue() {
   if (lim.maxPx && longSide && longSide > lim.maxPx) return 'That clip is ' + w + '×' + h + ' — this model caps at ' + lim.maxPx + 'px. Use a smaller clip.';
   // Pixel-AREA floor (Seedance reference clips): below ~480p there isn't enough
   // detail for fal to reference — reject; ABOVE the band is handled by the free
-  // on-device downscale (normalizeClipArea), so it's not an error here.
+  // dimension check in normalizeClipArea, so it's not an error here.
   if (lim.minArea && w && h && w * h < lim.minArea) return 'That clip is ' + w + '×' + h + ' — this model needs at least ~480p (' + lim.minArea.toLocaleString() + ' pixels per frame). Use a higher-resolution clip.';
   // Required aspect ratios (Veo extend: the schema wants a 16:9 or 9:16
   // input). 5% tolerance absorbs encoder rounding (1920×1088 etc.); without
@@ -483,17 +483,32 @@ function clipIssue() {
   return '';
 }
 
-// ── Frame-rate conform (on-device, free) ──
+// ── Clip rejection: never rewrite the user's video ──
+// A clip that misses a model's requirements is REFUSED, not silently
+// re-encoded (owner 2026-07-27). We used to conform fps and downscale
+// oversized clips on-device and say so afterwards — but that hands back a file
+// the user didn't shoot, re-compressed, and the message arrives after the fact.
+// Images still auto-fit, because shrinking a photo to a byte budget doesn't
+// change what it shows; re-encoding video does.
+function rejectClip(msg) {
+  if (!attachments.clip) return;
+  attachments.clip = null;
+  clipMeta = null;
+  renderAttach('clip');
+  updateSendPrice();
+  addMsg('agent', '⚠️ ' + msg);
+}
+
 // Some models hard-require an fps range (Kling o3 edit: 24-60) that fal
-// enforces strictly — a 23.98fps download (most YouTube/film content) is
-// rejected. A browser <video> can't report fps, so we probe with the on-device
-// ffmpeg engine and, when out of range, quietly re-encode to the nearest bound.
-// Serialized by token so a re-attach mid-conform can't clobber the newer clip.
+// enforces strictly — a 23.98fps download (most film/YouTube content) misses
+// it. A browser <video> can't report fps, so probe with the on-device engine
+// and reject when it's out of range. Serialized by token so a re-attach
+// mid-probe can't reject the newer clip.
 let _clipFpsToken = 0;
 async function normalizeClipFps() {
   const lim = CLIP_LIMITS[model];
   if (!lim || !lim.fps || mode !== 'video' || !attachments.clip) return;
-  if (clipMeta && clipMeta.fpsOk) return; // already probed/conformed for this clip
+  if (clipMeta && clipMeta.fpsOk) return; // already probed for this clip
   if (typeof sbFFProbeFps !== 'function' || !sbFFSupported()) return; // engine unavailable → fal's error net catches it
   const myToken = ++_clipFpsToken;
   const src = attachments.clip;
@@ -503,66 +518,18 @@ async function normalizeClipFps() {
   if (!fps) return; // couldn't read — leave it to the error net
   const [lo, hi] = lim.fps;
   if (fps >= lo && fps <= hi) { if (clipMeta) clipMeta.fpsOk = true; return; }
-  const target = fps < lo ? lo : hi;
-  const note = addMsg('agent typing', 'Your clip is ' + fps.toFixed(2) + ' fps — this model needs ' + lo + '–' + hi + '. Conforming it to ' + target + ' fps on-device (free)');
-  try {
-    const blob = await sbFFFps(src, target, { mime: (clipMeta && clipMeta.type) || '' });
-    const dataUri = await new Promise((ok, err) => {
-      const r = new FileReader();
-      r.onload = () => ok(r.result); r.onerror = err;
-      r.readAsDataURL(blob);
-    });
-    note.remove();
-    if (myToken !== _clipFpsToken || attachments.clip !== src) return; // user swapped clips mid-encode
-    attachments.clip = dataUri;
-    if (clipMeta) { clipMeta.type = 'video/mp4'; clipMeta.fpsOk = true; }
-    renderAttach('clip');
-    addMsg('agent', '⚙️ Fixed the frame rate: ' + fps.toFixed(2) + ' → ' + target + ' fps, re-encoded on-device (free). Ready to go.');
-  } catch {
-    note.remove();
-    addMsg('agent', '⚠️ Your clip is ' + fps.toFixed(2) + ' fps and this model needs ' + lo + '–' + hi + ' fps — I couldn’t convert it here, so please re-export it at ' + lo + ' fps and attach again.');
-  }
+  rejectClip('That clip is ' + fps.toFixed(2) + ' fps — this model needs ' + lo + '–' + hi + ' fps. Re-export it at ' + lo + ' fps and attach it again.');
 }
 
-// ── Pixel-area conform (on-device, free) ──
 // Seedance hard-caps reference clips at ~720p worth of pixels (area band in
-// CLIP_LIMITS). A 1080p/4K phone clip would bounce at fal — instead, quietly
-// downscale it on-device to fit the band, same free-conform pattern as the
-// fps fix. Serialized by token so a re-attach mid-encode can't clobber the
-// newer clip.
-let _clipAreaToken = 0;
+// CLIP_LIMITS). A 1080p/4K phone clip is over it — refuse, same as any other
+// missed requirement, rather than downscaling their footage for them.
 async function normalizeClipArea() {
   const lim = CLIP_LIMITS[model];
   if (!lim || !lim.maxArea || mode !== 'video' || !attachments.clip) return;
   if (!clipMeta || !clipMeta.w || !clipMeta.h) return; // dims unknown — fal's error net catches it
-  const area = clipMeta.w * clipMeta.h;
-  if (area <= lim.maxArea) return; // already inside the band
-  if (typeof sbFFScale !== 'function' || !sbFFSupported()) return; // engine unavailable
-  const myToken = ++_clipAreaToken;
-  const src = attachments.clip;
-  const note = addMsg('agent typing', 'Your clip is ' + clipMeta.w + '×' + clipMeta.h + ' — this model caps reference clips near 720p. Downscaling it on-device (free)');
-  try {
-    // Target just under the cap so rounding to even dims can't tip back over.
-    const blob = await sbFFScale(src, clipMeta.w, clipMeta.h, lim.maxArea - 8000, { mime: clipMeta.type || '' });
-    const dataUri = await new Promise((ok, err) => {
-      const r = new FileReader();
-      r.onload = () => ok(r.result); r.onerror = err;
-      r.readAsDataURL(blob);
-    });
-    note.remove();
-    if (myToken !== _clipAreaToken || attachments.clip !== src) return; // user swapped clips mid-encode
-    attachments.clip = dataUri;
-    // Re-read the conformed clip's real dims/duration (also re-validates).
-    clipMeta = { dur: clipMeta.dur, w: 0, h: 0, type: 'video/mp4', name: clipMeta.name };
-    readClipMeta(dataUri);
-    renderAttach('clip');
-    updateSendPrice();
-    addMsg('agent', '⚙️ Downscaled your clip to fit this model’s reference band — re-encoded on-device (free). Ready to go.');
-  } catch {
-    note.remove();
-    if (myToken !== _clipAreaToken || attachments.clip !== src) return;
-    addMsg('agent', '⚠️ Your clip is ' + clipMeta.w + '×' + clipMeta.h + ' and this model caps reference clips near 720p — I couldn’t convert it here, so please re-export it at 720p or smaller and attach again.');
-  }
+  if (clipMeta.w * clipMeta.h <= lim.maxArea) return; // inside the band
+  rejectClip('That clip is ' + clipMeta.w + '×' + clipMeta.h + ' — this model caps reference clips near 720p. Re-export it at 720p or smaller and attach it again.');
 }
 
 // ── Image attachment limits ──
@@ -1012,7 +979,7 @@ function updateAttachVisibility() {
       addMsg('agent', '⚠️ ' + bad);
     } else {
       // New model may demand an fps range or pixel band the old one didn't —
-      // re-probe/conform both.
+      // re-probe both against the new model's limits.
       if (clipMeta) clipMeta.fpsOk = false;
       normalizeClipFps();
       normalizeClipArea();
