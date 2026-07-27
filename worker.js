@@ -3,7 +3,7 @@
 // call. Bundled by wrangler at deploy (see package.json).
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { Container, getContainer } from "@cloudflare/containers";
-import { neonConfigured, sqlQuery, sqlExec } from "./site-db.mjs";
+import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis, eoqCalc, breakevenCalc, demandForecast, installmentPlan, taxCalc, commissionCalc } from "./worker-finance.mjs";
 // Game builder (Phase 3): same generate→build→publish pipeline, engine swapped for
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
@@ -2945,12 +2945,67 @@ async function initSiteAuth(env, uuid) {
 // Email a built-site visitor a signed 24h "verify your email" link (→ /verify). Sent
 // through the platform mailer; fire-and-forget so signup/login never block on it. The
 // mailer no-ops until GO_FARTHER_API_KEY is set as a Worker secret (same as reset).
-async function siteBackendBySlug(env, slug) {
-  const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=d1_uuid`, {
-    headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
-  });
+function svcHeaders(env, extra) {
+  return { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`, ...(extra || {}) };
+}
+
+// The owner's Neon project row, or null. Reads the connection string, which
+// carries a password — user_site_project has RLS on with NO policies, so only
+// the service key can see this and it never reaches a browser.
+async function userSiteProject(env, uid) {
+  const g = await fetch(`${SUPABASE_URL}/rest/v1/user_site_project?uid=eq.${encodeURIComponent(uid)}&select=neon_project,neon_branch,neon_role,neon_conn`, { headers: svcHeaders(env) });
   const rows = await g.json().catch(() => []);
-  return (Array.isArray(rows) && rows[0] && rows[0].d1_uuid) || null;
+  return (Array.isArray(rows) && rows[0]) || null;
+}
+
+// slug → that site's Postgres connection string. Two lookups: the site row names
+// a database, the owner's project row supplies the endpoint and credentials.
+async function siteBackendBySlug(env, slug) {
+  const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=neon_db,uid`, { headers: svcHeaders(env) });
+  const rows = await g.json().catch(() => []);
+  const row = Array.isArray(rows) && rows[0];
+  if (!row || !row.neon_db) return null;
+  const proj = await userSiteProject(env, row.uid);
+  return proj ? connForDatabase(proj.neon_conn, row.neon_db) : null;
+}
+
+// Provision (or reuse) one site's database, returning its connection string.
+// Called when a build starts, so a site has somewhere to put data the moment
+// the generator declares a schema.
+//
+// The user's Neon PROJECT is created lazily on their first build rather than at
+// signup: most accounts never build a site, and projects are a capped resource —
+// provisioning per signup would spend the quota on people who never use it.
+async function ensureSiteBackend(env, slug, uid) {
+  const existing = await siteBackendBySlug(env, slug);
+  if (existing) return existing;
+
+  let proj = await userSiteProject(env, uid);
+  if (!proj) {
+    const made = await createUserProject(env, uid);
+    proj = { neon_project: made.projectId, neon_branch: made.branchId, neon_role: made.roleName, neon_conn: made.conn };
+    await fetch(`${SUPABASE_URL}/rest/v1/user_site_project`, {
+      method: "POST",
+      headers: svcHeaders(env, { "content-type": "application/json", Prefer: "resolution=merge-duplicates" }),
+      body: JSON.stringify({ uid, ...proj }),
+    });
+  }
+
+  // A retried build can hit an already-created database; that is success, not failure.
+  let dbName;
+  try {
+    dbName = await createSiteDatabase(env, proj.neon_project, proj.neon_branch, proj.neon_role, slug);
+  } catch (e) {
+    if (!/already exists/i.test(String(e && e.detail))) throw e;
+    dbName = dbNameForSite(slug);
+  }
+
+  await fetch(`${SUPABASE_URL}/rest/v1/site_backends`, {
+    method: "POST",
+    headers: svcHeaders(env, { "content-type": "application/json", Prefer: "resolution=merge-duplicates" }),
+    body: JSON.stringify({ slug, uid, neon_db: dbName }),
+  });
+  return connForDatabase(proj.neon_conn, dbName);
 }
 // Content-type for a served R2 object by its extension (React dist assets + pages).
 const R2_MIME = { js: "text/javascript", mjs: "text/javascript", css: "text/css", svg: "image/svg+xml", json: "application/json", map: "application/json", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", ico: "image/x-icon", woff: "font/woff", woff2: "font/woff2", ttf: "font/ttf", txt: "text/plain", xml: "application/xml", webmanifest: "application/manifest+json", html: "text/html; charset=utf-8" };
