@@ -239,43 +239,33 @@ function attachBtn(kind) {
   return document.getElementById('btn' + kind[0].toUpperCase() + kind.slice(1));
 }
 
-// Read an image file as a data URI, auto-conforming oversized ones: anything
-// past the 8MB payload budget is redrawn at ≤3840px (the 4K-class ceiling —
-// no model uses more pixels) and re-encoded as JPEG, stepping quality down
-// until it fits. Our OWN 4K Nano outputs are 15-25MB PNGs, so without this
-// the generate → re-attach → edit loop rejected the app's own files.
-// Returns null only when the image can't be decoded/shrunk at all.
+// Read an image file as a data URI, REFUSING anything past the 8MB payload
+// budget (owner 2026-07-27). This used to redraw oversized images at ≤3840px
+// and re-encode them as JPEG until they fit — same objection as the clip
+// conforms: the file that gets generated from is not the file the user picked,
+// and a silent re-compress is invisible in the result. Returns the data URI,
+// or a reason string the caller turns into a message.
+// Note this governs the DEVICE picker only; useGalleryImages reads app-owned
+// media straight from storage, which is how a 4K Nano output (15-25MB PNG)
+// still comes back in for editing.
 const IMG_BYTE_CAP = 8 * 1024 * 1024;
-async function readImageConformed(file) {
-  const raw = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => ok(null); r.readAsDataURL(file); });
-  if (typeof raw !== 'string') return null;
-  if (file.size <= IMG_BYTE_CAP) return raw; // small enough — keep the original bytes
-  const img = new Image();
-  const loaded = await new Promise((ok) => { img.onload = () => ok(true); img.onerror = () => ok(false); img.src = raw; });
-  if (!loaded || !img.width) return null;
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
-  for (let edge = 3840; edge >= 1280; edge = Math.round(edge * 0.75)) {
-    const scale = Math.min(1, edge / Math.max(img.width, img.height));
-    canvas.width = Math.max(1, Math.round(img.width * scale));
-    canvas.height = Math.max(1, Math.round(img.height * scale));
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    for (const q of [0.92, 0.85, 0.78]) {
-      const out = canvas.toDataURL('image/jpeg', q);
-      if (out.length <= IMG_BYTE_CAP * 1.34) return out; // data URI ≈ bytes × 1.34
-    }
+async function readImageAttach(file) {
+  if (file.size > IMG_BYTE_CAP) {
+    return { err: 'That image is ' + (file.size / 1048576).toFixed(1) + ' MB — the limit is '
+      + Math.round(IMG_BYTE_CAP / 1048576) + ' MB. Export it smaller and attach it again.' };
   }
-  return null;
+  const raw = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => ok(null); r.readAsDataURL(file); });
+  if (typeof raw !== 'string') return { err: "Couldn't read that image — try a different file." };
+  return { uri: raw };
 }
-function tooBigMsg() { alert("Couldn't shrink that image enough — try a smaller file."); }
 
 function onAttach(kind, inputEl) {
   const file = inputEl.files[0];
   inputEl.value = '';
   if (!file) return;
-  // Images auto-conform (downscale/re-encode) below; clips and audio can't be
-  // recompressed in the browser, so they keep a hard cap under the Worker's
-  // base64 ceilings (data URI ≈ size × 1.34).
+  // Nothing is re-encoded for the user any more: images over the payload
+  // budget are refused below, same as clips and audio are here. The 20 MB
+  // ceiling keeps a clip under the Worker's base64 limit (data URI ≈ ×1.34).
   if (kind === 'clip' || kind === 'audio') {
     if (file.size > 20 * 1024 * 1024) {
       alert('File too big — max 20 MB.');
@@ -283,8 +273,8 @@ function onAttach(kind, inputEl) {
     }
   } else {
     const originChatId = chatStore.active; // conform is async — don't leak into another chat
-    readImageConformed(file).then((uri) => {
-      if (!uri) { tooBigMsg(); return; }
+    readImageAttach(file).then(({ uri, err }) => {
+      if (!uri) { addMsg('agent', '⚠️ ' + err); return; }
       // The user switched chats while this image was being downscaled — writing
       // it now would stage it into the WRONG chat and ride its next send
       // (2026-07-17). Drop it silently; they can re-attach in the right chat.
@@ -342,7 +332,7 @@ function onAttach(kind, inputEl) {
     if (kind === 'clip') renderVxList();
     if (kind === 'audio') renderAxList();
     // (Only clip/audio reach here — image kinds, incl. the merged-flf pairing,
-    // resolve in the readImageConformed branch above.)
+    // resolve in the readImageAttach branch above.)
     // Any attachment can move the price: a clip flips into video-to-video.
     updateSendPrice();
   };
@@ -488,8 +478,8 @@ function clipIssue() {
 // re-encoded (owner 2026-07-27). We used to conform fps and downscale
 // oversized clips on-device and say so afterwards — but that hands back a file
 // the user didn't shoot, re-compressed, and the message arrives after the fact.
-// Images still auto-fit, because shrinking a photo to a byte budget doesn't
-// change what it shows; re-encoding video does.
+// Images are refused over their byte budget too (owner 2026-07-27) — nothing
+// the user attaches gets rewritten on the way in.
 function rejectClip(msg) {
   if (!attachments.clip) return;
   attachments.clip = null;
@@ -858,8 +848,8 @@ function clearAttach(ev, kind) {
 // come from the same tables the validators use — CLIP_LIMITS, AUDIO_LIMITS and
 // the attach-time byte caps — so a hint can't promise something clipIssue or
 // audioIssue then rejects. Clips and audio can't be recompressed in the
-// browser, so 20 MB is a hard stop; images ARE re-encoded to fit, so theirs
-// reads "auto-fit" rather than a limit the user has to meet.
+// browser, so 20 MB is a hard stop; images are refused over 8 MB rather than
+// downscaled, so every row's number is now a limit the file has to meet.
 // Which limit table each row's hint should read from. Everything unlisted is
 // an image row and gets the image byte cap.
 const AP_CAP_KIND = { cntClip: 'clip', cntAudio: 'audio' };
@@ -877,7 +867,7 @@ function apCapText(kind) {
     const d = span(lim);
     return (d ? d + ' · ' : '') + '≤' + (lim.maxMB || ATTACH_HARD_MB) + ' MB';
   }
-  return 'auto-fit ≤' + IMG_FIT_MB + ' MB'; // every other row takes images
+  return '≤' + IMG_FIT_MB + ' MB'; // every other row takes images — refused over this, not shrunk
 }
 function updateApCounts() {
   const caps = (currentOpts() && currentOpts().caps) || {};
@@ -1429,8 +1419,8 @@ function onAttachExtra(inputEl) {
   const cap = ((currentOpts() || {}).caps || {}).maxImages || 1;
   if (attachments.image) { attachments.image = null; renderAttach('image'); }
   files.forEach((file) => {
-    readImageConformed(file).then((uri) => {
-      if (!uri) { tooBigMsg(); return; }
+    readImageAttach(file).then(({ uri, err }) => {
+      if (!uri) { addMsg('agent', '⚠️ ' + err); return; }
       if (extraImages.length < cap) extraImages.push(uri);
       renderExtraImages();
       updateSendPrice();
@@ -1617,8 +1607,8 @@ function onAttachRef(inputEl) {
       return;
     }
     if (srCapHit()) return;
-    readImageConformed(file).then((uri) => {
-      if (!uri) { tooBigMsg(); return; }
+    readImageAttach(file).then(({ uri, err }) => {
+      if (!uri) { addMsg('agent', '⚠️ ' + err); return; }
       if (refList.length < cap && !(vxAllowed() && srTotal() >= 12)) { refList.push(uri); clearImageInputsExcept('ref'); renderRefList(); }
     });
   });
@@ -1664,8 +1654,8 @@ function onAttachEl(inputEl) {
   const cap = elCap();
   files.forEach((file) => {
     if (elList.length >= cap) return;
-    readImageConformed(file).then((uri) => {
-      if (!uri) { tooBigMsg(); return; }
+    readImageAttach(file).then(({ uri, err }) => {
+      if (!uri) { addMsg('agent', '⚠️ ' + err); return; }
       if (elList.length < cap) { elList.push(uri); clearImageInputsExcept('el'); renderElList(); }
     });
   });
