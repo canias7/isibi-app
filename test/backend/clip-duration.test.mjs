@@ -119,9 +119,12 @@ const capsSrc = src.slice(
 );
 const gate = new Function(`${capsSrc}\n${lift("clipLengthError")}\nreturn clipLengthError;`)();
 
-t.eq(gate("google/gemini-omni-flash", 30, 30), "", "Gemini takes a 30s clip edit (the case that was blocked)");
-t.eq(gate("google/gemini-omni-flash", 30.03, 30.03), "", "0.05s tolerance matches fal's and the client's");
-t.ok(gate("google/gemini-omni-flash", 45, 45), "Gemini still refuses 45s — fal bills the whole clip");
+// 10s is MEASURED: a 30s clip comes back as the first 10s, reported COMPLETED,
+// billed as 30. Not in fal's schema, which documents no cap.
+t.eq(gate("google/gemini-omni-flash", 10, 10), "", "Gemini takes its measured 10s");
+t.eq(gate("google/gemini-omni-flash", 10.03, 10.03), "", "0.05s tolerance matches fal's and the client's");
+t.ok(gate("google/gemini-omni-flash", 30, 30), "Gemini refuses 30s — it would silently return 10s and bill 30");
+t.ok(gate("google/gemini-omni-flash", 11, 11), "…and refuses even 11s, one second over what it delivers");
 t.eq(gate("fal-ai/veo3.1", 23, 23), "", "Veo extend takes its 23s input");
 t.ok(gate("fal-ai/veo3.1", 24, 24), "Veo extend refuses 24s");
 t.eq(gate("fal-ai/kling-video/o3/pro/text-to-video", 15, 15), "", "o3 edit keeps its 15s");

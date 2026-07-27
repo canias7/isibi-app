@@ -424,10 +424,13 @@ const CLIP_LIMITS = {
   'fal-ai/veo3.1/fast': { maxDur: 23, minPx: 720, maxPx: 1920, aspects: [16 / 9, 9 / 16] },
   // kling-video/lipsync/audio-to-video: mp4/mov, 2-10s, 720-1920px, ≤100MB
   'fal-ai/kling-video/lipsync/audio-to-video': { minDur: 2, maxDur: 10, minPx: 720, maxPx: 1920, formats: ['mp4', 'mov'] },
-  // gemini-omni-flash/edit renders (and fal bills) the WHOLE source clip and
-  // its schema documents no cap — 30s is OUR cap so an edit can't silently
-  // bill minutes of footage; billing assumes the same 30s max.
-  'google/gemini-omni-flash': { maxDur: 30 },
+  // gemini-omni-flash/edit renders (and fal bills) the WHOLE source clip, and
+  // its schema documents no cap — but the MODEL stops at 10s: hand it 30s and
+  // it returns the first 10 (at 24fps) and reports success, so we billed 30s
+  // of input for 10s of output and fal's COMPLETED status hid it from the
+  // refund path. 10 is measured, not documented (2026-07-27). Keep in step
+  // with CLIP_MAX_S in worker.js, which is the gate that enforces it.
+  'google/gemini-omni-flash': { maxDur: 10 },
   // Seedance @Video1 reference: mp4/mov, 2-15s, <50MB total, and a pixel-AREA
   // band of ~480p-720p (schema: "between ~480p (640x640) and ~720p (834x1112)"
   // — an area constraint: 0.41-0.93MP; 1280×720 fits, 1080p doesn't). Clips

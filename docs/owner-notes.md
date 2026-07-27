@@ -8974,3 +8974,36 @@ webm correctly closed that accident, which is what surfaced this.
 both constants — hard-coding 15.5 in the test would let the shipped default drift from what the file
 claims to check. Mutation-tested: reverting to the blanket cap, dropping the Seedance branch, removing
 the unlisted-model fallback, and widening the tolerance each fail.
+
+## 2026-07-27 — Gemini's clip edit stops at 10s and says nothing (billed 30, delivered 10)
+
+Directly caused by yesterday's #806. Scoping the Seedance guard let a clip over 15s reach fal for the
+first time ever — and the first one through exposed that the model does not do what our cap claimed.
+
+**Hand `gemini-omni-flash/edit` a 30s clip and it returns the first 10 seconds**, re-encoded to 24fps,
+with fal reporting `COMPLETED` and a real video payload. Not an error, not a warning. Every output all
+evening measured **10.005s** — the two 10s tests and the 30s job alike, which is what gave it away.
+
+**The user paid ✦488 for ✦163 of video.** `/api/refund` returns 0, correctly by its own rules: fal says
+COMPLETED and the result is a genuine 2xx video, so the "client-error result" second look doesn't fire.
+Nothing in the stack can detect a short render. Corrected the ✦325 by hand.
+
+**Where the 30 came from.** `CLIP_LIMITS` in chat.js, whose comment says plainly *"its schema documents
+no cap — 30s is OUR cap"*. Someone picked 30 as a spend ceiling, `clipEditMax` and `estimatePrice` were
+written to agree with it, and #806 copied it into `CLIP_MAX_S` as though it were a fact about the model.
+It never was. It was also never testable, because the 15.5s guard meant no clip over 15s ever reached
+fal — the wrong number sat behind a wall that made it unfalsifiable.
+
+**Fixed:** `CLIP_MAX_S["google/gemini-omni-flash"]` and `CLIP_LIMITS` both to **10**, each carrying a
+comment saying the figure is measured rather than documented, and not to raise it without a real render
+at that length. Mutation-tested — restoring 30 fails two assertions.
+
+**The rule this is a second instance of.** 2026-07-25 recorded *"graceful degradation and silent failure
+are the same code path unless the message distinguishes them."* This is the upstream version: a
+**provider** degrading silently, where our own code has no way to tell. Worth a general guard —
+comparing the returned video's duration against the input's and refunding the difference when it comes
+up short would have caught this automatically, and would catch the next provider that does it.
+
+**Still unverified the same way:** Veo extend's 23s and Kling o3's 15s. Both come from schemas rather
+than from a render we have watched, and Veo's 23 was derived arithmetically (30 minus the 7 it adds).
+Neither has been exercised past 15s in production either.
