@@ -886,9 +886,41 @@ function clearAttach(ev, kind) {
 // as the old inline pickers), and clear anything a model can't use.
 // Every attach-row header shows filled/cap ("0/14", "1/2") for the CURRENT
 // model, so the limits are visible before anything is attached.
+// The size/length limits a row actually enforces, for the CURRENT model, as a
+// short "3–15s · ≤20 MB" hint beside the count (owner 2026-07-27). The numbers
+// come from the same tables the validators use — CLIP_LIMITS, AUDIO_LIMITS and
+// the attach-time byte caps — so a hint can't promise something clipIssue or
+// audioIssue then rejects. Clips and audio can't be recompressed in the
+// browser, so 20 MB is a hard stop; images ARE re-encoded to fit, so theirs
+// reads "auto-fit" rather than a limit the user has to meet.
+// Which limit table each row's hint should read from. Everything unlisted is
+// an image row and gets the image byte cap.
+const AP_CAP_KIND = { cntClip: 'clip', cntAudio: 'audio' };
+const ATTACH_HARD_MB = 20;         // clip/audio: the attach-time rejection
+const IMG_FIT_MB = Math.round(IMG_BYTE_CAP / 1048576);
+function apCapText(kind) {
+  const span = (l) => (l.minDur && l.maxDur ? l.minDur + '–' + l.maxDur + 's'
+    : l.maxDur ? '≤' + l.maxDur + 's' : '');
+  if (kind === 'clip') {
+    const d = span(CLIP_LIMITS[model] || {});
+    return (d ? d + ' · ' : '') + '≤' + ATTACH_HARD_MB + ' MB';
+  }
+  if (kind === 'audio') {
+    const lim = AUDIO_LIMITS[model] || {};
+    const d = span(lim);
+    return (d ? d + ' · ' : '') + '≤' + (lim.maxMB || ATTACH_HARD_MB) + ' MB';
+  }
+  return 'auto-fit ≤' + IMG_FIT_MB + ' MB'; // every other row takes images
+}
 function updateApCounts() {
   const caps = (currentOpts() && currentOpts().caps) || {};
-  const set = (id, n, cap) => { const el = document.getElementById(id); if (el) el.textContent = cap ? n + '/' + cap : ''; };
+  const set = (id, n, cap) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = cap ? n + '/' + cap : '';
+    // The hint rides on the same visibility as the count: no cap, no row, no hint.
+    const hint = document.getElementById('cap' + id.slice(3));
+    if (hint) hint.textContent = cap ? apCapText(AP_CAP_KIND[id] || 'image') : '';
+  };
   // Image mode splits into "Image to image" (the one being edited, 0/1) and
   // "Reference to image" (the rest, 0/13) — one number each, no blending.
   // Merged Image-to-video row counts start + optional end frame over /2.

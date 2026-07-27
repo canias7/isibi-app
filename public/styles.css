@@ -2859,6 +2859,12 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 }
 .ap-title[data-info]:hover { text-decoration-color: var(--text); }
 .ap-count { color: var(--muted); font-weight: 600; margin-left: .45rem; font-size: .82rem; }
+/* The row's actual limits (seconds · megabytes), sat after the n/cap count so
+   they read before you attach rather than as an error afterwards. Lighter and
+   smaller than the count — reference, not status. Empty on rows with no cap,
+   and the :empty rule keeps the separator from showing on its own. */
+.ap-cap { color: var(--muted); opacity: .72; font-weight: 500; margin-left: .4rem; font-size: .72rem; white-space: nowrap; }
+.ap-cap:not(:empty)::before { content: '·'; margin-right: .4rem; opacity: .6; }
 .ap-head > svg { margin-left: auto; color: var(--muted); transition: transform .22s ease; flex-shrink: 0; }
 .ap-row.open .ap-head > svg { transform: rotate(180deg); }
 .ap-body { display: none; padding: .15rem .5rem .85rem 3.3rem; }
