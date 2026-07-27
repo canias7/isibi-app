@@ -2413,6 +2413,25 @@ function slaMinutes(v) {
 // urgency sorting, and the /overdue queue (which computes the same thing in SQL for filtering).
 const SAFE_IDENT = /^[a-z_][a-z0-9_]{0,40}$/i;
 function sqlIdent(name) { if (!SAFE_IDENT.test(String(name || ""))) throw Object.assign(new Error("bad identifier: " + name), { bad: true }); return '"' + name + '"'; }
+
+// SQLite let a trigger carry its body inline (CREATE TRIGGER … BEGIN … END).
+// Postgres does not: every trigger is a function plus a trigger that calls it.
+// This emits both, and is idempotent — CREATE OR REPLACE on the function, and a
+// DROP before the trigger — so re-applying a schema is safe the way it was before.
+//
+// `body` is plpgsql and may use NEW/OLD. BEFORE triggers return NEW so the row
+// they edited is what gets written; AFTER triggers return NULL (ignored).
+// Bodies are dollar-quoted and carry no bound parameters.
+async function pgTrigger(env, db, name, { timing, event, table, when, body, returns }) {
+  const fn = sqlIdent(name + "_fn");
+  const trg = sqlIdent(name);
+  await siteQuery(env, db,
+    "CREATE OR REPLACE FUNCTION " + fn + "() RETURNS TRIGGER AS $trg$ BEGIN " + body +
+    " RETURN " + (returns || (timing === "BEFORE" ? "NEW" : "NULL")) + "; END; $trg$ LANGUAGE plpgsql");
+  await siteQuery(env, db, "DROP TRIGGER IF EXISTS " + trg + " ON " + table);
+  await siteQuery(env, db, "CREATE TRIGGER " + trg + " " + timing + " " + event + " ON " + table +
+    " FOR EACH ROW" + (when ? " WHEN (" + when + ")" : "") + " EXECUTE FUNCTION " + fn + "()");
+}
 // Auto-slug: a url-safe, lowercase, dash-joined key derived from a source column
 // ("My First Post!" → "my-first-post"), used for pretty per-row URLs. Uniqueness is
 // enforced with a UNIQUE INDEX; on collision we append -2, -3, … (also deduping within
@@ -2511,7 +2530,7 @@ async function applySiteSchema(env, uuid, spec) {
         // uuid-shaped id. Emitted as a SQL DEFAULT expression so the DB fills it when the
         // writer omits the field (no insert-path plumbing). A bare literal string default
         // still works for anything that isn't one of these reserved words.
-        const COMPUTED = { now: "(now())", timestamp: "(now())", today: "(current_date)", uuid: "(gen_random_uuid()::text)" };
+        const COMPUTED = { now: "(to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS'))", timestamp: "(to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS'))", today: "(to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD'))", uuid: "(gen_random_uuid()::text)" };
         const tok = typeof c.default === "string" ? c.default.trim().toLowerCase().replace(/^@/, "") : null;
         if (tok && COMPUTED[tok]) dl = COMPUTED[tok];
         else if (typeof c.default === "number" && Number.isFinite(c.default)) dl = String(c.default);
@@ -2544,7 +2563,7 @@ async function applySiteSchema(env, uuid, spec) {
     if (t.teamScope && access === "user") cols.push('"team_id" INTEGER'); // team-scoped: rows are shared across a team (read), stamped on insert
     if (t.trash) cols.push('"deleted_at" TEXT'); // soft-delete: NULL = live, timestamp = trashed
     if (t.version) cols.push('"_version" INTEGER NOT NULL DEFAULT 1'); // optimistic-concurrency row version
-    if (t.timestamps || t.sync) cols.push('"updated_at" TEXT DEFAULT (datetime(\'now\'))'); // auto edit-tracking (also required by sync): set on insert, bumped on every UPDATE
+    if (t.timestamps || t.sync) cols.push('"updated_at" TEXT DEFAULT (to_char(now() AT TIME ZONE \'UTC\',\'YYYY-MM-DD HH24:MI:SS\'))'); // auto edit-tracking (also required by sync): set on insert, bumped on every UPDATE
     if (t.ordered) cols.push('"position" REAL'); // manual sort order — auto-assigned to end on insert (trigger below), midpoint-reordered via /move
     if (t.expires) cols.push('"expires_at" TEXT'); // TTL — app sets it; reads hide rows past it
     if (t.pinnable) cols.push('"pinned" INTEGER DEFAULT 0'); // featured/sticky — app sets 0/1; pinned rows list first
@@ -2552,7 +2571,7 @@ async function applySiteSchema(env, uuid, spec) {
     if (t.approval) cols.push(sqlIdent(t.approval.status) + " TEXT"); // approval state — endpoint-set only (NOT app-writable), queryable
     if (t.sequence) cols.push(sqlIdent(t.sequence.field) + " TEXT"); // auto-number — stamped on insert (NOT app-writable), queryable/sortable
     if (t.archivable) cols.push('"archived_at" TEXT'); // soft archive — reads hide archived rows by default
-    cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
+    cols.push('"created_at" TEXT DEFAULT (to_char(now() AT TIME ZONE \'UTC\',\'YYYY-MM-DD HH24:MI:SS\'))');
     await siteQuery(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
     // Schema evolution for APP columns: CREATE IF NOT EXISTS is a no-op on an existing table,
     // so a REVISE that adds a new field (e.g. "add a due_date to tasks") would never get the
@@ -2589,7 +2608,13 @@ async function applySiteSchema(env, uuid, spec) {
     // deletes since a timestamp via /changes?sync=. `updated_at` (above) covers inserts+edits.
     if (t.sync) {
       try { await siteQuery(env, uuid, "CREATE TABLE IF NOT EXISTS _deletes (row_table TEXT, row_id INTEGER, at TEXT)"); } catch {}
-      try { await siteQuery(env, uuid, "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_del") + " AFTER DELETE ON " + tn + " BEGIN INSERT INTO _deletes (row_table,row_id,at) VALUES ('" + t.name.replace(/'/g, "''") + "', OLD.id, now()); END"); } catch (e) { console.error("delete tombstone trigger failed:", t.name, e && e.detail); }
+      try {
+        await pgTrigger(env, uuid, "trg_" + t.name + "_del", {
+          timing: "AFTER", event: "DELETE", table: tn,
+          body: "INSERT INTO _deletes (row_table,row_id,at) VALUES ('" + t.name.replace(/'/g, "''") + "', OLD.id, to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS'));",
+          returns: "OLD",
+        });
+      } catch (e) { console.error("delete tombstone trigger failed:", t.name, e && e.detail); }
     }
     // Manual ordering: a `position` column auto-assigned to the END of its scope on insert
     // (per-owner on user/feed, global otherwise) by an AFTER INSERT trigger, so the app
@@ -2600,12 +2625,16 @@ async function applySiteSchema(env, uuid, spec) {
       try { await siteQuery(env, uuid, "UPDATE " + tn + ' SET "position"=id WHERE "position" IS NULL'); } catch {}
       const scoped = (access === "user" || access === "feed");
       const trg = sqlIdent("trg_" + t.name + "_pos");
-      const maxScope = scoped ? ' WHERE "owner_id" IS NEW."owner_id"' : "";
+      // Postgres can assign the position in a BEFORE INSERT instead of updating the
+      // row back afterwards. `IS NOT DISTINCT FROM` is the null-safe comparison
+      // SQLite spelled `IS`.
+      const maxScope = scoped ? ' WHERE "owner_id" IS NOT DISTINCT FROM NEW."owner_id"' : "";
       try {
-        await siteQuery(env, uuid,
-          "CREATE TRIGGER IF NOT EXISTS " + trg + " AFTER INSERT ON " + tn + ' WHEN NEW."position" IS NULL BEGIN' +
-          ' UPDATE ' + tn + ' SET "position"=(SELECT COALESCE(MAX("position"),0)+1 FROM ' + tn + maxScope + ") WHERE id=NEW.id;" +
-          " END");
+        await pgTrigger(env, uuid, "trg_" + t.name + "_pos", {
+          timing: "BEFORE", event: "INSERT", table: tn,
+          when: 'NEW."position" IS NULL',
+          body: 'SELECT COALESCE(MAX("position"),0)+1 INTO NEW."position" FROM ' + tn + maxScope + ";",
+        });
       } catch (e) { console.error("position trigger failed:", t.name, e && e.detail); }
     }
     if (t.expires) { try { await siteQuery(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "expires_at" TEXT'); } catch {} }
@@ -2679,12 +2708,13 @@ async function applySiteSchema(env, uuid, spec) {
     // clean 409 "limit reached". Free-tier caps, "max 100 todos per user", etc.
     if (t.maxRows > 0) {
       const scoped = (access === "user" || access === "feed");
-      const cntScope = scoped ? ' WHERE "owner_id" IS NEW."owner_id"' : "";
+      const cntScope = scoped ? ' WHERE "owner_id" IS NOT DISTINCT FROM NEW."owner_id"' : "";
       try {
-        await siteQuery(env, uuid,
-          "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_max") + " BEFORE INSERT ON " + tn +
-          " WHEN (SELECT COUNT(*) FROM " + tn + cntScope + ") >= " + Math.floor(t.maxRows) +
-          " BEGIN SELECT RAISE(ABORT, 'row limit reached'); END");
+        await pgTrigger(env, uuid, "trg_" + t.name + "_max", {
+          timing: "BEFORE", event: "INSERT", table: tn,
+          body: "IF (SELECT COUNT(*) FROM " + tn + cntScope + ") >= " + Math.floor(t.maxRows) +
+                " THEN RAISE EXCEPTION 'row limit reached'; END IF;",
+        });
       } catch (e) { console.error("maxRows trigger failed:", t.name, e && e.detail); }
     }
     // Referential integrity — `enforceRefs:true` refuses a write whose foreign-key column
@@ -2697,9 +2727,10 @@ async function applySiteSchema(env, uuid, spec) {
         const parent = refs[col];
         if (!SAFE_IDENT.test(String(parent)) || !SAFE_IDENT.test(String(col))) continue;
         const cn = sqlIdent(col), pn = sqlIdent(parent);
-        const cond = "NEW." + cn + " IS NOT NULL AND NOT EXISTS (SELECT 1 FROM " + pn + " WHERE id=NEW." + cn + ")";
-        try { await siteQuery(env, uuid, "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_ref_" + col + "_i") + " BEFORE INSERT ON " + tn + " WHEN " + cond + " BEGIN SELECT RAISE(ABORT, 'missing parent'); END"); } catch (e) { console.error("ref trigger (i) failed:", t.name, col, e && e.detail); }
-        try { await siteQuery(env, uuid, "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_ref_" + col + "_u") + " BEFORE UPDATE OF " + cn + " ON " + tn + " WHEN " + cond + " BEGIN SELECT RAISE(ABORT, 'missing parent'); END"); } catch (e) { console.error("ref trigger (u) failed:", t.name, col, e && e.detail); }
+        const guard = "IF NEW." + cn + " IS NOT NULL AND NOT EXISTS (SELECT 1 FROM " + pn +
+                      " WHERE id=NEW." + cn + ") THEN RAISE EXCEPTION 'missing parent'; END IF;";
+        try { await pgTrigger(env, uuid, "trg_" + t.name + "_ref_" + col + "_i", { timing: "BEFORE", event: "INSERT", table: tn, body: guard }); } catch (e) { console.error("ref trigger i failed:", t.name, col, e && e.detail); }
+        try { await pgTrigger(env, uuid, "trg_" + t.name + "_ref_" + col + "_u", { timing: "BEFORE", event: "UPDATE OF " + cn, table: tn, body: guard }); } catch (e) { console.error("ref trigger u failed:", t.name, col, e && e.detail); }
       }
     }
     // Audit log — `audit:true` records every write to the table (insert/update/delete) in a
@@ -2711,10 +2742,16 @@ async function applySiteSchema(env, uuid, spec) {
       const hasOwner = (access === "user" || access === "feed");
       const actNew = hasOwner ? 'NEW."owner_id"' : "NULL";
       const actOld = hasOwner ? 'OLD."owner_id"' : "NULL";
-      const mk = (suffix, when, idRef, actor, action) => "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_aud_" + suffix) + " AFTER " + when + " ON " + tn + " BEGIN INSERT INTO _audit (row_table,row_id,action,actor_id,at) VALUES ('" + t.name.replace(/'/g, "''") + "', " + idRef + ", '" + action + "', " + actor + ", now()); END";
-      try { await siteQuery(env, uuid, mk("i", "INSERT", "NEW.id", actNew, "insert")); } catch (e) { console.error("audit trigger i failed:", t.name, e && e.detail); }
-      try { await siteQuery(env, uuid, mk("u", "UPDATE", "NEW.id", actNew, "update")); } catch (e) { console.error("audit trigger u failed:", t.name, e && e.detail); }
-      try { await siteQuery(env, uuid, mk("d", "DELETE", "OLD.id", actOld, "delete")); } catch (e) { console.error("audit trigger d failed:", t.name, e && e.detail); }
+      const AT = "to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')";
+      const mk = (suffix, event, idRef, actor, action) => pgTrigger(env, uuid, "trg_" + t.name + "_aud_" + suffix, {
+        timing: "AFTER", event, table: tn,
+        body: "INSERT INTO _audit (row_table,row_id,action,actor_id,at) VALUES ('" + t.name.replace(/'/g, "''") +
+              "', " + idRef + ", '" + action + "', " + actor + ", " + AT + ");",
+        returns: event === "DELETE" ? "OLD" : "NEW",
+      });
+      try { await mk("i", "INSERT", "NEW.id", actNew, "insert"); } catch (e) { console.error("audit trigger i failed:", t.name, e && e.detail); }
+      try { await mk("u", "UPDATE", "NEW.id", actNew, "update"); } catch (e) { console.error("audit trigger u failed:", t.name, e && e.detail); }
+      try { await mk("d", "DELETE", "OLD.id", actOld, "delete"); } catch (e) { console.error("audit trigger d failed:", t.name, e && e.detail); }
     }
     // Row history / revert — `history:true` snapshots a row's OLD data columns (as JSON, via
     // json_object) into `_history` on every UPDATE (BEFORE UPDATE trigger). The owner/admin
@@ -2723,30 +2760,33 @@ async function applySiteSchema(env, uuid, spec) {
       try { await siteQuery(env, uuid, "CREATE TABLE IF NOT EXISTS _history (id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, row_table TEXT, row_id INTEGER, snapshot TEXT, at TEXT)"); } catch {}
       const jsonPairs = colNames.map((cn) => "'" + String(cn).replace(/'/g, "''") + "', OLD." + sqlIdent(cn)).join(", ");
       try {
-        await siteQuery(env, uuid,
-          "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_hist") + " BEFORE UPDATE ON " + tn +
-          " BEGIN INSERT INTO _history (row_table,row_id,snapshot,at) VALUES ('" + t.name.replace(/'/g, "''") + "', OLD.id, json_object(" + jsonPairs + "), now()); END");
+        await pgTrigger(env, uuid, "trg_" + t.name + "_hist", {
+          timing: "BEFORE", event: "UPDATE", table: tn,
+          body: "INSERT INTO _history (row_table,row_id,snapshot,at) VALUES ('" + t.name.replace(/'/g, "''") +
+                "', OLD.id, json_build_object(" + jsonPairs + ")::text, to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS'));",
+        });
       } catch (e) { console.error("history trigger failed:", t.name, e && e.detail); }
     }
-    // FULL-TEXT SEARCH — `fts:true` (all text cols) or `fts:["title","body"]` builds an FTS5 virtual
-    // table `<t>_fts` over those columns, kept in sync by insert/update/delete triggers, and queried
-    // (ranked, bm25) via `?fts=<query>` on the list read. Rebuilt idempotently on each schema apply
-    // (DROP + CREATE + backfill), so existing rows are indexed and a revise stays consistent.
+    // FULL-TEXT SEARCH — `fts:true` (all text cols) or `fts:["title","body"]`. Postgres
+    // indexes in place: a GENERATED tsvector column over those columns plus a GIN index,
+    // queried (ranked, ts_rank) via `?fts=<query>` on the list read. This replaces the
+    // SQLite FTS5 shadow table and its three sync triggers — the column is maintained by
+    // the database itself, so it cannot drift from the row the way a shadow table could.
+    // Re-applying a schema recreates the column when the indexed set changes.
     if (t.fts) {
       try {
         const textCols = colNames.filter((c) => { const lc = String(c).toLowerCase(); return !numCols.includes(lc) && !jsonCols.includes(lc); });
         const want = Array.isArray(t.fts) ? textCols.filter((c) => t.fts.includes(String(c).toLowerCase())) : textCols;
-        const ftsT = sqlIdent(t.name + "_fts");
+        const tsv = sqlIdent("_fts");
         if (want.length) {
-          const bodyNew = want.map((c) => "COALESCE(NEW." + sqlIdent(c) + ",'')").join(" || ' ' || ");
-          const backfill = want.map((c) => "COALESCE(" + sqlIdent(c) + ",'')").join(" || ' ' || ");
-          await siteQuery(env, uuid, "DROP TABLE IF EXISTS " + ftsT);
-          await siteQuery(env, uuid, "CREATE VIRTUAL TABLE " + ftsT + " USING fts5(body)");
-          await siteQuery(env, uuid, "INSERT INTO " + ftsT + " (rowid, body) SELECT id, " + backfill + " FROM " + tn);
-          for (const suf of ["_fts_i", "_fts_u", "_fts_d"]) { try { await siteQuery(env, uuid, "DROP TRIGGER IF EXISTS " + sqlIdent("trg_" + t.name + suf)); } catch {} }
-          await siteQuery(env, uuid, "CREATE TRIGGER " + sqlIdent("trg_" + t.name + "_fts_i") + " AFTER INSERT ON " + tn + " BEGIN INSERT INTO " + ftsT + "(rowid, body) VALUES (NEW.id, " + bodyNew + "); END");
-          await siteQuery(env, uuid, "CREATE TRIGGER " + sqlIdent("trg_" + t.name + "_fts_u") + " AFTER UPDATE ON " + tn + " BEGIN DELETE FROM " + ftsT + " WHERE rowid=OLD.id; INSERT INTO " + ftsT + "(rowid, body) VALUES (NEW.id, " + bodyNew + "); END");
-          await siteQuery(env, uuid, "CREATE TRIGGER " + sqlIdent("trg_" + t.name + "_fts_d") + " AFTER DELETE ON " + tn + " BEGIN DELETE FROM " + ftsT + " WHERE rowid=OLD.id; END");
+          // to_tsvector is only IMMUTABLE with an explicit regconfig, which a generated
+          // column requires; COALESCE keeps a NULL column from nulling the whole document.
+          const doc = want.map((c) => "COALESCE(" + sqlIdent(c) + ",'')").join(" || ' ' || ");
+          await siteQuery(env, uuid, "ALTER TABLE " + tn + " DROP COLUMN IF EXISTS " + tsv);
+          await siteQuery(env, uuid, "ALTER TABLE " + tn + " ADD COLUMN " + tsv +
+            " tsvector GENERATED ALWAYS AS (to_tsvector('english', " + doc + ")) STORED");
+          await siteQuery(env, uuid, "CREATE INDEX IF NOT EXISTS " + sqlIdent("idx_" + t.name + "_fts") +
+            " ON " + tn + " USING GIN (" + tsv + ")");
         }
       } catch (e) { console.error("fts setup failed:", t.name, e && e.detail); }
     }
