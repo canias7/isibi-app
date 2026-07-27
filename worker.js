@@ -2489,6 +2489,98 @@ async function initSiteAuth(env, uuid) {
 // Email a built-site visitor a signed 24h "verify your email" link (→ /verify). Sent
 // through the platform mailer; fire-and-forget so signup/login never block on it. The
 // mailer no-ops until GO_FARTHER_API_KEY is set as a Worker secret (same as reset).
+// What one build costs the caller. The designer is a single Sonnet call with a
+// small output, so this sits alongside the other orchestrator fees rather than
+// being priced like a generation.
+const SITE_BUILD_FEE = 2;
+
+// A plain-English brief becomes an isibi.schema.json. Uses tool-use rather than
+// asking for JSON in prose: the model must return an object matching the schema
+// below, so there is nothing to parse out of a reply and nothing to repair.
+const SITE_SCHEMA_TOOL = {
+  name: "design_schema",
+  description: "Design the database tables a site needs, as an isibi.schema.json.",
+  input_schema: {
+    type: "object",
+    properties: {
+      brand: { type: "string", description: "Short display name for the site." },
+      slug: { type: "string", description: "url-safe-name, lowercase, hyphens only." },
+      tables: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "snake_case table name." },
+            access: { type: "string", enum: ["public", "user"], description: "'user' scopes rows to whoever created them; 'public' is shared." },
+            columns: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  name: { type: "string" },
+                  type: { type: "string", enum: ["text", "integer", "real", "boolean", "json"] },
+                  required: { type: "boolean" },
+                  ref: { type: "string", description: "Name of a table this column points at." },
+                },
+                required: ["name", "type"],
+              },
+            },
+            timestamps: { type: "boolean" },
+            fts: { type: "boolean", description: "Enable full-text search over this table's text columns." },
+          },
+          required: ["name", "access", "columns"],
+        },
+      },
+    },
+    required: ["brand", "slug", "tables"],
+  },
+};
+
+async function designSiteSchema(env, brief) {
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-5",
+      max_tokens: 2000,
+      tools: [SITE_SCHEMA_TOOL],
+      tool_choice: { type: "tool", name: "design_schema" },
+      system: "You design the data model behind a small business website. Keep it to the few tables the site actually needs — usually one to four. " +
+              "Use 'user' access for anything a visitor creates and should only see their own of (bookings, orders, messages); 'public' for content everyone reads (menu items, services, posts). " +
+              "Prefer few columns with obvious names. Turn on fts only where someone would genuinely search free text.",
+      messages: [{ role: "user", content: brief }],
+    }),
+    signal: AbortSignal.timeout(60000),
+  });
+  if (!r.ok) {
+    const e = new Error("anthropic " + r.status);
+    e.detail = (await r.text().catch(() => "")).slice(0, 300);
+    throw e;
+  }
+  const j = await r.json();
+  const use = (Array.isArray(j.content) ? j.content : []).find((b) => b && b.type === "tool_use");
+  return (use && use.input) || null;
+}
+
+// Placeholder published page. Deliberately plain: it reports what was actually
+// created so a build is verifiable end to end before page generation exists.
+function schemaPlaceholderPage(brand, spec) {
+  const esc = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const tables = (spec.tables || []).map((t) => {
+    const cols = (t.columns || []).map((c) => "<li><code>" + esc(typeof c === "string" ? c : c.name) + "</code></li>").join("");
+    return "<section><h2>" + esc(t.name) + "</h2><p>" + esc(t.access === "user" ? "each visitor sees only their own rows" : "shared across visitors") +
+           "</p><ul>" + cols + "</ul></section>";
+  }).join("");
+  return "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\">" +
+    "<title>" + esc(brand) + "</title>" +
+    "<style>body{font:16px/1.6 system-ui,sans-serif;max-width:46rem;margin:4rem auto;padding:0 1.5rem;color:#111}" +
+    "h1{font-size:2rem;margin:0 0 .25rem}p.sub{color:#666;margin:0 0 2.5rem}" +
+    "section{border:1px solid #e5e5e5;border-radius:10px;padding:1rem 1.25rem;margin:0 0 1rem}" +
+    "h2{font-size:1.05rem;margin:0 0 .25rem}section p{color:#666;font-size:.9rem;margin:0 0 .5rem}" +
+    "ul{margin:0;padding-left:1.1rem}code{background:#f5f5f5;padding:.1rem .35rem;border-radius:4px;font-size:.85rem}</style>" +
+    "<h1>" + esc(brand) + "</h1><p class=sub>Database is live. These tables were created for this site.</p>" + tables;
+}
+
 function svcHeaders(env, extra) {
   return { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`, ...(extra || {}) };
 }
@@ -4704,15 +4796,53 @@ async function handleRequest(request, env, ctx) {
     // or IF NOT EXISTS), which is what a revise needs.
     //
     // The caller's Neon project is created on first build, not at signup.
-    if (url.pathname === "/api/site/build" && request.method === "POST") {
+    // The builder's send path. `chat.js` already posts {brief} here and expects
+    // {slug, url, backend, brand} back, so the contract is the frontend's, not
+    // a new one. A brief becomes an isibi.schema.json, which becomes real
+    // Postgres tables in a database provisioned for the caller.
+    //
+    // This builds the DATA layer only — the page it publishes describes the
+    // model it created. Generating the site itself is the next piece.
+    if ((url.pathname === "/api/site/react-build" || url.pathname === "/api/site/build") && request.method === "POST") {
       const bu = await authUser(request);
       if (!bu) return UNAUTHED();
       if (!siteDbConfigured(env)) return Response.json({ ok: false, error: "site database not configured", need: "NEON_API_KEY" }, { status: 501 });
       if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, error: "service key not configured" }, { status: 501 });
+      if (!env.ANTHROPIC_API_KEY) return Response.json({ ok: false, error: "generator not configured" }, { status: 501 });
 
       const body = await request.json().catch(() => ({}));
-      const slug = String(body.slug || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60);
-      if (!slug) return Response.json({ ok: false, error: "no slug" }, { status: 400 });
+      const brief = String(body.brief || body.prompt || "").trim().slice(0, 4000);
+
+      // A brief means "design the schema"; an explicit schema skips the model.
+      let designed = null;
+      if (!body.schema) {
+        if (!brief) return Response.json({ ok: false, error: "no brief" }, { status: 400 });
+        // Charge before the call, refund if it does not produce a usable schema —
+        // the same shape the orchestrator steps use. use_credits is atomic and
+        // returns a negative balance when the caller cannot afford it.
+        let balanceAfter;
+        try {
+          balanceAfter = await useCredits(request.headers.get("Authorization") || "", SITE_BUILD_FEE);
+        } catch {
+          return Response.json({ ok: false, msg: "Credits check failed — try again in a moment." }, { status: 503 });
+        }
+        if (!(balanceAfter >= 0)) return Response.json({ ok: false, error: "not enough credits", need: "credits", cost: SITE_BUILD_FEE }, { status: 402 });
+
+        try {
+          designed = await designSiteSchema(env, brief);
+        } catch (e) {
+          await creditBack(env, bu.id, SITE_BUILD_FEE);
+          console.error("schema design failed:", e && (e.detail || e.message));
+          return Response.json({ ok: false, msg: "The designer is busy — try again in a moment." }, { status: 503 });
+        }
+        if (!designed || !Array.isArray(designed.tables) || !designed.tables.length) {
+          await creditBack(env, bu.id, SITE_BUILD_FEE);
+          return Response.json({ ok: false, msg: "That brief didn't describe anything to store — try naming what the site keeps track of." }, { status: 422 });
+        }
+      }
+
+      const slug = String(body.slug || (designed && designed.slug) || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60)
+        || ("site-" + Math.random().toString(36).slice(2, 8));
 
       // A site's slug is claimed by whoever built it first; a second user cannot
       // publish over someone else's site by guessing the name.
@@ -4724,7 +4854,7 @@ async function handleRequest(request, env, ctx) {
         }
       } catch {}
 
-      const spec = normalizeSchema(body.schema || {});
+      const spec = normalizeSchema(body.schema || designed || {});
       if (!spec.tables.length) return Response.json({ ok: false, error: "schema declares no tables" }, { status: 400 });
 
       let db;
@@ -4735,13 +4865,26 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ ok: false, error: "could not provision the database", detail: String(e && (e.detail || e.message)).slice(0, 300) }, { status: 502 });
       }
 
+      let made;
       try {
-        const made = await applySiteSchema(db, spec);
-        return Response.json({ ok: true, slug, tables: made });
+        made = await applySiteSchema(db, spec);
       } catch (e) {
         console.error("schema apply failed:", slug, e && (e.detail || e.message));
         return Response.json({ ok: false, error: "could not apply the schema", detail: String(e && (e.detail || e.message)).slice(0, 300) }, { status: 502 });
       }
+
+      // Publish something real at /s/<slug>/ so the preview is not a 404 while
+      // page generation is still being built.
+      const brand = String((designed && designed.brand) || body.brand || slug).slice(0, 60);
+      try {
+        if (env.SITES_BUCKET) {
+          await env.SITES_BUCKET.put("sites/" + slug + "/index.html", schemaPlaceholderPage(brand, spec), {
+            httpMetadata: { contentType: "text/html; charset=utf-8" },
+          });
+        }
+      } catch (e) { console.error("placeholder publish failed:", slug, e && e.message); }
+
+      return Response.json({ ok: true, slug, url: "/s/" + slug + "/", backend: true, brand, tables: made });
     }
 
     // Sonnet 5 director: chats, reads intent (rerun/revise/new), writes prompts.
