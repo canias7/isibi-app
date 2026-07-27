@@ -441,7 +441,14 @@ function durWebm(b, dv) {
 // which rejects at attach; the server keeps its own copy because the client's
 // is not a guarantee. An unlisted model keeps the old blanket 15s.
 const CLIP_MAX_S = {
-  "google/gemini-omni-flash": 30,                    // conversational edit (our cap; fal documents none)
+  // 10, MEASURED — not from fal's schema, which documents no cap at all. Hand a
+  // 30s clip to gemini-omni-flash/edit and it returns the first 10s (at 24fps)
+  // and reports success; fal's own status says COMPLETED, so /api/refund can't
+  // see it either. We billed 30s and delivered 10. The earlier 30 here was a
+  // guess copied from chat.js, never verified, and unreachable until the
+  // Seedance guard was scoped — the first clip over 15s to actually reach fal
+  // is what exposed it. Raise this only against a real render of that length.
+  "google/gemini-omni-flash": 10,
   "fal-ai/veo3.1": 23,                               // extend: fal's 30s ceiling minus the 7s it adds
   "fal-ai/veo3.1/fast": 23,
   "fal-ai/kling-video/o3/pro/text-to-video": 15,     // video-to-video/edit
