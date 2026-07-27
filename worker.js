@@ -4803,7 +4803,7 @@ async function handleRequest(request, env, ctx) {
     //
     // This builds the DATA layer only — the page it publishes describes the
     // model it created. Generating the site itself is the next piece.
-    if ((url.pathname === "/api/site/react-build" || url.pathname === "/api/site/build") && request.method === "POST") {
+    if ((url.pathname === "/api/site/react-build" || url.pathname === "/api/site/build" || url.pathname === "/api/site/react-revise") && request.method === "POST") {
       const bu = await authUser(request);
       if (!bu) return UNAUTHED();
       if (!siteDbConfigured(env)) return Response.json({ ok: false, error: "site database not configured", need: "NEON_API_KEY" }, { status: 501 });
@@ -4811,7 +4811,10 @@ async function handleRequest(request, env, ctx) {
       if (!env.ANTHROPIC_API_KEY) return Response.json({ ok: false, error: "generator not configured" }, { status: 501 });
 
       const body = await request.json().catch(() => ({}));
-      const brief = String(body.brief || body.prompt || "").trim().slice(0, 4000);
+      // Revise sends {slug, instruction} for an existing site; build sends
+      // {brief}. Re-applying a schema is safe (all its DDL is additive or
+      // IF NOT EXISTS), so both take the same path.
+      const brief = String(body.brief || body.prompt || body.instruction || "").trim().slice(0, 4000);
 
       // A brief means "design the schema"; an explicit schema skips the model.
       let designed = null;
