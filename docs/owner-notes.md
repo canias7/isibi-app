@@ -9111,3 +9111,39 @@ too (verified by stashing). Untouched here.
 **Veo extend's 23s input cap.** It comes from fal's schema, not from a render. Confirming it costs a
 real generation (~✦132 on Veo Fast) and the balance is ✦19, so it stays on the list until there's a
 top-up and you say go.
+
+## 2026-07-27 — Veo extend's 23s cap: verified against real fal, and the price with it
+
+The last unverified number in the whole audit. `CLIP_MAX_S["fal-ai/veo3.1"] = 23` was **derived**, not
+measured — "fal's 30s ceiling minus the 7s it adds" — and after Gemini turned out to clamp silently at
+10s while reporting COMPLETED, a derived cap was worth exactly nothing. Ran it.
+
+**Method.** A 23.000s 1280×720 h264 clip with the timecode burned into every frame, so the output can
+be read rather than trusted. Posted straight to `/api/video` on the live site with `sound:false`
+(extend forces 720p anyway, so muted is the cheapest honest test). A 24.000s clip went first as the
+free half.
+
+**Results, all four in agreement:**
+
+- 24s → **HTTP 400** `"this model takes clips up to 23 seconds — trim it and try again"`, nothing spent.
+- 23s → **fal accepted it.** No 422, no truncation.
+- Output measured **30.000s exactly** = 23 + 7. The burned timecode runs continuously 00.5 → 22.9 and
+  the generated part begins precisely at 23s, so the whole source is in there — this is NOT the Gemini
+  failure mode. (Veo does try to continue the timecode in the generated tail and gets it wrong —
+  23.0s, 23.8s, then 21.7s. Cosmetic, and rather a good demonstration that the tail is synthetic.)
+- fal's model page: *"For every second of video you generated, you will be charged $0.10 (audio off)
+  or $0.15 (audio on)"* — **per second GENERATED, not total output length.** 7 × $0.10 = $0.70 →
+  ✦88. Charged: 318.25 → 230.25 = **✦88.** Exact. With sound it would be 7 × $0.15 → ✦132, which is
+  also exactly what the table produces. So `billableDuration`'s pinned 7 is right, and we are not
+  undercharging on a 30-second deliverable.
+
+**Where 23 actually comes from:** fal's OpenAPI documents **no input length limit at all** — only
+"720p or 1080p in 16:9 or 9:16". The 30 is from the model page's *"Extend Veo-Created Videos up to 30
+seconds"*, which is an **output** ceiling. So input ≤ 23 is the correct reading, and the render
+landing on 30.000s dead-on confirms the arithmetic. 24s would ask for 31s and exceed it.
+
+Total cost of settling this: **✦88.** Every cap in the app is now measured or schema-backed.
+
+**Ledger note:** topped the account up by ✦300 with a direct `UPDATE public.credits` (18.25 → 318.25),
+not a Stripe purchase — the mint-gated `add_credits` needs `CREDITS_MINT_SECRET`, which lives in
+GitHub Actions. Balance after the test: **✦230.25.** Say the word if you want the 300 removed.
