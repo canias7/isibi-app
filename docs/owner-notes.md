@@ -9007,3 +9007,56 @@ up short would have caught this automatically, and would catch the next provider
 **Still unverified the same way:** Veo extend's 23s and Kling o3's 15s. Both come from schemas rather
 than from a render we have watched, and Veo's 23 was derived arithmetically (30 minus the 7 it adds).
 Neither has been exercised past 15s in production either.
+
+## 2026-07-27 — audited every model against fal, and found two more silent-acceptance holes
+
+Owner asked for every model to be checked, "backed by fal". The honest starting answer was no: the
+tables were internally consistent, which is precisely what they were the night the Gemini 30s cap was
+wrong in four places at once. So this pass went to the source.
+
+**fal publishes its schemas without auth** — `https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=…`
+— so every cap can be checked for £0. `test/attach/falcheck.py` does it for all 26 endpoints the worker
+routes to.
+
+**Confirmed exactly right:** Veo 4/6/8s · 720p/1080p/4k · 16:9,9:16; Lite 720p/1080p only; Seedance
+4-15s and the 480p/720p fast+mini ceiling; Kling 3-15s; **o3 edit's "3-15.05s, 720-3840px, 24-60fps,
+mp4/mov, 200MB" matches our CLIP_LIMITS field for field, including the 0.05s tolerance**; **LipSync's
+"audio 2-60s ≤5MB, video ≤10s ≤100MB" likewise**; Gemini 3-10s; Nano 1-4 images 1K/2K/4K; GPT quality
+tiers. Prices, client vs worker, match on all 12 video + 2 image + 3 audio models.
+
+**Veo extend's 7s output is schema-locked** (`"const": "7s"`), so `billDuration = 7` is correct.
+
+**Still NOT backed:** Veo extend's **23s input cap** — fal documents the input's resolution and aspect
+and *no duration limit at all*; our 23 is arithmetic (30 − 7) and no clip that long has ever reached
+fal. And Gemini `/edit`'s 10s, where fal documents nothing whatsoever — measurement is the only source
+there is, which is exactly why it stayed hidden.
+
+### The two new holes, both found by testing rather than reading
+
+1. **An undecodable clip skipped every check.** `readClipMeta`'s `onerror` left `clipMeta` at zeros
+   with the comment *"validation treats unknown as can't verify, not a hard block"* — but every check
+   in `clipIssue` is guarded on a truthy `dur`/`w`/`h`, so duration, resolution, aspect AND pixel area
+   were all skipped, and the clip reached fal where an unmeasurable one bills the maximum. Found by
+   accident: headless Chromium has no H.264, so all 12 test mp4s decoded as 0s/0×0 and **every model
+   accepted every clip, including a 31s one on Gemini**. Real-world equivalents: HEVC, ProRes, AV1 —
+   the owner's own source file was HEVC in a .mov. Now refuses.
+
+2. **Gemini had no minimum duration**, the only clip model without one; a 1s clip was accepted. `minDur: 3`,
+   marked INFERRED in the comment since fal's `/edit` schema states no limits and the 3 comes from every
+   other Gemini endpoint.
+
+### Quote vs charge: 392/392
+
+`test/attach/pricecheck.mjs` drives `estimatePrice()` in the real page and `creditCost()` lifted out of
+`worker.js` over the same inputs — every model × duration × resolution × sound, plus the special bases
+(extend's fixed 7s, reference's 8s, whole-clip edits, Seedance's 0.6× reference basis). All agree.
+Mutation-tested: a one-cent client-side price change surfaces 3 mismatches.
+
+**A trap worth remembering:** the first run reported 9 Seedance mismatches that were the *harness's*
+fault — I modelled a Seedance clip as a plain generation when the worker bills it as `vrefSeconds` at
+0.6× over (input + output). A test that disagrees with the code is not automatically finding a bug.
+
+### Harnesses live in `test/attach/`
+
+Manual, not CI (they need a browser and a session). README documents the env vars. They exist because
+every static check passed on the night the caps were wrong.
