@@ -239,43 +239,33 @@ function attachBtn(kind) {
   return document.getElementById('btn' + kind[0].toUpperCase() + kind.slice(1));
 }
 
-// Read an image file as a data URI, auto-conforming oversized ones: anything
-// past the 8MB payload budget is redrawn at ≤3840px (the 4K-class ceiling —
-// no model uses more pixels) and re-encoded as JPEG, stepping quality down
-// until it fits. Our OWN 4K Nano outputs are 15-25MB PNGs, so without this
-// the generate → re-attach → edit loop rejected the app's own files.
-// Returns null only when the image can't be decoded/shrunk at all.
+// Read an image file as a data URI, REFUSING anything past the 8MB payload
+// budget (owner 2026-07-27). This used to redraw oversized images at ≤3840px
+// and re-encode them as JPEG until they fit — same objection as the clip
+// conforms: the file that gets generated from is not the file the user picked,
+// and a silent re-compress is invisible in the result. Returns the data URI,
+// or a reason string the caller turns into a message.
+// Note this governs the DEVICE picker only; useGalleryImages reads app-owned
+// media straight from storage, which is how a 4K Nano output (15-25MB PNG)
+// still comes back in for editing.
 const IMG_BYTE_CAP = 8 * 1024 * 1024;
-async function readImageConformed(file) {
-  const raw = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => ok(null); r.readAsDataURL(file); });
-  if (typeof raw !== 'string') return null;
-  if (file.size <= IMG_BYTE_CAP) return raw; // small enough — keep the original bytes
-  const img = new Image();
-  const loaded = await new Promise((ok) => { img.onload = () => ok(true); img.onerror = () => ok(false); img.src = raw; });
-  if (!loaded || !img.width) return null;
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
-  for (let edge = 3840; edge >= 1280; edge = Math.round(edge * 0.75)) {
-    const scale = Math.min(1, edge / Math.max(img.width, img.height));
-    canvas.width = Math.max(1, Math.round(img.width * scale));
-    canvas.height = Math.max(1, Math.round(img.height * scale));
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    for (const q of [0.92, 0.85, 0.78]) {
-      const out = canvas.toDataURL('image/jpeg', q);
-      if (out.length <= IMG_BYTE_CAP * 1.34) return out; // data URI ≈ bytes × 1.34
-    }
+async function readImageAttach(file) {
+  if (file.size > IMG_BYTE_CAP) {
+    return { err: 'That image is ' + (file.size / 1048576).toFixed(1) + ' MB — the limit is '
+      + Math.round(IMG_BYTE_CAP / 1048576) + ' MB. Export it smaller and attach it again.' };
   }
-  return null;
+  const raw = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => ok(null); r.readAsDataURL(file); });
+  if (typeof raw !== 'string') return { err: "Couldn't read that image — try a different file." };
+  return { uri: raw };
 }
-function tooBigMsg() { alert("Couldn't shrink that image enough — try a smaller file."); }
 
 function onAttach(kind, inputEl) {
   const file = inputEl.files[0];
   inputEl.value = '';
   if (!file) return;
-  // Images auto-conform (downscale/re-encode) below; clips and audio can't be
-  // recompressed in the browser, so they keep a hard cap under the Worker's
-  // base64 ceilings (data URI ≈ size × 1.34).
+  // Nothing is re-encoded for the user any more: images over the payload
+  // budget are refused below, same as clips and audio are here. The 20 MB
+  // ceiling keeps a clip under the Worker's base64 limit (data URI ≈ ×1.34).
   if (kind === 'clip' || kind === 'audio') {
     if (file.size > 20 * 1024 * 1024) {
       alert('File too big — max 20 MB.');
@@ -283,8 +273,8 @@ function onAttach(kind, inputEl) {
     }
   } else {
     const originChatId = chatStore.active; // conform is async — don't leak into another chat
-    readImageConformed(file).then((uri) => {
-      if (!uri) { tooBigMsg(); return; }
+    readImageAttach(file).then(({ uri, err }) => {
+      if (!uri) { addMsg('agent', '⚠️ ' + err); return; }
       // The user switched chats while this image was being downscaled — writing
       // it now would stage it into the WRONG chat and ride its next send
       // (2026-07-17). Drop it silently; they can re-attach in the right chat.
@@ -342,7 +332,7 @@ function onAttach(kind, inputEl) {
     if (kind === 'clip') renderVxList();
     if (kind === 'audio') renderAxList();
     // (Only clip/audio reach here — image kinds, incl. the merged-flf pairing,
-    // resolve in the readImageConformed branch above.)
+    // resolve in the readImageAttach branch above.)
     // Any attachment can move the price: a clip flips into video-to-video.
     updateSendPrice();
   };
@@ -400,9 +390,9 @@ function readClipMeta(dataUri) {
     };
     try { v.currentTime = Math.min(0.1, (v.duration || 1) / 2); }
     catch (e) { try { v.src = ''; } catch (e2) {} }
-    // Passed the basic checks — probe fps and quietly conform it if the model
-    // requires a range the clip misses (see normalizeClipFps), and downscale
-    // an over-resolution reference clip into the model's pixel band.
+    // Passed the basic checks — now probe fps and pixel area, and REJECT the
+    // clip if it misses either (normalizeClipFps / normalizeClipArea). Both
+    // used to re-encode it for the user; neither does now.
     normalizeClipFps();
     normalizeClipArea();
   };
@@ -434,8 +424,8 @@ const CLIP_LIMITS = {
   // Seedance @Video1 reference: mp4/mov, 2-15s, <50MB total, and a pixel-AREA
   // band of ~480p-720p (schema: "between ~480p (640x640) and ~720p (834x1112)"
   // — an area constraint: 0.41-0.93MP; 1280×720 fits, 1080p doesn't). Clips
-  // over the band are downscaled on-device for free (normalizeClipArea);
-  // under-band clips are rejected (upscaling can't add detail fal needs).
+  // over the band are rejected too (normalizeClipArea) — we don't re-encode
+  // the user's footage; under-band clips can't be upscaled into detail either.
   // The clip is a REFERENCE (reference-to-video), not a re-render.
   'bytedance/seedance-2.0/text-to-video': { minDur: 2, maxDur: 15, minArea: 409600, maxArea: 927408, formats: ['mp4', 'mov'] },
   'bytedance/seedance-2.0/fast/text-to-video': { minDur: 2, maxDur: 15, minArea: 409600, maxArea: 927408, formats: ['mp4', 'mov'] },
@@ -469,7 +459,7 @@ function clipIssue() {
   if (lim.maxPx && longSide && longSide > lim.maxPx) return 'That clip is ' + w + '×' + h + ' — this model caps at ' + lim.maxPx + 'px. Use a smaller clip.';
   // Pixel-AREA floor (Seedance reference clips): below ~480p there isn't enough
   // detail for fal to reference — reject; ABOVE the band is handled by the free
-  // on-device downscale (normalizeClipArea), so it's not an error here.
+  // dimension check in normalizeClipArea, so it's not an error here.
   if (lim.minArea && w && h && w * h < lim.minArea) return 'That clip is ' + w + '×' + h + ' — this model needs at least ~480p (' + lim.minArea.toLocaleString() + ' pixels per frame). Use a higher-resolution clip.';
   // Required aspect ratios (Veo extend: the schema wants a 16:9 or 9:16
   // input). 5% tolerance absorbs encoder rounding (1920×1088 etc.); without
@@ -483,17 +473,32 @@ function clipIssue() {
   return '';
 }
 
-// ── Frame-rate conform (on-device, free) ──
+// ── Clip rejection: never rewrite the user's video ──
+// A clip that misses a model's requirements is REFUSED, not silently
+// re-encoded (owner 2026-07-27). We used to conform fps and downscale
+// oversized clips on-device and say so afterwards — but that hands back a file
+// the user didn't shoot, re-compressed, and the message arrives after the fact.
+// Images are refused over their byte budget too (owner 2026-07-27) — nothing
+// the user attaches gets rewritten on the way in.
+function rejectClip(msg) {
+  if (!attachments.clip) return;
+  attachments.clip = null;
+  clipMeta = null;
+  renderAttach('clip');
+  updateSendPrice();
+  addMsg('agent', '⚠️ ' + msg);
+}
+
 // Some models hard-require an fps range (Kling o3 edit: 24-60) that fal
-// enforces strictly — a 23.98fps download (most YouTube/film content) is
-// rejected. A browser <video> can't report fps, so we probe with the on-device
-// ffmpeg engine and, when out of range, quietly re-encode to the nearest bound.
-// Serialized by token so a re-attach mid-conform can't clobber the newer clip.
+// enforces strictly — a 23.98fps download (most film/YouTube content) misses
+// it. A browser <video> can't report fps, so probe with the on-device engine
+// and reject when it's out of range. Serialized by token so a re-attach
+// mid-probe can't reject the newer clip.
 let _clipFpsToken = 0;
 async function normalizeClipFps() {
   const lim = CLIP_LIMITS[model];
   if (!lim || !lim.fps || mode !== 'video' || !attachments.clip) return;
-  if (clipMeta && clipMeta.fpsOk) return; // already probed/conformed for this clip
+  if (clipMeta && clipMeta.fpsOk) return; // already probed for this clip
   if (typeof sbFFProbeFps !== 'function' || !sbFFSupported()) return; // engine unavailable → fal's error net catches it
   const myToken = ++_clipFpsToken;
   const src = attachments.clip;
@@ -503,66 +508,18 @@ async function normalizeClipFps() {
   if (!fps) return; // couldn't read — leave it to the error net
   const [lo, hi] = lim.fps;
   if (fps >= lo && fps <= hi) { if (clipMeta) clipMeta.fpsOk = true; return; }
-  const target = fps < lo ? lo : hi;
-  const note = addMsg('agent typing', 'Your clip is ' + fps.toFixed(2) + ' fps — this model needs ' + lo + '–' + hi + '. Conforming it to ' + target + ' fps on-device (free)');
-  try {
-    const blob = await sbFFFps(src, target, { mime: (clipMeta && clipMeta.type) || '' });
-    const dataUri = await new Promise((ok, err) => {
-      const r = new FileReader();
-      r.onload = () => ok(r.result); r.onerror = err;
-      r.readAsDataURL(blob);
-    });
-    note.remove();
-    if (myToken !== _clipFpsToken || attachments.clip !== src) return; // user swapped clips mid-encode
-    attachments.clip = dataUri;
-    if (clipMeta) { clipMeta.type = 'video/mp4'; clipMeta.fpsOk = true; }
-    renderAttach('clip');
-    addMsg('agent', '⚙️ Fixed the frame rate: ' + fps.toFixed(2) + ' → ' + target + ' fps, re-encoded on-device (free). Ready to go.');
-  } catch {
-    note.remove();
-    addMsg('agent', '⚠️ Your clip is ' + fps.toFixed(2) + ' fps and this model needs ' + lo + '–' + hi + ' fps — I couldn’t convert it here, so please re-export it at ' + lo + ' fps and attach again.');
-  }
+  rejectClip('That clip is ' + fps.toFixed(2) + ' fps — this model needs ' + lo + '–' + hi + ' fps. Re-export it at ' + lo + ' fps and attach it again.');
 }
 
-// ── Pixel-area conform (on-device, free) ──
 // Seedance hard-caps reference clips at ~720p worth of pixels (area band in
-// CLIP_LIMITS). A 1080p/4K phone clip would bounce at fal — instead, quietly
-// downscale it on-device to fit the band, same free-conform pattern as the
-// fps fix. Serialized by token so a re-attach mid-encode can't clobber the
-// newer clip.
-let _clipAreaToken = 0;
+// CLIP_LIMITS). A 1080p/4K phone clip is over it — refuse, same as any other
+// missed requirement, rather than downscaling their footage for them.
 async function normalizeClipArea() {
   const lim = CLIP_LIMITS[model];
   if (!lim || !lim.maxArea || mode !== 'video' || !attachments.clip) return;
   if (!clipMeta || !clipMeta.w || !clipMeta.h) return; // dims unknown — fal's error net catches it
-  const area = clipMeta.w * clipMeta.h;
-  if (area <= lim.maxArea) return; // already inside the band
-  if (typeof sbFFScale !== 'function' || !sbFFSupported()) return; // engine unavailable
-  const myToken = ++_clipAreaToken;
-  const src = attachments.clip;
-  const note = addMsg('agent typing', 'Your clip is ' + clipMeta.w + '×' + clipMeta.h + ' — this model caps reference clips near 720p. Downscaling it on-device (free)');
-  try {
-    // Target just under the cap so rounding to even dims can't tip back over.
-    const blob = await sbFFScale(src, clipMeta.w, clipMeta.h, lim.maxArea - 8000, { mime: clipMeta.type || '' });
-    const dataUri = await new Promise((ok, err) => {
-      const r = new FileReader();
-      r.onload = () => ok(r.result); r.onerror = err;
-      r.readAsDataURL(blob);
-    });
-    note.remove();
-    if (myToken !== _clipAreaToken || attachments.clip !== src) return; // user swapped clips mid-encode
-    attachments.clip = dataUri;
-    // Re-read the conformed clip's real dims/duration (also re-validates).
-    clipMeta = { dur: clipMeta.dur, w: 0, h: 0, type: 'video/mp4', name: clipMeta.name };
-    readClipMeta(dataUri);
-    renderAttach('clip');
-    updateSendPrice();
-    addMsg('agent', '⚙️ Downscaled your clip to fit this model’s reference band — re-encoded on-device (free). Ready to go.');
-  } catch {
-    note.remove();
-    if (myToken !== _clipAreaToken || attachments.clip !== src) return;
-    addMsg('agent', '⚠️ Your clip is ' + clipMeta.w + '×' + clipMeta.h + ' and this model caps reference clips near 720p — I couldn’t convert it here, so please re-export it at 720p or smaller and attach again.');
-  }
+  if (clipMeta.w * clipMeta.h <= lim.maxArea) return; // inside the band
+  rejectClip('That clip is ' + clipMeta.w + '×' + clipMeta.h + ' — this model caps reference clips near 720p. Re-export it at 720p or smaller and attach it again.');
 }
 
 // ── Image attachment limits ──
@@ -886,9 +843,41 @@ function clearAttach(ev, kind) {
 // as the old inline pickers), and clear anything a model can't use.
 // Every attach-row header shows filled/cap ("0/14", "1/2") for the CURRENT
 // model, so the limits are visible before anything is attached.
+// The size/length limits a row actually enforces, for the CURRENT model, as a
+// short "3–15s · ≤20 MB" hint beside the count (owner 2026-07-27). The numbers
+// come from the same tables the validators use — CLIP_LIMITS, AUDIO_LIMITS and
+// the attach-time byte caps — so a hint can't promise something clipIssue or
+// audioIssue then rejects. Clips and audio can't be recompressed in the
+// browser, so 20 MB is a hard stop; images are refused over 8 MB rather than
+// downscaled, so every row's number is now a limit the file has to meet.
+// Which limit table each row's hint should read from. Everything unlisted is
+// an image row and gets the image byte cap.
+const AP_CAP_KIND = { cntClip: 'clip', cntAudio: 'audio' };
+const ATTACH_HARD_MB = 20;         // clip/audio: the attach-time rejection
+const IMG_FIT_MB = Math.round(IMG_BYTE_CAP / 1048576);
+function apCapText(kind) {
+  const span = (l) => (l.minDur && l.maxDur ? l.minDur + '–' + l.maxDur + 's'
+    : l.maxDur ? '≤' + l.maxDur + 's' : '');
+  if (kind === 'clip') {
+    const d = span(CLIP_LIMITS[model] || {});
+    return (d ? d + ' · ' : '') + '≤' + ATTACH_HARD_MB + ' MB';
+  }
+  if (kind === 'audio') {
+    const lim = AUDIO_LIMITS[model] || {};
+    const d = span(lim);
+    return (d ? d + ' · ' : '') + '≤' + (lim.maxMB || ATTACH_HARD_MB) + ' MB';
+  }
+  return '≤' + IMG_FIT_MB + ' MB'; // every other row takes images — refused over this, not shrunk
+}
 function updateApCounts() {
   const caps = (currentOpts() && currentOpts().caps) || {};
-  const set = (id, n, cap) => { const el = document.getElementById(id); if (el) el.textContent = cap ? n + '/' + cap : ''; };
+  const set = (id, n, cap) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = cap ? n + '/' + cap : '';
+    // The hint rides on the same visibility as the count: no cap, no row, no hint.
+    const hint = document.getElementById('cap' + id.slice(3));
+    if (hint) hint.textContent = cap ? apCapText(AP_CAP_KIND[id] || 'image') : '';
+  };
   // Image mode splits into "Image to image" (the one being edited, 0/1) and
   // "Reference to image" (the rest, 0/13) — one number each, no blending.
   // Merged Image-to-video row counts start + optional end frame over /2.
@@ -980,7 +969,7 @@ function updateAttachVisibility() {
       addMsg('agent', '⚠️ ' + bad);
     } else {
       // New model may demand an fps range or pixel band the old one didn't —
-      // re-probe/conform both.
+      // re-probe both against the new model's limits.
       if (clipMeta) clipMeta.fpsOk = false;
       normalizeClipFps();
       normalizeClipArea();
@@ -1430,8 +1419,8 @@ function onAttachExtra(inputEl) {
   const cap = ((currentOpts() || {}).caps || {}).maxImages || 1;
   if (attachments.image) { attachments.image = null; renderAttach('image'); }
   files.forEach((file) => {
-    readImageConformed(file).then((uri) => {
-      if (!uri) { tooBigMsg(); return; }
+    readImageAttach(file).then(({ uri, err }) => {
+      if (!uri) { addMsg('agent', '⚠️ ' + err); return; }
       if (extraImages.length < cap) extraImages.push(uri);
       renderExtraImages();
       updateSendPrice();
@@ -1618,8 +1607,8 @@ function onAttachRef(inputEl) {
       return;
     }
     if (srCapHit()) return;
-    readImageConformed(file).then((uri) => {
-      if (!uri) { tooBigMsg(); return; }
+    readImageAttach(file).then(({ uri, err }) => {
+      if (!uri) { addMsg('agent', '⚠️ ' + err); return; }
       if (refList.length < cap && !(vxAllowed() && srTotal() >= 12)) { refList.push(uri); clearImageInputsExcept('ref'); renderRefList(); }
     });
   });
@@ -1665,8 +1654,8 @@ function onAttachEl(inputEl) {
   const cap = elCap();
   files.forEach((file) => {
     if (elList.length >= cap) return;
-    readImageConformed(file).then((uri) => {
-      if (!uri) { tooBigMsg(); return; }
+    readImageAttach(file).then(({ uri, err }) => {
+      if (!uri) { addMsg('agent', '⚠️ ' + err); return; }
       if (elList.length < cap) { elList.push(uri); clearImageInputsExcept('el'); renderElList(); }
     });
   });
