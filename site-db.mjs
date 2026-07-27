@@ -1,0 +1,240 @@
+// Per-site Postgres on Neon.
+//
+// Shape: one Neon PROJECT per isibi user, one DATABASE inside that project per
+// site the user builds. A user's project is created lazily the first time they
+// build anything; each new site adds a database to it. Sites belonging to
+// different users therefore sit in different projects (independent compute,
+// independent PITR, scale-to-zero per customer), and a user's own sites are
+// isolated from each other at the database level.
+//
+// Replaced Cloudflare D1 on 2026-07-27. Needs ONE Worker secret: NEON_API_KEY.
+//
+// Everything here is network-free until called, and the SQL helpers are pure
+// functions of (sql, params) so they can be unit-tested without a database.
+
+import { neon } from "@neondatabase/serverless";
+
+const NEON_API = "https://console.neon.tech/api/v2";
+
+// Region for new projects. Keep every project in one region so latency from the
+// Worker is predictable; Neon names these `aws-<aws-region>`.
+export const NEON_REGION = "aws-us-east-1";
+
+// ---------------------------------------------------------------- REST layer
+
+export function neonConfigured(env) {
+  return !!(env && env.NEON_API_KEY);
+}
+
+async function neonApi(env, path, init) {
+  const r = await fetch(NEON_API + path, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${env.NEON_API_KEY}`,
+      "content-type": "application/json",
+      accept: "application/json",
+      ...((init && init.headers) || {}),
+    },
+    signal: AbortSignal.timeout(30000),
+  });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const e = new Error("neon api " + (init && init.method || "GET") + " " + path + " failed");
+    e.status = r.status;
+    e.detail = JSON.stringify(body).slice(0, 400);
+    throw e;
+  }
+  return body;
+}
+
+// An org-scoped API key infers its org, a personal key must name one. Resolve it
+// once per isolate and remember the answer (including "none", so a personal key
+// on a personal account doesn't re-ask on every provision).
+let _orgId;
+export async function neonOrgId(env) {
+  if (_orgId !== undefined) return _orgId;
+  try {
+    const d = await neonApi(env, "/users/me/organizations");
+    const orgs = (d && d.organizations) || [];
+    _orgId = orgs.length ? orgs[0].id : null;
+  } catch {
+    _orgId = null; // org-scoped key: /users/me is not addressable, and not needed
+  }
+  return _orgId;
+}
+
+// ------------------------------------------------------------- provisioning
+
+// Neon database + role names are Postgres identifiers. Site slugs are already
+// constrained upstream, but this is the last gate before the name reaches DDL,
+// so normalise hard rather than trusting the caller.
+export function dbNameForSite(slug) {
+  const s = String(slug || "").toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+  if (!s) throw Object.assign(new Error("bad site slug: " + slug), { bad: true });
+  return ("site_" + s).slice(0, 63);
+}
+
+export function projectNameForUser(uid) {
+  return "isibi-user-" + String(uid || "").slice(0, 40);
+}
+
+// Swap the database name in a Neon connection URI. Every database inside a
+// project shares one endpoint host and role, so a site's connection string is
+// the project's connection string with a different path segment — no extra API
+// call and no password fetch at request time.
+export function connForDatabase(projectConn, dbName) {
+  const u = new URL(projectConn);
+  u.pathname = "/" + dbName;
+  return u.toString();
+}
+
+// Create a user's Neon project. Returns everything needed to address it later.
+export async function createUserProject(env, uid) {
+  const project = { name: projectNameForUser(uid), region_id: NEON_REGION };
+  const org = await neonOrgId(env);
+  if (org) project.org_id = org;
+
+  const d = await neonApi(env, "/projects", {
+    method: "POST",
+    body: JSON.stringify({ project }),
+  });
+
+  const conn = ((d.connection_uris || [])[0] || {}).connection_uri;
+  if (!d.project || !d.project.id || !conn) {
+    throw Object.assign(new Error("neon create project: unexpected response"), {
+      detail: JSON.stringify(d).slice(0, 300),
+    });
+  }
+  return {
+    projectId: d.project.id,
+    branchId: (d.branch && d.branch.id) || null,
+    roleName: ((d.roles || [])[0] || {}).name || null,
+    conn, // points at the project's default database
+  };
+}
+
+// Add one site's database to an existing project.
+export async function createSiteDatabase(env, projectId, branchId, roleName, slug) {
+  const name = dbNameForSite(slug);
+  await neonApi(env, `/projects/${projectId}/branches/${branchId}/databases`, {
+    method: "POST",
+    body: JSON.stringify({ database: { name, owner_name: roleName } }),
+  });
+  return name;
+}
+
+export async function dropSiteDatabase(env, projectId, branchId, slug) {
+  const name = dbNameForSite(slug);
+  await neonApi(env, `/projects/${projectId}/branches/${branchId}/databases/${name}`, {
+    method: "DELETE",
+  });
+}
+
+export async function dropUserProject(env, projectId) {
+  await neonApi(env, `/projects/${projectId}`, { method: "DELETE" });
+}
+
+// ------------------------------------------------------------- query layer
+
+// The site runtime was written against D1, which uses `?` placeholders; Postgres
+// uses `$1..$n`. Rewriting here rather than at the ~2300 call sites keeps the
+// whole runtime untouched.
+//
+// A naive replace would corrupt any `?` inside a string literal, a quoted
+// identifier or a comment, so this walks the statement instead.
+export function toPgPlaceholders(sql) {
+  const s = String(sql);
+  let out = "";
+  let n = 0;
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    // '...' literal, '' escapes a quote
+    if (c === "'") {
+      let j = i + 1;
+      while (j < s.length) {
+        if (s[j] === "'") {
+          if (s[j + 1] === "'") { j += 2; continue; }
+          break;
+        }
+        j++;
+      }
+      out += s.slice(i, j + 1);
+      i = j + 1;
+      continue;
+    }
+    // "..." quoted identifier, "" escapes a quote
+    if (c === '"') {
+      let j = i + 1;
+      while (j < s.length) {
+        if (s[j] === '"') {
+          if (s[j + 1] === '"') { j += 2; continue; }
+          break;
+        }
+        j++;
+      }
+      out += s.slice(i, j + 1);
+      i = j + 1;
+      continue;
+    }
+    if (c === "-" && s[i + 1] === "-") {           // -- line comment
+      const j = s.indexOf("\n", i);
+      const e = j === -1 ? s.length : j;
+      out += s.slice(i, e);
+      i = e;
+      continue;
+    }
+    if (c === "/" && s[i + 1] === "*") {           // /* block comment */
+      const j = s.indexOf("*/", i + 2);
+      const e = j === -1 ? s.length : j + 2;
+      out += s.slice(i, e);
+      i = e;
+      continue;
+    }
+    if (c === "?") { out += "$" + ++n; i++; continue; }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
+// D1 bound a JS boolean as the text "true"/"false", so the runtime standardised
+// on 1/0 for flags and the app reads them back as truthy/falsy. Keep that
+// convention — the declared columns are integers, and binding a real boolean to
+// an integer column is an error in Postgres (it was merely sloppy in SQLite).
+export function pgParams(params) {
+  return (params || []).map((v) => (v === true ? 1 : v === false ? 0 : v === undefined ? null : v));
+}
+
+// One driver instance per connection string. `neon()` is a thin closure over
+// fetch (no socket, nothing to pool or close), so caching costs nothing and
+// avoids re-parsing the URI on every query.
+const _clients = new Map();
+function client(conn) {
+  let c = _clients.get(conn);
+  if (!c) {
+    c = neon(conn, { fullResults: true });
+    _clients.set(conn, c);
+  }
+  return c;
+}
+
+// Run SQL against ONE site's database. Returns the result rows.
+// Always parameterize — never string-concat caller input into `sql`.
+export async function sqlQuery(conn, sql, params) {
+  const r = await client(conn).query(toPgPlaceholders(sql), pgParams(params));
+  return (r && r.rows) || [];
+}
+
+// As sqlQuery, but also reports how many rows the statement changed, so scoped
+// UPDATE/DELETE can tell "done" from "matched nothing" (a visitor trying to edit
+// a row that isn't theirs changes 0). SELECT reports 0 changes, matching what
+// the runtime saw from D1's meta.changes.
+export async function sqlExec(conn, sql, params) {
+  const r = await client(conn).query(toPgPlaceholders(sql), pgParams(params));
+  const command = (r && r.command) || "";
+  return {
+    results: (r && r.rows) || [],
+    changes: command === "SELECT" ? 0 : (typeof r.rowCount === "number" ? r.rowCount : null),
+  };
+}
