@@ -88,6 +88,35 @@ export function connForDatabase(projectConn, dbName) {
   return u.toString();
 }
 
+// Creating a project (or a database) returns as soon as the work is SCHEDULED —
+// the branch, endpoint and default database are still being built. Neon refuses
+// further calls against a project while its operations are in flight
+// ("project already has running conflicting operations"), so every provisioning
+// step waits for quiet before the next one starts.
+const OP_PENDING = new Set(["scheduling", "running", "cancelling"]);
+
+export async function waitForProject(env, projectId, timeoutMs = 90000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const d = await neonApi(env, `/projects/${projectId}/operations`);
+    const ops = (d && d.operations) || [];
+    const pending = ops.filter((o) => OP_PENDING.has(String(o && o.status)));
+    if (!pending.length) {
+      // A failed setup operation would otherwise surface later as a confusing
+      // connection error, so surface it here where the cause is obvious.
+      const bad = ops.find((o) => ["failed", "error"].includes(String(o && o.status)));
+      if (bad) throw Object.assign(new Error("neon operation " + bad.action + " " + bad.status), { detail: JSON.stringify(bad).slice(0, 300) });
+      return;
+    }
+    if (Date.now() > deadline) {
+      throw Object.assign(new Error("neon project " + projectId + " still busy after " + timeoutMs + "ms"), {
+        detail: pending.map((o) => o.action + ":" + o.status).join(", "),
+      });
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
 // Create a user's Neon project. Returns everything needed to address it later.
 export async function createUserProject(env, uid) {
   const project = { name: projectNameForUser(uid), region_id: NEON_REGION };
@@ -105,6 +134,9 @@ export async function createUserProject(env, uid) {
       detail: JSON.stringify(d).slice(0, 300),
     });
   }
+  // The project exists but is still being built; nothing may touch it until quiet.
+  await waitForProject(env, d.project.id);
+
   return {
     projectId: d.project.id,
     branchId: (d.branch && d.branch.id) || null,
@@ -120,6 +152,9 @@ export async function createSiteDatabase(env, projectId, branchId, roleName, slu
     method: "POST",
     body: JSON.stringify({ database: { name, owner_name: roleName } }),
   });
+  // Creating a database is itself an async operation: wait, or the first query
+  // races the database into existence.
+  await waitForProject(env, projectId);
   return name;
 }
 
