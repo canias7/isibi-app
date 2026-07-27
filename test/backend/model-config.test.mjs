@@ -126,6 +126,11 @@ t.eq(orphanCaps.join(",") || "none", "none", "no CLIP_MAX_S entry for a model th
 // --- Gemini specifically: 10 is MEASURED, and must not drift back up ---
 t.eq(CLIP_MAX_S["google/gemini-omni-flash"], 10, "Gemini's clip cap is the measured 10s, not the old 30");
 t.eq(CLIP_LIMITS["google/gemini-omni-flash"].maxDur, 10, "…and the client agrees");
+// A 1s clip used to be accepted here — Gemini was the only clip model with no
+// floor, and fal caps every other Gemini endpoint at 3..10s.
+t.eq(CLIP_LIMITS["google/gemini-omni-flash"].minDur, 3, "Gemini refuses clips under 3s");
+const noFloor = clipModels.filter((id) => CLIP_LIMITS[id] && !CLIP_LIMITS[id].minDur && !/veo/.test(id));
+t.eq(noFloor.join(",") || "none", "none", "every clip model except Veo (fal documents no floor) has a minimum duration");
 
 // --- Audio caps exist wherever an audio slot is offered ---
 const audioModels = Object.keys(MODEL_OPTS).filter((id) => (MODEL_OPTS[id].caps || {}).audio);

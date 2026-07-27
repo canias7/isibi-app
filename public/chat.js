@@ -396,7 +396,18 @@ function readClipMeta(dataUri) {
     normalizeClipFps();
     normalizeClipArea();
   };
-  v.onerror = () => {}; // leave zeros — validation treats unknown as "can't verify", not a hard block
+  // Undecodable → REFUSE (owner 2026-07-27). This used to leave clipMeta at
+  // zeros and call it "can't verify, not a hard block" — but every check in
+  // clipIssue is guarded on a truthy dur/w/h, so zeros meant duration,
+  // resolution, aspect and pixel area were ALL skipped and the clip went
+  // straight to fal, where an unmeasurable one bills the model's maximum.
+  // Found by running the attach matrix in a Chromium without H.264: all 12
+  // mp4s read 0s/0×0 and every model accepted every clip. On a real machine
+  // the same hole opens for HEVC, ProRes or AV1 the browser can't decode.
+  v.onerror = () => {
+    if (attachments.clip !== dataUri) return; // superseded while loading
+    rejectClip("I couldn't read that clip — this browser can't decode it, so its length and size can't be checked. Re-export it as MP4 (H.264) and attach it again.");
+  };
   v.src = dataUri;
 }
 // Per-model clip requirements for video-to-video edits, verified against each
@@ -420,7 +431,11 @@ const CLIP_LIMITS = {
   // of input for 10s of output and fal's COMPLETED status hid it from the
   // refund path. 10 is measured, not documented (2026-07-27). Keep in step
   // with CLIP_MAX_S in worker.js, which is the gate that enforces it.
-  'google/gemini-omni-flash': { maxDur: 10 },
+  // minDur 3 is INFERRED, not documented: fal's /edit schema states no limits
+  // at all, but every other Gemini endpoint caps duration at 3..10, and an edit
+  // renders the source's own length — so a 1s clip asks for an output shorter
+  // than the model will make. Every other model had a floor; this one didn't.
+  'google/gemini-omni-flash': { minDur: 3, maxDur: 10 },
   // Seedance @Video1 reference: mp4/mov, 2-15s, <50MB total, and a pixel-AREA
   // band of ~480p-720p (schema: "between ~480p (640x640) and ~720p (834x1112)"
   // — an area constraint: 0.41-0.93MP; 1280×720 fits, 1080p doesn't). Clips
