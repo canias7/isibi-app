@@ -19,8 +19,16 @@ const src = readFileSync(join(ROOT, "worker.js"), "utf8");
 function lift(name) {
   const start = src.indexOf(`\nfunction ${name}(`);
   if (start < 0) throw new Error(`worker.js has no function ${name}`);
-  let depth = 0, i = src.indexOf("{", start);
-  for (let j = i; j < src.length; j++) {
+  // Walk past the parameter list first: billableDuration destructures in its
+  // SIGNATURE, so the first "{" after the name is the params object, not the
+  // body, and slicing from there yields a fragment that won't parse.
+  let paren = 0, i = src.indexOf("(", start);
+  for (; i < src.length; i++) {
+    if (src[i] === "(") paren++;
+    else if (src[i] === ")" && --paren === 0) break;
+  }
+  let depth = 0;
+  for (let j = src.indexOf("{", i); j < src.length; j++) {
     if (src[j] === "{") depth++;
     else if (src[j] === "}" && --depth === 0) return src.slice(start, j + 1);
   }
@@ -135,5 +143,26 @@ t.ok(gate("bytedance/seedance-2.0/text-to-video", 9, 20), "Seedance measures the
 t.eq(gate("bytedance/seedance-2.0/text-to-video", 20, 12), "", "…and only the combined figure — a long slot #1 with short extras is fine");
 t.eq(gate("google/gemini-omni-flash", 0, 0), "", "an unmeasurable clip passes and bills the maximum instead");
 t.ok(gate("some/unlisted-model", 20, 20), "an unlisted model keeps the old blanket 15s (no new cost hole)");
+
+
+
+// --- billableDuration: WHICH duration a render is billed on -----------------
+// This was an inline ternary chain inside the request handler, so the only way
+// to check it was to spend money — which is how a 15s Gemini edit billed $3.90
+// while the button said 5s. Now a function, so it can be asserted for free.
+const billFn = new Function(lift("billableDuration") + "\nreturn billableDuration;")();
+const B = (o) => billFn({ endpoint: "", model: "", duration: 5, useShots: false, shots: [], clip: null, clipSecondsReal: 0, ...o });
+
+t.eq(B({ endpoint: "fal-ai/veo3.1/extend-video", duration: 12 }), 7, "Veo extend bills fal's schema-pinned 7s, not the picker");
+t.eq(B({ endpoint: "fal-ai/veo3.1/reference-to-video", model: "fal-ai/veo3.1", duration: 4 }), 8, "Veo reference bills its pinned 8s");
+t.eq(B({ endpoint: "fal-ai/veo3.1/lite/first-last-frame-to-video", model: "fal-ai/veo3.1/lite", duration: 4 }), 8, "Lite first-&-last bills 8s whatever the picker says");
+t.eq(B({ endpoint: "google/gemini-omni-flash/edit", clip: "x", clipSecondsReal: 9.2 }), 10, "Gemini edit bills the measured clip, rounded up");
+t.eq(B({ endpoint: "google/gemini-omni-flash/edit", clip: "x", clipSecondsReal: 0 }), 30, "an unmeasurable Gemini clip bills the max — never undercharge");
+t.eq(B({ endpoint: "fal-ai/kling-video/o3/pro/video-to-video/edit", clip: "x", clipSecondsReal: 12.1 }), 13, "o3 edit bills the measured clip");
+t.eq(B({ endpoint: "fal-ai/kling-video/o3/pro/video-to-video/edit", clip: "x", clipSecondsReal: 99 }), 15, "o3 edit caps at 15s");
+t.eq(B({ endpoint: "google/gemini-omni-flash/edit", clip: null, clipSecondsReal: 9 }), 5, "no clip attached → not a clip edit, bills the picker");
+t.eq(B({ useShots: true, shots: [{ duration: 3 }, { duration: 4 }] }), 7, "multi-shot bills the SUM of the shots");
+t.eq(B({ useShots: true, shots: [{ duration: 5 }, { duration: 5 }, { duration: 5 }] }), 15, "…for any number of shots");
+t.eq(B({ endpoint: "bytedance/seedance-2.0/text-to-video", duration: 12 }), 12, "a plain generation bills the picker");
 
 t.done();

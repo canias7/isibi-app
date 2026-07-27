@@ -221,6 +221,35 @@ async function falBalanceUSD(env) {
 // longer folded in here. AI usage is a separate paid product (the AI
 // Orchestrator add-on), metered against its own $19.99 budget, so charging it
 // again on the generation would double-bill.
+// WHICH duration a render is billed on. Several endpoints ignore the duration
+// picker entirely, and getting this wrong is how a 15s Gemini edit billed $3.90
+// while the button said 5s. Extracted from the request handler so it can be
+// unit-tested: it used to be an inline ternary chain inside a 400-line branch,
+// which meant the only way to check it was to spend money.
+//
+//  · extend-video      fal's schema pins the output at 7s ("const": "7s")
+//  · Veo reference     schema pins it at 8s, and the input build forces "8s"
+//  · Lite first&last   renders 8s whatever the picker says
+//  · clip edits        o3/Gemini have NO duration input — fal renders and bills
+//                      the WHOLE source clip, so the bill follows the measured
+//                      length. Only the server's own byte measurement is
+//                      trusted; unparseable bills the model's max, because a
+//                      client-claimed duration could undercharge a long clip.
+//  · multi-shot        one continuous render of the summed shot lengths
+function billableDuration({ endpoint, model, duration, useShots, shots, clip, clipSecondsReal }) {
+  if (endpoint.includes("/extend-video")) return 7;
+  if (model.includes("veo") && endpoint.includes("/reference-to-video")) return 8;
+  if (model.endsWith("veo3.1/lite") && endpoint.includes("/first-last-frame")) return 8;
+  const isClipEdit = !!clip &&
+    (endpoint.includes("/video-to-video/edit") || endpoint.endsWith("gemini-omni-flash/edit"));
+  if (isClipEdit) {
+    const max = endpoint.includes("/video-to-video/edit") ? 15 : 30;
+    return Math.min(max, Math.ceil(clipSecondsReal || max));
+  }
+  if (useShots) return (shots || []).reduce((t, s) => t + Number(s.duration), 0);
+  return duration;
+}
+
 function creditCost(kind, model, { duration, quality, num, chars, audioSeconds, v2v, clipSeconds, soundOff, vrefSeconds, img4k, gptQuality, gptSize }) {
   let usd;
   // GPT Image 2 is priced by quality tier; Nano Banana Pro 4K bills double the
@@ -8373,31 +8402,9 @@ async function handleRequest(request, env, ctx) {
       }
 
       // Endpoint-specific billing shape (verified on fal's pricing pages):
-      // Veo extend always outputs a 7s clip (schema const) regardless of the
-      // duration picker; Veo reference-to-video always renders 8s (schema const
-      // — the input build forces "8s", so billing must too); Ray's image-to-video
-      const isVeoRef = model.includes("veo") && endpoint.includes("/reference-to-video");
-      // Lite first-&-last renders (and bills) 8s regardless of the picker.
-      const isLiteFixed8 = model.endsWith("veo3.1/lite") && endpoint.includes("/first-last-frame");
-      // The o3/Gemini clip edits have NO duration input — fal renders (and
-      // bills) the WHOLE source clip, so the bill follows the clip's measured
-      // length, never the duration picker (a real 15s edit billed $2.52 while
-      // the picker said 5s). Unmeasurable → the model's max, never undercharge:
-      // the client validates o3 clips to 3-15s and Gemini clips to 30s.
-      const isClipEdit = !!clip && (endpoint.includes("/video-to-video/edit") || endpoint.endsWith("gemini-omni-flash/edit"));
-      const clipEditMax = endpoint.includes("/video-to-video/edit") ? 15 : 30;
-      // Only the server-side byte measurement is trusted; unparseable bills the
-      // max (a client-claimed duration could undercharge a long clip).
-      const clipBillSecs = isClipEdit ? Math.min(clipEditMax, Math.ceil(clipSecondsReal || clipEditMax)) : 0;
-      // Multi-shot bills on the SUM of the shot durations (one continuous render
-      // of that total length) at the model's per-second rate.
-      const shotSecs = useShots ? shots.reduce((t, s) => t + Number(s.duration), 0) : 0;
-      const billDuration = endpoint.includes("/extend-video") ? 7
-        : isVeoRef ? 8
-        : isLiteFixed8 ? 8
-        : isClipEdit ? clipBillSecs
-        : useShots ? shotSecs
-        : duration;
+      const billDuration = billableDuration({
+        endpoint, model, duration, useShots, shots, clip, clipSecondsReal,
+      });
       const genCost = creditCost(genKind, model, {
         duration: billDuration,
         // Veo extend outputs 720p ONLY (fal OpenAPI: resolution const) — bill

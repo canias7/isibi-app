@@ -35,3 +35,17 @@ python3 test/attach/falcheck.py                    # every cap vs fal's publishe
   its own decode returns zeros and would silently pass everything.
 - **mediacheck.mjs** — audio duration/size/format and image dimension/aspect
   limits, per model.
+
+`pricecheck2.mjs` covers what `pricecheck.mjs` does not: image mode (both
+models × 1/2/4 images × quality × size tiers), audio mode (character billing),
+LipSync's per-5s basis, Veo Lite's fixed-8s first-&-last, and multi-shot.
+72/72 agree.
+
+**A trap that caught me twice:** these harnesses lift the worker's real
+`creditCost`, but a hand-modelled billing BASIS is not the same as the worker's.
+The first multi-shot run reported 4 mismatches that were the harness's fault —
+`sanitizeShots` drops any shot without a `prompt`, so the quote had fallen back
+to the picker. And a mutation to the worker's basis selection did NOT fail the
+harness, because the harness computed the basis itself. That is why
+`billableDuration` was extracted into a real function and asserted in
+`test/backend/clip-duration.test.mjs` instead.
