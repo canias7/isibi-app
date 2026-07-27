@@ -5,6 +5,7 @@ import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon"
 import { Container, getContainer } from "@cloudflare/containers";
 import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent } from "./site-schema.mjs";
+import { handleSiteData } from "./site-data.mjs";
 import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis, eoqCalc, breakevenCalc, demandForecast, installmentPlan, taxCalc, commissionCalc } from "./worker-finance.mjs";
 // Game builder (Phase 3): same generate→build→publish pipeline, engine swapped for
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
@@ -4787,6 +4788,14 @@ async function handleRequest(request, env, ctx) {
       try { const old = await env.SITES_BUCKET.list({ prefix: "games/" + slug + "/" }); for (const ob of (old.objects || [])) await env.SITES_BUCKET.delete(ob.key); } catch {}
       try { await env.SITES_BUCKET.delete("gamesrc/" + slug + ".json"); } catch {}
       return Response.json({ ok: true, slug });
+    }
+
+    // Public data API for published sites. Unauthenticated by design — a visitor
+    // filling in a booking form has no account — so it is allow-listed against
+    // the site's own declared schema and refuses anything owner-scoped.
+    {
+      const dataRes = await handleSiteData(env, request, url, siteBackendBySlug);
+      if (dataRes) return dataRes;
     }
 
     // Website builder — provision this site's database and apply its declared
