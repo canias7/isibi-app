@@ -9737,3 +9737,45 @@ Generation routes, `/api/direct`, `/api/save`, `/api/gallery`, game-builder, all
 nothing beyond "they refuse an anonymous caller". Also open and minor, from the advisors:
 leaked-password protection is off in Auth, `citext` sits in `public`, ~30 RLS policies call
 `auth.<fn>()` per row instead of `(select auth.<fn>())`, and four `site_*` foreign keys are unindexed.
+
+## 2026-07-28 — the Neon path: user builds → project → database → connects
+
+You asked about this specific path, so I went through it line by line. It works, and it had **three
+bugs**, one of which I had introduced an hour earlier.
+
+**The expensive one.** Both Supabase writes were `await`ed and their results never looked at:
+
+```js
+const made = await createUserProject(env, uid);
+await fetch(`${SUPABASE_URL}/rest/v1/user_site_project`, {...});   // result never checked
+```
+
+A Neon project is a **capped, billed resource whose only record is that row**. If the write failed —
+a 503, a network blip — the project existed and nothing pointed at it. The user's next build found no
+row, created **another** project, and the orphan billed forever. That is almost certainly how the two
+loose projects in the old handoff notes got there. Now it is record-it-or-destroy-it: a failed write
+deletes the project it just made and fails the build with the stage that broke.
+
+Same for `site_backends`. If that write failed the database existed but nothing recorded it — the slug
+stayed unclaimed and every read 404'd, while the response still said `ok: true` with a URL. It now
+fails, because reporting a successful build for a site nobody can reach is worse than failing.
+
+**My own regression.** `ensureSiteBackend` starts by asking "does this slug already have a database?"
+— and an hour earlier I had made that lookup 5-minute-cached. On the request path that is the whole
+point; on the **write** path it means an isolate could hand back a connection for a slug another
+isolate had deleted, and the schema apply would go at a dropped database. It now uses an uncached
+read. A build takes tens of seconds, so one uncached lookup there costs nothing worth having.
+
+**Third:** a failed cleanup no longer masks the original failure — you get "could not record the Neon
+project", not "neon delete failed".
+
+All of it is now in `site-provision.mjs` with injected deps, so the ordering and every failure path is
+testable with no Neon project and no Supabase. **15 tests, all 9 mutations caught** — including the
+important one: delete the "destroy the unrecorded project" line and three tests go red.
+
+Also confirmed correct and left alone: one project per USER not per site, created lazily on first
+build; `"already exists"` is the one recoverable database error (a retried build hits the database it
+made last time, and the schema apply is additive); `connForDatabase` swaps only the path, because
+every database in a project shares one host and role.
+
+Unit suite: **200 tests**.

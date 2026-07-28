@@ -4,7 +4,8 @@
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { Container, getContainer } from "@cloudflare/containers";
 import { makeCache, memoize } from "./ttl-cache.mjs";
-import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, dropSiteDatabase, connForDatabase, dbNameForSite } from "./site-db.mjs";
+import { ensureSiteBackend as ensureSiteBackendPure } from "./site-provision.mjs";
+import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
 import { handleSiteData } from "./site-data.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
@@ -2716,36 +2717,46 @@ async function siteBackendBySlug(env, slug) { return _resolveBackend(slug, env);
 // The user's Neon PROJECT is created lazily on their first build rather than at
 // signup: most accounts never build a site, and projects are a capped resource —
 // provisioning per signup would spend the quota on people who never use it.
-async function ensureSiteBackend(env, slug, uid) {
-  const existing = await siteBackendBySlug(env, slug);
-  if (existing) return existing;
+// An uncached slug lookup. siteBackendBySlug caches for five minutes, which is
+// right on the request path and wrong here — see site-provision.mjs.
+async function siteBackendBySlugFresh(env, slug) {
+  const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=neon_db,uid`, { headers: svcHeaders(env) });
+  const rows = await g.json().catch(() => []);
+  const row = Array.isArray(rows) && rows[0];
+  if (!row || !row.neon_db) return null;
+  const proj = await userSiteProject(env, row.uid);
+  return proj ? connForDatabase(proj.neon_conn, row.neon_db) : null;
+}
 
-  let proj = await userSiteProject(env, uid);
-  if (!proj) {
-    const made = await createUserProject(env, uid);
-    proj = { neon_project: made.projectId, neon_branch: made.branchId, neon_role: made.roleName, neon_conn: made.conn };
-    await fetch(`${SUPABASE_URL}/rest/v1/user_site_project`, {
+// Provision (or reuse) one site's database, returning its connection string.
+// The ordering and the failure paths live in site-provision.mjs, where they are
+// tested; this supplies the real Neon and Supabase calls.
+async function ensureSiteBackend(env, slug, uid) {
+  const write = async (table, body) => {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
       method: "POST",
       headers: svcHeaders(env, { "content-type": "application/json", Prefer: "resolution=merge-duplicates" }),
-      body: JSON.stringify({ uid, ...proj }),
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15000),
     });
-  }
-
-  // A retried build can hit an already-created database; that is success, not failure.
-  let dbName;
-  try {
-    dbName = await createSiteDatabase(env, proj.neon_project, proj.neon_branch, proj.neon_role, slug);
-  } catch (e) {
-    if (!/already exists/i.test(String(e && e.detail))) throw e;
-    dbName = dbNameForSite(slug);
-  }
-
-  await fetch(`${SUPABASE_URL}/rest/v1/site_backends`, {
-    method: "POST",
-    headers: svcHeaders(env, { "content-type": "application/json", Prefer: "resolution=merge-duplicates" }),
-    body: JSON.stringify({ slug, uid, neon_db: dbName }),
-  });
-  return connForDatabase(proj.neon_conn, dbName);
+    // The result was previously not looked at, so a failed write left a Neon
+    // project or database that nothing recorded.
+    return r.ok ? { ok: true } : { ok: false, detail: (await r.text().catch(() => "")).slice(0, 300) };
+  };
+  return ensureSiteBackendPure({
+    lookupSite: (s2) => siteBackendBySlugFresh(env, s2),
+    lookupProject: (u) => userSiteProject(env, u),
+    createProject: (u) => createUserProject(env, u),
+    dropProject: async (id) => {
+      console.error("dropping unrecorded neon project:", id);
+      return dropUserProject(env, id);
+    },
+    saveProject: (u, proj) => write("user_site_project", { uid: u, ...proj }),
+    createDatabase: (proj, s2) => createSiteDatabase(env, proj.neon_project, proj.neon_branch, proj.neon_role, s2),
+    saveBackend: (s2, u, db) => write("site_backends", { slug: s2, uid: u, neon_db: db }),
+    connFor: connForDatabase,
+    dbNameFor: dbNameForSite,
+  }, { slug, uid });
 }
 // Content-type for a served R2 object by its extension (React dist assets + pages).
 const R2_MIME = { js: "text/javascript", mjs: "text/javascript", css: "text/css", svg: "image/svg+xml", json: "application/json", map: "application/json", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", ico: "image/x-icon", woff: "font/woff", woff2: "font/woff2", ttf: "font/ttf", txt: "text/plain", xml: "application/xml", webmanifest: "application/manifest+json", html: "text/html; charset=utf-8" };

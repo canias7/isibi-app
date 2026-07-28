@@ -8,6 +8,11 @@ on:
     paths:
       - 'site-db.mjs'
       - 'site-schema.mjs'
+      # The provisioning order — project, database, and the rows that record
+      # them. A change here can leak a capped, billed Neon project, so it must
+      # reach the one workflow that talks to a real Neon account.
+      - 'site-provision.mjs'
+      - 'ttl-cache.mjs'
       - 'test/integration/neon-e2e.mjs'
       - '.github/workflows/neon-e2e.yml'
   workflow_dispatch:
