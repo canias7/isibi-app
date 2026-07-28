@@ -10138,7 +10138,22 @@ had happened. Two separate problems, and the second is the one that matters:
    (only when it did NOT publish the app; it is the owner's own build, so there is nothing here they
    should not see).
 
-**Not yet known whether that placeholder is a regression or ordinary generator variance** — the
-generator writes a page, and a page that fails typecheck or lint gets one repair pass and then falls
-back by design. Saying which needs the stage, which is exactly what was missing. The next deploy
-runs the smoke automatically with the instrumentation in place.
+**Answered: it was generator variance, not a regression.** The very next smoke run went
+**45/45**, `page=app`, on a real published site — React mounted, shadcn controls rendering, Tailwind
+applied, seeded content on the page, the form submitted and written to the database, every data read
+allowed and not one 403. A page that fails typecheck or lint gets one repair pass and then falls back
+by design; that is what `page: "app" | "placeholder"` exists to make visible, and it did. The
+instrumentation stays, because next time the answer should not need a second run to find.
+
+### The whole day, confirmed end to end
+
+The 45/45 smoke run is the useful summary of everything merged today, because it exercises all of it
+against the deployed Worker in one pass: a brief becomes a schema, a Neon database, seeded content,
+generated pages, a compiled bundle and a published site — and then a real browser loads that site,
+submits its form, and the row lands in Postgres. Then the owner deletes the site and the files are
+actually gone.
+
+Five PRs: #828 rate limits + the stored brief, #829 the owner's write door and the panel wired to
+it, #830 constraints as answers instead of 500s plus the auth-invariant hole, #831 the smoke test
+naming its own site, #832 saying why a build fell back. Unit suite 323 -> 395, every new test
+mutation-checked.
