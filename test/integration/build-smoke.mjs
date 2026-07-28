@@ -176,6 +176,16 @@ try {
     if (d.page === "app") {
       ok("the page is the compiled app shell", /id="root"/.test(html) && /<script[^>]+src=/.test(html), html.slice(0, 240));
       ok("its stylesheet was published too", /<link[^>]+\.css/.test(html), html.slice(0, 240));
+      // What a shared link shows. Link previews fetch the HTML once and read the
+      // head — they do not run the bundle — so without these a customer sent
+      // this URL on WhatsApp sees a bare address. Checked HERE because the tags
+      // are injected at publish time and this is the only place a real publish
+      // happens on every deploy.
+      ok("a shared link has a description", /<meta name="description" content="[^"]{10,}"/.test(html), html.slice(0, 400));
+      ok("and an Open Graph title", /<meta property="og:title" content="[^"]{2,}"/.test(html), html.slice(0, 400));
+      ok("and a twitter card, exactly one", (html.match(/twitter:card/g) || []).length === 1, String((html.match(/twitter:card/g) || []).length));
+      ok("the description is not the raw brief", !/A small barber shop site\. Visitors book/.test(html),
+        "the designer should write a customer-facing sentence, not echo the prompt");
       // The shell is a root div — the table names live in the bundle, which is
       // also the only proof the pages actually talk to the database that was
       // just provisioned rather than to hardcoded content. The router code-splits
