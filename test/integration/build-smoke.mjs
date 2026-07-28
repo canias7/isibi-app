@@ -11,7 +11,29 @@
 //
 // Needs SUPABASE_SERVICE_KEY and NEON_API_KEY. Run from CI (workflow_dispatch),
 // or locally with those in the environment.
+import fs from "node:fs";
+import path from "node:path";
 import { dropUserProject } from "../../site-db.mjs";
+
+// Use whatever Chromium is already on the machine — same reasoning as
+// site-runtime.mjs: the pinned playwright version and a pre-installed browser
+// build often disagree, and the build number is not what this test is about.
+// Returns null to let playwright resolve its own.
+function findChromium() {
+  const root = process.env.PLAYWRIGHT_BROWSERS_PATH || "/opt/pw-browsers";
+  const rels = ["chrome-linux/chrome", "chrome-linux64/chrome", "chrome-headless-shell-linux64/chrome-headless-shell", "chrome-linux/headless_shell"];
+  const found = [];
+  try {
+    for (const dir of fs.readdirSync(root)) {
+      for (const rel of rels) {
+        const p = path.join(root, dir, rel);
+        if (fs.existsSync(p)) found.push(p);
+      }
+    }
+  } catch { /* fall through to playwright's own lookup */ }
+  found.sort((a, b) => Number(/headless/.test(a)) - Number(/headless/.test(b)));
+  return found[0] || null;
+}
 
 const BASE = process.env.SMOKE_BASE_URL || "https://isibi.ai";
 const SUPABASE_URL = "https://ujrqdmmtcptvimazlhom.supabase.co";
@@ -149,6 +171,103 @@ try {
     } else {
       ok("the fallback page names a table it created",
         Array.isArray(d.tables) && d.tables.some((t) => html.includes(t)), html.slice(0, 160));
+    }
+  }
+
+  // --- does a VISITOR actually get a working site? ------------------------
+  //
+  // Everything above proves the files were published. None of it executes the
+  // JavaScript. A site that mounts to a blank page, or whose every data call
+  // 403s, or that throws on its first render, passes every check so far — and
+  // that is precisely the failure GENERATOR.md exists to prevent: a page that
+  // typechecks, bundles, screenshots fine, and does nothing.
+  //
+  // site-runtime.mjs drives the REFERENCE page against a STUB. This drives the
+  // REAL generated page against the REAL API, which is the only version of the
+  // question a user cares about.
+  if (d.page === "app" && slug) {
+    let browser = null;
+    try {
+      const { chromium } = await import("playwright");
+      browser = await chromium.launch({ executablePath: findChromium() || undefined });
+      const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+      const pg = await ctx.newPage();
+
+      // A page that throws during render still leaves the shell in the DOM, so
+      // "did it render" is not enough on its own — the errors have to be caught.
+      const pageErrors = [], consoleErrors = [], apiCalls = [];
+      pg.on("pageerror", (e) => pageErrors.push(String(e && e.message).slice(0, 200)));
+      pg.on("console", (m) => { if (m.type() === "error") consoleErrors.push(m.text().slice(0, 200)); });
+      pg.on("response", (res) => {
+        const u = res.url();
+        if (u.includes(`/api/db/${slug}/rows/`)) apiCalls.push({ method: res.request().method(), url: u, status: res.status() });
+      });
+
+      await pg.goto(`${BASE}/s/${slug}/`, { waitUntil: "networkidle", timeout: 60000 });
+      // React mounting is what separates a live site from a served file.
+      await pg.waitForFunction(() => !!document.querySelector("#root")?.firstElementChild, null, { timeout: 20000 }).catch(() => {});
+
+      const mounted = await pg.evaluate(() => (document.querySelector("#root")?.childElementCount || 0) > 0);
+      ok("the app mounted — React rendered into #root", mounted);
+      ok("nothing threw during render", pageErrors.length === 0, pageErrors.join(" | "));
+      ok("no console errors", consoleErrors.length === 0, consoleErrors.join(" | "));
+
+      const text = (await pg.evaluate(() => document.body.innerText || "")).trim();
+      ok("the page rendered real content, not an empty shell", text.length > 60, `${text.length} chars: ${text.slice(0, 120)}`);
+
+      // The whole point of the platform: the page reads the database that was
+      // provisioned for it moments ago. A hardcoded page would make no call.
+      const reads = apiCalls.filter((c) => c.method === "GET");
+      ok("the page called its own data API", reads.length > 0, JSON.stringify(apiCalls));
+      ok("every data read the page made was allowed",
+        reads.length > 0 && reads.every((c) => c.status === 200),
+        JSON.stringify(reads));
+      // The lint predicts exactly this; here it is measured against the live API.
+      const forbidden = apiCalls.filter((c) => c.status === 403);
+      ok("the page never hit a 403 — it respected the access levels", forbidden.length === 0, JSON.stringify(forbidden));
+
+      // shadcn is the whole UI contract — a page that hand-rolled its controls
+      // would still render and still pass everything above. This version of
+      // shadcn does not stamp `data-slot` (only 2 of the 46 components do), so
+      // the marker is Radix's own a11y wiring plus new-york's class signature.
+      const ui = await pg.evaluate(() => ({
+        radix: document.querySelectorAll('[role="combobox"],[data-radix-collection-item],[data-state]').length,
+        shadcnClasses: [...document.querySelectorAll("button,input,textarea")]
+          .some((e) => /\bring-offset-background\b|\bborder-input\b|\bbg-primary\b/.test(e.className)),
+        tailwind: !!document.querySelector("[class*='rounded-'],[class*='flex']"),
+        forms: document.querySelectorAll("form").length,
+        controls: document.querySelectorAll("form input, form textarea, form button").length,
+      }));
+      ok("shadcn controls are rendering, not hand-rolled ones", ui.shadcnClasses, JSON.stringify(ui));
+      ok("Radix primitives are live in the page", ui.radix > 0, JSON.stringify(ui));
+      ok("Tailwind utilities are applied", ui.tailwind);
+      ok("the site rendered a form with real controls", ui.forms > 0 && ui.controls > 1, JSON.stringify(ui));
+
+      // NOT asserted here, deliberately, and it is the most valuable check of
+      // all: actually submitting the form and watching the row land.
+      //
+      // It cannot pass today, for a reason that is not the code under test. A
+      // freshly built site has an EMPTY database, and a form whose required
+      // field is a Select fed by a `display` table therefore has nothing to
+      // choose — so it cannot be submitted by anyone, visitor or test. Writes to
+      // a `display` table are 403 for every caller INCLUDING the owner, and no
+      // owner-write route survived the 2026-07-27 runtime deletion, so there is
+      // no way to seed one. Measured on 2026-07-28 against a real barber-shop
+      // build: the Service select rendered "Choose one" with zero options.
+      //
+      // Turn this on in the same change that adds seeding — see owner-notes.
+      const empty = /no |none|nothing|empty|yet|coming soon|check back|available/i.test(text);
+      ok("an empty database renders an empty state, not a blank page", empty, text.slice(0, 200));
+
+      await pg.screenshot({ path: "smoke-site.png", fullPage: true });
+      console.log(`   screenshot: smoke-site.png  (live at ${BASE}/s/${slug}/)`);
+      console.log("   api calls:", JSON.stringify(apiCalls));
+      console.log("   NOT CHECKED: form submission — a new site's tables are empty and cannot be seeded (see owner-notes 2026-07-28).");
+    } catch (e) {
+      failed++;
+      console.log("  FAIL could not drive the published site in a browser -> " + String(e && e.message).slice(0, 300));
+    } finally {
+      if (browser) await browser.close().catch(() => {});
     }
   }
 

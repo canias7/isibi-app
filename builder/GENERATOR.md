@@ -99,6 +99,14 @@ something was imported that should not have been.
 
 ## Not available yet
 
+- **Any way to put content IN a `display` table.** This is the big one. Writes
+  to `display` are 403 for every caller *including the site's owner*, and no
+  owner-write route survived the 2026-07-27 runtime deletion. So a generated
+  site launches with an empty menu/list and stays that way. Worse, a form whose
+  required field is a Select fed by a `display` table cannot be submitted by
+  anyone, because there is nothing to choose — measured live on 2026-07-28.
+  Generate the list and the empty state anyway; they are correct and they work
+  the moment seeding exists.
 - **Visitor accounts.** No login, so no `user`/`feed`/`admin` table is
   reachable. Do not generate a sign-in page.
 - **Editing or deleting rows** from a published site. `PATCH` and `DELETE` are
