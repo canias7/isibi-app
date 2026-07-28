@@ -20,11 +20,13 @@ function fakeDb(spec, { changes = 1, rows = [{ id: 1 }] } = {}) {
   return conn;
 }
 
+// The engine's real access levels — see site-schema.mjs.
 const SPEC = {
   tables: [
-    { name: "services", access: "public", columns: [{ name: "title" }, { name: "price" }], fts: true },
-    { name: "bookings", access: "user", columns: [{ name: "date" }] },
-    { name: "notes", access: "public", columns: [{ name: "body" }], trash: true },
+    { name: "services", access: "display", columns: [{ name: "title" }, { name: "price" }], fts: true },
+    { name: "bookings", access: "collect", columns: [{ name: "date" }, { name: "title" }] },
+    { name: "mine", access: "user", columns: [{ name: "date" }] },
+    { name: "notes", access: "display", columns: [{ name: "body" }], trash: true },
   ],
 };
 
@@ -55,13 +57,32 @@ test("an undeclared table is 404, not a query", async () => {
   assert.ok(!seen.some((s) => /FROM "secrets"/.test(s.sql)), "must not query an undeclared table");
 });
 
-test("an owner-scoped table is refused outright", async () => {
-  const { res } = await call("GET", "/api/db/shop/rows/bookings");
+test("a table needing a site login is not readable", async () => {
+  const { res } = await call("GET", "/api/db/shop/rows/mine");
   assert.equal(res.status, 403);
-  assert.match((await res.json()).error, /not public/);
+  assert.match((await res.json()).error, /not readable/);
 });
 
-test("listing a public table selects from it with a capped limit", async () => {
+test("a collect table is write-only — reading it is refused", async () => {
+  const { res, seen } = await call("GET", "/api/db/shop/rows/bookings");
+  assert.equal(res.status, 403);
+  assert.ok(!seen.some((q) => /SELECT \* FROM "bookings"/.test(q.sql)),
+    "a visitor must never read back other people's submissions");
+});
+
+test("a display table cannot be written to", async () => {
+  const { res } = await call("POST", "/api/db/shop/rows/services", { body: { title: "x" } });
+  assert.equal(res.status, 403);
+});
+
+test("editing and deleting are refused on every level for now", async () => {
+  for (const [m, path] of [["PATCH", "/api/db/shop/rows/bookings/1"], ["DELETE", "/api/db/shop/rows/bookings/1"]]) {
+    const { res } = await call(m, path, { body: { title: "x" } });
+    assert.equal(res.status, 403, m + " should be refused");
+  }
+});
+
+test("listing a display table selects from it with a capped limit", async () => {
   const { res, seen } = await call("GET", "/api/db/shop/rows/services?limit=9999");
   assert.equal(res.status, 200);
   const q = seen.find((s) => /SELECT \* FROM "services"/.test(s.sql));
@@ -84,39 +105,21 @@ test("order by is allow-listed against declared columns", async () => {
 });
 
 test("insert writes only declared columns and drops the rest", async () => {
-  const { res, seen } = await call("POST", "/api/db/shop/rows/services", {
-    body: { title: "Cut", price: 20, id: 999, owner_id: 7, evil: "x" },
+  const { res, seen } = await call("POST", "/api/db/shop/rows/bookings", {
+    body: { title: "Cut", date: "2026-08-01", id: 999, owner_id: 7, evil: "x" },
   });
   assert.equal(res.status, 201);
-  const ins = seen.find((s) => /INSERT INTO "services"/.test(s.sql));
-  assert.ok(/"title"/.test(ins.sql) && /"price"/.test(ins.sql));
+  const ins = seen.find((s) => /INSERT INTO "bookings"/.test(s.sql));
+  assert.ok(/"title"/.test(ins.sql) && /"date"/.test(ins.sql));
   for (const bad of ['"id"', '"owner_id"', "evil"]) {
     assert.ok(!ins.sql.includes(bad), bad + " must not be writable: " + ins.sql);
   }
 });
 
 test("an insert with nothing writable is rejected before touching the database", async () => {
-  const { res, seen } = await call("POST", "/api/db/shop/rows/services", { body: { id: 1, owner_id: 2 } });
+  const { res, seen } = await call("POST", "/api/db/shop/rows/bookings", { body: { id: 1, owner_id: 2 } });
   assert.equal(res.status, 400);
   assert.ok(!seen.some((s) => /INSERT/.test(s.sql)));
-});
-
-test("delete soft-deletes when the table declares trash", async () => {
-  const { res, seen } = await call("DELETE", "/api/db/shop/rows/notes/5");
-  assert.equal(res.status, 200);
-  const d = seen.at(-1);
-  assert.ok(/UPDATE "notes" SET "deleted_at"/.test(d.sql), d.sql);
-  assert.ok(!/DELETE FROM/.test(d.sql), "trash tables must not hard-delete");
-});
-
-test("delete hard-deletes when the table does not", async () => {
-  const { seen } = await call("DELETE", "/api/db/shop/rows/services/5");
-  assert.ok(/DELETE FROM "services"/.test(seen.at(-1).sql));
-});
-
-test("a missing row is 404 rather than a silent success", async () => {
-  const { res } = await call("DELETE", "/api/db/shop/rows/services/5", { db: fakeDb(SPEC, { changes: 0 }) });
-  assert.equal(res.status, 404);
 });
 
 test("full-text search only applies where the table declared fts", async () => {

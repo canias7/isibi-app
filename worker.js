@@ -2512,7 +2512,11 @@ const SITE_SCHEMA_TOOL = {
           type: "object",
           properties: {
             name: { type: "string", description: "snake_case table name." },
-            access: { type: "string", enum: ["public", "user"], description: "'user' scopes rows to whoever created them; 'public' is shared." },
+            access: {
+              type: "string",
+              enum: ["collect", "display"],
+              description: "'display' = anyone can read it, nobody writes (menus, services, posts). 'collect' = anyone can submit, nobody reads it back (bookings, orders, enquiries).",
+            },
             columns: {
               type: "array",
               items: {
@@ -2547,7 +2551,9 @@ async function designSiteSchema(env, brief) {
       tools: [SITE_SCHEMA_TOOL],
       tool_choice: { type: "tool", name: "design_schema" },
       system: "You design the data model behind a small business website. Keep it to the few tables the site actually needs — usually one to four. " +
-              "Use 'user' access for anything a visitor creates and should only see their own of (bookings, orders, messages); 'public' for content everyone reads (menu items, services, posts). " +
+              "Use 'display' for content the business publishes and visitors read (services, menu items, posts). " +
+              "Use 'collect' for anything a visitor submits — bookings, orders, enquiries, signups. Those are write-only on purpose: the visitor sends one in, " +
+              "and only the business reads them, so customer names and phone numbers are never served back to the public. " +
               "Prefer few columns with obvious names. Turn on fts only where someone would genuinely search free text.",
       messages: [{ role: "user", content: brief }],
     }),

@@ -11,9 +11,15 @@
 // SECURITY. These endpoints are unauthenticated: anyone who can load a published
 // site can call them. Everything is therefore an allow-list read from the site's
 // own `_meta.schema`, never from the request:
-//   - the table must be declared, and declared `access: "public"`. Owner-scoped
-//     tables are refused outright, because visitor identity does not exist yet
-//     and without it "your rows" cannot be enforced.
+//   - the table must be declared, and its declared access level must permit the
+//     operation. The engine's levels (see site-schema.mjs) are:
+//       collect  anyone INSERTs; nobody reads publicly (owner reads in-app)
+//       display  anyone READs; no public writes (owner-managed content)
+//       user     site login; each visitor sees only THEIR rows
+//       feed     anyone READs; a logged-in visitor writes their own
+//       admin    anyone READs; only an admin site-user WRITES
+//     Anything needing a site login is refused until visitor accounts exist —
+//     serving those rows would hand every visitor everyone else's data.
 //   - only declared columns can be written or filtered on; managed columns are
 //     never writable.
 //   - identifiers reach SQL only via sqlIdent(); values only as bound params.
@@ -96,11 +102,24 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
   const def = tableFor(spec, tableName);
   if (!def) return json({ error: "no such table" }, 404);
 
-  // Owner-scoped tables need a visitor identity, which does not exist yet.
-  // Refusing is the only safe answer: serving them would hand every visitor
-  // every other visitor's rows.
-  if (String(def.access || "public").toLowerCase() !== "public") {
-    return json({ error: "that table is not public" }, 403);
+  // Per-level gate. `collect` is deliberately write-only: a booking or contact
+  // form needs to submit, and must NOT let a visitor read back other people's
+  // submissions. `user`/`feed`/`admin` writes need a site login, which does not
+  // exist yet, so they are refused rather than guessed at.
+  const access = String(def.access || "collect").toLowerCase();
+  const method = request.method;
+  const canRead = ["display", "feed", "admin"].includes(access);
+  const canWrite = access === "collect";
+  if (method === "GET" && !canRead) {
+    return json({ error: "that table is not readable", access }, 403);
+  }
+  if (method !== "GET" && !canWrite) {
+    return json({ error: "that table is not writable here", access }, 403);
+  }
+  // Nothing may edit or remove an existing row through the public API yet:
+  // `collect` is submit-only, and everything else needs an identity to own it.
+  if (method === "PATCH" || method === "DELETE") {
+    return json({ error: "that table is submit-only", access }, 403);
   }
 
   const tn = sqlIdent(def.name);
