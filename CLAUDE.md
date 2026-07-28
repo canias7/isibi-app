@@ -68,6 +68,12 @@ Every generation is metered in credits (1 credit = $0.008 fal cost). Postgres RP
 - **PATCH/DELETE work as of 2026-07-28, scoped to the row's OWNER.** Ids are sequential integers and the old (unreachable) handlers scoped by id alone, so enabling them unchanged would have let member A edit member B's row by guessing a number. `collect`/`display` have no owner and stay refused. **Another member's row answers 404, not 403** — a 403 confirms the row exists, which is an enumeration oracle over sequential ids. A `trash` table soft-deletes, still owner-scoped.
 - **The generator knows.** `@/lib/rows` exports the auth hooks, `ACCESS_NOTE` describes the member levels properly, and the lint flags reading or writing a member table without `useMember()` — signed out that is a 401, and a page that shows an error instead of a login looks broken rather than locked.
 
+## The owner reading their own site (`site-owner.mjs`, 2026-07-28)
+
+- **`GET /api/site/<slug>/rows` → the tables and how many rows are waiting; `GET /api/site/<slug>/rows/<table>` → the rows.** A SECOND door onto the same Neon database, authenticated by the owner's **isibi** session rather than a site session. It reads `collect` tables, which `/api/db` refuses by design — that refusal is why a barber shop took bookings nobody could ever see. **This was the oldest open gap in the builder.**
+- **404, not 403, for a site that is not yours** — the slug space is public and guessable, so a 403 confirms which names are taken. **Ownership fails CLOSED** (503) if the record cannot be read: the build route made exactly that mistake with `catch {}` and one Supabase timeout handed a site to a stranger.
+- The table name is allow-listed against the site's own declared schema (it reaches SQL), `order` is allow-listed against the declared columns, limit/offset are clamped, newest-first by default, and `_fts` is stripped the same way the public read strips it. `test/site-owner.test.mjs` (14 tests, 7 mutations).
+
 ## Edge routing for published sites (`site-routing.mjs`)
 
 - **Supabase was on the read path and should not have been.** Answering "which Neon database is this slug?" cost TWO sequential cross-region calls to Supabase (`site_backends` by slug → `user_site_project` by uid) on **every visitor read**, for a value written once at build time that never changes. Supabase is the app's auth/user store, not a routing table for public traffic.

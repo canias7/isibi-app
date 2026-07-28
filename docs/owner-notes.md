@@ -9905,3 +9905,40 @@ and the page displayed it faithfully. Checked field by field: every one matches 
 it. Nothing to fix, and I should not have flagged it without checking first.
 
 Unit suite **309**, site-build integration 18/18.
+
+## 2026-07-28 — the owner can finally read their own bookings
+
+The oldest gap in the builder, open since the day it started taking submissions. `collect` is
+write-only BY DESIGN — one visitor must never read back another's — but nothing distinguished "a
+visitor" from "the person the bookings are for", so nobody could read them, including the barber.
+
+`site-owner.mjs` is a SECOND door onto the same Neon database:
+
+```
+GET /api/site/<slug>/rows            what tables exist, and how many rows are waiting in each
+GET /api/site/<slug>/rows/<table>    the rows
+```
+
+Authenticated by the owner's **isibi** session, not a site session. Different caller, different door,
+same data — and it reads `collect` tables, because they are the owner's data.
+
+The gates, each mutation-tested:
+
+- **404, not 403, for a site that is not yours.** The slug space is public and guessable; a 403
+  confirms which names are taken, and by extension which businesses are customers.
+- **Ownership fails CLOSED** — 503 if the record cannot be read. The build route made exactly this
+  mistake with `catch {}` this morning, and one Supabase timeout handed a site to a stranger.
+- The table name is allow-listed against the site's own declared schema, because it reaches SQL.
+- `order` allow-listed against declared columns; limit clamped to 200; `_fts` stripped.
+- Newest first by default — these are submissions, and the useful one is the latest.
+
+One uncountable table does not lose the listing: a schema row can outlive its table if an apply
+half-succeeded, and the owner still wants to see everything else.
+
+### And edit/delete proved live
+
+Alice and Bob, two real accounts on recipe-club, against the deployed Worker. Bob attacked Alice's
+row directly by id: **404 on both PATCH and DELETE, no hint whose it is, and Alice's row intact with
+her own edit still on it.** 10/10.
+
+Unit suite **323**.
