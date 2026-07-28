@@ -89,9 +89,17 @@ const REAL = { sqlQuery, sqlExec, loadSiteSchema };
 
 export async function handleSiteData(env, request, url, resolveDb, deps) {
   const { sqlQuery, sqlExec, loadSiteSchema } = deps || REAL;
-  const m = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+))?$/i);
+  const m = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|public))?$/i);
   if (!m) return null;
-  const [, slug, tableName, rowId] = m;
+  const [, slug, tableName, tail] = m;
+  // `/public` is a different request from `/<id>`: a declared, PII-filtered
+  // projection rather than one row. Separated here so nothing below can mistake
+  // the word for a row id.
+  const wantsPublicView = String(tail || "").toLowerCase() === "public";
+  // Belt and braces — the public branch below returns in every case, so this
+  // can never reach the row handlers. It is here so that stops being true
+  // loudly rather than by sending the word "public" into an integer comparison.
+  const rowId = wantsPublicView ? undefined : tail;
 
   const db = await resolveDb(env, slug.toLowerCase());
   if (!db) return json({ error: "no such site" }, 404);
@@ -99,6 +107,19 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
   const spec = await loadSiteSchema(db);
   const def = tableFor(spec, tableName);
   if (!def) return json({ error: "no such table" }, 404);
+
+  // The declared public projection, before the access gate — because escaping
+  // that gate is exactly what it is for. See handlePublicView.
+  if (wantsPublicView) {
+    if (request.method !== "GET") return json({ error: "method not allowed" }, 405);
+    if (deps.rateLimit) {
+      const v = deps.rateLimit(bucketKey({
+        ip: request.headers.get("CF-Connecting-IP") || "", slug, table: def.name, method: "GET",
+      }), limitFor({ spec, def, method: "GET" }));
+      if (v && !v.ok) { const t = tooMany(v); return json(t.body, t.status, t.headers); }
+    }
+    return publicViewResponse({ sqlQuery, db, def, url, json });
+  }
 
   // Throttle here: late enough to know the table's own declared `rateLimit`,
   // early enough that a flood pays for none of what follows — resolving a
@@ -283,4 +304,73 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
     console.error("site data error:", slug, tableName, String((e && (e.message || e.detail)) || "").slice(0, 200));
     return json({ error: "that didn't work" }, 500);
   }
+}
+
+
+/**
+ * A declared, PII-filtered projection that ANYONE may read.
+ *
+ * The case it exists for is the one every booking site has: a visitor needs to
+ * see WHICH SLOTS ARE TAKEN without seeing who took them. Without it a booking
+ * table is either `collect` (nobody can read it, so the page cannot grey out a
+ * taken slot) or readable (and every customer's name and email is public).
+ *
+ * Declared in the schema and nowhere else. Three things make that safe:
+ *
+ *  - The columns are an explicit allow-list from the table's own declaration,
+ *    and the parser has already refused `id` and `owner_id`. There is no
+ *    wildcard and no way to ask for a column that was not named.
+ *  - A caller may filter, but ONLY on those same declared columns — so the
+ *    query string can narrow what it already may see and can never widen it.
+ *  - The declared `where` is ANDed on last, so a filter cannot escape it: if a
+ *    site publishes only confirmed bookings, no query can surface a cancelled
+ *    one.
+ *
+ * It deliberately ignores the table's access level. That is the whole point —
+ * `publicView` is the narrow, declared exception to it, which is why nothing
+ * here is inferred and every part of it has to be written down in the schema.
+ */
+async function publicViewResponse({ sqlQuery, db, def, url, json }) {
+  const pv = def.publicView;
+  if (!pv || !Array.isArray(pv.columns) || !pv.columns.length) {
+    return json({ error: "this table has no public view" }, 404);
+  }
+  const allowed = new Set(pv.columns.map((c) => String(c).toLowerCase()));
+  const cols = [...allowed];
+
+  const parts = [], vals = [];
+  // The caller's filters, restricted to the projection's own columns.
+  for (const [k, v] of url.searchParams) {
+    if (["limit", "offset"].includes(k)) continue;
+    if (!allowed.has(String(k).toLowerCase())) continue;
+    if (parts.length >= 6) break;
+    parts.push(sqlIdent(k) + "=?");
+    vals.push(v);
+  }
+  // The DECLARED filters. They are ANDed with the caller's, and THAT is what
+  // makes them inescapable — not the order. A caller could not touch them
+  // anyway: a declared filter names a column the projection does not publish
+  // (`status`), so it is not in `allowed` and a query string mentioning it is
+  // ignored above.
+  for (const w of (Array.isArray(pv.where) ? pv.where : [])) {
+    const mm = String(w).match(/^([a-z_][a-z0-9_]{0,40}):(eq|ne):([\s\S]{0,80})$/i);
+    if (!mm) continue;
+    parts.push(sqlIdent(mm[1]) + (mm[2].toLowerCase() === "eq" ? "=?" : "<>?"));
+    vals.push(mm[3]);
+  }
+  // A soft-deleted row is not a taken slot.
+  if (def.trash) parts.push('"deleted_at" IS NULL');
+
+  const declared = Math.max(1, Math.min(2000, Number(pv.limit) || 500));
+  const limit = Math.min(declared, Math.max(1, parseInt(url.searchParams.get("limit") || String(declared), 10) || declared));
+  const offset = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10) || 0);
+
+  const sql = "SELECT " + cols.map(sqlIdent).join(",") + " FROM " + sqlIdent(def.name) +
+    (parts.length ? " WHERE " + parts.join(" AND ") : "") +
+    " ORDER BY id ASC LIMIT ? OFFSET ?";
+  const rows = await sqlQuery(db, sql, vals.concat([limit, offset]));
+  // Belt and braces: the SELECT already names the columns, so this can only
+  // matter if one of them were ever `_fts` — which the parser refuses.
+  for (const r of rows) if (r && r._fts !== undefined) delete r._fts;
+  return json({ rows, limit, offset });
 }

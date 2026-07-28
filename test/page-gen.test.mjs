@@ -435,3 +435,14 @@ test("the upload hook the rules name really exists in the template", () => {
     assert.match(rows, new RegExp("export (async )?function " + fn), fn);
   }
 });
+
+test("the rules tell the model how a booking page shows a taken slot", () => {
+  // A collect table cannot be read — that is the point of it — so without this
+  // the model has no way to grey out a time somebody already booked, and every
+  // generated booking form lets two people pick the same one.
+  assert.match(PAGE_RULES, /usePublicRows/);
+  assert.match(PAGE_RULES, /WHICH SLOTS ARE TAKEN/);
+  assert.match(PAGE_RULES, /never a name or an email/);
+  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
+  assert.match(rows, /export function usePublicRows/, "a rule naming an export the template lacks produces code that does not compile");
+});
