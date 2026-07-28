@@ -57,6 +57,10 @@ test("the hash is self-describing, so the cost can be raised later", async () =>
   assert.equal(await verifyPassword("longenoughpassword", old), true, "an old-cost record still logs in");
   const now = await hashPassword("longenoughpassword");
   assert.match(now, new RegExp("^pbkdf2\\$" + PBKDF2_ITERATIONS + "\\$"));
+  // Cloudflare Workers throws above 100k, so a request for more is clamped
+  // rather than allowed to fail deep inside WebCrypto as an unexplained 500.
+  assert.match(await hashPassword("longenoughpassword", { iterations: 9_000_000 }),
+    new RegExp("^pbkdf2\\$" + PBKDF2_ITERATIONS + "\\$"), "an over-limit request is clamped");
 });
 
 test("a malformed or hostile stored hash is refused, never thrown on", async () => {
