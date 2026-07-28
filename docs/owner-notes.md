@@ -10351,3 +10351,46 @@ string I was looking for could never have been there. Re-asserted on distinctive
 row count instead. 21/21.
 
 Unit suite **474**.
+
+---
+
+## 2026-07-28 — a visitor can attach a photo, on a short leash
+
+The last real gap in what a generated site can *be*. A customer booking a haircut has no account, so
+this endpoint is unauthenticated for the same reason the rest of `/api/db` is — which makes it a
+**public endpoint that accepts arbitrary bytes and serves them back from isibi.ai**. That is the
+whole design problem; the upload itself is the easy part.
+
+### What stops it being free image hosting
+
+The answer to "may I upload?" is deliberately narrow: **the table must be one a visitor can write to,
+AND it must declare an image column.** A barber shop whose booking form is six text fields accepts
+nothing at all — which is the answer for the large majority of sites. Asking anyway gets a 403 that
+says the form doesn't take files.
+
+Both halves are load-bearing and both are mutation-tested: dropping either one turns this into an
+endpoint anyone who knows a slug can store pictures on.
+
+### The rest of the leash
+
+- **2 MB a file**, against the owner's 5 — a phone photo, not a print master.
+- **5 uploads a minute per IP per site**, checked *before* the bytes are hashed or the bucket is
+  listed. A flood should cost us as close to nothing as possible, and this is the one endpoint a
+  stranger can call.
+- **A visitor allowance of 50 files / 25 MB, counted only against files marked `visitor`.** Sharing
+  the site budget would mean a flood could crowd the owner out of their own storage; a stranger can
+  exhaust their allowance and the owner's pictures are untouched.
+
+That last one has a trap in it worth writing down: **R2 only returns `customMetadata` on a list if
+you ask for it** (`include: ["customMetadata"]`). Without that, every visitor upload looks like one
+of the owner's, the allowance counts nothing, and the protection quietly does not exist.
+
+### The client half
+
+`uploadFile` / `useUploadFile` in `@/lib/rows`: upload, get a URL, put it in the form as an ordinary
+text field, submit the row as normal. **The row write stays plain JSON** — no multipart, no file
+field — and generator rule 8 says so, because a model reaching for multipart would produce a form
+that 400s. There is a drift test asserting the export the rule names really exists in the template,
+and the template still typechecks and builds (18/18).
+
+Unit suite **488**, 17/17 mutations on the visitor path.

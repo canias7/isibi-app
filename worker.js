@@ -9,7 +9,7 @@ import { ensureSiteBackend as ensureSiteBackendPure } from "./site-provision.mjs
 import { lookupRoute, saveRoute, dropRoute } from "./site-routing.mjs";
 import { handleSiteAuth } from "./site-auth-routes.mjs";
 import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers, handleOwnerAnalytics, assertOwner } from "./site-owner.mjs";
-import { handleUpload, handleUploadList, handleUploadDelete, MAX_UPLOAD_BYTES } from "./site-uploads.mjs";
+import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_VISITOR_UPLOAD_BYTES } from "./site-uploads.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { sessionKey, verifySession } from "./site-auth.mjs";
@@ -2857,6 +2857,8 @@ function authThrottle(key) {
 // being hammered with reads cannot evict the counters holding a brute force
 // back.
 const _dataLimiter = makeLimiter({ windowMs: WINDOW_MS, max: 20000 });
+// Tighter than a form post: an upload costs storage, not a row.
+const VISITOR_UPLOADS_PER_MIN = 5;
 
 // Who is asking, for a table that is scoped to a member. Returns {id, role} or
 // null. The id is an INTEGER from the site's own `_users`, which is what
@@ -2929,6 +2931,27 @@ async function sendSiteResetEmail(env, slug, email, token) {
     }),
     signal: AbortSignal.timeout(10000),
   });
+}
+
+// Everything stored under a site's upload prefix, with WHO put it there.
+//
+// `customMetadata` has to be asked for explicitly on a list — without `include`
+// R2 returns only key and size, and every visitor upload would look like one of
+// the owner's, which is exactly the distinction the visitor allowance is
+// counted on.
+async function siteUploadList(env, slug) {
+  const out = [];
+  let cursor;
+  for (;;) {
+    const page = await env.SITES_BUCKET.list({ prefix: "uploads/" + slug + "/", cursor, include: ["customMetadata"] });
+    for (const o of (page.objects || [])) {
+      out.push({ key: o.key, size: o.size, visitor: !!(o.customMetadata && o.customMetadata.visitor) });
+    }
+    // Same termination rule as deleteSitePrefix: a truncated page with no
+    // cursor would otherwise loop forever.
+    if (!page.truncated || !page.cursor) return out;
+    cursor = page.cursor;
+  }
 }
 
 // Tell the owner a booking arrived. Detached — the submission already succeeded.
@@ -5175,6 +5198,57 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // A visitor attaching a photo to a form. Unauthenticated for the same reason
+    // the rest of /api/db is: a customer booking a haircut has no account.
+    //
+    // Which makes this a public endpoint that accepts arbitrary bytes and serves
+    // them back from isibi.ai, so the answer to "may I?" is narrow: the table
+    // must be one a visitor can WRITE and must DECLARE somewhere to put a
+    // picture. A barber shop whose booking form is six text fields accepts
+    // nothing, which is the answer for most sites — and is what keeps this from
+    // being open image hosting for anyone who knows a slug.
+    if (url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/uploads")) {
+      const vm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/uploads$/i);
+      if (vm) {
+        if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
+        if (!env.SITES_BUCKET) return Response.json({ error: "storage not configured" }, { status: 501 });
+        const vslug = vm[1].toLowerCase();
+        const conn = await siteBackendBySlug(env, vslug);
+        if (!conn) return Response.json({ error: "no such site" }, { status: 404 });
+        // Checked before the body is read: a flood should not get us to buffer
+        // megabytes before being told no.
+        const cl = Number(request.headers.get("content-length") || 0);
+        if (cl && cl > MAX_VISITOR_UPLOAD_BYTES) return Response.json({ error: "that image is too big — keep it under 2 MB", code: "too_big" }, { status: 413 });
+        try {
+          const vr = await handleVisitorUpload({
+            tableFor: async (s2, t) => {
+              const spec = await loadSiteSchema(conn);
+              return (spec && Array.isArray(spec.tables) ? spec.tables : [])
+                .find((x) => x && String(x.name).toLowerCase() === String(t || "").toLowerCase()) || null;
+            },
+            throttle: async (key) => _dataLimiter.hit(key, VISITOR_UPLOADS_PER_MIN),
+            hash: async (bytes) => {
+              const d = await crypto.subtle.digest("SHA-256", bytes);
+              return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+            },
+            list: (s2) => siteUploadList(env, s2),
+            put: (key, bytes, ct, meta) => env.SITES_BUCKET.put(key, bytes, { httpMetadata: { contentType: ct }, ...(meta ? { customMetadata: meta } : {}) }),
+          }, {
+            slug: vslug,
+            table: url.searchParams.get("table"),
+            // CF-Connecting-IP only — X-Forwarded-For is client-settable, so
+            // honouring it would let one caller mint a fresh bucket per request.
+            ip: request.headers.get("CF-Connecting-IP") || "",
+            bytes: new Uint8Array(await request.arrayBuffer()),
+          });
+          return Response.json(vr.body, { status: vr.status });
+        } catch (e) {
+          console.error("visitor upload failed:", vslug, (e && (e.stack || e.message)) || e);
+          return Response.json({ error: "couldn't store that just now" }, { status: 500 });
+        }
+      }
+    }
+
     // Public data API for published sites. Unauthenticated by design — a visitor
     // filling in a booking form has no account — so it is allow-listed against
     // the site's own declared schema and refuses anything owner-scoped.
@@ -5500,19 +5574,8 @@ async function handleRequest(request, env, ctx) {
                 const d = await crypto.subtle.digest("SHA-256", bytes);
                 return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
               },
-              list: async (s2) => {
-                const out = [];
-                let cursor;
-                for (;;) {
-                  const page = await env.SITES_BUCKET.list({ prefix: "uploads/" + s2 + "/", cursor });
-                  for (const o of (page.objects || [])) out.push({ key: o.key, size: o.size });
-                  // Same termination rule as deleteSitePrefix: a truncated page
-                  // with no cursor would otherwise loop forever.
-                  if (!page.truncated || !page.cursor) return out;
-                  cursor = page.cursor;
-                }
-              },
-              put: (key, bytes, ct) => env.SITES_BUCKET.put(key, bytes, { httpMetadata: { contentType: ct } }),
+              list: async (s2) => siteUploadList(env, s2),
+              put: (key, bytes, ct, meta) => env.SITES_BUCKET.put(key, bytes, { httpMetadata: { contentType: ct }, ...(meta ? { customMetadata: meta } : {}) }),
               remove: (key) => env.SITES_BUCKET.delete(key),
             };
             if (!env.SITES_BUCKET) return Response.json({ error: "storage not configured" }, { status: 501 });

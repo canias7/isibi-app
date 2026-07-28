@@ -210,3 +210,50 @@ export function useRequestReset() {
       send<{ ok: true }>(authUrl("reset"), { method: "POST", body: JSON.stringify(values) }),
   });
 }
+
+// ── Attaching a picture ──────────────────────────────────────────────────────
+//
+// A file column is an ordinary TEXT column holding a URL. The flow is: upload
+// the file, get a URL back, put that URL in the form value, submit the row as
+// normal. There is no multipart row write and there is no "file field" — the
+// row is still plain JSON.
+//
+// The endpoint only accepts a file for a table a visitor can write to that also
+// declares somewhere to put it, so a form of six text fields cannot upload at
+// all. Getting a 403 here means the schema has no image column, not that the
+// visitor did something wrong.
+
+export type UploadResult = { url: string; name: string; size: number; mime: string };
+
+/**
+ * Upload one picture for `table` and resolve to its URL.
+ *
+ * Raw bytes, not multipart or base64: the server decides the type from the
+ * leading bytes regardless of what is declared, and base64 would inflate a
+ * phone photo by a third for nothing.
+ */
+export async function uploadFile(table: string, file: File): Promise<UploadResult> {
+  const res = await fetch(`/api/db/${siteSlug()}/uploads?table=${encodeURIComponent(table)}`, {
+    method: "POST",
+    headers: { "content-type": file.type || "application/octet-stream" },
+    body: file,
+  });
+  const body = (await res.json().catch(() => ({}))) as { error?: string; code?: string; url?: string } & UploadResult;
+  if (!res.ok || !body.url) {
+    const err = new Error(body.error || `upload failed (${res.status})`);
+    (err as Error & { code?: string; status: number }).code = body.code;
+    (err as Error & { status: number }).status = res.status;
+    throw err;
+  }
+  return body;
+}
+
+/**
+ * The same, as a mutation, so a form can show progress and an error the way it
+ * does for every other write.
+ */
+export function useUploadFile(table: string) {
+  return useMutation({
+    mutationFn: (file: File) => uploadFile(table, file),
+  });
+}

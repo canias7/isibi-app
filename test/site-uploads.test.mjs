@@ -10,6 +10,8 @@ import assert from "node:assert/strict";
 import {
   handleUpload, handleUploadList, handleUploadDelete, sniffImage, uploadName,
   MAX_UPLOAD_BYTES, MAX_FILES_PER_SITE, MAX_SITE_BYTES,
+  handleVisitorUpload, acceptsVisitorUploads,
+  MAX_VISITOR_UPLOAD_BYTES, MAX_VISITOR_FILES, MAX_VISITOR_BYTES,
 } from "../site-uploads.mjs";
 
 // Real leading bytes for each type we accept.
@@ -309,4 +311,158 @@ test("deleting a file that is not there is 404, not a silent success", async () 
   const r = await handleUploadDelete(deps, { slug: "cafe", uid: "owner-1", file: "b".repeat(32) + ".jpg" });
   assert.equal(r.status, 404);
   assert.deepEqual(removes, []);
+});
+
+// ═══════════════════════════════════════════════ uploads from a VISITOR
+//
+// A different thing entirely from the owner's. This one is unauthenticated by
+// design — a customer attaching a photo to a booking has no account — which
+// makes it a public endpoint that accepts arbitrary bytes and serves them back
+// from isibi.ai. Everything above still applies; these are the limits that exist
+// only because the caller is a stranger.
+
+const VSPEC = {
+  bookings: { name: "bookings", access: "collect", columns: [{ name: "date" }, { name: "photo" }] },
+  plain: { name: "plain", access: "collect", columns: [{ name: "date" }, { name: "notes" }] },
+  menu: { name: "menu", access: "display", columns: [{ name: "title" }, { name: "image_url" }] },
+  posts: { name: "posts", access: "feed", columns: [{ name: "body" }, { name: "cover" }] },
+};
+
+function vharness(over = {}) {
+  const puts = [];
+  const deps = {
+    tableFor: async (_s, t) => VSPEC[t] || null,
+    throttle: async () => ({ ok: true }),
+    hash: async () => "c".repeat(64),
+    list: async () => over.objects || [],
+    put: async (key, bytes, ct, meta) => { puts.push({ key, size: bytes.length, ct, meta }); },
+    ...over.deps,
+  };
+  return { deps, puts };
+}
+const vup = (deps, bytes, o = {}) => handleVisitorUpload(deps, { slug: "cafe", table: "bookings", bytes, ip: "1.1.1.1", ...o });
+
+test("a visitor can attach a photo to a form that has somewhere to put it", async () => {
+  const { deps, puts } = vharness();
+  const r = await vup(deps, PNG);
+  assert.equal(r.status, 201);
+  assert.equal(r.body.url, "/u/cafe/" + "c".repeat(32) + ".png");
+  assert.equal(puts[0].meta.visitor, "1", "marked, so the owner can tell them apart");
+});
+
+test("a form with NO image column takes nothing", async () => {
+  // This is what keeps the endpoint from being open image hosting for anyone
+  // who knows a slug. Most sites are a booking form of six text fields.
+  const { deps, puts } = vharness();
+  const r = await vup(deps, PNG, { table: "plain" });
+  assert.equal(r.status, 403);
+  assert.equal(r.body.code, "no_uploads");
+  assert.deepEqual(puts, []);
+});
+
+test("a table a visitor cannot write to takes nothing", async () => {
+  // `display` is site content. There is no reason to accept a stranger's file
+  // for a table they could never submit to.
+  const { deps, puts } = vharness();
+  assert.equal((await vup(deps, PNG, { table: "menu" })).status, 403);
+  assert.deepEqual(puts, []);
+});
+
+test("member tables do accept them", async () => {
+  const { deps } = vharness();
+  assert.equal((await vup(deps, PNG, { table: "posts" })).status, 201);
+});
+
+test("a table the schema never declared is 404", async () => {
+  const { deps, puts } = vharness();
+  for (const table of ["_users", "nope", "", null]) {
+    assert.equal((await vup(deps, PNG, { table })).status, 404, JSON.stringify(table));
+  }
+  assert.deepEqual(puts, []);
+});
+
+test("acceptsVisitorUploads needs BOTH a writable level and a place to put it", () => {
+  assert.equal(acceptsVisitorUploads(VSPEC.bookings), true);
+  assert.equal(acceptsVisitorUploads(VSPEC.plain), false, "no image column");
+  assert.equal(acceptsVisitorUploads(VSPEC.menu), false, "not visitor-writable");
+  assert.equal(acceptsVisitorUploads(null), false);
+  assert.equal(acceptsVisitorUploads({}), false);
+});
+
+test("the throttle runs before the bytes are read or hashed", async () => {
+  // A flood must cost as close to nothing as possible, and this is the endpoint
+  // a stranger can call.
+  let hashed = 0, listed = 0;
+  const { deps, puts } = vharness({ deps: {
+    throttle: async () => ({ ok: false, retryAfter: 30 }),
+    hash: async () => { hashed++; return "c".repeat(64); },
+    list: async () => { listed++; return []; },
+  } });
+  const r = await vup(deps, PNG);
+  assert.equal(r.status, 429);
+  assert.equal(r.body.retryAfter, 30);
+  assert.equal(hashed, 0);
+  assert.equal(listed, 0);
+  assert.deepEqual(puts, []);
+});
+
+test("the throttle is per site and per source", async () => {
+  const keys = [];
+  const { deps } = vharness({ deps: { throttle: async (k) => { keys.push(k); return { ok: true }; } } });
+  await vup(deps, PNG);
+  await vup(deps, PNG, { ip: "2.2.2.2" });
+  await vup(deps, PNG, { slug: "other" });
+  assert.notEqual(keys[0], keys[1]);
+  assert.notEqual(keys[0], keys[2]);
+  assert.match(keys[0], /1\.1\.1\.1/);
+});
+
+test("a visitor's file cap is smaller than the owner's", async () => {
+  assert.ok(MAX_VISITOR_UPLOAD_BYTES < MAX_UPLOAD_BYTES);
+  const { deps, puts } = vharness();
+  const big = new Uint8Array(MAX_VISITOR_UPLOAD_BYTES + 1);
+  big.set(PNG.slice(0, 8));
+  const r = await vup(deps, big);
+  assert.equal(r.status, 413);
+  assert.deepEqual(puts, []);
+});
+
+test("visitors get their own allowance, and cannot crowd the owner out", async () => {
+  // The owner's own pictures are not a stranger's budget to spend.
+  const ownerFiles = Array.from({ length: 100 }, (_, i) => ({ key: `uploads/cafe/o${i}.png`, size: MAX_VISITOR_BYTES }));
+  const { deps } = vharness({ objects: ownerFiles });
+  assert.equal((await vup(deps, PNG)).status, 201, "the owner's files do not count against the visitor allowance");
+
+  const visitorFiles = Array.from({ length: MAX_VISITOR_FILES }, (_, i) => ({ key: `uploads/cafe/v${i}.png`, size: 1, visitor: true }));
+  const { deps: full, puts } = vharness({ objects: visitorFiles });
+  const r = await vup(full, PNG);
+  assert.equal(r.status, 409);
+  assert.equal(r.body.code, "full");
+  assert.deepEqual(puts, []);
+});
+
+test("the visitor byte allowance counts the new file too", async () => {
+  const { deps } = vharness({ objects: [{ key: "uploads/cafe/v.png", size: MAX_VISITOR_BYTES - 5, visitor: true }] });
+  assert.equal((await vup(deps, PNG)).status, 409);
+});
+
+test("a visitor cannot upload an SVG either", async () => {
+  const { deps, puts } = vharness();
+  assert.equal((await vup(deps, SVG)).status, 415);
+  assert.equal((await vup(deps, HTML)).status, 415);
+  assert.deepEqual(puts, []);
+});
+
+test("a visitor's re-upload de-duplicates rather than spending the allowance twice", async () => {
+  const key = "uploads/cafe/" + "c".repeat(32) + ".png";
+  const { deps, puts } = vharness({ objects: [{ key, size: 10, visitor: true }] });
+  const r = await vup(deps, PNG);
+  assert.equal(r.body.dedup, true);
+  assert.deepEqual(puts, []);
+});
+
+test("an empty visitor upload is refused", async () => {
+  const { deps, puts } = vharness();
+  assert.equal((await vup(deps, new Uint8Array(0))).status, 400);
+  assert.deepEqual(puts, []);
 });

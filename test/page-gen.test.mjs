@@ -413,5 +413,25 @@ test("the rules tell the model what an image column is, and to guard it", () => 
   assert.match(PAGE_RULES, /A COLUMN NAMED FOR A PICTURE HOLDS A URL STRING/);
   assert.match(PAGE_RULES, /\/u\/<slug>\//, "and where those URLs come from");
   assert.match(PAGE_RULES, /ALWAYS GUARD IT/);
-  assert.match(PAGE_RULES, /Never put an upload control on a\s+page/, "there is no visitor upload route");
+  assert.match(PAGE_RULES, /placeholder box,\s+never a broken one/, "an image or a box, never <img src=\"\">");
+});
+
+test("the rules tell the model how a visitor attaches a picture", () => {
+  // Upload first, submit the URL as an ordinary text field. The row write stays
+  // plain JSON — a model reaching for multipart would produce a form that 400s.
+  assert.match(PAGE_RULES, /useUploadFile/);
+  // The rules text wraps, so anything asserted across a line break needs \s+.
+  assert.match(PAGE_RULES, /only when its table declares an image\s+column/i);
+  assert.match(PAGE_RULES, /still plain JSON/);
+  assert.match(PAGE_RULES, /SVG is refused/);
+  assert.match(PAGE_RULES, /2 MB/, "say the cap next to the control, not after the pick");
+});
+
+test("the upload hook the rules name really exists in the template", () => {
+  // A rule that names an export the template does not have is a rule that
+  // produces code which does not compile.
+  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
+  for (const fn of ["useUploadFile", "uploadFile"]) {
+    assert.match(rows, new RegExp("export (async )?function " + fn), fn);
+  }
 });

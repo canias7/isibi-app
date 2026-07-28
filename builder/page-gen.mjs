@@ -287,12 +287,28 @@ or an access level — anything not in the schema below does not exist.
 7. A COLUMN NAMED FOR A PICTURE HOLDS A URL STRING. \`photo\`, \`image_url\`, \`avatar\`,
    \`logo\`, \`cover\`, \`hero_image\` and the like are ordinary text columns whose value is a
    path like "/u/<slug>/<hash>.jpg". Render one as a plain
-   \`<img src={row.photo} alt="" className="..." />\`. Never put an upload control on a
-   page — there is no visitor upload route, so it could not work.
-   ALWAYS GUARD IT: the owner fills these in after the build, so the value is often
-   empty, and \`<img src="">\` renders as a broken image on a brand-new site. Write
-   \`{row.photo ? <img .../> : <div className="..." />}\` — an image or a placeholder box,
-   never a broken one.
+   \`<img src={row.photo} alt="" className="..." />\`.
+   ALWAYS GUARD IT: on a \`display\` table the owner fills these in after the build, so
+   the value is often empty, and \`<img src="">\` renders as a broken image on a brand-new
+   site. Write \`{row.photo ? <img .../> : <div className="..." />}\` — an image or a
+   placeholder box, never a broken one.
+
+8. A FORM MAY LET THE VISITOR ATTACH ONE, but only when its table declares an image
+   column. Upload first, then submit the URL as an ordinary text field:
+
+   \`\`\`tsx
+   const upload = useUploadFile("bookings");           // from "@/lib/rows"
+   // <Input type="file" accept="image/png,image/jpeg,image/webp,image/gif" ... />
+   const { url } = await upload.mutateAsync(file);
+   form.setValue("photo", url);                        // then create the row as normal
+   \`\`\`
+
+   The row write is still plain JSON — there is no multipart and no "file field".
+   Disable submit while \`upload.isPending\`, and surface \`error.message\` like any other
+   write: the API says "that image is too big" or "that doesn't look like a PNG, JPEG,
+   WebP or GIF", which is worth showing. **PNG, JPEG, WebP and GIF only — SVG is refused**
+   — and the file is capped at 2 MB, so say so next to the control rather than letting
+   someone pick a 12 MB photo and be told no afterwards.
 
 ## Reading rows
 
