@@ -7,6 +7,7 @@ import { makeCache, memoize } from "./ttl-cache.mjs";
 import { ensureSiteBackend as ensureSiteBackendPure } from "./site-provision.mjs";
 import { lookupRoute, saveRoute, dropRoute } from "./site-routing.mjs";
 import { handleSiteAuth } from "./site-auth-routes.mjs";
+import { handleOwnerData, handleOwnerTables } from "./site-owner.mjs";
 import { sessionKey, verifySession } from "./site-auth.mjs";
 import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
@@ -5275,6 +5276,40 @@ async function handleRequest(request, env, ctx) {
         problems: pages.problems.length ? pages.problems : undefined,
         cost: (designed ? SITE_BUILD_FEE : 0) + pages.cost, buildMs: pages.buildMs || undefined,
       });
+    }
+
+    // GET /api/site/<slug>/rows[/<table>] — the OWNER reading their own site.
+    //
+    // A different door from /api/db: that one is the published site's public API,
+    // where the caller is a visitor with no isibi account. This one is
+    // authenticated by the owner's isibi session, and it can read anything in
+    // their own site — including `collect` tables, which the public API refuses
+    // by design. That refusal is why, until now, a barber shop took bookings
+    // nobody could ever see.
+    if (url.pathname.startsWith("/api/site/") && url.pathname.includes("/rows") && request.method === "GET") {
+      const om = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rows(?:\/([a-z_][a-z0-9_]{0,40}))?$/i);
+      if (om) {
+        const ou = await authUser(request);
+        if (!ou) return UNAUTHED();
+        const [, oslug, otable] = om;
+        const deps = {
+          ownerOf: async (s2) => {
+            const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s2)}&select=uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
+            if (!g.ok) throw Object.assign(new Error("site lookup failed"), { detail: g.status });
+            const rows = await g.json();
+            return (Array.isArray(rows) && rows[0] && rows[0].uid) || null;
+          },
+          dbFor: (s2) => siteBackendBySlug(env, s2),
+          loadSchema: (conn) => loadSiteSchema(conn),
+          query: (conn, sql, args) => sqlQuery(conn, sql, args),
+          ident: sqlIdent,
+        };
+        const params = Object.fromEntries(url.searchParams);
+        const r = otable
+          ? await handleOwnerData(deps, { slug: oslug.toLowerCase(), table: otable, uid: ou.id, params })
+          : await handleOwnerTables(deps, { slug: oslug.toLowerCase(), uid: ou.id });
+        return Response.json(r.body, { status: r.status });
+      }
     }
 
     // DELETE /api/site/<slug> — take a published site down: its files, its
