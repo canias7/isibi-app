@@ -134,13 +134,20 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
     }
   }
 
-  // Editing and removing existing rows is still refused for everyone. The
-  // handlers below are written and work, but "which rows may this member touch"
-  // is a decision that has not been made yet, and guessing it wrong is how one
-  // member edits another's row.
+  // Editing and removing.
+  //
+  // Answered 2026-07-28, and the answer is the only safe one: a member may touch
+  // the rows they OWN, and nothing else. Ids are sequential integers, so scoping
+  // by id alone — which is all these handlers used to do — means member A edits
+  // member B's row by guessing a number. `collect` and `display` have no owner at
+  // all and stay refused.
   if (method === "PATCH" || method === "DELETE") {
-    return json({ error: "that table is submit-only", access }, 403);
+    if (!needsVisitor) return json({ error: "that table is submit-only", access }, 403);
   }
+  // Rows a member owns are theirs to change; an `admin` table has no owner and is
+  // governed by the role check above instead.
+  const ownScoped = scoped ? ' AND "owner_id"=?' : "";
+  const ownParam = scoped ? [visitor.id] : [];
 
   const tn = sqlIdent(def.name);
   const cols = columnNames(def);
@@ -212,11 +219,14 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
       if (!wc.length) return json({ error: "nothing to update" }, 400);
       const r = await sqlExec(
         db,
-        "UPDATE " + tn + " SET " + wc.map((c) => sqlIdent(c) + "=?").join(",") + " WHERE id=?",
-        vals.concat([rowId]),
+        "UPDATE " + tn + " SET " + wc.map((c) => sqlIdent(c) + "=?").join(",") + " WHERE id=?" + ownScoped,
+        vals.concat([rowId], ownParam),
       );
+      // 404, not 403, when the row is somebody else's. A 403 would confirm the
+      // row exists and belongs to another member, which is an enumeration oracle
+      // over sequential ids.
       if (!r.changes) return json({ error: "no such row" }, 404);
-      const rows = await sqlQuery(db, "SELECT * FROM " + tn + " WHERE id=?", [rowId]);
+      const rows = await sqlQuery(db, "SELECT * FROM " + tn + " WHERE id=?" + ownScoped, [rowId].concat(ownParam));
       return json({ row: rows[0] || null });
     }
 
@@ -224,8 +234,8 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
       if (!rowId) return json({ error: "no row id" }, 400);
       // A table declaring `trash` soft-deletes, so a mistake is recoverable.
       const r = def.trash
-        ? await sqlExec(db, "UPDATE " + tn + ' SET "deleted_at"=to_char(now() AT TIME ZONE \'UTC\',\'YYYY-MM-DD HH24:MI:SS\') WHERE id=? AND "deleted_at" IS NULL', [rowId])
-        : await sqlExec(db, "DELETE FROM " + tn + " WHERE id=?", [rowId]);
+        ? await sqlExec(db, "UPDATE " + tn + ' SET "deleted_at"=to_char(now() AT TIME ZONE \'UTC\',\'YYYY-MM-DD HH24:MI:SS\') WHERE id=? AND "deleted_at" IS NULL' + ownScoped, [rowId].concat(ownParam))
+        : await sqlExec(db, "DELETE FROM " + tn + " WHERE id=?" + ownScoped, [rowId].concat(ownParam));
       if (!r.changes) return json({ error: "no such row" }, 404);
       return json({ ok: true });
     }

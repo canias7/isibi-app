@@ -282,10 +282,22 @@ test("fetch named only in a comment is not reported", () => {
   assert.deepEqual(lintPages(page("// never call fetch( here\n/* nor fetch( here */"), SPEC), []);
 });
 
-test("editing and deleting a row are caught — the API refuses both", () => {
-  const p = lintPages(page("useUpdateRow('x'); useDeleteRow('y');"), SPEC).join(" ");
-  assert.match(p, /refuses PATCH/);
-  assert.match(p, /refuses DELETE/);
+test("editing without a member, or without a member table, is reported", () => {
+  // PATCH and DELETE work as of 2026-07-28, but only on a member's OWN rows. So
+  // an edit UI with no session has nothing to scope by (401), and a schema with
+  // no member table has no editable row at all — `collect` and `display` rows
+  // have no owner.
+  const spec = { tables: [{ name: "mine", access: "user", columns: [{ name: "body" }] }] };
+  const noMember = lintPages(page('useRows("mine"); useUpdateRow("mine");'), spec);
+  assert.ok(noMember.some((x) => /useUpdateRow\/useDeleteRow without useMember/.test(x)), JSON.stringify(noMember));
+
+  assert.deepEqual(
+    lintPages(page('const { data: me } = useMember(); useRows("mine"); useUpdateRow("mine"); useDeleteRow("mine");'), spec),
+    [], "a signed-in member editing their own rows is exactly what the level is for");
+
+  const displayOnly = { tables: [{ name: "menu", access: "display", columns: [{ name: "title" }] }] };
+  const p2 = lintPages(page('const { data: me } = useMember(); useRows("menu"); useDeleteRow("menu");'), displayOnly);
+  assert.ok(p2.some((x) => /no member table/.test(x)), JSON.stringify(p2));
 });
 
 test("a ui component that does not exist is caught", () => {

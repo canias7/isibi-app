@@ -304,3 +304,81 @@ test("an admin table is readable to any member but writable only by a role", asy
     assert.equal((await handleSiteData({}, post(), url, async () => ok.db, ok.deps)).status, 201, role);
   }
 });
+
+// ------------------------------------------- editing and deleting own rows
+
+const memberDeps = (db, spec, visitor) => ({
+  sqlQuery: async (_c, sql, p) => (await db.query(sql, p)).rows,
+  sqlExec: async (_c, sql, p) => { const r = await db.query(sql, p); return { results: r.rows, changes: r.rowCount }; },
+  loadSiteSchema: async () => spec,
+  resolveVisitor: async () => visitor,
+});
+
+test("a member may edit a row, scoped to the one they own", async () => {
+  // Ids are sequential integers. Scoping by id ALONE — which is all these
+  // handlers did while they were unreachable — means member A edits member B's
+  // row by guessing a number.
+  const db = fakeDb(SPEC);
+  const url = new URL("https://isibi.ai/api/db/shop/rows/mine/5");
+  const req = new Request(url, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ date: "2031-01-01" }) });
+  const res = await handleSiteData({}, req, url, async () => db, memberDeps(db, SPEC, { id: 7, role: "user" }));
+  assert.equal(res.status, 200);
+  const q = db.__seen.find((x) => /^UPDATE "mine"/.test(x.sql));
+  assert.match(q.sql, /WHERE id=\? AND "owner_id"=\?/, "the update must be owner-scoped: " + q.sql);
+  assert.ok(q.params.includes(7));
+});
+
+test("a member may delete a row, scoped the same way", async () => {
+  const db = fakeDb(SPEC);
+  const url = new URL("https://isibi.ai/api/db/shop/rows/mine/5");
+  const res = await handleSiteData({}, new Request(url, { method: "DELETE" }), url, async () => db, memberDeps(db, SPEC, { id: 7, role: "user" }));
+  assert.equal(res.status, 200);
+  const q = db.__seen.find((x) => /^DELETE FROM "mine"/.test(x.sql));
+  assert.match(q.sql, /WHERE id=\? AND "owner_id"=\?/, q.sql);
+  assert.ok(q.params.includes(7));
+});
+
+test("someone else's row is 404, not 403 — on edit AND delete", async () => {
+  // 403 would confirm the row exists and belongs to another member, which is an
+  // enumeration oracle over sequential ids. 404 says nothing. Both verbs, because
+  // one of them saying the quiet part is enough.
+  for (const method of ["PATCH", "DELETE"]) {
+    const db = fakeDb(SPEC);
+    db.query = async () => ({ rows: [], rowCount: 0 });
+    const url = new URL("https://isibi.ai/api/db/shop/rows/mine/999");
+    const req = new Request(url, method === "PATCH"
+      ? { method, headers: { "content-type": "application/json" }, body: JSON.stringify({ date: "2031-01-01" }) }
+      : { method });
+    const res = await handleSiteData({}, req, url, async () => db, memberDeps(db, SPEC, { id: 7, role: "user" }));
+    assert.equal(res.status, 404, method);
+    const body = JSON.stringify(await res.json());
+    assert.ok(!/yours|permission|forbidden/i.test(body), `${method} must not hint that the row exists: ${body}`);
+  }
+});
+
+test("editing still needs a session", async () => {
+  const { res } = await call("PATCH", "/api/db/shop/rows/mine/5", { body: { date: "2031-01-01" } });
+  assert.equal(res.status, 401);
+});
+
+test("a collect or display table is still never editable", async () => {
+  // Neither has an owner, so there is nobody a scope could name. A `collect`
+  // row is another visitor's submission; a `display` row is site content.
+  for (const [table, method] of [["bookings", "PATCH"], ["bookings", "DELETE"], ["services", "PATCH"], ["services", "DELETE"]]) {
+    const db = fakeDb(SPEC);
+    const url = new URL(`https://isibi.ai/api/db/shop/rows/${table}/1`);
+    const res = await handleSiteData({}, new Request(url, { method }), url, async () => db, memberDeps(db, SPEC, { id: 7, role: "user" }));
+    assert.equal(res.status, 403, `${method} ${table}`);
+    assert.ok(!db.__seen.some((q) => /^UPDATE|^DELETE/.test(q.sql)), "and nothing was run");
+  }
+});
+
+test("a trash table soft-deletes, still owner-scoped", async () => {
+  const spec = { tables: [{ name: "drafts", access: "user", columns: [{ name: "body" }], trash: true }] };
+  const db = fakeDb(spec);
+  const url = new URL("https://isibi.ai/api/db/shop/rows/drafts/5");
+  await handleSiteData({}, new Request(url, { method: "DELETE" }), url, async () => db, memberDeps(db, spec, { id: 7, role: "user" }));
+  const q = db.__seen.find((x) => /deleted_at/.test(x.sql));
+  assert.match(q.sql, /UPDATE "drafts"/, "trash means soft-delete, so a mistake is recoverable");
+  assert.match(q.sql, /"owner_id"=\?/, q.sql);
+});

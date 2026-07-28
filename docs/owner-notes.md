@@ -9874,3 +9874,34 @@ spend. Seeding is non-fatal. The placeholder only publishes when nothing is live
 failed revise leaves a working site alone.
 
 3 mutations, all caught. Unit suite **220**.
+
+## 2026-07-28 — members can now edit and delete their own rows
+
+The handlers had been written the whole time and refused at the door, because "which rows may this
+member touch" was undecided. With `owner_id` now stamped from a verified session, it is answerable.
+
+The answer is the only safe one: **a member may touch the rows they own, and nothing else.** That
+mattered more than it sounds — the existing handlers scoped by `id` ALONE, and ids are sequential
+integers. Enabling them unchanged would have let one member edit another's row by guessing a number.
+
+`collect` and `display` rows have no owner at all, so they stay refused — a `collect` row is another
+visitor's submission and a `display` row is site content.
+
+**Someone else's row answers 404, not 403.** A 403 confirms the row exists and belongs to another
+member, which over sequential ids is a way to count a site's membership. There is a test asserting
+the body says nothing about ownership, on both verbs — one of them saying the quiet part is enough.
+That test initially covered only DELETE, and the mutation against PATCH survived; caught and fixed.
+
+A `trash` table soft-deletes, still owner-scoped, so a member's mistake is recoverable.
+
+The generator learned it too: `useUpdateRow`/`useDeleteRow` used to be flagged as always-wrong. Now
+they are flagged only without `useMember()`, or when the schema has no member table to own anything.
+
+### A correction from the screenshot
+
+I told you the saved-recipe card rendered its fields in the wrong order and was worth a look. It was
+not — my browser harness filled five inputs by cycling a three-item array, so the INPUT was scrambled
+and the page displayed it faithfully. Checked field by field: every one matches what was typed into
+it. Nothing to fix, and I should not have flagged it without checking first.
+
+Unit suite **309**, site-build integration 18/18.

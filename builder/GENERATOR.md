@@ -115,8 +115,11 @@ something was imported that should not have been.
   Accounts live in the site's own database, so one site's members are not
   another's. Only build sign-in when the schema actually declares a member
   table — a site of `display` and `collect` tables needs no accounts.
-- **Editing or deleting rows** from a published site. `PATCH` and `DELETE` are
-  refused at every level. Sites are read-and-submit for now.
+- ~~Editing or deleting rows~~ — **built 2026-07-28**, but only a member's OWN
+  rows in a `user` or `feed` table, via `useUpdateRow`/`useDeleteRow` with a
+  signed-in member. `collect` and `display` rows have no owner and can never be
+  changed from a page. Another member's row answers **404**, not 403 — ids are
+  sequential, and 403 would confirm the row exists.
 - **File upload.** No route.
 
 If a brief needs one of these, generate what is possible and say plainly what
