@@ -10492,3 +10492,48 @@ which cost me an hour of reading to learn: **do not assume a declared feature do
 finding its DDL.**
 
 Unit suite **495**.
+
+---
+
+## 2026-07-28 — publicView, and the booking page can finally grey out a taken slot
+
+The most useful of the seventeen dead features, and the other half of the double-booking fix: #840
+stopped a duplicate booking being ACCEPTED, this stops the visitor being OFFERED it.
+
+`GET /api/db/<slug>/rows/<table>/public`. A `collect` table cannot be read — that is the point of it
+— so a booking page had no way to know which times were gone. The only alternative was making the
+table readable, which publishes every customer's name and email.
+
+It deliberately ignores the access level, which is exactly why nothing about it is inferred:
+
+- The columns are an explicit allow-list from the table's own declaration, and the parser already
+  refuses `id` and `owner_id`. No wildcard.
+- A caller may filter, but ONLY on the published columns. Otherwise filtering on `customer_email` and
+  watching the row count answers "does this person have a booking?".
+- The declared `where` is ANDed on, so a site publishing only confirmed bookings cannot be made to
+  surface a cancelled one.
+
+Live on the barber shop, as a stranger with no account:
+
+```
+ok   the public view is readable with no account
+ok   it shows WHEN people booked
+ok   and NOTHING about who
+     2030-06-15 14:30 · 2030-01-01 10:00 · 2031-03-03 14:00 · 2032-04-04 11:00
+ok   a direct read of the table is still 403
+```
+
+### Two things the live run taught me, both about my own testing
+
+**The 15s schema cache is long enough to fail a test.** The first run declared the publicView and read
+it two seconds later — and got the schema from *before* the declaration, because `applySiteSchema`
+only clears the cache in the isolate that ran the build and every other PoP heals by expiry. That is
+the documented, deliberate tradeoff, not a bug; but it means **a revise takes up to 15 seconds to
+become visible**, which is worth knowing before someone reports it as one.
+
+**Two of that run's "passes" were vacuous.** "Filtering on an unpublished column is ignored" compared
+row counts — and 0 equals 0, so it passed while everything was 404ing. Same for "filtering on a
+published column works", which used `.every()` on an empty array. Both now require rows, and the
+narrowing one requires *strictly fewer* rows than the unfiltered read.
+
+Unit suite **508**.
