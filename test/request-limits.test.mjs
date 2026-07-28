@@ -127,3 +127,17 @@ test("nothing at all does not crash", async () => {
     assert.deepEqual(clampFields(b).body, {});
   }
 });
+
+test("this supersedes tooLargeBody for JSON, rather than competing with it", async () => {
+  // worker.js's tooLargeBody checks content-length ONLY — the header the caller
+  // writes — so a request that omits it passes unconditionally. That is fine as
+  // a pre-buffer courtesy and useless as a control. Asserted here because the
+  // failure mode is somebody adding a third mechanism, or trusting the header.
+  const noHeader = {
+    headers: new Headers(),                       // no content-length at all
+    text: async () => JSON.stringify({ a: "x".repeat(MAX_JSON_BODY) }),
+  };
+  const r = await readJsonBody(noHeader);
+  assert.equal(r.ok, false, "a body with no content-length must still be measured");
+  assert.equal(r.status, 413);
+});

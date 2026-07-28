@@ -8,6 +8,19 @@
 //
 // A layer, not a feature: it applies to every write on every site regardless of
 // what the site does, which is the only kind of thing that belongs here.
+//
+// RELATIONSHIP TO `tooLargeBody` in worker.js. That helper already exists and is
+// used on six routes (media save, the Stripe webhook, the game and revise
+// endpoints). It checks `content-length` and nothing else — which is the header
+// the CALLER writes, so it is a courtesy that saves buffering, not a control: a
+// request that omits the header passes it unconditionally. It is also applied to
+// none of the site-builder routes.
+//
+// `readJsonBody` does both halves in one call — the cheap header check first, so
+// megabytes are never buffered, then the real byte count of what arrived. For a
+// JSON route it supersedes `tooLargeBody`; `tooLargeBody` still has a job on
+// routes that read raw text rather than JSON (the webhook reads the body for an
+// HMAC and must not have it parsed). Do not add a third mechanism.
 
 /** A form submission. Generous for prose, nowhere near a payload attack. */
 export const MAX_JSON_BODY = 128 * 1024;
