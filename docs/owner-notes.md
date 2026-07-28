@@ -10120,3 +10120,25 @@ asserts it got that slug back. A test must not depend on a global namespace it d
 `velvet-static`, `wick-and-willow`. Each is a real Neon database and holds the slug. `recipe-club`
 has real member accounts on it from the auth testing. Left in place rather than deleted — say the
 word and they go through `DELETE /api/site/<slug>`.
+
+### A build that falls back now says WHY
+
+The smoke test's next run got past the slug collision and built a real site — then went red on
+`the generated app was published, not the fallback  -> page=placeholder`, with no way to tell what
+had happened. Two separate problems, and the second is the one that matters:
+
+1. The failure line put the model's own `notes` (hundreds of characters of prose) before the fields
+   that explain the failure, so `problems` was cut off by the truncation. Reordered: stage, error,
+   problems, then notes clipped to 120.
+2. **The response never carried `stage` or `error` at all.** `publish-pages.mjs` has returned both
+   since it was extracted — that was one of the two deliberate improvements over the inline original
+   — and `worker.js` was dropping them on the floor. So a build that published the placeholder said
+   only "placeholder": no way to distinguish a compile error from a lint refusal from the credit
+   floor, for the smoke test or for the person who just paid for the build. Now passed through
+   (only when it did NOT publish the app; it is the owner's own build, so there is nothing here they
+   should not see).
+
+**Not yet known whether that placeholder is a regression or ordinary generator variance** — the
+generator writes a page, and a page that fails typecheck or lint gets one repair pass and then falls
+back by design. Saying which needs the stage, which is exactly what was missing. The next deploy
+runs the smoke automatically with the instrumentation in place.

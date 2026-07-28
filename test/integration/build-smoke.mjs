@@ -159,8 +159,13 @@ try {
   // `page` says which of the two things was published. The generated app is the
   // normal outcome; the placeholder is the fallback for a build that failed, so
   // landing on it is a regression and has to go red rather than pass quietly.
+  // Diagnostic order matters: `notes` is the model's own prose and can run to
+  // hundreds of characters, which pushed the fields that say WHY off the end of
+  // the truncated line. stage/error/problems first, notes last and short.
   ok("the generated app was published, not the fallback", d.page === "app",
-    "page=" + d.page + " notes=" + (d.notes || "-") + " problems=" + JSON.stringify(d.problems || []));
+    "page=" + d.page + " stage=" + (d.stage || "-") + " error=" + (d.error || "-") +
+    " problems=" + JSON.stringify(d.problems || []) +
+    " notes=" + String(d.notes || "-").slice(0, 120));
   ok("the build reports the route files it wrote",
     Array.isArray(d.files) && d.files.some((f) => /index\.tsx$/.test(f)), JSON.stringify(d.files));
 
