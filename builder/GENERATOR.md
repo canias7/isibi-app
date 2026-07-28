@@ -101,15 +101,19 @@ something was imported that should not have been.
 
 ## Not available yet
 
-- **Changing a `display` table's content after the build.** Writes to `display`
-  are 403 for every caller *including the owner*, and no owner-write route
-  survived the 2026-07-27 runtime deletion. The schema designer now ships
-  starter rows in `seed` and they are inserted at build time, so a site is
-  populated on arrival — but the only way to change them afterwards is another
-  build. (Before seeding, on 2026-07-28, every generated site launched with an
-  empty list AND a form nobody could submit, because its required Service select
-  read that empty table.) Still generate the empty state: seeding is
-  best-effort, and a table can legitimately end up with no rows.
+- **Changing a `display` table's content FROM A PAGE.** Writes to `display` are
+  403 for every caller on the public API, and that has not changed — a visitor
+  must never edit the menu. What changed on 2026-07-28 is that the *owner* can,
+  through their own door (`/api/site/<slug>/rows/...`, an isibi session rather
+  than a site one) and its panel in the builder. So a café corrects a price
+  without rebuilding — but **not from a generated page**, and never from a page
+  a visitor can reach. Keep generating `display` tables as read-only.
+  The schema designer also ships starter rows in `seed`, inserted at build time,
+  so a site is populated on arrival. (Before seeding, on 2026-07-28, every
+  generated site launched with an empty list AND a form nobody could submit,
+  because its required Service select read that empty table.) Still generate the
+  empty state: seeding is best-effort, and a table can legitimately end up with
+  no rows.
 - ~~Visitor accounts~~ — **built 2026-07-28.** `useMember`, `useSignup`,
   `useLogin`, `useLogout` and `useRequestReset` all come from `@/lib/rows`.
   Accounts live in the site's own database, so one site's members are not

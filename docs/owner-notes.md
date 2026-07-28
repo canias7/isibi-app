@@ -10001,3 +10001,67 @@ carried by the merged schema, which is the authoritative half anyway.
 
 Unit suite **362** (+39). Every new test mutation-checked: 26/26 on the limiter, 11/11 on the
 wiring, 8/8 on the brief.
+
+---
+
+## 2026-07-28 — the owner's data panel, both halves
+
+Went looking for what to do next and found the answer rather than guessing: **`public/chat.js` had a
+fully-built site management panel calling eight routes that no longer exist**, all deleted in the
+2026-07-27 runtime removal and never re-pointed. The Data tab is a real rendered tab next to
+Preview/Code/More, it fires on open, and every call in it 404'd — table list, row list, add/edit/
+delete form. The Submissions and Members modals too.
+
+And the mirror image: `GET /api/site/<slug>/rows`, built yesterday so a barber shop could finally
+see its bookings, **had no caller.** Two halves of the same hole.
+
+### Owner writes
+
+`POST`/`PATCH`/`DELETE /api/site/<slug>/rows/<table>[/<id>]`. This closes the last item GENERATOR.md
+listed under *not available yet*: nothing could write a `display` table after the build — not a
+visitor, not the owner, there was no route — so a café could not correct a price without rebuilding
+the entire site. That is also the whole reason build-time seeding had to exist.
+
+The calls worth writing down:
+
+- **PATCH/DELETE work on every declared table.** The owner owns all of it, and they can already read
+  every row through this door; editing a member's post is moderation, not impersonation.
+- **POST is refused on `user`/`feed` with a 409.** Those rows belong to a member, and the owner has
+  no id in that database's `_users` — the row would carry `owner_id` NULL: invisible to every `user`
+  read (which scopes to the caller's own id) and unattributable in a feed. Refused rather than
+  silently creating an orphan.
+- **Managed columns are dropped even when the table DECLARES one.** An `ordered`/`trash`/`version`
+  table carries `position`/`deleted_at`/`_version` in its stored column list, so "it was declared"
+  is not enough — setting one by hand desynchronises the row from its own ordering, soft-delete and
+  optimistic-lock state. A mutation test caught that my first version was only safe by accident.
+- **A row id that is not a positive integer is 400.** It is a bound parameter, so this was never
+  injection — it is a Postgres type error surfacing as a 500 when the honest answer is "no such row".
+
+### `_users`, and why it needs its own route
+
+Members are reachable only through `/api/site/<slug>/members`. `_users` is deliberately not part of
+the declared schema, and that is exactly what puts it out of reach of every other route here — no
+password hash is readable or writable through the table door. The members route is the one place
+that names it, and it **names its columns explicitly**: a `SELECT *` would ship `pass_hash` the
+moment anyone adds a column.
+
+Deleting a member leaves their rows alone. `owner_id` stops matching anyone, but a deleted customer's
+bookings should not silently vanish from the owner's list.
+
+### One hazard found on the way
+
+The site-delete route matched **any** DELETE under `/api/site/` and stripped the path down to a slug,
+so `/api/site/cafe/rows/bookings/4` would have arrived as the slug `caferowsx4`. Harmless only by
+luck, and directly in the path of every row delete. Tightened to a bare slug, and the matcher
+precedence is now checked explicitly.
+
+### Still dead, and honestly so
+
+Re-pointed: the Data tab, the Submissions modal, the Members modal. **Not re-pointed, because there
+is no backend for them at all:** the Database modal's backups / export / metrics cards, and
+`/api/site/analytics`, `/api/site/scan`, `/api/site/publish`, `/api/site/unpublish`,
+`/api/site/preview`. Analytics is the interesting one — `worker.js` writes `site_hits` on every
+visit and nothing reads it.
+
+Unit suite **386**. 25/25 mutations caught on the owner door (one of which, the managed-column
+filter, was genuinely untested until it flagged).
