@@ -197,6 +197,10 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
     if (/duplicate key|unique constraint/i.test(msg)) return json({ error: "that already exists", code: "duplicate" }, 409);
     if (/missing parent/i.test(msg)) return json({ error: "that refers to something that doesn't exist", code: "bad_ref" }, 400);
     if (/row limit reached/i.test(msg)) return json({ error: "no more room", code: "full" }, 409);
+    // EXCLUDE USING gist refusing an overlapping interval — a double booking.
+    if (/conflicting key value violates exclusion constraint|_nooverlap/i.test(msg)) {
+      return json({ error: "that time is already taken", code: "overlap" }, 409);
+    }
     console.error("site data error:", slug, tableName, msg.slice(0, 200));
     return json({ error: "that didn't work" }, 500);
   }

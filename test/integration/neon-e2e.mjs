@@ -44,6 +44,16 @@ const SCHEMA = normalizeSchema({
       version: true,
     },
     {
+      name: "slots",
+      access: "public",
+      columns: [
+        { name: "room", type: "text" },
+        { name: "start_min", type: "integer" },
+        { name: "end_min", type: "integer" },
+      ],
+      noOverlap: { on: ["room"], start: "start_min", end: "end_min" },
+    },
+    {
       name: "comments",
       access: "public",
       columns: [
@@ -70,7 +80,7 @@ try {
 
   console.log("applying the schema…");
   const made = await applySiteSchema(db, SCHEMA);
-  ok("applySiteSchema reports both tables", made.length === 2, JSON.stringify(made));
+  ok("applySiteSchema reports every table", made.length === 3, JSON.stringify(made));
 
   // --- identity column + text timestamp default ---------------------------
   await sqlQuery(db, 'INSERT INTO "posts" ("title","body","views") VALUES (?,?,?)', ["Hello", "world of postgres", 1]);
@@ -122,6 +132,18 @@ try {
   catch (e) { capped = /row limit reached/i.test(String(e && (e.message || e))); }
   ok("row cap refuses the 6th comment", capped);
 
+  // --- noOverlap: a real EXCLUDE constraint, not a checked-then-written race
+  await sqlQuery(db, 'INSERT INTO "slots" ("room","start_min","end_min") VALUES (?,?,?)', ["a", 600, 660]);
+  ok("first booking is accepted", true);
+  await sqlQuery(db, 'INSERT INTO "slots" ("room","start_min","end_min") VALUES (?,?,?)', ["a", 660, 720]);
+  ok("a booking starting exactly when the last ends is allowed (half-open)", true);
+  await sqlQuery(db, 'INSERT INTO "slots" ("room","start_min","end_min") VALUES (?,?,?)', ["b", 600, 660]);
+  ok("the same time in a different room is allowed", true);
+  let clashed = false;
+  try { await sqlQuery(db, 'INSERT INTO "slots" ("room","start_min","end_min") VALUES (?,?,?)', ["a", 630, 690]); }
+  catch (e) { clashed = /exclusion constraint|nooverlap/i.test(String(e && (e.message || e))); }
+  ok("an overlapping booking is refused by the database", clashed);
+
   // --- sqlExec change counts ----------------------------------------------
   const upd = await sqlExec(db, 'UPDATE "posts" SET "views"=? WHERE id=?', [42, rows[0].id]);
   ok("sqlExec reports rows changed", upd.changes === 1, JSON.stringify(upd));
@@ -130,7 +152,7 @@ try {
 
   // --- re-applying a schema must be safe (revise path) --------------------
   const again = await applySiteSchema(db, SCHEMA);
-  ok("schema re-apply is idempotent", again.length === 2);
+  ok("schema re-apply is idempotent", again.length === 3);
   const stillOne = await sqlQuery(db, 'SELECT COUNT(*)::int AS n FROM "posts" WHERE "title"=?', ["Hello edited"]);
   ok("re-apply did not destroy existing rows", stillOne[0].n === 1);
 } catch (e) {

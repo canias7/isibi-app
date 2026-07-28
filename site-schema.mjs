@@ -330,6 +330,38 @@ export async function applySiteSchema(uuid, spec) {
         }
       };
       await mkIndexes(t.unique, false);
+
+      // True interval exclusivity. On SQLite this could only be approximated by
+      // a hand-rolled INSERT … WHERE NOT EXISTS, which raced two simultaneous
+      // bookings; Postgres has EXCLUDE USING gist, so the DATABASE refuses an
+      // overlap and there is nothing for application code to get wrong.
+      //   "noOverlap": { "on": ["room"], "start": "start_min", "end": "end_min",
+      //                  "where": "status:eq:confirmed" }
+      // Ranges are half-open, so 10:00–11:00 and 11:00–12:00 do not clash.
+      if (t.noOverlap && t.noOverlap.start && t.noOverlap.end) {
+        const no = t.noOverlap;
+        const sc = String(no.start).toLowerCase(), ec = String(no.end).toLowerCase();
+        const on = (Array.isArray(no.on) ? no.on : no.on ? [no.on] : [])
+          .map((c) => String(c).toLowerCase()).filter((c) => colSet.has(c));
+        // The range type has to match the column type; only the numeric form is
+        // emitted, so a text/date start column is skipped rather than guessed at.
+        if (colSet.has(sc) && colSet.has(ec) && numCols.includes(sc) && numCols.includes(ec)) {
+          // btree_gist is what allows a plain column to use `=` inside a gist
+          // exclusion alongside the range's `&&`.
+          try { await sqlQuery(uuid, "CREATE EXTENSION IF NOT EXISTS btree_gist"); } catch {}
+          const where = partialWhere(no.where);
+          const cname = sqlIdent("ex_" + t.name + "_nooverlap");
+          const parts = on.map((c) => sqlIdent(c) + " WITH =")
+            .concat(["int4range(" + sqlIdent(sc) + ", " + sqlIdent(ec) + ") WITH &&"]);
+          try { await sqlQuery(uuid, "ALTER TABLE " + tn + " DROP CONSTRAINT IF EXISTS " + cname); } catch {}
+          try {
+            await sqlQuery(uuid, "ALTER TABLE " + tn + " ADD CONSTRAINT " + cname +
+              " EXCLUDE USING gist (" + parts.join(", ") + ")" + (where ? " WHERE (" + where + ")" : ""));
+          } catch (e) { console.error("noOverlap constraint failed:", t.name, e && e.detail); }
+        } else {
+          console.error("noOverlap skipped (start/end must be numeric columns):", t.name);
+        }
+      }
       await mkIndexes(t.oncePerUser, true);
       // Case-insensitive UNIQUE — `uniqueCI:["email"]` → a UNIQUE INDEX over lower(col), so
       // "A@x.com" and "a@x.com" collide (usernames, emails, slugs). Race-free like `unique`;
