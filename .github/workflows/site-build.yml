@@ -12,6 +12,7 @@ on:
     paths:
       - 'builder/**'
       - 'test/integration/site-build.mjs'
+      - 'test/integration/site-runtime.mjs'
       - 'test/page-gen.test.mjs'
       - '.github/workflows/site-build.yml'
   workflow_dispatch:
