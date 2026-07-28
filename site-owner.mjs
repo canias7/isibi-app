@@ -13,9 +13,72 @@
 // Injected like the rest, so the decisions run without Supabase, Neon or a
 // Worker — see test/site-owner.test.mjs.
 
+import { isManagedColumn } from "./site-access.mjs";
+
 const json = (body, status = 200) => ({ status, body });
 
 const MAX_LIMIT = 200;
+const MAX_BODY_KEYS = 60;
+
+const declaredTables = (spec) => (spec && Array.isArray(spec.tables) ? spec.tables : []);
+
+const tableFor = (spec, name) => declaredTables(spec)
+  .find((t) => t && String(t.name).toLowerCase() === String(name || "").toLowerCase()) || null;
+
+const columnNames = (def) => (Array.isArray(def.columns) ? def.columns : [])
+  .map((c) => String(typeof c === "string" ? c : (c && c.name) || ""))
+  .filter(Boolean);
+
+// Ids are bound parameters, so this is not about injection — it is about a
+// non-integer reaching Postgres as a type error and surfacing as a 500 when the
+// honest answer is "no such row".
+function rowIdOf(raw) {
+  const n = parseInt(raw, 10);
+  return (Number.isSafeInteger(n) && n > 0 && String(n) === String(raw).trim()) ? n : null;
+}
+
+// Which columns the owner may set. Declared and not managed — the same rule the
+// visitor path uses, for the same reason: the engine owns id/created_at/owner_id
+// /_fts, and letting anyone set them by hand desynchronises the row from its
+// own indexes.
+function pickWritable(def, body) {
+  const allowed = new Set(columnNames(def).filter((c) => !isManagedColumn(c)).map((c) => c.toLowerCase()));
+  const cols = [], vals = [];
+  for (const k of Object.keys(body || {}).slice(0, MAX_BODY_KEYS)) {
+    if (!allowed.has(String(k).toLowerCase())) continue;
+    let v = body[k];
+    if (v && typeof v === "object") v = JSON.stringify(v); // json/array columns store as text
+    cols.push(k);
+    vals.push(v === undefined ? null : v);
+  }
+  return { cols, vals };
+}
+
+/**
+ * The gate every owner route shares: a session, an ownership record, and a live
+ * database. Returns {error} to hand straight back, or {db}.
+ *
+ * Ownership fails CLOSED. "I cannot tell who owns this" must never become
+ * "anyone may read it" — the build route made exactly that mistake with a bare
+ * `catch {}` and one Supabase timeout handed a site to a stranger.
+ *
+ * 404 rather than 403 for a site that is not yours: the slug space is public and
+ * guessable, so a 403 confirms which names are taken, and by extension which
+ * businesses are customers.
+ *
+ * One copy, because three routes with three hand-written copies of this is how
+ * they drift apart — and the one that drifts is a cross-account read.
+ */
+async function openSite(deps, slug, uid) {
+  if (!uid) return { error: json({ error: "sign in" }, 401) };
+  let owner;
+  try { owner = await deps.ownerOf(slug); }
+  catch { return { error: json({ error: "couldn't check that site just now — try again in a moment" }, 503) }; }
+  if (!owner || owner !== uid) return { error: json({ error: "no such site" }, 404) };
+  const db = await deps.dbFor(slug);
+  if (!db) return { error: json({ error: "no such site" }, 404) };
+  return { db };
+}
 
 /**
  * deps:
@@ -25,34 +88,19 @@ const MAX_LIMIT = 200;
  *   query(conn, sql, args)  → rows
  */
 export async function handleOwnerData(deps, { slug, table, uid, params = {} } = {}) {
-  if (!uid) return json({ error: "sign in" }, 401);
-
-  // Fails CLOSED. An unreadable ownership record must not become "anyone may
-  // read this site's submissions" — the same mistake the build route made with
-  // `catch {}`, which let one Supabase timeout hand a site to a stranger.
-  let owner;
-  try { owner = await deps.ownerOf(slug); }
-  catch { return json({ error: "couldn't check that site just now — try again in a moment" }, 503); }
-
-  // 404 rather than 403 for a site that is not yours: the slug space is public
-  // and guessable, and 403 would confirm which names are taken by someone.
-  if (!owner || owner !== uid) return json({ error: "no such site" }, 404);
-
-  const db = await deps.dbFor(slug);
-  if (!db) return json({ error: "no such site" }, 404);
+  const open = await openSite(deps, slug, uid);
+  if (open.error) return open.error;
+  const db = open.db;
 
   const spec = await deps.loadSchema(db);
-  const def = (spec && Array.isArray(spec.tables) ? spec.tables : [])
-    .find((t) => t && String(t.name).toLowerCase() === String(table || "").toLowerCase());
+  const def = tableFor(spec, table);
   // Only tables the site actually declared. The name reaches SQL, so this is
   // also what keeps it an allow-list rather than an identifier from a stranger.
   if (!def) return json({ error: "no such table" }, 404);
 
   const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(params.limit, 10) || 50));
   const offset = Math.max(0, parseInt(params.offset, 10) || 0);
-  const cols = (Array.isArray(def.columns) ? def.columns : [])
-    .map((c) => String(typeof c === "string" ? c : (c && c.name) || ""))
-    .filter(Boolean);
+  const cols = columnNames(def);
 
   // Newest first: these are submissions, and the useful one is the latest.
   const asked = String(params.order || "id");
@@ -67,17 +115,12 @@ export async function handleOwnerData(deps, { slug, table, uid, params = {} } = 
 
 /** Which tables an owner can read, and how many rows are waiting in each. */
 export async function handleOwnerTables(deps, { slug, uid } = {}) {
-  if (!uid) return json({ error: "sign in" }, 401);
-  let owner;
-  try { owner = await deps.ownerOf(slug); }
-  catch { return json({ error: "couldn't check that site just now — try again in a moment" }, 503); }
-  if (!owner || owner !== uid) return json({ error: "no such site" }, 404);
-
-  const db = await deps.dbFor(slug);
-  if (!db) return json({ error: "no such site" }, 404);
+  const open = await openSite(deps, slug, uid);
+  if (open.error) return open.error;
+  const db = open.db;
   const spec = await deps.loadSchema(db);
   const tables = [];
-  for (const t of (spec && Array.isArray(spec.tables) ? spec.tables : [])) {
+  for (const t of declaredTables(spec)) {
     if (!t || !t.name) continue;
     let count = null;
     // A missing table is not a failure of the whole listing — a schema row can
@@ -87,7 +130,134 @@ export async function handleOwnerTables(deps, { slug, uid } = {}) {
       const r = await deps.query(db, `SELECT count(*)::int AS n FROM ${deps.ident(t.name)}`);
       count = (r[0] && r[0].n) ?? null;
     } catch { count = null; }
-    tables.push({ name: t.name, access: t.access, rows: count });
+    // Columns come along because the caller builds an edit form from them, and
+    // asking per table would be a round trip each. Names only — the engine's
+    // managed ones are filtered out, since a form field for `id` or `_fts` is a
+    // field whose value is silently dropped on save.
+    tables.push({
+      name: t.name, access: t.access, rows: count,
+      columns: columnNames(t).filter((c) => !isManagedColumn(c)),
+    });
   }
   return json({ tables });
+}
+
+/**
+ * The owner CHANGING their own site's data.
+ *
+ * The gap this closes is the one GENERATOR.md still lists under "not available
+ * yet": nothing can write to a `display` table after the build — not a visitor,
+ * not the owner, there was no route — so a café could not correct a price
+ * without rebuilding the whole site. That is also the entire reason build-time
+ * seeding had to exist.
+ *
+ * deps: as handleOwnerData, plus
+ *   exec(conn, sql, args) → {changes}
+ */
+export async function handleOwnerWrite(deps, { slug, table, uid, method, rowId, body = {} } = {}) {
+  const open = await openSite(deps, slug, uid);
+  if (open.error) return open.error;
+  const db = open.db;
+
+  const spec = await deps.loadSchema(db);
+  const def = tableFor(spec, table);
+  // Only tables the site declared. This is what keeps the name an allow-list
+  // rather than an identifier from the caller — and it is also what puts
+  // `_users` out of reach, so no password hash is ever writable through here.
+  if (!def) return json({ error: "no such table" }, 404);
+
+  const access = String(def.access || "collect").toLowerCase();
+  const tn = deps.ident(def.name);
+
+  if (method === "POST") {
+    // A `user`/`feed` row belongs to a MEMBER, and the owner is not one — their
+    // isibi account has no id in this database's `_users`. A row created here
+    // would carry owner_id NULL: invisible to every `user` read (which scopes to
+    // the caller's own id) and unattributable in a feed. Refused rather than
+    // silently creating an orphan.
+    if (access === "user" || access === "feed") {
+      return json({ error: "rows here belong to a member of your site, so they can only be added by one", access, code: "member_table" }, 409);
+    }
+    const { cols, vals } = pickWritable(def, body);
+    if (!cols.length) return json({ error: "nothing to write" }, 400);
+    const rows = await deps.query(
+      db,
+      "INSERT INTO " + tn + " (" + cols.map(deps.ident).join(",") + ") VALUES (" +
+        cols.map(() => "?").join(",") + ") RETURNING *",
+      vals,
+    );
+    return json({ row: stripFts(rows[0]) }, 201);
+  }
+
+  const id = rowIdOf(rowId);
+  if (!id) return json({ error: "no row id" }, 400);
+
+  if (method === "PATCH") {
+    const { cols, vals } = pickWritable(def, body);
+    if (!cols.length) return json({ error: "nothing to update" }, 400);
+    // No owner scoping, unlike the visitor path. This door is already gated on
+    // owning the whole site, and every row in it is the owner's to correct —
+    // including a member's, which is moderation rather than impersonation.
+    const r = await deps.exec(db, "UPDATE " + tn + " SET " + cols.map((c) => deps.ident(c) + "=?").join(",") + " WHERE id=?", vals.concat([id]));
+    if (!r.changes) return json({ error: "no such row" }, 404);
+    const rows = await deps.query(db, "SELECT * FROM " + tn + " WHERE id=?", [id]);
+    return json({ row: stripFts(rows[0]) });
+  }
+
+  if (method === "DELETE") {
+    // A table declaring `trash` soft-deletes, same as the visitor path, so an
+    // accidental delete stays recoverable.
+    const r = def.trash
+      ? await deps.exec(db, "UPDATE " + tn + ' SET "deleted_at"=' + deps.nowSql() + ' WHERE id=? AND "deleted_at" IS NULL', [id])
+      : await deps.exec(db, "DELETE FROM " + tn + " WHERE id=?", [id]);
+    if (!r.changes) return json({ error: "no such row" }, 404);
+    return json({ ok: true, id, soft: !!def.trash });
+  }
+
+  return json({ error: "method not allowed" }, 405);
+}
+
+/**
+ * The site's members, for the owner.
+ *
+ * `_users` is deliberately NOT a declared table, so it is unreachable through
+ * every other route here. This is the one place that names it, and it names its
+ * columns explicitly: `pass_hash` must never leave the database, and a
+ * `SELECT *` a year from now would ship it the moment someone added a column.
+ */
+const MEMBER_COLUMNS = ["id", "email", "role", "verified", "created_at", "last_login_at"];
+
+export async function handleOwnerMembers(deps, { slug, uid, method = "GET", memberId, params = {} } = {}) {
+  const open = await openSite(deps, slug, uid);
+  if (open.error) return open.error;
+  const db = open.db;
+
+  if (method === "DELETE") {
+    const id = rowIdOf(memberId);
+    if (!id) return json({ error: "no member id" }, 400);
+    const r = await deps.exec(db, "DELETE FROM _users WHERE id=?", [id]);
+    if (!r.changes) return json({ error: "no such member" }, 404);
+    // Their rows are left alone on purpose. owner_id no longer matches anyone,
+    // so nothing is readable as that member — but a deleted customer's bookings
+    // should not silently vanish from the owner's list.
+    return json({ ok: true, id });
+  }
+  if (method !== "GET") return json({ error: "method not allowed" }, 405);
+
+  const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(params.limit, 10) || 50));
+  const offset = Math.max(0, parseInt(params.offset, 10) || 0);
+  let members = [];
+  try {
+    members = await deps.query(db, "SELECT " + MEMBER_COLUMNS.map(deps.ident).join(",") + " FROM _users ORDER BY id DESC LIMIT ? OFFSET ?", [limit, offset]);
+  } catch {
+    // A site with no member tables never had `_users` created — that is not an
+    // error, it is a site with no members.
+    return json({ members: [], limit, offset });
+  }
+  return json({ members, limit, offset });
+}
+
+function stripFts(row) {
+  if (row && row._fts !== undefined) delete row._fts;
+  return row || null;
 }

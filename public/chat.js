@@ -9803,24 +9803,36 @@ async function loadSiteAnalytics(site) {
 // (visitor submissions, displayed content, per-user data, and the visitor accounts).
 async function loadSiteData(site) {
   const host = document.getElementById('stData'); if (!host) return;
+  // The owner's door onto their own site: /api/site/<slug>/rows[/<table>[/<id>]]
+  // and /api/site/<slug>/members. A different caller from the published site's
+  // public /api/db — that one is an anonymous visitor, this one is the isibi
+  // account that OWNS the site, so it can read `collect` submissions (which the
+  // public API refuses by design) and correct `display` content.
+  const base = '/api/site/' + encodeURIComponent(site.slug || '');
   let tables = [];
   try {
-    const r = await apiFetch('/api/site/backend/rows?slug=' + encodeURIComponent(site.slug || ''));
+    const r = await apiFetch(base + '/rows');
     const d = await r.json().catch(() => ({}));
-    if (d && d.ok && Array.isArray(d.tables)) tables = d.tables;
+    if (r.ok && Array.isArray(d.tables)) tables = d.tables;
   } catch (e) {}
-  const tabs = tables.map((t) => ({ name: t.name, access: t.access, columns: t.columns || [], label: t.name })).concat([{ name: '_users', access: 'user', columns: [], label: 'Users' }]);
+  const tabs = tables.map((t) => ({ name: t.name, access: t.access, columns: t.columns || [], label: t.name })).concat([{ name: '_users', access: 'members', columns: [], label: 'Users' }]);
   let sel = (siteDataTable && tabs.some((t) => t.name === siteDataTable)) ? siteDataTable : (tabs[0] && tabs[0].name);
   siteDataTable = sel;
   const selTab = tabs.find((t) => t.name === sel) || { columns: [] };
-  const editable = !!sel && sel !== '_users'; // owner can manage declared tables, not visitor accounts
+  const members = sel === '_users';
+  // Editing and deleting work on every declared table — it is all the owner's.
+  // Adding does not: a `user`/`feed` row belongs to a member of the site, and
+  // the owner has no member id to stamp on it, so the API answers 409.
+  const editable = !!sel && !members;
+  const canAdd = editable && selTab.access !== 'user' && selTab.access !== 'feed';
   const cols = (selTab.columns || []).map((c) => (typeof c === 'string' ? c : c && c.name)).filter(Boolean);
   let rows = [], err = false;
   if (sel) {
     try {
-      const r = await apiFetch('/api/site/backend/rows?slug=' + encodeURIComponent(site.slug || '') + '&table=' + encodeURIComponent(sel));
+      const r = await apiFetch(members ? base + '/members' : base + '/rows/' + encodeURIComponent(sel));
       const d = await r.json().catch(() => ({}));
-      if (d && d.ok && Array.isArray(d.rows)) rows = d.rows; else err = true;
+      const got = members ? d.members : d.rows;
+      if (r.ok && Array.isArray(got)) rows = got; else err = true;
     } catch (e) { err = true; }
   }
   const accLabel = { collect: 'submissions', display: 'content', user: 'per-user', feed: 'public feed' };
@@ -9835,14 +9847,14 @@ async function loadSiteData(site) {
   let main;
   if (!tabs.length) main = '<div class="st-empty">No data tables yet.</div>';
   else if (err) main = '<div class="st-empty">Couldn’t load this table just now.</div>';
-  else if (!rows.length && !formHtml) main = '<div class="st-empty">Nothing here yet.' + (editable ? ' Use “+ Add” to put in your first row.' : ' When visitors ' + (sel === '_users' ? 'sign up' : 'submit') + ', it shows up here.') + '</div>';
+  else if (!rows.length && !formHtml) main = '<div class="st-empty">Nothing here yet.' + (canAdd ? ' Use “+ Add” to put in your first row.' : ' When visitors ' + (members ? 'sign up' : 'submit') + ', it shows up here.') + '</div>';
   else {
     const displayCols = rows.length ? Object.keys(rows[0]) : cols;
     main = (rows.length ? '<div class="st-data-tablewrap"><table class="st-data-grid"><thead><tr>' + displayCols.map((c) => '<th>' + esc(c) + '</th>').join('') + (editable ? '<th></th>' : '') + '</tr></thead><tbody>' +
       rows.map((row) => '<tr>' + displayCols.map((c) => '<td>' + esc(String(row[c] == null ? '' : row[c])).slice(0, 240) + '</td>').join('') + (editable ? '<td class="st-data-rowact"><button type="button" class="st-data-editbtn" data-edit="' + esc(String(row.id)) + '">Edit</button><button type="button" class="st-data-rmrow" data-rm="' + esc(String(row.id)) + '" title="Delete">×</button></td>' : '') + '</tr>').join('') +
       '</tbody></table></div>' : '');
   }
-  const addBtn = (editable && !siteDataForm) ? '<button type="button" class="st-data-add" id="stDataAdd">+ Add</button>' : '';
+  const addBtn = (canAdd && !siteDataForm) ? '<button type="button" class="st-data-add" id="stDataAdd">+ Add</button>' : '';
   host.innerHTML = '<div class="st-data-head"><span class="st-data-title">Data</span><span class="st-data-count">' + (rows.length ? rows.length + ' row' + (rows.length > 1 ? 's' : '') : '') + '</span>' + addBtn + '<button type="button" class="st-icon" id="stDataReload" title="Refresh">' + ic('reload', 15) + '</button></div><div class="st-data-body">' + side + '<div class="st-data-main">' + formHtml + main + '</div></div>';
   host.querySelectorAll('[data-dtable]').forEach((b) => b.onclick = () => { siteDataTable = b.dataset.dtable; siteDataForm = null; loadSiteData(site); });
   const rl = document.getElementById('stDataReload'); if (rl) rl.onclick = () => loadSiteData(site);
@@ -9850,15 +9862,32 @@ async function loadSiteData(site) {
   const cancel = document.getElementById('stDataCancel'); if (cancel) cancel.onclick = () => { siteDataForm = null; loadSiteData(site); };
   const save = document.getElementById('stDataSave'); if (save) save.onclick = async () => {
     const values = {}; host.querySelectorAll('.st-data-in').forEach((i) => values[i.dataset.col] = i.value);
-    const body = { slug: site.slug, table: sel, values };
+    const editId = siteDataForm && siteDataForm.editId;
+    // The row IS the body — the API keeps declared columns and drops the rest.
     try {
-      if (siteDataForm && siteDataForm.editId) { body.id = siteDataForm.editId; await apiFetch('/api/site/backend/row', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); }
-      else await apiFetch('/api/site/backend/row', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    } catch (e) {}
+      const r = await apiFetch(base + '/rows/' + encodeURIComponent(sel) + (editId ? '/' + encodeURIComponent(editId) : ''), {
+        method: editId ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+      });
+      // Say what went wrong instead of silently redrawing the same form: the
+      // API's own message separates "that time is taken" from a server fault.
+      if (!r.ok) { const d = await r.json().catch(() => ({})); sbToast(d.error || 'Couldn’t save that.'); return; }
+    } catch (e) { sbToast('Couldn’t save that — check your connection.'); return; }
     siteDataForm = null; loadSiteData(site);
   };
   host.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => { const row = rows.find((r) => String(r.id) === b.dataset.edit); siteDataForm = { editId: b.dataset.edit, values: row ? Object.assign({}, row) : {} }; loadSiteData(site); });
-  host.querySelectorAll('[data-rm]').forEach((b) => b.onclick = async () => { if (!confirm('Delete this row?')) return; try { await apiFetch('/api/site/backend/row?slug=' + encodeURIComponent(site.slug || '') + '&table=' + encodeURIComponent(sel) + '&id=' + encodeURIComponent(b.dataset.rm), { method: 'DELETE' }); } catch (e) {} siteDataForm = null; loadSiteData(site); });
+  host.querySelectorAll('[data-rm]').forEach((b) => b.onclick = async () => {
+    if (!confirm(members ? 'Remove this member? They will no longer be able to sign in.' : 'Delete this row?')) return;
+    const path = members
+      ? base + '/members/' + encodeURIComponent(b.dataset.rm)
+      : base + '/rows/' + encodeURIComponent(sel) + '/' + encodeURIComponent(b.dataset.rm);
+    try {
+      const r = await apiFetch(path, { method: 'DELETE' });
+      if (!r.ok) { const d = await r.json().catch(() => ({})); sbToast(d.error || 'Couldn’t delete that.'); return; }
+    } catch (e) { sbToast('Couldn’t delete that — check your connection.'); return; }
+    siteDataForm = null; loadSiteData(site);
+  });
 }
 function moreCloud(site) {
   const isReact = !!site.react;
@@ -10648,14 +10677,17 @@ async function siteInbox(site) {
   const fmtT = (t) => { try { if (!t) return ''; const iso = /^\d{4}-\d\d-\d\d \d\d:/.test(String(t)) ? String(t).replace(' ', 'T') + 'Z' : t; return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) { return ''; } };
   try {
     if (site.react && site.backend) {
-      // React site: submissions are rows in the site's own D1 `collect` tables.
-      const tr = await apiFetch('/api/site/backend/rows?slug=' + encodeURIComponent(slug));
+      // React site: submissions are rows in the site's own `collect` tables,
+      // read through the OWNER's door — the public API refuses a collect read
+      // by design, which is why these were invisible to the person they were for.
+      const sbase = '/api/site/' + encodeURIComponent(slug);
+      const tr = await apiFetch(sbase + '/rows');
       const td = await tr.json().catch(() => ({}));
       const collectTables = ((td && td.tables) || []).filter((t) => t.access === 'collect');
       if (!collectTables.length) { bodyEl.innerHTML = '<div class="si-empty">No form yet. When your app has a form that saves entries, they land here.</div>'; return; }
       let html = '';
       for (const t of collectTables) {
-        const rr = await apiFetch('/api/site/backend/rows?slug=' + encodeURIComponent(slug) + '&table=' + encodeURIComponent(t.name));
+        const rr = await apiFetch(sbase + '/rows/' + encodeURIComponent(t.name));
         const rd = await rr.json().catch(() => ({}));
         const rows = (rd && Array.isArray(rd.rows)) ? rd.rows : [];
         html += '<div class="si-count">' + esc(t.name) + ' · ' + rows.length + ' submission' + (rows.length === 1 ? '' : 's') + '</div>' + rows.map((row) => {
@@ -10700,10 +10732,13 @@ async function siteMembers(site) {
   const fmt = (t) => { try { if (!t) return '—'; const iso = /^\d{4}-\d\d-\d\d \d\d:/.test(String(t)) ? String(t).replace(' ', 'T') + 'Z' : t; return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) { return '—'; } };
   try {
     if (site.react && site.backend) {
-      // React site: members are the visitor accounts in the site's own D1 (_users).
-      const r = await apiFetch('/api/site/backend/rows?slug=' + encodeURIComponent(slug) + '&table=_users');
+      // React site: members are the visitor accounts in the site's own database
+      // (_users). Its own route, because that table is deliberately not part of
+      // the declared schema and its columns are named explicitly so the password
+      // hash can never come back.
+      const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/members');
       const d = await r.json().catch(() => ({}));
-      const members = (d && Array.isArray(d.rows)) ? d.rows : [];
+      const members = (d && Array.isArray(d.members)) ? d.members : [];
       bodyEl.innerHTML = members.length
         ? '<div class="si-count">' + members.length + ' member' + (members.length === 1 ? '' : 's') + '</div>' + members.map((m) =>
             '<div class="si-item"><div class="si-item-top"><span class="si-form">' + esc(m.email || '') + '</span><span class="si-when">joined ' + esc(fmt(m.created_at)) + '</span></div></div>').join('')

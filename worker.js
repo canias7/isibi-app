@@ -8,7 +8,7 @@ import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
 import { ensureSiteBackend as ensureSiteBackendPure } from "./site-provision.mjs";
 import { lookupRoute, saveRoute, dropRoute } from "./site-routing.mjs";
 import { handleSiteAuth } from "./site-auth-routes.mjs";
-import { handleOwnerData, handleOwnerTables } from "./site-owner.mjs";
+import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers } from "./site-owner.mjs";
 import { sessionKey, verifySession } from "./site-auth.mjs";
 import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
@@ -5330,13 +5330,23 @@ async function handleRequest(request, env, ctx) {
     // their own site — including `collect` tables, which the public API refuses
     // by design. That refusal is why, until now, a barber shop took bookings
     // nobody could ever see.
-    if (url.pathname.startsWith("/api/site/") && url.pathname.includes("/rows") && request.method === "GET") {
-      const om = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rows(?:\/([a-z_][a-z0-9_]{0,40}))?$/i);
-      if (om) {
+    //
+    // Reading is handleOwnerData/handleOwnerTables; writing is handleOwnerWrite,
+    // which is what finally lets a café correct a price without rebuilding the
+    // whole site — nothing could write to a `display` table after the build, not
+    // even the person whose menu it was. `/members` is the one place `_users` is
+    // named, and it names its columns so no password hash can leave.
+    //
+    // Ordered BEFORE the site-delete branch below on purpose: that one matches
+    // any DELETE under /api/site/, so a row delete would otherwise be read as a
+    // request to take the entire site down.
+    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members"))) {
+      const om = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rows(?:\/([a-z_][a-z0-9_]{0,40})(?:\/([0-9]{1,18}))?)?$/i);
+      const mm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/members(?:\/([0-9]{1,18}))?$/i);
+      if (om || mm) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
-        const [, oslug, otable] = om;
-        const deps = {
+        const ownerDeps = {
           ownerOf: async (s2) => {
             const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s2)}&select=uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
             if (!g.ok) throw Object.assign(new Error("site lookup failed"), { detail: g.status });
@@ -5346,13 +5356,40 @@ async function handleRequest(request, env, ctx) {
           dbFor: (s2) => siteBackendBySlug(env, s2),
           loadSchema: (conn) => loadSiteSchema(conn),
           query: (conn, sql, args) => sqlQuery(conn, sql, args),
+          exec: (conn, sql, args) => sqlExec(conn, sql, args),
           ident: sqlIdent,
+          nowSql: () => "to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')",
         };
-        const params = Object.fromEntries(url.searchParams);
-        const r = otable
-          ? await handleOwnerData(deps, { slug: oslug.toLowerCase(), table: otable, uid: ou.id, params })
-          : await handleOwnerTables(deps, { slug: oslug.toLowerCase(), uid: ou.id });
-        return Response.json(r.body, { status: r.status });
+        // Anything thrown below reaches the owner as a bare Cloudflare 1101 with
+        // no body otherwise — the same trap the PBKDF2 cap fell into.
+        try {
+          let r;
+          if (mm) {
+            const [, mslug, mid] = mm;
+            r = await handleOwnerMembers(ownerDeps, {
+              slug: mslug.toLowerCase(), uid: ou.id, method: request.method,
+              memberId: mid, params: Object.fromEntries(url.searchParams),
+            });
+          } else if (request.method === "GET") {
+            const [, oslug, otable] = om;
+            const params = Object.fromEntries(url.searchParams);
+            r = otable
+              ? await handleOwnerData(ownerDeps, { slug: oslug.toLowerCase(), table: otable, uid: ou.id, params })
+              : await handleOwnerTables(ownerDeps, { slug: oslug.toLowerCase(), uid: ou.id });
+          } else {
+            const [, oslug, otable, orow] = om;
+            if (!otable) return Response.json({ error: "no table" }, { status: 400 });
+            const body = request.method === "DELETE" ? {} : await request.json().catch(() => ({}));
+            r = await handleOwnerWrite(ownerDeps, {
+              slug: oslug.toLowerCase(), table: otable, uid: ou.id,
+              method: request.method, rowId: orow, body,
+            });
+          }
+          return Response.json(r.body, { status: r.status });
+        } catch (e) {
+          console.error("owner data failed:", url.pathname, request.method, (e && (e.stack || e.message)) || e);
+          return Response.json({ error: "Something went wrong reaching your site's data." }, { status: 500 });
+        }
       }
     }
 
@@ -5364,11 +5401,15 @@ async function handleRequest(request, env, ctx) {
     // row had gone kept serving a React shell whose every data call 404s — a
     // public, half-broken site at a guessable URL. The build smoke test hit that
     // on every run, which is how the gap surfaced.
-    if (url.pathname.startsWith("/api/site/") && request.method === "DELETE") {
+    // Exactly /api/site/<slug>, no deeper. It used to match any DELETE under
+    // /api/site/ and strip the path down to a slug, so /api/site/cafe/rows/x/4
+    // arrived here as the slug "caferowsx4" — harmless only by luck. A row
+    // delete is a different request from taking the whole site down.
+    if (/^\/api\/site\/[a-z0-9][a-z0-9-]{0,80}$/i.test(url.pathname) && request.method === "DELETE") {
       const du = await authUser(request);
       if (!du) return UNAUTHED();
       if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, error: "service key not configured" }, { status: 501 });
-      const dslug = url.pathname.slice("/api/site/".length).toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 80);
+      const dslug = url.pathname.slice("/api/site/".length).toLowerCase();
       if (!dslug) return Response.json({ ok: false, error: "no slug" }, { status: 400 });
 
       // The backend row IS the ownership record. No row means there is nothing to
