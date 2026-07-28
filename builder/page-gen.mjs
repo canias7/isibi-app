@@ -347,9 +347,10 @@ that already has an account (\`code: "exists"\`).
 
 ## What is not possible yet
 
-- No editing or deleting a row from a published site. PATCH and DELETE are refused at every
-  level, so \`useUpdateRow\` and \`useDeleteRow\` cannot be called from a page — a member can add
-  their own rows and read them back, but not change or remove one.
+- Editing and deleting work ONLY on a member's OWN rows, in a \`user\` or \`feed\` table, with
+  \`useUpdateRow\`/\`useDeleteRow\` and a signed-in member. A \`collect\` or \`display\` row has no
+  owner and can never be changed from a page. Someone else's row answers 404, so treat "not found"
+  as "not yours" and say so gently.
 - No file or image upload. There is no route for it.
 - No owner/admin dashboard — a \`collect\` table cannot be read back by anyone.
 If the brief asks for one of these, build everything else and say plainly in \`notes\` what was
@@ -508,6 +509,7 @@ export function lintPages(pages, spec) {
   }
   const ui = new Set(UI_COMPONENTS);
   const say = (path, msg) => problems.push(path + ": " + msg);
+  const memberTables = [...tables.values()].filter((t) => needsMember(t.access));
 
   for (const { path, source } of pages) {
     // Strip comments and string literals before pattern-matching, so a rule in a
@@ -522,8 +524,16 @@ export function lintPages(pages, spec) {
     if (/@tanstack\/react-form/.test(code)) {
       say(path, "imports @tanstack/react-form. shadcn's Form components only speak to react-hook-form; use useForm from react-hook-form with zodResolver.");
     }
-    if (/\buseUpdateRow\b/.test(code)) say(path, "calls useUpdateRow, but the API refuses PATCH from a published site. Remove the edit UI.");
-    if (/\buseDeleteRow\b/.test(code)) say(path, "calls useDeleteRow, but the API refuses DELETE from a published site. Remove the delete UI.");
+    // Editing and deleting are allowed now, but ONLY on a member's own rows —
+    // so a page that offers them without a member has nothing to scope by and
+    // the API answers 401.
+    const editsRows = /\buseUpdateRow\b|\buseDeleteRow\b/.test(code);
+    if (editsRows && !/\buseMember\b/.test(code)) {
+      say(path, "calls useUpdateRow/useDeleteRow without useMember(). Only a signed-in member can change a row, and only their own — put the edit UI behind a sign-in.");
+    }
+    if (editsRows && !memberTables.length) {
+      say(path, "calls useUpdateRow/useDeleteRow, but this schema has no member table. `collect` and `display` rows have no owner and can never be edited from a page.");
+    }
 
     for (const m of code.matchAll(/from\s+"@\/components\/ui\/([a-z0-9-]+)"/gi)) {
       if (!ui.has(m[1].toLowerCase())) say(path, 'imports "@/components/ui/' + m[1] + '", which does not exist. Available: ' + UI_COMPONENTS.join(", ") + ".");
