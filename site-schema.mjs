@@ -8,6 +8,7 @@
 // `db` throughout is a Neon connection string (see ./site-db.mjs).
 import { sqlQuery, sqlQuery as realSqlQuery } from "./site-db.mjs";
 import { isManagedColumn } from "./site-access.mjs";
+import { makeCache } from "./ttl-cache.mjs";
 
 const SAFE_IDENT = /^[a-z_][a-z0-9_]{0,40}$/i;
 
@@ -494,12 +495,30 @@ export async function applySiteSchema(uuid, spec) {
   } catch {}
   const metaOut = { tables: mergedTables }; if (rateLimits) metaOut.rateLimits = rateLimits;
   await sqlQuery(uuid, "INSERT INTO _meta (k,v) VALUES ('schema', ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", [JSON.stringify(metaOut)]);
+  // The spec on disk just changed; anything this isolate remembered is stale.
+  invalidateSiteSchema(uuid);
   return made;
 }
 // Load the persisted access rules for a site's tables (from its own _meta.schema).
 
+// Short, on purpose. The schema changes only on a build, and applySiteSchema
+// clears this — but only in the isolate that ran the build, so every other PoP
+// has to heal by expiry. 15s means a revise is visible on the next refresh
+// rather than after a minute of a site 404ing its own new tables.
+const SCHEMA_TTL_MS = 15_000;
+const _schemaCache = makeCache({ ttlMs: SCHEMA_TTL_MS, max: 200 });
+
+export function invalidateSiteSchema(uuid) { _schemaCache.delete(uuid); }
+
 export async function loadSiteSchema(uuid) {
-  try { const rows = await sqlQuery(uuid, "SELECT v FROM _meta WHERE k='schema'"); if (rows[0] && rows[0].v) return JSON.parse(rows[0].v); } catch {}
+  const hit = _schemaCache.get(uuid);
+  if (hit !== undefined) return hit;
+  try {
+    const rows = await sqlQuery(uuid, "SELECT v FROM _meta WHERE k='schema'");
+    if (rows[0] && rows[0].v) return _schemaCache.set(uuid, JSON.parse(rows[0].v));
+  } catch {}
+  // An empty result is NOT cached: a site whose _meta read failed transiently
+  // would otherwise serve "no tables" for the whole TTL, 404ing every read.
   return { tables: [] };
 }
 

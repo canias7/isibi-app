@@ -3,6 +3,7 @@
 // call. Bundled by wrangler at deploy (see package.json).
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { Container, getContainer } from "@cloudflare/containers";
+import { makeCache, memoize } from "./ttl-cache.mjs";
 import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, dropSiteDatabase, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
 import { handleSiteData } from "./site-data.mjs";
@@ -2684,14 +2685,29 @@ async function userSiteProject(env, uid) {
 
 // slug → that site's Postgres connection string. Two lookups: the site row names
 // a database, the owner's project row supplies the endpoint and credentials.
-async function siteBackendBySlug(env, slug) {
+// slug → connection string, cached. This is TWO Supabase round trips (the
+// backend row, then the owner's project) on the way to every single row a
+// visitor reads, and the answer is immutable for the life of a site: a slug is
+// claimed once and its database never moves. Only a DELETE changes it, and that
+// invalidates explicitly below.
+//
+// Measured before caching: ~0.9s median for a six-row read, of which four
+// sequential round trips were the request and three were this lookup plus the
+// schema read. Cached, a warm isolate pays one.
+const SITE_CONN_TTL_MS = 300_000;
+const _connCache = makeCache({ ttlMs: SITE_CONN_TTL_MS, max: 500 });
+
+const _resolveBackend = memoize(_connCache, async (slug, env) => {
   const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=neon_db,uid`, { headers: svcHeaders(env) });
   const rows = await g.json().catch(() => []);
   const row = Array.isArray(rows) && rows[0];
   if (!row || !row.neon_db) return null;
   const proj = await userSiteProject(env, row.uid);
   return proj ? connForDatabase(proj.neon_conn, row.neon_db) : null;
-}
+});
+
+// Argument order is (env, slug) because that is what handleSiteData passes.
+async function siteBackendBySlug(env, slug) { return _resolveBackend(slug, env); }
 
 // Provision (or reuse) one site's database, returning its connection string.
 // Called when a build starts, so a site has somewhere to put data the moment
@@ -5053,6 +5069,11 @@ async function handleRequest(request, env, ctx) {
       }
       if (!srow) return Response.json({ ok: false, error: "no such site" }, { status: 404 });
       if (srow.uid !== du.id) return Response.json({ ok: false, error: "not your site" }, { status: 403 });
+
+      // Forget the cached connection BEFORE anything is torn down. A warm isolate
+      // holding a string that points at a dropped database is worse than a slow
+      // lookup: it answers reads with a connection error instead of a 404.
+      _connCache.delete(dslug);
 
       // Drop the site's database first — it is the only step that still needs the
       // row being deleted below. Best-effort: a database left behind costs money,
