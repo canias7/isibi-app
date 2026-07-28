@@ -10537,3 +10537,48 @@ published column works", which used `.every()` on an empty array. Both now requi
 narrowing one requires *strictly fewer* rows than the unfiltered read.
 
 Unit suite **508**.
+
+---
+
+## 2026-07-28 — sharing a generated site showed a bare URL
+
+Checked what a published site's `<head>` actually contains before picking the next job, and it is
+six lines: charset, viewport, favicon, title, script, stylesheet. **No description. No Open Graph.**
+And `<div id="root">` is empty until JavaScript runs.
+
+Google runs JavaScript, so a site gets indexed eventually. **Link previews do not.** WhatsApp,
+iMessage, Slack, Facebook and LinkedIn each fetch the HTML once, read the head, and render whatever
+is there. So a barber shop sending customers their own link got a bare URL with no name, no
+description and no picture — on every site the builder has ever published. For a small business that
+link *is* the marketing.
+
+`injectMeta` at publish time, inside `writeSiteDistToR2` and **gated on `index.html`** — rewriting a
+bundle or a stylesheet would corrupt the dist silently. The head belongs to the built dist, which the
+model never sees, so this is the only place it can happen.
+
+The care went into making it unable to do harm:
+
+- **Idempotent by construction.** The block is fenced in `<!--isibi:meta-->` comments and replaced, so
+  republishing fifty times leaves one copy — and a renamed shop does not keep its old name alongside
+  the new one.
+- **Escaped into attributes.** Brand and description are model-written and go straight inside
+  `content="…"`.
+- **Whitespace collapsed**, because a newline inside an attribute is a broken tag.
+- **Capped** at 70 and 200 characters — a preview truncates anyway, and a 900-character description
+  in a head is just weight.
+- **The card type follows the picture**: `summary_large_image` with no image renders an empty box.
+- **It can only ever no-op.** No head, no meta, unparseable input → the html comes back unchanged. A
+  site published without a description is a far smaller problem than one published broken.
+
+`description` is now a required field on the schema designer — one sentence written for a customer,
+not a developer. A revise sends no brief, so the fallback chain is designed → body → the stored
+`brief` → the instruction. The og:image is the owner's first upload if there is one.
+
+One real bug found by my own test: `metaTags(null)` threw, because `= {}` defaults only `undefined`
+and a caller with nothing to say passes `null` far more naturally than it omits the argument.
+
+And one mutation that survived and shouldn't have: removing the else branch emitted **two**
+contradictory `twitter:card` tags, and my assertion only checked the right one was present. Now it
+asserts exactly one. 14/14.
+
+Unit suite **520**.

@@ -91,6 +91,14 @@ Every generation is metered in credits (1 credit = $0.008 fal cost). Postgres RP
 - **The submission is attacker-controlled text going into HTML email** — same class as the CSV injection, same discipline: keys and values escaped, `id`/`_fts`/`owner_id` dropped, 12 fields max, values clipped at 200 chars.
 - **`POST`/`GET /api/site/<slug>/notify {on}`** is the off switch, with a toggle in the Data panel header. Unsolicited email with no way to stop it is not something to ship. `test/site-notify.test.mjs` (18 tests, 21 mutations).
 
+## What a published site looks like when somebody SHARES it (`site-meta.mjs`, 2026-07-28)
+
+- **A generated site had a `<title>` and nothing else** — no description, no Open Graph — and its `<div id="root">` is empty until JavaScript runs. Google runs JavaScript, so it indexes eventually; **link previews do not**. WhatsApp, iMessage, Slack, Facebook and LinkedIn fetch the HTML once, read the head, and render what is there. So a barber shop sending customers their own link got a bare URL, on every site the builder has ever published.
+- `injectMeta` runs at publish time inside `writeSiteDistToR2`, **gated on `index.html`** (rewriting a bundle or a stylesheet would corrupt the dist silently). The head belongs to the built dist, which the model never sees, so this is the only place it can happen.
+- **Idempotent by construction** — the block is fenced in `<!--isibi:meta-->` comments and replaced, so republishing fifty times leaves one copy and a renamed site does not keep its old name. Escapes into attributes (brand and description are model-written), collapses whitespace (a newline in an attribute is a broken tag), caps title 70 / description 200, and the twitter card type follows whether there is actually an image (`summary_large_image` with none renders an empty box).
+- **It can only ever no-op, never error.** No head, no meta, unparseable input → the html comes back unchanged. A site published without a description is a far smaller problem than one published broken.
+- `description` is now a REQUIRED field on `design_schema` — one customer-facing sentence. A revise sends no brief, so the fallback chain is designed → body → the stored `brief` → the instruction. The og:image is the owner's first upload if there is one. `test/site-meta.test.mjs` (12 tests, 14 mutations).
+
 ## Taking the data out (`site-export.mjs`, 2026-07-28)
 
 - **`GET /api/site/<slug>/export?table=<t>&format=csv|json`** — the Backups panel has had a working download button since the D1 era wired to `/api/site/backend/export`, a route deleted 2026-07-27, so a barber shop's bookings could be read on screen and never got out of the building. Same `assertOwner` gate, same schema allow-list, `_fts` stripped, oldest-first, capped at `MAX_EXPORT_ROWS` 10000.

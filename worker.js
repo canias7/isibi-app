@@ -12,6 +12,7 @@ import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMember
 import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_VISITOR_UPLOAD_BYTES } from "./site-uploads.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
+import { injectMeta } from "./site-meta.mjs";
 import { sessionKey, verifySession } from "./site-auth.mjs";
 import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
@@ -2628,6 +2629,17 @@ const SITE_SCHEMA_TOOL = {
       // after the build — not even the owner — so whatever is not seeded here is
       // an empty list forever, and a form whose required Select reads that table
       // cannot be submitted by anyone.
+      // Goes in the published page's head. Until 2026-07-28 a generated site had
+      // a <title> and nothing else, so sharing its link on WhatsApp, iMessage or
+      // Slack showed a bare URL — and for a small business that link IS the
+      // marketing.
+      description: {
+        type: "string",
+        description:
+          "One sentence describing the business, as it should appear under the name in a Google result or a shared-link preview. " +
+          "Write it for a customer, not a developer: what it is, where, and what someone can do here — 'Skin fades and hot-towel shaves in Lisbon. Book online.' " +
+          "Under 160 characters. No quotes, no line breaks.",
+      },
       seed: {
         type: "object",
         description: "Starter rows for each 'display' table, keyed by table name: {\"services\": [{...}, {...}]}. " +
@@ -2637,7 +2649,7 @@ const SITE_SCHEMA_TOOL = {
         additionalProperties: { type: "array", items: { type: "object" } },
       },
     },
-    required: ["brand", "slug", "tables", "seed"],
+    required: ["brand", "slug", "tables", "seed", "description"],
   },
 };
 
@@ -3109,9 +3121,16 @@ async function deleteSitePrefix(env, slug) {
 // Publish a compiled site. The prefix is wiped first: vite hashes its asset file
 // names, so without this every rebuild would leave the previous build's JS and CSS
 // behind forever. Same {t}/{b} envelope the build service returns for the games.
-async function writeSiteDistToR2(env, slug, dist) {
+async function writeSiteDistToR2(env, slug, dist, meta) {
   try { await deleteSitePrefix(env, slug); } catch {}
   for (const [rel, v] of Object.entries(dist || {})) {
+    // The head belongs to the built dist, which the model never sees, so the
+    // share tags go in here. Only ever a no-op on anything unexpected — a site
+    // published without a description is a far smaller problem than one
+    // published broken.
+    if (/^index\.html$/i.test(String(rel)) && v && typeof v.t === "string" && meta) {
+      try { v.t = injectMeta(v.t, meta); } catch (e) { console.error("meta inject failed:", slug, e && e.message); }
+    }
     const safeRel = String(rel).replace(/[^a-z0-9/._-]/gi, "-");
     const ext = (safeRel.match(/\.([a-z0-9]{1,8})$/i) || [])[1] || "";
     const ct = R2_MIME[ext.toLowerCase()] || "application/octet-stream";
@@ -3130,7 +3149,7 @@ async function writeSiteDistToR2(env, slug, dist) {
 // all? — live in builder/publish-pages.mjs, which takes every side effect as an
 // injected function so they can be driven against fakes in test/publish-pages.test.mjs.
 // This is only the wiring that supplies the real ones.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage }) {
   const out = await publishPages({
     // A failed repair is swallowed by publishPages (the first attempt stands), so
     // it is logged here or nowhere. A failed FIRST attempt propagates and is
@@ -3151,7 +3170,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth }) {
       }));
       return await r.json().catch(() => ({ ok: false, stage: "build", error: "the build service returned no JSON" }));
     },
-    publish: (dist) => writeSiteDistToR2(env, slug, dist),
+    publish: (dist) => writeSiteDistToR2(env, slug, dist, {
+      brand, description: siteDescription, url: "https://isibi.ai/s/" + slug + "/", image: ogImage,
+    }),
     readCredits: () => readCredits(auth),
     useCredits: (n) => useCredits(auth, n),
   }, { spec, slug });
@@ -5473,7 +5494,25 @@ async function handleRequest(request, env, ctx) {
           // A revise gets the brief the site was BUILT from as well as the
           // instruction — see briefForPages. The merged schema says what the
           // site has; this says what it is for.
-          pages = await buildAndPublishPages(env, { brief: briefForPages({ brief, priorBrief }), spec: pageSpec, slug, brand, auth: request.headers.get("Authorization") || "" });
+          // The one-line description for the head. A revise sends no brief, so
+          // the designer writes none — fall back to the brief the site was built
+          // from rather than publishing a page with nothing under its name.
+          const siteDescription = String((designed && designed.description) || body.description || priorBrief || brief || "").slice(0, 300);
+          // A picture for the link preview: the first thing the owner uploaded,
+          // if anything. Best-effort — a missing one just means a small card.
+          let ogImage = null;
+          try {
+            if (env.SITES_BUCKET) {
+              const objs = await siteUploadList(env, slug);
+              const first = objs.find((o) => o && !o.visitor) || objs[0];
+              if (first) ogImage = "https://isibi.ai/u/" + slug + "/" + first.key.split("/").pop();
+            }
+          } catch (e) { console.error("og image lookup failed:", slug, e && e.message); }
+          pages = await buildAndPublishPages(env, {
+            brief: briefForPages({ brief, priorBrief }), spec: pageSpec, slug, brand,
+            siteDescription, ogImage,
+            auth: request.headers.get("Authorization") || "",
+          });
         } catch (e) {
           console.error("page generation failed:", slug, (e && (e.detail || e.message)));
           pages.notes = "Your database is live, but writing the pages didn't work this time — send it again to retry.";
