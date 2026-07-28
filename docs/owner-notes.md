@@ -9387,3 +9387,30 @@ Measured, not estimated: `site-runtime.mjs` counts requests against the stub API
 asserted directly rather than inferred from timing. It now fails if a 4xx is ever retried, or if
 the visitor waits more than 4s to be told a read failed — a regression back to the library default
 turns CI red instead of quietly costing every visitor seven seconds.
+
+### 2026-07-28 (later still) — the sweeper is tested now
+
+It shipped verified only as far as syntax and its two argument guards, which was thin for a tool
+that runs with the service key and deletes published files. I can't dispatch the workflow (this
+session's GitHub token has no `actions: write`), but that was no reason to leave the logic
+unchecked — **`test/sweep-orphan.test.mjs`** runs the real script as a child process against a
+stub standing in for both Supabase and the Worker. 8/8:
+
+- **refuses a slug that still has an owner**, names who owns it, calls no delete, and leaves the
+  row and the site untouched — and does so *before* creating any throwaway account
+- exits clean when the slug already 404s, without claiming anything
+- sweeps a real orphan, reports what it removed, and the files really do go
+- deletes through the owner route, authenticated, exactly once
+- claims the slug for the account it created and then removes that account
+- **claims only after the ownership check** — claiming first would let it take over a live site
+- a failed delete still removes the account and frees the slug, and reports failure
+
+`SUPABASE_URL` in the script is now overridable via `SWEEP_SUPABASE_URL`, the same way `BASE`
+already was, so the whole flow can run against a stub.
+
+**These tests were mutation-checked.** Removing the refuse-a-live-site guard turns the two safety
+tests red and restoring it turns them green — so the assertion protecting someone's live site
+actually fires rather than passing by accident.
+
+Still true: the workflow itself has never executed. What is now covered is the script's logic,
+which is where the damage would come from.
