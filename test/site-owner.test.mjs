@@ -342,6 +342,31 @@ test("the search vector never comes back", async () => {
   assert.ok(!("_fts" in r.body.row), JSON.stringify(r.body.row));
 });
 
+test("a constraint is the owner's answer, not a 500", async () => {
+  // Measured live 2026-07-28: adding a row with a required column left out
+  // answered 500 "Something went wrong", so the owner had no idea which field
+  // they had missed and retried the identical request.
+  const boom = (msg) => wharness({ deps: {
+    query: async () => { throw new Error(msg); },
+    exec: async () => { throw new Error(msg); },
+  } });
+  const missing = boom('null value in column "price" violates not-null constraint');
+  const r = await handleOwnerWrite(missing.deps, { slug: "cafe", uid: "owner-1", table: "services", method: "POST", body: { title: "Cut" } });
+  assert.equal(r.status, 400);
+  assert.equal(r.body.code, "required");
+  assert.equal(r.body.field, "price");
+
+  const dup = boom("duplicate key value violates unique constraint");
+  const r2 = await handleOwnerWrite(dup.deps, { slug: "cafe", uid: "owner-1", table: "services", method: "PATCH", rowId: "4", body: { title: "Cut" } });
+  assert.equal(r2.status, 409);
+  assert.equal(r2.body.code, "duplicate");
+
+  // And something genuinely ours is still a 500 rather than a misleading 409.
+  const ours = boom("connection terminated unexpectedly");
+  const r3 = await handleOwnerWrite(ours.deps, { slug: "cafe", uid: "owner-1", table: "services", method: "POST", body: { title: "Cut" } });
+  assert.equal(r3.status, 500);
+});
+
 test("an unknown method is 405, not a silent success", async () => {
   const { deps } = wharness();
   assert.equal((await write(deps, { table: "services", method: "PUT", rowId: "4", body: { price: "1" } })).status, 405);

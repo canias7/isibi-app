@@ -14,6 +14,7 @@
 // Worker — see test/site-owner.test.mjs.
 
 import { isManagedColumn } from "./site-access.mjs";
+import { constraintError } from "./site-errors.mjs";
 
 const json = (body, status = 200) => ({ status, body });
 
@@ -169,6 +170,21 @@ export async function handleOwnerWrite(deps, { slug, table, uid, method, rowId, 
   const access = String(def.access || "collect").toLowerCase();
   const tn = deps.ident(def.name);
 
+  // A constraint firing here is the owner being told something true — "price is
+  // required", "that time is taken" — not a server fault. Reported as a 500 it
+  // reads as "the site is broken" and they retry the identical request. Measured
+  // live 2026-07-28: adding a row with a required column left out answered 500.
+  try {
+    return await runWrite(deps, { db, def, access, tn, method, rowId, body });
+  } catch (e) {
+    const known = constraintError(e);
+    if (known) return json(known.body, known.status);
+    console.error("owner write error:", slug, def.name, String((e && (e.message || e.detail)) || "").slice(0, 200));
+    return json({ error: "that didn't work" }, 500);
+  }
+}
+
+async function runWrite(deps, { db, def, access, tn, method, rowId, body }) {
   if (method === "POST") {
     // A `user`/`feed` row belongs to a MEMBER, and the owner is not one — their
     // isibi account has no id in this database's `_users`. A row created here

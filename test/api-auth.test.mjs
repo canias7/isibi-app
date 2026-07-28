@@ -56,17 +56,26 @@ function routes() {
 // published-site data API passed this test while calling no auth at all.
 const WINDOW = 45;
 
-// Dispatch lines that sit within a couple of lines of each other are ONE
-// decision, not several — `/api/video`, `/api/image` and `/api/audio` are three
-// arms of a single ternary, and the gate that covers them comes after all three.
-// Capping at the very next line would give each a one-line block and report
-// every one of them as open.
-const CLUSTER = 3;
+// Consecutive dispatch lines are ONE decision only when they are arms of the
+// SAME expression — `/api/video`, `/api/image` and `/api/audio` are three arms
+// of one ternary, and the gate that covers them comes after all three. Capping
+// at the very next line would give each a one-line block and call them open.
+//
+// The signal is the source, not the line distance. An unfinished expression ends
+// in a continuation token (`?`, `:`, `||`, `&&`, `,`, `(`); a finished statement
+// does not. This was a proximity test — "within 3 lines is the same decision" —
+// and that had a hole big enough to walk through: an UNGATED route written on
+// the line above a gated one was read as part of it and inherited its gate.
+// Demonstrated by wedging `/api/backdoor` in, which the suite happily passed.
+export const CONTINUES = /[?:,(]\s*$|(\|\||&&)\s*$/;
 function nextDispatchAfter(i) {
   let last = i;
   for (const j of ROUTE_LINES) {
     if (j <= last) continue;
-    if (j - last <= CLUSTER) { last = j; continue; } // same cluster, keep going
+    // Same expression only if every line between them is still mid-expression.
+    let joined = true;
+    for (let k = last; k < j; k++) if (!CONTINUES.test(LINES[k])) { joined = false; break; }
+    if (joined) { last = j; continue; }
     return j;
   }
   return Infinity;
@@ -141,4 +150,33 @@ test("the router has a catch-all so an unmatched /api path is never served as an
   // Without this, a typo'd or future route would fall through to ASSETS.fetch
   // and answer 200 with the SPA shell — which reads as "endpoint exists".
   assert.match(SRC, /if \(url\.pathname\.startsWith\("\/api\/"\)\) \{\s*\n\s*return Response\.json\(\{ error: "not found" \}, \{ status: 404 \}\);/);
+});
+
+test("the scanner itself catches an ungated route written next to a gated one", () => {
+  // A self-test, because this test IS the invariant — if its window bleeds into
+  // a neighbouring block, an open route reads as gated and nothing anywhere
+  // notices. That is not hypothetical: the proximity rule this replaced passed
+  // a wedged `/api/backdoor` in exactly this position.
+  const target = LINES.findIndex((l) => /url\.pathname\.startsWith\("\/api\/site\/"\)/.test(l));
+  assert.ok(target > 0, "expected a /api/site/ dispatch to wedge against");
+
+  const wedged = LINES.slice();
+  wedged.splice(target, 0, '    if (url.pathname === "/api/backdoor") { return Response.json({ ok: true }); }');
+
+  // Re-run the same analysis over the doctored source.
+  const routeLines = wedged.reduce((a, l, i) => (/url\.pathname\s*(?:===\s*"\/api\/|\.startsWith\("\/api\/)/.test(l) ? a.concat(i) : a), []);
+  const nextAfter = (i) => {
+    let last = i;
+    for (const j of routeLines) {
+      if (j <= last) continue;
+      let joined = true;
+      for (let k = last; k < j; k++) if (!CONTINUES.test(wedged[k])) { joined = false; break; }
+      if (joined) { last = j; continue; }
+      return j;
+    }
+    return Infinity;
+  };
+  const block = wedged.slice(target, Math.max(Math.min(target + WINDOW, nextAfter(target)), target + 1)).join("\n");
+  assert.ok(!/authUser\(|UNAUTHED\(|bearerUser\(/.test(block),
+    "an ungated route adjacent to a gated one must NOT inherit its gate:\n" + block);
 });
