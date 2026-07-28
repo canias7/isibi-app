@@ -9878,7 +9878,27 @@ async function loadSiteData(site) {
       '</tbody></table></div>' : '');
   }
   const addBtn = (canAdd && !siteDataForm) ? '<button type="button" class="st-data-add" id="stDataAdd">+ Add</button>' : '';
-  host.innerHTML = '<div class="st-data-head"><span class="st-data-title">Data</span><span class="st-data-count">' + (rows.length ? rows.length + ' row' + (rows.length > 1 ? 's' : '') : '') + '</span>' + addBtn + '<button type="button" class="st-icon" id="stDataReload" title="Refresh">' + ic('reload', 15) + '</button></div><div class="st-data-body">' + side + '<div class="st-data-main">' + formHtml + main + '</div></div>';
+  // Email-me-when-someone-submits, and the switch to stop it. Only meaningful
+  // on a table visitors write to.
+  const notifyBtn = (selTab.access === 'collect')
+    ? '<button type="button" class="st-data-notify" id="stDataNotify" title="Email me when someone submits">…</button>' : '';
+  host.innerHTML = '<div class="st-data-head"><span class="st-data-title">Data</span><span class="st-data-count">' + (rows.length ? rows.length + ' row' + (rows.length > 1 ? 's' : '') : '') + '</span>' + notifyBtn + addBtn + '<button type="button" class="st-icon" id="stDataReload" title="Refresh">' + ic('reload', 15) + '</button></div><div class="st-data-body">' + side + '<div class="st-data-main">' + formHtml + main + '</div></div>';
+  const nb = document.getElementById('stDataNotify');
+  if (nb) {
+    const paint = (on) => { nb.textContent = on ? '🔔 Emails on' : '🔕 Emails off'; nb.dataset.on = on ? '1' : ''; };
+    apiFetch(base + '/notify').then((r) => r.json()).then((d) => paint(!!d.notify)).catch(() => paint(true));
+    nb.onclick = async () => {
+      const next = nb.dataset.on !== '1';
+      nb.disabled = true;
+      try {
+        const r = await apiFetch(base + '/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: next }) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { sbToast(d.error || 'Couldn’t change that.'); return; }
+        paint(!!d.notify);
+      } catch (e) { sbToast('Couldn’t change that — check your connection.'); }
+      finally { nb.disabled = false; }
+    };
+  }
   host.querySelectorAll('[data-dtable]').forEach((b) => b.onclick = () => { siteDataTable = b.dataset.dtable; siteDataForm = null; loadSiteData(site); });
   const rl = document.getElementById('stDataReload'); if (rl) rl.onclick = () => loadSiteData(site);
   const add = document.getElementById('stDataAdd'); if (add) add.onclick = () => { siteDataForm = { editId: null, values: {} }; loadSiteData(site); };

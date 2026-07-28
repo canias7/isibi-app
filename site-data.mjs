@@ -233,6 +233,14 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
           wc.map(() => "?").join(",") + ") RETURNING *",
         vals,
       );
+      // Tell the owner, without making them wait and without letting a failure
+      // here turn a successful booking into a failed one. Detached in the
+      // Worker; see site-notify.mjs for the cooldown that stops a hammered form
+      // becoming a mail bomb.
+      if (deps.onSubmit) {
+        try { deps.onSubmit({ slug, table: def.name, access, method: request.method, row: rows[0] || {} }); }
+        catch (e) { console.error("notify hook failed:", slug, (e && e.message) || e); }
+      }
       return json({ row: rows[0] || null }, 201);
     }
 
