@@ -10254,3 +10254,17 @@ from our origin needs its own thinking about quota and abuse; it is not a line o
 this one.
 
 Unit suite **431**.
+
+### Verified live, and one stale doc found on the way
+
+Uploads, against the deployed Worker and the real bucket: **19/19**. The ones that matter went end to
+end — an SVG declared as `image/svg+xml` is refused, HTML wearing an `image/png` header is refused,
+the served type is the SNIFFED one, a traversal filename could not touch the published site (and the
+site was still up afterwards), the same picture twice de-duplicated, and the bytes came back byte-for-
+byte identical.
+
+Taking the screenshot turned up something else: **CLAUDE.md still described the app as "dark studio
+design … near-black #08070c"**. `styles.css` has said the opposite since 2026-07-23 — "Black-and-white
+platform (owner): high-contrast light, white surfaces, near-black ink" — so the doc was five days
+stale on the single most visible fact about the product, and my first render came out dark-on-dark
+because of it. Fixed, and pointed at `styles.css` as the authority so the next drift is obvious.
