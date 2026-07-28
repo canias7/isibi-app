@@ -1,0 +1,30 @@
+# The unit suite, on every push.
+#
+# It had no home. site-build runs only page-gen.test.mjs, and `npm test` — the
+# one command that runs all of test/*.test.mjs — lived solely in neon-e2e, which
+# triggers on site-db.mjs / site-schema.mjs and needs a Neon key. So site-data
+# and sweep-orphan could go red on main without anything noticing.
+#
+# No secrets, no browser, no container, no Neon project. ~30 seconds.
+name: unit tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
