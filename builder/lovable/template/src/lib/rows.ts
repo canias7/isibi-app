@@ -257,3 +257,27 @@ export function useUploadFile(table: string) {
     mutationFn: (file: File) => uploadFile(table, file),
   });
 }
+
+// ── The public view ─────────────────────────────────────────────────────────
+//
+// Some tables publish a named, PII-filtered projection that anyone may read,
+// even though the table itself is not readable. The case it exists for is a
+// booking page: it needs to know WHICH SLOTS ARE TAKEN without learning
+// anything about who took them.
+//
+// Only tables whose schema declares `publicView` have one — asking for it on a
+// table that does not is a 404, not an error worth surfacing.
+
+/**
+ * Read a table's declared public projection.
+ *
+ * `params` may filter, but only on the columns the projection itself publishes;
+ * anything else is ignored by the API rather than honoured, so this cannot be
+ * used to ask about a column the site chose not to publish.
+ */
+export function usePublicRows<T extends Row = Row>(table: string, params?: RowQuery) {
+  return useQuery({
+    queryKey: ["public", siteSlug(), table, params],
+    queryFn: () => send<{ rows: T[] }>(`${base(table)}/public${qs(params)}`).then((r) => r.rows),
+  });
+}

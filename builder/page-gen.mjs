@@ -310,6 +310,13 @@ or an access level — anything not in the schema below does not exist.
    — and the file is capped at 2 MB, so say so next to the control rather than letting
    someone pick a 12 MB photo and be told no afterwards.
 
+9. A BOOKING PAGE SHOWS WHICH SLOTS ARE TAKEN with \`usePublicRows\`. A \`collect\` table
+   cannot be read — that is the whole point of it — but if the schema declares a
+   \`publicView\` on it, that projection CAN be read by anyone, and it is how a form greys
+   out a time somebody already booked. \`usePublicRows("bookings")\` returns only the
+   columns the schema chose to publish, never a name or an email. If the table declares no
+   public view, do not call it — there is nothing to read and the answer is a 404.
+
 ## Reading rows
 
 \`useRows<T>(table, params)\` → a TanStack Query result whose \`.data\` is the rows.

@@ -2595,6 +2595,19 @@ const SITE_SCHEMA_TOOL = {
               type: "integer",
               description: "Cap how many rows this table may ever hold. Worth setting on a public form (a giveaway with 500 places, a class with 20 seats); a full table answers 409 rather than growing forever.",
             },
+            publicView: {
+              type: "object",
+              description:
+                "A named, PII-filtered projection of this table that ANYONE may read, even though the table itself is not readable. " +
+                "USE THIS WITH A BOOKING TABLE so the page can grey out slots that are already taken: publicView {\"columns\":[\"appointment_date\",\"appointment_time\"]} publishes WHEN people have booked and nothing about WHO. " +
+                "Name only the columns a stranger may see — never a name, email, phone or note. `id` and `owner_id` are refused outright. " +
+                "Add \"where\":[\"status:eq:confirmed\"] when the table has a status, so a cancelled row stops occupying the slot.",
+              properties: {
+                columns: { type: "array", items: { type: "string" }, description: "The only columns published. No wildcard." },
+                where: { type: "array", items: { type: "string" }, description: "Filters as \"column:eq:value\" or \"column:ne:value\"." },
+                limit: { type: "integer", description: "Most rows returned at once (default 500, max 2000)." },
+              },
+            },
             noOverlap: {
               type: "object",
               description:

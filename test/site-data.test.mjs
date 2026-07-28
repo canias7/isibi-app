@@ -531,3 +531,130 @@ test("a read never fires the notify hook", async () => {
   await handleSiteData({}, new Request(url), url, async () => db, deps);
   assert.equal(fired, 0);
 });
+
+// ═══════════════════════════════════════════════════ the declared public view
+//
+// The case every booking site has: a visitor must see WHICH SLOTS ARE TAKEN
+// without seeing who took them. Without this a booking table is either `collect`
+// — nobody can read it, so a page cannot grey out a taken slot — or readable,
+// and every customer's name and email is public.
+//
+// It deliberately ignores the access level, which is exactly why every part of
+// it has to be written down in the schema and nothing is inferred.
+
+const PV_SPEC = {
+  tables: [
+    { name: "bookings", access: "collect",
+      columns: [{ name: "appointment_date" }, { name: "appointment_time" }, { name: "customer_name" }, { name: "customer_email" }, { name: "status" }],
+      publicView: { columns: ["appointment_date", "appointment_time"], where: ["status:eq:confirmed"], limit: 500 } },
+    { name: "private", access: "collect", columns: [{ name: "a" }] },
+    { name: "trashy", access: "collect", columns: [{ name: "a" }], trash: true,
+      publicView: { columns: ["a"], where: [], limit: 500 } },
+  ],
+};
+
+const pvCall = async (path, spec = PV_SPEC, over = {}) => {
+  const url = new URL("https://isibi.ai" + path);
+  const db = fakeDb(spec, { rows: over.rows || [{ appointment_date: "2031-03-03", appointment_time: "14:00" }] });
+  const deps = {
+    sqlQuery: async (_c, sql, p) => (await db.query(sql, p)).rows,
+    sqlExec: async (_c, sql, p) => { const r = await db.query(sql, p); return { results: r.rows, changes: r.rowCount }; },
+    loadSiteSchema: async () => spec,
+    ...over.deps,
+  };
+  const res = await handleSiteData({}, new Request(url, over.init), url, async () => db, deps);
+  return { res, seen: db.__seen.filter((q) => !/_meta/.test(q.sql)) };
+};
+
+test("a visitor sees which slots are taken, and nothing about who took them", async () => {
+  const { res, seen } = await pvCall("/api/db/shop/rows/bookings/public");
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.deepEqual(body.rows, [{ appointment_date: "2031-03-03", appointment_time: "14:00" }]);
+  // The SELECT names the declared columns — there is no wildcard to leak through.
+  assert.match(seen[0].sql, /SELECT "appointment_date","appointment_time" FROM "bookings"/);
+  assert.ok(!/customer_name|customer_email|\*/.test(seen[0].sql), seen[0].sql);
+});
+
+test("the DECLARED filter is applied, so an unconfirmed row is not published", async () => {
+  const { seen } = await pvCall("/api/db/shop/rows/bookings/public");
+  assert.match(seen[0].sql, /"status"=\?/);
+  assert.ok(seen[0].params.includes("confirmed"), JSON.stringify(seen[0].params));
+});
+
+test("a caller may narrow the view but never widen it", async () => {
+  const { seen } = await pvCall("/api/db/shop/rows/bookings/public?appointment_date=2031-03-03");
+  assert.match(seen[0].sql, /"appointment_date"=\?/);
+  // …and the declared filter is still there, ANDed on after it.
+  assert.match(seen[0].sql, /"status"=\?/);
+  assert.ok(seen[0].params.includes("2031-03-03") && seen[0].params.includes("confirmed"), JSON.stringify(seen[0].params));
+});
+
+test("a filter on a column the view does not publish is ignored, not honoured", async () => {
+  // Otherwise the query string becomes an oracle: filtering on customer_email
+  // and watching the row count answers "does this person have a booking?".
+  const { seen } = await pvCall("/api/db/shop/rows/bookings/public?customer_email=ada@example.com&status=cancelled");
+  assert.ok(!/customer_email/.test(seen[0].sql), seen[0].sql);
+  assert.ok(!seen[0].params.includes("ada@example.com"), JSON.stringify(seen[0].params));
+  assert.ok(!seen[0].params.includes("cancelled"), "a caller cannot override the declared filter");
+});
+
+test("a table that declares no public view is still refused", async () => {
+  const { res, seen } = await pvCall("/api/db/shop/rows/private/public");
+  assert.equal(res.status, 404);
+  assert.deepEqual(seen, [], "and nothing was read");
+});
+
+test("an undeclared table is 404, not a public view of something", async () => {
+  const { res } = await pvCall("/api/db/shop/rows/nope/public");
+  assert.equal(res.status, 404);
+});
+
+test("the view is read-only", async () => {
+  for (const method of ["POST", "PATCH", "DELETE", "PUT"]) {
+    const { res, seen } = await pvCall("/api/db/shop/rows/bookings/public", PV_SPEC, { init: { method } });
+    assert.equal(res.status, 405, method);
+    assert.deepEqual(seen, []);
+  }
+});
+
+test("`public` is not mistaken for a row id", async () => {
+  // The two live on the same path shape, and reading /public as an id would
+  // send the word into a Postgres integer comparison.
+  const { seen } = await pvCall("/api/db/shop/rows/bookings/public");
+  assert.ok(!/id=\?/.test(seen[0].sql), seen[0].sql);
+  assert.ok(!seen[0].params.includes("public"), JSON.stringify(seen[0].params));
+});
+
+test("the declared limit caps what a caller can ask for", async () => {
+  const spec = JSON.parse(JSON.stringify(PV_SPEC));
+  spec.tables[0].publicView.limit = 10;
+  const { seen } = await pvCall("/api/db/shop/rows/bookings/public?limit=9999", spec);
+  assert.equal(seen[0].params[seen[0].params.length - 2], 10, JSON.stringify(seen[0].params));
+  const { seen: s2 } = await pvCall("/api/db/shop/rows/bookings/public?limit=3", spec);
+  assert.equal(s2[0].params[s2[0].params.length - 2], 3, "a smaller ask is honoured");
+});
+
+test("a soft-deleted row is not a taken slot", async () => {
+  const { seen } = await pvCall("/api/db/shop/rows/trashy/public");
+  assert.match(seen[0].sql, /"deleted_at" IS NULL/);
+});
+
+test("the public view is throttled like any other read", async () => {
+  const calls = [];
+  const { res } = await pvCall("/api/db/shop/rows/bookings/public", PV_SPEC, {
+    deps: { rateLimit: (k, l) => { calls.push({ k, l }); return { ok: false, limit: l, retryAfter: 42 }; } },
+  });
+  assert.equal(res.status, 429);
+  assert.equal(calls.length, 1);
+});
+
+test("a caller cannot bury the declared filter under a thousand of their own", async () => {
+  // Each filter is a bound parameter, so this is not injection — it is a query
+  // string that can make the statement arbitrarily large.
+  const many = Array.from({ length: 40 }, (_, i) => `appointment_date=${i}`).join("&");
+  const { seen } = await pvCall("/api/db/shop/rows/bookings/public?" + many);
+  const filters = (seen[0].sql.match(/"appointment_date"=\?/g) || []).length;
+  assert.ok(filters <= 6, `${filters} filters reached SQL`);
+  assert.match(seen[0].sql, /"status"=\?/, "and the declared one is still there");
+});
