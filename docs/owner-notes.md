@@ -10394,3 +10394,42 @@ that 400s. There is a drift test asserting the export the rule names really exis
 and the template still typechecks and builds (18/18).
 
 Unit suite **488**, 17/17 mutations on the visitor path.
+
+### And a feature that could never have fired
+
+Verifying it live turned up the thing that mattered. Every one of the seven generated sites has image
+columns — `image_url`, `photo_url`, `cover` — and **every single one is on a `display` table.** Not
+one `collect` or member table has one, anywhere.
+
+Which means visitor upload, which requires exactly that, would have been refused on every site that
+exists. The gate was working perfectly and the feature was unreachable.
+
+That is a schema-designer problem, not an upload problem: the model puts pictures where the site
+SHOWS them and never where a visitor SENDS them, because nothing ever told it the difference matters.
+The `columns` schema now says a picture is a text column holding a URL, that a `display` one is
+content the owner fills in after the build, and that a `collect` or member one goes in **only when
+the brief says the visitor sends a picture** — which is what makes the form able to accept a file at
+all. There is a test that reads worker.js and fails if that guidance goes away.
+
+### Proved live, and for free
+
+The build route takes an explicit `schema`, which skips the model **and** the credit charge — so
+adding a `photo` column to the barber shop's booking form to test this cost **0 credits** (balance
+278 before and after). Then, as an anonymous caller with no account:
+
+```
+ok   accepted, with NO account
+ok   and it is served publicly
+ok   as the sniffed type
+ok   byte-for-byte
+ok   the booking is created carrying the photo URL
+ok   services (display) still refuses
+ok   a burst gets throttled
+```
+
+One test of mine failed on the way and was worth having: I left `service` out of the booking, and the
+API answered **`"service is required"` with the field named** — this morning's constraint mapping
+doing its job on a path I had not thought to point it at.
+
+**Note:** `sharp-fade-barbershop`'s `bookings` table now has a `photo` column and a couple of live-
+check rows, from this verification.
