@@ -10157,3 +10157,42 @@ Five PRs: #828 rate limits + the stored brief, #829 the owner's write door and t
 it, #830 constraints as answers instead of 500s plus the auth-invariant hole, #831 the smoke test
 naming its own site, #832 saying why a build fell back. Unit suite 323 -> 395, every new test
 mutation-checked.
+
+---
+
+## 2026-07-28 — the traffic panel, which was broken twice over
+
+`site_hits` has been written on every visit since the D1 era — hashed IP, bots skipped, fired through
+`ctx.waitUntil` so serving is never slowed. **64 real hits across 20 slugs, and nothing had ever read
+a single one.** The route the panel calls did not exist.
+
+The interesting part is what I found when I went to write it. A `site_analytics` RPC was already
+there and already returned exactly the shape the panel wants — but its ownership check was:
+
+```sql
+select exists(select 1 from published_sites where slug = p_slug and user_id = auth.uid())
+```
+
+`published_sites` is the **old D1-era table**. The current builder records sites in `site_backends`.
+They share **zero rows**. So even if the route had existed, every call would have returned
+`{ok:false}` and the panel would have shown "Couldn't load analytics just now" over real data.
+
+Rather than repoint that check, the ownership decision moved **out of SQL and into the Worker**,
+where `site-owner.mjs` already does it — fails closed on an unreadable record, 404 rather than 403 so
+the slug space stays unenumerable, and tested. One ownership mechanism instead of two that can
+disagree. Which also made the function **service_role-only**, closing the advisor finding that it was
+`anon`-executable (safe until now only because its own check happened to refuse everyone).
+
+`assertOwner` is split out of `openSite` because analytics needs the gate but **not** a Neon
+connection — the numbers are in Supabase, and resolving one would be a round trip spent on nothing.
+The aggregation stays an RPC: count-distinct and a seven-day `generate_series` are not things a REST
+filter can express.
+
+One judgement worth recording: **a failed read is a 503, never zeros.** "Nobody visited your site" is
+a very different and much worse thing to tell someone than "try again in a moment". A site that
+genuinely has no visits still reads as zeros and an empty week, so a new site does not look broken.
+
+Verified against the live database before wiring: `sharp-fade-barbershop` → 4 views, 4 visitors,
+seven-day series ending `Jul 28: 4`. anon and authenticated can no longer execute the function.
+
+Unit suite **403**, 10/10 mutations on the analytics handler.

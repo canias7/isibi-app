@@ -9777,9 +9777,13 @@ function moreAnalytics(site) {
 async function loadSiteAnalytics(site) {
   const vEl = document.getElementById('anVisitors'); if (!vEl) return;
   try {
-    const r = await apiFetch('/api/site/analytics?slug=' + encodeURIComponent(site.slug || ''));
+    // The owner's own door, same gate as the Data panel. site_hits has been
+    // written on every visit since the D1 era with nothing reading it — this
+    // route did not exist, so a published site collected traffic its owner
+    // could never see.
+    const r = await apiFetch('/api/site/' + encodeURIComponent(site.slug || '') + '/analytics');
     const d = await r.json().catch(() => ({}));
-    if (!d || !d.ok) throw 0;
+    if (!r.ok || !d || !d.ok) throw 0;
     const views = d.views || 0, visitors = d.visitors || 0;
     vEl.textContent = visitors;
     const viEl = document.getElementById('anViews'); if (viEl) viEl.textContent = views;

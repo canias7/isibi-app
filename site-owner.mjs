@@ -70,12 +70,20 @@ function pickWritable(def, body) {
  * One copy, because three routes with three hand-written copies of this is how
  * they drift apart — and the one that drifts is a cross-account read.
  */
-async function openSite(deps, slug, uid) {
+async function assertOwner(deps, slug, uid) {
   if (!uid) return { error: json({ error: "sign in" }, 401) };
   let owner;
   try { owner = await deps.ownerOf(slug); }
   catch { return { error: json({ error: "couldn't check that site just now — try again in a moment" }, 503) }; }
   if (!owner || owner !== uid) return { error: json({ error: "no such site" }, 404) };
+  return {};
+}
+
+async function openSite(deps, slug, uid) {
+  const gate = await assertOwner(deps, slug, uid);
+  if (gate.error) return gate;
+  // Analytics does not need this — its numbers live in Supabase, not the site's
+  // own database — which is why the gate is separable from the connection.
   const db = await deps.dbFor(slug);
   if (!db) return { error: json({ error: "no such site" }, 404) };
   return { db };
@@ -277,3 +285,48 @@ function stripFts(row) {
   if (row && row._fts !== undefined) delete row._fts;
   return row || null;
 }
+
+/**
+ * How the site is doing: views, visitors, and the last seven days.
+ *
+ * `site_hits` has been written on every visit since the D1 era and **nothing has
+ * ever read it** — the route the panel calls did not exist, so a published site
+ * collected traffic its owner could never see. (64 real hits by the time this
+ * was written.)
+ *
+ * The numbers live in Supabase rather than the site's own database, so this
+ * takes `assertOwner` and not `openSite`: no Neon connection is needed, and
+ * resolving one would be a round trip spent on nothing.
+ *
+ * The aggregation itself is the `site_analytics` RPC — count-distinct and a
+ * seven-day generate_series are not things a REST filter can express. That
+ * function used to do its OWN ownership check, against `published_sites`, a
+ * table the current builder never writes: the two shared zero rows, so it
+ * refused every caller. The check belongs here, where it is tested and where it
+ * matches every other door onto a site.
+ *
+ * deps: ownerOf(slug), plus
+ *   readAnalytics(slug) → {views, visitors, series:[{day, views}], …}
+ */
+export async function handleOwnerAnalytics(deps, { slug, uid } = {}) {
+  const gate = await assertOwner(deps, slug, uid);
+  if (gate.error) return gate.error;
+
+  let stats;
+  try { stats = await deps.readAnalytics(slug); }
+  catch { return json({ error: "couldn't read your traffic just now — try again in a moment" }, 503); }
+
+  // A site nobody has visited is not an error, and must not read as one: zeros
+  // and an empty week, so the panel says "no visits yet" instead of "failed".
+  const series = Array.isArray(stats && stats.series) ? stats.series : [];
+  return json({
+    ok: true,
+    views: num(stats && stats.views),
+    visitors: num(stats && stats.visitors),
+    views7: num(stats && stats.views7),
+    visitors7: num(stats && stats.visitors7),
+    series: series.map((s) => ({ day: String((s && s.day) || ""), views: num(s && s.views) })),
+  });
+}
+
+const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);

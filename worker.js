@@ -8,7 +8,7 @@ import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
 import { ensureSiteBackend as ensureSiteBackendPure } from "./site-provision.mjs";
 import { lookupRoute, saveRoute, dropRoute } from "./site-routing.mjs";
 import { handleSiteAuth } from "./site-auth-routes.mjs";
-import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers } from "./site-owner.mjs";
+import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers, handleOwnerAnalytics } from "./site-owner.mjs";
 import { sessionKey, verifySession } from "./site-auth.mjs";
 import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
@@ -5348,10 +5348,11 @@ async function handleRequest(request, env, ctx) {
     // Ordered BEFORE the site-delete branch below on purpose: that one matches
     // any DELETE under /api/site/, so a row delete would otherwise be read as a
     // request to take the entire site down.
-    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members"))) {
+    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics"))) {
       const om = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rows(?:\/([a-z_][a-z0-9_]{0,40})(?:\/([0-9]{1,18}))?)?$/i);
       const mm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/members(?:\/([0-9]{1,18}))?$/i);
-      if (om || mm) {
+      const an = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/analytics$/i);
+      if (om || mm || an) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
         const ownerDeps = {
@@ -5367,12 +5368,29 @@ async function handleRequest(request, env, ctx) {
           exec: (conn, sql, args) => sqlExec(conn, sql, args),
           ident: sqlIdent,
           nowSql: () => "to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')",
+          // Traffic lives in Supabase, not the site's database. The aggregation
+          // is an RPC because count-distinct and a seven-day generate_series are
+          // not things a REST filter can express; it is service_role-only, and
+          // the caller was authorised above.
+          readAnalytics: async (s2) => {
+            const g = await fetch(`${SUPABASE_URL}/rest/v1/rpc/site_analytics`, {
+              method: "POST",
+              headers: svcHeaders(env, { "content-type": "application/json" }),
+              body: JSON.stringify({ p_slug: s2 }),
+              signal: AbortSignal.timeout(12000),
+            });
+            if (!g.ok) throw new Error("analytics rpc " + g.status);
+            return g.json();
+          },
         };
         // Anything thrown below reaches the owner as a bare Cloudflare 1101 with
         // no body otherwise — the same trap the PBKDF2 cap fell into.
         try {
           let r;
-          if (mm) {
+          if (an) {
+            if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
+            r = await handleOwnerAnalytics(ownerDeps, { slug: an[1].toLowerCase(), uid: ou.id });
+          } else if (mm) {
             const [, mslug, mid] = mm;
             r = await handleOwnerMembers(ownerDeps, {
               slug: mslug.toLowerCase(), uid: ou.id, method: request.method,
