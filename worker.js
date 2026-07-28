@@ -4,7 +4,7 @@
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { Container, getContainer } from "@cloudflare/containers";
 import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, dropSiteDatabase, connForDatabase, dbNameForSite } from "./site-db.mjs";
-import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent } from "./site-schema.mjs";
+import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
 import { handleSiteData } from "./site-data.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
@@ -2147,7 +2147,7 @@ async function runSiteFunction(env, row, input, slug) {
   const getD1 = async () => {
     if (d1uuid === undefined) {
       d1uuid = null;
-      if (siteDbConfigured(env)) { try { const u = await siteBackendBySlug(env, slug); if (u) { d1uuid = u; d1schema = await loadSiteSchema(env, u); } } catch {} }
+      if (siteDbConfigured(env)) { try { const u = await siteBackendBySlug(env, slug); if (u) { d1uuid = u; d1schema = await loadSiteSchema(u); } } catch {} }
     }
     return d1uuid;
   };
@@ -2548,8 +2548,20 @@ const SITE_SCHEMA_TOOL = {
           required: ["name", "access", "columns"],
         },
       },
+      // Starter content, and not a nicety: nothing can write to a `display` table
+      // after the build — not even the owner — so whatever is not seeded here is
+      // an empty list forever, and a form whose required Select reads that table
+      // cannot be submitted by anyone.
+      seed: {
+        type: "object",
+        description: "Starter rows for each 'display' table, keyed by table name: {\"services\": [{...}, {...}]}. " +
+          "REQUIRED for every display table — a table left unseeded shows an empty list forever, because nothing can write to it after the build. " +
+          "Write 3-6 realistic rows per table using only that table's declared columns. Make them plausible for this specific business, not placeholders: " +
+          "real service names and real prices, not 'Item 1' / 0.00.",
+        additionalProperties: { type: "array", items: { type: "object" } },
+      },
     },
-    required: ["brand", "slug", "tables"],
+    required: ["brand", "slug", "tables", "seed"],
   },
 };
 
@@ -2566,7 +2578,10 @@ async function designSiteSchema(env, brief) {
               "Use 'display' for content the business publishes and visitors read (services, menu items, posts). " +
               "Use 'collect' for anything a visitor submits — bookings, orders, enquiries, signups. Those are write-only on purpose: the visitor sends one in, " +
               "and only the business reads them, so customer names and phone numbers are never served back to the public. " +
-              "Prefer few columns with obvious names. Turn on fts only where someone would genuinely search free text.",
+              "Prefer few columns with obvious names. Turn on fts only where someone would genuinely search free text. " +
+              "Then fill every 'display' table with 3-6 realistic starter rows in `seed`. This is not optional and it is not decoration: " +
+              "nothing can write to a display table after the build, so an unseeded table is an empty list forever, and any form field that " +
+              "chooses from it will have nothing to choose. Write content a real business would publish.",
       messages: [{ role: "user", content: brief }],
     }),
     signal: AbortSignal.timeout(60000),
@@ -5026,6 +5041,17 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ ok: false, error: "could not apply the schema", detail: String(e && (e.detail || e.message)).slice(0, 300) }, { status: 502 });
       }
 
+      // Starter content for the display tables. Best-effort and non-fatal: a site
+      // with a live database and an empty menu is still a site, but one WITH the
+      // menu is the difference between a demo and something usable — nothing can
+      // write to a display table after this point, not even the owner.
+      let seeded = null;
+      try {
+        seeded = await seedSiteRows(db, spec, (designed && designed.seed) || body.seed);
+        if (seeded && Object.keys(seeded.seeded).length) console.log("seeded:", slug, JSON.stringify(seeded.seeded));
+        if (seeded && seeded.skipped.length) console.log("seed skipped:", slug, JSON.stringify(seeded.skipped.slice(0, 6)));
+      } catch (e) { console.error("seeding failed:", slug, e && (e.detail || e.message)); }
+
       // Write the site's pages against the schema that was just created, compile
       // them, and publish the dist. The database is already live at this point, so
       // this stage cannot fail the build — it either publishes the real app or
@@ -5067,6 +5093,9 @@ async function handleRequest(request, env, ctx) {
       const levels = (spec.tables || []).map((t) => ({ name: t.name, access: t.access }));
       return Response.json({
         ok: true, slug, url: "/s/" + slug + "/", backend: true, brand, tables: made, schema: levels,
+        // Rows per display table. An empty object means the site published with
+        // empty lists — which reads as a working build and is not one.
+        seeded: (seeded && seeded.seeded) || {},
         page: pages.page, files: pages.files, notes: pages.notes || undefined,
         problems: pages.problems.length ? pages.problems : undefined,
         cost: (designed ? SITE_BUILD_FEE : 0) + pages.cost, buildMs: pages.buildMs || undefined,

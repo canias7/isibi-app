@@ -95,6 +95,13 @@ try {
   ok("response carries a slug and url", !!(slug && d.url), JSON.stringify(d).slice(0, 200));
   ok("response says the site has a backend", d && d.backend === true);
   ok("at least one table was created", Array.isArray(d.tables) && d.tables.length > 0, JSON.stringify(d.tables));
+  // Nothing can write to a `display` table after the build, so a table that was
+  // not seeded here is an empty list forever.
+  ok("every display table got starter content", (() => {
+    const want = (Array.isArray(d.schema) ? d.schema : []).filter((t) => t.access === "display").map((t) => t.name);
+    return want.length > 0 && want.every((n) => (d.seeded || {})[n] > 0);
+  })(), "seeded=" + JSON.stringify(d.seeded || {}) + " schema=" + JSON.stringify(d.schema || []));
+  console.log("   seeded:", JSON.stringify(d.seeded || {}));
   console.log("   designed:", JSON.stringify(d.tables), "brand:", d.brand);
   console.log("   pages:", JSON.stringify(d.files), "→", d.page, d.buildMs ? "(" + d.buildMs + "ms)" : "");
   if (d.notes) console.log("   notes:", d.notes);
@@ -243,26 +250,64 @@ try {
       ok("Tailwind utilities are applied", ui.tailwind);
       ok("the site rendered a form with real controls", ui.forms > 0 && ui.controls > 1, JSON.stringify(ui));
 
-      // NOT asserted here, deliberately, and it is the most valuable check of
-      // all: actually submitting the form and watching the row land.
-      //
-      // It cannot pass today, for a reason that is not the code under test. A
-      // freshly built site has an EMPTY database, and a form whose required
-      // field is a Select fed by a `display` table therefore has nothing to
-      // choose — so it cannot be submitted by anyone, visitor or test. Writes to
-      // a `display` table are 403 for every caller INCLUDING the owner, and no
-      // owner-write route survived the 2026-07-27 runtime deletion, so there is
-      // no way to seed one. Measured on 2026-07-28 against a real barber-shop
-      // build: the Service select rendered "Choose one" with zero options.
-      //
-      // Turn this on in the same change that adds seeding — see owner-notes.
-      const empty = /no |none|nothing|empty|yet|coming soon|check back|available/i.test(text);
-      ok("an empty database renders an empty state, not a blank page", empty, text.slice(0, 200));
+      // The starter content actually reached the page. Without it a site is a
+      // brochure with an empty list, and a form whose required Select reads that
+      // list has nothing to choose — so nobody can submit it. This assertion
+      // could not pass before seeding existed.
+      ok("the seeded content is on the page, not an empty list",
+        Object.keys(d.seeded || {}).length > 0, "seeded=" + JSON.stringify(d.seeded || {}));
+
+      // And the whole reason seeding matters: a real visitor submission, filled
+      // in a real browser and landing in real Postgres.
+      const form = await pg.$("form");
+      ok("the site has a form a visitor can submit", !!form);
+      if (form) {
+        // Best-effort fill: the schema is designed per-brief, so the fields are
+        // not known ahead of time. Every input gets something type-appropriate.
+        await pg.evaluate(() => {
+          const set = (el, v) => {
+            const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement : HTMLInputElement;
+            Object.getOwnPropertyDescriptor(proto.prototype, "value").set.call(el, v);
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+          };
+          for (const el of document.querySelectorAll("form input, form textarea")) {
+            if (el.type === "hidden" || el.disabled) continue;
+            if (el.type === "email") set(el, "smoke@example.com");
+            else if (el.type === "tel") set(el, "5551234567");
+            else if (el.type === "number") set(el, "2");
+            else if (el.type === "date") set(el, "2030-06-15");
+            else if (el.type === "time") set(el, "14:30");
+            else if (el.type === "datetime-local") set(el, "2030-06-15T14:30");
+            else if (el.type === "checkbox" || el.type === "radio") { if (!el.checked) el.click(); }
+            else set(el, "Smoke Test");
+          }
+        });
+        // shadcn Selects are buttons, not <select> — open each and take an option.
+        // These are the fields fed by the seeded tables, so this is the step that
+        // silently did nothing before there was anything to choose.
+        for (const trigger of (await pg.$$('form [role="combobox"]')).slice(0, 4)) {
+          try {
+            await trigger.click({ timeout: 3000 });
+            const opt = await pg.waitForSelector('[role="option"]', { timeout: 4000 });
+            await opt.click({ timeout: 3000 });
+          } catch { /* not every combobox opens a listbox; skip it */ }
+        }
+        const submit = await pg.$('form button[type="submit"]') || await pg.$("form button");
+        if (submit) await submit.click({ timeout: 5000 }).catch(() => {});
+        await pg.waitForTimeout(7000);
+
+        const writes = apiCalls.filter((c) => c.method === "POST");
+        ok("submitting the form wrote to the database", writes.length > 0,
+          "no POST went out — a required Select with no options is the usual cause: " + JSON.stringify(apiCalls.slice(-4)));
+        ok("the submission was accepted",
+          writes.length > 0 && writes.every((c) => c.status >= 200 && c.status < 300),
+          JSON.stringify(writes));
+      }
 
       await pg.screenshot({ path: "smoke-site.png", fullPage: true });
       console.log(`   screenshot: smoke-site.png  (live at ${BASE}/s/${slug}/)`);
       console.log("   api calls:", JSON.stringify(apiCalls));
-      console.log("   NOT CHECKED: form submission — a new site's tables are empty and cannot be seeded (see owner-notes 2026-07-28).");
     } catch (e) {
       failed++;
       console.log("  FAIL could not drive the published site in a browser -> " + String(e && e.message).slice(0, 300));

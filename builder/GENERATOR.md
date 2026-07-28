@@ -99,14 +99,15 @@ something was imported that should not have been.
 
 ## Not available yet
 
-- **Any way to put content IN a `display` table.** This is the big one. Writes
-  to `display` are 403 for every caller *including the site's owner*, and no
-  owner-write route survived the 2026-07-27 runtime deletion. So a generated
-  site launches with an empty menu/list and stays that way. Worse, a form whose
-  required field is a Select fed by a `display` table cannot be submitted by
-  anyone, because there is nothing to choose — measured live on 2026-07-28.
-  Generate the list and the empty state anyway; they are correct and they work
-  the moment seeding exists.
+- **Changing a `display` table's content after the build.** Writes to `display`
+  are 403 for every caller *including the owner*, and no owner-write route
+  survived the 2026-07-27 runtime deletion. The schema designer now ships
+  starter rows in `seed` and they are inserted at build time, so a site is
+  populated on arrival — but the only way to change them afterwards is another
+  build. (Before seeding, on 2026-07-28, every generated site launched with an
+  empty list AND a form nobody could submit, because its required Service select
+  read that empty table.) Still generate the empty state: seeding is
+  best-effort, and a table can legitimately end up with no rows.
 - **Visitor accounts.** No login, so no `user`/`feed`/`admin` table is
   reachable. Do not generate a sign-in page.
 - **Editing or deleting rows** from a published site. `PATCH` and `DELETE` are

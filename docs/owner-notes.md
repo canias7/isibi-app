@@ -9566,3 +9566,50 @@ to localhost. That is why `site-runtime.mjs` serves from localhost too.
 
 **Still up for you to click:** `https://isibi.ai/s/barber-shop/` and the throwaway account that owns
 it. Say the word and both go.
+
+## 2026-07-28 (later) — fixed it: sites now launch with content
+
+"So what" was the right response to the last entry. A finding nobody acts on is worth nothing, so:
+
+**The schema designer now writes the starter content.** `seed` is a REQUIRED field on the
+`design_schema` tool — 3-6 realistic rows per `display` table, written for that specific business —
+and `seedSiteRows` (`site-schema.mjs`) inserts them straight after the tables are created. A barber
+shop now launches with its actual services listed and its booking form usable, instead of "Nothing
+listed yet." and a dropdown with nothing in it.
+
+Rules it enforces, each one mutation-tested:
+
+- **`display` only.** Seeding a `collect` table would put fabricated customers in your booking list,
+  and the API refuses to read those back anyway.
+- **Only tables that are empty**, checked per table. This is what makes a revise safe — a revise
+  re-runs the whole build, and duplicating the menu every time would be worse than never seeding.
+  Per table rather than once, because a revise can add a NEW display table to a site whose existing
+  one already has content you would not want touched.
+- **Undeclared and managed columns are dropped**, same as a real write through the data API.
+- **One bad row does not take the other eleven with it.** A site with 3 of 4 services is alive; a
+  site with none is the failure the whole thing exists to prevent.
+- Capped at 12 rows, values always bound parameters, table names through `sqlIdent`.
+- Non-fatal end to end: the database is already live when this runs, so nothing here can turn a
+  build that worked into a build that failed.
+
+The response now carries `seeded: {table: count}`, so an empty menu is visible from outside instead
+of looking like a successful build.
+
+### And the smoke test's disabled check is now on
+
+The form-submission assertion I switched off an hour ago — "it cannot pass, and not for a reason in
+the code under test" — is enabled, along with a new one that fails if any `display` table came back
+unseeded. That was the point of leaving it commented with the reason rather than deleting it.
+
+### Two real bugs found on the way in
+
+Both stale two-argument calls left over from D1, both silent:
+
+1. **`site-schema.mjs`** called `loadSiteSchema(env, uuid)` where `env` does not exist in that scope.
+   It threw a ReferenceError into a bare `catch {}` on **every single apply**, so the merge below it
+   never ran — meaning a revise that re-emitted only its changed table **stripped every other table
+   from `_meta.schema`**, and the data API then 404'd tables whose rows were still sitting in
+   Postgres. Precisely the failure the comment above it claims to prevent.
+2. **`worker.js:2150`** had the same `loadSiteSchema(env, u)` call.
+
+Unit suite: **113 tests**.

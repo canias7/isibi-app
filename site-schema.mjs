@@ -6,7 +6,8 @@
 // gets all of it without knowing how any of it is implemented.
 //
 // `db` throughout is a Neon connection string (see ./site-db.mjs).
-import { sqlQuery } from "./site-db.mjs";
+import { sqlQuery, sqlQuery as realSqlQuery } from "./site-db.mjs";
+import { isManagedColumn } from "./site-access.mjs";
 
 const SAFE_IDENT = /^[a-z_][a-z0-9_]{0,40}$/i;
 
@@ -476,7 +477,13 @@ export async function applySiteSchema(uuid, spec) {
   let mergedTables = norm;
   let rateLimits = spec.rateLimits || null; // this run's per-app rate config (if any)
   try {
-    const prev = await loadSiteSchema(env, uuid);
+    // Was `loadSiteSchema(env, uuid)` — a two-arg call left from the D1 era, and
+    // `env` does not exist in this scope. It threw a ReferenceError into the bare
+    // catch below on EVERY apply, so the merge never ran: a revise that re-emitted
+    // only its changed table stripped every other table from _meta.schema, and the
+    // data API then 404'd tables whose rows were still sitting in Postgres. Exactly
+    // the failure the comment above says this code prevents.
+    const prev = await loadSiteSchema(uuid);
     if (prev && Array.isArray(prev.tables) && prev.tables.length) {
       const byName = new Map();
       for (const t of prev.tables) if (t && t.name) byName.set(String(t.name).toLowerCase(), t);
@@ -494,6 +501,87 @@ export async function applySiteSchema(uuid, spec) {
 export async function loadSiteSchema(uuid) {
   try { const rows = await sqlQuery(uuid, "SELECT v FROM _meta WHERE k='schema'"); if (rows[0] && rows[0].v) return JSON.parse(rows[0].v); } catch {}
   return { tables: [] };
+}
+
+// Starter content for the tables a visitor READS.
+//
+// Without this every generated site launches empty and stays that way: writes to
+// a `display` table are 403 for every caller including the owner, and no
+// owner-write route exists. So the menu says "Nothing listed yet." forever — and
+// worse, a booking form whose required Service field is a Select fed by that
+// table renders with zero options, so no visitor can submit anything. Measured
+// live on 2026-07-28: every site the builder produced was a brochure with a dead
+// form. Seeding at build time is what makes a generated site usable on arrival.
+//
+// Only `display` tables, and only ones that are EMPTY — a revise re-runs the
+// whole build, and duplicating the menu on every revise would be worse than not
+// seeding at all. Values go in as bound parameters; column names are checked
+// against what was actually applied, so a hallucinated column is dropped rather
+// than failing the insert (the same rule the data API uses on a real write).
+// `deps` is the database seam, same shape site-data.mjs and publish-pages.mjs
+// use, so every decision below is testable with no Neon project.
+export const MAX_SEED_ROWS = 12;
+
+export async function seedSiteRows(uuid, spec, seed, deps) {
+  const sqlQuery = (deps && deps.sqlQuery) || realSqlQuery;
+  const out = { seeded: {}, skipped: [] };
+  if (!seed || typeof seed !== "object") return out;
+  const byName = new Map();
+  for (const t of ((spec && spec.tables) || [])) if (t && t.name) byName.set(String(t.name).toLowerCase(), t);
+
+  for (const [rawTable, rawRows] of Object.entries(seed)) {
+    const t = byName.get(String(rawTable).toLowerCase());
+    if (!t) { out.skipped.push(rawTable + ": not a table in this schema"); continue; }
+    // Seeding a `collect` table would be fabricating customer submissions, and the
+    // API refuses to read them back anyway, so there would be no way to see them.
+    if (t.access !== "display") { out.skipped.push(t.name + ": only display tables are seeded (" + t.access + ")"); continue; }
+    const rows = Array.isArray(rawRows) ? rawRows.slice(0, MAX_SEED_ROWS) : [];
+    if (!rows.length) continue;
+
+    const allowed = new Set((Array.isArray(t.columns) ? t.columns : [])
+      .map((c) => String(typeof c === "string" ? c : (c && c.name) || "").toLowerCase())
+      .filter((n) => SAFE_IDENT.test(n) && !isManagedColumn(n)));
+    if (!allowed.size) { out.skipped.push(t.name + ": no writable columns"); continue; }
+
+    // Idempotence, and the reason this is safe to run on a revise. Checked per
+    // table rather than once: a schema change can add a NEW display table to a
+    // site whose existing ones already have content the owner would not want
+    // replaced.
+    let already = true;
+    try {
+      const c = await sqlQuery(uuid, "SELECT 1 AS x FROM " + sqlIdent(t.name) + " LIMIT 1");
+      already = Array.isArray(c) && c.length > 0;
+    } catch (e) { out.skipped.push(t.name + ": " + String((e && (e.detail || e.message)) || e).slice(0, 120)); continue; }
+    if (already) { out.skipped.push(t.name + ": already has rows"); continue; }
+
+    let n = 0;
+    for (const row of rows) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      const cols = [], vals = [];
+      for (const [k, v] of Object.entries(row)) {
+        const key = String(k).toLowerCase();
+        if (!allowed.has(key) || v === undefined) continue;
+        cols.push(sqlIdent(key));
+        // Same coercion the data API applies: objects/arrays live in TEXT columns
+        // as JSON, booleans as 0/1 (PG_TYPES maps boolean → INTEGER).
+        vals.push(v !== null && typeof v === "object" ? JSON.stringify(v)
+          : typeof v === "boolean" ? (v ? 1 : 0)
+          : v);
+      }
+      if (!cols.length) continue;
+      try {
+        await sqlQuery(uuid, "INSERT INTO " + sqlIdent(t.name) + " (" + cols.join(",") + ") VALUES (" +
+          cols.map(() => "?").join(",") + ")", vals);
+        n++;
+      } catch (e) {
+        // One bad row must not cost the other eleven — a site with 3 of 4 services
+        // is alive; a site with none is the failure this whole function exists for.
+        out.skipped.push(t.name + " row " + (n + 1) + ": " + String((e && (e.detail || e.message)) || e).slice(0, 120));
+      }
+    }
+    if (n) out.seeded[t.name] = n;
+  }
+  return out;
 }
 
 export function parseSchemaSpec(files) {
