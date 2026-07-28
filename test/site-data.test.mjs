@@ -155,3 +155,39 @@ test("a missing required column is the sender's fault, and names the field", asy
   assert.equal(body.field, "date");
   assert.match(body.error, /date is required/);
 });
+
+test("the search vector never reaches a visitor", async () => {
+  // `_fts` is a generated tsvector — the index, not data. SELECT * returns it,
+  // so an fts table was shipping its whole search vector on every public read:
+  // meaningless to a client, often as large as the text it was built from, and
+  // an internal column exposed in a public API.
+  const db = fakeDb(SPEC);
+  db.query = async () => ({
+    rows: [{ id: 1, title: "Skin fade", price: 30, _fts: "'fade':2 'skin':1" }],
+    rowCount: 1,
+  });
+  const url = new URL("https://isibi.ai/api/db/shop/rows/services");
+  const deps = {
+    sqlQuery: async (_c, sql, p) => (await db.query(sql, p)).rows,
+    sqlExec: async (_c, sql, p) => { const r = await db.query(sql, p); return { results: r.rows, changes: r.rowCount }; },
+    loadSiteSchema: async () => SPEC,
+  };
+  const res = await handleSiteData({}, new Request(url), url, async () => db, deps);
+  const body = await res.json();
+  assert.equal(res.status, 200);
+  assert.ok(!("_fts" in body.rows[0]), "the tsvector must be stripped: " + JSON.stringify(body.rows[0]));
+  assert.deepEqual(body.rows[0], { id: 1, title: "Skin fade", price: 30 }, "and nothing else is lost");
+});
+
+test("stripping the vector survives a row that has none", async () => {
+  const db = fakeDb(SPEC);
+  db.query = async () => ({ rows: [{ id: 1, title: "No fts here" }, null], rowCount: 2 });
+  const url = new URL("https://isibi.ai/api/db/shop/rows/services");
+  const deps = {
+    sqlQuery: async (_c, sql, p) => (await db.query(sql, p)).rows,
+    sqlExec: async () => ({ results: [], changes: 0 }),
+    loadSiteSchema: async () => SPEC,
+  };
+  const res = await handleSiteData({}, new Request(url), url, async () => db, deps);
+  assert.equal(res.status, 200, "a null row must not throw on the public endpoint");
+});

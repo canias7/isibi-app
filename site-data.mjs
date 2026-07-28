@@ -144,6 +144,17 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
       vals.push(limit, offset);
 
       const rows = await sqlQuery(db, sql, vals);
+      // `_fts` is a generated tsvector — the search index, not data. SELECT *
+      // returns it, so an fts table was shipping its whole search vector to
+      // every visitor on every read: meaningless to a client, often as large as
+      // the text it was built from, and an internal column in a public API.
+      //
+      // Stripped here rather than swapped for an explicit column list: the list
+      // would have to enumerate every managed column the platform might add
+      // (position, _version, pinned, expires_at, …) and silently drop any it
+      // forgot, which is a worse failure than one wasted column on the internal
+      // Neon hop.
+      for (const r of rows) if (r && r._fts !== undefined) delete r._fts;
       return json({ rows, limit, offset });
     }
 
