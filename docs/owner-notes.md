@@ -9285,3 +9285,40 @@ would have worked and told the visitor nothing. Mounted in `src/routes/__root.ts
 
 Two Neon projects left behind by earlier smoke runs and never cleaned up:
 **`orange-frog-62041286`** and **`soft-tree-10362597`**. Delete them next time you are in the console.
+
+## 2026-07-28 — a published site could be replaced but never deleted
+
+Found while checking what the build smoke test leaves behind. `/s/barber-shop/` was
+serving **200** while `/api/db/barber-shop/rows/services` returned **404** — a public React
+shell whose every data call fails. The cause was structural: the dist lives in R2, a build only
+ever overwrites the prefix, and cleanup deleted the backend row, so the files outlived the thing
+that made them work. Nothing anywhere could remove a published site.
+
+**`DELETE /api/site/<slug>`**, owner-only. Drops the site's Neon database, removes its published
+objects, then deletes the registration — in that order, because the row is both the ownership
+record the route authorises against and the last thing that keeps a failed delete retryable. The
+database drop is best-effort: a database left behind costs money, but failing the call over it
+would leave the files up, which is what the caller actually asked to take down. Deleting the row
+without dropping the database would just have traded an orphaned site for an orphaned database.
+
+**An unknown slug is 404, not a permitted delete.** That is what stops anyone signed in from
+deleting files by guessing slugs, and the smoke test asserts it (plus 401 unauthenticated) while
+the site is still up, then deletes the site through the route and asserts the files are gone.
+
+### The bit worth remembering
+
+That 404 rule is also why the ONE pre-existing orphan couldn't be cleaned by the route: an orphan
+has no row, which is exactly what the route needs to authorise against. I predicted in the PR that
+the next smoke run would reclaim the slug and clean it as a side effect — **that was wrong**. The
+designer's brand varies run to run ("Barber Shop" → "The Barber Shop" → different slug), so the
+prefix was never going to be reclaimed by chance.
+
+Hence **`.github/workflows/sweep-orphan-site.yml`** (manual, takes a slug): re-attaches the orphan
+to a throwaway account, deletes it through the same route a real owner would use, removes the
+account. Deliberately not a second deletion code path — the route is the tested one, and a sweeper
+with its own R2 logic would be the untested one that quietly diverges. It refuses any slug that
+still has an owner, so it cannot be pointed at a live site. It cannot find orphans by itself
+(that needs to list the bucket, which only the Worker can do), so name the slug.
+
+**Note:** every merge to main costs a deploy plus a smoke run — two Sonnet calls and a throwaway
+Neon project. Worth knowing before merging trivial changes.

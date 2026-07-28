@@ -1,0 +1,40 @@
+# Remove an orphaned published site — R2 objects at sites/<slug>/ whose
+# site_backends row no longer exists, so no owner can delete them through
+# DELETE /api/site/<slug> (it authorises against that row, and refuses when it
+# is missing so files cannot be deleted by guessing slugs).
+#
+# Manual only. It refuses any slug that still has an owner, so it cannot be
+# pointed at a live site.
+name: sweep orphan site
+
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: 'Site slug to sweep (e.g. barber-shop)'
+        required: true
+      base_url:
+        description: 'Base URL to sweep against'
+        required: false
+        default: 'https://isibi.ai'
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --no-audit --no-fund
+      - name: sweep
+        env:
+          SWEEP_BASE_URL: ${{ inputs.base_url }}
+          SWEEP_SLUG: ${{ inputs.slug }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: node .github/scripts/sweep-orphan-site.mjs "$SWEEP_SLUG"
