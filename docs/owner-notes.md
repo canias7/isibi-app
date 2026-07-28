@@ -10102,3 +10102,21 @@ cluster still reads as gated. Added a **self-test** that does the wedge in-proce
 cannot reopen silently; reverting to the old rule turns the suite red.
 
 Unit suite **395**.
+
+### The build smoke test was flaky by construction
+
+It went red on the merge and the failure was `409 {"error":"that name is taken"}` — nothing to do
+with the change. The smoke test posts a fixed brief ("A small barber shop site…") and let the
+**designer** name the site, so it kept proposing the same good slug. A slug is claimed by whoever
+built it first **across every account**, and one of the manual test builds from earlier today
+already owned `sharp-fade-barbershop`. The build was right to refuse; the test was wrong to assume.
+
+Left alone this only gets worse: as real users claim good names, a smoke test that lets a model pick
+one will 409 at random forever. It now sends an explicit `smoke-<timestamp>-<random>` slug and
+asserts it got that slug back. A test must not depend on a global namespace it does not control.
+
+**Note for the owner:** there are seven test sites on the `livecheck-0728@isibi.ai` account —
+`bella-forno-pizzeria`, `homeplate-club`, `recipe-club`, `recipe-vault`, `sharp-fade-barbershop`,
+`velvet-static`, `wick-and-willow`. Each is a real Neon database and holds the slug. `recipe-club`
+has real member accounts on it from the auth testing. Left in place rather than deleted — say the
+word and they go through `DELETE /api/site/<slug>`.
