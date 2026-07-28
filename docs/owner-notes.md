@@ -9414,3 +9414,23 @@ actually fires rather than passing by accident.
 
 Still true: the workflow itself has never executed. What is now covered is the script's logic,
 which is where the damage would come from.
+
+### 2026-07-28 — the unit suite had no home in CI
+
+Caught while checking whether CI had run for the sweeper tests. It hadn't, for two reasons, and
+the second was the real one:
+
+1. `site-build` only triggers on `builder/**` and a named list of test files, so a commit touching
+   `.github/scripts/` and `test/sweep-orphan.test.mjs` matched nothing.
+2. **No workflow ran the unit suite.** `site-build` runs `test/page-gen.test.mjs` alone, and
+   `npm test` — the one command covering all of `test/*.test.mjs` — lived only in `neon-e2e`,
+   which triggers on `site-db.mjs` / `site-schema.mjs` and needs `NEON_API_KEY`. So
+   `site-data.test.mjs` and the new `sweep-orphan.test.mjs` could go red on main with nothing
+   noticing.
+
+Fixed with **`.github/workflows/unit.yml`** — `npm ci && npm test` on every push and PR. No
+secrets, no browser, no container, no Neon project; ~30 seconds. All 70 unit tests now actually
+run.
+
+Lesson worth keeping: adding a test file is not the same as adding coverage. Check which workflow
+will execute it — a path filter or a narrow `node --test <one file>` will silently skip it.
