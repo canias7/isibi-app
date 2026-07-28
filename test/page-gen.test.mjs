@@ -75,7 +75,7 @@ test("the digest states what each access level permits", () => {
   assert.match(d, /TABLE services — access "display"/);
   assert.match(d, /TABLE appointments — access "collect"/);
   assert.match(d, /never list these rows/);
-  assert.match(d, /Leave it out of the site/, "a user-scoped table must be called out as unreachable");
+  assert.match(d, /PRIVATE PER MEMBER/, "a user-scoped table is now buildable — behind a sign-in");
 });
 
 test("the digest names the columns, their types and what is required", () => {
@@ -190,27 +190,37 @@ test("the reference page is clean against its own schema", () => {
 // which the API does not do. Reporting a defect the API would not produce is
 // worse than missing one — every problem here costs a paid repair pass.
 
-test("a feed or admin table is readable, so listing one is NOT reported", () => {
+test("reading a member table without useMember is reported", () => {
+  // Since visitor accounts exist, feed and admin answer 401 to a signed-out
+  // caller. A page that lists one without offering a sign-in renders an error to
+  // every first-time visitor and looks broken rather than locked.
   const spec = { tables: [
     { name: "posts", access: "feed", columns: [{ name: "body" }] },
     { name: "notices", access: "admin", columns: [{ name: "body" }] },
   ] };
-  assert.deepEqual(lintPages(page('useRows("posts"); useRows("notices");'), spec), [],
-    "the API serves reads of feed and admin — flagging them sends the model to fix nothing");
+  const p = lintPages(page('useRows("posts"); useRows("notices");'), spec);
+  assert.equal(p.length, 2, JSON.stringify(p));
+  assert.match(p[0], /without useMember/);
 });
 
-test("but writing to a feed or admin table is reported — that really is 403", () => {
+test("reading a member table WITH useMember is fine", () => {
+  const spec = { tables: [{ name: "posts", access: "feed", columns: [{ name: "body" }] }] };
+  assert.deepEqual(lintPages(page('const { data: me } = useMember(); useRows("posts");'), spec), []);
+});
+
+test("writing to a member table without a member is reported", () => {
+  // Since accounts exist, a feed write by someone signed IN is exactly what the
+  // level is for. What is wrong is a form with no sign-in behind it.
   const spec = { tables: [{ name: "posts", access: "feed", columns: [{ name: "body" }] }] };
   const p = lintPages(page('useCreateRow("posts");'), spec);
-  assert.equal(p.length, 1);
-  assert.match(p[0], /writing to it returns 403/);
+  assert.equal(p.length, 1, JSON.stringify(p));
+  assert.match(p[0], /without useMember/);
+  assert.deepEqual(lintPages(page('const { data: me } = useMember(); useCreateRow("posts");'), spec), []);
 });
 
-test("a user table is refused for reads as well as writes", () => {
+test("a user table needs a member, and says so", () => {
   const p = lintPages(page('useRows("profiles"); useCreateRow("profiles");'), SPEC).join(" ");
-  assert.match(p, /reading it returns 403/);
-  assert.match(p, /login that does not exist/, "should say why, not just that");
-  assert.match(p, /writing to it returns 403/);
+  assert.match(p, /useMember/, "should say what to do, not just that it is refused");
 });
 
 test("the lint's access rules ARE the API's — same module, not a copy", async () => {
@@ -219,10 +229,20 @@ test("the lint's access rules ARE the API's — same module, not a copy", async 
   // produce, which is exactly the drift this module was extracted to prevent.
   for (const level of api.ACCESS_LEVELS) {
     const spec = { tables: [{ name: "t", access: level, columns: [{ name: "c" }] }] };
+    // Anonymous: exactly what canRead/canWriteAccess say.
     assert.equal(lintPages(page('useRows("t");'), spec).length === 0, api.canReadAccess(level),
-      `read of a "${level}" table: lint and API must agree`);
+      `anonymous read of a "${level}" table: lint and API must agree`);
     assert.equal(lintPages(page('useCreateRow("t");'), spec).length === 0, api.canWriteAccess(level),
-      `write to a "${level}" table: lint and API must agree`);
+      `anonymous write to a "${level}" table: lint and API must agree`);
+    const wroteAsMember = lintPages(page('const { data: me } = useMember(); useCreateRow("t");'), spec);
+    assert.equal(wroteAsMember.length === 0, api.canWriteAccess(level) || api.needsMember(level),
+      `signed-in write to a "${level}" table: ${JSON.stringify(wroteAsMember)}`);
+    // With a member in the page, the three member levels become reachable and
+    // the two anonymous levels are unchanged — the lint must track that too, or
+    // it forbids the pages this whole feature exists to allow.
+    const withMember = lintPages(page('const { data: me } = useMember(); useRows("t");'), spec);
+    assert.equal(withMember.length === 0, api.canReadAccess(level) || api.needsMember(level),
+      `signed-in read of a "${level}" table: ${JSON.stringify(withMember)}`);
   }
 });
 

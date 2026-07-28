@@ -28,7 +28,7 @@ import { loadSiteSchema, sqlIdent } from "./site-schema.mjs";
 // The permission rules live in their own leaf module because the page generator
 // has to predict them to lint a page before it is published, and restating them
 // in both places is how they drifted.
-import { isManagedColumn, canReadAccess, canWriteAccess } from "./site-access.mjs";
+import { isManagedColumn, canReadAccess, canWriteAccess, needsMember } from "./site-access.mjs";
 
 const MAX_LIMIT = 100;
 const MAX_BODY_KEYS = 60;
@@ -108,7 +108,7 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
   const access = String(def.access || "collect").toLowerCase();
   const method = request.method;
   const scoped = access === "user" || access === "feed"; // rows belong to a member
-  const needsVisitor = scoped || access === "admin";
+  const needsVisitor = needsMember(access);
   const visitor = needsVisitor && deps.resolveVisitor ? await deps.resolveVisitor(request, slug) : null;
 
   if (needsVisitor && !visitor) {

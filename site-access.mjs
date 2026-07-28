@@ -35,22 +35,35 @@ export function normalizeAccess(access) {
 }
 
 /**
- * Can an unauthenticated visitor READ this table?
+ * Does this level need a signed-in MEMBER before anything is served?
  *
- * `feed` and `admin` are readable on purpose — they are public content whose
- * WRITES need an identity. `collect` is write-only so one visitor can never read
- * back another's submission, and `user` is per-visitor data that needs a login
- * that does not exist yet.
+ * `user` is private per member, `feed` is shared but member-authored, and
+ * `admin` is a shared CMS whose writes are role-gated. All three answer 401 to
+ * a visitor with no session — see site-auth.mjs and handleSiteData.
+ *
+ * This changed on 2026-07-28: before visitor accounts existed, `feed` and
+ * `admin` served public reads and refused every write, so only half of each was
+ * usable and the generator was told to avoid them.
  */
-export function canReadAccess(access) {
-  return ["display", "feed", "admin"].includes(normalizeAccess(access));
+export function needsMember(access) {
+  return ["user", "feed", "admin"].includes(normalizeAccess(access));
 }
 
 /**
- * Can an unauthenticated visitor WRITE to this table?
+ * Can an ANONYMOUS visitor READ this table?
  *
- * Only `collect`. Everything else needs an identity to own or authorise the row,
- * and published sites have no visitor accounts yet.
+ * Only `display`. `collect` is write-only so one visitor can never read back
+ * another's submission, and the member levels answer 401 until someone signs in.
+ */
+export function canReadAccess(access) {
+  return normalizeAccess(access) === "display";
+}
+
+/**
+ * Can an ANONYMOUS visitor WRITE to this table?
+ *
+ * Only `collect` — a booking form has to work for someone with no account.
+ * Everything else needs an identity to own or authorise the row.
  */
 export function canWriteAccess(access) {
   return normalizeAccess(access) === "collect";
@@ -60,6 +73,6 @@ export function canWriteAccess(access) {
 export function whyNotReadable(access) {
   const a = normalizeAccess(access);
   if (a === "collect") return "those rows are other visitors' submissions and are never served back";
-  if (a === "user") return "those rows belong to individual visitors and need a login that does not exist yet";
+  if (needsMember(a)) return "those rows need a signed-in member — call useMember() and offer a sign-in";
   return "the API refuses public reads of it";
 }

@@ -27,7 +27,7 @@ export const UI_COMPONENTS = [
 // does not do. site-access.mjs is dependency-free, so this module stays
 // importable without the Worker's node_modules.
 export { MANAGED_COLUMNS } from "../site-access.mjs";
-import { MANAGED_COLUMNS, canReadAccess, canWriteAccess, whyNotReadable } from "../site-access.mjs";
+import { MANAGED_COLUMNS, canReadAccess, canWriteAccess, whyNotReadable, needsMember } from "../site-access.mjs";
 
 export const MAX_PAGES = 6;
 export const MAX_PAGE_CHARS = 24000;
@@ -327,13 +327,31 @@ Tailwind v4 with semantic tokens: bg-background, text-foreground, bg-card, text-
 border-border, bg-primary, text-destructive. A raw bg-slate-900 breaks dark mode. Also available:
 lucide-react icons, date-fns, recharts. Import nothing that is not already a dependency.
 
+## Visitor accounts
+
+A site can have members — its own customers, nothing to do with isibi accounts. Everything comes
+from \`@/lib/rows\`; there is no other auth API and no fetch:
+
+- \`useMember()\` → \`{ data: member | null, isPending }\`. **Render neither view until it settles**,
+  or the page flashes a sign-in form at somebody already signed in.
+- \`useSignup()\` / \`useLogin()\` → mutations taking \`{ email, password }\`. On success the session is
+  stored and every read re-runs on its own. Passwords need 8+ characters.
+- \`useLogout()\` → a plain function.
+- \`useRequestReset()\` → \`{ email }\`. Always succeeds; tell the visitor to check their inbox
+  whether or not the address has an account. The link itself is handled by the platform.
+
+Build sign-in and sign-up ONLY when the schema actually has a \`user\`, \`feed\` or \`admin\` table.
+A site of \`display\` and \`collect\` tables needs no accounts, and adding them is friction nobody
+asked for. Surface the API's message on failure — it distinguishes a wrong password from an address
+that already has an account (\`code: "exists"\`).
+
 ## What is not possible yet
 
-- No visitor accounts. Do not generate sign-in, sign-up or "my account" pages.
 - No editing or deleting a row from a published site. PATCH and DELETE are refused at every
-  level, so \`useUpdateRow\` and \`useDeleteRow\` cannot be called from a page.
+  level, so \`useUpdateRow\` and \`useDeleteRow\` cannot be called from a page — a member can add
+  their own rows and read them back, but not change or remove one.
 - No file or image upload. There is no route for it.
-- No owner/admin dashboard — a \`collect\` table cannot be read back.
+- No owner/admin dashboard — a \`collect\` table cannot be read back by anyone.
 If the brief asks for one of these, build everything else and say plainly in \`notes\` what was
 left out and why. Never generate UI that cannot work.
 
@@ -385,9 +403,9 @@ export const SITE_PAGES_TOOL = {
 const ACCESS_NOTE = {
   display: "visitors READ it. List it, show it, search it. Writing to it returns 403.",
   collect: "visitors WRITE to it. Submit a form. Reading it returns 403 — never list these rows.",
-  user: "neither — a read and a write both return 403 without a visitor login, which does not exist yet. Leave it out of the site.",
-  feed: "reads are served, but a write returns 403 without a visitor login, which does not exist yet. Only half of it works, so leave it out of the site.",
-  admin: "reads are served, but a write returns 403 without a visitor login, which does not exist yet. Only half of it works, so leave it out of the site.",
+  user: "PRIVATE PER MEMBER. Signed in, a member reads and writes only their OWN rows; signed out, both return 401. Build the signed-in view AND a sign-in prompt for when there is no member.",
+  feed: "SHARED, MEMBER-AUTHORED. Anyone signed in reads every row; a signed-in member writes rows that become theirs. Signed out, both return 401.",
+  admin: "SHARED, ROLE-WRITABLE. Anyone signed in reads it; only a member whose role is 'admin' (or one this table names in writeRoles) may write. A write by anyone else returns 403 with code 'role'.",
 };
 
 /** The tables, exactly as they exist, in the least ambiguous form we can put them. */
@@ -515,23 +533,40 @@ export function lintPages(pages, spec) {
     // separately: `feed` and `admin` serve reads and refuse writes, so flagging
     // a read of one would be reporting a defect that does not exist — and every
     // problem reported here costs a paid repair pass.
+    // A member-scoped table without useMember() renders a permanent 401 to a
+    // signed-out visitor and looks like a broken page rather than a locked one.
     for (const m of code.matchAll(/\buseRows\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
       const t = tables.get(m[1].toLowerCase());
+      if (t && needsMember(t.access) && !/\buseMember\b/.test(code)) {
+        say(path, 'reads "' + m[1] + '" (access "' + t.access + '") without useMember(). Signed out that returns 401, so the page must offer a sign-in rather than an error.');
+      }
       if (!t) say(path, 'reads table "' + m[1] + '", which the schema does not declare.');
-      else if (!canReadAccess(t.access)) {
+      // A member table is handled by the rule above: it is readable, just not
+      // anonymously. Saying both would report one page twice and pay for a
+      // repair pass to fix a problem that was already described.
+      else if (!canReadAccess(t.access) && !needsMember(t.access)) {
         say(path, 'lists "' + m[1] + '", which is access "' + t.access + '" — reading it returns 403: ' + whyNotReadable(t.access) + '.');
       }
     }
     for (const m of code.matchAll(/\buseRow\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
       const t = tables.get(m[1].toLowerCase());
-      if (t && !canReadAccess(t.access)) {
+      if (t && needsMember(t.access) && !/\buseMember\b/.test(code)) {
+        say(path, 'reads one row of "' + m[1] + '" (access "' + t.access + '") without useMember(). Signed out that returns 401.');
+      } else if (t && !canReadAccess(t.access) && !needsMember(t.access)) {
         say(path, 'reads one row of "' + m[1] + '", which is access "' + t.access + '" — reading it returns 403: ' + whyNotReadable(t.access) + '.');
       }
     }
     for (const m of code.matchAll(/\buseCreateRow\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
       const t = tables.get(m[1].toLowerCase());
       if (!t) say(path, 'writes to table "' + m[1] + '", which the schema does not declare.');
-      else if (!canWriteAccess(t.access)) {
+      // A member table accepts writes from someone signed in — that is the whole
+      // point of the level — so the question is whether the page has a member,
+      // not whether the table is writable.
+      else if (needsMember(t.access)) {
+        if (!/\buseMember\b/.test(code)) {
+          say(path, 'writes to "' + m[1] + '" (access "' + t.access + '") without useMember(). Signed out that returns 401, so the form must be behind a sign-in.');
+        }
+      } else if (!canWriteAccess(t.access)) {
         say(path, 'submits to "' + m[1] + '", which is access "' + t.access + '" — writing to it returns 403. Only a `collect` table accepts a write from a published site.');
       }
     }

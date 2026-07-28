@@ -43,9 +43,16 @@ export function siteSlug(): string {
 const base = (table: string) => `/api/db/${siteSlug()}/rows/${table}`;
 
 async function send<T>(url: string, init?: RequestInit): Promise<T> {
+  // The member's session, when there is one. Sent on every call: a `user` table
+  // answers 401 without it and that member's own rows with it.
+  const token = (() => { try { return localStorage.getItem(`site_session_${siteSlug()}`); } catch { return null; } })();
   const res = await fetch(url, {
     ...init,
-    headers: init?.body ? { "content-type": "application/json", ...init?.headers } : init?.headers,
+    headers: {
+      ...(init?.body ? { "content-type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -125,5 +132,81 @@ export function useDeleteRow(table: string) {
   return useMutation({
     mutationFn: (id: number) => send<{ ok: true }>(`${base(table)}/${id}`, { method: "DELETE" }),
     onSuccess: invalidate,
+  });
+}
+
+// ── Visitor accounts ────────────────────────────────────────────────────────
+//
+// The site's own members — a barber shop's customers — not isibi accounts. A
+// session is a signed token from /api/db/<slug>/auth/*, kept in localStorage and
+// sent as a Bearer header on every call. Tables at access `user` are private per
+// member; `feed` and `admin` are readable to anyone signed in.
+
+const TOKEN_KEY = () => `site_session_${siteSlug()}`;
+
+export function getSessionToken(): string | null {
+  try { return localStorage.getItem(TOKEN_KEY()); } catch { return null; }
+}
+function setSessionToken(token: string | null) {
+  try { token ? localStorage.setItem(TOKEN_KEY(), token) : localStorage.removeItem(TOKEN_KEY()); } catch { /* private mode */ }
+}
+
+export type Member = { id: number; email: string };
+
+const authUrl = (action: string) => `/api/db/${siteSlug()}/auth/${action}`;
+
+/**
+ * The signed-in member, or null. `isPending` while it is being checked — render
+ * neither the signed-in nor the signed-out view until it settles, or the page
+ * flashes a login form at somebody who is already logged in.
+ */
+export function useMember() {
+  const token = getSessionToken();
+  return useQuery({
+    queryKey: ["member", token],
+    // Nothing to ask about when there is no token; resolve to null immediately.
+    queryFn: async (): Promise<Member | null> => {
+      if (!token) return null;
+      try {
+        const r = await send<{ user: Member }>(authUrl("me"), { headers: { Authorization: `Bearer ${token}` } });
+        return r.user;
+      } catch {
+        // A rejected token is spent — a month-old session, or an account since
+        // removed. Clear it so the page offers a fresh login instead of looping.
+        setSessionToken(null);
+        return null;
+      }
+    },
+    staleTime: 60_000,
+  });
+}
+
+function useAuthAction(action: "signup" | "login") {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (values: { email: string; password: string }) =>
+      send<{ token: string; user: Member }>(authUrl(action), { method: "POST", body: JSON.stringify(values) }),
+    onSuccess: (d) => {
+      setSessionToken(d.token);
+      // Every read changes meaning once there is a session — a `user` table goes
+      // from 401 to that member's own rows.
+      qc.invalidateQueries();
+    },
+  });
+}
+
+export const useSignup = () => useAuthAction("signup");
+export const useLogin = () => useAuthAction("login");
+
+export function useLogout() {
+  const qc = useQueryClient();
+  return () => { setSessionToken(null); qc.invalidateQueries(); };
+}
+
+/** Ask for a reset link. Always succeeds, whether or not the address has an account. */
+export function useRequestReset() {
+  return useMutation({
+    mutationFn: (values: { email: string }) =>
+      send<{ ok: true }>(authUrl("reset"), { method: "POST", body: JSON.stringify(values) }),
   });
 }
