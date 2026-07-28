@@ -180,3 +180,16 @@ test("the scanner itself catches an ungated route written next to a gated one", 
   assert.ok(!/authUser\(|UNAUTHED\(|bearerUser\(/.test(block),
     "an ungated route adjacent to a gated one must NOT inherit its gate:\n" + block);
 });
+
+test("the schema designer is told what makes a form able to accept a file", () => {
+  // Measured 2026-07-28: across seven generated sites the designer put image
+  // columns on `display` tables every time and on a `collect` table never — so
+  // the visitor upload path, which requires one, could not fire on a single
+  // site. A feature that can never trigger is not a shipped feature.
+  const i = SRC.indexOf('name: "design_schema"');
+  assert.ok(i > 0, "the schema tool moved");
+  const tool = SRC.slice(i, i + 6000);
+  assert.match(tool, /A picture is a 'text' column whose value is a URL/);
+  assert.match(tool, /ONLY when the brief says the VISITOR sends a picture/);
+  assert.match(tool, /photo, image_url, avatar/);
+});

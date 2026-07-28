@@ -2549,6 +2549,16 @@ const SITE_SCHEMA_TOOL = {
             },
             columns: {
               type: "array",
+              // A picture is a `text` column holding a URL, and its NAME is what
+              // decides whether the platform will accept a file for it — a
+              // visitor may only upload to a table that declares one. Measured
+              // 2026-07-28: across seven generated sites the designer put image
+              // columns on `display` tables every time and on a `collect` table
+              // never, so the upload path could not fire on a single one of them.
+              description:
+                "A picture is a 'text' column whose value is a URL — name it photo, image_url, avatar, logo, cover or hero_image. " +
+                "Put one on a 'display' table when the site shows pictures it owns (a menu item, a product, a team member); the owner fills these in after the build. " +
+                "Put one on a 'collect' or member table ONLY when the brief says the VISITOR sends a picture (a photo with their review, a reference image with their enquiry) — that is what lets the form accept a file at all.",
               items: {
                 type: "object",
                 properties: {
