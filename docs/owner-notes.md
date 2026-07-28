@@ -10433,3 +10433,62 @@ doing its job on a path I had not thought to point it at.
 
 **Note:** `sharp-fade-barbershop`'s `bookings` table now has a `photo` column and a couple of live-
 check rows, from this verification.
+
+---
+
+## 2026-07-28 — every booking site you have ever generated could be double-booked
+
+Went looking for what was next and found this. On the live generated barber shop:
+
+```
+two customers booking the SAME slot: 201 201
+  → BOTH ACCEPTED — the barber is double-booked
+```
+
+### It was never a missing feature
+
+The schema engine has `unique` (composite, race-free, a real index — and it supports a PARTIAL form
+so a *cancelled* booking stops holding the slot) and `noOverlap` (a genuine `EXCLUDE USING gist`
+constraint for variable-length appointments). Both fully implemented. Both have been there since the
+engine was written.
+
+**The schema designer could emit exactly five things:** `name`, `access`, `columns`, `timestamps`,
+`fts`. That is the whole tool. So `unique`, `uniqueCI`, `maxRows` and `noOverlap` were built, tested,
+and unreachable — no site the builder has ever produced has a single constraint on it.
+
+Now the tool offers those four, with the booking case named in the guidance rather than left to
+inference, and with `noOverlap`'s trap spelled out: it **requires integer start/end columns and is
+silently skipped otherwise**, so the guidance says to use plain `unique` unless the integers were
+actually declared.
+
+Proved live on the barber shop, again for 0 credits via the explicit-schema path — and clearing the
+duplicate rows first used the owner-delete route shipped this morning:
+
+```
+first  -> 201
+second -> 409 {"error":"that already exists","code":"duplicate"}
+  ✓ the slot is taken — double booking refused
+a DIFFERENT slot still works -> 201
+```
+
+### What the survey turned up, which matters more than the fix
+
+A whole tier of schema features is **parsed, validated, persisted to `_meta`, and acted on by
+nothing**: `publicView`, `teamRead`, `transitions`, `sla`, `mask`, `fieldRoles`, `webhooks`, `geo`,
+`currency`, `formulas`, `roundRobin`, `assignBy`, `searchWeights`, `jsonShapes`, `checks`, `computed`,
+`defaultSort`. Their only appearance in `applySiteSchema` is the line that copies them into `_meta`.
+`maskFields()` is written and never called.
+
+Nothing can declare them, so nothing is silently broken today — but **two documents claimed
+otherwise**, and both would have misled the next person:
+
+- `site-schema.mjs`'s own header said this is "where unique / noOverlap / publicView / teamRead /
+  transitions / sequence / sla / trash actually live". True for four of those eight.
+- CLAUDE.md said `noOverlap` was "still the hand-rolled INSERT … WHERE NOT EXISTS" and that a gist
+  exclusion was "not yet done". It has been a real `EXCLUDE USING gist` constraint for some time.
+
+Both corrected, with the verified list of what IS enforced written down next to them. The lesson,
+which cost me an hour of reading to learn: **do not assume a declared feature does anything without
+finding its DDL.**
+
+Unit suite **495**.

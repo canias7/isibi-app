@@ -1,7 +1,15 @@
 // The schema engine: an isibi.schema.json declaration becomes real Postgres
 // tables, indexes, constraints and triggers.
 //
-// This is where unique / noOverlap / publicView / teamRead / transitions /
+// This is where unique / noOverlap / sequence / trash actually live. NOTE
+// (2026-07-28): publicView / teamRead / transitions / sla are parsed and stored
+// here and enforced NOWHERE — their only appearance below is the norm.push that
+// copies them into _meta. Same for mask (whose maskFields() is written and never
+// called), fieldRoles, webhooks, geo, currency, formulas, roundRobin, assignBy,
+// searchWeights, jsonShapes, checks, computed and defaultSort. This header used
+// to claim otherwise. Do not assume a declared feature does anything without
+// finding its DDL.
+// Historical wording follows: unique / noOverlap / publicView / teamRead / transitions /
 // sequence / sla / trash actually live, so a generator that emits a schema file
 // gets all of it without knowing how any of it is implemented.
 //
