@@ -2572,6 +2572,41 @@ const SITE_SCHEMA_TOOL = {
             },
             timestamps: { type: "boolean" },
             fts: { type: "boolean", description: "Enable full-text search over this table's text columns." },
+            // These are enforced by real Postgres constraints and have been since
+            // the schema engine was written — and until 2026-07-28 the designer
+            // could not emit ANY of them, so no generated site had one. Measured
+            // live that day: two customers booked the same 14:00 slot on a
+            // generated barber shop and both were accepted.
+            unique: {
+              type: "array",
+              description:
+                "Groups of columns that must be unique together, enforced by a real index (a violation is a 409, not a duplicate row). " +
+                "USE THIS ON ANY BOOKING OR RESERVATION TABLE — without it two customers can take the same slot, which is the single most damaging bug a booking site can have. " +
+                "A group is an array of column names: [[\"appointment_date\",\"appointment_time\"]] means nobody can book that date+time twice. " +
+                "A group may instead be {\"columns\":[...], \"where\":\"status:eq:confirmed\"} so only rows in that state hold the slot — otherwise a CANCELLED booking occupies it forever.",
+              items: {},
+            },
+            uniqueCI: {
+              type: "array",
+              description: "Columns unique ignoring case — use for an email column, so Ada@x.com and ada@x.com cannot both sign up. Array of column names.",
+              items: { type: "string" },
+            },
+            maxRows: {
+              type: "integer",
+              description: "Cap how many rows this table may ever hold. Worth setting on a public form (a giveaway with 500 places, a class with 20 seats); a full table answers 409 rather than growing forever.",
+            },
+            noOverlap: {
+              type: "object",
+              description:
+                "Prevents overlapping INTERVALS, for bookings whose length varies (a 60-minute colour at 10:00 must block a 30-minute trim at 10:30 — `unique` would let both in, because they are different times). " +
+                "REQUIRES start and end to be INTEGER columns, e.g. minutes from midnight: declare start_min/end_min as integers alongside whatever text time you display. " +
+                "If either is not an integer column the constraint is SILENTLY SKIPPED, so use plain `unique` unless you have actually declared the integers.",
+              properties: {
+                start: { type: "string", description: "Integer column where the interval starts." },
+                end: { type: "string", description: "Integer column where it ends." },
+                on: { type: "array", items: { type: "string" }, description: "Columns that scope it — e.g. [\"appointment_date\"] or [\"room\"]." },
+              },
+            },
           },
           required: ["name", "access", "columns"],
         },

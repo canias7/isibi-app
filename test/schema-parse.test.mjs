@@ -198,3 +198,50 @@ test("a publicView with nothing safe left is null, not empty", () => {
   assert.equal(one({ publicView: { columns: [] } }).publicView, null);
   assert.equal(one({ publicView: {} }).publicView, null);
 });
+
+// ═══════════════════════════════ the constraints the designer can now declare
+//
+// All four are enforced by real Postgres constraints and have been since the
+// schema engine was written — and until 2026-07-28 the design_schema tool could
+// emit NONE of them, so no generated site had one. Measured live that day: two
+// customers booked the same 14:00 slot on a generated barber shop and both were
+// accepted. These assert the declarations survive parsing, because a value
+// dropped here is a constraint that silently never exists.
+
+test("a unique group survives parsing, in every shape the tool allows", () => {
+  const spec = normalizeSchema({ tables: [
+    { name: "bookings", access: "collect", columns: [{ name: "d" }, { name: "t" }, { name: "status" }],
+      unique: [["d", "t"]] },
+    { name: "partial", access: "collect", columns: [{ name: "d" }, { name: "status" }],
+      unique: [{ columns: ["d"], where: "status:eq:confirmed" }] },
+  ] });
+  assert.deepEqual(spec.tables[0].unique, [["d", "t"]]);
+  assert.deepEqual(spec.tables[1].unique, [{ columns: ["d"], where: "status:eq:confirmed" }],
+    "the partial form is what stops a CANCELLED booking holding the slot forever");
+});
+
+test("uniqueCI and maxRows survive parsing", () => {
+  const spec = normalizeSchema({ tables: [
+    { name: "signups", access: "collect", columns: [{ name: "email" }], uniqueCI: ["email"], maxRows: 20 },
+  ] });
+  assert.deepEqual(spec.tables[0].uniqueCI, ["email"]);
+  assert.equal(spec.tables[0].maxRows, 20);
+});
+
+test("noOverlap survives parsing with its scope columns", () => {
+  const spec = normalizeSchema({ tables: [
+    { name: "slots", access: "collect", columns: [{ name: "day" }, { name: "start_min", type: "integer" }, { name: "end_min", type: "integer" }],
+      noOverlap: { start: "start_min", end: "end_min", on: ["day"] } },
+  ] });
+  assert.deepEqual(spec.tables[0].noOverlap, { start: "start_min", end: "end_min", on: ["day"], where: null });
+});
+
+test("a nonsense constraint is dropped rather than half-applied", () => {
+  // A malformed declaration must not become a constraint that half-exists.
+  const spec = normalizeSchema({ tables: [
+    { name: "t", access: "collect", columns: [{ name: "a" }],
+      noOverlap: { start: "same", end: "same" }, maxRows: -5 },
+  ] });
+  assert.equal(spec.tables[0].noOverlap, null, "start and end may not be the same column");
+  assert.equal(spec.tables[0].maxRows, 0, "a negative cap is no cap, not a locked table");
+});
