@@ -10065,3 +10065,40 @@ visit and nothing reads it.
 
 Unit suite **386**. 25/25 mutations caught on the owner door (one of which, the managed-column
 filter, was genuinely untested until it flagged).
+
+### Live run found two things the unit tests could not
+
+Ran the owner door against the deployed Worker and the real `sharp-fade-barbershop` database.
+**21/23 first pass**, and both failures were worth having.
+
+1. **Adding a row answered 500.** The public write path has mapped duplicate / overlap / bad_ref /
+   row-cap / required / invalid to usable messages for a while; the owner's path was written without
+   it, so leaving out a required column produced "Something went wrong" — the owner cannot tell
+   which field they missed, and retries the identical request. Now `site-errors.mjs`, one shared
+   leaf module both paths call, with a test that reads the source and fails if either keeps its own
+   copy. A missing field now comes back as **"price is required"** with the column named, so a form
+   can point at it.
+2. **My test asserted the wrong contract.** A non-numeric row id does not match the route regex at
+   all, so it is a 404 at the router, not the handler's 400. `rowIdOf` still matters — it covers
+   numeric-but-invalid ids (`0`, out of range) which DO reach the handler and would otherwise be a
+   Postgres type error surfacing as a 500. Corrected the test rather than the code.
+
+Everything else passed on the first live run, including the two that matter most: the owner reads
+`bookings` while the **public API still 403s the same table**, and editing a `display` row really
+changes the database.
+
+### And a hole in the auth invariant
+
+While waiting on the deploy I wedged a fake ungated `/api/backdoor` into `worker.js` to check that
+`test/api-auth.test.mjs` would catch it. **It did not.** The scanner treated any two route dispatches
+within 3 lines as one decision — a rule that exists only for the `/api/video|image|audio` ternary —
+so an ungated route written directly above a gated one inherited its gate. That is the dangerous
+direction, and it is the second time this test has had a false green.
+
+Replaced the proximity rule with the actual signal: two dispatches are one decision only when the
+lines between them are still mid-expression (ending in `?`, `:`, `||`, `&&`, `,`, `(`). Verified by
+wedging the backdoor in three different positions — all three now caught — and the video/image/audio
+cluster still reads as gated. Added a **self-test** that does the wedge in-process, so the hole
+cannot reopen silently; reverting to the old rule turns the suite red.
+
+Unit suite **395**.

@@ -30,6 +30,7 @@ import { loadSiteSchema, sqlIdent } from "./site-schema.mjs";
 // in both places is how they drifted.
 import { isManagedColumn, canReadAccess, canWriteAccess, needsMember } from "./site-access.mjs";
 import { limitFor, bucketKey, tooMany } from "./rate-limit.mjs";
+import { constraintError } from "./site-errors.mjs";
 
 const MAX_LIMIT = 100;
 const MAX_BODY_KEYS = 60;
@@ -265,26 +266,13 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
 
     return json({ error: "method not allowed" }, 405);
   } catch (e) {
-    // A constraint doing its job (duplicate, overlap, missing parent, row cap)
-    // is the caller's problem to fix, not a server fault.
-    const msg = String((e && (e.message || e.detail)) || "");
-    if (/duplicate key|unique constraint/i.test(msg)) return json({ error: "that already exists", code: "duplicate" }, 409);
-    if (/missing parent/i.test(msg)) return json({ error: "that refers to something that doesn't exist", code: "bad_ref" }, 400);
-    if (/row limit reached/i.test(msg)) return json({ error: "no more room", code: "full" }, 409);
-    // EXCLUDE USING gist refusing an overlapping interval — a double booking.
-    if (/conflicting key value violates exclusion constraint|_nooverlap/i.test(msg)) {
-      return json({ error: "that time is already taken", code: "overlap" }, 409);
-    }
-    // A required field left out is the sender's mistake, not a server fault.
-    // Name the column so a form can point at the field instead of just failing.
-    const notNull = msg.match(/null value in column "([^"]+)"/i);
-    if (notNull) {
-      return json({ error: notNull[1].replace(/_/g, " ") + " is required", code: "required", field: notNull[1] }, 400);
-    }
-    if (/violates check constraint|invalid input syntax|out of range/i.test(msg)) {
-      return json({ error: "some of that isn't valid", code: "invalid" }, 400);
-    }
-    console.error("site data error:", slug, tableName, msg.slice(0, 200));
+    // A constraint doing its job (duplicate, overlap, missing parent, row cap,
+    // required field) is the caller's problem to fix, not a server fault. Shared
+    // with the owner's write path so both say the same thing about the same
+    // constraint — see site-errors.mjs.
+    const known = constraintError(e);
+    if (known) return json(known.body, known.status);
+    console.error("site data error:", slug, tableName, String((e && (e.message || e.detail)) || "").slice(0, 200));
     return json({ error: "that didn't work" }, 500);
   }
 }
