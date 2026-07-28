@@ -3,7 +3,7 @@
 // call. Bundled by wrangler at deploy (see package.json).
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { Container, getContainer } from "@cloudflare/containers";
-import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, connForDatabase, dbNameForSite } from "./site-db.mjs";
+import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, dropSiteDatabase, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent } from "./site-schema.mjs";
 import { handleSiteData } from "./site-data.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
@@ -2739,11 +2739,29 @@ async function writeGameDistToR2(env, slug, dist) {
   }
 }
 
+// Every object a site has published. R2's list() returns at most 1000 keys per
+// call, so this follows the cursor rather than stopping at the first page — a
+// React dist is only a handful of objects, but a half-deleted site serves a
+// shell whose assets 404, which is worse than not deleting at all.
+async function deleteSitePrefix(env, slug) {
+  let cursor, removed = 0;
+  for (;;) {
+    const page = await env.SITES_BUCKET.list({ prefix: "sites/" + slug + "/", cursor });
+    for (const o of (page.objects || [])) { await env.SITES_BUCKET.delete(o.key); removed++; }
+    // Stopping when there is no cursor as well as when the page is not truncated
+    // is what makes this loop terminate unconditionally: a truncated page with no
+    // cursor would otherwise re-request the same page forever and burn the
+    // Worker's CPU budget, which is a worse failure than deleting one page short.
+    if (!page.truncated || !page.cursor) return removed;
+    cursor = page.cursor;
+  }
+}
+
 // Publish a compiled site. The prefix is wiped first: vite hashes its asset file
 // names, so without this every rebuild would leave the previous build's JS and CSS
 // behind forever. Same {t}/{b} envelope the build service returns for the games.
 async function writeSiteDistToR2(env, slug, dist) {
-  try { const old = await env.SITES_BUCKET.list({ prefix: "sites/" + slug + "/" }); for (const o of (old.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
+  try { await deleteSitePrefix(env, slug); } catch {}
   for (const [rel, v] of Object.entries(dist || {})) {
     const safeRel = String(rel).replace(/[^a-z0-9/._-]/gi, "-");
     const ext = (safeRel.match(/\.([a-z0-9]{1,8})$/i) || [])[1] || "";
@@ -5117,6 +5135,62 @@ async function handleRequest(request, env, ctx) {
         problems: pages.problems.length ? pages.problems : undefined,
         cost: (designed ? SITE_BUILD_FEE : 0) + pages.cost, buildMs: pages.buildMs || undefined,
       });
+    }
+
+    // DELETE /api/site/<slug> — take a published site down: its files, its
+    // database, and its registration.
+    //
+    // Without this a site could only ever be REPLACED, never removed. The
+    // published dist lives in R2 and nothing deleted it, so a slug whose backend
+    // row had gone kept serving a React shell whose every data call 404s — a
+    // public, half-broken site at a guessable URL. The build smoke test hit that
+    // on every run, which is how the gap surfaced.
+    if (url.pathname.startsWith("/api/site/") && request.method === "DELETE") {
+      const du = await authUser(request);
+      if (!du) return UNAUTHED();
+      if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, error: "service key not configured" }, { status: 501 });
+      const dslug = url.pathname.slice("/api/site/".length).toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 80);
+      if (!dslug) return Response.json({ ok: false, error: "no slug" }, { status: 400 });
+
+      // The backend row IS the ownership record. No row means there is nothing to
+      // authorise against, so the caller is told it does not exist rather than
+      // being allowed to delete files by guessing slugs.
+      let srow;
+      try {
+        const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(dslug)}&select=uid`, { headers: svcHeaders(env) });
+        const rows = await g.json().catch(() => []);
+        srow = (Array.isArray(rows) && rows[0]) || null;
+      } catch {
+        return Response.json({ ok: false, error: "couldn't look that site up — try again in a moment" }, { status: 503 });
+      }
+      if (!srow) return Response.json({ ok: false, error: "no such site" }, { status: 404 });
+      if (srow.uid !== du.id) return Response.json({ ok: false, error: "not your site" }, { status: 403 });
+
+      // Drop the site's database first — it is the only step that still needs the
+      // row being deleted below. Best-effort: a database left behind costs money,
+      // but failing the whole call over it would leave the published files up,
+      // which is the thing the caller actually asked to take down.
+      try {
+        const proj = await userSiteProject(env, du.id);
+        if (proj && proj.neon_project) await dropSiteDatabase(env, proj.neon_project, proj.neon_branch, dslug);
+      } catch (e) { console.error("site db drop failed:", dslug, e && (e.detail || e.message)); }
+
+      let removed = 0;
+      try {
+        if (env.SITES_BUCKET) removed = await deleteSitePrefix(env, dslug);
+      } catch (e) {
+        console.error("site files delete failed:", dslug, e && e.message);
+        return Response.json({ ok: false, error: "couldn't remove the published files" }, { status: 502 });
+      }
+
+      // Registration goes last. While it exists the site is still findable and
+      // still owned, so a failure above leaves something to retry against rather
+      // than the orphan this route exists to prevent.
+      try {
+        await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(dslug)}`, { method: "DELETE", headers: svcHeaders(env) });
+      } catch (e) { console.error("site row delete failed:", dslug, e && e.message); }
+
+      return Response.json({ ok: true, slug: dslug, removed });
     }
 
     // Sonnet 5 director: chats, reads intent (rerun/revise/new), writes prompts.
