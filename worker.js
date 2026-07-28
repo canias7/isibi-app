@@ -2585,7 +2585,19 @@ const SITE_SCHEMA_TOOL = {
                 "USE THIS ON ANY BOOKING OR RESERVATION TABLE — without it two customers can take the same slot, which is the single most damaging bug a booking site can have. " +
                 "A group is an array of column names: [[\"appointment_date\",\"appointment_time\"]] means nobody can book that date+time twice. " +
                 "A group may instead be {\"columns\":[...], \"where\":\"status:eq:confirmed\"} so only rows in that state hold the slot — otherwise a CANCELLED booking occupies it forever.",
-              items: {},
+              // One consistent object shape. This was `items: {}` — an empty
+              // schema, meant to allow both [["a","b"]] and [{columns,where}] —
+              // and the API REJECTED the whole tool for it, so every build with
+              // a brief answered "the designer is busy". Live for three merges.
+              // The parser accepts the object form, so one shape is enough.
+              items: {
+                type: "object",
+                properties: {
+                  columns: { type: "array", items: { type: "string" }, description: "The columns that must be unique together." },
+                  where: { type: "string", description: "Optional, as \"column:eq:value\" — only rows matching it hold the slot." },
+                },
+                required: ["columns"],
+              },
             },
             uniqueCI: {
               type: "array",
@@ -6350,7 +6362,12 @@ Return just the line to be voiced — keep it to what should actually come out o
                           required: ["prompt"],
                         },
                       },
-                      n: { description: "shot number (1-based), or the string 'all' for generate" },
+                      // Typed because a property without one is a schema the API
+                      // can refuse. This tool is unreachable — "studio" is not in
+                      // the step allowlist — so it was never sent and never
+                      // noticed; typed anyway rather than exempted, since a
+                      // guard with an exemption list rots.
+                      n: { type: "string", description: "shot number (1-based) as a string, or 'all' for generate" },
                       title: { type: "string" },
                       prompt: { type: "string" },
                       duration: { type: "number" },
