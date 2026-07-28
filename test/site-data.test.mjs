@@ -658,3 +658,68 @@ test("a caller cannot bury the declared filter under a thousand of their own", a
   assert.ok(filters <= 6, `${filters} filters reached SQL`);
   assert.match(seen[0].sql, /"status"=\?/, "and the declared one is still there");
 });
+
+// ═══════════════════════════════════════════ how much a stranger may send
+//
+// Until 2026-07-28 the answer was "anything". Measured live: a 3,000,000
+// character field went through POST /api/db/<slug>/rows/<table> and landed in
+// the owner's Neon database — which they pay for. At 60 writes a minute that is
+// ~180 MB a minute of junk into somebody's bill.
+
+const bodyCall = async (method, path, raw, headers = {}) => {
+  const url = new URL("https://isibi.ai" + path);
+  const db = fakeDb(SPEC);
+  const deps = {
+    sqlQuery: async (_c, sql, p) => (await db.query(sql, p)).rows,
+    sqlExec: async (_c, sql, p) => { const r = await db.query(sql, p); return { results: r.rows, changes: r.rowCount }; },
+    loadSiteSchema: async () => SPEC,
+  };
+  const req = new Request(url, { method, headers: { "content-type": "application/json", ...headers }, body: raw });
+  const res = await handleSiteData({}, req, url, async () => db, deps);
+  return { res, wrote: db.__seen.filter((q) => /^INSERT|^UPDATE/i.test(q.sql.trim())) };
+};
+
+test("the body that reached production is now refused, and nothing is written", async () => {
+  const { res, wrote } = await bodyCall("POST", "/api/db/shop/rows/bookings",
+    JSON.stringify({ date: "2030-01-01", title: "x".repeat(3_000_000) }));
+  assert.equal(res.status, 413);
+  assert.equal((await res.json()).code, "too_big");
+  assert.deepEqual(wrote, [], "not one row");
+});
+
+test("an ordinary submission still goes through", async () => {
+  const { res, wrote } = await bodyCall("POST", "/api/db/shop/rows/bookings",
+    JSON.stringify({ date: "2030-01-01", title: "Skin fade" }));
+  assert.equal(res.status, 201);
+  assert.equal(wrote.length, 1);
+});
+
+test("a long single field is clamped rather than losing the booking", async () => {
+  // A visitor who pasted too much should get their appointment, not an error
+  // about a field they cannot see.
+  const { res, wrote } = await bodyCall("POST", "/api/db/shop/rows/bookings",
+    JSON.stringify({ date: "2030-01-01", title: "y".repeat(50_000) }));
+  assert.equal(res.status, 201);
+  const stored = wrote[0].params.find((v) => typeof v === "string" && v.startsWith("yyy"));
+  assert.ok(stored.length < 50_000, `stored ${stored.length} chars`);
+});
+
+test("the PATCH path is guarded too, not just POST", async () => {
+  // A member editing their own row can send just as much as one creating it.
+  const url = new URL("https://isibi.ai/api/db/shop/rows/mine/3");
+  const db = fakeDb(SPEC);
+  const req = new Request(url, {
+    method: "PATCH", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ date: "z".repeat(3_000_000) }),
+  });
+  const res = await handleSiteData({}, req, url, async () => db, memberDeps(db, SPEC, { id: 7, role: "user" }));
+  assert.equal(res.status, 413);
+  assert.ok(!db.__seen.some((q) => /^UPDATE/i.test(q.sql.trim())), "nothing was updated");
+});
+
+test("malformed JSON is a 400 with a reason, not a silent empty write", async () => {
+  const { res, wrote } = await bodyCall("POST", "/api/db/shop/rows/bookings", "{not json");
+  assert.equal(res.status, 400);
+  assert.equal((await res.json()).code, "bad_json");
+  assert.deepEqual(wrote, []);
+});

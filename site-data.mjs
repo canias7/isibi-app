@@ -31,6 +31,7 @@ import { loadSiteSchema, sqlIdent } from "./site-schema.mjs";
 import { isManagedColumn, canReadAccess, canWriteAccess, needsMember } from "./site-access.mjs";
 import { limitFor, bucketKey, tooMany } from "./rate-limit.mjs";
 import { constraintError } from "./site-errors.mjs";
+import { readJsonBody, clampFields, MAX_JSON_BODY } from "./request-limits.mjs";
 
 const MAX_LIMIT = 100;
 const MAX_BODY_KEYS = 60;
@@ -241,7 +242,12 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
     }
 
     if (request.method === "POST") {
-      const body = await request.json().catch(() => ({}));
+      // How much a stranger may send. Until 2026-07-28 the answer was "anything"
+      // — a 3,000,000 character field went through here into the owner's Neon
+      // database, and they pay for the storage.
+      const read = await readJsonBody(request);
+      if (!read.ok) return json({ error: read.error, code: read.code }, read.status);
+      const body = clampFields(read.body).body;
       const { cols: wc, vals } = pickWritable(def, body);
       // owner_id is stamped from the VERIFIED session, never taken from the body
       // — pickWritable already drops it as a managed column, so a sender cannot
@@ -267,7 +273,9 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
 
     if (request.method === "PATCH") {
       if (!rowId) return json({ error: "no row id" }, 400);
-      const body = await request.json().catch(() => ({}));
+      const read = await readJsonBody(request);
+      if (!read.ok) return json({ error: read.error, code: read.code }, read.status);
+      const body = clampFields(read.body).body;
       const { cols: wc, vals } = pickWritable(def, body);
       if (!wc.length) return json({ error: "nothing to update" }, 400);
       const r = await sqlExec(
