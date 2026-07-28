@@ -21,7 +21,10 @@
 import { dbNameForSite } from "../../site-db.mjs";
 
 const BASE = process.env.SWEEP_BASE_URL || "https://isibi.ai";
-const SUPABASE_URL = "https://ujrqdmmtcptvimazlhom.supabase.co";
+// Overridable for the same reason BASE is: it lets the whole flow — including
+// the refuse-a-live-site guard, which must never be exercised for the first time
+// against real data — run against a stub. See test/sweep-orphan.test.mjs.
+const SUPABASE_URL = process.env.SWEEP_SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.supabase.co";
 const ANON = process.env.SUPABASE_ANON_KEY ||
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVqcnFkbW10Y3B0dmltYXpsaG9tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3ODUyNTUsImV4cCI6MjA5NDM2MTI1NX0.F-af9iC-BWTZN2hQ5cD1Keke8qXARhqPwxOgSHhNLK4";
 const SVC = process.env.SUPABASE_SERVICE_KEY || "";
