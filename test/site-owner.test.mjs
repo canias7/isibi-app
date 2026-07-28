@@ -10,7 +10,7 @@
 // staying shut to everyone except the one account that owns the site.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers } from "../site-owner.mjs";
+import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers, handleOwnerAnalytics } from "../site-owner.mjs";
 
 const SPEC = {
   tables: [
@@ -447,4 +447,92 @@ test("members paging is clamped", async () => {
   const { deps, seen } = wharness();
   await handleOwnerMembers(deps, { slug: "cafe", uid: "owner-1", params: { limit: "99999", offset: "-4" } });
   assert.deepEqual(seen[0].args, [200, 0]);
+});
+
+// ═══════════════════════════════════════════════════════════════ analytics
+//
+// `site_hits` has been written on every visit since the D1 era and NOTHING has
+// ever read it — the route the panel calls did not exist, so a published site
+// collected traffic its owner could never see. 64 real hits by the time this
+// was written.
+
+const STATS = {
+  views: 40, visitors: 12, views7: 9, visitors7: 4,
+  series: [{ day: "Jul 27", views: 5 }, { day: "Jul 28", views: 4 }],
+};
+const aharness = (over = {}) => ({
+  ownerOf: async () => "owner-1",
+  readAnalytics: async () => STATS,
+  ...over,
+});
+const stats = (deps, o = {}) => handleOwnerAnalytics(deps, { slug: "cafe", uid: "owner-1", ...o });
+
+test("the owner sees their traffic", async () => {
+  const r = await stats(aharness());
+  assert.equal(r.status, 200);
+  assert.equal(r.body.ok, true, "the panel checks this flag");
+  assert.equal(r.body.views, 40);
+  assert.equal(r.body.visitors, 12);
+  assert.deepEqual(r.body.series, STATS.series);
+});
+
+test("it does NOT resolve a database connection", async () => {
+  // The numbers live in Supabase, not the site's own database. Resolving one
+  // would be a round trip spent on nothing.
+  let dbCalls = 0;
+  await stats(aharness({ dbFor: async () => { dbCalls++; return "conn"; } }));
+  assert.equal(dbCalls, 0);
+});
+
+test("a site nobody has visited reads as zero, not as an error", async () => {
+  // Otherwise a brand-new site tells its owner the panel is broken.
+  // Including a `series` that is truthy but not an array — `.map` on a string or
+  // an object throws, and the panel would get a 500 instead of an empty week.
+  for (const empty of [{}, null, undefined, { series: null }, { series: "nope" }, { series: {} }, { series: 7 }, { views: null, visitors: undefined }]) {
+    const r = await stats(aharness({ readAnalytics: async () => empty }));
+    assert.equal(r.status, 200, JSON.stringify(empty));
+    assert.equal(r.body.views, 0);
+    assert.equal(r.body.visitors, 0);
+    assert.deepEqual(r.body.series, []);
+  }
+});
+
+test("junk in the numbers does not reach the panel as junk", async () => {
+  const r = await stats(aharness({ readAnalytics: async () => ({ views: "nonsense", visitors: NaN, series: [{ day: 5, views: "x" }, null] }) }));
+  assert.equal(r.body.views, 0);
+  assert.equal(r.body.visitors, 0);
+  assert.deepEqual(r.body.series, [{ day: "5", views: 0 }, { day: "", views: 0 }]);
+});
+
+test("someone else's traffic is 404, and is never read", async () => {
+  // Visitor counts are commercially sensitive — how busy is that shop — and the
+  // slug space is public and guessable.
+  let read = 0;
+  const deps = aharness({ ownerOf: async () => "someone-else", readAnalytics: async () => { read++; return STATS; } });
+  assert.equal((await stats(deps)).status, 404);
+  assert.equal((await stats(aharness({ ownerOf: async () => null }))).status, 404);
+  assert.equal(read, 0);
+});
+
+test("no session is 401", async () => {
+  assert.equal((await stats(aharness(), { uid: null })).status, 401);
+});
+
+test("analytics fails CLOSED when ownership cannot be read", async () => {
+  let read = 0;
+  const deps = aharness({
+    ownerOf: async () => { throw new Error("supabase down"); },
+    readAnalytics: async () => { read++; return STATS; },
+  });
+  assert.equal((await stats(deps)).status, 503);
+  assert.equal(read, 0, "nothing is read while ownership is unknown");
+});
+
+test("a failed read is 503, not a page of confident zeros", async () => {
+  // Zeros here would read as "nobody visited your site", which is a different
+  // and much worse thing to tell someone than "try again".
+  const r = await stats(aharness({ readAnalytics: async () => { throw new Error("rpc down"); } }));
+  assert.equal(r.status, 503);
+  assert.notEqual(r.body.views, 0);
+  assert.equal(r.body.views, undefined);
 });
