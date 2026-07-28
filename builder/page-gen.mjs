@@ -284,6 +284,16 @@ or an access level — anything not in the schema below does not exist.
 6. NEVER WRITE A MANAGED COLUMN. These are set by the engine and dropped from any write:
    ${MANAGED_COLUMNS.join(", ")}.
 
+7. A COLUMN NAMED FOR A PICTURE HOLDS A URL STRING. \`photo\`, \`image_url\`, \`avatar\`,
+   \`logo\`, \`cover\`, \`hero_image\` and the like are ordinary text columns whose value is a
+   path like "/u/<slug>/<hash>.jpg". Render one as a plain
+   \`<img src={row.photo} alt="" className="..." />\`. Never put an upload control on a
+   page — there is no visitor upload route, so it could not work.
+   ALWAYS GUARD IT: the owner fills these in after the build, so the value is often
+   empty, and \`<img src="">\` renders as a broken image on a brand-new site. Write
+   \`{row.photo ? <img .../> : <div className="..." />}\` — an image or a placeholder box,
+   never a broken one.
+
 ## Reading rows
 
 \`useRows<T>(table, params)\` → a TanStack Query result whose \`.data\` is the rows.

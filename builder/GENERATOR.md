@@ -124,7 +124,11 @@ something was imported that should not have been.
   signed-in member. `collect` and `display` rows have no owner and can never be
   changed from a page. Another member's row answers **404**, not 403 — ids are
   sequential, and 403 would confirm the row exists.
-- **File upload.** No route.
+- **Visitor file upload.** No route, so a generated page can never have an upload
+  control. The OWNER can upload pictures (`POST /api/site/<slug>/uploads`, from the
+  builder's Data panel) and they land as a URL in a plain text column — so a page
+  renders `<img src={row.photo}>` and nothing more. Guard it: the owner fills those
+  in after the build, so on a fresh site the value is empty.
 
 If a brief needs one of these, generate what is possible and say plainly what
 was left out. Do not generate UI that cannot work.

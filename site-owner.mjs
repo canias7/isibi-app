@@ -70,7 +70,7 @@ function pickWritable(def, body) {
  * One copy, because three routes with three hand-written copies of this is how
  * they drift apart — and the one that drifts is a cross-account read.
  */
-async function assertOwner(deps, slug, uid) {
+export async function assertOwner(deps, slug, uid) {
   if (!uid) return { error: json({ error: "sign in" }, 401) };
   let owner;
   try { owner = await deps.ownerOf(slug); }
