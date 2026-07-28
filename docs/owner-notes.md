@@ -9779,3 +9779,41 @@ made last time, and the schema apply is additive); `connForDatabase` swaps only 
 every database in a project shares one host and role.
 
 Unit suite: **200 tests**.
+
+## 2026-07-28 — "what does Supabase have to do with this?"
+
+Nothing that it should, and the question caught me proposing the wrong fix.
+
+I had measured the caching after deploying it and told you honestly it did not work: median went
+from ~0.9s to **1.05s**. The distribution showed why — three of twelve reads came back at 0.27–0.48s
+(cache hits) and the rest at ~1.05s (misses). Cloudflare evicts idle isolates, so a low-traffic site
+is almost never warm. The cache helps a page load that makes several reads; it does nothing for the
+first read, which is the one a visitor actually waits on.
+
+My proposed fix was a Supabase RPC to merge the two lookups into one round trip. Your question is the
+right one: **why is Supabase in this path at all?** It is the app's auth and user store. It was being
+used as a per-request routing table for public traffic, answering "which Neon database is this slug"
+with two cross-region HTTPS calls — for a value written once at build time that never changes again.
+Merging 2 round trips into 1 optimises a call that should not happen. KV makes it 0.
+
+So: `site-routing.mjs`. KV holds `route:<slug>` → connection string, written at build, read at the
+edge. Supabase stays the source of truth — a miss falls back and backfills — so an empty or unbound
+namespace is **slow, never wrong**, and a KV outage degrades instead of taking the sites down.
+
+**Only the connection string goes in KV, on purpose.** KV is eventually consistent; a write can take
+up to a minute to reach every colo. That is harmless for a value fixed at build time and would be a
+real bug for the schema — a revise adds tables, and a stale schema would 404 the site's own new
+tables for that whole window. The schema keeps its 15s in-isolate cache and its `_meta` read.
+
+The orderings that matter, all tested: the route is dropped **before** the database (a route
+outliving its database gives a connection error instead of an honest 404); absence is never cached (a
+slug that does not resolve is usually a build still finishing, and a KV entry written with no TTL
+never expires); an empty-string value counts as a miss, not a connection string; and a failed route
+write never fails a build that already succeeded.
+
+**You need to do one thing:** run the `create kv namespace` workflow from the Actions tab and give me
+the id it prints, so I can add the binding to `wrangler.jsonc`. I cannot create it — that needs the
+Cloudflare token, which lives in Actions secrets. Until the binding exists `env.SITE_ROUTES` is
+undefined and everything runs exactly as it does today, which is why this was safe to merge first.
+
+15 tests. Unit suite **215**.
