@@ -10582,3 +10582,48 @@ contradictory `twitter:card` tags, and my assertion only checked the right one w
 asserts exactly one. 14/14.
 
 Unit suite **520**.
+
+---
+
+## 2026-07-28 — I broke the builder's main path for three merges
+
+`build smoke` had been failing since #840 and I did not look, because it runs *after* the deploy and
+therefore lags — so I merged #841 and #842 on top of a red run without noticing. That is on me.
+
+The failure was `503 {"msg":"The designer is busy — try again in a moment."}` on **every build with a
+brief**. Reproduced live: the core feature of the site builder was down in production.
+
+### The cause
+
+When I exposed the constraints to the schema designer, I wrote:
+
+```js
+unique: { type: "array", description: "…", items: {} }
+```
+
+`items: {}` was meant to allow both shapes the parser accepts — `[["a","b"]]` and
+`[{columns, where}]`. **The Anthropic API rejected the whole tool for it**, so `designSiteSchema`
+threw, and the route's catch turned that into "the designer is busy".
+
+Now one consistent object shape (`{columns, where?}`), which the parser already accepts.
+
+The charge-then-refund path worked exactly as designed throughout — balance 278 before, 278 after a
+failed build — so nobody was billed for it. That is the one thing this episode got right by itself.
+
+### What made it possible, and what now prevents it
+
+Nothing in the unit suite looked at the *shape* of a tool definition. The only thing that could catch
+it was the smoke test, which runs post-deploy and lagged three PRs behind.
+
+`test/api-auth.test.mjs` now walks every tool's `input_schema` structurally: an array needs non-empty
+`items`, an object needs `properties`, everything needs a `type`. Verified by re-introducing
+`items: {}` — the suite goes red.
+
+It immediately found a second one: `direct_studio.actions.items.n` had no `type`. That tool is
+unreachable (`"studio"` is not in the step allowlist, so it is never sent) and so had never mattered
+— typed anyway rather than exempted, because a guard with an exemption list rots.
+
+**The lesson: a post-deploy check is not a gate.** If a failure mode can only be caught after
+merging, it will be caught after merging — three times, in this case.
+
+Unit suite **523**.

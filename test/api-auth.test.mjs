@@ -193,3 +193,49 @@ test("the schema designer is told what makes a form able to accept a file", () =
   assert.match(tool, /ONLY when the brief says the VISITOR sends a picture/);
   assert.match(tool, /photo, image_url, avatar/);
 });
+
+test("every tool the model is given is a schema the API will accept", () => {
+  // `unique` shipped as `type:"array", items:{}` — an empty schema, meant to
+  // allow two different shapes. The Anthropic API rejected the WHOLE tool for
+  // it, so every build with a brief answered "the designer is busy" and the
+  // builder's main path was down for three merges. Nothing in the unit suite
+  // looked at the tool's shape, and the smoke test that would have caught it
+  // runs after the deploy, so it lagged three PRs behind.
+  //
+  // Structural, not semantic: an array needs real `items`, an object needs
+  // `properties`, and everything needs a `type`.
+  const walk = (node, path) => {
+    if (!node || typeof node !== "object") return;
+    if (node.type === "array") {
+      assert.ok(node.items && typeof node.items === "object" && Object.keys(node.items).length,
+        `${path}: an array property needs a non-empty \`items\``);
+      assert.ok(node.items.type, `${path}.items: needs a type`);
+      walk(node.items, path + ".items");
+    }
+    if (node.type === "object" && node.properties) {
+      for (const [k, v] of Object.entries(node.properties)) {
+        assert.ok(v && v.type, `${path}.${k}: needs a type`);
+        walk(v, path + "." + k);
+      }
+    }
+  };
+
+  // Every tool definition in worker.js, found by its input_schema.
+  const tools = [...SRC.matchAll(/name:\s*"([a-z_]+)",\s*\n\s*description:[\s\S]{0,400}?input_schema:\s*\{/g)];
+  assert.ok(tools.length >= 1, "no tool definitions found — has worker.js changed shape?");
+
+  for (const t of tools) {
+    const open = SRC.indexOf("{", t.index + t[0].length - 1);
+    let depth = 0, end = open;
+    for (let i = open; i < SRC.length; i++) {
+      if (SRC[i] === "{") depth++;
+      else if (SRC[i] === "}") { depth--; if (!depth) { end = i; break; } }
+    }
+    // Only the shape matters, and the literals here are plain JSON-ish objects
+    // with template-free strings, so this parses without executing worker.js.
+    let schema;
+    try { schema = new Function("return (" + SRC.slice(open, end + 1) + ")")(); }
+    catch { continue; } // a computed literal is not something to assert on
+    walk(schema, t[1]);
+  }
+});
