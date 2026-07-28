@@ -12,7 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  REFERENCE_PAGE, UI_COMPONENTS, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES,
+  REFERENCE_PAGE, UI_COMPONENTS, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MANAGED_COLUMNS,
   schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages,
 } from "../builder/page-gen.mjs";
 
@@ -182,6 +182,55 @@ test("notes are carried through and clipped", () => {
 test("the reference page is clean against its own schema", () => {
   assert.deepEqual(lintPages(page(REFERENCE_PAGE), SPEC), [],
     "the page the generator is told to imitate must pass every check it is judged by");
+});
+
+// ── the lint must predict the API, not a paraphrase of it ─────────────────────
+// These rules used to be written out in both site-data.mjs and page-gen.mjs, and
+// had drifted: the lint claimed a read of a `feed` or `admin` table returns 403,
+// which the API does not do. Reporting a defect the API would not produce is
+// worse than missing one — every problem here costs a paid repair pass.
+
+test("a feed or admin table is readable, so listing one is NOT reported", () => {
+  const spec = { tables: [
+    { name: "posts", access: "feed", columns: [{ name: "body" }] },
+    { name: "notices", access: "admin", columns: [{ name: "body" }] },
+  ] };
+  assert.deepEqual(lintPages(page('useRows("posts"); useRows("notices");'), spec), [],
+    "the API serves reads of feed and admin — flagging them sends the model to fix nothing");
+});
+
+test("but writing to a feed or admin table is reported — that really is 403", () => {
+  const spec = { tables: [{ name: "posts", access: "feed", columns: [{ name: "body" }] }] };
+  const p = lintPages(page('useCreateRow("posts");'), spec);
+  assert.equal(p.length, 1);
+  assert.match(p[0], /writing to it returns 403/);
+});
+
+test("a user table is refused for reads as well as writes", () => {
+  const p = lintPages(page('useRows("profiles"); useCreateRow("profiles");'), SPEC).join(" ");
+  assert.match(p, /reading it returns 403/);
+  assert.match(p, /login that does not exist/, "should say why, not just that");
+  assert.match(p, /writing to it returns 403/);
+});
+
+test("the lint's access rules ARE the API's — same module, not a copy", async () => {
+  const api = await import("../site-access.mjs");
+  // If these ever diverge the lint starts reporting defects the API would not
+  // produce, which is exactly the drift this module was extracted to prevent.
+  for (const level of api.ACCESS_LEVELS) {
+    const spec = { tables: [{ name: "t", access: level, columns: [{ name: "c" }] }] };
+    assert.equal(lintPages(page('useRows("t");'), spec).length === 0, api.canReadAccess(level),
+      `read of a "${level}" table: lint and API must agree`);
+    assert.equal(lintPages(page('useCreateRow("t");'), spec).length === 0, api.canWriteAccess(level),
+      `write to a "${level}" table: lint and API must agree`);
+  }
+});
+
+test("the managed-column list is the API's, not a second copy of it", async () => {
+  const api = await import("../site-access.mjs");
+  assert.deepEqual(MANAGED_COLUMNS, api.MANAGED_COLUMNS);
+  // And the rules the model reads name every one of them.
+  for (const col of api.MANAGED_COLUMNS) assert.ok(PAGE_RULES.includes(col), `rules omit ${col}`);
 });
 
 test("listing a collect table is caught — the API returns 403", () => {

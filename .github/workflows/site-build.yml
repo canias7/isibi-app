@@ -32,8 +32,10 @@ jobs:
           cache: npm
           cache-dependency-path: builder/lovable/template/package-lock.json
 
-      # The generator's rules, tool schema and output checks — no install needed.
-      - run: node --test "test/page-gen.test.mjs"
+      # The generator's rules, tool schema and output checks, plus the decisions
+      # made around them — which attempt is published, and what it cost. Both
+      # modules are dependency-free, so no install is needed.
+      - run: node --test "test/page-gen.test.mjs" "test/publish-pages.test.mjs"
 
       # The same dependency set the container image bakes, from the same lockfile.
       - run: npm ci --no-audit --no-fund --loglevel=error

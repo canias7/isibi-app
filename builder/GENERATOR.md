@@ -17,8 +17,11 @@ brief ──► designSiteSchema ──► isibi.schema.json ──► real Post
 
 All of it is wired into `POST /api/site/react-build`. The generator's deterministic
 half — the rules, the tool, and the checks below — lives in `builder/page-gen.mjs`
-and is tested by `test/page-gen.test.mjs`; the compile step is proved end to end by
-`test/integration/site-build.mjs`.
+and is tested by `test/page-gen.test.mjs`. What is DONE with those checks — pay for
+a repair pass, keep the retry or not, publish or fall back to the placeholder — is
+`builder/publish-pages.mjs`, tested by `test/publish-pages.test.mjs` against injected
+fakes. The compile step is proved end to end by `test/integration/site-build.mjs`.
+`worker.js` holds only the model call and the wiring.
 
 The schema is designed **first** and is the generator's input. The generator
 never invents a table, a column, or an access level — it can only use what the
@@ -33,9 +36,16 @@ schema declares, because those are the only things that exist in the database.
 
    | level | page may | if you get it wrong |
    |---|---|---|
-   | `display` | list/read it | — |
+   | `display` | list/read it | a write gets 403 |
    | `collect` | submit a form to it | a read gets 403 |
-   | `user` / `feed` / `admin` | nothing yet | 403 |
+   | `user` | nothing yet | both get 403 |
+   | `feed` / `admin` | read it — but not write it | a write gets 403 |
+
+   `feed` and `admin` are readable; it is their WRITES that need a visitor login.
+   Only half of such a table works, so leave it out rather than build against it —
+   but note the lint does not flag reading one, because the API does not refuse it.
+   These rules live in `site-access.mjs` and are imported by both the API that
+   enforces them and the lint that predicts them, so the two cannot disagree.
 
    So a menu comes from a `display` table, and a booking form writes to a
    `collect` table. **Never render a list from a `collect` table** — those rows

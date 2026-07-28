@@ -21,11 +21,13 @@ export const UI_COMPONENTS = [
   "toggle", "tooltip",
 ];
 
-/** Set by the engine on every write. Declaring one in a form does nothing — it is dropped. */
-export const MANAGED_COLUMNS = [
-  "id", "created_at", "updated_at", "owner_id", "team_id", "deleted_at",
-  "_version", "_fts", "position", "archived_at", "expires_at", "pinned", "publish_at",
-];
+// Imported, not restated. The generator has to predict exactly what the API will
+// refuse, and when these rules were written out in both files they drifted — the
+// lint claimed a read of a `feed` or `admin` table returns 403, which the API
+// does not do. site-access.mjs is dependency-free, so this module stays
+// importable without the Worker's node_modules.
+export { MANAGED_COLUMNS } from "../site-access.mjs";
+import { MANAGED_COLUMNS, canReadAccess, canWriteAccess, whyNotReadable } from "../site-access.mjs";
 
 export const MAX_PAGES = 6;
 export const MAX_PAGE_CHARS = 24000;
@@ -263,7 +265,9 @@ or an access level — anything not in the schema below does not exist.
    - \`display\` — you may LIST and READ it. A write returns 403.
    - \`collect\` — you may SUBMIT a form to it. A read returns 403. These rows are other
      visitors' submissions; never list them, never count them, never show "3 people booked".
-   - anything else — needs a visitor login, which does not exist yet. Leave it out.
+   - \`user\` — neither. A read and a write both return 403 without a visitor login.
+   - \`feed\` / \`admin\` — reads are served, but a write returns 403 without a visitor
+     login. Only half the table works, so leave it out rather than build against it.
 
 3. SHADCN FOR EVERY CONTROL, imported from "@/components/ui/<name>". Never hand-roll a
    button, input, select, checkbox or dialog. These exist and nothing else does:
@@ -381,9 +385,9 @@ export const SITE_PAGES_TOOL = {
 const ACCESS_NOTE = {
   display: "visitors READ it. List it, show it, search it. Writing to it returns 403.",
   collect: "visitors WRITE to it. Submit a form. Reading it returns 403 — never list these rows.",
-  user: "needs a visitor login, which does not exist yet. Leave it out of the site.",
-  feed: "needs a visitor login, which does not exist yet. Leave it out of the site.",
-  admin: "needs a visitor login, which does not exist yet. Leave it out of the site.",
+  user: "neither — a read and a write both return 403 without a visitor login, which does not exist yet. Leave it out of the site.",
+  feed: "reads are served, but a write returns 403 without a visitor login, which does not exist yet. Only half of it works, so leave it out of the site.",
+  admin: "reads are served, but a write returns 403 without a visitor login, which does not exist yet. Only half of it works, so leave it out of the site.",
 };
 
 /** The tables, exactly as they exist, in the least ambiguous form we can put them. */
@@ -499,22 +503,28 @@ export function lintPages(pages, spec) {
       if (!ui.has(m[1].toLowerCase())) say(path, 'imports "@/components/ui/' + m[1] + '", which does not exist. Available: ' + UI_COMPONENTS.join(", ") + ".");
     }
 
+    // Read and write are asked separately because the API answers them
+    // separately: `feed` and `admin` serve reads and refuse writes, so flagging
+    // a read of one would be reporting a defect that does not exist — and every
+    // problem reported here costs a paid repair pass.
     for (const m of code.matchAll(/\buseRows\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
       const t = tables.get(m[1].toLowerCase());
       if (!t) say(path, 'reads table "' + m[1] + '", which the schema does not declare.');
-      else if (String(t.access).toLowerCase() !== "display") {
-        say(path, 'lists "' + m[1] + '", which is access "' + t.access + '" — reading it returns 403. Those rows are other visitors\' submissions and cannot be shown.');
+      else if (!canReadAccess(t.access)) {
+        say(path, 'lists "' + m[1] + '", which is access "' + t.access + '" — reading it returns 403: ' + whyNotReadable(t.access) + '.');
       }
     }
     for (const m of code.matchAll(/\buseRow\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
       const t = tables.get(m[1].toLowerCase());
-      if (t && String(t.access).toLowerCase() !== "display") say(path, 'reads one row of "' + m[1] + '", which is access "' + t.access + '" — reading it returns 403.');
+      if (t && !canReadAccess(t.access)) {
+        say(path, 'reads one row of "' + m[1] + '", which is access "' + t.access + '" — reading it returns 403: ' + whyNotReadable(t.access) + '.');
+      }
     }
     for (const m of code.matchAll(/\buseCreateRow\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
       const t = tables.get(m[1].toLowerCase());
       if (!t) say(path, 'writes to table "' + m[1] + '", which the schema does not declare.');
-      else if (String(t.access).toLowerCase() !== "collect") {
-        say(path, 'submits to "' + m[1] + '", which is access "' + t.access + '" — writing to it returns 403.');
+      else if (!canWriteAccess(t.access)) {
+        say(path, 'submits to "' + m[1] + '", which is access "' + t.access + '" — writing to it returns 403. Only a `collect` table accepts a write from a published site.');
       }
     }
   }

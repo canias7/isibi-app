@@ -9434,3 +9434,73 @@ run.
 
 Lesson worth keeping: adding a test file is not the same as adding coverage. Check which workflow
 will execute it — a path filter or a narrow `node --test <one file>` will silently skip it.
+
+### 2026-07-28 — the lint was reporting a defect the API does not produce
+
+Went looking for what was actually wrong rather than adding tests to things already known to pass,
+and the place to look was where two files independently encode one rule. The access rules were
+written out in **three** places and two were wrong:
+
+| | reads on `feed` / `admin` |
+|---|---|
+| `site-data.mjs` (the API) | **allowed** |
+| `lintPages` | claimed "returns 403" |
+| `GENERATOR.md` | claimed 403 |
+
+So a page reading a `feed` or `admin` table got a **factually false** problem reported against it,
+which goes straight into the repair prompt — sending the model to fix something that was never
+broken and burning a paid retry. The module's own comment claimed "every rule here is checked
+against the schema, so a hit is always a real defect". That was untrue.
+
+`MANAGED_COLUMNS` was duplicated between the same two files with no guard at all: add a managed
+column to the API and the generator would keep telling the model it is writable.
+
+**Fixed structurally, not with a test.** `site-access.mjs` is a dependency-free leaf module holding
+`canReadAccess` / `canWriteAccess` / `isManagedColumn` / `MANAGED_COLUMNS`; the API that *enforces*
+the rules and the lint that *predicts* them both import it, so they cannot disagree. It had to be a
+new leaf rather than importing `site-data.mjs`, because `page-gen.mjs` must stay dependency-free —
+the `site-build` workflow runs its test without a root `npm ci`, so pulling in the Postgres driver
+would break it.
+
+The lint is now precise per level: `collect` read flagged, `user` read and write flagged (and it
+says why), `feed`/`admin` read **not** flagged, `feed`/`admin` write flagged.
+
+A test now walks every access level and asserts the lint's verdict equals the API's, so this drift
+fails CI instead of shipping a lie into a repair prompt.
+
+**Still untested, and where I would look next:** `buildAndPublishPages` in `worker.js` — the
+repair-keeping decision ("keep the retry only if it is better"), the placeholder-fallback choice,
+and the credit accounting. It is not importable, so testing it means extracting it the way
+`page-gen.mjs` was. That is where a silent bug costs real money.
+
+### …done, same day — `builder/publish-pages.mjs`
+
+Extracted exactly that, on the pattern `site-data.mjs` already uses: `publishPages(deps, {spec, slug})`
+takes `generate` / `compile` / `publish` / `readCredits` / `useCredits` as functions, so the decisions
+run against fakes with **no model call, no container, no R2, no Neon**. `worker.js` keeps the model
+call and the wiring and lost 58 lines.
+
+**23 tests**, and I mutation-checked all of them rather than trusting green — broke the module nine
+ways (keep any compiling retry · keep an equal retry · `buildMs` last-writer · no credit floor ·
+publish before checking the build · credits can be zero · skip the lint · charge only once · ledger
+failure fails open) and confirmed each one turns the suite red. Two got through the first pass and
+both were the TEST's fault, not the module's:
+
+- the harness recorded calls in its *default* `generate`, so every test that supplied its own stopped
+  counting — five assertions were passing against zero calls
+- the fake compiler returned an identical dist every time, so "kept the first attempt" and "kept the
+  retry" were literally indistinguishable. It now stamps the attempt number, which is what makes
+  `<` vs `<=` on the repair rule detectable at all
+
+Two behaviours changed on purpose while it moved:
+
+- **`buildMs` now sums both attempts.** It was last-writer, so a build that compiled twice reported
+  only the second and understated what you actually waited for.
+- **`stage` and `error` are returned**, not just logged. A failed build is now debuggable from the
+  response instead of only from `wrangler tail`.
+
+The credit floor **fails closed**: if the ledger can't be read, no paid call happens. That means a
+Supabase hiccup costs you a placeholder — deliberate, and the cheaper of the two mistakes.
+
+`site-build` now runs this test alongside `page-gen`'s (both modules are dependency-free, so still no
+install). Unit suite: **98 tests**.
