@@ -9434,3 +9434,41 @@ run.
 
 Lesson worth keeping: adding a test file is not the same as adding coverage. Check which workflow
 will execute it — a path filter or a narrow `node --test <one file>` will silently skip it.
+
+### 2026-07-28 — the lint was reporting a defect the API does not produce
+
+Went looking for what was actually wrong rather than adding tests to things already known to pass,
+and the place to look was where two files independently encode one rule. The access rules were
+written out in **three** places and two were wrong:
+
+| | reads on `feed` / `admin` |
+|---|---|
+| `site-data.mjs` (the API) | **allowed** |
+| `lintPages` | claimed "returns 403" |
+| `GENERATOR.md` | claimed 403 |
+
+So a page reading a `feed` or `admin` table got a **factually false** problem reported against it,
+which goes straight into the repair prompt — sending the model to fix something that was never
+broken and burning a paid retry. The module's own comment claimed "every rule here is checked
+against the schema, so a hit is always a real defect". That was untrue.
+
+`MANAGED_COLUMNS` was duplicated between the same two files with no guard at all: add a managed
+column to the API and the generator would keep telling the model it is writable.
+
+**Fixed structurally, not with a test.** `site-access.mjs` is a dependency-free leaf module holding
+`canReadAccess` / `canWriteAccess` / `isManagedColumn` / `MANAGED_COLUMNS`; the API that *enforces*
+the rules and the lint that *predicts* them both import it, so they cannot disagree. It had to be a
+new leaf rather than importing `site-data.mjs`, because `page-gen.mjs` must stay dependency-free —
+the `site-build` workflow runs its test without a root `npm ci`, so pulling in the Postgres driver
+would break it.
+
+The lint is now precise per level: `collect` read flagged, `user` read and write flagged (and it
+says why), `feed`/`admin` read **not** flagged, `feed`/`admin` write flagged.
+
+A test now walks every access level and asserts the lint's verdict equals the API's, so this drift
+fails CI instead of shipping a lie into a repair prompt.
+
+**Still untested, and where I would look next:** `buildAndPublishPages` in `worker.js` — the
+repair-keeping decision ("keep the retry only if it is better"), the placeholder-fallback choice,
+and the credit accounting. It is not importable, so testing it means extracting it the way
+`page-gen.mjs` was. That is where a silent bug costs real money.

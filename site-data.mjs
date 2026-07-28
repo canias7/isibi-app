@@ -25,14 +25,10 @@
 //   - identifiers reach SQL only via sqlIdent(); values only as bound params.
 import { sqlQuery, sqlExec } from "./site-db.mjs";
 import { loadSiteSchema, sqlIdent } from "./site-schema.mjs";
-
-// Set by the engine, not the app. Never writable through this API even when a
-// site happens to declare a column with one of these names.
-const MANAGED = new Set([
-  "id", "created_at", "updated_at", "owner_id", "team_id", "deleted_at",
-  "_version", "_fts", "position", "archived_at", "expires_at", "pinned",
-  "publish_at",
-]);
+// The permission rules live in their own leaf module because the page generator
+// has to predict them to lint a page before it is published, and restating them
+// in both places is how they drifted.
+import { isManagedColumn, canReadAccess, canWriteAccess } from "./site-access.mjs";
 
 const MAX_LIMIT = 100;
 const MAX_BODY_KEYS = 60;
@@ -53,7 +49,7 @@ function columnNames(def) {
 
 // Columns an app may write: declared, not managed.
 function writableColumns(def) {
-  return columnNames(def).filter((c) => !MANAGED.has(c.toLowerCase()));
+  return columnNames(def).filter((c) => !isManagedColumn(c));
 }
 
 // Values are bound; this only decides WHICH columns are addressed.
@@ -108,8 +104,8 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
   // exist yet, so they are refused rather than guessed at.
   const access = String(def.access || "collect").toLowerCase();
   const method = request.method;
-  const canRead = ["display", "feed", "admin"].includes(access);
-  const canWrite = access === "collect";
+  const canRead = canReadAccess(access);
+  const canWrite = canWriteAccess(access);
   if (method === "GET" && !canRead) {
     return json({ error: "that table is not readable", access }, 403);
   }

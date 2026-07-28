@@ -33,9 +33,16 @@ schema declares, because those are the only things that exist in the database.
 
    | level | page may | if you get it wrong |
    |---|---|---|
-   | `display` | list/read it | — |
+   | `display` | list/read it | a write gets 403 |
    | `collect` | submit a form to it | a read gets 403 |
-   | `user` / `feed` / `admin` | nothing yet | 403 |
+   | `user` | nothing yet | both get 403 |
+   | `feed` / `admin` | read it — but not write it | a write gets 403 |
+
+   `feed` and `admin` are readable; it is their WRITES that need a visitor login.
+   Only half of such a table works, so leave it out rather than build against it —
+   but note the lint does not flag reading one, because the API does not refuse it.
+   These rules live in `site-access.mjs` and are imported by both the API that
+   enforces them and the lint that predicts them, so the two cannot disagree.
 
    So a menu comes from a `display` table, and a booking form writes to a
    `collect` table. **Never render a list from a `collect` table** — those rows
