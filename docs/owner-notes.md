@@ -9215,3 +9215,73 @@ path no longer exists, so it hits the worker's existing JSON 404 fallthrough and
 as-is deliberately: the instruction was to delete, not to make the builder work. **If you want a
 truer message before the rebuild lands, say so — the frontend already has a 501 branch that reads
 "the build engine isn't switched on yet."**
+
+## 2026-07-28 — the page generator: brief → schema → **pages** → published React app
+
+The rebuild's missing middle. Before this, a build provisioned a real database and published a
+placeholder listing the tables; now it writes the site's actual pages, compiles them, and publishes
+the app. Three pieces, all wired into the existing `POST /api/site/react-build`.
+
+**1. `generateSitePages(env, brief, spec)`** (`worker.js`, directly under `designSiteSchema`) — same
+tool-use shape: a `write_pages` tool whose `input_schema` IS the return type, so there is no prose to
+parse and no half-written file to repair. The schema designed a moment earlier is the *input*: the
+generator can only reach a table that already exists, at the access level the database actually
+granted it. Model-facing material lives in **`builder/page-gen.mjs`** (plain module, testable outside
+the Worker, like `site-schema.mjs`).
+
+**2. `builder/Dockerfile` + `builder/build-server.mjs`** — cloned from `builder-game/`. Deps baked at
+image-build time, so a per-site build is only `tsr generate` → `tsc --noEmit` → `vite build` (~9s
+measured). `src/routes` is reset from a pristine copy baked into the image before every build, so the
+previous site's pages — and the template's own reference page — cannot leak into someone's site.
+
+**3. The route** now runs generate → compile → publish after the schema is applied.
+
+### Two judgement calls worth knowing about
+
+- **Page generation is best-effort, deliberately.** It runs *after* the database is live, so a
+  generator or compiler failure leaves you a working backend and the placeholder page rather than
+  losing the whole build. The response says which landed (`page: "app"` or `"placeholder"`), so a
+  fallback is never mistaken for a built site. A **revise** whose pages fail leaves the already-
+  published site alone — the placeholder is only written when nothing is published at that slug yet.
+- **Pricing.** Metered charge-after on real token usage (~10-20 credits for a small site, on top of
+  the ✦2 schema fee) rather than a flat fee sized for the worst case. The pre-check is a floor of 8
+  credits, **not** the worst case (~45): a new account is granted 20, so gating on the maximum would
+  mean nobody ever got a page on their first build. **Tune `SITE_PAGES_MIN_CREDITS` /
+  `SITE_PAGES_MAX_TOKENS` in `worker.js` if that split isn't what you want.**
+  A gotcha worth recording: **Sonnet 5 runs adaptive thinking whenever `thinking` is omitted, and
+  `max_tokens` caps thinking AND the response together** — so the page budget is 24k rather than sized
+  tight around the files, otherwise a generation spends part of itself reasoning and truncates the last
+  one. (Truncation is caught rather than published, but it is a paid call that produced nothing.) The
+  same applies to `designSiteSchema`'s `max_tokens: 2000` — verified working in production so it was
+  left alone, but it is the tightest budget in the pipeline and the first place to look if schema
+  design ever starts coming back empty.
+
+### A bug found on the way
+
+`<Toaster />` was never mounted. Every generated form reports success and failure through
+`toast.*` — and sonner queues into a container that has to exist in the tree — so the submit button
+would have worked and told the visitor nothing. Mounted in `src/routes/__root.tsx`.
+
+### What is verified, and what isn't
+
+- **18/18** — `test/integration/site-build.mjs` runs the real build service against a sandbox copy of
+  the template: a generated-shaped two-page site typechecks and builds; a page with a **type error is
+  refused** (`stage:"typecheck"`) rather than bundled; a path escaping `src/routes` and an attempt to
+  overwrite `__root.tsx` are both rejected; routes are reset between builds. $0 — no model call, no
+  container, no Neon project. New CI workflow `site-build` runs it on any `builder/**` change.
+- **29/29** — `test/page-gen.test.mjs`, including drift guards that fail if the module's copies of the
+  reference page or the ui-component list stop matching the files on disk (GENERATOR.md says the file
+  wins; that is now enforced rather than hoped for).
+- `wrangler deploy --dry-run` bundles the Worker clean with the new import.
+- **NOT verified here: the container image itself.** This session had no Docker daemon, so
+  `builder/Dockerfile` has never been built. Everything it *does* is exercised — `npm ci` from the
+  same lockfile, the `.routes-base`/`.index-base.html` layout, `build-server.mjs` against exactly that
+  layout — but the first real proof is the deploy. **If the deploy fails, look at the image build
+  first.**
+- **Deploys now build two container images, not one.** The site image runs a full `npm ci` of the
+  template's dependency tree, so expect the deploy to take minutes rather than the usual ~30-40s.
+
+### Still open from the previous session
+
+Two Neon projects left behind by earlier smoke runs and never cleaned up:
+**`orange-frog-62041286`** and **`soft-tree-10362597`**. Delete them next time you are in the console.

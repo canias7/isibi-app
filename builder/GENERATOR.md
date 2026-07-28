@@ -9,10 +9,16 @@ is why it looks the way it does. When the two disagree, the file wins.
 ```
 brief ──► designSiteSchema ──► isibi.schema.json ──► real Postgres tables   ✅ live
                      │
-                     └──────► generatePages  ──► route files ──► vite build ──► R2
-                                    ▲                                ▲
-                                 THIS DOC                     the build container
+                     └──────► generateSitePages ──► route files ──► vite build ──► R2
+                                    ▲                                   ▲
+                             THIS DOC, and                    builder/Dockerfile +
+                          builder/page-gen.mjs                builder/build-server.mjs
 ```
+
+All of it is wired into `POST /api/site/react-build`. The generator's deterministic
+half — the rules, the tool, and the checks below — lives in `builder/page-gen.mjs`
+and is tested by `test/page-gen.test.mjs`; the compile step is proved end to end by
+`test/integration/site-build.mjs`.
 
 The schema is designed **first** and is the generator's input. The generator
 never invents a table, a column, or an access level — it can only use what the

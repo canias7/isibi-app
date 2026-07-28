@@ -1,11 +1,13 @@
 // Production smoke test for the builder's send path.
 //
 // The e2e test proves the database layer; this proves the ROUTE — auth, the
-// credit charge, the Sonnet schema design, provisioning, and the published
-// page — by driving the deployed Worker over HTTP exactly as the browser does.
+// credit charge, the Sonnet schema design, provisioning, the page generator, the
+// build container, and the published app — by driving the deployed Worker over
+// HTTP exactly as the browser does.
 //
 // It creates its own throwaway user, runs one real build, then removes the
-// user, its Neon project and its published files. Costs one Sonnet call.
+// user, its Neon project and its published files. Costs two Sonnet calls (the
+// schema design and the pages), plus a third if the pages need a repair pass.
 //
 // Needs SUPABASE_SERVICE_KEY and NEON_API_KEY. Run from CI (workflow_dispatch),
 // or locally with those in the environment.
@@ -69,6 +71,9 @@ try {
   ok("response says the site has a backend", d && d.backend === true);
   ok("at least one table was created", Array.isArray(d.tables) && d.tables.length > 0, JSON.stringify(d.tables));
   console.log("   designed:", JSON.stringify(d.tables), "brand:", d.brand);
+  console.log("   pages:", JSON.stringify(d.files), "→", d.page, d.buildMs ? "(" + d.buildMs + "ms)" : "");
+  if (d.notes) console.log("   notes:", d.notes);
+  if (d.problems) console.log("   problems:", JSON.stringify(d.problems));
 
   // --- the access levels are enforced live --------------------------------
   // The build must produce something readable and something submittable, and
@@ -107,11 +112,41 @@ try {
   ok("a Neon project was provisioned for the user", !!projectId, JSON.stringify(projs));
 
   // --- the published page -------------------------------------------------
+  // `page` says which of the two things was published. The generated app is the
+  // normal outcome; the placeholder is the fallback for a build that failed, so
+  // landing on it is a regression and has to go red rather than pass quietly.
+  ok("the generated app was published, not the fallback", d.page === "app",
+    "page=" + d.page + " notes=" + (d.notes || "-") + " problems=" + JSON.stringify(d.problems || []));
+  ok("the build reports the route files it wrote",
+    Array.isArray(d.files) && d.files.some((f) => /index\.tsx$/.test(f)), JSON.stringify(d.files));
+
   if (slug) {
     const page = await fetch(`${BASE}/s/${slug}/`);
     const html = await page.text().catch(() => "");
     ok("published page serves 200", page.status === 200, String(page.status));
-    ok("page names a table it created", Array.isArray(d.tables) && d.tables.some((t) => html.includes(t)), html.slice(0, 160));
+    if (d.page === "app") {
+      ok("the page is the compiled app shell", /id="root"/.test(html) && /<script[^>]+src=/.test(html), html.slice(0, 240));
+      ok("its stylesheet was published too", /<link[^>]+\.css/.test(html), html.slice(0, 240));
+      // The shell is a root div — the table names live in the bundle, which is
+      // also the only proof the pages actually talk to the database that was
+      // just provisioned rather than to hardcoded content. The router code-splits
+      // each route into its own lazy chunk, so the entry NAMES the pages rather
+      // than containing them and the chunks have to be followed.
+      const grab = (href) => fetch(href).then((x) => (x.ok ? x.text() : "")).catch(() => "");
+      const entry = (html.match(/src="([^"]+\.js)"/) || [])[1];
+      const entryUrl = entry ? new URL(entry, `${BASE}/s/${slug}/`).href : "";
+      const head = entryUrl ? await grab(entryUrl) : "";
+      // Chunks sit beside the entry and are named relative to it ("./index-X.js").
+      const chunks = [...new Set([...head.matchAll(/["'](\.\/[A-Za-z0-9._-]+\.js)["']/g)].map((m) => m[1]))].slice(0, 8);
+      const js = head + (await Promise.all(chunks.map((c) => grab(new URL(c, entryUrl).href)))).join("");
+      ok("the bundle serves 200 from the same site", !!head, entry || "no script src in the shell");
+      ok("the bundle reads a table the build created",
+        !!js && Array.isArray(d.tables) && d.tables.some((t) => js.includes(t)),
+        entry + " + " + chunks.length + " chunk(s)");
+    } else {
+      ok("the fallback page names a table it created",
+        Array.isArray(d.tables) && d.tables.some((t) => html.includes(t)), html.slice(0, 160));
+    }
   }
 
   // --- credits were actually charged --------------------------------------

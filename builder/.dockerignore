@@ -1,0 +1,7 @@
+# Keep the build context small. node_modules is reinstalled from the lockfile
+# inside the image, and dist/ + routeTree.gen.ts are produced per build.
+**/node_modules
+**/dist
+lovable/template/src/routeTree.gen.ts
+GENERATOR.md
+page-gen.mjs

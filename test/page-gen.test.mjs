@@ -1,0 +1,253 @@
+// The page generator's deterministic half. Everything here runs without a model
+// and without a container: the rules the generator is given, and the checks its
+// output has to survive before anything is published.
+//
+// The checks matter more than they look. A page that lists a `collect` table
+// typechecks, bundles, and passes every screenshot — then 403s the first time a
+// visitor loads it. Catching that here is the difference between a repair pass
+// and a broken published site.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  REFERENCE_PAGE, UI_COMPONENTS, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES,
+  schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages,
+} from "../builder/page-gen.mjs";
+
+const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+const TEMPLATE = path.join(ROOT, "builder", "lovable", "template");
+
+// The schema the reference page was written against.
+const SPEC = {
+  tables: [
+    {
+      name: "services", access: "display", fts: true,
+      columns: [
+        { name: "name", type: "text", notnull: true },
+        { name: "description", type: "text" },
+        { name: "price", type: "real" },
+        { name: "duration_minutes", type: "integer" },
+      ],
+    },
+    {
+      name: "appointments", access: "collect",
+      columns: [
+        { name: "service", type: "text", notnull: true, ref: "services" },
+        { name: "customer_name", type: "text", notnull: true },
+        { name: "date", type: "text", notnull: true },
+      ],
+    },
+    { name: "profiles", access: "user", columns: [{ name: "nickname", type: "text" }] },
+  ],
+};
+
+const page = (source, p = "index.tsx") => [{ path: p, source }];
+
+// ── the copies of things that live on disk ────────────────────────────────────
+// The Worker has no filesystem, so the reference page and the component list are
+// duplicated into the module. GENERATOR.md's rule is that the file wins, which is
+// only enforceable if something notices when they diverge.
+
+test("the reference page in the module is the reference page on disk", () => {
+  const disk = fs.readFileSync(path.join(TEMPLATE, "src/routes/index.tsx"), "utf8");
+  assert.equal(REFERENCE_PAGE, disk,
+    "builder/page-gen.mjs has drifted from src/routes/index.tsx — copy the file over REFERENCE_PAGE");
+});
+
+test("the advertised ui components are the ones that exist", () => {
+  const onDisk = fs.readdirSync(path.join(TEMPLATE, "src/components/ui"))
+    .filter((f) => f.endsWith(".tsx")).map((f) => f.slice(0, -4)).sort();
+  assert.deepEqual([...UI_COMPONENTS].sort(), onDisk);
+});
+
+test("the rules carry the reference page and the tool asks for files", () => {
+  assert.ok(PAGE_RULES.includes(REFERENCE_PAGE), "the page to imitate must be in the prompt");
+  assert.ok(PAGE_RULES.includes("useRows") && PAGE_RULES.includes("useCreateRow"));
+  assert.equal(SITE_PAGES_TOOL.input_schema.required[0], "pages");
+});
+
+// ── the schema, as the generator is told about it ─────────────────────────────
+
+test("the digest states what each access level permits", () => {
+  const d = schemaDigest(SPEC);
+  assert.match(d, /TABLE services — access "display"/);
+  assert.match(d, /TABLE appointments — access "collect"/);
+  assert.match(d, /never list these rows/);
+  assert.match(d, /Leave it out of the site/, "a user-scoped table must be called out as unreachable");
+});
+
+test("the digest names the columns, their types and what is required", () => {
+  const d = schemaDigest(SPEC);
+  assert.match(d, /name \(text, required\)/);
+  assert.match(d, /price \(real\)/);
+  assert.match(d, /service \(text, required, names a row in services\)/);
+});
+
+test("the digest says which columns can be ordered on, and whether search works", () => {
+  const d = schemaDigest(SPEC);
+  assert.match(d, /order \/ filter by: name, description, price, duration_minutes, id/);
+  assert.match(d, /full-text search: yes/);
+  // A collect table is write-only, so ordering and search are meaningless for it.
+  assert.ok(!/order \/ filter by: service/.test(d));
+});
+
+test("no tables is said plainly rather than emitted as an empty prompt", () => {
+  assert.match(schemaDigest({ tables: [] }), /no tables/);
+  assert.match(pagesPrompt("a shop", { tables: [] }), /BRIEF\na shop/);
+});
+
+test("the brand reaches the prompt, so the heading matches the page title", () => {
+  assert.match(pagesPrompt("a shop", SPEC, "Fold Coffee"), /THE SITE IS CALLED\nFold Coffee/);
+  // Without one there is nothing to say, and an empty heading instruction is worse
+  // than none — the brief already names the business.
+  assert.ok(!/THE SITE IS CALLED/.test(pagesPrompt("a shop", SPEC, "  ")));
+});
+
+// ── structural validation ─────────────────────────────────────────────────────
+
+test("a route path is normalised to a bare file under src/routes", () => {
+  const v = validatePages({
+    pages: [
+      { path: "src/routes/index.tsx", source: 'createFileRoute("/")' },
+      { path: "/menu", source: 'createFileRoute("/menu")' },
+      { path: "./about.ts", source: 'createFileRoute("/about")' },
+    ],
+  });
+  assert.deepEqual(v.pages.map((p) => p.path), ["index.tsx", "menu.tsx", "about.tsx"]);
+  assert.deepEqual(v.problems, []);
+});
+
+test("a path that escapes src/routes is dropped", () => {
+  const v = validatePages({ pages: [
+    { path: "../../worker.js", source: 'createFileRoute("/")' },
+    { path: "index.tsx", source: 'createFileRoute("/")' },
+  ] });
+  assert.deepEqual(v.pages.map((p) => p.path), ["index.tsx"]);
+  assert.match(v.problems.join(" "), /not a route file name/);
+});
+
+test("the root layout and the generated route tree cannot be overwritten", () => {
+  const v = validatePages({ pages: [
+    { path: "__root.tsx", source: 'createFileRoute("/")' },
+    { path: "routeTree.gen.ts", source: 'createFileRoute("/")' },
+  ] });
+  assert.deepEqual(v.pages, []);
+});
+
+test("a file that is not a route is rejected, not compiled", () => {
+  const v = validatePages({ pages: [{ path: "index.tsx", source: "export const x = 1;" }] });
+  assert.deepEqual(v.pages, []);
+  assert.match(v.problems.join(" "), /does not export a Route/);
+});
+
+test("a missing home page is reported", () => {
+  const v = validatePages({ pages: [{ path: "menu.tsx", source: 'createFileRoute("/menu")' }] });
+  assert.equal(v.pages.length, 1);
+  assert.match(v.problems.join(" "), /no index\.tsx/);
+});
+
+test("duplicates and overlong files are dropped with a reason", () => {
+  const v = validatePages({ pages: [
+    { path: "index.tsx", source: 'createFileRoute("/")' },
+    { path: "index.tsx", source: 'createFileRoute("/") // again' },
+    { path: "huge.tsx", source: 'createFileRoute("/huge")' + "x".repeat(30000) },
+  ] });
+  assert.deepEqual(v.pages.map((p) => p.path), ["index.tsx"]);
+  assert.match(v.problems.join(" "), /written twice/);
+  assert.match(v.problems.join(" "), /over 24000 characters/);
+});
+
+test("more pages than the cap are trimmed, and said to be", () => {
+  const many = Array.from({ length: MAX_PAGES + 2 }, (_, i) => ({ path: `p${i}.tsx`, source: 'createFileRoute("/p")' }));
+  const v = validatePages({ pages: many });
+  assert.equal(v.pages.length, MAX_PAGES);
+  assert.match(v.problems.join(" "), new RegExp("More than " + MAX_PAGES + " pages"));
+});
+
+test("junk in, no crash out", () => {
+  for (const input of [null, undefined, {}, { pages: "nope" }, { pages: [null, 3, {}] }]) {
+    assert.deepEqual(validatePages(input).pages, []);
+  }
+});
+
+test("notes are carried through and clipped", () => {
+  assert.equal(validatePages({ pages: [], notes: "  left out the login  " }).notes, "left out the login");
+  assert.equal(validatePages({ pages: [], notes: "x".repeat(900) }).notes.length, 600);
+});
+
+// ── the checks that catch a page which compiles and still fails ───────────────
+
+test("the reference page is clean against its own schema", () => {
+  assert.deepEqual(lintPages(page(REFERENCE_PAGE), SPEC), [],
+    "the page the generator is told to imitate must pass every check it is judged by");
+});
+
+test("listing a collect table is caught — the API returns 403", () => {
+  const p = lintPages(page('const a = useRows<Row>("appointments");\n' + 'createFileRoute("/")'), SPEC);
+  assert.equal(p.length, 1);
+  assert.match(p[0], /access "collect" — reading it returns 403/);
+});
+
+test("submitting to a display table is caught", () => {
+  const p = lintPages(page('const c = useCreateRow("services");'), SPEC);
+  assert.match(p.join(" "), /access "display" — writing to it returns 403/);
+});
+
+test("a table that was never declared is caught on read and on write", () => {
+  const p = lintPages(page('useRows("reviews"); useCreateRow("orders");'), SPEC);
+  assert.match(p.join(" "), /reads table "reviews", which the schema does not declare/);
+  assert.match(p.join(" "), /writes to table "orders", which the schema does not declare/);
+});
+
+test("a page that reaches for fetch is caught", () => {
+  assert.match(lintPages(page('const r = await fetch("/api/db/x");'), SPEC).join(" "), /calls fetch directly/);
+});
+
+test("refetch is not fetch", () => {
+  assert.deepEqual(lintPages(page("services.refetch(); void queryClient.refetchQueries();"), SPEC), []);
+});
+
+test("fetch named only in a comment is not reported", () => {
+  assert.deepEqual(lintPages(page("// never call fetch( here\n/* nor fetch( here */"), SPEC), []);
+});
+
+test("editing and deleting a row are caught — the API refuses both", () => {
+  const p = lintPages(page("useUpdateRow('x'); useDeleteRow('y');"), SPEC).join(" ");
+  assert.match(p, /refuses PATCH/);
+  assert.match(p, /refuses DELETE/);
+});
+
+test("a ui component that does not exist is caught", () => {
+  const p = lintPages(page('import { useToast } from "@/components/ui/use-toast";'), SPEC);
+  assert.match(p.join(" "), /use-toast", which does not exist/);
+  assert.deepEqual(lintPages(page('import { Button } from "@/components/ui/button";'), SPEC), []);
+});
+
+test("mixing in TanStack Form is caught — shadcn's inputs would not validate", () => {
+  const p = lintPages(page('import { useForm } from "@tanstack/react-form";'), SPEC);
+  assert.match(p.join(" "), /only speak to react-hook-form/);
+});
+
+test("every problem names the file it is in", () => {
+  const p = lintPages([{ path: "menu.tsx", source: 'useRows("appointments");' }], SPEC);
+  assert.match(p[0], /^menu\.tsx: /);
+});
+
+test("the same problem in one file is reported once", () => {
+  const p = lintPages(page('useRows("appointments"); useRows("appointments");'), SPEC);
+  assert.equal(p.length, 1);
+});
+
+// ── the repair turn ───────────────────────────────────────────────────────────
+
+test("the repair prompt carries the files, the problems and the schema", () => {
+  const r = repairPrompt("a barber shop", SPEC, page("const x = 1;"), ["index.tsx: calls fetch directly"], "Chop");
+  assert.match(r, /THE SITE IS CALLED\nChop/);
+  assert.match(r, /=== src\/routes\/index\.tsx ===/);
+  assert.match(r, /- index\.tsx: calls fetch directly/);
+  assert.match(r, /TABLE services/);
+  assert.match(r, /a barber shop/);
+  assert.match(r, /COMPLETE set of route files/);
+});

@@ -1,10 +1,11 @@
 # Production smoke test for the builder send path. Drives the deployed Worker
 # over HTTP with a throwaway user, then removes the user and its Neon project.
 #
-# Runs after every successful deploy to main, and on demand. It spends one real
-# Sonnet call per run — worth it: both bugs found on 2026-07-27/28 (the access
-# level vocabulary and a 500 on a missing field) were invisible to review and
-# only showed up when something real ran against the deployed Worker.
+# Runs after every successful deploy to main, and on demand. It spends two real
+# Sonnet calls per run (the schema, then the pages) — worth it: both bugs found
+# on 2026-07-27/28 (the access level vocabulary and a 500 on a missing field)
+# were invisible to review and only showed up when something real ran against
+# the deployed Worker.
 name: build smoke
 
 on:
@@ -24,7 +25,9 @@ jobs:
     # A failed deploy has nothing new to smoke-test.
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # A build is now design → provision → generate → compile → publish, and the
+    # build container may be cold. Ten minutes was sized for the schema alone.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

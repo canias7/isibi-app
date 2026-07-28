@@ -23,22 +23,33 @@
   // AND a headless-Chromium runtime smoke test. Image ./builder-game/Dockerfile;
   // the Worker talks to it via the GAME_BUILD_CONTAINER Durable Object binding.
   //
-  // The two website-builder containers (BuildContainer → ./builder/Dockerfile,
-  // CloneBuildContainer → ./builder/lovable/Dockerfile) were removed 2026-07-27
-  // along with the rest of the builder. Both Dockerfiles are deleted, so leaving
-  // either entry here would fail the image build and take the whole deploy with
-  // it — the v4 migration below retires the classes.
+  // Site build-service: the same shape for the rebuilt website builder — the React
+  // template with its deps baked in, so a per-site build is `tsr generate` →
+  // `tsc --noEmit` → `vite build`. A NEW class name rather than the retired
+  // BuildContainer: v4 below deleted that one, and reviving a deleted class is
+  // not something a migration list can express.
+  //
+  // (The two ORIGINAL website-builder containers — BuildContainer →
+  // ./builder/Dockerfile, CloneBuildContainer → ./builder/lovable/Dockerfile —
+  // were removed 2026-07-27 along with the rest of the builder.)
   "containers": [
     {
       "class_name": "GameBuildContainer",
       "image": "./builder-game/Dockerfile",
       "max_instances": 5,
       "instance_type": "standard-1"
+    },
+    {
+      "class_name": "SiteBuildContainer",
+      "image": "./builder/Dockerfile",
+      "max_instances": 5,
+      "instance_type": "standard-1"
     }
   ],
   "durable_objects": {
     "bindings": [
-      { "class_name": "GameBuildContainer", "name": "GAME_BUILD_CONTAINER" }
+      { "class_name": "GameBuildContainer", "name": "GAME_BUILD_CONTAINER" },
+      { "class_name": "SiteBuildContainer", "name": "SITE_BUILD_CONTAINER" }
     ]
   },
   "migrations": [
@@ -47,7 +58,8 @@
     { "tag": "v3", "new_sqlite_classes": ["CloneBuildContainer"] },
     // Retires the two builder containers. A Durable Object class that disappears
     // from the Worker without a deleted_classes migration fails the deploy.
-    { "tag": "v4", "deleted_classes": ["BuildContainer", "CloneBuildContainer"] }
+    { "tag": "v4", "deleted_classes": ["BuildContainer", "CloneBuildContainer"] },
+    { "tag": "v5", "new_sqlite_classes": ["SiteBuildContainer"] }
   ],
   // Auto-reply engine: wake every 2 minutes to answer new inbound DMs for
   // accounts that have DM auto-reply switched on (see scheduled() in worker.js).

@@ -1,5 +1,6 @@
 import { HeadContent, Outlet, createRootRouteWithContext } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
+import { Toaster } from "@/components/ui/sonner";
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => ({
@@ -14,11 +15,16 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 // <HeadContent /> is what makes each route's `head: () => ({ meta })` block actually reach the
 // document. TanStack Start renders it for you server-side; this app is a client-rendered SPA, so
 // without it every page's title and og tags are computed and then silently thrown away.
+//
+// <Toaster /> is mounted here for the same reason: sonner's `toast()` queues into a container
+// that has to exist somewhere in the tree. Every generated form reports success and failure
+// through it, so without this the submit button works and the visitor is told nothing.
 function RootLayout() {
   return (
     <>
       <HeadContent />
       <Outlet />
+      <Toaster />
     </>
   );
 }
