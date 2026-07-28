@@ -496,3 +496,38 @@ test("no limiter injected means no throttling, not a crash", async () => {
   const { res } = await call("GET", "/api/db/shop/rows/services");
   assert.equal(res.status, 200);
 });
+
+test("a submission tells the owner, and a failure there does not fail the submit", async () => {
+  // The booking has already been written by the time this runs. A broken mailer
+  // must not look like a broken form.
+  const seenHook = [];
+  const db = fakeDb(SPEC);
+  const deps = {
+    sqlQuery: async (_c, sql, p) => (await db.query(sql, p)).rows,
+    sqlExec: async (_c, sql, p) => { const r = await db.query(sql, p); return { results: r.rows, changes: r.rowCount }; },
+    loadSiteSchema: async () => SPEC,
+    onSubmit: (x) => { seenHook.push(x); throw new Error("mailer exploded"); },
+  };
+  const url = new URL("https://isibi.ai/api/db/shop/rows/bookings");
+  const req = new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ date: "2030-01-01" }) });
+  const res = await handleSiteData({}, req, url, async () => db, deps);
+  assert.equal(res.status, 201, "the visitor's booking still succeeded");
+  assert.equal(seenHook.length, 1);
+  assert.equal(seenHook[0].table, "bookings");
+  assert.equal(seenHook[0].access, "collect");
+  assert.equal(seenHook[0].method, "POST");
+});
+
+test("a read never fires the notify hook", async () => {
+  let fired = 0;
+  const db = fakeDb(SPEC);
+  const deps = {
+    sqlQuery: async (_c, sql, p) => (await db.query(sql, p)).rows,
+    sqlExec: async (_c, sql, p) => { const r = await db.query(sql, p); return { results: r.rows, changes: r.rowCount }; },
+    loadSiteSchema: async () => SPEC,
+    onSubmit: () => { fired++; },
+  };
+  const url = new URL("https://isibi.ai/api/db/shop/rows/services");
+  await handleSiteData({}, new Request(url), url, async () => db, deps);
+  assert.equal(fired, 0);
+});

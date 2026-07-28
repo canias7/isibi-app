@@ -1568,6 +1568,10 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-data-in { background: var(--bg); border: 1px solid var(--line, #211d30); border-radius: 8px; padding: 8px 10px; color: var(--text, #ece9f5); font-size: .85rem; }
 .st-data-in:focus { outline: none; border-color: #1e1e22; }
 .st-data-form-actions { display: flex; gap: 8px; margin-top: 12px; }
+/* Email-me-on-submit toggle, in the Data panel header. */
+.st-data-notify { font-size: .72rem; color: var(--muted, #8b849e); background: none; border: 1px solid var(--line, #211d30); border-radius: 7px; padding: 4px 9px; cursor: pointer; margin-left: auto; }
+.st-data-notify[data-on="1"] { color: var(--text, #ece9f5); }
+.st-data-notify:disabled { opacity: .55; cursor: default; }
 /* Picture field: a thumbnail of what is set, and a button to replace it. The
    value stored is still just a URL string — the column is plain text either
    way — so this is an editor convenience, not a new kind of field. */

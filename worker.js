@@ -10,6 +10,8 @@ import { lookupRoute, saveRoute, dropRoute } from "./site-routing.mjs";
 import { handleSiteAuth } from "./site-auth-routes.mjs";
 import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers, handleOwnerAnalytics, assertOwner } from "./site-owner.mjs";
 import { handleUpload, handleUploadList, handleUploadDelete, MAX_UPLOAD_BYTES } from "./site-uploads.mjs";
+import { handleOwnerExport } from "./site-export.mjs";
+import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { sessionKey, verifySession } from "./site-auth.mjs";
 import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
@@ -2929,6 +2931,63 @@ async function sendSiteResetEmail(env, slug, email, token) {
   });
 }
 
+// Tell the owner a booking arrived. Detached — the submission already succeeded.
+//
+// The cooldown is claimed in the DATABASE, not in an isolate: Cloudflare runs
+// many isolates per colo, and a per-isolate memory would let a hammered form
+// send one email from each of them. This is a single conditional UPDATE, so
+// exactly one caller wins a window and everyone else in it does nothing.
+async function claimNotify(env, slug) {
+  const cutoff = new Date(Date.now() - COOLDOWN_MS).toISOString();
+  const q = `slug=eq.${encodeURIComponent(slug)}&notify=is.true&or=(notified_at.is.null,notified_at.lt.${cutoff})`;
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?${q}&select=uid,notified_at`, {
+    method: "PATCH",
+    headers: svcHeaders(env, { "content-type": "application/json", Prefer: "return=representation" }),
+    body: JSON.stringify({ notified_at: new Date().toISOString() }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!r.ok) throw new Error("claim " + r.status);
+  const rows = await r.json().catch(() => []);
+  const row = Array.isArray(rows) && rows[0];
+  // No row means either notifications are off or another isolate got there
+  // first. Both are "do nothing", and neither is an error.
+  return row ? { ok: true, owner_uid: row.uid } : { ok: false };
+}
+
+// The isibi account that owns the site. auth.users is not reachable through
+// PostgREST, so this is the GoTrue admin endpoint with the service key.
+async function ownerEmail(env, uid) {
+  const r = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${encodeURIComponent(uid)}`, {
+    headers: svcHeaders(env),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!r.ok) throw new Error("owner lookup " + r.status);
+  const u = await r.json().catch(() => ({}));
+  return (u && u.email) || null;
+}
+
+function notifyOwnerOfSubmission(env, ctx, payload) {
+  if (!env.GO_FARTHER_API_KEY || !env.SUPABASE_SERVICE_KEY) return;
+  const p = (async () => {
+    const out = await notifyOwner({
+      claim: (s2) => claimNotify(env, s2),
+      emailOf: (uid) => ownerEmail(env, uid),
+      send: async ({ to, subject, html }) => {
+        const r = await fetch("https://lkpfeqrelvziltfwpuxi.supabase.co/functions/v1/mailer", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${env.GO_FARTHER_API_KEY}`, "content-type": "application/json" },
+          body: JSON.stringify({ action: "send", from: env.EMAIL_FROM || "isibi <login@isibi.ai>", to, subject, html }),
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!r.ok) throw new Error("mailer " + r.status);
+      },
+    }, payload);
+    // It runs detached, so nothing else would ever see why it did not send.
+    if (!out.sent && out.error) console.error("submission notify:", payload.slug, out.reason, out.error);
+  })();
+  if (ctx && ctx.waitUntil) ctx.waitUntil(p); else p.catch(() => {});
+}
+
 // Content-type for a served R2 object by its extension (React dist assets + pages).
 const R2_MIME = { js: "text/javascript", mjs: "text/javascript", css: "text/css", svg: "image/svg+xml", json: "application/json", map: "application/json", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", ico: "image/x-icon", woff: "font/woff", woff2: "font/woff2", ttf: "font/ttf", txt: "text/plain", xml: "application/xml", webmanifest: "application/manifest+json", html: "text/html; charset=utf-8" };
 // Keep the last few PUBLISHED builds so a bad deploy can be rolled back: each publish
@@ -5130,6 +5189,7 @@ async function handleRequest(request, env, ctx) {
         // per-app `rateLimits {read, write}` have been parsed and stored in
         // _meta since the schema engine was written and never once consulted.
         rateLimit: (key, limit) => _dataLimiter.hit(key, limit),
+        onSubmit: (payload) => notifyOwnerOfSubmission(env, ctx, payload),
       });
       if (dataRes) return dataRes;
     }
@@ -5349,12 +5409,14 @@ async function handleRequest(request, env, ctx) {
     // Ordered BEFORE the site-delete branch below on purpose: that one matches
     // any DELETE under /api/site/, so a row delete would otherwise be read as a
     // request to take the entire site down.
-    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads"))) {
+    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads") || url.pathname.includes("/export") || url.pathname.includes("/notify"))) {
       const om = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rows(?:\/([a-z_][a-z0-9_]{0,40})(?:\/([0-9]{1,18}))?)?$/i);
       const mm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/members(?:\/([0-9]{1,18}))?$/i);
       const an = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/analytics$/i);
       const uf = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/uploads(?:\/([A-Za-z0-9._-]{1,80}))?$/i);
-      if (om || mm || an || uf) {
+      const xp = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/export$/i);
+      const nt = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/notify$/i);
+      if (om || mm || an || uf || xp || nt) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
         const ownerDeps = {
@@ -5389,7 +5451,43 @@ async function handleRequest(request, env, ctx) {
         // no body otherwise — the same trap the PBKDF2 cap fell into.
         try {
           let r;
-          if (uf) {
+          if (nt) {
+            // The off switch. Email the owner did not ask for, with no way to
+            // stop it, is not something to ship.
+            const nslug = nt[1].toLowerCase();
+            const g = await assertOwner(ownerDeps, nslug, ou.id);
+            if (g.error) return Response.json(g.error.body, { status: g.error.status });
+            if (request.method === "GET") {
+              const q = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(nslug)}&select=notify`, { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
+              const rows = await q.json().catch(() => []);
+              return Response.json({ notify: !!(Array.isArray(rows) && rows[0] && rows[0].notify) });
+            }
+            if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
+            const nb = await request.json().catch(() => ({}));
+            const on = !!nb.on;
+            const q = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(nslug)}`, {
+              method: "PATCH",
+              headers: svcHeaders(env, { "content-type": "application/json", Prefer: "return=minimal" }),
+              body: JSON.stringify({ notify: on }),
+              signal: AbortSignal.timeout(10000),
+            });
+            if (!q.ok) return Response.json({ error: "couldn't save that just now" }, { status: 503 });
+            return Response.json({ ok: true, notify: on });
+          } else if (xp) {
+            if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
+            const xr = await handleOwnerExport({
+              gate: (s2, u2) => assertOwner(ownerDeps, s2, u2),
+              dbFor: ownerDeps.dbFor, loadSchema: ownerDeps.loadSchema,
+              query: ownerDeps.query, ident: ownerDeps.ident,
+            }, {
+              slug: xp[1].toLowerCase(), uid: ou.id,
+              table: url.searchParams.get("table"), format: url.searchParams.get("format"),
+            });
+            // A file, not JSON — the body is already the CSV or the JSON text,
+            // and the headers carry the download name.
+            if (xr.raw) return new Response(xr.body, { status: xr.status, headers: xr.headers });
+            return Response.json(xr.body, { status: xr.status });
+          } else if (uf) {
             const uslug = uf[1].toLowerCase();
             // The gate is site-owner.mjs's, so a picture is exactly as protected
             // as a row: fails closed, 404 rather than 403.

