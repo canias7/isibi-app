@@ -9322,3 +9322,41 @@ still has an owner, so it cannot be pointed at a live site. It cannot find orpha
 
 **Note:** every merge to main costs a deploy plus a smoke run — two Sonnet calls and a throwaway
 Neon project. Worth knowing before merging trivial changes.
+
+## 2026-07-28 — "is it really working?" — asked, then actually checked
+
+Fair question, and the honest answer at the time was **partly**. What the pipeline proved was
+that a build runs end to end and publishes. What nothing proved was that a generated site
+*functions for a visitor* — the smoke test asserts the published HTML is an app shell and that
+the JS bundle **contains a table name as a string**. That shows the generator wired the name in;
+it does not show that data renders or that a form submits. Which is precisely the failure
+GENERATOR.md exists to prevent: a page that typechecks, bundles, screenshots fine, and does
+nothing.
+
+So **`test/integration/site-runtime.mjs`** now builds the REFERENCE PAGE (the file the generator
+imitates, read from disk so the test can't drift from it), serves it behind a stub of the real
+data API, and drives it in Chromium. **17/17.** What is now actually proven, not assumed:
+
+- rows from the API render, including column values, and a null column is skipped not printed
+- an empty table says so; a failed read shows a sentence a visitor can act on
+- the form POSTs **to the collect table**, sends the declared columns with the visitor's values,
+  and does **not** send a managed column
+- success reaches the visitor — **this is the first proof the `<Toaster />` fix works**; that was
+  claimed as a bug fix and until now never verified
+- a 409 surfaces **the API's own message** ("That time is already taken"), not a generic failure
+- the form resets on success and *keeps* the input on failure
+- an empty form is rejected client-side with no request sent
+
+$0 — no model call, no container, no Neon project. Runs in CI on any `builder/**` change.
+
+### One finding worth your call
+
+**A failed read takes 7.5 seconds to tell the visitor anything.** TanStack Query retries a failed
+query three times with exponential backoff before settling into `isError`, so the visitor sits in
+front of empty skeletons for that whole time and only then sees "Couldn't load the services".
+
+That is TanStack's default, not a bug, and the retries genuinely do recover transient failures.
+But 7.5 seconds of blank is poor for a booking page. The lever is `new QueryClient()` in
+`builder/lovable/template/src/main.tsx` — e.g. `defaultOptions: { queries: { retry: 1 } }` would
+put the message up in ~1-2s at the cost of some resilience. **Left alone deliberately: it changes
+behaviour on every generated site, so it is the owner's call, not mine.**

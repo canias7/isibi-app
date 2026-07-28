@@ -39,3 +39,12 @@ jobs:
         working-directory: builder/lovable/template
 
       - run: node test/integration/site-build.mjs
+
+      # Compiling is not working. This drives the reference page in a real
+      # browser against a stub of the data API, so the four list states, the
+      # form's success and failure paths, and the toast actually being mounted
+      # are all checked rather than assumed.
+      - run: npx playwright install --with-deps chromium
+        working-directory: builder/lovable/template
+
+      - run: node test/integration/site-runtime.mjs
