@@ -9504,3 +9504,112 @@ Supabase hiccup costs you a placeholder — deliberate, and the cheaper of the t
 
 `site-build` now runs this test alongside `page-gen`'s (both modules are dependency-free, so still no
 install). Unit suite: **98 tests**.
+
+## 2026-07-28 — "is it actually making a live site?" — yes, and it can't be used
+
+You asked the right question. Everything that existed proved a site was **published**, not that one
+was **alive**: the smoke test fetched the HTML, checked it had `id="root"` and a script tag, and
+grepped the bundle for a table name. **No JavaScript was ever executed.** A site that mounts to a
+blank page, or whose every data call 403s, passed all of it.
+
+So I built one for real on production (`/s/barber-shop/`, 10 credits, **38.8s** — the 68.9s in the
+earlier smoke run was a cold container, not a regression) and drove it in a real Chromium against the
+real API.
+
+**It is a real site.** React mounts, nothing throws, no console errors, and it reads the Neon
+Postgres provisioned for it seconds earlier (`GET /api/db/barber-shop/rows/services?order=price&dir=asc
+→ 200`). shadcn is real — the Service dropdown is Radix under shadcn's `SelectTrigger`, classes
+verbatim new-york. TanStack Router (hash routing, code-split route chunk) and Query are both in the
+bundle, plus zod, sonner and Tailwind. The generator's field names (`customer_name`, `customer_email`,
+`appointment_date`, `appointment_time`) match the declared columns exactly. The empty list says
+"Nothing listed yet." instead of rendering a blank grid, which is what GENERATOR.md demands.
+
+### The finding: every generated site is a brochure with a dead form
+
+The Services list is empty and **will stay empty forever**. `services` is a `display` table, and
+writes to `display` are 403 for every caller **including the owner**:
+
+```
+POST /api/db/barber-shop/rows/services   (owner's own JWT)
+→ 403 {"error":"that table is not writable here","access":"display"}
+```
+
+No owner-write route survived the 2026-07-27 runtime deletion, and nothing replaced it. And it is
+worse than a missing menu: the booking form's **required** Service field is a Select fed by that empty
+table, so it renders "Choose one" with **zero options** — meaning **no visitor can book anything**.
+The form is dead on arrival. Two of my browser assertions failed on exactly this.
+
+This is a platform gap, not a generator bug. The generator did the right thing with the schema it was
+given; the `collect` table accepts writes and returns proper actionable errors
+(`{"error":"customer email is required","code":"required","field":"customer_email"}`). What is missing
+is a way to get content in. **This is the single thing between "it builds sites" and "it builds
+usable sites."** Now written into GENERATOR.md's "Not available yet" as the first item.
+
+### What landed
+
+A browser stage in `build-smoke.mjs`, so this can never again be assumed: the app mounted, nothing
+threw, no console errors, real content rendered, the page read its own Postgres, every read was 200,
+no 403s, shadcn controls (not hand-rolled), Radix live, Tailwind applied, a form with real controls,
+and the empty state. Screenshot uploaded as a CI artifact on every run, pass or fail.
+
+**Deliberately NOT asserted: submitting the form.** It is the most valuable check of the lot and it
+cannot pass today, for the reason above — not for any reason in the code under test. It is commented
+in place with the measurement and the date. **Turn it on in the same change that adds seeding.**
+
+Two corrections to my own run, both my fault not the site's: I asserted shadcn via `data-slot`, which
+this shadcn version only stamps on 2 of its 46 components (fixed to check Radix wiring + the new-york
+class signature), and my hand-written `bookings` POST used the wrong column names.
+
+Also worth knowing: **Chromium cannot reach the internet from the dev container** — the egress proxy
+resets browser CONNECTs (node's fetch is fine). The live drive was done by reverse-proxying production
+to localhost. That is why `site-runtime.mjs` serves from localhost too.
+
+**Still up for you to click:** `https://isibi.ai/s/barber-shop/` and the throwaway account that owns
+it. Say the word and both go.
+
+## 2026-07-28 (later) — fixed it: sites now launch with content
+
+"So what" was the right response to the last entry. A finding nobody acts on is worth nothing, so:
+
+**The schema designer now writes the starter content.** `seed` is a REQUIRED field on the
+`design_schema` tool — 3-6 realistic rows per `display` table, written for that specific business —
+and `seedSiteRows` (`site-schema.mjs`) inserts them straight after the tables are created. A barber
+shop now launches with its actual services listed and its booking form usable, instead of "Nothing
+listed yet." and a dropdown with nothing in it.
+
+Rules it enforces, each one mutation-tested:
+
+- **`display` only.** Seeding a `collect` table would put fabricated customers in your booking list,
+  and the API refuses to read those back anyway.
+- **Only tables that are empty**, checked per table. This is what makes a revise safe — a revise
+  re-runs the whole build, and duplicating the menu every time would be worse than never seeding.
+  Per table rather than once, because a revise can add a NEW display table to a site whose existing
+  one already has content you would not want touched.
+- **Undeclared and managed columns are dropped**, same as a real write through the data API.
+- **One bad row does not take the other eleven with it.** A site with 3 of 4 services is alive; a
+  site with none is the failure the whole thing exists to prevent.
+- Capped at 12 rows, values always bound parameters, table names through `sqlIdent`.
+- Non-fatal end to end: the database is already live when this runs, so nothing here can turn a
+  build that worked into a build that failed.
+
+The response now carries `seeded: {table: count}`, so an empty menu is visible from outside instead
+of looking like a successful build.
+
+### And the smoke test's disabled check is now on
+
+The form-submission assertion I switched off an hour ago — "it cannot pass, and not for a reason in
+the code under test" — is enabled, along with a new one that fails if any `display` table came back
+unseeded. That was the point of leaving it commented with the reason rather than deleting it.
+
+### Two real bugs found on the way in
+
+Both stale two-argument calls left over from D1, both silent:
+
+1. **`site-schema.mjs`** called `loadSiteSchema(env, uuid)` where `env` does not exist in that scope.
+   It threw a ReferenceError into a bare `catch {}` on **every single apply**, so the merge below it
+   never ran — meaning a revise that re-emitted only its changed table **stripped every other table
+   from `_meta.schema`**, and the data API then 404'd tables whose rows were still sitting in
+   Postgres. Precisely the failure the comment above it claims to prevent.
+2. **`worker.js:2150`** had the same `loadSiteSchema(env, u)` call.
+
+Unit suite: **113 tests**.
