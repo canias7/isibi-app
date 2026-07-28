@@ -63,7 +63,23 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     const t = await deps.throttle(`signup:${slug}`);
     if (!t.ok) return json({ error: "Too many attempts — try again shortly." }, 429);
 
+    // Is this site taking new accounts at all, and from whom?
+    //
+    // AFTER the throttle, so guessing invite codes is rate-limited like anything
+    // else, and BEFORE the password is hashed, so a refused signup does not cost
+    // a full PBKDF2 run of Worker CPU. Absent on a caller that does not wire it,
+    // which keeps every site that never sets a mode behaving exactly as before.
+    const gate = deps.signupGate ? await deps.signupGate({ code: body.invite }) : { ok: true };
+    if (!gate.ok) return json({ error: gate.error, code: gate.reason }, gate.status);
+
     const made = await deps.createUser(slug, email, await hashPassword(body.password));
+    // Give the use back when the account was not created. Otherwise anyone
+    // holding a code could burn every use on it by signing up repeatedly with an
+    // address that already exists — the invite is spent and no account appears.
+    if (gate.burned && (made.conflict || !made.id) && deps.refundInvite) {
+      try { await deps.refundInvite(gate.burned); }
+      catch (e) { console.error("invite refund failed:", slug, (e && e.message) || e); }
+    }
     // KNOWN TRADEOFF, deliberate: this confirms the address has an account on
     // this site. The privacy-preserving alternative — always answer 200 and mail
     // "you already have an account" — needs a working mailer, and a site with no

@@ -244,3 +244,98 @@ test("an unknown action is a 404, not a crash", async () => {
     assert.equal((await call(deps, action, { body: {} })).status, 404, String(action));
   }
 });
+
+// ------------------------------------------- the signup gate (site-invite.mjs)
+//
+// The policy itself is driven in test/site-invite.test.mjs. What is tested here
+// is the WIRING, which is where the two mistakes worth making live: refusing
+// after the password has already been hashed (free CPU for an attacker), and
+// spending somebody's invite on a signup that never produced an account.
+
+test("a refused signup never creates the account", async () => {
+  const { deps, users } = await harness({
+    deps: { signupGate: async () => ({ error: "This site isn't accepting new accounts.", status: 403, reason: "closed" }) },
+  });
+  const r = await call(deps, "signup", { body: { email: "new@example.com", password: "a-long-password" } });
+  assert.equal(r.status, 403);
+  assert.equal(r.body.code, "closed");
+  assert.equal(users.has("cafe|new@example.com"), false);
+});
+
+test("the gate runs AFTER the throttle", async () => {
+  // Otherwise guessing invite codes is unthrottled, and the code is the only
+  // thing standing between a stranger and an account.
+  let gated = false;
+  const { deps, calls } = await harness({
+    throttled: true,
+    deps: { signupGate: async () => { gated = true; return { ok: true }; } },
+  });
+  const r = await call(deps, "signup", { body: { email: "new@example.com", password: "a-long-password" } });
+  assert.equal(r.status, 429);
+  assert.equal(gated, false, "a throttled signup must not get a free code attempt");
+  assert.ok(calls.throttled.length);
+});
+
+test("the gate runs BEFORE the password is hashed", async () => {
+  // PBKDF2 is paid by the Worker. A refusal that happens after it has run is a
+  // way to burn CPU on a public endpoint for free.
+  let hashed = false;
+  const { deps } = await harness({
+    deps: {
+      signupGate: async () => ({ error: "no", status: 403, reason: "invite" }),
+      createUser: async () => { hashed = true; return { id: "nope" }; },
+    },
+  });
+  await call(deps, "signup", { body: { email: "new@example.com", password: "a-long-password" } });
+  assert.equal(hashed, false);
+});
+
+test("a duplicate email gives the invite back", async () => {
+  // Without this, anybody holding a code can spend every use on it by signing up
+  // over and over with an address that already exists.
+  const refunded = [];
+  const { deps } = await harness({
+    deps: {
+      signupGate: async () => ({ ok: true, burned: "ABCDEFGHJKLM" }),
+      refundInvite: async (c) => { refunded.push(c); },
+    },
+  });
+  const r = await call(deps, "signup", { body: { email: "member@example.com", password: "a-long-password" } });
+  assert.equal(r.status, 409);
+  assert.deepEqual(refunded, ["ABCDEFGHJKLM"]);
+});
+
+test("a failed create gives the invite back too", async () => {
+  const refunded = [];
+  const { deps } = await harness({
+    deps: {
+      signupGate: async () => ({ ok: true, burned: "ABCDEFGHJKLM" }),
+      createUser: async () => ({}),
+      refundInvite: async (c) => { refunded.push(c); },
+    },
+  });
+  const r = await call(deps, "signup", { body: { email: "new@example.com", password: "a-long-password" } });
+  assert.equal(r.status, 500);
+  assert.deepEqual(refunded, ["ABCDEFGHJKLM"]);
+});
+
+test("a SUCCESSFUL signup does not give the invite back", async () => {
+  const refunded = [];
+  const { deps } = await harness({
+    deps: {
+      signupGate: async () => ({ ok: true, burned: "ABCDEFGHJKLM" }),
+      refundInvite: async (c) => { refunded.push(c); },
+    },
+  });
+  const r = await call(deps, "signup", { body: { email: "new@example.com", password: "a-long-password" } });
+  assert.equal(r.status, 200);
+  assert.deepEqual(refunded, [], "a spent invite must stay spent");
+});
+
+test("a site with no gate wired behaves exactly as before", async () => {
+  // Every published site is in this state until its owner changes the setting.
+  const { deps, users } = await harness();
+  const r = await call(deps, "signup", { body: { email: "new@example.com", password: "a-long-password" } });
+  assert.equal(r.status, 200);
+  assert.ok(users.has("cafe|new@example.com"));
+});

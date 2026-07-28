@@ -14,6 +14,7 @@ import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { injectMeta } from "./site-meta.mjs";
 import { sessionKey, verifySession, signClaim, verifyClaim } from "./site-auth.mjs";
+import { checkSignup, newInviteCode, normalizeCode, normalizeMode, inviteOptions, SIGNUP_MODES } from "./site-invite.mjs";
 import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
 import { handleSiteData } from "./site-data.mjs";
@@ -3005,7 +3006,50 @@ function siteAuthDeps(env, db, slug) {
     touchLogin: async (id) => { try { await sqlQuery(db, "UPDATE _users SET last_login_at=to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') WHERE id=?", [Number(id)]); } catch {} },
     sendReset: async (email, token) => sendSiteResetEmail(env, slug, email, token),
     throttle: async (k) => authThrottle(k),
+    signupGate: (opts) => checkSignup({ mode: () => siteSignupMode(db), burn: (c) => burnInvite(db, c) }, opts),
+    refundInvite: (code) => refundInvite(db, code),
   };
+}
+
+// ---------------------------------------------------------- invite codes
+//
+// The site's own database, next to `_users`, for the same reasons: it keeps
+// Supabase off the visitor path, and deleting a site takes its invites with it.
+async function ensureInvites(db) {
+  await sqlQuery(db, "CREATE TABLE IF NOT EXISTS _invites (code TEXT PRIMARY KEY, uses_left INTEGER NOT NULL DEFAULT 1, note TEXT, expires_at TEXT, created_at TEXT DEFAULT (to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')))");
+}
+
+/** The stored mode, or "open" when nothing has ever been set. Throws if unreadable. */
+async function siteSignupMode(db) {
+  await sqlQuery(db, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
+  const rows = await sqlQuery(db, "SELECT v FROM _meta WHERE k='signup_mode'");
+  return (rows[0] && rows[0].v) || "open";
+}
+
+/**
+ * Spend one use, atomically.
+ *
+ * The condition is IN the UPDATE and the result is what decides — never a SELECT
+ * then an UPDATE. Two people redeeming the last use of a code arrive as two
+ * statements at one Postgres, and only one of them can see `uses_left > 0` and
+ * write; a check-then-write would let both through. The same shape as the
+ * notify cooldown claim, and for the same reason.
+ */
+async function burnInvite(db, code) {
+  await ensureInvites(db);
+  const rows = await sqlQuery(
+    db,
+    "UPDATE _invites SET uses_left = uses_left - 1 WHERE code=? AND uses_left > 0 " +
+      "AND (expires_at IS NULL OR expires_at > to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')) RETURNING code",
+    [code],
+  );
+  return !!rows[0];
+}
+
+/** Put a use back when the signup it was spent on did not produce an account. */
+async function refundInvite(db, code) {
+  await ensureInvites(db);
+  await sqlQuery(db, "UPDATE _invites SET uses_left = uses_left + 1 WHERE code=?", [code]);
 }
 
 // The /reset page already exists and posts to /api/db/<slug>/auth/reset with
@@ -5612,14 +5656,15 @@ async function handleRequest(request, env, ctx) {
     // Ordered BEFORE the site-delete branch below on purpose: that one matches
     // any DELETE under /api/site/, so a row delete would otherwise be read as a
     // request to take the entire site down.
-    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads") || url.pathname.includes("/export") || url.pathname.includes("/notify"))) {
+    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads") || url.pathname.includes("/export") || url.pathname.includes("/notify") || url.pathname.includes("/access"))) {
       const om = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rows(?:\/([a-z_][a-z0-9_]{0,40})(?:\/([0-9]{1,18}))?)?$/i);
       const mm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/members(?:\/([0-9]{1,18}))?$/i);
       const an = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/analytics$/i);
       const uf = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/uploads(?:\/([A-Za-z0-9._-]{1,80}))?$/i);
       const xp = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/export$/i);
       const nt = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/notify$/i);
-      if (om || mm || an || uf || xp || nt) {
+      const ac = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/access(?:\/invite(?:\/([A-Za-z0-9-]{1,32}))?)?$/i);
+      if (om || mm || an || uf || xp || nt || ac) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
         const ownerDeps = {
@@ -5676,6 +5721,61 @@ async function handleRequest(request, env, ctx) {
             });
             if (!q.ok) return Response.json({ error: "couldn't save that just now" }, { status: 503 });
             return Response.json({ ok: true, notify: on });
+          } else if (ac) {
+            // Who may become a member. Open by default — every site built before
+            // this has no setting and must keep behaving exactly as it did.
+            const aslug = ac[1].toLowerCase();
+            const g = await assertOwner(ownerDeps, aslug, ou.id);
+            if (g.error) return Response.json(g.error.body, { status: g.error.status });
+            const adb = await siteBackendBySlug(env, aslug);
+            if (!adb) return Response.json({ error: "no such site" }, { status: 404 });
+            const wantsInvite = url.pathname.includes("/access/invite");
+            try {
+              if (!wantsInvite) {
+                if (request.method === "GET") {
+                  await ensureInvites(adb);
+                  const invites = await sqlQuery(adb, "SELECT code, uses_left, note, expires_at, created_at FROM _invites WHERE uses_left > 0 ORDER BY created_at DESC LIMIT 200");
+                  return Response.json({ mode: normalizeMode(await siteSignupMode(adb)), modes: SIGNUP_MODES, invites });
+                }
+                if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
+                const ab = await request.json().catch(() => ({}));
+                // Allow-listed, not stored as sent: an unrecognised mode would
+                // read back as "open" and quietly reopen a site the owner closed.
+                const mode = normalizeMode(ab.mode);
+                if (!SIGNUP_MODES.includes(String(ab.mode || "").toLowerCase())) {
+                  return Response.json({ error: "mode must be one of: " + SIGNUP_MODES.join(", ") }, { status: 400 });
+                }
+                await sqlQuery(adb, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
+                await sqlQuery(adb, "INSERT INTO _meta (k,v) VALUES ('signup_mode', ?) ON CONFLICT (k) DO UPDATE SET v=excluded.v", [mode]);
+                return Response.json({ ok: true, mode });
+              }
+              // .../access/invite
+              if (request.method === "DELETE") {
+                const revoke = normalizeCode(ac[2]);
+                if (!revoke) return Response.json({ error: "no such code" }, { status: 404 });
+                await ensureInvites(adb);
+                // Zeroed rather than deleted: a used code should stay visible as
+                // spent, and a revoked one must never be re-mintable by chance.
+                const r = await sqlExec(adb, "UPDATE _invites SET uses_left = 0 WHERE code=? AND uses_left > 0", [revoke]);
+                if (!r.changes) return Response.json({ error: "no such code" }, { status: 404 });
+                return Response.json({ ok: true });
+              }
+              if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
+              const ib = await request.json().catch(() => ({}));
+              const opt = inviteOptions(ib);
+              await ensureInvites(adb);
+              const code = newInviteCode();
+              await sqlQuery(
+                adb,
+                "INSERT INTO _invites (code, uses_left, note, expires_at) VALUES (?,?,?," +
+                  (opt.days ? "to_char(now() AT TIME ZONE 'UTC' + (? || ' days')::interval,'YYYY-MM-DD HH24:MI:SS')" : "NULL") + ")",
+                opt.days ? [code, opt.uses, opt.note, String(opt.days)] : [code, opt.uses, opt.note],
+              );
+              return Response.json({ ok: true, code, uses: opt.uses, days: opt.days, note: opt.note }, { status: 201 });
+            } catch (e) {
+              console.error("site access failed:", aslug, (e && (e.detail || e.message)) || e);
+              return Response.json({ error: "couldn't do that just now" }, { status: 503 });
+            }
           } else if (xp) {
             if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
             const xr = await handleOwnerExport({
