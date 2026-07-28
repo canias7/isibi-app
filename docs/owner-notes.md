@@ -9472,3 +9472,35 @@ fails CI instead of shipping a lie into a repair prompt.
 repair-keeping decision ("keep the retry only if it is better"), the placeholder-fallback choice,
 and the credit accounting. It is not importable, so testing it means extracting it the way
 `page-gen.mjs` was. That is where a silent bug costs real money.
+
+### …done, same day — `builder/publish-pages.mjs`
+
+Extracted exactly that, on the pattern `site-data.mjs` already uses: `publishPages(deps, {spec, slug})`
+takes `generate` / `compile` / `publish` / `readCredits` / `useCredits` as functions, so the decisions
+run against fakes with **no model call, no container, no R2, no Neon**. `worker.js` keeps the model
+call and the wiring and lost 58 lines.
+
+**23 tests**, and I mutation-checked all of them rather than trusting green — broke the module nine
+ways (keep any compiling retry · keep an equal retry · `buildMs` last-writer · no credit floor ·
+publish before checking the build · credits can be zero · skip the lint · charge only once · ledger
+failure fails open) and confirmed each one turns the suite red. Two got through the first pass and
+both were the TEST's fault, not the module's:
+
+- the harness recorded calls in its *default* `generate`, so every test that supplied its own stopped
+  counting — five assertions were passing against zero calls
+- the fake compiler returned an identical dist every time, so "kept the first attempt" and "kept the
+  retry" were literally indistinguishable. It now stamps the attempt number, which is what makes
+  `<` vs `<=` on the repair rule detectable at all
+
+Two behaviours changed on purpose while it moved:
+
+- **`buildMs` now sums both attempts.** It was last-writer, so a build that compiled twice reported
+  only the second and understated what you actually waited for.
+- **`stage` and `error` are returned**, not just logged. A failed build is now debuggable from the
+  response instead of only from `wrangler tail`.
+
+The credit floor **fails closed**: if the ledger can't be read, no paid call happens. That means a
+Supabase hiccup costs you a placeholder — deliberate, and the cheaper of the two mistakes.
+
+`site-build` now runs this test alongside `page-gen`'s (both modules are dependency-free, so still no
+install). Unit suite: **98 tests**.

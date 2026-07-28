@@ -8,7 +8,8 @@ import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlI
 import { handleSiteData } from "./site-data.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
-import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, repairPrompt, validatePages, lintPages } from "./builder/page-gen.mjs";
+import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, repairPrompt } from "./builder/page-gen.mjs";
+import { publishPages } from "./builder/publish-pages.mjs";
 import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis, eoqCalc, breakevenCalc, demandForecast, installmentPlan, taxCalc, commissionCalc } from "./worker-finance.mjs";
 // Game builder (Phase 3): same generate→build→publish pipeline, engine swapped for
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
@@ -2590,13 +2591,6 @@ async function designSiteSchema(env, brief) {
 // reasoning and truncate the last one. (Truncation is caught below rather than
 // published, but a truncated generation is a paid call that produced nothing.)
 const SITE_PAGES_MAX_TOKENS = 24000;
-const SITE_PAGES_RATE_IN = 3e-6, SITE_PAGES_RATE_OUT = 15e-6;
-// Don't start a call the caller plainly cannot pay for. Deliberately a floor and
-// not the worst case (~45 credits at the ceiling above): a new account is granted
-// 20, and gating on the maximum would mean nobody ever got a page on their first
-// build. A typical small site spends 10-20.
-const SITE_PAGES_MIN_CREDITS = 8;
-const sitePageCredits = (i, o) => Math.max(1, Math.ceil((i * SITE_PAGES_RATE_IN + o * SITE_PAGES_RATE_OUT) / 0.008));
 
 // The pages themselves. Same tool-use shape as designSiteSchema directly above:
 // the model fills in a tool whose input_schema IS the return type, so there is no
@@ -2774,97 +2768,39 @@ async function writeSiteDistToR2(env, slug, dist) {
   }
 }
 
-const buildFailureLine = (bd) =>
-  (bd && bd.stage === "typecheck" ? "TypeScript rejected the pages:\n" : "The build failed:\n") +
-  String((bd && bd.error) || "unknown build failure").slice(0, 4000);
-
 // brief + schema → route files → `tsc --noEmit` + `vite build` in the container →
 // the dist published to sites/<slug>/.
 //
-// Every step here is best-effort by design. It runs AFTER the database has been
-// provisioned and the schema applied, so a generator or compiler failure still
-// leaves the caller with a working backend and the placeholder page — a build
-// that half-worked, not a build that was lost. Returns what actually landed.
+// The decisions — pay for a repair pass? was the repair an improvement? publish at
+// all? — live in builder/publish-pages.mjs, which takes every side effect as an
+// injected function so they can be driven against fakes in test/publish-pages.test.mjs.
+// This is only the wiring that supplies the real ones.
 async function buildAndPublishPages(env, { brief, spec, slug, brand, auth }) {
-  const out = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
-
-  let balance = 0;
-  try { balance = await readCredits(auth); } catch { balance = 0; }
-  if (!(balance >= SITE_PAGES_MIN_CREDITS)) {
-    out.notes = "Your database is live, but there weren't enough credits left to write the pages.";
-    return out;
-  }
-
-  const charge = async (g) => {
-    const c = sitePageCredits(g.usedIn, g.usedOut);
-    out.cost += c;
-    try { await useCredits(auth, c); } catch {}
-  };
-
-  const compile = async (pages) => {
-    const files = {};
-    for (const p of pages) files[p.path] = p.source;
-    const t0 = Date.now();
-    let bd;
-    try {
+  const out = await publishPages({
+    // A failed repair is swallowed by publishPages (the first attempt stands), so
+    // it is logged here or nowhere. A failed FIRST attempt propagates and is
+    // logged by the route, so logging it here too would only duplicate it.
+    generate: async (fix) => {
+      if (!fix) return generateSitePages(env, brief, spec, brand);
+      try { return await generateSitePages(env, brief, spec, brand, fix); }
+      catch (e) { console.error("page repair failed:", slug, (e && (e.detail || e.message))); throw e; }
+    },
+    compile: async (pages) => {
+      const files = {};
+      for (const p of pages) files[p.path] = p.source;
       const c = getContainer(env.SITE_BUILD_CONTAINER);
       const r = await c.fetch(new Request("http://build/build", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ files, slug, title: brand }),
       }));
-      bd = await r.json().catch(() => ({ ok: false, stage: "build", error: "the build service returned no JSON" }));
-    } catch (e) {
-      bd = { ok: false, stage: "build", error: "the build service is unreachable: " + String((e && e.message) || e).slice(0, 200) };
-    }
-    out.buildMs = Date.now() - t0;
-    return bd;
-  };
-
-  const gen = await generateSitePages(env, brief, spec, brand);
-  await charge(gen);
-  let v = validatePages(gen.input);
-  if (!v.pages.length) {
-    out.notes = gen.truncated
-      ? "The pages came out longer than one pass allows — try a simpler brief."
-      : "The generator didn't produce a usable page.";
-    return out;
-  }
-  let problems = v.problems.concat(lintPages(v.pages, spec));
-  let built = await compile(v.pages);
-
-  // One repair pass, on a compile failure OR on a lint problem. Both matter: a
-  // page that lists a `collect` table typechecks, bundles, and then 403s the
-  // moment a visitor opens it, which is the failure nobody sees before shipping.
-  if (!built.ok || problems.length) {
-    const why = (built.ok ? [] : [buildFailureLine(built)]).concat(problems);
-    let retry = null;
-    try { retry = await generateSitePages(env, brief, spec, brand, { pages: v.pages, problems: why }); }
-    catch (e) { console.error("page repair failed:", slug, (e && (e.detail || e.message))); }
-    if (retry) {
-      await charge(retry);
-      const v2 = validatePages(retry.input);
-      if (v2.pages.length) {
-        const p2 = v2.problems.concat(lintPages(v2.pages, spec));
-        const b2 = await compile(v2.pages);
-        // Only keep the retry when it is actually better — it compiles where the
-        // first did not, or it compiles with fewer problems left in it.
-        if (b2.ok && (!built.ok || p2.length < problems.length)) { v = v2; problems = p2; built = b2; }
-      }
-    }
-  }
-
-  out.files = v.pages.map((p) => "src/routes/" + p.path);
-  out.problems = problems;
-  out.notes = v.notes;
-  if (!built.ok) {
-    console.error("site page build failed:", slug, built.stage, String(built.error || "").slice(0, 400));
-    out.notes = [v.notes, "The pages didn't compile, so the site is showing its data model for now — send it again to retry."].filter(Boolean).join(" ");
-    return out;
-  }
-
-  await writeSiteDistToR2(env, slug, built.files);
-  out.page = "app";
+      return await r.json().catch(() => ({ ok: false, stage: "build", error: "the build service returned no JSON" }));
+    },
+    publish: (dist) => writeSiteDistToR2(env, slug, dist),
+    readCredits: () => readCredits(auth),
+    useCredits: (n) => useCredits(auth, n),
+  }, { spec, slug });
+  if (out.page !== "app" && out.error) console.error("site page build failed:", slug, out.stage, out.error);
   return out;
 }
 
