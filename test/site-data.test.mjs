@@ -134,3 +134,24 @@ test("a slug that is not a real site is 404", async () => {
   const res = await handleSiteData({}, new Request(url), url, async () => null, {});
   assert.equal(res.status, 404);
 });
+
+test("a missing required column is the sender's fault, and names the field", async () => {
+  const db = fakeDb(SPEC);
+  db.query = async (sql) => {
+    if (/FROM _meta WHERE k='schema'/.test(sql)) return { rows: [{ v: JSON.stringify(SPEC) }] };
+    throw new Error('null value in column "date" of relation "bookings" violates not-null constraint');
+  };
+  const url = new URL("https://isibi.ai/api/db/shop/rows/bookings");
+  const req = new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Cut" }) });
+  const deps = {
+    sqlQuery: async (_c, s2, p2) => (await db.query(s2, p2)).rows,
+    sqlExec: async () => ({ results: [], changes: 0 }),
+    loadSiteSchema: async () => SPEC,
+  };
+  const res = await handleSiteData({}, req, url, async () => db, deps);
+  assert.equal(res.status, 400, "not a 500");
+  const body = await res.json();
+  assert.equal(body.code, "required");
+  assert.equal(body.field, "date");
+  assert.match(body.error, /date is required/);
+});

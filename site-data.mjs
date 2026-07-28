@@ -201,6 +201,15 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
     if (/conflicting key value violates exclusion constraint|_nooverlap/i.test(msg)) {
       return json({ error: "that time is already taken", code: "overlap" }, 409);
     }
+    // A required field left out is the sender's mistake, not a server fault.
+    // Name the column so a form can point at the field instead of just failing.
+    const notNull = msg.match(/null value in column "([^"]+)"/i);
+    if (notNull) {
+      return json({ error: notNull[1].replace(/_/g, " ") + " is required", code: "required", field: notNull[1] }, 400);
+    }
+    if (/violates check constraint|invalid input syntax|out of range/i.test(msg)) {
+      return json({ error: "some of that isn't valid", code: "invalid" }, 400);
+    }
     console.error("site data error:", slug, tableName, msg.slice(0, 200));
     return json({ error: "that didn't work" }, 500);
   }
