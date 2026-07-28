@@ -4,6 +4,7 @@
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { Container, getContainer } from "@cloudflare/containers";
 import { makeCache, memoize } from "./ttl-cache.mjs";
+import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
 import { ensureSiteBackend as ensureSiteBackendPure } from "./site-provision.mjs";
 import { lookupRoute, saveRoute, dropRoute } from "./site-routing.mjs";
 import { handleSiteAuth } from "./site-auth-routes.mjs";
@@ -14,7 +15,7 @@ import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlI
 import { handleSiteData } from "./site-data.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
-import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, repairPrompt } from "./builder/page-gen.mjs";
+import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, repairPrompt, briefForPages } from "./builder/page-gen.mjs";
 import { publishPages } from "./builder/publish-pages.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
 import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
@@ -2746,20 +2747,20 @@ async function siteBackendBySlugFresh(env, slug) {
 // than returning null when the lookup itself fails, so a caller cannot mistake
 // "Supabase is down" for "nobody owns this slug".
 async function siteBackendRowFresh(env, slug) {
-  const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=neon_db,uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
+  const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=neon_db,uid,brief`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
   if (!g.ok) throw Object.assign(new Error("site lookup failed"), { detail: g.status + " " + (await g.text().catch(() => "")).slice(0, 200) });
   const rows = await g.json();
   const row = Array.isArray(rows) && rows[0];
   if (!row) return null;
-  if (!row.neon_db) return { conn: null, uid: row.uid };
+  if (!row.neon_db) return { conn: null, uid: row.uid, brief: row.brief || "" };
   const proj = await userSiteProject(env, row.uid);
-  return { conn: proj ? connForDatabase(proj.neon_conn, row.neon_db) : null, uid: row.uid };
+  return { conn: proj ? connForDatabase(proj.neon_conn, row.neon_db) : null, uid: row.uid, brief: row.brief || "" };
 }
 
 // Provision (or reuse) one site's database, returning its connection string.
 // The ordering and the failure paths live in site-provision.mjs, where they are
 // tested; this supplies the real Neon and Supabase calls.
-async function ensureSiteBackend(env, slug, uid) {
+async function ensureSiteBackend(env, slug, uid, brief) {
   const write = async (table, body) => {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
       method: "POST",
@@ -2781,7 +2782,11 @@ async function ensureSiteBackend(env, slug, uid) {
     },
     saveProject: (u, proj) => write("user_site_project", { uid: u, ...proj }),
     createDatabase: (proj, s2) => createSiteDatabase(env, proj.neon_project, proj.neon_branch, proj.neon_role, s2),
-    saveBackend: (s2, u, db) => write("site_backends", { slug: s2, uid: u, neon_db: db }),
+    // The brief rides along on the row that claims the slug. ensureSiteBackend
+    // returns early when the slug already has a database, so saveBackend runs
+    // exactly once per site — which is what keeps a revise's one-line
+    // instruction from overwriting the brief the site was built from.
+    saveBackend: (s2, u, db) => write("site_backends", { slug: s2, uid: u, neon_db: db, brief: String(brief || "").slice(0, 4000) || null }),
     connFor: connForDatabase,
     dbNameFor: dbNameForSite,
   }, { slug, uid });
@@ -2833,13 +2838,22 @@ const siteAuthSecret = memoize(_siteAuthSecret, async (db) => {
 // Per-isolate, which is weak against a distributed attacker and still worth
 // having: it stops the trivial single-source brute force, and every attempt
 // costs a full PBKDF2 run of real Worker CPU.
-const _authHits = makeCache({ ttlMs: 60_000, max: 5000 });
-const AUTH_MAX_PER_MIN = 10;
+//
+// Was counted with ttl-cache, whose `set` re-stamps the expiry — so the window
+// was EXTENDED by every blocked attempt and a locked-out address never got a
+// fresh one as long as anyone kept trying. makeLimiter fixes the window at the
+// first hit instead.
+const _authLimiter = makeLimiter({ windowMs: 60_000, max: 5000 });
+const AUTH_MAX_PER_MIN = 10;   // per site+email — one account under attack
+const AUTH_IP_PER_MIN = 30;    // per source — one attacker rotating addresses
 function authThrottle(key) {
-  const n = (_authHits.get(key) || 0) + 1;
-  _authHits.set(key, n);
-  return n > AUTH_MAX_PER_MIN ? { ok: false, retryAfter: 60 } : { ok: true };
+  return _authLimiter.hit(key, AUTH_MAX_PER_MIN);
 }
+
+// The public data API's throttle. Separate table from the auth one so a site
+// being hammered with reads cannot evict the counters holding a brute force
+// back.
+const _dataLimiter = makeLimiter({ windowMs: WINDOW_MS, max: 20000 });
 
 // Who is asking, for a table that is scoped to a member. Returns {id, role} or
 // null. The id is an INTEGER from the site's own `_users`, which is what
@@ -5063,6 +5077,26 @@ async function handleRequest(request, env, ctx) {
       if (am) {
         const [, aslug, action] = am;
         const slug = aslug.toLowerCase();
+        // Per SOURCE, on top of the per-address throttle inside handleSiteAuth.
+        // That one keys on site+email, so an attacker who rotates the address
+        // walks straight through it — and every attempt they make costs a full
+        // PBKDF2 run of Worker CPU whether the account exists or not.
+        //
+        // `me` is exempt: it is a token verify plus one row read, and a signed-in
+        // visitor's page legitimately calls it on every load.
+        if (action !== "me") {
+          const ipHit = _authLimiter.hit(
+            // CF-Connecting-IP only — see site-data.mjs. X-Forwarded-For is
+            // client-settable, so honouring it would let one attacker mint a
+            // fresh bucket per request.
+            bucketKey({ ip: request.headers.get("CF-Connecting-IP") || "", slug, table: "auth", method: "POST" }),
+            AUTH_IP_PER_MIN,
+          );
+          if (!ipHit.ok) {
+            const t = tooMany(ipHit);
+            return Response.json(t.body, { status: t.status, headers: t.headers });
+          }
+        }
         const db = await siteBackendBySlug(env, slug);
         if (!db) return Response.json({ error: "no such site" }, { status: 404 });
         const body = request.method === "POST" ? await request.json().catch(() => ({})) : {};
@@ -5091,6 +5125,10 @@ async function handleRequest(request, env, ctx) {
       const dataRes = await handleSiteData(env, request, url, siteBackendBySlug, {
         sqlQuery, sqlExec, loadSiteSchema,
         resolveVisitor: (req, slug) => resolveSiteVisitor(env, req, slug),
+        // Reads the site's own declared limits — a per-table `rateLimit` and a
+        // per-app `rateLimits {read, write}` have been parsed and stored in
+        // _meta since the schema engine was written and never once consulted.
+        rateLimit: (key, limit) => _dataLimiter.hit(key, limit),
       });
       if (dataRes) return dataRes;
     }
@@ -5160,11 +5198,14 @@ async function handleRequest(request, env, ctx) {
       // its schema, seed rows and publish pages over an existing owner's site.
       // (ensureSiteBackend now enforces this too; belt and braces, because the
       // consequence is a cross-account write.)
+      let priorBrief = "";
       try {
         const owner = await siteBackendRowFresh(env, slug);
         if (owner && owner.uid && owner.uid !== bu.id) {
           return Response.json({ ok: false, error: "that name is taken" }, { status: 409 });
         }
+        // Free — this lookup already happens for the ownership check.
+        priorBrief = (owner && owner.brief) || "";
       } catch (e) {
         console.error("ownership check failed:", slug, e && (e.detail || e.message));
         return Response.json({ ok: false, msg: "Couldn't check that name just now — try again in a moment." }, { status: 503 });
@@ -5175,7 +5216,7 @@ async function handleRequest(request, env, ctx) {
 
       let db;
       try {
-        db = await ensureSiteBackend(env, slug, bu.id);
+        db = await ensureSiteBackend(env, slug, bu.id, brief);
       } catch (e) {
         if (e && e.conflict) return Response.json({ ok: false, error: "that name is taken" }, { status: 409 });
         console.error("site provision failed:", slug, e && (e.detail || e.message));
@@ -5236,7 +5277,10 @@ async function handleRequest(request, env, ctx) {
       let pages = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
       if (brief && env.SITE_BUILD_CONTAINER && env.SITES_BUCKET) {
         try {
-          pages = await buildAndPublishPages(env, { brief, spec: pageSpec, slug, brand, auth: request.headers.get("Authorization") || "" });
+          // A revise gets the brief the site was BUILT from as well as the
+          // instruction — see briefForPages. The merged schema says what the
+          // site has; this says what it is for.
+          pages = await buildAndPublishPages(env, { brief: briefForPages({ brief, priorBrief }), spec: pageSpec, slug, brand, auth: request.headers.get("Authorization") || "" });
         } catch (e) {
           console.error("page generation failed:", slug, (e && (e.detail || e.message)));
           pages.notes = "Your database is live, but writing the pages didn't work this time — send it again to retry.";

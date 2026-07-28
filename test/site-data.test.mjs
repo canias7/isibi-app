@@ -382,3 +382,117 @@ test("a trash table soft-deletes, still owner-scoped", async () => {
   assert.match(q.sql, /UPDATE "drafts"/, "trash means soft-delete, so a mistake is recoverable");
   assert.match(q.sql, /"owner_id"=\?/, q.sql);
 });
+
+// ─────────────────────────────────────────────────────────────── the throttle
+//
+// `rateLimit` and `rateLimits` have been parsed and stored in _meta since the
+// schema engine was written, and nothing ever read them. These assert on where
+// the check sits as much as what it decides — a throttle that runs after the
+// database read has not saved the thing it exists to save.
+
+const limited = (spec, over = {}) => {
+  const calls = [];
+  const db = fakeDb(spec);
+  const deps = {
+    sqlQuery: async (_c, sql, p) => (await db.query(sql, p)).rows,
+    sqlExec: async (_c, sql, p) => { const r = await db.query(sql, p); return { results: r.rows, changes: r.rowCount }; },
+    loadSiteSchema: async () => spec,
+    rateLimit: (key, limit) => { calls.push({ key, limit }); return over.verdict || { ok: true }; },
+    resolveVisitor: over.resolveVisitor,
+  };
+  return { db, deps, calls };
+};
+
+const RL_SPEC = {
+  rateLimits: { read: 11, write: 7 },
+  tables: [
+    { name: "services", access: "display", columns: [{ name: "title" }] },
+    { name: "bookings", access: "collect", columns: [{ name: "date" }], rateLimit: 3 },
+    { name: "mine", access: "user", columns: [{ name: "date" }] },
+  ],
+};
+
+const rlCall = (deps, method, path, body) => {
+  const url = new URL("https://isibi.ai" + path);
+  const req = new Request(url, {
+    method,
+    headers: { "CF-Connecting-IP": "9.9.9.9", ...(body ? { "content-type": "application/json" } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return handleSiteData({}, req, url, async () => deps.__db, deps);
+};
+
+test("the site's declared limits are the ones enforced", async () => {
+  const { db, deps, calls } = limited(RL_SPEC); deps.__db = db;
+  await rlCall(deps, "GET", "/api/db/shop/rows/services");
+  assert.equal(calls[0].limit, 11, "the app's read limit");
+  await rlCall(deps, "POST", "/api/db/shop/rows/services", { title: "x" });
+  assert.equal(calls[1].limit, 7, "the app's write limit");
+  await rlCall(deps, "POST", "/api/db/shop/rows/bookings", { date: "2030-01-01" });
+  assert.equal(calls[2].limit, 3, "the table's own limit wins for a write");
+});
+
+test("a throttled request is 429 and never reaches the database", async () => {
+  const { db, deps } = limited(RL_SPEC, { verdict: { ok: false, limit: 3, retryAfter: 42 } });
+  deps.__db = db;
+  const res = await rlCall(deps, "POST", "/api/db/shop/rows/bookings", { date: "2030-01-01" });
+  assert.equal(res.status, 429);
+  assert.equal(res.headers.get("Retry-After"), "42");
+  assert.equal((await res.json()).code, "rate_limit");
+  assert.ok(!db.__seen.some((q) => /^INSERT/i.test(q.sql.trim())), "nothing was written");
+});
+
+test("the throttle runs BEFORE the visitor is resolved", async () => {
+  // Resolving a visitor is a database read of its own. A flood must pay for
+  // none of it — and this is also what stops an unauthenticated flood from
+  // being cheaper to send than to refuse.
+  let resolved = 0;
+  const { db, deps } = limited(RL_SPEC, {
+    verdict: { ok: false, limit: 1, retryAfter: 60 },
+    resolveVisitor: async () => { resolved++; return { id: 1, role: "user" }; },
+  });
+  deps.__db = db;
+  const res = await rlCall(deps, "GET", "/api/db/shop/rows/mine");
+  assert.equal(res.status, 429);
+  assert.equal(resolved, 0);
+});
+
+test("a spoofable forwarding header is NOT what the bucket keys on", async () => {
+  // X-Forwarded-For is a request header like any other. Honouring it would let
+  // one caller mint a fresh bucket per request and walk through the limiter.
+  const { db, deps, calls } = limited(RL_SPEC); deps.__db = db;
+  const url = new URL("https://isibi.ai/api/db/shop/rows/services");
+  for (const xff of ["1.1.1.1", "2.2.2.2"]) {
+    await handleSiteData({}, new Request(url, { headers: { "X-Forwarded-For": xff } }), url, async () => db, deps);
+  }
+  assert.equal(calls[0].key, calls[1].key, "two X-Forwarded-For values must share one bucket");
+  assert.match(calls[0].key, /unknown/, "and with no CF header it is the shared unknown bucket");
+});
+
+test("the bucket is per source, per site and — for writes — per table", async () => {
+  const { db, deps, calls } = limited(RL_SPEC); deps.__db = db;
+  await rlCall(deps, "POST", "/api/db/shop/rows/bookings", { date: "2030-01-01" });
+  await rlCall(deps, "POST", "/api/db/shop/rows/services", { title: "x" });
+  await rlCall(deps, "GET", "/api/db/shop/rows/services");
+  await rlCall(deps, "GET", "/api/db/shop/rows/bookings");
+  assert.match(calls[0].key, /9\.9\.9\.9/);
+  assert.match(calls[0].key, /shop/);
+  assert.notEqual(calls[0].key, calls[1].key, "two forms do not share one write budget");
+  assert.equal(calls[2].key, calls[3].key, "but a page's several lists share one read budget");
+});
+
+test("an undeclared table is refused before it can be counted", async () => {
+  // Otherwise scanning for table names would fill the limiter's table with
+  // keys for tables that do not exist.
+  const { db, deps, calls } = limited(RL_SPEC); deps.__db = db;
+  const res = await rlCall(deps, "GET", "/api/db/shop/rows/secrets");
+  assert.equal(res.status, 404);
+  assert.deepEqual(calls, []);
+});
+
+test("no limiter injected means no throttling, not a crash", async () => {
+  // worker.js supplies the real one; every other caller and every older test
+  // passes deps without it.
+  const { res } = await call("GET", "/api/db/shop/rows/services");
+  assert.equal(res.status, 200);
+});
