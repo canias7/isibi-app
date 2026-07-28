@@ -10196,3 +10196,61 @@ Verified against the live database before wiring: `sharp-fade-barbershop` → 4 
 seven-day series ending `Jul 28: 4`. anon and authenticated can no longer execute the function.
 
 Unit suite **403**, 10/10 mutations on the analytics handler.
+
+---
+
+## 2026-07-28 — pictures, which nothing could store
+
+Same shape as the analytics gap, and I only found it by looking: **`/u/<slug>/<file>` has served
+uploads from R2 since the D1 era — public, immutable-cached, `nosniff` — and nothing has ever written
+one.** The read half survived the 2026-07-27 runtime deletion; the write half did not. So a café's
+menu, a barber's gallery and a shop's products were all text, on every site the builder has ever made.
+
+`POST` / `GET /api/site/<slug>/uploads` and `DELETE /api/site/<slug>/uploads/<file>`, behind the same
+`assertOwner` gate as rows and analytics.
+
+### The decisions worth keeping
+
+- **Stored at `uploads/<slug>/`, not `sites/<slug>/`.** That second prefix is wiped on every publish
+  by `deleteSitePrefix`. A revise must not delete the owner's photographs.
+- **The filename is a hash of the CONTENT.** Three things fall out and all of them matter: a caller
+  cannot choose a path, so traversal and cross-site overwrite are closed *by construction* rather
+  than by escaping; re-uploading the same picture is free and idempotent instead of a second copy;
+  and `/u/` serving `immutable` is actually true, because the name *is* the bytes.
+- **SVG is refused.** `/u/` serves `content-disposition: inline` from isibi.ai, and an SVG is a
+  document that can carry `<script>` — that is stored XSS on our own origin, and `nosniff` does not
+  help because the type would be honestly declared as `image/svg+xml`. There is no safe way to serve
+  visitor-supplied SVG from this origin without a separate domain, so it is refused outright rather
+  than half-mitigated. PNG/JPEG/WebP/GIF, decided by **leading bytes** — never the declared
+  Content-Type, which the caller writes.
+- Caps: 5 MB a file, 200 files and 100 MB a site. A re-upload counts against neither, because
+  refusing it would be refusing to do nothing.
+
+### Three bugs found before shipping, two of them mine
+
+1. **A degenerate hash would have created an undeletable object.** `handleUploadDelete` only accepts
+   the shape we mint, so a name that did not clean to 32 hex characters could go INTO the bucket and
+   never be addressable again — permanent garbage from our own wiring mistake. Now refused.
+2. **The Worker was hashing the wrong thing.** I wired `hash` to the existing `sha256hex`, which
+   takes a *string*: `TextEncoder().encode(uint8array)` turns `[0x89,0x50,0x4e,0x47]` into the text
+   `"137,80,78,71"`. Deterministic by luck, so dedup would still have worked, but it would have
+   stringified a 5 MB photo into ~20 MB before hashing it. Digests the bytes directly now.
+3. **Four mutants survived the first run, three on the delete path** — the traversal test, the
+   extension test and the gate test all passed just as happily with the check torn out, because the
+   files they used were not in the listing and so 404'd for the wrong reason. Rewritten so the
+   listing really contains each traversal target: now the ONLY thing that can refuse is the name
+   check. 23/23.
+
+Frontend: image-ish columns in the Data panel's edit form get a thumbnail and an Upload button.
+`isImageCol` is a naming guess, and deliberately a cheap one — the column is plain text either way,
+so a wrong guess costs a button that is not offered, never a broken save.
+
+Generator: rule 7 says a picture column holds a URL, render a bare `<img>`, never an upload control
+(there is no visitor upload route), and **always guard it** — the owner fills these in after the
+build, so on a fresh site the value is empty and `<img src="">` is a broken image on every card.
+
+**Still not built: visitor upload.** A public endpoint that accepts arbitrary bytes and serves them
+from our origin needs its own thinking about quota and abuse; it is not a line of code away from
+this one.
+
+Unit suite **431**.

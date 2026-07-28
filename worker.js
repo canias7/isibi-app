@@ -8,7 +8,8 @@ import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
 import { ensureSiteBackend as ensureSiteBackendPure } from "./site-provision.mjs";
 import { lookupRoute, saveRoute, dropRoute } from "./site-routing.mjs";
 import { handleSiteAuth } from "./site-auth-routes.mjs";
-import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers, handleOwnerAnalytics } from "./site-owner.mjs";
+import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers, handleOwnerAnalytics, assertOwner } from "./site-owner.mjs";
+import { handleUpload, handleUploadList, handleUploadDelete, MAX_UPLOAD_BYTES } from "./site-uploads.mjs";
 import { sessionKey, verifySession } from "./site-auth.mjs";
 import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
@@ -5348,11 +5349,12 @@ async function handleRequest(request, env, ctx) {
     // Ordered BEFORE the site-delete branch below on purpose: that one matches
     // any DELETE under /api/site/, so a row delete would otherwise be read as a
     // request to take the entire site down.
-    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics"))) {
+    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads"))) {
       const om = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rows(?:\/([a-z_][a-z0-9_]{0,40})(?:\/([0-9]{1,18}))?)?$/i);
       const mm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/members(?:\/([0-9]{1,18}))?$/i);
       const an = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/analytics$/i);
-      if (om || mm || an) {
+      const uf = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/uploads(?:\/([A-Za-z0-9._-]{1,80}))?$/i);
+      if (om || mm || an || uf) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
         const ownerDeps = {
@@ -5387,7 +5389,47 @@ async function handleRequest(request, env, ctx) {
         // no body otherwise — the same trap the PBKDF2 cap fell into.
         try {
           let r;
-          if (an) {
+          if (uf) {
+            const uslug = uf[1].toLowerCase();
+            // The gate is site-owner.mjs's, so a picture is exactly as protected
+            // as a row: fails closed, 404 rather than 403.
+            const udeps = {
+              gate: (s2, u2) => assertOwner(ownerDeps, s2, u2),
+              // NOT sha256hex — that one takes a string and would TextEncode a
+              // 5 MB image into a ~20 MB decimal string before hashing it.
+              // Digest the bytes themselves.
+              hash: async (bytes) => {
+                const d = await crypto.subtle.digest("SHA-256", bytes);
+                return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+              },
+              list: async (s2) => {
+                const out = [];
+                let cursor;
+                for (;;) {
+                  const page = await env.SITES_BUCKET.list({ prefix: "uploads/" + s2 + "/", cursor });
+                  for (const o of (page.objects || [])) out.push({ key: o.key, size: o.size });
+                  // Same termination rule as deleteSitePrefix: a truncated page
+                  // with no cursor would otherwise loop forever.
+                  if (!page.truncated || !page.cursor) return out;
+                  cursor = page.cursor;
+                }
+              },
+              put: (key, bytes, ct) => env.SITES_BUCKET.put(key, bytes, { httpMetadata: { contentType: ct } }),
+              remove: (key) => env.SITES_BUCKET.delete(key),
+            };
+            if (!env.SITES_BUCKET) return Response.json({ error: "storage not configured" }, { status: 501 });
+            if (request.method === "GET" && !uf[2]) r = await handleUploadList(udeps, { slug: uslug, uid: ou.id });
+            else if (request.method === "DELETE" && uf[2]) r = await handleUploadDelete(udeps, { slug: uslug, uid: ou.id, file: uf[2] });
+            else if (request.method === "POST" && !uf[2]) {
+              // Raw bytes, not base64 and not multipart: base64 inflates a photo
+              // by a third for no benefit, and the declared type is ignored
+              // anyway — only the leading bytes decide what this is.
+              const cl = Number(request.headers.get("content-length") || 0);
+              if (cl && cl > MAX_UPLOAD_BYTES) return Response.json({ error: "that image is too big — keep it under 5 MB", code: "too_big" }, { status: 413 });
+              const buf = await request.arrayBuffer();
+              r = await handleUpload(udeps, { slug: uslug, uid: ou.id, bytes: new Uint8Array(buf) });
+            } else return Response.json({ error: "method not allowed" }, { status: 405 });
+          } else if (an) {
             if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
             r = await handleOwnerAnalytics(ownerDeps, { slug: an[1].toLowerCase(), uid: ou.id });
           } else if (mm) {

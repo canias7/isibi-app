@@ -1568,6 +1568,14 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-data-in { background: var(--bg); border: 1px solid var(--line, #211d30); border-radius: 8px; padding: 8px 10px; color: var(--text, #ece9f5); font-size: .85rem; }
 .st-data-in:focus { outline: none; border-color: #1e1e22; }
 .st-data-form-actions { display: flex; gap: 8px; margin-top: 12px; }
+/* Picture field: a thumbnail of what is set, and a button to replace it. The
+   value stored is still just a URL string — the column is plain text either
+   way — so this is an editor convenience, not a new kind of field. */
+.st-data-pic { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+.st-data-thumb { width: 34px; height: 34px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line, #211d30); background: var(--bg); }
+.st-data-up { font-size: .74rem; color: var(--muted, #8b849e); background: none; border: 1px solid var(--line, #211d30); border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+.st-data-up:hover:not(:disabled) { color: var(--text, #ece9f5); border-color: #33304a; }
+.st-data-up:disabled { opacity: .55; cursor: default; }
 .st-data-save { font-size: .82rem; font-weight: 600; color: var(--on-accent); background: linear-gradient(90deg, #1e1e22, #000000); border: 0; border-radius: 8px; padding: 8px 15px; cursor: pointer; }
 .st-data-cancel { font-size: .82rem; color: var(--muted, #8b849e); background: none; border: 1px solid var(--line, #211d30); border-radius: 8px; padding: 8px 14px; cursor: pointer; }
 .st-data-rowact { white-space: nowrap; text-align: right; }

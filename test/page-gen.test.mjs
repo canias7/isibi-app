@@ -404,3 +404,14 @@ test("nothing at all is an empty string, not a crash or the word undefined", () 
   assert.equal(briefForPages({}), "");
   assert.equal(briefForPages({ brief: null, priorBrief: undefined }), "");
 });
+
+test("the rules tell the model what an image column is, and to guard it", () => {
+  // Uploads land as a URL in a plain text column, so a page renders them with a
+  // bare <img>. The guard is the part that matters: the owner fills these in
+  // AFTER the build, so on a fresh site the value is empty and an unguarded
+  // <img src=""> is a broken image on every card.
+  assert.match(PAGE_RULES, /A COLUMN NAMED FOR A PICTURE HOLDS A URL STRING/);
+  assert.match(PAGE_RULES, /\/u\/<slug>\//, "and where those URLs come from");
+  assert.match(PAGE_RULES, /ALWAYS GUARD IT/);
+  assert.match(PAGE_RULES, /Never put an upload control on a\s+page/, "there is no visitor upload route");
+});

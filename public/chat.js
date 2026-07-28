@@ -9803,6 +9803,12 @@ async function loadSiteAnalytics(site) {
     const chart = document.getElementById('anChart'); if (chart) chart.innerHTML = '<div class="st-chart-empty">Couldn’t load analytics just now.</div>';
   }
 }
+// A column that holds a picture. Only a naming guess — the column is plain text
+// either way, and the value is just a URL — so getting it wrong costs a button
+// that is not offered, never a broken save.
+function isImageCol(name) {
+  return /(^|_)(image|images|img|photo|photos|picture|pic|avatar|logo|cover|thumbnail|thumb|banner|hero)(_|$)|_url$/i.test(String(name || ''));
+}
 // Phase E — the Data / Users panel: shows the rows in the site's OWN database
 // (visitor submissions, displayed content, per-user data, and the visitor accounts).
 async function loadSiteData(site) {
@@ -9845,7 +9851,20 @@ async function loadSiteData(site) {
   let formHtml = '';
   if (editable && siteDataForm) {
     const v = siteDataForm.values || {};
-    formHtml = '<div class="st-data-form"><div class="st-data-form-fields">' + cols.map((c) => '<label class="st-data-field"><span>' + esc(c) + '</span><input class="st-data-in" data-col="' + esc(c) + '" value="' + esc(v[c] == null ? '' : String(v[c])) + '"></label>').join('') + '</div>' +
+    formHtml = '<div class="st-data-form"><div class="st-data-form-fields">' + cols.map((c) => {
+      const cur = v[c] == null ? '' : String(v[c]);
+      // A column that holds a picture gets a file button next to its box. The
+      // stored value is still just a URL string — the column is text either way,
+      // so this is a nicety of the editor and not a different kind of field.
+      const pic = isImageCol(c);
+      return '<label class="st-data-field"><span>' + esc(c) + '</span>' +
+        '<input class="st-data-in" data-col="' + esc(c) + '" value="' + esc(cur) + '">' +
+        (pic ? '<span class="st-data-pic">' +
+          (cur ? '<img class="st-data-thumb" src="' + esc(cur) + '" alt="">' : '') +
+          '<button type="button" class="st-data-up" data-up="' + esc(c) + '">Upload image</button>' +
+        '</span>' : '') +
+      '</label>';
+    }).join('') + '</div>' +
       '<div class="st-data-form-actions"><button type="button" class="st-data-save" id="stDataSave">' + (siteDataForm.editId ? 'Save changes' : 'Add row') + '</button><button type="button" class="st-data-cancel" id="stDataCancel">Cancel</button></div></div>';
   }
   let main;
@@ -9864,6 +9883,32 @@ async function loadSiteData(site) {
   const rl = document.getElementById('stDataReload'); if (rl) rl.onclick = () => loadSiteData(site);
   const add = document.getElementById('stDataAdd'); if (add) add.onclick = () => { siteDataForm = { editId: null, values: {} }; loadSiteData(site); };
   const cancel = document.getElementById('stDataCancel'); if (cancel) cancel.onclick = () => { siteDataForm = null; loadSiteData(site); };
+  // Upload a picture and drop its URL into the field. Raw bytes, not base64:
+  // base64 inflates a photo by a third and the server ignores the declared type
+  // anyway — only the leading bytes decide what it is.
+  host.querySelectorAll('[data-up]').forEach((b) => b.onclick = () => {
+    const col = b.dataset.up;
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = 'image/png,image/jpeg,image/webp,image/gif';
+    inp.onchange = async () => {
+      const f = inp.files && inp.files[0]; if (!f) return;
+      const was = b.textContent; b.textContent = 'Uploading…'; b.disabled = true;
+      try {
+        const r = await apiFetch(base + '/uploads', { method: 'POST', headers: { 'Content-Type': f.type || 'application/octet-stream' }, body: f });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.url) { sbToast(d.error || 'Couldn’t upload that image.'); return; }
+        // Keep whatever else was typed — re-rendering from the DOM rather than
+        // from the saved row, so a half-filled form is not thrown away.
+        const vals = {}; host.querySelectorAll('.st-data-in').forEach((i) => vals[i.dataset.col] = i.value);
+        vals[col] = d.url;
+        siteDataForm = { editId: siteDataForm && siteDataForm.editId, values: vals };
+        loadSiteData(site);
+      } catch (e) { sbToast('Couldn’t upload that image — check your connection.'); }
+      finally { b.textContent = was; b.disabled = false; }
+    };
+    inp.click();
+  });
   const save = document.getElementById('stDataSave'); if (save) save.onclick = async () => {
     const values = {}; host.querySelectorAll('.st-data-in').forEach((i) => values[i.dataset.col] = i.value);
     const editId = siteDataForm && siteDataForm.editId;
