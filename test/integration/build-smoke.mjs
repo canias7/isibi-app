@@ -34,7 +34,10 @@ const svc = (extra) => ({ apikey: SVC, Authorization: `Bearer ${SVC}`, "content-
 const stamp = Date.now().toString(36);
 const email = `smoke-${stamp}@isibi.ai`;
 const password = `Sm0ke-${stamp}-${Math.random().toString(36).slice(2, 10)}`;
-let userId = null, slug = null, projectId = null;
+// `jwt` is hoisted because cleanup needs it: taking the published site down is
+// an authenticated call, so it has to happen in `finally` while the throwaway
+// user still exists.
+let userId = null, slug = null, projectId = null, jwt = null;
 
 try {
   // --- a throwaway, already-confirmed user -------------------------------
@@ -52,7 +55,7 @@ try {
     body: JSON.stringify({ email, password }),
   });
   const sess = await si.json().catch(() => ({}));
-  const jwt = sess && sess.access_token;
+  jwt = sess && sess.access_token;
   ok("signed in and got a session", !!jwt, JSON.stringify(sess).slice(0, 200));
   if (!jwt) throw new Error("cannot continue without a token");
 
@@ -153,15 +156,50 @@ try {
   const bal = await fetch(`${BASE}/api/credits`, { headers: { Authorization: `Bearer ${jwt}` } });
   const bd = await bal.json().catch(() => ({}));
   ok("caller was charged for the build", typeof bd.balance === "number" && bd.balance < 20, JSON.stringify(bd));
+
+  // --- the delete route cannot be used to take down someone else's site ----
+  // Checked BEFORE the real delete in cleanup, while the site is still up. If
+  // either of these ever passed the wrong way the site would vanish here and
+  // every later assertion would fail loudly, which is the right failure mode.
+  const anonDel = await fetch(`${BASE}/api/site/${slug}`, { method: "DELETE" });
+  ok("an unauthenticated delete is refused", anonDel.status === 401, String(anonDel.status));
+
+  const ghostDel = await fetch(`${BASE}/api/site/definitely-not-a-real-site-${stamp}`, {
+    method: "DELETE", headers: { Authorization: `Bearer ${jwt}` },
+  });
+  ok("deleting a slug that isn't yours is 404, not a silent success",
+    ghostDel.status === 404, String(ghostDel.status));
 } catch (e) {
   failed++;
   console.log("\nUNCAUGHT: " + (e && (e.detail || e.message || e)));
 } finally {
   console.log("\ncleaning up…");
+  // Take the published site down through the route a real owner would use —
+  // FIRST, while the JWT and the ownership row it authorises against still
+  // exist. This is cleanup and coverage at once: before this route the R2
+  // objects were simply left behind, so every run added a public, half-broken
+  // site at a guessable URL.
+  if (slug && jwt) {
+    try {
+      const del = await fetch(`${BASE}/api/site/${slug}`, { method: "DELETE", headers: { Authorization: `Bearer ${jwt}` } });
+      const dd = await del.json().catch(() => ({}));
+      ok("the owner can delete the site", del.status === 200 && dd.ok === true,
+        del.status + " " + JSON.stringify(dd).slice(0, 200));
+      if (dd.ok) console.log(`  removed the published site (${dd.removed} objects)`);
+
+      const gone = await fetch(`${BASE}/s/${slug}/`);
+      ok("the published files are actually gone", gone.status === 404, `GET /s/${slug}/ -> ${gone.status}`);
+    } catch (e) {
+      failed++;
+      console.log("  FAIL could not delete the published site -> " + String(e && e.message));
+    }
+  }
   if (projectId && env.NEON_API_KEY) {
     try { await dropUserProject(env, projectId); console.log("  removed the Neon project"); }
     catch { console.log("  WARNING: could not remove Neon project " + projectId); }
   }
+  // Belt and braces: the delete above already removes this row, but it must go
+  // even when that call failed, or the slug stays claimed forever.
   if (slug) {
     try { await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}`, { method: "DELETE", headers: svc() }); } catch {}
   }
@@ -172,7 +210,6 @@ try {
       console.log("  removed the throwaway user");
     } catch { console.log("  WARNING: could not remove user " + userId); }
   }
-  console.log("  NOTE: R2 objects under sites/" + slug + "/ are left behind (no delete route).");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
