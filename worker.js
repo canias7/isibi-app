@@ -5048,10 +5048,20 @@ async function handleRequest(request, env, ctx) {
       // a working barber shop came back as a page listing a gallery and nothing
       // else. applySiteSchema already MERGES into _meta (a revise cannot drop a
       // table), so the merged spec is the real picture — read it back and use it.
+      // Merge, do not replace. `spec` is this request's schema and carries the
+      // FULL column objects (type, required, refs); `_meta` carries every table
+      // the site has but stores columns as plain names. Taking _meta wholesale
+      // threw away the type information for the tables just designed, and the
+      // generator was told they had no columns.
       let pageSpec = spec;
       try {
-        const merged = await loadSiteSchema(db);
-        if (merged && Array.isArray(merged.tables) && merged.tables.length >= spec.tables.length) pageSpec = merged;
+        const stored = await loadSiteSchema(db);
+        if (stored && Array.isArray(stored.tables) && stored.tables.length) {
+          const byName = new Map();
+          for (const t of stored.tables) if (t && t.name) byName.set(String(t.name).toLowerCase(), t);
+          for (const t of (spec.tables || [])) if (t && t.name) byName.set(String(t.name).toLowerCase(), t); // richer wins
+          pageSpec = { ...spec, tables: [...byName.values()] };
+        }
       } catch (e) { console.error("merged schema read failed:", slug, e && e.message); }
 
       let pages = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };

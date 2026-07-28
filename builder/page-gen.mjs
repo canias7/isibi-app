@@ -396,7 +396,15 @@ export function schemaDigest(spec) {
   if (!tables.length) return "(the schema declares no tables)";
   return tables.map((t) => {
     const access = String(t.access || "collect").toLowerCase();
-    const cols = (t.columns || []).filter((c) => c && c.name);
+    // Columns arrive in two shapes and BOTH must work. normalizeSchema produces
+    // rich objects ({name, type, notnull, ref}); the schema persisted in a
+    // site's own `_meta` stores plain NAMES. Filtering on `c.name` silently
+    // dropped every string, so a spec read back from _meta described each table
+    // as having no columns at all — and the generator dutifully wrote pages that
+    // said so. Live for one deploy on 2026-07-28.
+    const cols = (t.columns || [])
+      .map((c) => (typeof c === "string" ? { name: c } : c))
+      .filter((c) => c && c.name);
     const described = cols.map((c) => {
       const bits = [String(c.type || "text").toLowerCase()];
       if (c.notnull) bits.push("required");

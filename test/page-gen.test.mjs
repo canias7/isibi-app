@@ -300,3 +300,32 @@ test("the repair prompt carries the files, the problems and the schema", () => {
   assert.match(r, /a barber shop/);
   assert.match(r, /COMPLETE set of route files/);
 });
+
+test("the digest describes columns whether they are objects or names", () => {
+  // Two shapes are live. normalizeSchema produces rich objects; the schema
+  // persisted in a site's own `_meta` stores plain NAMES. Filtering on `c.name`
+  // dropped every string, so a spec read back from _meta described each table as
+  // having no columns — and the generator wrote pages that said exactly that.
+  // Shipped for one deploy on 2026-07-28; every site built in that window came
+  // out with "declared with no columns" in its notes.
+  const rich = schemaDigest({ tables: [{ name: "menu", access: "display", columns: [{ name: "title", type: "text" }, { name: "price", type: "real" }] }] });
+  assert.match(rich, /title \(text\)/);
+  assert.match(rich, /price \(real\)/);
+
+  const names = schemaDigest({ tables: [{ name: "menu", access: "display", columns: ["title", "price"] }] });
+  assert.match(names, /title/, "a name-only column must still be described: " + names);
+  assert.match(names, /price/);
+  assert.ok(!/columns: \(none\)/.test(names), "this is the exact string the broken build emitted: " + names);
+});
+
+test("a display table's filter list survives the name-only shape too", () => {
+  // The generator is told what it may order and filter by. With strings dropped
+  // that list collapsed to just "id", so pages could not sort or filter at all.
+  const d = schemaDigest({ tables: [{ name: "menu", access: "display", columns: ["title", "price"] }] });
+  assert.match(d, /order \/ filter by: title, price, id/);
+});
+
+test("a genuinely empty table still reads as empty", () => {
+  const d = schemaDigest({ tables: [{ name: "t", access: "display", columns: [] }] });
+  assert.match(d, /columns: \(none\)/);
+});
