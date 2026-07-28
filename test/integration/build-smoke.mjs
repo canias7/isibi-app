@@ -70,6 +70,30 @@ try {
   ok("at least one table was created", Array.isArray(d.tables) && d.tables.length > 0, JSON.stringify(d.tables));
   console.log("   designed:", JSON.stringify(d.tables), "brand:", d.brand);
 
+  // --- the access levels are enforced live --------------------------------
+  // The build must produce something readable and something submittable, and
+  // must NOT let a visitor read back other people's submissions.
+  const levels = Array.isArray(d.schema) ? d.schema : [];
+  ok("build reports an access level per table", levels.length > 0, JSON.stringify(levels));
+  const display = levels.find((t) => t.access === "display");
+  const collect = levels.find((t) => t.access === "collect");
+  ok("the designer chose a readable table for content", !!display, JSON.stringify(levels));
+  ok("the designer chose a write-only table for submissions", !!collect, JSON.stringify(levels));
+
+  if (display) {
+    const r2 = await fetch(`${BASE}/api/db/${slug}/rows/${display.name}`);
+    ok(`GET ${display.name} (display) is allowed`, r2.status === 200, String(r2.status));
+    const w = await fetch(`${BASE}/api/db/${slug}/rows/${display.name}`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    });
+    ok(`POST ${display.name} (display) is refused`, w.status === 403, String(w.status));
+  }
+  if (collect) {
+    const r3 = await fetch(`${BASE}/api/db/${slug}/rows/${collect.name}`);
+    ok(`GET ${collect.name} (collect) is refused — submissions are not public`,
+      r3.status === 403, String(r3.status));
+  }
+
   // --- the ledger rows ----------------------------------------------------
   if (slug) {
     const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=neon_db,uid`, { headers: svc() });

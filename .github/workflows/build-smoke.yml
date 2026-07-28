@@ -1,10 +1,17 @@
 # Production smoke test for the builder send path. Drives the deployed Worker
 # over HTTP with a throwaway user, then removes the user and its Neon project.
 #
-# Manual only: it spends a real Sonnet call, so it must never fire on push.
+# Runs after every successful deploy to main, and on demand. It spends one real
+# Sonnet call per run — worth it: both bugs found on 2026-07-27/28 (the access
+# level vocabulary and a 500 on a missing field) were invisible to review and
+# only showed up when something real ran against the deployed Worker.
 name: build smoke
 
 on:
+  workflow_run:
+    workflows: ["Deploy to Cloudflare"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       base_url:
@@ -14,6 +21,8 @@ on:
 
 jobs:
   smoke:
+    # A failed deploy has nothing new to smoke-test.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -24,7 +33,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: build smoke
         env:
-          SMOKE_BASE_URL: ${{ inputs.base_url }}
+          SMOKE_BASE_URL: ${{ inputs.base_url || 'https://isibi.ai' }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}

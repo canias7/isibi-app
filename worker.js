@@ -4902,7 +4902,12 @@ async function handleRequest(request, env, ctx) {
         }
       } catch (e) { console.error("placeholder publish failed:", slug, e && e.message); }
 
-      return Response.json({ ok: true, slug, url: "/s/" + slug + "/", backend: true, brand, tables: made });
+      // `schema` reports the access level chosen per table. It is what makes a
+      // build verifiable from outside: a menu must come back `display` and an
+      // enquiry form `collect`, and getting that wrong silently is exactly the
+      // bug that shipped on 2026-07-27.
+      const levels = (spec.tables || []).map((t) => ({ name: t.name, access: t.access }));
+      return Response.json({ ok: true, slug, url: "/s/" + slug + "/", backend: true, brand, tables: made, schema: levels });
     }
 
     // Sonnet 5 director: chats, reads intent (rerun/revise/new), writes prompts.
