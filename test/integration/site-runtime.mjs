@@ -80,6 +80,9 @@ const SERVICES = [
 // What the stub does next — flipped between assertions to reach each state.
 let mode = "ok";
 const posted = [];
+// Counts reads of `services`, so a retry policy can be asserted on directly
+// rather than inferred from how long something took.
+let reads = 0;
 
 const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "isibi-site-runtime-"));
 let buildSrv = null, siteSrv = null, browser = null;
@@ -130,7 +133,10 @@ try {
         // visitor gets nothing, so mirror that rather than being generous.
         if (table === "appointments") return send(res, 403, { error: "that table is not readable", access: "collect" });
         if (table !== "services") return send(res, 404, { error: "no such table" });
+        reads++;
         if (mode === "error") return send(res, 500, { error: "that didn't work" });
+        // What the real API returns for a table the page should never list.
+        if (mode === "denied") return send(res, 403, { error: "that table is not readable", access: "collect" });
         return send(res, 200, { rows: mode === "empty" ? [] : SERVICES, limit: 50, offset: 0 });
       }
       if (req.method === "POST") {
@@ -200,21 +206,40 @@ try {
   // ── 3. error state ────────────────────────────────────────────────────────
   {
     mode = "error";
+    reads = 0;
     const { page } = await newPage();
     const t0 = Date.now();
     await page.goto(base, { waitUntil: "domcontentloaded" });
-    // NOT immediate: TanStack Query retries a failed read three times with
-    // backoff before it settles into isError, so the message a visitor can act
-    // on only appears after those retries. Waiting for it is the correct
-    // assertion; how LONG it takes is reported below, because a visitor sitting
-    // in front of empty skeletons is the part worth knowing about.
     let shown = true;
     try { await page.getByText(/Couldn't load the services/i).waitFor({ timeout: 20000 }); }
     catch { shown = false; }
     const ms = Date.now() - t0;
-    ok("a failed read eventually shows a sentence a visitor can act on", shown,
+    ok("a failed read shows a sentence a visitor can act on", shown,
       "never appeared within 20s: " + (await page.locator("body").innerText()).slice(0, 300));
-    console.log(`       (took ${(ms / 1000).toFixed(1)}s — the query retries before it gives up)`);
+    // A 5xx is worth retrying — those recover — but the library default of three
+    // retries at 1s/2s/4s left the visitor in front of empty skeletons for 7.4
+    // seconds. This is the assertion that keeps that from creeping back.
+    ok(`the visitor is told within 4s, not 7.4 (took ${(ms / 1000).toFixed(1)}s)`, ms < 4000, `${ms}ms`);
+    ok(`a 5xx is retried, but only a couple of times (${reads} reads)`, reads > 1 && reads <= 3, `${reads} reads`);
+    await page.context().close();
+  }
+
+  // ── 3b. a 4xx is never retried — the answer cannot change ─────────────────
+  {
+    mode = "denied";
+    reads = 0;
+    const { page } = await newPage();
+    const t0 = Date.now();
+    await page.goto(base, { waitUntil: "domcontentloaded" });
+    let shown = true;
+    try { await page.getByText(/Couldn't load the services/i).waitFor({ timeout: 10000 }); }
+    catch { shown = false; }
+    const ms = Date.now() - t0;
+    ok("a 403 surfaces as an error state too", shown, (await page.locator("body").innerText()).slice(0, 300));
+    // The case this matters for: a page that lists a `collect` table. The API
+    // says 403 and will say 403 every time, so retrying only delays the truth.
+    ok(`a 4xx is not retried (${reads} read)`, reads === 1, `${reads} reads — a 4xx answer cannot change`);
+    ok(`and it fails fast (took ${(ms / 1000).toFixed(1)}s)`, ms < 2500, `${ms}ms`);
     await page.context().close();
   }
 

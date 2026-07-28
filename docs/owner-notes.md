@@ -9360,3 +9360,30 @@ But 7.5 seconds of blank is poor for a booking page. The lever is `new QueryClie
 `builder/lovable/template/src/main.tsx` — e.g. `defaultOptions: { queries: { retry: 1 } }` would
 put the message up in ~1-2s at the cost of some resilience. **Left alone deliberately: it changes
 behaviour on every generated site, so it is the owner's call, not mine.**
+
+### 2026-07-28 (later) — the 7.4s delay, fixed
+
+Owner's call: fix it. Done, and it turned out the delay was the smaller half of the problem.
+
+TanStack Query's default is 3 retries at 1s/2s/4s, applied to **every** failure. But a 4xx from
+the data API is a statement of fact — 403 for a `collect` table that is not readable, 404 for a
+table or site that does not exist. Retrying that spends 7.4 seconds to learn something the first
+response already said. The case it actually bites: a generated page that lists a `collect` table
+(the exact mistake `lintPages` exists to catch) took 7.4s to show an error instead of being
+obviously wrong immediately.
+
+`new QueryClient()` in `builder/lovable/template/src/main.tsx` now fails 4xx immediately and
+retries everything else twice, quickly:
+
+| | before | after |
+|---|---|---|
+| 5xx / dropped connection | 7.4s, 3 retries | **2.0s**, 2 retries |
+| 4xx (403 / 404) | 7.4s, 3 pointless retries | **0.2s**, 1 request, no retry |
+
+Mutations were already fine — TanStack does not retry those by default, which is why a failed
+form submission always showed its 409 promptly.
+
+Measured, not estimated: `site-runtime.mjs` counts requests against the stub API, so the policy is
+asserted directly rather than inferred from timing. It now fails if a 4xx is ever retried, or if
+the visitor waits more than 4s to be told a read failed — a regression back to the library default
+turns CI red instead of quietly costing every visitor seven seconds.
