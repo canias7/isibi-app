@@ -2533,8 +2533,14 @@ const SITE_SCHEMA_TOOL = {
             name: { type: "string", description: "snake_case table name." },
             access: {
               type: "string",
-              enum: ["collect", "display"],
-              description: "'display' = anyone can read it, nobody writes (menus, services, posts). 'collect' = anyone can submit, nobody reads it back (bookings, orders, enquiries).",
+              enum: ["collect", "display", "user", "feed", "admin"],
+              description:
+                "'display' = anyone reads it, nobody writes (menus, services, opening hours). " +
+                "'collect' = anyone submits, nobody reads it back (bookings, orders, enquiries). " +
+                "'user' = PRIVATE PER MEMBER: a signed-in visitor reads and writes only their own rows (saved recipes, my orders, a personal journal). " +
+                "'feed' = SHARED, MEMBER-AUTHORED: every signed-in member reads all rows and writes their own (reviews, comments, a community board). " +
+                "'admin' = SHARED, ROLE-WRITABLE: signed-in members read it, only an admin writes it (announcements). " +
+                "The last three require the visitor to have an account on the site — use them ONLY when the brief actually asks for members, sign-in, or 'their own' anything. A shop that just needs a menu and a booking form must not have them.",
             },
             columns: {
               type: "array",
@@ -2586,6 +2592,8 @@ async function designSiteSchema(env, brief) {
               "Use 'collect' for anything a visitor submits — bookings, orders, enquiries, signups. Those are write-only on purpose: the visitor sends one in, " +
               "and only the business reads them, so customer names and phone numbers are never served back to the public. " +
               "Prefer few columns with obvious names. Turn on fts only where someone would genuinely search free text. " +
+              "If the brief mentions accounts, signing in, members, or anything a visitor keeps as 'theirs', give that data a 'user' table (or 'feed' when members are meant to see each other's) — visitor accounts are real and the pages can build a sign-in. " +
+              "Do NOT invent a signups/members table to hold accounts: the platform stores those itself, so a table for emails and passwords is both unnecessary and unusable. " +
               "Then fill every 'display' table with 3-6 realistic starter rows in `seed`. This is not optional and it is not decoration: " +
               "nothing can write to a display table after the build, so an unseeded table is an empty list forever, and any form field that " +
               "chooses from it will have nothing to choose. Write content a real business would publish.",
@@ -5058,8 +5066,17 @@ async function handleRequest(request, env, ctx) {
         if (!db) return Response.json({ error: "no such site" }, { status: 404 });
         const body = request.method === "POST" ? await request.json().catch(() => ({})) : {};
         const bearer = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
-        const r = await handleSiteAuth(siteAuthDeps(env, db, slug), { slug, action, body, token: bearer });
-        return Response.json(r.body, { status: r.status });
+        // Anything thrown here would otherwise reach the visitor as a bare
+        // Cloudflare 1101 with no body — which is exactly how the PBKDF2
+        // iteration cap hid for a deploy. Never leak the message to the caller;
+        // do put it in the log.
+        try {
+          const r = await handleSiteAuth(siteAuthDeps(env, db, slug), { slug, action, body, token: bearer });
+          return Response.json(r.body, { status: r.status });
+        } catch (e) {
+          console.error("site auth failed:", slug, action, (e && (e.stack || e.message)) || e);
+          return Response.json({ error: "Something went wrong signing you in.", code: "server" }, { status: 500 });
+        }
       }
     }
 

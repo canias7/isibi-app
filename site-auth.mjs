@@ -13,10 +13,14 @@
 
 const enc = new TextEncoder();
 
-// OWASP's floor for PBKDF2-HMAC-SHA256 at the time of writing. Stored in the
-// hash string, so raising it later does not invalidate existing passwords —
-// `verifyPassword` uses whatever each record was made with.
-export const PBKDF2_ITERATIONS = 210_000;
+// **Cloudflare Workers caps PBKDF2 at 100,000 iterations** and throws above it —
+// which is how this was found: `me` returned a clean 401 while signup and login
+// died with a bare Worker exception, and those two are the only ones that hash.
+// OWASP would ask for more; the runtime will not give it. A per-record random
+// salt and a 100k count is still a real cost per guess, and the format carries
+// its own iteration count, so this rises the day the platform allows it.
+export const PBKDF2_ITERATIONS = 100_000;
+export const PBKDF2_MAX_ITERATIONS = 100_000;
 export const SESSION_TTL_SEC = 60 * 60 * 24 * 30; // 30 days
 
 const b64u = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -44,7 +48,9 @@ export function ctEq(a, b) {
  * raised later without locking anyone out of an account made under the old one.
  */
 export async function hashPassword(password, opts = {}) {
-  const iterations = opts.iterations || PBKDF2_ITERATIONS;
+  // Clamped, not trusted: a caller asking for more than the runtime allows would
+  // throw deep inside WebCrypto and surface as an unexplained 500.
+  const iterations = Math.min(opts.iterations || PBKDF2_ITERATIONS, PBKDF2_MAX_ITERATIONS);
   const salt = opts.salt || crypto.getRandomValues(new Uint8Array(16));
   const key = await crypto.subtle.importKey("raw", enc.encode(String(password)), "PBKDF2", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, key, 256);
