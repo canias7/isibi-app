@@ -1,0 +1,47 @@
+# One-shot: create the KV namespace that holds published sites' edge routes.
+#
+# The Worker reads `slug → connection string` from KV so a visitor read never
+# makes the two cross-region Supabase calls that answer a question fixed at
+# build time. The code already ships WITHOUT the binding — it falls back to
+# Supabase — so this is safe to run whenever, and the binding is added after.
+#
+# Run it from the Actions tab, copy the id it prints, and put it in
+# wrangler.jsonc as:
+#
+#   "kv_namespaces": [{ "binding": "SITE_ROUTES", "id": "<the id>" }]
+#
+# Creating a namespace is idempotent by name: re-running returns the existing
+# one rather than making a second.
+name: create kv namespace
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: create SITE_ROUTES
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler@latest kv namespace create SITE_ROUTES
+
+      - name: what to do with it
+        run: |
+          echo "Copy the id printed above into wrangler.jsonc:"
+          echo ''
+          echo '  "kv_namespaces": ['
+          echo '    { "binding": "SITE_ROUTES", "id": "<id>" }'
+          echo '  ],'
+          echo ''
+          echo "Until that binding exists the Worker uses the Supabase path, which still works."

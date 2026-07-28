@@ -5,6 +5,7 @@ import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon"
 import { Container, getContainer } from "@cloudflare/containers";
 import { makeCache, memoize } from "./ttl-cache.mjs";
 import { ensureSiteBackend as ensureSiteBackendPure } from "./site-provision.mjs";
+import { lookupRoute, saveRoute, dropRoute } from "./site-routing.mjs";
 import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
 import { handleSiteData } from "./site-data.mjs";
@@ -2698,14 +2699,19 @@ async function userSiteProject(env, uid) {
 const SITE_CONN_TTL_MS = 300_000;
 const _connCache = makeCache({ ttlMs: SITE_CONN_TTL_MS, max: 500 });
 
-const _resolveBackend = memoize(_connCache, async (slug, env) => {
-  const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=neon_db,uid`, { headers: svcHeaders(env) });
-  const rows = await g.json().catch(() => []);
-  const row = Array.isArray(rows) && rows[0];
-  if (!row || !row.neon_db) return null;
-  const proj = await userSiteProject(env, row.uid);
-  return proj ? connForDatabase(proj.neon_conn, row.neon_db) : null;
+// KV first, then the two Supabase calls. Supabase stays the source of truth —
+// a KV miss falls back and backfills, so an unbound or empty namespace is slow,
+// never wrong. Only the connection string is stored: it is fixed at build time,
+// so KV's eventual consistency cannot make it stale. (The schema is NOT stored
+// there — a revise changes it, and a minute of staleness would 404 the site's
+// own new tables.)
+const routeDeps = (env) => ({
+  kv: env.SITE_ROUTES || null,
+  fromSource: (slug) => siteBackendBySlugFresh(env, slug),
+  onBackfillError: (e) => console.error("site route KV:", (e && e.message) || e),
 });
+
+const _resolveBackend = memoize(_connCache, async (slug, env) => lookupRoute(routeDeps(env), slug));
 
 // Argument order is (env, slug) because that is what handleSiteData passes.
 async function siteBackendBySlug(env, slug) { return _resolveBackend(slug, env); }
@@ -2743,7 +2749,7 @@ async function ensureSiteBackend(env, slug, uid) {
     // project or database that nothing recorded.
     return r.ok ? { ok: true } : { ok: false, detail: (await r.text().catch(() => "")).slice(0, 300) };
   };
-  return ensureSiteBackendPure({
+  const conn = await ensureSiteBackendPure({
     lookupSite: (s2) => siteBackendBySlugFresh(env, s2),
     lookupProject: (u) => userSiteProject(env, u),
     createProject: (u) => createUserProject(env, u),
@@ -2757,6 +2763,11 @@ async function ensureSiteBackend(env, slug, uid) {
     connFor: connForDatabase,
     dbNameFor: dbNameForSite,
   }, { slug, uid });
+  // Publish the route so the first visitor read never touches Supabase. Purely
+  // an optimisation — the lookup backfills on a miss anyway — so a failure here
+  // must not fail a build that has otherwise succeeded.
+  await saveRoute(routeDeps(env), slug, conn);
+  return conn;
 }
 // Content-type for a served R2 object by its extension (React dist assets + pages).
 const R2_MIME = { js: "text/javascript", mjs: "text/javascript", css: "text/css", svg: "image/svg+xml", json: "application/json", map: "application/json", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", ico: "image/x-icon", woff: "font/woff", woff2: "font/woff2", ttf: "font/ttf", txt: "text/plain", xml: "application/xml", webmanifest: "application/manifest+json", html: "text/html; charset=utf-8" };
@@ -5085,6 +5096,10 @@ async function handleRequest(request, env, ctx) {
       // holding a string that points at a dropped database is worse than a slow
       // lookup: it answers reads with a connection error instead of a 404.
       _connCache.delete(dslug);
+      // And the edge route. KV propagates for up to a minute, so this has to go
+      // BEFORE the database is dropped — a route outliving its database answers
+      // reads with a connection error instead of an honest 404.
+      await dropRoute(routeDeps(env), dslug);
 
       // Drop the site's database first — it is the only step that still needs the
       // row being deleted below. Best-effort: a database left behind costs money,
