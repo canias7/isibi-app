@@ -83,16 +83,28 @@ try {
 
   // --- the actual build ---------------------------------------------------
   const brief = "A small barber shop site. Visitors book an appointment by picking a date and time, and can see the list of services with prices.";
-  console.log("posting a real build…");
+
+  // The slug is CHOSEN here, not left to the designer.
+  //
+  // A slug is claimed by whoever built it first, across every account. Letting
+  // the designer name the site from a fixed brief meant it kept proposing the
+  // same good name — and the moment any real user (or an earlier manual test)
+  // owns that name, the build correctly answers 409 and the whole smoke run
+  // fails on something that is not a bug. It failed exactly that way on
+  // 2026-07-28 against `sharp-fade-barbershop`. A test must not depend on a
+  // global namespace it does not control.
+  const runSlug = "smoke-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 7);
+  console.log("posting a real build…", runSlug);
   const r = await fetch(`${BASE}/api/site/react-build`, {
     method: "POST",
     headers: { Authorization: `Bearer ${jwt}`, "content-type": "application/json" },
-    body: JSON.stringify({ brief }),
+    body: JSON.stringify({ brief, slug: runSlug }),
   });
   const d = await r.json().catch(() => ({}));
   ok("build returns 200", r.status === 200, r.status + " " + JSON.stringify(d).slice(0, 300));
   slug = d && d.slug;
   ok("response carries a slug and url", !!(slug && d.url), JSON.stringify(d).slice(0, 200));
+  ok("and it is the slug we asked for", slug === runSlug, `${slug} !== ${runSlug}`);
   ok("response says the site has a backend", d && d.backend === true);
   ok("at least one table was created", Array.isArray(d.tables) && d.tables.length > 0, JSON.stringify(d.tables));
   // Nothing can write to a `display` table after the build, so a table that was
