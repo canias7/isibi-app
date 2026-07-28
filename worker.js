@@ -5318,6 +5318,14 @@ async function handleRequest(request, env, ctx) {
         seeded: (seeded && seeded.seeded) || {},
         page: pages.page, files: pages.files, notes: pages.notes || undefined,
         problems: pages.problems.length ? pages.problems : undefined,
+        // WHY it fell back, when it did. publish-pages.mjs has returned these
+        // since it was extracted and nothing passed them on, so a build that
+        // published the placeholder said only "placeholder" — the caller (and
+        // the smoke test) could not tell a compile error from a lint refusal
+        // from a credit floor. It is the owner's own build; there is nothing
+        // here they should not see.
+        stage: pages.page === "app" ? undefined : (pages.stage || undefined),
+        error: pages.page === "app" ? undefined : (pages.error ? String(pages.error).slice(0, 300) : undefined),
         cost: (designed ? SITE_BUILD_FEE : 0) + pages.cost, buildMs: pages.buildMs || undefined,
       });
     }
