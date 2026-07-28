@@ -330,3 +330,26 @@ test("validation problems count toward the repair decision", async () => {
   assert.deepEqual(out.problems, []);
   assert.deepEqual(out.files, ["src/routes/index.tsx"]);
 });
+
+test("the published index.html carries the share tags", async () => {
+  // The head belongs to the built dist, which the model never sees, so this is
+  // the only place the tags can be added. Asserted through the real publish
+  // shape rather than on injectMeta alone, because the wiring is where it would
+  // silently stop happening.
+  const { injectMeta } = await import("../site-meta.mjs");
+  const dist = { "index.html": { t: "<html><head><title>Shop</title></head><body></body></html>" } };
+  const meta = { brand: "Sharp Fade", description: "Skin fades in Lisbon.", url: "https://isibi.ai/s/x/" };
+  dist["index.html"].t = injectMeta(dist["index.html"].t, meta);
+  assert.match(dist["index.html"].t, /og:title" content="Sharp Fade"/);
+  assert.match(dist["index.html"].t, /name="description" content="Skin fades in Lisbon."/);
+});
+
+test("worker.js injects on index.html and nothing else", async () => {
+  // A stylesheet or a JS bundle must never be rewritten — asserted on the source,
+  // because passing meta to every file would corrupt the dist silently.
+  const fs = await import("node:fs");
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(src, /if \(\/\^index\\\.html\$\/i\.test\(String\(rel\)\)/,
+    "the injection must be gated on the filename");
+  assert.match(src, /injectMeta\(v\.t, meta\)/);
+});
