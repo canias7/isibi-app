@@ -9613,3 +9613,127 @@ Both stale two-argument calls left over from D1, both silent:
 2. **`worker.js:2150`** had the same `loadSiteSchema(env, u)` call.
 
 Unit suite: **113 tests**.
+
+## 2026-07-28 (later still) — "have you tested every backend endpoint?"
+
+No — and the honest number was **5 of 42**. Only `/api/site/react-build`, `DELETE /api/site/<slug>`,
+`/api/db/*`, `/api/credits` and `/s/<slug>` had any coverage at all.
+
+But the useful question underneath it turned out to be narrower. I measured the auth posture rather
+than guessing: **40 of 41 `/api` routes gate on `authUser`**, and the one that doesn't —
+`/api/stripe/webhook` — can't, because Stripe cannot hold a Supabase session. It authenticates by
+HMAC. So the exposure was never "37 open endpoints"; it was three specific things, now all closed.
+
+(I got this wrong once on the way. My first scan reported 6 ungated routes. That was a bug in the
+scan — it took each route's block as "everything until the next route match", which collapses to zero
+lines wherever two routes share a dispatch line, e.g. `=== "/api/video" ? … : === "/api/image"`. Fixed
+window, re-ran, corrected it in the same breath. The committed test uses the fixed window and says why.)
+
+### 1. The auth claim is now enforced, not asserted
+
+CLAUDE.md has said "all `/api/*` require a Supabase-authenticated user" for months. It was never true
+*by construction* — there is no blanket gate, only the 404 fallthrough, so every route gates itself
+and a new one added without `authUser` would be world-open with nothing to notice.
+`test/api-auth.test.mjs` reads worker.js and fails if any route outside a **two-entry allow-list**
+lacks a gate. Same fix as `site-access.mjs`: stop asserting, start measuring. The smoke test also
+probes 14 GET routes live against the deployed Worker.
+
+### 2. The webhook signature check is out of worker.js and tested
+
+`stripe-webhook.mjs`, **30 tests**, every one mutation-checked. The ones that matter: a signature over
+a *different body* is refused (capture a real webhook, swap in your own user id — the obvious attack);
+a captured signature *re-stamped* with a fresh `t` is refused (the timestamp is inside what's signed,
+so the staleness window can't be bypassed); a replay past ±300s is refused, and so is a *future*-dated
+one; either secret works mid-rotation; an empty secret fails **closed**.
+
+I also proved the constant-time compare's length XOR earns its keep: remove it and `"abc"` compares
+equal to `"abcdef"`, because `charCodeAt` past the end is NaN and `NaN ^ x` coerces to 0. That is a
+forgery primitive sitting in one line of arithmetic.
+
+`mintFromEvent` carries the money guards, each of which is free credits if it goes: subscription-mode
+sessions don't mint (their invoice does — crediting both double-grants month one), unpaid sessions
+don't, **$0 and fully-discounted invoices don't** (otherwise a coupon buys a month of credits), and
+credits come only from metadata we set at checkout — never from the amount charged.
+
+### 3. Checkout and refunds, plus a real bug
+
+`billing.mjs`, **24 tests**, mutation-checked.
+
+**The bug:** `PLANS[String(body.plan)]` with `{"plan":"__proto__"}` returns `Object.prototype`, which
+is **truthy** — so it passed the "unknown plan" guard and sent Stripe `unit_amount: "undefined"`.
+`"constructor"` and `"toString"` do the same. It fails closed at Stripe today (502), so nobody got
+free credits, but it is a caller-controlled key reaching straight into an object lookup. Now
+`Object.hasOwn` plus a string/number type check.
+
+**The one I'd most fear:** a membership's metadata must sit under `subscription_data[metadata]`, not
+the session's own `metadata`. Only the former rides onto renewal invoices. Put it in the wrong place
+and month one credits fine, then every renewal arrives with no user to credit — the customer keeps
+paying and silently stops receiving anything, and nothing logs an error. There is now a test that
+fails if those two are ever swapped, in either direction.
+
+Also pinned: top-ups must stay dearer per credit than membership (they're ~1.40¢ vs ~1.25¢); every
+plan's credit count must land on the storage tier its name promises; a refund is never issued for a
+job still running or one whose result came back 2xx or 5xx.
+
+Unit suite: **170 tests**, up from 113.
+
+### Still untested, and worth saying plainly
+
+The generation routes (`/api/video|image|audio`), `/api/direct`, `/api/save`, `/api/gallery`, the
+game-builder routes and the whole `/api/social/*` surface have no tests beyond "they refuse an
+anonymous caller". They're gated and they're not the money path, but they are not covered.
+
+## 2026-07-28 — "does it connect well to Postgres?" — correctly, but slowly. Fixed.
+
+Checked rather than assumed, and the answer had two halves.
+
+**Correctness: good.** The six seeded services come back with the right prices and durations, and
+`created_at` is in the `YYYY-MM-DD HH:MM:SS` TEXT format the app parses — confirming the
+`to_char(now() AT TIME ZONE 'UTC', …)` default works, which is the thing that would have silently
+broken when we moved off SQLite. Supabase advisors show **no ERROR-level findings**. One that looked
+alarming — `site_analytics` executable by `anon` — I called unauthenticated for a site I don't own
+and it returns `{ok:false}`; it guards internally. The money RPCs (`add_credits`, `credit_back`,
+`set_plan`) correctly do NOT appear as `authenticated`-executable. 1 Neon project, 1 site, **0 orphans**.
+
+**Speed: not good, and now fixed.** A single row read was **~0.9s median** (0.61–2.31s) for six rows.
+The driver was innocent — it is already the HTTP `neon()` client, one round trip per query, cached
+per connection string. The cost was that every read did **four sequential round trips**:
+
+1. Supabase → `site_backends` by slug (get `neon_db` + `uid`)
+2. Supabase → `user_site_project` by uid (get the connection string)
+3. Neon → `SELECT v FROM _meta WHERE k='schema'`
+4. Neon → the actual query
+
+Three of the four answer the same thing every time, and nothing cached any of them. A visit that
+renders one list and submits a form paid ~8 round trips, 6 of them pure lookup.
+
+`ttl-cache.mjs` fixes it. The connection resolution caches 5 minutes (a slug's database is immutable
+for the life of the site); the schema caches 15 seconds. `memoize` makes concurrent misses share one
+in-flight lookup — without it a cold isolate rendering three lists fires three identical resolutions
+before the first returns, which is exactly when the cache is needed most.
+
+The correctness traps, all tested:
+
+- **Never cache null.** A slug that does not resolve is usually one whose build is still finishing;
+  remembering the miss would keep a brand-new site broken for the whole TTL.
+- **Invalidate on delete, BEFORE teardown.** A cached string pointing at a dropped database answers
+  reads with a connection error instead of an honest 404.
+- **15s on the schema, not 5 minutes.** `applySiteSchema` clears it, but only in the isolate that ran
+  the build — every other PoP heals by expiry, so a revise has to settle within a refresh rather than
+  after a minute of the site 404ing its own new tables.
+- **Bounded**, so walking slugs cannot grow an isolate's memory; LRU rather than oldest-set.
+- **A failed lookup does not wedge the key** — a rejected promise left in the in-flight map would
+  make that slug fail forever.
+
+One bug caught while writing it: `ttlMs: "100"` passed a `> 0` check, and then `now() + "100"`
+CONCATENATES — `1000 + "100"` is `"1000100"`, an expiry about a thousand years out. The entry would
+never expire and it would have looked like a caching win. Now type-checked.
+
+Unit suite: **185 tests**. All 8 cache mutations turn it red.
+
+### Still not covered
+
+Generation routes, `/api/direct`, `/api/save`, `/api/gallery`, game-builder, all of `/api/social/*` —
+nothing beyond "they refuse an anonymous caller". Also open and minor, from the advisors:
+leaked-password protection is off in Auth, `citext` sits in `public`, ~30 RLS policies call
+`auth.<fn>()` per row instead of `(select auth.<fn>())`, and four `site_*` foreign keys are unindexed.

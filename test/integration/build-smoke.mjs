@@ -321,6 +321,27 @@ try {
   const bd = await bal.json().catch(() => ({}));
   ok("caller was charged for the build", typeof bd.balance === "number" && bd.balance < 20, JSON.stringify(bd));
 
+  // --- nothing is reachable without a session ------------------------------
+  //
+  // test/api-auth.test.mjs proves every handler CALLS authUser by reading the
+  // source; this proves the deployed Worker actually refuses. GET only, so the
+  // sweep cannot mutate anything even if a gate were missing — the routes that
+  // answer POST are covered by the static test.
+  const OPEN_BY_DESIGN = ["/api/stripe/webhook", "/api/m/"];
+  const gettable = [
+    "/api/credits", "/api/storage", "/api/gallery", "/api/fal-balance", "/api/video/poll",
+    "/api/game/source", "/api/game/build-health", "/api/social/status", "/api/social/analytics",
+    "/api/social/posts", "/api/social/comments", "/api/social/playlists", "/api/social/dm",
+    "/api/social/autoreply",
+  ];
+  const leaked = [];
+  for (const p of gettable) {
+    if (OPEN_BY_DESIGN.some((o) => p.startsWith(o))) continue;
+    const r = await fetch(`${BASE}${p}`);
+    if (r.status < 400) leaked.push(`${p} -> ${r.status}`);
+  }
+  ok(`all ${gettable.length} GET routes refuse an unauthenticated caller`, leaked.length === 0, leaked.join(", "));
+
   // --- the delete route cannot be used to take down someone else's site ----
   // Checked BEFORE the real delete in cleanup, while the site is still up. If
   // either of these ever passed the wrong way the site would vanish here and
