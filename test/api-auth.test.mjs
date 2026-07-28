@@ -24,9 +24,16 @@ const LINES = SRC.split("\n");
 const PUBLIC = {
   "/api/stripe/webhook": "Stripe cannot hold a session; authenticated by HMAC over the raw body instead (stripe-webhook.mjs).",
   "/api/m/*": "Capability URL — the signed, expiring token IN the path is the credential; that is the whole point of a shareable media link.",
+  "/api/db/*": "A published site's own API. Its visitors are not isibi users — a customer booking a haircut has no account here. It gates on the SITE's schema and, for member-scoped tables, on a site session (site-auth.mjs); /auth/login could not require a login.",
 };
 
 // Every place the router dispatches on an /api path.
+const ROUTE_LINES = (() => {
+  const at = new Set();
+  LINES.forEach((l, i) => { if (/url\.pathname\s*(?:===\s*"\/api\/|\.startsWith\("\/api\/)/.test(l)) at.add(i); });
+  return [...at].sort((a, b) => a - b);
+})();
+
 function routes() {
   const found = new Map();
   LINES.forEach((l, i) => {
@@ -39,12 +46,36 @@ function routes() {
   return found;
 }
 
-// Deliberately a fixed window rather than "until the next route": several routes
-// share a dispatch line (`=== "/api/video" ? ... : === "/api/image"`), and a
-// next-match boundary collapses to zero lines there and reports a gated route as
-// open. That false alarm cost a wrong answer once already.
+// The window is a fixed size CAPPED at the next route dispatch on a LATER line.
+//
+// Both halves are load-bearing, and each was learned from a wrong answer. A pure
+// next-match boundary collapses to zero lines where routes share a dispatch line
+// (`=== "/api/video" ? ... : === "/api/image"`) and reports gated routes as open.
+// A pure fixed window bleeds into the NEXT route's block and reports an open
+// route as gated — which is the dangerous direction, and it happened: the
+// published-site data API passed this test while calling no auth at all.
 const WINDOW = 45;
-const gatesWithin = (i) => /authUser\(|UNAUTHED\(|bearerUser\(/.test(LINES.slice(i, i + WINDOW).join("\n"));
+
+// Dispatch lines that sit within a couple of lines of each other are ONE
+// decision, not several — `/api/video`, `/api/image` and `/api/audio` are three
+// arms of a single ternary, and the gate that covers them comes after all three.
+// Capping at the very next line would give each a one-line block and report
+// every one of them as open.
+const CLUSTER = 3;
+function nextDispatchAfter(i) {
+  let last = i;
+  for (const j of ROUTE_LINES) {
+    if (j <= last) continue;
+    if (j - last <= CLUSTER) { last = j; continue; } // same cluster, keep going
+    return j;
+  }
+  return Infinity;
+}
+function blockOf(i) {
+  const end = Math.min(i + WINDOW, nextDispatchAfter(i));
+  return LINES.slice(i, Math.max(end, i + 1)).join("\n");
+}
+const gatesWithin = (i) => /authUser\(|UNAUTHED\(|bearerUser\(/.test(blockOf(i));
 
 test("worker.js still dispatches on /api paths the way this test reads it", () => {
   // If the router is ever restructured, every assertion below would vacuously
@@ -68,7 +99,7 @@ test("the public allow-list is exactly what we think it is", () => {
   for (const p of Object.keys(PUBLIC)) {
     assert.ok(names.includes(p), `${p} is allow-listed as public but no longer exists — remove it from PUBLIC`);
   }
-  assert.equal(Object.keys(PUBLIC).length, 2, "a new unauthenticated endpoint was added — is that intended?");
+  assert.equal(Object.keys(PUBLIC).length, 3, "a new unauthenticated endpoint was added — is that intended?");
 });
 
 test("the unauthenticated webhook verifies a signature instead", () => {
@@ -76,6 +107,27 @@ test("the unauthenticated webhook verifies a signature instead", () => {
   const block = LINES.slice(i, i + WINDOW).join("\n");
   assert.match(block, /verifyStripeSignature/, "the one route with no session auth must authenticate some other way");
   assert.match(block, /STRIPE_WEBHOOK_SECRET/);
+});
+
+test("a published site's API gates on a site session, not an isibi one", () => {
+  // It is allow-listed as public because its visitors are not isibi users. That
+  // is only acceptable while it still checks something: the site's own schema
+  // for access level, and a site session for member-scoped tables.
+  const i = routes().get("/api/db/*");
+  assert.match(blockOf(i), /handleSiteAuth|resolveSiteVisitor|handleSiteData/,
+    "the one broad public prefix must still resolve an identity or an access level");
+});
+
+test("the window cannot be widened into the next route's gate", () => {
+  // The bug this replaced: a fixed window reached past the end of an open route
+  // into a neighbouring gated one, so /api/db/* reported as gated while calling
+  // no auth at all. Every block must stop at the next dispatch.
+  for (const [, line] of routes()) {
+    const next = nextDispatchAfter(line);
+    if (!Number.isFinite(next)) continue;
+    assert.ok(!blockOf(line).includes(LINES[next]),
+      "a route's block must not reach the next route's dispatch (worker.js:" + (line + 1) + ")");
+  }
 });
 
 test("the media proxy is gated on an opaque token, not a guessable id", () => {

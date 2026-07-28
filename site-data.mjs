@@ -28,7 +28,7 @@ import { loadSiteSchema, sqlIdent } from "./site-schema.mjs";
 // The permission rules live in their own leaf module because the page generator
 // has to predict them to lint a page before it is published, and restating them
 // in both places is how they drifted.
-import { isManagedColumn, canReadAccess, canWriteAccess } from "./site-access.mjs";
+import { isManagedColumn, canReadAccess, canWriteAccess, needsMember } from "./site-access.mjs";
 
 const MAX_LIMIT = 100;
 const MAX_BODY_KEYS = 60;
@@ -98,22 +98,46 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
   const def = tableFor(spec, tableName);
   if (!def) return json({ error: "no such table" }, 404);
 
-  // Per-level gate. `collect` is deliberately write-only: a booking or contact
-  // form needs to submit, and must NOT let a visitor read back other people's
-  // submissions. `user`/`feed`/`admin` writes need a site login, which does not
-  // exist yet, so they are refused rather than guessed at.
+  // Per-level gate.
+  //
+  // `collect` is deliberately write-only: a booking form must submit, and must
+  // NOT let a visitor read back other people's submissions. `display` is the
+  // mirror. The other three need to know WHO is asking, which is what
+  // resolveVisitor answers — before visitor accounts existed they were simply
+  // refused, which is why half the schema engine was unreachable.
   const access = String(def.access || "collect").toLowerCase();
   const method = request.method;
-  const canRead = canReadAccess(access);
-  const canWrite = canWriteAccess(access);
-  if (method === "GET" && !canRead) {
-    return json({ error: "that table is not readable", access }, 403);
+  const scoped = access === "user" || access === "feed"; // rows belong to a member
+  const needsVisitor = needsMember(access);
+  const visitor = needsVisitor && deps.resolveVisitor ? await deps.resolveVisitor(request, slug) : null;
+
+  if (needsVisitor && !visitor) {
+    return json({ error: "sign in to use this", access, code: "auth" }, 401);
   }
-  if (method !== "GET" && !canWrite) {
+
+  if (method === "GET") {
+    // `user` is the private one: a member sees their own rows and no others.
+    // `feed` and `admin` are readable to anyone who is signed in.
+    if (!canReadAccess(access) && !needsVisitor) {
+      return json({ error: "that table is not readable", access }, 403);
+    }
+  } else if (!canWriteAccess(access) && !needsVisitor) {
     return json({ error: "that table is not writable here", access }, 403);
   }
-  // Nothing may edit or remove an existing row through the public API yet:
-  // `collect` is submit-only, and everything else needs an identity to own it.
+
+  // An `admin` table is a shared CMS: everyone signed in may read it, only the
+  // declared roles may write. `writeRoles` is per-table and `admin` always can.
+  if (access === "admin" && method !== "GET") {
+    const allowed = ["admin"].concat(Array.isArray(def.writeRoles) ? def.writeRoles : []);
+    if (!allowed.includes(String((visitor && visitor.role) || "user").toLowerCase())) {
+      return json({ error: "you do not have permission to change this", access, code: "role" }, 403);
+    }
+  }
+
+  // Editing and removing existing rows is still refused for everyone. The
+  // handlers below are written and work, but "which rows may this member touch"
+  // is a decision that has not been made yet, and guessing it wrong is how one
+  // member edits another's row.
   if (method === "PATCH" || method === "DELETE") {
     return json({ error: "that table is submit-only", access }, 403);
   }
@@ -133,6 +157,12 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
 
       let sql = "SELECT * FROM " + tn + f.sql;
       const vals = f.vals.slice();
+      // The `user` level means private-per-member. Appended to the caller's
+      // filters rather than replacing them, so no query string can widen it.
+      if (access === "user") {
+        sql += (f.sql ? " AND " : " WHERE ") + '"owner_id"=?';
+        vals.push(visitor.id);
+      }
       // Full-text search, when the table declared it.
       const q = (url.searchParams.get("q") || "").trim();
       if (q && def.fts) {
@@ -161,6 +191,10 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
     if (request.method === "POST") {
       const body = await request.json().catch(() => ({}));
       const { cols: wc, vals } = pickWritable(def, body);
+      // owner_id is stamped from the VERIFIED session, never taken from the body
+      // — pickWritable already drops it as a managed column, so a sender cannot
+      // claim to be someone else. Added after that, so the order matters.
+      if (scoped) { wc.push("owner_id"); vals.push(visitor.id); }
       if (!wc.length) return json({ error: "nothing to write" }, 400);
       const rows = await sqlQuery(
         db,

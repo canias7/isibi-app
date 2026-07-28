@@ -57,10 +57,87 @@ test("an undeclared table is 404, not a query", async () => {
   assert.ok(!seen.some((s) => /FROM "secrets"/.test(s.sql)), "must not query an undeclared table");
 });
 
-test("a table needing a site login is not readable", async () => {
+test("a table needing a site login says sign in, not forbidden", async () => {
+  // 401, not 403: "you are not signed in" is a different fact from "you may
+  // never do this", and the page has to be able to tell them apart to know
+  // whether to show a login form.
   const { res } = await call("GET", "/api/db/shop/rows/mine");
-  assert.equal(res.status, 403);
-  assert.match((await res.json()).error, /not readable/);
+  assert.equal(res.status, 401);
+  const body = await res.json();
+  assert.equal(body.code, "auth");
+});
+
+// ------------------------------------------- rows that belong to a member
+
+const asVisitor = (visitor) => ({
+  resolveVisitor: async () => visitor,
+});
+
+test("a signed-in member reads only their own rows", async () => {
+  // The `user` level is the private one. If the owner filter is ever dropped,
+  // every member reads every other member's rows and nothing looks broken.
+  const db = fakeDb(SPEC);
+  const url = new URL("https://isibi.ai/api/db/shop/rows/mine");
+  const deps = {
+    sqlQuery: async (_c, sql, p) => (await db.query(sql, p)).rows,
+    sqlExec: async () => ({ results: [], changes: 0 }),
+    loadSiteSchema: async () => SPEC,
+    ...asVisitor({ id: 7, role: "user" }),
+  };
+  const res = await handleSiteData({}, new Request(url), url, async () => db, deps);
+  assert.equal(res.status, 200);
+  const q = db.__seen.find((x) => /SELECT \* FROM "mine"/.test(x.sql));
+  assert.match(q.sql, /"owner_id"=\?/, "the read must be scoped: " + q.sql);
+  assert.ok(q.params.includes(7));
+});
+
+test("a query string cannot widen a member's own-rows filter", async () => {
+  // The scope is appended to the caller's filters with AND, so no parameter can
+  // turn it into someone else's rows.
+  const db = fakeDb(SPEC);
+  const url = new URL("https://isibi.ai/api/db/shop/rows/mine?date=2030-01-01&owner_id=9");
+  const deps = {
+    sqlQuery: async (_c, sql, p) => (await db.query(sql, p)).rows,
+    sqlExec: async () => ({ results: [], changes: 0 }),
+    loadSiteSchema: async () => SPEC,
+    ...asVisitor({ id: 7, role: "user" }),
+  };
+  await handleSiteData({}, new Request(url), url, async () => db, deps);
+  const q = db.__seen.find((x) => /SELECT \* FROM "mine"/.test(x.sql));
+  // AND, not OR. Joined with OR the clause is still present and the id is still
+  // bound — and the query returns every row matching the caller's filter
+  // REGARDLESS of who owns it, which is the whole leak wearing a correct-looking
+  // WHERE clause.
+  assert.match(q.sql, /AND "owner_id"=\?/, "the scope must narrow, not widen: " + q.sql);
+  assert.ok(!/OR "owner_id"/.test(q.sql), q.sql);
+  assert.ok(q.params.includes(7), "the session's id is what scopes it");
+  assert.ok(!q.params.includes("9"), "and a query parameter cannot replace it: " + JSON.stringify(q.params));
+});
+
+test("a write to a member table is stamped from the session, not the body", async () => {
+  // The attack: POST {owner_id: 1} and own someone else's row. owner_id is a
+  // managed column so pickWritable drops it, and the verified id is appended
+  // after — the ORDER is what makes that true.
+  const db = fakeDb(SPEC);
+  const url = new URL("https://isibi.ai/api/db/shop/rows/mine");
+  const req = new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ date: "2030-01-01", owner_id: 1 }) });
+  const deps = {
+    sqlQuery: async (_c, sql, p) => (await db.query(sql, p)).rows,
+    sqlExec: async () => ({ results: [], changes: 0 }),
+    loadSiteSchema: async () => SPEC,
+    ...asVisitor({ id: 7, role: "user" }),
+  };
+  const res = await handleSiteData({}, req, url, async () => db, deps);
+  assert.equal(res.status, 201);
+  const q = db.__seen.find((x) => /INSERT INTO "mine"/.test(x.sql));
+  assert.match(q.sql, /"owner_id"/);
+  assert.ok(q.params.includes(7), "the session's id");
+  assert.ok(!q.params.includes(1), "never the body's: " + JSON.stringify(q.params));
+});
+
+test("an unsigned-in write to a member table is refused", async () => {
+  const { res } = await call("POST", "/api/db/shop/rows/mine", { body: { date: "2030-01-01" } });
+  assert.equal(res.status, 401);
 });
 
 test("a collect table is write-only — reading it is refused", async () => {
@@ -190,4 +267,40 @@ test("stripping the vector survives a row that has none", async () => {
   };
   const res = await handleSiteData({}, new Request(url), url, async () => db, deps);
   assert.equal(res.status, 200, "a null row must not throw on the public endpoint");
+});
+
+test("an admin table is readable to any member but writable only by a role", async () => {
+  // The shared-CMS level: everyone signed in may read it, only the declared
+  // roles may change it. Without the role check any member could rewrite the
+  // site's content.
+  const spec = { tables: [{ name: "posts", access: "admin", columns: [{ name: "title" }], writeRoles: ["editor"] }] };
+  const mk = (visitor) => {
+    const db = fakeDb(spec);
+    return {
+      db,
+      deps: {
+        sqlQuery: async (_c, sql, p) => (await db.query(sql, p)).rows,
+        sqlExec: async () => ({ results: [], changes: 0 }),
+        loadSiteSchema: async () => spec,
+        resolveVisitor: async () => visitor,
+      },
+    };
+  };
+  const url = new URL("https://isibi.ai/api/db/shop/rows/posts");
+  const post = () => new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "hi" }) });
+
+  const reader = mk({ id: 1, role: "user" });
+  assert.equal((await handleSiteData({}, new Request(url), url, async () => reader.db, reader.deps)).status, 200,
+    "any signed-in member may read");
+
+  const plain = mk({ id: 1, role: "user" });
+  const denied = await handleSiteData({}, post(), url, async () => plain.db, plain.deps);
+  assert.equal(denied.status, 403, "a plain member may not write");
+  assert.equal((await denied.json()).code, "role");
+  assert.ok(!plain.db.__seen.some((q) => /INSERT INTO "posts"/.test(q.sql)), "and nothing was written");
+
+  for (const role of ["editor", "admin"]) {
+    const ok = mk({ id: 2, role });
+    assert.equal((await handleSiteData({}, post(), url, async () => ok.db, ok.deps)).status, 201, role);
+  }
 });

@@ -38,12 +38,14 @@ schema declares, because those are the only things that exist in the database.
    |---|---|---|
    | `display` | list/read it | a write gets 403 |
    | `collect` | submit a form to it | a read gets 403 |
-   | `user` | nothing yet | both get 403 |
-   | `feed` / `admin` | read it — but not write it | a write gets 403 |
+   | `user` | read and write its OWN rows, signed in | 401 signed out |
+   | `feed` | read every row, write its own — signed in | 401 signed out |
+   | `admin` | read signed in; write only with the role | 401 signed out, 403 wrong role |
 
-   `feed` and `admin` are readable; it is their WRITES that need a visitor login.
-   Only half of such a table works, so leave it out rather than build against it —
-   but note the lint does not flag reading one, because the API does not refuse it.
+   **Visitor accounts exist as of 2026-07-28.** The three member levels are no
+   longer half-usable — they answer 401 to a signed-out visitor and work properly
+   once someone signs in. A page that touches one must call `useMember()` and
+   offer a sign-in, or every first-time visitor sees an error instead of a login.
    These rules live in `site-access.mjs` and are imported by both the API that
    enforces them and the lint that predicts them, so the two cannot disagree.
 
@@ -108,8 +110,11 @@ something was imported that should not have been.
   empty list AND a form nobody could submit, because its required Service select
   read that empty table.) Still generate the empty state: seeding is
   best-effort, and a table can legitimately end up with no rows.
-- **Visitor accounts.** No login, so no `user`/`feed`/`admin` table is
-  reachable. Do not generate a sign-in page.
+- ~~Visitor accounts~~ — **built 2026-07-28.** `useMember`, `useSignup`,
+  `useLogin`, `useLogout` and `useRequestReset` all come from `@/lib/rows`.
+  Accounts live in the site's own database, so one site's members are not
+  another's. Only build sign-in when the schema actually declares a member
+  table — a site of `display` and `collect` tables needs no accounts.
 - **Editing or deleting rows** from a published site. `PATCH` and `DELETE` are
   refused at every level. Sites are read-and-submit for now.
 - **File upload.** No route.
