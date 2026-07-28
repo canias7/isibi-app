@@ -10,6 +10,8 @@ import { handleSiteData } from "./site-data.mjs";
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, repairPrompt } from "./builder/page-gen.mjs";
 import { publishPages } from "./builder/publish-pages.mjs";
+import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
+import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
 import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis, eoqCalc, breakevenCalc, demandForecast, installmentPlan, taxCalc, commissionCalc } from "./worker-finance.mjs";
 // Game builder (Phase 3): same generate→build→publish pipeline, engine swapped for
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
@@ -3859,19 +3861,6 @@ async function handleRequest(request, env, ctx) {
     // Checkout creates a Stripe SUBSCRIPTION session; every paid invoice
     // (first charge and each renewal) mints that month's credits via the
     // webhook. Both no-op cleanly until the Stripe secrets are configured.
-    const PLANS = {
-      "25": { cents: 2499, credits: 2000, name: "isibi Plus — 2,000 credits / month" },
-      "50": { cents: 4999, credits: 4000, name: "isibi Pro — 4,000 credits / month" },
-      "100": { cents: 9999, credits: 8000, name: "isibi Max — 8,000 credits / month" },
-    };
-    // One-time top-ups at $0.014/credit — dearer than membership on purpose.
-    const TOPUPS = {
-      "15": { cents: 1500, credits: 1070 },
-      "30": { cents: 3000, credits: 2140 },
-      "50": { cents: 5000, credits: 3570 },
-      "75": { cents: 7500, credits: 5350 },
-      "100": { cents: 10000, credits: 7140 },
-    };
     if (url.pathname === "/api/checkout" && request.method === "POST") {
       const user = await authUser(request);
       if (!user) return UNAUTHED();
@@ -3882,10 +3871,13 @@ async function handleRequest(request, env, ctx) {
       try { body = await request.json(); } catch {
         return Response.json({ error: "invalid JSON" }, { status: 400 });
       }
-      const plan = body.plan != null ? PLANS[String(body.plan)] : null;
-      const topup = !plan && body.topup != null ? TOPUPS[String(body.topup)] : null;
-      if (!plan && !topup) return Response.json({ error: "unknown plan" }, { status: 400 });
-      const sub = plan; // memberships are the only subscription
+      // The price list and the metadata placement live in billing.mjs, where
+      // they are tested — see test/billing.test.mjs. selectPurchase uses hasOwn,
+      // so `{"plan":"__proto__"}` is refused instead of resolving to
+      // Object.prototype and sending Stripe `unit_amount: "undefined"`.
+      const purchase = selectPurchase(body);
+      if (!purchase) return Response.json({ error: "unknown plan" }, { status: 400 });
+      const sub = purchase.kind === "plan"; // memberships are the only subscription
       // Duplicate-membership guard: a second plan checkout would create a SECOND
       // live subscription (double billing). If the caller already has any live
       // subscription, refuse and tell the client to manage the existing one
@@ -3896,7 +3888,7 @@ async function handleRequest(request, env, ctx) {
           const sAuth = { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` };
           const cr = await fetch(`https://api.stripe.com/v1/customers?email=${encodeURIComponent(user.email)}&limit=100`, { headers: sAuth, signal: AbortSignal.timeout(12000) });
           const cd = await cr.json().catch(() => ({}));
-          const LIVE = ["active", "trialing", "past_due", "unpaid", "paused"];
+          const LIVE = LIVE_SUBSCRIPTION_STATUSES;
           for (const c of ((cd && cd.data) || [])) {
             const srr = await fetch(`https://api.stripe.com/v1/subscriptions?customer=${encodeURIComponent(c.id)}&status=all&limit=10`, { headers: sAuth, signal: AbortSignal.timeout(12000) });
             const sdd = await srr.json().catch(() => ({}));
@@ -3906,27 +3898,7 @@ async function handleRequest(request, env, ctx) {
           }
         } catch {} // Stripe unreachable → let the purchase proceed (fail open)
       }
-      const form = new URLSearchParams({
-        mode: sub ? "subscription" : "payment",
-        success_url: "https://isibi.ai/?credits=added",
-        cancel_url: "https://isibi.ai/",
-        "line_items[0][quantity]": "1",
-        "line_items[0][price_data][currency]": "usd",
-        "line_items[0][price_data][unit_amount]": String((plan || topup).cents),
-      });
-      if (sub) {
-        form.set("line_items[0][price_data][recurring][interval]", "month");
-        form.set("line_items[0][price_data][product_data][name]", sub.name);
-        // Subscription metadata rides along on every invoice, so renewals know
-        // who to grant (credits for the plan's monthly refill).
-        form.set("subscription_data[metadata][user_id]", user.id);
-        form.set("subscription_data[metadata][credits]", String(plan.credits));
-      } else {
-        form.set("line_items[0][price_data][product_data][name]", topup.credits.toLocaleString("en-US") + " isibi credits");
-        form.set("metadata[user_id]", user.id);
-        form.set("metadata[credits]", String(topup.credits));
-      }
-      if (user.email) form.set("customer_email", user.email);
+      const form = checkoutForm(purchase, user);
       try {
         const r = await fetch("https://api.stripe.com/v1/checkout/sessions", {
           method: "POST",
@@ -3963,7 +3935,7 @@ async function handleRequest(request, env, ctx) {
       let body = {};
       try { body = await request.json(); } catch {}
       const sAuth = { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` };
-      const LIVE = ["active", "trialing", "past_due", "unpaid", "paused"];
+      const LIVE = LIVE_SUBSCRIPTION_STATUSES;
       // Period end lives on the subscription in classic billing and on the first
       // item in flexible billing — check both, then fall back to cancel_at.
       const subUntil = (s) => {
@@ -4034,34 +4006,18 @@ async function handleRequest(request, env, ctx) {
       const tooBig = tooLargeBody(request, 262_144); // public+unauth endpoint — cap before buffering the body twice for HMAC
       if (tooBig) return tooBig;
       const raw = await request.text();
-      // Stripe-Signature: t=<unix>,v1=<hmac>,v1=<hmac>,... During a webhook-secret
-      // rotation Stripe signs with EVERY active secret, so collect all v1 values and
-      // accept if ANY matches — keeping only the last would 400 a legit paid invoice.
-      let t = 0; const v1s = [];
-      for (const p of (request.headers.get("Stripe-Signature") || "").split(",")) {
-        const i = p.indexOf("=");
-        if (i <= 0) continue;
-        const k = p.slice(0, i).trim(), v = p.slice(i + 1).trim();
-        if (k === "t") t = Number(v);
-        else if (k === "v1") v1s.push(v);
-      }
-      if (!t || Math.abs(Date.now() / 1000 - t) > 300 || !v1s.length) {
-        return Response.json({ error: "bad signature" }, { status: 400 });
-      }
-      const enc = new TextEncoder();
-      const key = await crypto.subtle.importKey(
-        "raw", enc.encode(env.STRIPE_WEBHOOK_SECRET),
-        { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
-      );
-      const mac = await crypto.subtle.sign("HMAC", key, enc.encode(`${t}.${raw}`));
-      const hex = [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
-      // Constant-time compare against each candidate signature (can't be timing-probed).
-      const ctEq = (a, b) => {
-        let mismatch = a.length ^ b.length;
-        for (let i = 0; i < a.length; i++) mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
-        return mismatch === 0;
-      };
-      if (!v1s.some((sig) => ctEq(hex, String(sig)))) {
+      // The signature check is the only thing authenticating this route. It lives
+      // in stripe-webhook.mjs so it can be tested — see test/stripe-webhook.test.mjs.
+      // STRIPE_WEBHOOK_SECRET may hold several comma-separated secrets: during a
+      // rotation Stripe signs with every active one, and accepting only the newest
+      // would 400 legitimately paid invoices for the whole overlap window.
+      const vr = await verifyStripeSignature({
+        header: request.headers.get("Stripe-Signature"),
+        raw,
+        secrets: String(env.STRIPE_WEBHOOK_SECRET).split(",").map((x) => x.trim()).filter(Boolean),
+      });
+      if (!vr.ok) {
+        console.error("stripe webhook rejected:", vr.reason);
         return Response.json({ error: "bad signature" }, { status: 400 });
       }
 
@@ -4069,70 +4025,37 @@ async function handleRequest(request, env, ctx) {
       try { event = JSON.parse(raw); } catch {
         return Response.json({ error: "bad payload" }, { status: 400 });
       }
-      // One-time top-ups mint on session completion (payment mode only —
-      // membership sessions mint via their invoice instead).
-      if (event.type === "checkout.session.completed") {
-        const s = event.data && event.data.object;
-        const uid = s && s.metadata && s.metadata.user_id;
-        const credits = s && s.metadata ? Number(s.metadata.credits) : 0;
-        if (s && s.mode === "payment" && s.payment_status === "paid" && s.id && uid && credits > 0) {
-          const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/add_credits`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
-            body: JSON.stringify({
-              target: uid, amount: credits, cents: s.amount_total || 0,
-              purchase_ref: s.id, mint_key: env.CREDITS_MINT_SECRET,
-            }),
-            signal: AbortSignal.timeout(10000),
-          });
-          if (!r.ok) return Response.json({ error: "credit grant failed" }, { status: 500 });
-        }
-      }
-      // Memberships mint on every PAID INVOICE — the first charge and each
-      // monthly renewal both arrive here. Handle ONLY invoice.paid (Stripe
-      // also emits invoice.payment_succeeded for the same invoice; listening to
-      // both would call add_credits twice — safe via the ref UNIQUE, but wasteful).
-      if (event.type === "invoice.paid") {
-        const inv = event.data && event.data.object;
-        // Subscription metadata's location varies by Stripe API version.
-        const meta =
-          (inv && inv.subscription_details && inv.subscription_details.metadata) ||
-          (inv && inv.parent && inv.parent.subscription_details && inv.parent.subscription_details.metadata) ||
-          (inv && inv.lines && inv.lines.data && inv.lines.data[0] && inv.lines.data[0].metadata) ||
-          {};
-        const uid = meta.user_id;
-        const credits = Number(meta.credits) || 0;
-        const paid = inv && (inv.status === "paid" || inv.paid === true);
-        // Require money to have actually changed hands — a $0/fully-discounted
-        // invoice (coupon, proration, pause) must not mint a full month of credits.
-        const amountPaid = Number(inv && inv.amount_paid) || 0;
-        if (uid && credits > 0 && paid && amountPaid > 0 && inv.id) {
-          const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/add_credits`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
-            body: JSON.stringify({
-              target: uid, amount: credits, cents: inv.amount_paid || 0,
-              purchase_ref: inv.id, mint_key: env.CREDITS_MINT_SECRET,
-            }),
-            signal: AbortSignal.timeout(10000),
-          });
-          // Non-2xx → 500 so Stripe retries the delivery.
-          if (!r.ok) return Response.json({ error: "credit grant failed" }, { status: 500 });
-          // Record the storage tier (from the plan's credit size) on a rolling
-          // 32-day window — a cancellation lapses to free once no invoice renews.
-          const tier = credits >= 8000 ? "max" : credits >= 4000 ? "pro" : "plus";
-          // set_plan MUST succeed — otherwise the paid customer's storage tier
-          // never activates and every save 402s "free" (bug 2026-07-17: this was
-          // swallowed and the webhook returned 200, so Stripe never retried).
-          // add_credits is idempotent on purchase_ref, so a full-webhook retry
-          // re-runs it safely; return 500 on any set_plan failure to trigger it.
+
+      // What this event should mint, if anything — the guards that stop a $0
+      // proration invoice or an unpaid session from buying credits live in
+      // mintFromEvent, where they are tested. `ref` is what makes it idempotent:
+      // add_credits is UNIQUE on it, so a Stripe retry cannot double-credit.
+      const mint = mintFromEvent(event);
+      if (mint) {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/add_credits`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+          body: JSON.stringify({
+            target: mint.uid, amount: mint.credits, cents: mint.cents,
+            purchase_ref: mint.ref, mint_key: env.CREDITS_MINT_SECRET,
+          }),
+          signal: AbortSignal.timeout(10000),
+        });
+        // Non-2xx → 500 so Stripe retries the delivery.
+        if (!r.ok) return Response.json({ error: "credit grant failed" }, { status: 500 });
+
+        // Memberships also carry a storage tier, on a rolling 32-day window — a
+        // cancellation lapses to free once no invoice renews. set_plan MUST
+        // succeed: swallowing it (bug 2026-07-17) returned 200, so Stripe never
+        // retried and the paid customer's every save 402'd "free".
+        if (mint.tier) {
           let planOk = false;
           try {
             const pr = await fetch(`${SUPABASE_URL}/rest/v1/rpc/set_plan`, {
               method: "POST",
               headers: { "Content-Type": "application/json", apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
               body: JSON.stringify({
-                target: uid, p_tier: tier,
+                target: mint.uid, p_tier: mint.tier,
                 p_until: new Date(Date.now() + 32 * 86400000).toISOString(),
                 mint_key: env.CREDITS_MINT_SECRET,
               }),
@@ -6005,10 +5928,12 @@ Return just the line to be voiced — keep it to what should actually come out o
       try { body = await request.json(); } catch {
         return Response.json({ error: "invalid JSON" }, { status: 400 });
       }
+      // The Worker fetches this url with the platform's FAL_KEY attached, so it
+      // must be fal's queue and nothing else. Pattern + verdicts live in
+      // billing.mjs — see test/billing.test.mjs.
       const statusUrl = typeof body.statusUrl === "string" ? body.statusUrl : "";
-      const m = statusUrl.match(/^https:\/\/queue\.fal\.run\/[^?#]+\/requests\/([A-Za-z0-9_-]+)\/status\b/);
-      if (!m) return Response.json({ error: "invalid url" }, { status: 400 });
-      const requestId = m[1];
+      const requestId = falRequestId(statusUrl);
+      if (!requestId) return Response.json({ error: "invalid url" }, { status: 400 });
       if (!env.FAL_KEY || !env.SUPABASE_SERVICE_KEY) return Response.json({ refunded: 0 });
       // Confirm with fal that the job terminally failed (fal didn't bill us).
       let status = "";
@@ -6019,23 +5944,15 @@ Return just the line to be voiced — keep it to what should actually come out o
       } catch {
         return Response.json({ error: "verify failed" }, { status: 502 });
       }
-      if (!["FAILED", "ERROR", "CANCELED", "CANCELLED"].includes(status)) {
-        // A job can report COMPLETED yet carry a client-error RESULT (e.g. a 422
-        // input-validation failure): fal doesn't bill those either, but the
-        // status check alone misses them. Only COMPLETED earns this second look
-        // — IN_QUEUE / IN_PROGRESS are genuinely still running.
-        if (status !== "COMPLETED") {
-          return Response.json({ refunded: 0 });
-        }
+      const verdict = refundVerdict(status);
+      if (verdict === "no") return Response.json({ refunded: 0 });
+      if (verdict === "inspect") {
+        // COMPLETED can still carry a client-error RESULT (e.g. a 422 on input
+        // validation); fal doesn't bill those, but the status alone misses them.
         try {
           const resultUrl = statusUrl.replace(/\/status\b.*$/, "");
           const rr = await fetch(resultUrl, { headers: { Authorization: `Key ${env.FAL_KEY}` }, signal: AbortSignal.timeout(10000) });
-          // 2xx = real output (don't refund); 5xx / network = transient (don't
-          // refund, it may still be retrievable); only a 4xx client error means
-          // the render terminally failed validation → fall through and refund.
-          if (rr.status < 400 || rr.status >= 500) {
-            return Response.json({ refunded: 0 });
-          }
+          if (!refundOnResultStatus(rr.status)) return Response.json({ refunded: 0 });
         } catch {
           return Response.json({ refunded: 0 });
         }

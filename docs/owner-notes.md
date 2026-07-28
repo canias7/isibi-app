@@ -9613,3 +9613,72 @@ Both stale two-argument calls left over from D1, both silent:
 2. **`worker.js:2150`** had the same `loadSiteSchema(env, u)` call.
 
 Unit suite: **113 tests**.
+
+## 2026-07-28 (later still) — "have you tested every backend endpoint?"
+
+No — and the honest number was **5 of 42**. Only `/api/site/react-build`, `DELETE /api/site/<slug>`,
+`/api/db/*`, `/api/credits` and `/s/<slug>` had any coverage at all.
+
+But the useful question underneath it turned out to be narrower. I measured the auth posture rather
+than guessing: **40 of 41 `/api` routes gate on `authUser`**, and the one that doesn't —
+`/api/stripe/webhook` — can't, because Stripe cannot hold a Supabase session. It authenticates by
+HMAC. So the exposure was never "37 open endpoints"; it was three specific things, now all closed.
+
+(I got this wrong once on the way. My first scan reported 6 ungated routes. That was a bug in the
+scan — it took each route's block as "everything until the next route match", which collapses to zero
+lines wherever two routes share a dispatch line, e.g. `=== "/api/video" ? … : === "/api/image"`. Fixed
+window, re-ran, corrected it in the same breath. The committed test uses the fixed window and says why.)
+
+### 1. The auth claim is now enforced, not asserted
+
+CLAUDE.md has said "all `/api/*` require a Supabase-authenticated user" for months. It was never true
+*by construction* — there is no blanket gate, only the 404 fallthrough, so every route gates itself
+and a new one added without `authUser` would be world-open with nothing to notice.
+`test/api-auth.test.mjs` reads worker.js and fails if any route outside a **two-entry allow-list**
+lacks a gate. Same fix as `site-access.mjs`: stop asserting, start measuring. The smoke test also
+probes 14 GET routes live against the deployed Worker.
+
+### 2. The webhook signature check is out of worker.js and tested
+
+`stripe-webhook.mjs`, **30 tests**, every one mutation-checked. The ones that matter: a signature over
+a *different body* is refused (capture a real webhook, swap in your own user id — the obvious attack);
+a captured signature *re-stamped* with a fresh `t` is refused (the timestamp is inside what's signed,
+so the staleness window can't be bypassed); a replay past ±300s is refused, and so is a *future*-dated
+one; either secret works mid-rotation; an empty secret fails **closed**.
+
+I also proved the constant-time compare's length XOR earns its keep: remove it and `"abc"` compares
+equal to `"abcdef"`, because `charCodeAt` past the end is NaN and `NaN ^ x` coerces to 0. That is a
+forgery primitive sitting in one line of arithmetic.
+
+`mintFromEvent` carries the money guards, each of which is free credits if it goes: subscription-mode
+sessions don't mint (their invoice does — crediting both double-grants month one), unpaid sessions
+don't, **$0 and fully-discounted invoices don't** (otherwise a coupon buys a month of credits), and
+credits come only from metadata we set at checkout — never from the amount charged.
+
+### 3. Checkout and refunds, plus a real bug
+
+`billing.mjs`, **24 tests**, mutation-checked.
+
+**The bug:** `PLANS[String(body.plan)]` with `{"plan":"__proto__"}` returns `Object.prototype`, which
+is **truthy** — so it passed the "unknown plan" guard and sent Stripe `unit_amount: "undefined"`.
+`"constructor"` and `"toString"` do the same. It fails closed at Stripe today (502), so nobody got
+free credits, but it is a caller-controlled key reaching straight into an object lookup. Now
+`Object.hasOwn` plus a string/number type check.
+
+**The one I'd most fear:** a membership's metadata must sit under `subscription_data[metadata]`, not
+the session's own `metadata`. Only the former rides onto renewal invoices. Put it in the wrong place
+and month one credits fine, then every renewal arrives with no user to credit — the customer keeps
+paying and silently stops receiving anything, and nothing logs an error. There is now a test that
+fails if those two are ever swapped, in either direction.
+
+Also pinned: top-ups must stay dearer per credit than membership (they're ~1.40¢ vs ~1.25¢); every
+plan's credit count must land on the storage tier its name promises; a refund is never issued for a
+job still running or one whose result came back 2xx or 5xx.
+
+Unit suite: **170 tests**, up from 113.
+
+### Still untested, and worth saying plainly
+
+The generation routes (`/api/video|image|audio`), `/api/direct`, `/api/save`, `/api/gallery`, the
+game-builder routes and the whole `/api/social/*` surface have no tests beyond "they refuse an
+anonymous caller". They're gated and they're not the money path, but they are not covered.
