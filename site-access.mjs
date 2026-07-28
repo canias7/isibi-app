@@ -76,3 +76,19 @@ export function whyNotReadable(access) {
   if (needsMember(a)) return "those rows need a signed-in member — call useMember() and offer a sign-in";
   return "the API refuses public reads of it";
 }
+
+/**
+ * A column that holds a picture — a plain TEXT column whose value is a URL like
+ * `/u/<slug>/<hash>.jpg`.
+ *
+ * It is only a naming guess, and that is deliberate: the column is text either
+ * way, so a wrong guess costs an upload button that is not offered, never a
+ * broken save. It lives here rather than in any one caller because three places
+ * ask the same question — the builder's edit form, the page generator, and the
+ * route that decides whether a form may accept a visitor's file at all — and
+ * that last one is a security decision.
+ */
+export function isImageColumn(name) {
+  return /(^|_)(image|images|img|photo|photos|picture|pic|avatar|logo|cover|thumbnail|thumb|banner|hero)(_|$)|_url$/i
+    .test(String(name || ""));
+}

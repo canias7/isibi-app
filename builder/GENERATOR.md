@@ -124,11 +124,13 @@ something was imported that should not have been.
   signed-in member. `collect` and `display` rows have no owner and can never be
   changed from a page. Another member's row answers **404**, not 403 — ids are
   sequential, and 403 would confirm the row exists.
-- **Visitor file upload.** No route, so a generated page can never have an upload
-  control. The OWNER can upload pictures (`POST /api/site/<slug>/uploads`, from the
-  builder's Data panel) and they land as a URL in a plain text column — so a page
-  renders `<img src={row.photo}>` and nothing more. Guard it: the owner fills those
-  in after the build, so on a fresh site the value is empty.
+- ~~File upload~~ — **built 2026-07-28, both halves.** The OWNER uploads from the
+  builder's Data panel; a VISITOR can attach one to a form via `useUploadFile`, but
+  **only when that table declares an image column** — a form of six text fields
+  cannot upload at all, and asking gets a 403. Either way the value is a URL in a
+  plain text column, so the row write stays plain JSON. PNG/JPEG/WebP/GIF only,
+  SVG refused, 2 MB for a visitor. Guard `display` images: the owner fills those in
+  after the build, so on a fresh site the value is empty.
 
 If a brief needs one of these, generate what is possible and say plainly what
 was left out. Do not generate UI that cannot work.

@@ -12,6 +12,8 @@
 //
 // Injected like the rest, so every decision here runs without R2 or a Worker.
 
+import { isImageColumn } from "./site-access.mjs";
+
 const json = (body, status = 200) => ({ status, body });
 
 /** Per file. Big enough for a real photograph, small enough to be a bad DoS. */
@@ -68,7 +70,7 @@ const urlFor = (slug, name) => "/u/" + String(slug).toLowerCase() + "/" + name;
  *   gate(slug, uid)              → {error} | {}     ownership, shared with site-owner.mjs
  *   hash(bytes)                  → hex
  *   list(slug)                   → [{key, size}]
- *   put(key, bytes, contentType) → void
+ *   put(key, bytes, contentType, meta?) → void
  *   remove(key)                  → void
  */
 export async function handleUpload(deps, { slug, uid, bytes } = {}) {
@@ -142,4 +144,94 @@ export async function handleUploadDelete(deps, { slug, uid, file } = {}) {
   if (!objs.some((o) => o && o.key === key)) return json({ error: "no such file" }, 404);
   await deps.remove(key);
   return json({ ok: true, name: file });
+}
+
+
+// ─────────────────────────────────────────────────── uploads from a VISITOR
+//
+// A different thing entirely from the owner's, and treated as such. This one is
+// unauthenticated by design — a customer attaching a photo to a booking has no
+// account — which makes it a public endpoint that accepts arbitrary bytes and
+// serves them back from isibi.ai. Everything above still applies (bytes decide
+// the type, no SVG, we name the file); these are the additional limits that
+// exist only because the caller is a stranger.
+
+/** Smaller than the owner's: a phone photo, not a print master. */
+export const MAX_VISITOR_UPLOAD_BYTES = 2_000_000;
+/**
+ * A visitor allowance INSIDE the site's budget, so a flood can never crowd the
+ * owner out of their own storage. They can exhaust this and the owner's own
+ * pictures are untouched.
+ */
+export const MAX_VISITOR_FILES = 50;
+export const MAX_VISITOR_BYTES = 25_000_000;
+
+/**
+ * May this site accept a file for this table at all?
+ *
+ * Both halves matter. The table must be one a visitor can WRITE — there is no
+ * reason to accept a picture for a table they cannot submit to — and it must
+ * DECLARE somewhere to put it. A barber shop whose booking form is six text
+ * fields has no image column, so it accepts nothing, which is the answer for
+ * the large majority of sites.
+ *
+ * This is what keeps the endpoint from being open image hosting for anyone who
+ * knows a slug.
+ */
+export function acceptsVisitorUploads(def) {
+  if (!def) return false;
+  const access = String(def.access || "").toLowerCase();
+  if (!["collect", "user", "feed"].includes(access)) return false;
+  return (Array.isArray(def.columns) ? def.columns : [])
+    .map((c) => String(typeof c === "string" ? c : (c && c.name) || ""))
+    .some(isImageColumn);
+}
+
+/**
+ * deps: as handleUpload, minus `gate`, plus
+ *   tableFor(slug, table) → def | null      resolved from the site's own schema
+ *   throttle(key)         → {ok, retryAfter}
+ */
+export async function handleVisitorUpload(deps, { slug, table, bytes, ip } = {}) {
+  const def = await deps.tableFor(slug, table);
+  if (!def) return json({ error: "no such table" }, 404);
+  if (!acceptsVisitorUploads(def)) {
+    return json({ error: "this form doesn't take files", code: "no_uploads" }, 403);
+  }
+
+  // Throttled before anything is read or hashed: a flood must cost us as close
+  // to nothing as possible, and this is the endpoint a stranger can call.
+  const t = await deps.throttle(`vu:${String(slug).toLowerCase()}:${ip || "unknown"}`);
+  if (!t || !t.ok) {
+    return json({ error: "too many uploads — wait a moment", code: "rate_limit", retryAfter: (t && t.retryAfter) || 60 }, 429);
+  }
+
+  if (!bytes || !bytes.length) return json({ error: "no file" }, 400);
+  if (bytes.length > MAX_VISITOR_UPLOAD_BYTES) {
+    return json({ error: "that image is too big — keep it under 2 MB", code: "too_big", max: MAX_VISITOR_UPLOAD_BYTES }, 413);
+  }
+
+  const kind = sniffImage(bytes);
+  if (!kind) return json({ error: "that doesn't look like a PNG, JPEG, WebP or GIF", code: "bad_type" }, 415);
+
+  const name = uploadName(await deps.hash(bytes), kind.ext);
+  if (!name) return json({ error: "couldn't store that just now" }, 500);
+  const key = keyFor(slug, name);
+
+  const existing = await deps.list(slug);
+  const already = existing.find((o) => o && o.key === key);
+  if (already) return json({ ok: true, url: urlFor(slug, name), name, size: bytes.length, mime: kind.mime, dedup: true });
+
+  // Only what visitors have added counts against the visitor allowance. The
+  // owner's own pictures are not the stranger's budget to spend.
+  const mine = existing.filter((o) => o && o.visitor);
+  const used = mine.reduce((n, o) => n + (Number(o.size) || 0), 0);
+  if (mine.length >= MAX_VISITOR_FILES || used + bytes.length > MAX_VISITOR_BYTES) {
+    return json({ error: "this form can't take more files right now", code: "full" }, 409);
+  }
+
+  // Marked, so the owner's listing can tell them apart, the allowance above can
+  // be counted, and a sweep could one day drop unreferenced ones.
+  await deps.put(key, bytes, kind.mime, { visitor: "1" });
+  return json({ ok: true, url: urlFor(slug, name), name, size: bytes.length, mime: kind.mime }, 201);
 }
