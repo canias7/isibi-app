@@ -10851,7 +10851,7 @@ async function siteBackups(site) {
   if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then back up your data.'); return; }
   const { bodyEl } = stCloudModal('siteBackupsModal', 'Backups');
   const dl = async (table, fmt) => { // authed download → blob (a plain <a> can't send the Bearer)
-    try { const r = await apiFetch('/api/site/backend/export?slug=' + encodeURIComponent(slug) + '&table=' + encodeURIComponent(table) + '&format=' + fmt); const blob = await r.blob(); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = slug + '-' + table + '.' + fmt; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1500); } catch (e) { if (typeof sbToast === 'function') sbToast('Export failed — try again.'); }
+    try { const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/export?table=' + encodeURIComponent(table) + '&format=' + fmt); if (!r.ok) { if (typeof sbToast === 'function') sbToast('Export failed — try again.'); return; } const blob = await r.blob(); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = slug + '-' + table + '.' + fmt; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1500); } catch (e) { if (typeof sbToast === 'function') sbToast('Export failed — try again.'); }
   };
   const load = async () => {
     try {

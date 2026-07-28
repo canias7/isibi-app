@@ -10,6 +10,7 @@ import { lookupRoute, saveRoute, dropRoute } from "./site-routing.mjs";
 import { handleSiteAuth } from "./site-auth-routes.mjs";
 import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers, handleOwnerAnalytics, assertOwner } from "./site-owner.mjs";
 import { handleUpload, handleUploadList, handleUploadDelete, MAX_UPLOAD_BYTES } from "./site-uploads.mjs";
+import { handleOwnerExport } from "./site-export.mjs";
 import { sessionKey, verifySession } from "./site-auth.mjs";
 import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
@@ -5349,12 +5350,13 @@ async function handleRequest(request, env, ctx) {
     // Ordered BEFORE the site-delete branch below on purpose: that one matches
     // any DELETE under /api/site/, so a row delete would otherwise be read as a
     // request to take the entire site down.
-    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads"))) {
+    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads") || url.pathname.includes("/export"))) {
       const om = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rows(?:\/([a-z_][a-z0-9_]{0,40})(?:\/([0-9]{1,18}))?)?$/i);
       const mm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/members(?:\/([0-9]{1,18}))?$/i);
       const an = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/analytics$/i);
       const uf = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/uploads(?:\/([A-Za-z0-9._-]{1,80}))?$/i);
-      if (om || mm || an || uf) {
+      const xp = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/export$/i);
+      if (om || mm || an || uf || xp) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
         const ownerDeps = {
@@ -5389,7 +5391,21 @@ async function handleRequest(request, env, ctx) {
         // no body otherwise — the same trap the PBKDF2 cap fell into.
         try {
           let r;
-          if (uf) {
+          if (xp) {
+            if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
+            const xr = await handleOwnerExport({
+              gate: (s2, u2) => assertOwner(ownerDeps, s2, u2),
+              dbFor: ownerDeps.dbFor, loadSchema: ownerDeps.loadSchema,
+              query: ownerDeps.query, ident: ownerDeps.ident,
+            }, {
+              slug: xp[1].toLowerCase(), uid: ou.id,
+              table: url.searchParams.get("table"), format: url.searchParams.get("format"),
+            });
+            // A file, not JSON — the body is already the CSV or the JSON text,
+            // and the headers carry the download name.
+            if (xr.raw) return new Response(xr.body, { status: xr.status, headers: xr.headers });
+            return Response.json(xr.body, { status: xr.status });
+          } else if (uf) {
             const uslug = uf[1].toLowerCase();
             // The gate is site-owner.mjs's, so a picture is exactly as protected
             // as a row: fails closed, 404 rather than 403.
