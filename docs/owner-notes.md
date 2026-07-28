@@ -9942,3 +9942,62 @@ row directly by id: **404 on both PATCH and DELETE, no hint whose it is, and Ali
 her own edit still on it.** 10/10.
 
 Unit suite **323**.
+
+---
+
+## 2026-07-28 — the throttle, and a revise that remembers what the site is
+
+Two small things, both of which a real user hits before anything else on the backlog.
+
+### `rateLimit` is finally read
+
+The schema engine has parsed a per-table `rateLimit` and a per-app `rateLimits {read, write}` since
+the day it was written, stored them in `_meta`, and **nothing had ever looked at either**. `/api/db`
+is public and unauthenticated by design — a visitor filling in a booking form has no account — and
+as of this week it also carries signup and login.
+
+`rate-limit.mjs`, wired into `site-data.mjs` (public data) and the auth branch of `worker.js`.
+Defaults 300 reads/min and 60 writes/min; a table's own `rateLimit` is a WRITE limit and wins.
+
+Three decisions worth writing down:
+
+- **Reads share one bucket per site; writes get one per table.** A read budget exists to protect
+  Neon compute, so a page with five lists should not therefore get five times the allowance. A
+  write budget exists to make a declared per-table limit mean something — a table capped at 5/min
+  must not be sharing those 5 with the contact form.
+- **`CF-Connecting-IP` only.** The obvious `|| X-Forwarded-For` fallback (which the rest of
+  worker.js uses) would have defeated the whole thing: it is a request header like any other, so a
+  caller who varies it mints a fresh bucket per request. Cloudflare sets CF-Connecting-IP itself.
+  No header at all → everyone shares the "unknown" bucket, which is the safe direction to fail.
+- **The throttle runs before the visitor is resolved**, which is a database read of its own. A
+  flood should pay for none of what follows.
+
+**And it fixed a live bug.** `authThrottle` counted with `ttl-cache`, whose `set` re-stamps the
+expiry — so the window was *extended by every blocked attempt* and a locked-out address never got a
+fresh one as long as anyone kept trying. One bad minute on a shared office IP was an indefinite
+lockout. `makeLimiter` fixes `resetAt` at the first hit and never moves it.
+
+Honest about the ceiling: this is per-isolate. Cloudflare runs many isolates per colo, so a
+distributed flood still walks through. It stops the single-source case, which is the one that
+actually happens, and it costs one map lookup. A real limiter needs Durable Objects.
+
+### A revise now knows what the site was for
+
+A revise sends `{slug, instruction}`, so the generator's entire knowledge of the site was one line
+like "add a gallery" — and since it rewrites every page each time, a working barber shop came back
+as a page listing a gallery and nothing else. The merged schema fixed the *tables* last week; the
+*intent* was still missing, and it was the open item in the notes.
+
+`site_backends.brief` now holds the brief the site was built from. It costs nothing to read — the
+route already does that lookup for the ownership check — and it is written exactly once per site,
+because `ensureSiteBackend` returns early when the slug already has a database. So a revise
+physically cannot overwrite it.
+
+`briefForPages()` composes the two: original brief as the anchor, instruction as the change, plus
+"keep everything the original asked for unless this change says otherwise" — the failure mode is
+subtraction, not addition. Deliberately **not** an accumulating log: that grows without bound and
+keeps contradicting itself ("remove the gallery" stays true forever). What the site has *become* is
+carried by the merged schema, which is the authoritative half anyway.
+
+Unit suite **362** (+39). Every new test mutation-checked: 26/26 on the limiter, 11/11 on the
+wiring, 8/8 on the brief.

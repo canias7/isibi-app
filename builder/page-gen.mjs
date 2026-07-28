@@ -448,6 +448,30 @@ export function schemaDigest(spec) {
  * published page's <title> — passing it here keeps the heading from disagreeing
  * with the browser tab.
  */
+/**
+ * What the generator is told a revise is FOR.
+ *
+ * A revise sends {slug, instruction}, so before this the generator's entire
+ * knowledge of the site was one line like "add a gallery" — and since it rewrites
+ * every page each time, a working barber shop came back as a page listing a
+ * gallery and nothing else. The merged schema fixed the tables; this fixes the
+ * intent.
+ *
+ * The ORIGINAL brief is the anchor and is never rewritten by an instruction: an
+ * accumulating log would grow without bound and would keep contradicting itself
+ * ("remove the gallery" stays true forever). What the site has BECOME is carried
+ * by the merged schema, which is the authoritative half anyway.
+ */
+export function briefForPages({ brief, priorBrief } = {}) {
+  const now = String(brief || "").trim();
+  const before = String(priorBrief || "").trim();
+  if (!before || before === now) return now;
+  if (!now) return before;
+  return "The site already exists. It was originally built from this brief:\n\n" + before +
+    "\n\nWHAT TO CHANGE NOW\n" + now +
+    "\n\nKeep everything the original brief asked for unless this change says otherwise.";
+}
+
 export function pagesPrompt(brief, spec, brand) {
   const name = String(brand || "").trim();
   return "Build the pages for this site.\n\nBRIEF\n" + String(brief || "").trim() +

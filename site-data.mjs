@@ -29,11 +29,12 @@ import { loadSiteSchema, sqlIdent } from "./site-schema.mjs";
 // has to predict them to lint a page before it is published, and restating them
 // in both places is how they drifted.
 import { isManagedColumn, canReadAccess, canWriteAccess, needsMember } from "./site-access.mjs";
+import { limitFor, bucketKey, tooMany } from "./rate-limit.mjs";
 
 const MAX_LIMIT = 100;
 const MAX_BODY_KEYS = 60;
 
-const json = (body, status) => Response.json(body, { status: status || 200 });
+const json = (body, status, headers) => Response.json(body, { status: status || 200, headers });
 
 function tableFor(spec, name) {
   const want = String(name || "").toLowerCase();
@@ -97,6 +98,28 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
   const spec = await loadSiteSchema(db);
   const def = tableFor(spec, tableName);
   if (!def) return json({ error: "no such table" }, 404);
+
+  // Throttle here: late enough to know the table's own declared `rateLimit`,
+  // early enough that a flood pays for none of what follows — resolving a
+  // visitor costs a database read, and the query itself costs a Neon one.
+  if (deps.rateLimit) {
+    const limit = limitFor({ spec, def, method: request.method });
+    // CF-Connecting-IP ONLY. X-Forwarded-For is a request header like any other
+    // — a caller who sets a different one per request would mint a fresh bucket
+    // each time and walk straight through this. Cloudflare sets CF-Connecting-IP
+    // itself and overwrites whatever the client sent. With no header at all
+    // (local, tests) everyone shares the "unknown" bucket, which is the safe
+    // direction to fail.
+    const key = bucketKey({
+      ip: request.headers.get("CF-Connecting-IP") || "",
+      slug, table: def.name, method: request.method,
+    });
+    const verdict = deps.rateLimit(key, limit);
+    if (verdict && !verdict.ok) {
+      const t = tooMany(verdict);
+      return json(t.body, t.status, t.headers);
+    }
+  }
 
   // Per-level gate.
   //

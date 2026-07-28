@@ -13,7 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   REFERENCE_PAGE, UI_COMPONENTS, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MANAGED_COLUMNS,
-  schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages,
+  schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages,
 } from "../builder/page-gen.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -360,4 +360,47 @@ test("a display table's filter list survives the name-only shape too", () => {
 test("a genuinely empty table still reads as empty", () => {
   const d = schemaDigest({ tables: [{ name: "t", access: "display", columns: [] }] });
   assert.match(d, /columns: \(none\)/);
+});
+
+// ──────────────────────────────────────────────── what a revise tells the model
+//
+// A revise sends {slug, instruction}, so the generator's whole knowledge of the
+// site used to be one line like "add a gallery" — and since it rewrites every
+// page each time, a working barber shop came back as a page listing a gallery
+// and nothing else. The merged schema fixed the tables; this is the intent.
+
+test("a first build sends the brief unchanged", () => {
+  assert.equal(briefForPages({ brief: "a barber shop in Lisbon" }), "a barber shop in Lisbon");
+  assert.equal(briefForPages({ brief: "a barber shop", priorBrief: "" }), "a barber shop");
+});
+
+test("a revise carries the original brief AND the instruction", () => {
+  const out = briefForPages({ brief: "add a gallery", priorBrief: "a barber shop in Lisbon" });
+  assert.match(out, /a barber shop in Lisbon/, "without this the site is rewritten as a gallery");
+  assert.match(out, /add a gallery/);
+  assert.match(out, /WHAT TO CHANGE NOW/, "and the two must be distinguishable");
+  assert.ok(out.indexOf("a barber shop") < out.indexOf("add a gallery"), "original first, change last");
+});
+
+test("it says to keep what the original asked for", () => {
+  // The failure mode is subtraction, not addition: the model has the old brief
+  // and still drops half of it because the instruction only mentions one thing.
+  assert.match(briefForPages({ brief: "add a gallery", priorBrief: "a barber shop" }), /keep everything/i);
+});
+
+test("a repeated brief is not doubled up", () => {
+  // Sending the same brief again is a rebuild, not a change.
+  assert.equal(briefForPages({ brief: "a barber shop", priorBrief: "a barber shop" }), "a barber shop");
+  assert.equal(briefForPages({ brief: " a barber shop ", priorBrief: "a barber shop" }), "a barber shop");
+});
+
+test("a schema-only build with no instruction falls back to the stored brief", () => {
+  assert.equal(briefForPages({ brief: "", priorBrief: "a barber shop" }), "a barber shop");
+  assert.equal(briefForPages({ priorBrief: "a barber shop" }), "a barber shop");
+});
+
+test("nothing at all is an empty string, not a crash or the word undefined", () => {
+  assert.equal(briefForPages(), "");
+  assert.equal(briefForPages({}), "");
+  assert.equal(briefForPages({ brief: null, priorBrief: undefined }), "");
 });
