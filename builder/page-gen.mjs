@@ -1,0 +1,532 @@
+// The page generator's model-facing half — the rules it writes against, the
+// tool it fills in, and the deterministic checks its output has to survive.
+//
+// Kept out of worker.js on purpose: this is plain, dependency-free JavaScript,
+// so it can be imported and tested outside the Worker (see test/page-gen.test.mjs)
+// the same way site-schema.mjs and site-data.mjs are.
+//
+// The contract itself is builder/GENERATOR.md, and the page it is derived from is
+// builder/lovable/template/src/routes/index.tsx. Both are reproduced here because
+// the Worker has no filesystem; a test asserts this copy has not drifted from the
+// file, and GENERATOR.md's rule stands — when the two disagree, the file wins.
+
+/** Every component in src/components/ui. An import of anything else does not resolve. */
+export const UI_COMPONENTS = [
+  "accordion", "alert-dialog", "alert", "aspect-ratio", "avatar", "badge", "breadcrumb",
+  "button", "calendar", "card", "carousel", "chart", "checkbox", "collapsible", "command",
+  "context-menu", "dialog", "drawer", "dropdown-menu", "form", "hover-card", "input-otp",
+  "input", "label", "menubar", "navigation-menu", "pagination", "popover", "progress",
+  "radio-group", "resizable", "scroll-area", "select", "separator", "sheet", "sidebar",
+  "skeleton", "slider", "sonner", "switch", "table", "tabs", "textarea", "toggle-group",
+  "toggle", "tooltip",
+];
+
+/** Set by the engine on every write. Declaring one in a form does nothing — it is dropped. */
+export const MANAGED_COLUMNS = [
+  "id", "created_at", "updated_at", "owner_id", "team_id", "deleted_at",
+  "_version", "_fts", "position", "archived_at", "expires_at", "pinned", "publish_at",
+];
+
+export const MAX_PAGES = 6;
+export const MAX_PAGE_CHARS = 24000;
+
+// A byte-for-byte copy of builder/lovable/template/src/routes/index.tsx. The only
+// change is the escape on the one `${` sequence, which a template literal would
+// otherwise interpolate. test/page-gen.test.mjs fails if the two diverge.
+export const REFERENCE_PAGE = `// Reference page. Hand-written against the schema the designer actually
+// produced for "a small barber shop site": services(name, description, price,
+// duration_minutes) and appointments(service, customer_name, customer_phone,
+// date, time, notes).
+//
+// This exists to be imitated. It is the shape the generator should emit — read
+// with useRows, write with useCreateRow, shadcn for every control, and no fetch
+// code anywhere. If a generated page diverges from this, the generator is wrong.
+import { createFileRoute } from "@tanstack/react-router";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { toast } from "sonner";
+
+import { useRows, useCreateRow, type Row } from "@/lib/rows";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+export const Route = createFileRoute("/")({ component: Home });
+
+type Service = Row & {
+  name: string;
+  description: string | null;
+  price: number | null;
+  duration_minutes: number | null;
+};
+
+// Mirrors the declared columns. The API rejects anything undeclared anyway, but
+// validating here means the visitor is told before a round trip.
+const booking = z.object({
+  service: z.string().min(1, "Pick a service"),
+  customer_name: z.string().min(2, "Tell us your name"),
+  customer_phone: z.string().min(6, "We need a number to confirm on"),
+  date: z.string().min(1, "Pick a date"),
+  time: z.string().min(1, "Pick a time"),
+  notes: z.string().max(500).optional(),
+});
+
+type Booking = z.infer<typeof booking>;
+
+function Home() {
+  const services = useRows<Service>("services", { order: "price", dir: "asc" });
+  const create = useCreateRow("appointments");
+
+  const form = useForm<Booking>({
+    resolver: zodResolver(booking),
+    defaultValues: { service: "", customer_name: "", customer_phone: "", date: "", time: "", notes: "" },
+  });
+
+  const onSubmit = (values: Booking) => {
+    create.mutate(values, {
+      onSuccess: () => {
+        toast.success("Booked — we'll call to confirm.");
+        form.reset();
+      },
+      // The API separates the caller's fault from a server fault, so its own
+      // message is worth showing instead of a generic failure.
+      onError: (e: Error) => toast.error(e.message),
+    });
+  };
+
+  return (
+    <main className="mx-auto max-w-3xl px-6 py-16">
+      <h1 className="text-4xl font-semibold tracking-tight">Barber Shop</h1>
+      <p className="mt-2 text-muted-foreground">Book a chair. We'll call to confirm.</p>
+
+      <section className="mt-12">
+        <h2 className="text-xl font-medium">Services</h2>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {services.isPending && [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
+
+          {services.isError && (
+            <p className="text-sm text-destructive sm:col-span-2">
+              Couldn't load the services. Refresh and try again.
+            </p>
+          )}
+
+          {services.data?.length === 0 && (
+            <p className="text-sm text-muted-foreground sm:col-span-2">Nothing listed yet.</p>
+          )}
+
+          {services.data?.map((s) => (
+            <Card key={s.id}>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-baseline justify-between text-base">
+                  <span>{s.name}</span>
+                  {s.price != null && <span className="tabular-nums">\${s.price}</span>}
+                </CardTitle>
+                {s.duration_minutes != null && <CardDescription>{s.duration_minutes} min</CardDescription>}
+              </CardHeader>
+              {s.description && (
+                <CardContent className="text-sm text-muted-foreground">{s.description}</CardContent>
+              )}
+            </Card>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-14">
+        <h2 className="text-xl font-medium">Book an appointment</h2>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="mt-4 grid gap-4 sm:grid-cols-2">
+            <FormField
+              control={form.control}
+              name="service"
+              render={({ field }) => (
+                <FormItem className="sm:col-span-2">
+                  <FormLabel>Service</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Choose one" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {services.data?.map((s) => (
+                        <SelectItem key={s.id} value={s.name}>
+                          {s.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="customer_name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Your name</FormLabel>
+                  <FormControl>
+                    <Input {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="customer_phone"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Phone</FormLabel>
+                  <FormControl>
+                    <Input type="tel" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="date"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Date</FormLabel>
+                  <FormControl>
+                    <Input type="date" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="time"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Time</FormLabel>
+                  <FormControl>
+                    <Input type="time" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="notes"
+              render={({ field }) => (
+                <FormItem className="sm:col-span-2">
+                  <FormLabel>Anything else?</FormLabel>
+                  <FormControl>
+                    <Textarea rows={3} {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className="sm:col-span-2">
+              <Button type="submit" disabled={create.isPending}>
+                {create.isPending ? "Booking…" : "Request appointment"}
+              </Button>
+            </div>
+          </form>
+        </Form>
+      </section>
+    </main>
+  );
+}
+`;
+
+export const PAGE_RULES = `You write the pages of a small business website, as TypeScript React route files.
+
+The site's database ALREADY EXISTS. A schema was designed from the same brief and its tables
+are live Postgres. You are given exactly what was created. You cannot invent a table, a column
+or an access level — anything not in the schema below does not exist.
+
+## Hard rules
+
+1. NO FETCH CODE. Read with \`useRows\`, write with \`useCreateRow\`, both from "@/lib/rows".
+   A page that calls fetch, axios or XMLHttpRequest is wrong.
+
+2. RESPECT THE ACCESS LEVEL. The API enforces it — this is not a matter of taste.
+   - \`display\` — you may LIST and READ it. A write returns 403.
+   - \`collect\` — you may SUBMIT a form to it. A read returns 403. These rows are other
+     visitors' submissions; never list them, never count them, never show "3 people booked".
+   - anything else — needs a visitor login, which does not exist yet. Leave it out.
+
+3. SHADCN FOR EVERY CONTROL, imported from "@/components/ui/<name>". Never hand-roll a
+   button, input, select, checkbox or dialog. These exist and nothing else does:
+   ${UI_COMPONENTS.join(", ")}.
+   There is no "toast" or "use-toast" component — toasts come from \`import { toast } from "sonner"\`.
+
+4. FORMS ARE react-hook-form + zod, through shadcn's \`Form\`/\`FormField\`/\`FormControl\`.
+   TanStack Form is installed but shadcn's form components do not speak to it — mixing them
+   produces inputs that silently do not validate. Never import "@tanstack/react-form".
+
+5. THE ZOD SCHEMA MIRRORS THE DECLARED COLUMNS. The API drops anything undeclared, so a field
+   the schema does not have vanishes without an error.
+
+6. NEVER WRITE A MANAGED COLUMN. These are set by the engine and dropped from any write:
+   ${MANAGED_COLUMNS.join(", ")}.
+
+## Reading rows
+
+\`useRows<T>(table, params)\` → a TanStack Query result whose \`.data\` is the rows.
+- \`params\`: \`{ limit, offset, order, dir, q, <column>: value }\`. \`limit\` is capped at 100.
+- \`order\` must be a DECLARED column or "id" — any other value silently falls back to id.
+  \`created_at\` is NOT orderable unless the table declared it.
+- a \`<column>: value\` pair is an equality filter, and only on declared columns.
+- \`q\` is full-text search and only does something on a table that declared fts.
+- rows come back with every column including \`id\` and \`created_at\`, so you can display those
+  even though you cannot sort or filter on them.
+- type it: \`type Service = Row & { name: string; price: number | null }\`. Every column the
+  database did not mark required can be null — say so in the type and guard before rendering.
+
+## Every list handles four states
+
+Omit one and the page looks fine in a screenshot and broken in use:
+- \`isPending\` → \`<Skeleton />\` placeholders, not a spinner and not nothing
+- \`isError\` → one sentence a visitor can act on
+- \`data?.length === 0\` → say the list is empty; do not render an empty grid
+- loaded → the rows
+
+## Every form must
+
+- disable its submit button while \`mutation.isPending\`, and say so on the button
+- \`toast.success(...)\` and \`form.reset()\` on success
+- \`toast.error(e.message)\` on failure — THE API'S OWN MESSAGE. It distinguishes the caller's
+  fault from a server fault and returns a \`code\` for duplicate / overlap / bad_ref / required /
+  full / invalid. "That time is already taken" is useful; "something went wrong" is not.
+
+## Routing
+
+File-based, TanStack Router. Each page is one file under src/routes/ exporting
+\`export const Route = createFileRoute("<url>")({ component: X })\`.
+  index.tsx → "/"      about.tsx → "/about"      menu/index.tsx → "/menu"
+\`index.tsx\` is required. Link between pages with \`<Link to="/menu">\` from "@tanstack/react-router".
+Never write routeTree.gen.ts, __root.tsx, src/pages/ or app/layout.tsx.
+
+## Styling
+
+Tailwind v4 with semantic tokens: bg-background, text-foreground, bg-card, text-muted-foreground,
+border-border, bg-primary, text-destructive. A raw bg-slate-900 breaks dark mode. Also available:
+lucide-react icons, date-fns, recharts. Import nothing that is not already a dependency.
+
+## What is not possible yet
+
+- No visitor accounts. Do not generate sign-in, sign-up or "my account" pages.
+- No editing or deleting a row from a published site. PATCH and DELETE are refused at every
+  level, so \`useUpdateRow\` and \`useDeleteRow\` cannot be called from a page.
+- No file or image upload. There is no route for it.
+- No owner/admin dashboard — a \`collect\` table cannot be read back.
+If the brief asks for one of these, build everything else and say plainly in \`notes\` what was
+left out and why. Never generate UI that cannot work.
+
+## Definition of done
+
+\`tsc --noEmit\` must be clean and \`vite build\` must succeed. Write real TypeScript: no \`any\`,
+no unresolved imports, no props a component does not take.
+
+Keep it to the few pages the brief actually needs — usually one, at most ${MAX_PAGES}. Write warm,
+specific copy for the business in the brief; never lorem ipsum, never a placeholder image URL.
+
+## The page to imitate
+
+This is a real, compiling page written against services(display) + appointments(collect). It is
+the shape to copy — every rule above is visible in it.
+
+${REFERENCE_PAGE}`;
+
+export const SITE_PAGES_TOOL = {
+  name: "write_pages",
+  description: "Write the route files for the site.",
+  input_schema: {
+    type: "object",
+    properties: {
+      pages: {
+        type: "array",
+        description: "One entry per route file. Must include index.tsx.",
+        items: {
+          type: "object",
+          properties: {
+            path: {
+              type: "string",
+              description: 'Path under src/routes/, e.g. "index.tsx" or "menu.tsx". No leading directories.',
+            },
+            source: { type: "string", description: "The complete .tsx source for that route file." },
+          },
+          required: ["path", "source"],
+        },
+      },
+      notes: {
+        type: "string",
+        description: "Anything the brief asked for that was left out, and why. Empty if nothing was.",
+      },
+    },
+    required: ["pages"],
+  },
+};
+
+const ACCESS_NOTE = {
+  display: "visitors READ it. List it, show it, search it. Writing to it returns 403.",
+  collect: "visitors WRITE to it. Submit a form. Reading it returns 403 — never list these rows.",
+  user: "needs a visitor login, which does not exist yet. Leave it out of the site.",
+  feed: "needs a visitor login, which does not exist yet. Leave it out of the site.",
+  admin: "needs a visitor login, which does not exist yet. Leave it out of the site.",
+};
+
+/** The tables, exactly as they exist, in the least ambiguous form we can put them. */
+export function schemaDigest(spec) {
+  const tables = (spec && Array.isArray(spec.tables) ? spec.tables : []).filter((t) => t && t.name);
+  if (!tables.length) return "(the schema declares no tables)";
+  return tables.map((t) => {
+    const access = String(t.access || "collect").toLowerCase();
+    const cols = (t.columns || []).filter((c) => c && c.name);
+    const described = cols.map((c) => {
+      const bits = [String(c.type || "text").toLowerCase()];
+      if (c.notnull) bits.push("required");
+      if (c.ref) bits.push("names a row in " + c.ref);
+      return c.name + " (" + bits.join(", ") + ")";
+    });
+    const lines = [
+      "TABLE " + t.name + " — access \"" + access + "\": " + (ACCESS_NOTE[access] || ACCESS_NOTE.collect),
+      "  columns: " + (described.length ? described.join(" · ") : "(none)"),
+    ];
+    if (access === "display") {
+      lines.push("  order / filter by: " + cols.map((c) => c.name).concat("id").join(", "));
+      lines.push("  full-text search: " + (t.fts ? "yes — pass { q } to useRows" : "no — do not pass q"));
+    }
+    return lines.join("\n");
+  }).join("\n\n");
+}
+
+/**
+ * The user turn: what to build, and what already exists to build it against.
+ * The brand is the name the schema designer settled on, and it is already in the
+ * published page's <title> — passing it here keeps the heading from disagreeing
+ * with the browser tab.
+ */
+export function pagesPrompt(brief, spec, brand) {
+  const name = String(brand || "").trim();
+  return "Build the pages for this site.\n\nBRIEF\n" + String(brief || "").trim() +
+    (name ? "\n\nTHE SITE IS CALLED\n" + name + " — use it as the heading; it is already the page title." : "") +
+    "\n\nTHE SCHEMA THAT EXISTS\n" + schemaDigest(spec);
+}
+
+// A route path the container will accept: under src/routes, .tsx, no traversal,
+// and not one of the files the template or the router owns. Checked on the name
+// as written, BEFORE any extension is normalised — otherwise "routeTree.gen.ts"
+// slips through as "routeTree.gen.tsx".
+const RESERVED = /(^|\/)(__root|routeTree\.gen|readme)\b/i;
+const SAFE_PATH = /^[a-z0-9_$][a-z0-9._$-]*(\/[a-z0-9._$-]+)*\.tsx$/i;
+
+function cleanPath(raw) {
+  let p = String(raw || "").trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
+  p = p.replace(/^(?:src\/)?routes\//, "");
+  if (!p || p.includes("..") || RESERVED.test(p)) return null;
+  if (!/\.[a-z]+$/i.test(p)) p += ".tsx";
+  if (p.endsWith(".ts")) p = p.slice(0, -3) + ".tsx";
+  return SAFE_PATH.test(p) ? p : null;
+}
+
+/**
+ * Structural check on the tool's output: real paths, real source, an index.
+ * Returns the files worth trying to compile plus everything wrong with them.
+ */
+export function validatePages(input) {
+  const problems = [];
+  const pages = [];
+  const seen = new Set();
+  const raw = (input && Array.isArray(input.pages)) ? input.pages : [];
+  if (raw.length > MAX_PAGES) problems.push("More than " + MAX_PAGES + " pages were written; only the first " + MAX_PAGES + " were kept.");
+  for (const p of raw.slice(0, MAX_PAGES)) {
+    const source = p && typeof p.source === "string" ? p.source : "";
+    if (!source.trim()) continue;
+    const path = cleanPath(p.path);
+    if (!path) { problems.push('"' + String(p && p.path).slice(0, 60) + '" is not a route file name — use something like index.tsx or menu.tsx.'); continue; }
+    if (seen.has(path)) { problems.push(path + " was written twice; only the first was kept."); continue; }
+    if (source.length > MAX_PAGE_CHARS) { problems.push(path + " is over " + MAX_PAGE_CHARS + " characters — split it or cut it down."); continue; }
+    if (!/createFileRoute\s*\(/.test(source)) { problems.push(path + " does not export a Route — every page needs createFileRoute(...)."); continue; }
+    seen.add(path);
+    pages.push({ path, source });
+  }
+  if (pages.length && !seen.has("index.tsx")) problems.push("There is no index.tsx, so the site has no home page.");
+  const notes = (input && typeof input.notes === "string") ? input.notes.trim().slice(0, 600) : "";
+  return { pages, notes, problems };
+}
+
+// Reads the generated source for the mistakes that compile cleanly and then fail
+// at runtime — a page that 403s against its own API looks perfect until it is
+// loaded. Deliberately high-precision: every rule here is checked against the
+// schema, so a hit is always a real defect, never a style opinion.
+export function lintPages(pages, spec) {
+  const problems = [];
+  const tables = new Map();
+  for (const t of (spec && Array.isArray(spec.tables) ? spec.tables : [])) {
+    if (t && t.name) tables.set(String(t.name).toLowerCase(), t);
+  }
+  const ui = new Set(UI_COMPONENTS);
+  const say = (path, msg) => problems.push(path + ": " + msg);
+
+  for (const { path, source } of pages) {
+    // Strip comments and string literals before pattern-matching, so a rule in a
+    // doc comment is not reported as the code doing it.
+    const code = source
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
+
+    if (/\b(?:fetch|XMLHttpRequest)\s*\(/.test(code) || /\baxios\b/.test(code)) {
+      say(path, "calls fetch directly. Read with useRows and write with useCreateRow from @/lib/rows — no fetch code in a page.");
+    }
+    if (/@tanstack\/react-form/.test(code)) {
+      say(path, "imports @tanstack/react-form. shadcn's Form components only speak to react-hook-form; use useForm from react-hook-form with zodResolver.");
+    }
+    if (/\buseUpdateRow\b/.test(code)) say(path, "calls useUpdateRow, but the API refuses PATCH from a published site. Remove the edit UI.");
+    if (/\buseDeleteRow\b/.test(code)) say(path, "calls useDeleteRow, but the API refuses DELETE from a published site. Remove the delete UI.");
+
+    for (const m of code.matchAll(/from\s+"@\/components\/ui\/([a-z0-9-]+)"/gi)) {
+      if (!ui.has(m[1].toLowerCase())) say(path, 'imports "@/components/ui/' + m[1] + '", which does not exist. Available: ' + UI_COMPONENTS.join(", ") + ".");
+    }
+
+    for (const m of code.matchAll(/\buseRows\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
+      const t = tables.get(m[1].toLowerCase());
+      if (!t) say(path, 'reads table "' + m[1] + '", which the schema does not declare.');
+      else if (String(t.access).toLowerCase() !== "display") {
+        say(path, 'lists "' + m[1] + '", which is access "' + t.access + '" — reading it returns 403. Those rows are other visitors\' submissions and cannot be shown.');
+      }
+    }
+    for (const m of code.matchAll(/\buseRow\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
+      const t = tables.get(m[1].toLowerCase());
+      if (t && String(t.access).toLowerCase() !== "display") say(path, 'reads one row of "' + m[1] + '", which is access "' + t.access + '" — reading it returns 403.');
+    }
+    for (const m of code.matchAll(/\buseCreateRow\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
+      const t = tables.get(m[1].toLowerCase());
+      if (!t) say(path, 'writes to table "' + m[1] + '", which the schema does not declare.');
+      else if (String(t.access).toLowerCase() !== "collect") {
+        say(path, 'submits to "' + m[1] + '", which is access "' + t.access + '" — writing to it returns 403.');
+      }
+    }
+  }
+  return [...new Set(problems)];
+}
+
+/** The repair turn: here is what you wrote, here is what is wrong, write it again. */
+export function repairPrompt(brief, spec, pages, problems, brand) {
+  const files = pages.map((p) => "=== src/routes/" + p.path + " ===\n" + p.source).join("\n\n");
+  return "The pages you wrote did not work. Fix them and return the COMPLETE set of route files again — " +
+    "every file, not a patch.\n\nWHAT IS WRONG\n" +
+    problems.map((p) => "- " + p).join("\n") +
+    "\n\nWHAT YOU WROTE\n" + files.slice(0, 60000) +
+    "\n\n" + pagesPrompt(brief, spec, brand);
+}

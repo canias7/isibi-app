@@ -1,0 +1,41 @@
+# The page generator's definition of done, made repeatable. Runs the site
+# build-service against a page in the shape the generator is told to emit and
+# asserts `tsc --noEmit` is clean and `vite build` produces a publishable dist —
+# and that a page with a type error is REFUSED rather than bundled.
+#
+# Costs nothing: no model call, no container, no Neon project. Runs on changes to
+# the generator, the template or the build service.
+name: site build
+
+on:
+  push:
+    paths:
+      - 'builder/**'
+      - 'test/integration/site-build.mjs'
+      - 'test/page-gen.test.mjs'
+      - '.github/workflows/site-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: builder/lovable/template/package-lock.json
+
+      # The generator's rules, tool schema and output checks — no install needed.
+      - run: node --test "test/page-gen.test.mjs"
+
+      # The same dependency set the container image bakes, from the same lockfile.
+      - run: npm ci --no-audit --no-fund --loglevel=error
+        working-directory: builder/lovable/template
+
+      - run: node test/integration/site-build.mjs

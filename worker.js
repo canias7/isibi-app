@@ -6,6 +6,9 @@ import { Container, getContainer } from "@cloudflare/containers";
 import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent } from "./site-schema.mjs";
 import { handleSiteData } from "./site-data.mjs";
+// The page generator's rules, tool schema and deterministic checks. Plain module
+// so it can be tested outside the Worker — see test/page-gen.test.mjs.
+import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, repairPrompt, validatePages, lintPages } from "./builder/page-gen.mjs";
 import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis, eoqCalc, breakevenCalc, demandForecast, installmentPlan, taxCalc, commissionCalc } from "./worker-finance.mjs";
 // Game builder (Phase 3): same generate→build→publish pipeline, engine swapped for
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
@@ -16,6 +19,14 @@ import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GA
 export class GameBuildContainer extends Container {
   defaultPort = 8080;
   sleepAfter = "3m";
+}
+
+// Site build-service container. The image (./builder/Dockerfile) bakes the React
+// template and its dependencies, so a per-site build is only `tsr generate` →
+// `tsc --noEmit` → `vite build`. Runs to zero after idle, same as the game one.
+export class SiteBuildContainer extends Container {
+  defaultPort = 8080;
+  sleepAfter = "5m";
 }
 
 const VIDEO_MODELS = new Set([
@@ -2569,6 +2580,65 @@ async function designSiteSchema(env, brief) {
   return (use && use.input) || null;
 }
 
+// Page generation is a much bigger call than the schema design — whole .tsx files
+// rather than a handful of column names — so it is metered on what it actually
+// used, like the game builder, instead of a flat fee sized for the worst case.
+//
+// Sized above what the pages themselves need: Sonnet 5 runs adaptive thinking
+// when `thinking` is omitted, and max_tokens caps thinking AND the response
+// together — so a budget tight around the files would spend part of itself
+// reasoning and truncate the last one. (Truncation is caught below rather than
+// published, but a truncated generation is a paid call that produced nothing.)
+const SITE_PAGES_MAX_TOKENS = 24000;
+const SITE_PAGES_RATE_IN = 3e-6, SITE_PAGES_RATE_OUT = 15e-6;
+// Don't start a call the caller plainly cannot pay for. Deliberately a floor and
+// not the worst case (~45 credits at the ceiling above): a new account is granted
+// 20, and gating on the maximum would mean nobody ever got a page on their first
+// build. A typical small site spends 10-20.
+const SITE_PAGES_MIN_CREDITS = 8;
+const sitePageCredits = (i, o) => Math.max(1, Math.ceil((i * SITE_PAGES_RATE_IN + o * SITE_PAGES_RATE_OUT) / 0.008));
+
+// The pages themselves. Same tool-use shape as designSiteSchema directly above:
+// the model fills in a tool whose input_schema IS the return type, so there is no
+// prose to parse and no half-written file to repair out of a reply.
+//
+// The schema designed above is this step's INPUT, not something it may extend —
+// a page can only read a table that already exists in the database, at the access
+// level the database actually granted it.
+//
+// `fix` turns this into the repair pass: same rules, same tool, but the user turn
+// carries what was written last time and everything wrong with it.
+async function generateSitePages(env, brief, spec, brand, fix) {
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-5",
+      max_tokens: SITE_PAGES_MAX_TOKENS,
+      tools: [SITE_PAGES_TOOL],
+      tool_choice: { type: "tool", name: "write_pages" },
+      system: PAGE_RULES,
+      messages: [{ role: "user", content: fix ? repairPrompt(brief, spec, fix.pages, fix.problems, brand) : pagesPrompt(brief, spec, brand) }],
+    }),
+    signal: AbortSignal.timeout(240000),
+  });
+  if (!r.ok) {
+    const e = new Error("anthropic " + r.status);
+    e.status = r.status;
+    e.detail = (await r.text().catch(() => "")).slice(0, 300);
+    throw e;
+  }
+  const j = await r.json();
+  const usage = j.usage || {};
+  const used = { usedIn: usage.input_tokens || 0, usedOut: usage.output_tokens || 0 };
+  // A tool_use block cut off at max_tokens carries half-written JSON, which parses
+  // into a page whose last file is truncated. Treat it as a failed generation
+  // rather than shipping a file that ends mid-expression.
+  if (j.stop_reason === "max_tokens") return { input: null, truncated: true, ...used };
+  const use = (Array.isArray(j.content) ? j.content : []).find((b) => b && b.type === "tool_use");
+  return { input: (use && use.input) || null, ...used };
+}
+
 // Placeholder published page. Deliberately plain: it reports what was actually
 // created so a build is verifiable end to end before page generation exists.
 function schemaPlaceholderPage(brand, spec) {
@@ -2667,6 +2737,117 @@ async function writeGameDistToR2(env, slug, dist) {
     else continue;
     await env.SITES_BUCKET.put("games/" + slug + "/" + safeRel, bodyOut, { httpMetadata: { contentType: ct } });
   }
+}
+
+// Publish a compiled site. The prefix is wiped first: vite hashes its asset file
+// names, so without this every rebuild would leave the previous build's JS and CSS
+// behind forever. Same {t}/{b} envelope the build service returns for the games.
+async function writeSiteDistToR2(env, slug, dist) {
+  try { const old = await env.SITES_BUCKET.list({ prefix: "sites/" + slug + "/" }); for (const o of (old.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
+  for (const [rel, v] of Object.entries(dist || {})) {
+    const safeRel = String(rel).replace(/[^a-z0-9/._-]/gi, "-");
+    const ext = (safeRel.match(/\.([a-z0-9]{1,8})$/i) || [])[1] || "";
+    const ct = R2_MIME[ext.toLowerCase()] || "application/octet-stream";
+    let bodyOut;
+    if (v && typeof v.t === "string") bodyOut = v.t;
+    else if (v && typeof v.b === "string") { const bin = atob(v.b); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); bodyOut = u8; }
+    else continue;
+    await env.SITES_BUCKET.put("sites/" + slug + "/" + safeRel, bodyOut, { httpMetadata: { contentType: ct } });
+  }
+}
+
+const buildFailureLine = (bd) =>
+  (bd && bd.stage === "typecheck" ? "TypeScript rejected the pages:\n" : "The build failed:\n") +
+  String((bd && bd.error) || "unknown build failure").slice(0, 4000);
+
+// brief + schema → route files → `tsc --noEmit` + `vite build` in the container →
+// the dist published to sites/<slug>/.
+//
+// Every step here is best-effort by design. It runs AFTER the database has been
+// provisioned and the schema applied, so a generator or compiler failure still
+// leaves the caller with a working backend and the placeholder page — a build
+// that half-worked, not a build that was lost. Returns what actually landed.
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth }) {
+  const out = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
+
+  let balance = 0;
+  try { balance = await readCredits(auth); } catch { balance = 0; }
+  if (!(balance >= SITE_PAGES_MIN_CREDITS)) {
+    out.notes = "Your database is live, but there weren't enough credits left to write the pages.";
+    return out;
+  }
+
+  const charge = async (g) => {
+    const c = sitePageCredits(g.usedIn, g.usedOut);
+    out.cost += c;
+    try { await useCredits(auth, c); } catch {}
+  };
+
+  const compile = async (pages) => {
+    const files = {};
+    for (const p of pages) files[p.path] = p.source;
+    const t0 = Date.now();
+    let bd;
+    try {
+      const c = getContainer(env.SITE_BUILD_CONTAINER);
+      const r = await c.fetch(new Request("http://build/build", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ files, slug, title: brand }),
+      }));
+      bd = await r.json().catch(() => ({ ok: false, stage: "build", error: "the build service returned no JSON" }));
+    } catch (e) {
+      bd = { ok: false, stage: "build", error: "the build service is unreachable: " + String((e && e.message) || e).slice(0, 200) };
+    }
+    out.buildMs = Date.now() - t0;
+    return bd;
+  };
+
+  const gen = await generateSitePages(env, brief, spec, brand);
+  await charge(gen);
+  let v = validatePages(gen.input);
+  if (!v.pages.length) {
+    out.notes = gen.truncated
+      ? "The pages came out longer than one pass allows — try a simpler brief."
+      : "The generator didn't produce a usable page.";
+    return out;
+  }
+  let problems = v.problems.concat(lintPages(v.pages, spec));
+  let built = await compile(v.pages);
+
+  // One repair pass, on a compile failure OR on a lint problem. Both matter: a
+  // page that lists a `collect` table typechecks, bundles, and then 403s the
+  // moment a visitor opens it, which is the failure nobody sees before shipping.
+  if (!built.ok || problems.length) {
+    const why = (built.ok ? [] : [buildFailureLine(built)]).concat(problems);
+    let retry = null;
+    try { retry = await generateSitePages(env, brief, spec, brand, { pages: v.pages, problems: why }); }
+    catch (e) { console.error("page repair failed:", slug, (e && (e.detail || e.message))); }
+    if (retry) {
+      await charge(retry);
+      const v2 = validatePages(retry.input);
+      if (v2.pages.length) {
+        const p2 = v2.problems.concat(lintPages(v2.pages, spec));
+        const b2 = await compile(v2.pages);
+        // Only keep the retry when it is actually better — it compiles where the
+        // first did not, or it compiles with fewer problems left in it.
+        if (b2.ok && (!built.ok || p2.length < problems.length)) { v = v2; problems = p2; built = b2; }
+      }
+    }
+  }
+
+  out.files = v.pages.map((p) => "src/routes/" + p.path);
+  out.problems = problems;
+  out.notes = v.notes;
+  if (!built.ok) {
+    console.error("site page build failed:", slug, built.stage, String(built.error || "").slice(0, 400));
+    out.notes = [v.notes, "The pages didn't compile, so the site is showing its data model for now — send it again to retry."].filter(Boolean).join(" ");
+    return out;
+  }
+
+  await writeSiteDistToR2(env, slug, built.files);
+  out.page = "app";
+  return out;
 }
 
 // Cheap, high-precision defect scan on a generated page — no JS execution, so it
@@ -4891,23 +5072,51 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ ok: false, error: "could not apply the schema", detail: String(e && (e.detail || e.message)).slice(0, 300) }, { status: 502 });
       }
 
-      // Publish something real at /s/<slug>/ so the preview is not a 404 while
-      // page generation is still being built.
+      // Write the site's pages against the schema that was just created, compile
+      // them, and publish the dist. The database is already live at this point, so
+      // this stage cannot fail the build — it either publishes the real app or
+      // falls through to the placeholder below.
       const brand = String((designed && designed.brand) || body.brand || slug).slice(0, 60);
-      try {
-        if (env.SITES_BUCKET) {
-          await env.SITES_BUCKET.put("sites/" + slug + "/index.html", schemaPlaceholderPage(brand, spec), {
-            httpMetadata: { contentType: "text/html; charset=utf-8" },
-          });
+      let pages = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
+      if (brief && env.SITE_BUILD_CONTAINER && env.SITES_BUCKET) {
+        try {
+          pages = await buildAndPublishPages(env, { brief, spec, slug, brand, auth: request.headers.get("Authorization") || "" });
+        } catch (e) {
+          console.error("page generation failed:", slug, (e && (e.detail || e.message)));
+          pages.notes = "Your database is live, but writing the pages didn't work this time — send it again to retry.";
         }
-      } catch (e) { console.error("placeholder publish failed:", slug, e && e.message); }
+      }
+
+      // Publish something real at /s/<slug>/ so the preview is never a 404: if the
+      // pages didn't land, the placeholder still reports the model that did.
+      //
+      // Only when nothing is published there yet, though. This route is also the
+      // revise path, and a revise whose pages fail to compile must leave the site
+      // that IS working alone — replacing it with the placeholder would take down
+      // a live site to report a failure the response already reports.
+      if (pages.page !== "app" && env.SITES_BUCKET) {
+        try {
+          const live = await env.SITES_BUCKET.head("sites/" + slug + "/index.html");
+          if (!live) {
+            await env.SITES_BUCKET.put("sites/" + slug + "/index.html", schemaPlaceholderPage(brand, spec), {
+              httpMetadata: { contentType: "text/html; charset=utf-8" },
+            });
+          }
+        } catch (e) { console.error("placeholder publish failed:", slug, e && e.message); }
+      }
 
       // `schema` reports the access level chosen per table. It is what makes a
       // build verifiable from outside: a menu must come back `display` and an
       // enquiry form `collect`, and getting that wrong silently is exactly the
-      // bug that shipped on 2026-07-27.
+      // bug that shipped on 2026-07-27. `page` says which of the two things is
+      // actually being served, so a fallback is never mistaken for a built site.
       const levels = (spec.tables || []).map((t) => ({ name: t.name, access: t.access }));
-      return Response.json({ ok: true, slug, url: "/s/" + slug + "/", backend: true, brand, tables: made, schema: levels });
+      return Response.json({
+        ok: true, slug, url: "/s/" + slug + "/", backend: true, brand, tables: made, schema: levels,
+        page: pages.page, files: pages.files, notes: pages.notes || undefined,
+        problems: pages.problems.length ? pages.problems : undefined,
+        cost: (designed ? SITE_BUILD_FEE : 0) + pages.cost, buildMs: pages.buildMs || undefined,
+      });
     }
 
     // Sonnet 5 director: chats, reads intent (rerun/revise/new), writes prompts.
