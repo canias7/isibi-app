@@ -30,8 +30,25 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
   // path: a cached connection string for a slug another isolate has since
   // deleted would send a schema apply at a dropped database. A build takes tens
   // of seconds, so one uncached lookup here costs nothing worth having.
+  // `lookupSite` returns {conn, uid} so ownership is decided HERE, not only by
+  // whatever the caller checked first. The route's own check is wrapped in a
+  // try/catch and used to fail OPEN, so a Supabase hiccup during someone's build
+  // let them adopt an existing slug: the lookup handed back the current owner's
+  // connection and the schema apply, the seed and the publish all went at
+  // another user's site. Ownership belongs in the layer that returns the
+  // connection.
   const existing = await deps.lookupSite(slug);
-  if (existing) return existing;
+  if (existing && existing.conn) {
+    if (existing.uid && existing.uid !== uid) {
+      throw Object.assign(new Error("that name is taken"), { stage: "owner", conflict: true });
+    }
+    return existing.conn;
+  }
+  // Exists but with no usable connection recorded, owned by someone else: still
+  // not ours to build over.
+  if (existing && existing.uid && existing.uid !== uid) {
+    throw Object.assign(new Error("that name is taken"), { stage: "owner", conflict: true });
+  }
 
   let proj = await deps.lookupProject(uid);
   if (!proj) {

@@ -9817,3 +9817,60 @@ Cloudflare token, which lives in Actions secrets. Until the binding exists `env.
 undefined and everything runs exactly as it does today, which is why this was safe to merge first.
 
 15 tests. Unit suite **215**.
+
+## 2026-07-28 — walking every outcome of the site builder
+
+Went through every branch the build route can take. Two real bugs, one of them the most serious thing
+found all day.
+
+### 1. The ownership check failed OPEN — a cross-account write
+
+```js
+try {
+  const g = await fetch(`.../site_backends?slug=eq.${slug}&select=uid`);
+  const rows = await g.json().catch(() => []);
+  if (rows[0] && rows[0].uid !== bu.id) return 409;
+} catch {}                      // ← swallowed
+```
+
+One Supabase timeout, or any non-200 from that call, turned **"I cannot tell who owns this slug"**
+into **"nobody does"**. The build then carried on, and `ensureSiteBackend` handed back the CURRENT
+owner's connection string — so the schema apply, the seeded rows and the published pages all landed on
+**another user's database and their R2 prefix**. A public site taken over by name, triggered by a
+network blip.
+
+Fixed in two places, because the consequence is a cross-account write:
+
+- the route's own check now **fails closed** (503 "couldn't check that name just now") instead of
+  swallowing
+- **ownership moved into the layer that returns the connection.** `lookupSite` now returns
+  `{conn, uid}` and `ensureSiteBackend` refuses a slug owned by someone else — including one that is
+  claimed but has no connection recorded yet, which is a half-finished build by another user and
+  would otherwise have let `saveBackend`'s upsert overwrite their ownership row. Same user with the
+  same half-finished state still completes, so a retried build is not locked out of its own slug.
+
+### 2. A revise gutted the site
+
+A revise sends `{slug, instruction}`, and the instruction alone is all the schema designer sees. So
+`spec` came back holding **only the tables that instruction mentioned** — "add a gallery" produced a
+one-table spec — and the page generator then rewrote the entire site knowing only that. A working
+barber shop would come back as a page listing a gallery and nothing else.
+
+The database was fine: `applySiteSchema` merges into `_meta`, so a revise cannot drop a table. (That
+merge only started working this morning — it was throwing a ReferenceError into a bare catch on every
+apply. Turns out it mattered more than I thought.) The pages were the casualty.
+
+Now the merged schema is read back after the apply and the pages are generated against **everything
+the site has**. The remaining limitation, stated plainly: the original brief is not stored anywhere,
+so a revise still only has the instruction as prose context. The schema is the important half — the
+generator writes pages from it — but "add a gallery" is a thinner prompt than the first build got.
+**Storing the brief on `site_backends` would fix that properly.**
+
+### Checked and fine
+
+`SITE_BUILD_FEE` is 2 and `credit_back` caps at 10, so the refund path works. Credits are charged
+before the design call and refunded on both failure paths. The 501s for missing config come before any
+spend. Seeding is non-fatal. The placeholder only publishes when nothing is live at that slug, so a
+failed revise leaves a working site alone.
+
+3 mutations, all caught. Unit suite **220**.

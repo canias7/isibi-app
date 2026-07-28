@@ -44,10 +44,43 @@ function harness(over = {}) {
 const run = (deps, slug = "cafe", uid = "u1") => ensureSiteBackend(deps, { slug, uid });
 
 test("an existing site is reused, nothing is provisioned", async () => {
-  const { deps, calls } = harness({ lookupSite: async () => "postgres://u:p@h/site_cafe" });
+  const { deps, calls } = harness({ lookupSite: async () => ({ conn: "postgres://u:p@h/site_cafe", uid: "u1" }) });
   assert.equal(await run(deps), "postgres://u:p@h/site_cafe");
   assert.equal(calls.createProject, 0);
   assert.deepEqual(calls.createDatabase, [], "a rebuild must not re-provision");
+});
+
+// -------------------------------------------------- the cross-account write
+
+test("someone else's slug is refused, not adopted", async () => {
+  // The route's own ownership check was wrapped in `catch {}` and failed OPEN,
+  // so one Supabase timeout during a build let the caller take over an existing
+  // site: the lookup handed back the CURRENT owner's connection and the schema
+  // apply, the seed and the publish all landed on their database and their R2
+  // prefix. Ownership belongs in the layer that returns the connection.
+  const { deps, calls } = harness({ lookupSite: async () => ({ conn: "postgres://u:p@h/site_cafe", uid: "someone-else" }) });
+  const e = await run(deps).catch((x) => x);
+  assert.match(String(e.message), /that name is taken/);
+  assert.equal(e.conflict, true, "the route turns this into a 409, not a 502");
+  assert.deepEqual(calls.createDatabase, [], "nothing may be written to another account's site");
+  assert.deepEqual(calls.saveBackend, [], "and their ownership row must not be overwritten");
+});
+
+test("a claimed slug with no connection recorded is still not ours", async () => {
+  // A half-finished build by another user leaves the row without a usable
+  // connection. Treating that as free would let the slug be stolen mid-build —
+  // and saveBackend upserts, so it would overwrite their ownership row.
+  const { deps, calls } = harness({ lookupSite: async () => ({ conn: null, uid: "someone-else" }) });
+  await assert.rejects(run(deps), /that name is taken/);
+  assert.deepEqual(calls.saveBackend, []);
+});
+
+test("a claimed slug with no connection IS ours to finish", async () => {
+  // Same shape, same user: a retried build after a failed provision must be
+  // able to complete rather than being locked out of its own slug.
+  const { deps, calls } = harness({ lookupSite: async () => ({ conn: null, uid: "u1" }) });
+  assert.equal(await run(deps), "postgres://u:p@h/site_cafe");
+  assert.deepEqual(calls.createDatabase, ["cafe"]);
 });
 
 test("a user with a project gets only a new database", async () => {

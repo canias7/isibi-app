@@ -2726,12 +2726,23 @@ async function siteBackendBySlug(env, slug) { return _resolveBackend(slug, env);
 // An uncached slug lookup. siteBackendBySlug caches for five minutes, which is
 // right on the request path and wrong here — see site-provision.mjs.
 async function siteBackendBySlugFresh(env, slug) {
-  const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=neon_db,uid`, { headers: svcHeaders(env) });
-  const rows = await g.json().catch(() => []);
+  const r = await siteBackendRowFresh(env, slug);
+  return (r && r.conn) || null;
+}
+
+// The same lookup, keeping the OWNER. Everything that writes needs this: a
+// connection string alone cannot answer "is this site mine?". Throws rather
+// than returning null when the lookup itself fails, so a caller cannot mistake
+// "Supabase is down" for "nobody owns this slug".
+async function siteBackendRowFresh(env, slug) {
+  const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=neon_db,uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
+  if (!g.ok) throw Object.assign(new Error("site lookup failed"), { detail: g.status + " " + (await g.text().catch(() => "")).slice(0, 200) });
+  const rows = await g.json();
   const row = Array.isArray(rows) && rows[0];
-  if (!row || !row.neon_db) return null;
+  if (!row) return null;
+  if (!row.neon_db) return { conn: null, uid: row.uid };
   const proj = await userSiteProject(env, row.uid);
-  return proj ? connForDatabase(proj.neon_conn, row.neon_db) : null;
+  return { conn: proj ? connForDatabase(proj.neon_conn, row.neon_db) : null, uid: row.uid };
 }
 
 // Provision (or reuse) one site's database, returning its connection string.
@@ -2750,7 +2761,7 @@ async function ensureSiteBackend(env, slug, uid) {
     return r.ok ? { ok: true } : { ok: false, detail: (await r.text().catch(() => "")).slice(0, 300) };
   };
   const conn = await ensureSiteBackendPure({
-    lookupSite: (s2) => siteBackendBySlugFresh(env, s2),
+    lookupSite: (s2) => siteBackendRowFresh(env, s2),
     lookupProject: (u) => userSiteProject(env, u),
     createProject: (u) => createUserProject(env, u),
     dropProject: async (id) => {
@@ -4975,13 +4986,20 @@ async function handleRequest(request, env, ctx) {
 
       // A site's slug is claimed by whoever built it first; a second user cannot
       // publish over someone else's site by guessing the name.
+      // Fails CLOSED. This was `catch {}`, so a Supabase timeout turned "I cannot
+      // tell who owns this" into "nobody does" — and the build went on to apply
+      // its schema, seed rows and publish pages over an existing owner's site.
+      // (ensureSiteBackend now enforces this too; belt and braces, because the
+      // consequence is a cross-account write.)
       try {
-        const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=uid`, { headers: svcHeaders(env) });
-        const rows = await g.json().catch(() => []);
-        if (Array.isArray(rows) && rows[0] && rows[0].uid !== bu.id) {
+        const owner = await siteBackendRowFresh(env, slug);
+        if (owner && owner.uid && owner.uid !== bu.id) {
           return Response.json({ ok: false, error: "that name is taken" }, { status: 409 });
         }
-      } catch {}
+      } catch (e) {
+        console.error("ownership check failed:", slug, e && (e.detail || e.message));
+        return Response.json({ ok: false, msg: "Couldn't check that name just now — try again in a moment." }, { status: 503 });
+      }
 
       const spec = normalizeSchema(body.schema || designed || {});
       if (!spec.tables.length) return Response.json({ ok: false, error: "schema declares no tables" }, { status: 400 });
@@ -4990,6 +5008,7 @@ async function handleRequest(request, env, ctx) {
       try {
         db = await ensureSiteBackend(env, slug, bu.id);
       } catch (e) {
+        if (e && e.conflict) return Response.json({ ok: false, error: "that name is taken" }, { status: 409 });
         console.error("site provision failed:", slug, e && (e.detail || e.message));
         return Response.json({ ok: false, error: "could not provision the database", detail: String(e && (e.detail || e.message)).slice(0, 300) }, { status: 502 });
       }
@@ -5018,10 +5037,27 @@ async function handleRequest(request, env, ctx) {
       // this stage cannot fail the build — it either publishes the real app or
       // falls through to the placeholder below.
       const brand = String((designed && designed.brand) || body.brand || slug).slice(0, 60);
+
+      // Pages are generated against every table the site HAS, not just the ones
+      // this request designed.
+      //
+      // A revise sends {slug, instruction}, and the instruction alone is what
+      // the schema designer sees — so `spec` holds only the tables that
+      // instruction mentioned. "Add a gallery" produced a spec of exactly one
+      // table, and the generator then rewrote the whole site knowing only that:
+      // a working barber shop came back as a page listing a gallery and nothing
+      // else. applySiteSchema already MERGES into _meta (a revise cannot drop a
+      // table), so the merged spec is the real picture — read it back and use it.
+      let pageSpec = spec;
+      try {
+        const merged = await loadSiteSchema(db);
+        if (merged && Array.isArray(merged.tables) && merged.tables.length >= spec.tables.length) pageSpec = merged;
+      } catch (e) { console.error("merged schema read failed:", slug, e && e.message); }
+
       let pages = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
       if (brief && env.SITE_BUILD_CONTAINER && env.SITES_BUCKET) {
         try {
-          pages = await buildAndPublishPages(env, { brief, spec, slug, brand, auth: request.headers.get("Authorization") || "" });
+          pages = await buildAndPublishPages(env, { brief, spec: pageSpec, slug, brand, auth: request.headers.get("Authorization") || "" });
         } catch (e) {
           console.error("page generation failed:", slug, (e && (e.detail || e.message)));
           pages.notes = "Your database is live, but writing the pages didn't work this time — send it again to retry.";
@@ -5051,7 +5087,7 @@ async function handleRequest(request, env, ctx) {
       // enquiry form `collect`, and getting that wrong silently is exactly the
       // bug that shipped on 2026-07-27. `page` says which of the two things is
       // actually being served, so a fallback is never mistaken for a built site.
-      const levels = (spec.tables || []).map((t) => ({ name: t.name, access: t.access }));
+      const levels = (pageSpec.tables || spec.tables || []).map((t) => ({ name: t.name, access: t.access }));
       return Response.json({
         ok: true, slug, url: "/s/" + slug + "/", backend: true, brand, tables: made, schema: levels,
         // Rows per display table. An empty object means the site published with
