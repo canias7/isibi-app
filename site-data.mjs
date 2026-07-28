@@ -32,6 +32,7 @@ import { isManagedColumn, canReadAccess, canWriteAccess, needsMember } from "./s
 import { limitFor, bucketKey, tooMany } from "./rate-limit.mjs";
 import { constraintError } from "./site-errors.mjs";
 import { readJsonBody, clampFields, MAX_JSON_BODY } from "./request-limits.mjs";
+import { handleClaim, claimable, CLAIM_PARAM } from "./site-claim.mjs";
 
 const MAX_LIMIT = 100;
 const MAX_BODY_KEYS = 60;
@@ -142,6 +143,32 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
       const t = tooMany(verdict);
       return json(t.body, t.status, t.headers);
     }
+  }
+
+  // Someone coming back to their own submission, holding the token that was
+  // handed to them when they made it.
+  //
+  // Placed here for the same reason the public projection is placed above the
+  // gate: escaping the gate — narrowly, for one row, for the person who wrote it
+  // — is the entire purpose. Everything protective still runs first. It is after
+  // the rate limit, so guessing tokens is throttled like any other traffic, and
+  // after the schema, so the table is one the site actually declared.
+  const claimToken = url.searchParams.get(CLAIM_PARAM);
+  if (claimToken && rowId !== undefined) {
+    // Without the wiring there is no way to check a signature, and an unchecked
+    // claim must never be honoured. Same 404 as a bad one.
+    if (!deps.claim) return json({ error: "no such row" }, 404);
+    const r = await handleClaim({
+      verify: (tok, table, id) => deps.claim.verify(slug, tok, table, id),
+      selectRow: async (table, id) => {
+        const rows = await sqlQuery(db, "SELECT * FROM " + sqlIdent(table) + " WHERE id=?", [id]);
+        return rows[0] || null;
+      },
+      cancelRow: (table, id) => (def.trash
+        ? sqlExec(db, "UPDATE " + sqlIdent(table) + ' SET "deleted_at"=to_char(now() AT TIME ZONE \'UTC\',\'YYYY-MM-DD HH24:MI:SS\') WHERE id=? AND "deleted_at" IS NULL', [id])
+        : sqlExec(db, "DELETE FROM " + sqlIdent(table) + " WHERE id=?", [id])),
+    }, { def, id: rowId, token: claimToken, method: request.method });
+    return json(r.body, r.status);
   }
 
   // Per-level gate.
@@ -268,7 +295,18 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
         try { deps.onSubmit({ slug, table: def.name, access, method: request.method, row: rows[0] || {} }); }
         catch (e) { console.error("notify hook failed:", slug, (e && e.message) || e); }
       }
-      return json({ row: rows[0] || null }, 201);
+      // Hand back the claim, which is the only time it is ever issued. This is
+      // what makes the row reachable by the person who wrote it — the link in
+      // their confirmation, the "manage your booking" button on the thank-you
+      // page. Best-effort by construction: a booking that succeeded must not be
+      // reported as failed because a signature could not be produced.
+      const created = rows[0] || null;
+      let claim = null;
+      if (deps.claim && claimable(def) && created && created.id != null) {
+        try { claim = await deps.claim.sign(slug, def.name, created.id); }
+        catch (e) { console.error("claim mint failed:", slug, def.name, (e && e.message) || e); }
+      }
+      return json(claim ? { row: created, claim } : { row: created }, 201);
     }
 
     if (request.method === "PATCH") {

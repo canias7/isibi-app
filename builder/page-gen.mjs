@@ -317,6 +317,18 @@ or an access level — anything not in the schema below does not exist.
    columns the schema chose to publish, never a name or an email. If the table declares no
    public view, do not call it — there is nothing to read and the answer is a 404.
 
+10. GIVE THE VISITOR THEIR SUBMISSION BACK. A successful \`useCreateRow\` on a \`collect\`
+    table returns \`{ row, claim }\`. That \`claim\` is a signed token for THAT ONE row and
+    it is issued exactly once — if the page drops it, nobody can ever reach that booking
+    again except the site owner. On the confirmation screen, show a link to a manage page
+    carrying it: \`/manage?id=\${row.id}&claim=\${claim}\`. That page reads the two values
+    off the URL and calls \`useClaimedRow(table, id, claim)\` to show the booking and
+    \`useCancelClaim(table)\` to cancel it. Build the manage page whenever you build a
+    form on a \`collect\` table that represents an appointment, an order or a reservation
+    — anything a person would reasonably want to check or call off. Do not build it for a
+    plain contact form, which nobody comes back to. Never try to list a \`collect\` table:
+    the claim opens one row, and only for the person who wrote it.
+
 ## Reading rows
 
 \`useRows<T>(table, params)\` → a TanStack Query result whose \`.data\` is the rows.

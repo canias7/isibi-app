@@ -13,7 +13,7 @@ import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { injectMeta } from "./site-meta.mjs";
-import { sessionKey, verifySession } from "./site-auth.mjs";
+import { sessionKey, verifySession, signClaim, verifyClaim } from "./site-auth.mjs";
 import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
 import { handleSiteData } from "./site-data.mjs";
@@ -2949,6 +2949,19 @@ const VISITOR_UPLOADS_PER_MIN = 5;
 // Read through to the row rather than trusting the token: a session is good for
 // thirty days, so a member whose account was deleted — or whose role was taken
 // away — would otherwise keep the access their token was minted with.
+// The signing key for claim tokens — the SAME per-site secret sessions use.
+//
+// Shared on purpose. A separate secret would be a second thing to provision, a
+// second thing to rotate, and a second thing to get wrong; `sessionKey` already
+// mixes the slug in, so one site's claims are meaningless against another for
+// free. The kinds stay separated inside the payload (`use`), which `verifyClaim`
+// and `verifySession` each check as an allow-list.
+async function siteClaimKey(env, slug) {
+  const db = await siteBackendBySlug(env, slug);
+  if (!db) throw new Error("no such site");
+  return sessionKey(await siteAuthSecret(db), slug);
+}
+
 async function resolveSiteVisitor(env, request, slug) {
   const bearer = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
   if (!bearer) return null;
@@ -5355,6 +5368,13 @@ async function handleRequest(request, env, ctx) {
         // _meta since the schema engine was written and never once consulted.
         rateLimit: (key, limit) => _dataLimiter.hit(key, limit),
         onSubmit: (payload) => notifyOwnerOfSubmission(env, ctx, payload),
+        // Lets the person who submitted a `collect` row come back to it. Signed
+        // with the SAME per-site secret as sessions, so a claim is contained to
+        // one site for free and rotating that secret invalidates both.
+        claim: {
+          sign: async (slug, table, id) => signClaim(await siteClaimKey(env, slug), table, id),
+          verify: async (slug, token, table, id) => verifyClaim(await siteClaimKey(env, slug), token, table, id),
+        },
       });
       if (dataRes) return dataRes;
     }

@@ -113,7 +113,12 @@ export function useCreateRow<T extends Row = Row>(table: string) {
   const invalidate = useInvalidate(table);
   return useMutation({
     mutationFn: (values: Partial<T>) =>
-      send<{ row: T }>(base(table), { method: "POST", body: JSON.stringify(values) }),
+      // `claim` comes back only for a `collect` table: a signed token for THIS
+      // row, and the only time it is ever issued. Keep it (a link, an email, the
+      // thank-you page) and the person who submitted can come back to their own
+      // submission — see useClaimedRow. Optional because no other access level
+      // mints one.
+      send<{ row: T; claim?: string }>(base(table), { method: "POST", body: JSON.stringify(values) }),
     onSuccess: invalidate,
   });
 }
@@ -279,5 +284,33 @@ export function usePublicRows<T extends Row = Row>(table: string, params?: RowQu
   return useQuery({
     queryKey: ["public", siteSlug(), table, params],
     queryFn: () => send<{ rows: T[] }>(`${base(table)}/public${qs(params)}`).then((r) => r.rows),
+  });
+}
+
+/**
+ * One submission, read back by the person who made it.
+ *
+ * A `collect` table is write-only — nobody can list it — so this is the single
+ * exception, and it opens exactly one row: the `claim` handed back by
+ * `useCreateRow` when that row was created. Put the token in the link you send
+ * ("manage your booking") and read it off the URL here. A missing, wrong, or
+ * expired token is a plain 404, the same as a row that isn't there.
+ */
+export function useClaimedRow<T extends Row = Row>(table: string, id: number | undefined, claim: string | undefined) {
+  return useQuery({
+    enabled: id !== undefined && !!claim,
+    queryKey: ["claim", siteSlug(), table, id],
+    queryFn: () =>
+      send<{ row: T }>(`${base(table)}/${id}?claim=${encodeURIComponent(claim as string)}`).then((r) => r.row),
+  });
+}
+
+/** Cancel that same submission. Safe to call twice — the second answers ok too. */
+export function useCancelClaim(table: string) {
+  const invalidate = useInvalidate(table);
+  return useMutation({
+    mutationFn: ({ id, claim }: { id: number; claim: string }) =>
+      send<{ ok: true; cancelled: true }>(`${base(table)}/${id}?claim=${encodeURIComponent(claim)}`, { method: "DELETE" }),
+    onSuccess: invalidate,
   });
 }

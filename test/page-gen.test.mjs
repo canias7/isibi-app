@@ -446,3 +446,18 @@ test("the rules tell the model how a booking page shows a taken slot", () => {
   const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
   assert.match(rows, /export function usePublicRows/, "a rule naming an export the template lacks produces code that does not compile");
 });
+
+test("the rules tell the model to hand back the claim, and the hooks exist", () => {
+  // The token is issued exactly once, in the response to the insert. A page that
+  // drops it strands that booking forever — nobody but the site owner can ever
+  // reach it again — so the model has to be told, and told what to do with it.
+  assert.match(PAGE_RULES, /claim/);
+  assert.match(PAGE_RULES, /useClaimedRow/);
+  assert.match(PAGE_RULES, /useCancelClaim/);
+  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
+  for (const fn of ["useClaimedRow", "useCancelClaim"]) {
+    assert.match(rows, new RegExp("export function " + fn), fn + " is named by the rules but missing from the template");
+  }
+  // And the type has to admit the field exists, or reading it fails `tsc`.
+  assert.match(rows, /claim\?: string/, "useCreateRow must type the claim it returns");
+});
