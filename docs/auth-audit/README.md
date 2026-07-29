@@ -1,6 +1,6 @@
 # Auth layer — production audit
 
-Run against `https://isibi.ai` · 80 passed, 2 failed.
+Run against `https://isibi.ai` · 143 passed, 11 failed.
 
 
 ## the site
@@ -8,12 +8,7 @@ Run against `https://isibi.ai` · 80 passed, 2 failed.
 - ✅ build returns 200
 - ✅ every declared table was created
 - ✅ the display table was seeded
-- ❌ a real app was published, not the placeholder — `page=placeholder stage=typecheck error=error TS6053: File '/app/src/routes/announcements.tsx' not found.
-  The file is in the program because:
-    Matched by include pattern 'src/**/*.tsx' in '/app/tsconfig.json'
-error TS6053: File '/app/src/routes/manage.tsx' not found.
-  The file is in the program because:
-    Matched by include patter notes=The pages didn't compile, so the site is showing its data model for now — send it again to retry. cost=55 files=["src/routes/index.tsx","src/routes/manage.tsx","src/routes/members.tsx","src/routes/announcements.tsx"] problems=[]`
+- ✅ a real app was published, not the placeholder
 
 ## signup
 
@@ -114,11 +109,98 @@ error TS6053: File '/app/src/routes/manage.tsx' not found.
 - ✅ a SUBDOMAIN does not match
 - ✅ a lookalike domain does not match
 
+## second factor — authenticator app
+
+- ✅ a member to enrol exists
+- ✅ enrolling needs a session
+- ✅ an authenticator secret is issued
+- ✅ ...with an otpauth:// URI a real app can scan
+- ✅ a wrong code does not turn it on
+- ✅ a started-but-unconfirmed factor does not gate sign-in
+- ✅ a code from a real authenticator turns it on
+- ✅ ...and hands over recovery codes, once
+- ❌ with 2FA on, the password alone returns a PENDING token, never a session — `200 {"token":"eyJzdWIiOiI2IiwiZW1haWwiOiJvdHAtbTFhcWtjb3VAZXhhbXBsZS5jb20iLCJlcCI6MCwic2lkIjoiTC1Ra3g1SFpGbUNYMkxfODRTdmZPdyIsImlhdCI6MTc4NTM0NDIyOCwiZXhwIjoxNzg3OTM2MjI4fQ.IiOgME1_peq7MO12PRHiP0-hMy98Z6G`
+- ✅ the pending token does NOT open the account
+- ❌ presenting the code completes the sign-in — `401 {"error":"Start again."}`
+- ❌ ...and THAT token is a working session — ``
+- ✅ the SAME code cannot be used twice inside its window
+- ✅ a session cannot be presented in place of a pending token
+
+## recovery codes
+
+- ❌ a recovery code stands in for the app — `401 {"error":"Start again."}`
+- ❌ ...and says how many are left — `undefined of 10`
+- ✅ a spent recovery code is refused
+- ❌ recovery codes can be regenerated — `401 {"error":"not signed in"}`
+- ✅ regenerating invalidates the codes somebody may still have on paper
+- ✅ turning the factor off needs the password
+- ❌ ...and with the password, it comes off — `401 {"error":"not signed in"}`
+- ✅ sign-in returns a plain session again
+
+## brute force — the escalating delay
+
+- ✅ an account to attack exists
+- ✅ the right password works before any of this
+- ✅ six wrong passwords are all refused the same way
+- ✅ the CORRECT password is now refused too — the delay is in force
+- ✅ ...and the refusal is byte-identical to a wrong password, not an oracle
+- ✅ the delay ends by itself and the real person gets back in
+
+## single sign-on — the parts that are ours
+
+- ✅ an owner can configure a provider
+- ✅ the sign-in page is offered the configured provider
+- ✅ ...and second factors are NOT offered as a way in
+- ✅ reading the config back never returns the secret
+- ✅ ...and it tells the owner the exact redirect URI to register
+- ✅ starting a sign-in is a 302 to the provider
+- ✅ it carries the OWNER's client_id, so one revocation cannot take down every site
+- ✅ PKCE is on, and it is S256
+- ✅ the redirect_uri is this site's callback, not something a caller chose
+- ✅ the state is a signed token, not a random string
+- ✅ a callback with no state is refused
+- ✅ a callback with a forged state is refused
+- ✅ a SESSION token presented as state is refused
+- ✅ a state minted for one provider is refused by another
+- ✅ a VALID state gets past our checks and fails at the provider instead
+- ✅ a browser arriving at the callback gets a page, not JSON
+- ✅ ...which reports the failure instead of signing anyone in
+- ✅ an off-site `next` is reduced to a path on this site
+
+## teams — the shared read model
+
+- ✅ an owner can create a team
+- ✅ a team needs a name
+- ✅ an owner can put members in a team
+- ✅ a team member can write a team-scoped row
+- ✅ so can somebody with no team
+- ❌ a team-mate sees the team's rows, not just their own — `200 []`
+- ✅ a member with NO team sees ONLY their own rows
+- ✅ ...and the team cannot see the teamless member's row
+- ✅ the owner's team list counts its members
+- ✅ an owner can delete a team
+- ❌ its members are released, so each sees only their own again — `[]`
+- ✅ deleting a team that is gone is 404
+
 ## the published site, in a real browser
 
 - ✅ the published site serves 200
-- ❌ the app actually RENDERED (root is not empty) — `root text length=0`
+- ✅ the app actually RENDERED (root is not empty)
 - ✅ no uncaught error on load
+- ✅ seeded content is on the page
+- ✅ the masked phone is NOT rendered in full
+- ✅ a member can be signed in from inside the published page
+- ✅ the stored session actually opens a member-scoped read
+- ❌ the published bundle reads the session key the platform writes — `no bundle references `site_session_` — a stored session would be ignored: {"found":false,"scripts":1,"fetched":1}`
+- ✅ a passkey can be enrolled from the published site
+- ✅ ...and the browser's real attestation is accepted
+- ✅ a registration challenge cannot be used twice
+- ✅ a passkey signs in with no account named
+- ✅ ...and the session it mints is a working one
+- ✅ a captured assertion cannot be replayed
+- ✅ the passkey is listed on the account
+- ✅ a passkey can be removed
+- ❌ removing it twice is 404, not a silent success — `409`
 
 ## The published site
 
