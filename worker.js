@@ -2643,13 +2643,26 @@ const SITE_SCHEMA_TOOL = {
   },
 };
 
+/**
+ * The schema call's budget.
+ *
+ * Was 2000, chosen when the tool returned a brand, a slug and a few column
+ * names. `seed` became a REQUIRED field on 2026-07-28 — 3-6 realistic rows for
+ * every display table — and `description` with it, so the response is several
+ * times the size it was sized for. Sonnet 5 also runs adaptive thinking when
+ * `thinking` is omitted, and max_tokens caps thinking AND the response together,
+ * so part of that budget is spent before a single row is written. Same reasoning
+ * as SITE_PAGES_MAX_TOKENS below, which was sized for it and this was not.
+ */
+const SITE_SCHEMA_MAX_TOKENS = 8000;
+
 async function designSiteSchema(env, brief) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
     body: JSON.stringify({
       model: "claude-sonnet-5",
-      max_tokens: 2000,
+      max_tokens: SITE_SCHEMA_MAX_TOKENS,
       tools: [SITE_SCHEMA_TOOL],
       tool_choice: { type: "tool", name: "design_schema" },
       system: "You design the data model behind a small business website. Keep it to the few tables the site actually needs — usually one to four. " +
@@ -2668,10 +2681,25 @@ async function designSiteSchema(env, brief) {
   });
   if (!r.ok) {
     const e = new Error("anthropic " + r.status);
+    // Carried so the caller can say WHICH failure this was. The builder's main
+    // path has now gone down twice behind one unchanging "the designer is busy",
+    // and both times the only way to tell a transient overload from a request we
+    // are getting wrong was to read Cloudflare's logs.
+    e.status = r.status;
     e.detail = (await r.text().catch(() => "")).slice(0, 300);
     throw e;
   }
   const j = await r.json();
+  // A tool_use block cut off at max_tokens carries half-written JSON, so `input`
+  // is a partial schema — usually missing `seed`, sometimes missing `tables`
+  // entirely. Returning it silently made the caller answer "that brief didn't
+  // describe anything to store", which blames the person who wrote a perfectly
+  // good brief for a budget we set. Same check the pages call makes.
+  if (j.stop_reason === "max_tokens") {
+    const e = new Error("schema truncated at max_tokens");
+    e.truncated = true;
+    throw e;
+  }
   const use = (Array.isArray(j.content) ? j.content : []).find((b) => b && b.type === "tool_use");
   return (use && use.input) || null;
 }
@@ -5877,7 +5905,21 @@ async function handleRequest(request, env, ctx) {
         } catch (e) {
           await creditBack(env, bu.id, SITE_BUILD_FEE);
           console.error("schema design failed:", e && (e.detail || e.message));
-          return Response.json({ ok: false, msg: "The designer is busy — try again in a moment." }, { status: 503 });
+          // `upstream` is the numeric status from the model API and nothing else
+          // — never `detail`, which echoes back parts of the request. It is the
+          // difference between "they are overloaded, retry" (429/529) and "we
+          // are sending something they reject" (400), and without it a total
+          // outage of the builder's main path is indistinguishable from a busy
+          // minute. This one hid for three merges behind exactly that.
+          return Response.json({
+            ok: false,
+            msg: e && e.truncated
+              ? "That brief needs more room than the designer had — try describing fewer things to store."
+              : "The designer is busy — try again in a moment.",
+            stage: "design",
+            upstream: (e && e.status) || null,
+            truncated: !!(e && e.truncated),
+          }, { status: 503 });
         }
         if (!designed || !Array.isArray(designed.tables) || !designed.tables.length) {
           await creditBack(env, bu.id, SITE_BUILD_FEE);

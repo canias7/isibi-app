@@ -27,7 +27,7 @@ export const UI_COMPONENTS = [
 // does not do. site-access.mjs is dependency-free, so this module stays
 // importable without the Worker's node_modules.
 export { MANAGED_COLUMNS } from "../site-access.mjs";
-import { MANAGED_COLUMNS, canReadAccess, canWriteAccess, whyNotReadable, needsMember } from "../site-access.mjs";
+import { MANAGED_COLUMNS, canReadAccess, canWriteAccess, whyNotReadable, needsMember, hasPublicView } from "../site-access.mjs";
 
 export const MAX_PAGES = 6;
 export const MAX_PAGE_CHARS = 24000;
@@ -317,8 +317,11 @@ or an access level — anything not in the schema below does not exist.
    cannot be read — that is the whole point of it — but if the schema declares a
    \`publicView\` on it, that projection CAN be read by anyone, and it is how a form greys
    out a time somebody already booked. \`usePublicRows("bookings")\` returns only the
-   columns the schema chose to publish, never a name or an email. If the table declares no
-   public view, do not call it — there is nothing to read and the answer is a 404.
+   columns the schema chose to publish, never a name or an email.
+   **The schema above says, per table, whether this works — do not infer it.** When it says
+   NO, build the ordinary form and ship it: the visitor picks a time and the server refuses
+   a taken one with a clear message. Greying slots out early is a nicety, and a page that
+   fails because it could not have one is far worse than a page without one.
 
 10. GIVE THE VISITOR THEIR SUBMISSION BACK. A successful \`useCreateRow\` on a \`collect\`
     table returns \`{ row, claim }\`. That \`claim\` is a signed token for THAT ONE row and
@@ -510,6 +513,24 @@ export function schemaDigest(spec) {
       lines.push("  order / filter by: " + cols.map((c) => c.name).concat("id").join(", "));
       lines.push("  full-text search: " + (t.fts ? "yes — pass { q } to useRows" : "no — do not pass q"));
     }
+    // Whether `usePublicRows` works on this table, stated rather than left to be
+    // guessed. Rule 9 says not to call it on a table with no public view — a
+    // rule the model could not follow, because nothing here told it which tables
+    // have one. Measured live 2026-07-29: it correctly worked out that
+    // `bookings` had none, could not build the taken-slots hint, and the whole
+    // site came out as the placeholder over one optional enhancement.
+    //
+    // Printed for EVERY table, not only the ones that have it. "No public view"
+    // is the fact that stops a 404, and an absent line reads as an omission
+    // rather than an answer.
+    if (access !== "display") {
+      // `hasPublicView` decides, not a shape test written here — the data path
+      // answers 404 on exactly this question, and a second copy of the rule
+      // drifts into a digest that promises a read the API refuses.
+      lines.push(hasPublicView(t)
+        ? "  usePublicRows: YES — anyone may read " + t.publicView.columns.join(", ") + " from this table"
+        : "  usePublicRows: NO — this table has no public view; calling it is a 404, so build the page without it");
+    }
     return lines.join("\n");
   }).join("\n\n");
 }
@@ -652,6 +673,18 @@ export function lintPages(pages, spec) {
       // repair pass to fix a problem that was already described.
       else if (!canReadAccess(t.access) && !needsMember(t.access)) {
         say(path, 'lists "' + m[1] + '", which is access "' + t.access + '" — reading it returns 403: ' + whyNotReadable(t.access) + '.');
+      }
+    }
+    // `usePublicRows` is the one read that does NOT follow from a table's access
+    // level — it works only where the schema declared a `publicView`, and on
+    // every other table it is a 404 the visitor sees as a broken page. The same
+    // class as the checks around it: a mismatch between what the page asks for
+    // and what the schema actually permits, caught without running anything.
+    for (const m of code.matchAll(/\busePublicRows\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
+      const t = tables.get(m[1].toLowerCase());
+      if (!t) say(path, 'reads table "' + m[1] + '", which the schema does not declare.');
+      else if (!hasPublicView(t)) {
+        say(path, 'calls usePublicRows("' + m[1] + '"), but that table declares no publicView — the request is a 404. Build the page without the taken-slots hint; the server still refuses a taken slot on submit.');
       }
     }
     for (const m of code.matchAll(/\buseRow\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {

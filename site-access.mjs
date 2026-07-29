@@ -126,6 +126,26 @@ export function needsMember(access) {
 }
 
 /**
+ * Does this table publish a projection ANYONE may read?
+ *
+ * The one read that does not follow from the access level. A `collect` table is
+ * write-only and a `user` table is private, but either may declare a
+ * `publicView` — a named allow-list of columns — and that projection is served
+ * to a stranger. It is what lets a booking form grey out a taken slot without
+ * publishing who took it.
+ *
+ * Lives here, next to the other access questions, because TWO places ask it and
+ * they must not disagree: the data path answers 404 when it is absent, and the
+ * generator's lint refuses a page that would then have hit that 404. A second
+ * copy of this rule in the linter is a copy that drifts, and the drift shows up
+ * as a published site whose form is dead.
+ */
+export function hasPublicView(def) {
+  const pv = def && def.publicView;
+  return !!(pv && Array.isArray(pv.columns) && pv.columns.length);
+}
+
+/**
  * Can an ANONYMOUS visitor READ this table?
  *
  * Only `display`. `collect` is write-only so one visitor can never read back

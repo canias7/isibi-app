@@ -515,3 +515,77 @@ test("the rules no longer claim uploads are impossible", () => {
   assert.ok(!/No file or image upload/.test(PAGE_RULES));
   assert.match(PAGE_RULES, /uploadFile|useUploadFile/);
 });
+
+// ------------------------------------------------- publicView, stated not guessed
+//
+// Rule 9 tells the model not to call `usePublicRows` on a table with no public
+// view — a rule it could not follow, because nothing in the digest said which
+// tables have one. Measured live 2026-07-29: the generator worked out that
+// `bookings` had none, could not build the taken-slots hint, and the whole site
+// came out as the PLACEHOLDER over one optional enhancement.
+
+const PV_SPEC = {
+  tables: [
+    {
+      name: "bookings", access: "collect",
+      columns: [{ name: "slot_date", type: "text" }, { name: "customer_name", type: "text" }],
+      publicView: { columns: ["slot_date"], where: [], limit: 500 },
+    },
+    { name: "enquiries", access: "collect", columns: [{ name: "message", type: "text" }] },
+  ],
+};
+
+test("the digest says, per table, whether usePublicRows works", () => {
+  const d = schemaDigest(PV_SPEC);
+  assert.match(d, /bookings[\s\S]*?usePublicRows: YES/, "a table with a public view says so");
+  assert.match(d, /usePublicRows: YES — anyone may read slot_date/, "...and names exactly what it publishes");
+  assert.match(d, /enquiries[\s\S]*?usePublicRows: NO/, "and one without says THAT");
+  // Never the PII column, or the digest itself invites the leak the projection exists to prevent.
+  assert.ok(!/usePublicRows: YES[^\n]*customer_name/.test(d), "the digest must not advertise a column the view excludes");
+});
+
+test("a `display` table is not told about public views at all", () => {
+  // It is readable by anyone already; the line would be noise on every table
+  // that has no use for it.
+  assert.ok(!/usePublicRows/.test(schemaDigest(SPEC).split("TABLE appointments")[0]));
+});
+
+test("an EMPTY publicView reads as none", () => {
+  // The runtime answers 404 for this shape, so the digest must not promise it.
+  for (const pv of [{ columns: [] }, {}, null, { columns: "slot_date" }]) {
+    const spec = { tables: [{ name: "bookings", access: "collect", columns: [{ name: "slot_date" }], publicView: pv }] };
+    assert.match(schemaDigest(spec), /usePublicRows: NO/, JSON.stringify(pv));
+  }
+});
+
+test("the lint refuses a public read of a table with no public view", () => {
+  // The exact 404 the smoke test's site would have served.
+  const p = lintPages(page('usePublicRows("enquiries");'), PV_SPEC);
+  assert.equal(p.length, 1);
+  assert.match(p[0], /enquiries/);
+  assert.match(p[0], /404/);
+  assert.match(p[0], /without the taken-slots hint/, "and says what to do instead, or the repair pass has nothing to act on");
+});
+
+test("the lint allows a public read of a table that declares one", () => {
+  assert.deepEqual(lintPages(page('usePublicRows("bookings");'), PV_SPEC), []);
+});
+
+test("the lint still catches a public read of a table that does not exist", () => {
+  const p = lintPages(page('usePublicRows("nope");'), PV_SPEC);
+  assert.equal(p.length, 1);
+  assert.match(p[0], /does not declare/);
+});
+
+test("the lint and the data path ask ONE question about public views", () => {
+  // Two copies of this rule is a copy that drifts, and the drift ships as a
+  // site whose form is dead: the lint passes the page, the API answers 404.
+  const access = fs.readFileSync(path.join(ROOT, "site-access.mjs"), "utf8");
+  const data = fs.readFileSync(path.join(ROOT, "site-data.mjs"), "utf8");
+  const gen = fs.readFileSync(path.join(ROOT, "builder", "page-gen.mjs"), "utf8");
+  assert.match(access, /export function hasPublicView/, "the shared rule lives in the leaf module");
+  for (const [name, src] of [["site-data.mjs", data], ["page-gen.mjs", gen]]) {
+    assert.match(src, /hasPublicView/, name + " must use the shared helper");
+    assert.ok(!/Array\.isArray\(pv\.columns\)/.test(src), name + " keeps its own copy of the rule");
+  }
+});
