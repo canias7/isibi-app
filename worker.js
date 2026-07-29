@@ -13,7 +13,7 @@ import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { injectMeta } from "./site-meta.mjs";
-import { sessionKey, verifySession, signClaim, verifyClaim } from "./site-auth.mjs";
+import { sessionKey, verifySession, signClaim, verifyClaim, signVerify, verifyVerification } from "./site-auth.mjs";
 import { checkSignup, newInviteCode, normalizeCode, normalizeMode, inviteOptions, SIGNUP_MODES } from "./site-invite.mjs";
 import { handleAuthFlow } from "./site-auth-flows.mjs";
 import { AUTH_DDL, AUTH_USER_COLUMNS, routeFor, availableMethods } from "./site-auth-methods.mjs";
@@ -3102,6 +3102,8 @@ function authFlowDeps(env, db, slug, url) {
     spendCode: (id) => q("DELETE FROM _auth_codes WHERE id=?", [Number(id)]),
     bumpAttempt: (id) => q("UPDATE _auth_codes SET attempts=attempts+1 WHERE id=?", [Number(id)]),
 
+    setVerified: (uid) => q("UPDATE _users SET verified=1 WHERE id=?", [Number(uid)]),
+    sendVerify: (email, token) => sendSiteVerifyEmail(env, slug, email, token),
     setTotp: (uid, v) => q(
       "UPDATE _users SET totp_secret=?, totp_enabled=?, totp_last_step=?, recovery_hashes=? WHERE id=?",
       [v.secret ?? null, v.enabled ? 1 : 0, v.lastStep ?? null, v.recovery ?? null, Number(uid)],
@@ -3159,6 +3161,24 @@ function authLandingPage(slug, r) {
   });
 }
 
+/** The confirm-your-address link. Dark until GO_FARTHER_API_KEY reaches the Worker. */
+async function sendSiteVerifyEmail(env, slug, email, token) {
+  if (!env.GO_FARTHER_API_KEY) { console.log("site verify email skipped (no mailer):", slug); return; }
+  const link = `https://isibi.ai/verify?slug=${encodeURIComponent(slug)}&token=${encodeURIComponent(token)}`;
+  await fetch("https://lkpfeqrelvziltfwpuxi.supabase.co/functions/v1/mailer", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.GO_FARTHER_API_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      action: "send",
+      from: env.EMAIL_FROM || "isibi <login@isibi.ai>",
+      to: email,
+      subject: "Confirm your email address",
+      html: `<p>Confirm your address to finish setting up your account.</p><p><a href="${link}">Confirm my email</a></p><p>The link works for two days. If you didn't sign up, ignore this.</p>`,
+    }),
+    signal: AbortSignal.timeout(10000),
+  });
+}
+
 /** The emailed sign-in code. Dark until GO_FARTHER_API_KEY reaches the Worker. */
 async function sendSiteCodeEmail(env, slug, email, code) {
   if (!env.GO_FARTHER_API_KEY) { console.log("site code email skipped (no mailer):", slug); return; }
@@ -3191,7 +3211,7 @@ async function resolveSiteVisitor(env, request, slug) {
     const claims = await verifySiteSession(await siteAuthSecret(db), bearer, slug);
     if (!claims) return null;
     if (!/^\d+$/.test(String(claims.sub))) return null;
-    const rows = await sqlQuery(db, "SELECT id, role, token_epoch, blocked FROM _users WHERE id=?", [Number(claims.sub)]);
+    const rows = await sqlQuery(db, "SELECT id, role, token_epoch, blocked, verified FROM _users WHERE id=?", [Number(claims.sub)]);
     const u = rows[0];
     if (!u) return null;
     // A suspended member is nobody, everywhere. Checked here as well as in `me`
@@ -3201,7 +3221,7 @@ async function resolveSiteVisitor(env, request, slug) {
     // password change would still be refused at /auth/me and quietly ACCEPTED on
     // every data read — which is the half that actually matters.
     if (Number(claims.ep || 0) !== Number(u.token_epoch || 0)) return null;
-    return { id: u.id, role: String(u.role || "user").toLowerCase() };
+    return { id: u.id, role: String(u.role || "user").toLowerCase(), verified: !!u.verified };
   } catch (e) {
     // A lookup failure must not silently downgrade to "anonymous", because for a
     // `user` table anonymous is refused — which is the safe direction — but it
@@ -3262,6 +3282,16 @@ function siteAuthDeps(env, db, slug) {
       "UPDATE _users SET failed=?, locked_until=?, last_failed_at=? WHERE id=?",
       [Number(v.failed) || 0, Number(v.locked_until) || 0, Number(v.last_failed_at) || 0, Number(id)],
     ),
+    // Fire-and-forget: a signup that worked must not report failure because a
+    // mailer was slow, and a site with no mailer must still create accounts.
+    onSignedUp: (id, email) => {
+      (async () => {
+        try {
+          const key = await sessionKey(await siteAuthSecret(db), slug);
+          await sendSiteVerifyEmail(env, slug, email, await signVerify(key, String(id)));
+        } catch (e) { console.error("verify send failed:", slug, (e && e.message) || e); }
+      })();
+    },
     signupGate: (opts) => checkSignup({ mode: () => siteSignupMode(db), burn: (c) => burnInvite(db, c) }, opts),
     refundInvite: (code) => refundInvite(db, code),
   };
@@ -3596,10 +3626,19 @@ async function handleRequest(request, env, ctx) {
       try {
         const uuid = await siteBackendBySlug(env, slug);
         if (!uuid) return page("Invalid link", "This verification link is invalid or has expired.", false);
-        const secret = await initSiteAuth(env, uuid);
-        const p = await verifySiteUserToken(secret, token);
-        if (!p || p.purpose !== "verify" || p.slug !== slug || !p.sub) return page("Link expired", "This verification link is invalid or has expired. Request a new one from the app.", false);
-        await siteQuery(env, uuid, "UPDATE _users SET verified=1, verify_token=NULL, verify_exp=NULL WHERE id=?", [p.sub]);
+        // The LIVE token family. This ran on verifySiteUserToken — the D1-era
+        // scheme, whose signing key is derived differently — so it could not
+        // have validated a token minted by the current system even if anything
+        // had minted one, and nothing did. It also called initSiteAuth, which
+        // creates a SECOND `_users` shape with `pass_salt NOT NULL`: on a site
+        // where this page ran before anyone signed up, that shape won and every
+        // later signup failed a NOT NULL constraint.
+        await ensureSiteUsers(uuid);
+        const key = await sessionKey(await siteAuthSecret(uuid), slug);
+        const p = await verifyVerification(key, token);
+        if (!p || !p.sub) return page("Link expired", "This verification link is invalid or has expired. Request a new one from the app.", false);
+        // Idempotent — a link gets prefetched by mail clients and clicked twice.
+        await siteQuery(env, uuid, "UPDATE _users SET verified=1 WHERE id=?", [Number(p.sub)]);
         return page("Email verified", "Your email is confirmed — you're all set. You can close this tab and head back to the app.", true, "/s/" + slug + "/");
       } catch (e) {
         console.error("verify failed:", e && e.message, e && e.detail);
@@ -5687,6 +5726,9 @@ async function handleRequest(request, env, ctx) {
       const dataRes = await handleSiteData(env, request, url, siteBackendBySlug, {
         sqlQuery, sqlExec, loadSiteSchema,
         resolveVisitor: (req, slug) => resolveSiteVisitor(env, req, slug),
+        // `requireVerified` is enforced only where confirming an address is
+        // actually possible — see needsVerified in site-access.mjs.
+        canVerify: !!env.GO_FARTHER_API_KEY,
         // Reads the site's own declared limits — a per-table `rateLimit` and a
         // per-app `rateLimits {read, write}` have been parsed and stored in
         // _meta since the schema engine was written and never once consulted.

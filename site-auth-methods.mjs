@@ -121,6 +121,18 @@ export const METHODS = [
     routes: ["totp/start", "totp/enable", "totp/verify", "totp/disable"],
   },
   {
+    name: "verify-email",
+    // Not a way IN and not a second factor — account maintenance. Kept in the
+    // registry anyway so its routes are declared in the same place as every
+    // other one, and so `availableMethods` can keep ignoring it by kind.
+    kind: "account",
+    label: "Confirm your email",
+    // Only where mail can actually leave. Offering "resend" against a dark
+    // mailer is a button that reports success and does nothing.
+    configured: (site) => !!site.mailer,
+    routes: ["verify/request", "verify/confirm"],
+  },
+  {
     name: "recovery",
     kind: "second",
     label: "Recovery code",

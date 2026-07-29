@@ -793,3 +793,76 @@ test("teamRead does not let a query string reach the subquery", async () => {
   assert.deepEqual(q.params.slice(0, 2), [7, 7]);
   assert.ok(!q.params.includes("999"), "no caller value may reach the ownership clause");
 });
+
+// ------------------------------------------------------------- requireVerified
+//
+// Parsed and stored in _meta since the schema engine was written, enforced by
+// nothing. Wiring it waited until verification existed, because a gate nobody
+// can pass is a wall — a table declaring it would have locked members out for
+// good.
+
+const VERIFY_SPEC = {
+  tables: [
+    { name: "reviews", access: "feed", requireVerified: true, columns: [{ name: "body" }] },
+    { name: "notes", access: "feed", columns: [{ name: "body" }] },
+  ],
+};
+
+const vCall = async (method, path, { visitor, canVerify = true, body } = {}) => {
+  const url = new URL("https://isibi.ai" + path);
+  const req = new Request(url, {
+    method,
+    headers: body ? { "content-type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const conn = fakeDb(VERIFY_SPEC);
+  const deps = {
+    sqlQuery: async (_c, sql, p) => (await conn.query(sql, p)).rows,
+    sqlExec: async (_c, sql, p) => { const r = await conn.query(sql, p); return { results: r.rows, changes: r.rowCount }; },
+    loadSiteSchema: async () => VERIFY_SPEC,
+    resolveVisitor: async () => visitor,
+    canVerify,
+  };
+  return { res: await handleSiteData({}, req, url, async () => conn, deps), seen: conn.__seen };
+};
+
+test("an unverified member cannot write to a table that requires it", async () => {
+  const { res, seen } = await vCall("POST", "/api/db/shop/rows/reviews", {
+    visitor: { id: 7, role: "user", verified: false }, body: { body: "hi" },
+  });
+  assert.equal(res.status, 403);
+  assert.equal(res.body ? undefined : undefined, undefined);
+  assert.ok(!seen.some((s) => /INSERT INTO "reviews"/.test(s.sql)), "nothing may be written");
+});
+
+test("a verified member can", async () => {
+  const { res } = await vCall("POST", "/api/db/shop/rows/reviews", {
+    visitor: { id: 7, role: "user", verified: true }, body: { body: "hi" },
+  });
+  assert.equal(res.status, 201);
+});
+
+test("reading is never gated on verification", async () => {
+  // The point is to stop unattributable WRITING, not to hide the site from
+  // somebody who has not opened their email yet.
+  const { res } = await vCall("GET", "/api/db/shop/rows/reviews", {
+    visitor: { id: 7, role: "user", verified: false },
+  });
+  assert.equal(res.status, 200);
+});
+
+test("a table that did not ask for it is unaffected", async () => {
+  const { res } = await vCall("POST", "/api/db/shop/rows/notes", {
+    visitor: { id: 7, role: "user", verified: false }, body: { body: "hi" },
+  });
+  assert.equal(res.status, 201);
+});
+
+test("without a mailer the rule FAILS OPEN", async () => {
+  // Enforcing where confirming an address is impossible buys nothing and costs
+  // the site every write. It starts working the day the mailer key ships.
+  const { res } = await vCall("POST", "/api/db/shop/rows/reviews", {
+    visitor: { id: 7, role: "user", verified: false }, canVerify: false, body: { body: "hi" },
+  });
+  assert.equal(res.status, 201);
+});

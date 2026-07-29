@@ -563,3 +563,135 @@ test("the lockout columns are added where the LOGIN path runs", () => {
   const ensure = WORKER.slice(WORKER.indexOf("async function ensureSiteUsers"), WORKER.indexOf("async function ensureSiteUsers") + 1600);
   assert.match(ensure, /ADD COLUMN failed/, "ensureSiteUsers is what login calls");
 });
+
+// ------------------------------------------------------- confirming an address
+//
+// There WAS a verification flow. `verified`, `verify_token` and `verify_exp` are
+// columns on every site's _users and a /verify page still existed — but it ran
+// on the pre-deletion D1 token scheme, so it could not have validated a token
+// the live system minted, and nothing minted one.
+
+import { signVerify, verifyVerification, signReset } from "../site-auth.mjs";
+
+async function verifyHarness(over = {}) {
+  const h = await harness(over);
+  const marked = [];
+  h.deps.setVerified = async (id) => { marked.push(id); h.users.get(String(id)).verified = 1; };
+  h.sentVerify = [];
+  h.deps.sendVerify = async (email, token) => { h.sentVerify.push({ email, token }); };
+  h.marked = marked;
+  return h;
+}
+
+test("a verification link confirms the address", async () => {
+  const h = await verifyHarness();
+  const token = await signVerify(h.key, "1", { nowMs: NOW });
+  const r = await h.call("verify/confirm", { body: { token } });
+  assert.equal(r.status, 200);
+  assert.equal(h.marked.length, 1);
+  assert.equal(h.users.get("1").verified, 1, "the flag is what matters");
+});
+
+test("clicking the link twice is fine", async () => {
+  // Mail clients prefetch links, and people click again to check it worked.
+  const h = await verifyHarness();
+  const token = await signVerify(h.key, "1", { nowMs: NOW });
+  assert.equal((await h.call("verify/confirm", { body: { token } })).status, 200);
+  const again = await h.call("verify/confirm", { body: { token } });
+  assert.equal(again.status, 200);
+  assert.equal(h.marked.length, 1, "already verified — nothing more to write");
+});
+
+test("no other token kind confirms an address", async () => {
+  // The whole reason each kind carries a `use`.
+  const h = await verifyHarness();
+  const session = h.session;
+  const reset = await signReset(h.key, "1", { nowMs: NOW });
+  for (const token of [session, reset, "forged", ""]) {
+    const r = await h.call("verify/confirm", { body: { token } });
+    assert.equal(r.status, 400, JSON.stringify(String(token).slice(0, 12)));
+  }
+  assert.equal(h.marked.length, 0);
+});
+
+test("a verification token is not a session", async () => {
+  const h = await verifyHarness();
+  const token = await signVerify(h.key, "1", { nowMs: NOW });
+  assert.equal(await verifySession(h.key, token, { nowMs: NOW }), null);
+  assert.equal((await h.call("identities", { token })).status, 401);
+});
+
+test("an expired link is refused", async () => {
+  const h = await verifyHarness();
+  const token = await signVerify(h.key, "1", { nowMs: NOW, ttlSec: 60 });
+  const r = await h.call("verify/confirm", { body: { token }, nowMs: NOW + 120_000 });
+  assert.equal(r.status, 400);
+});
+
+test("a suspended member's link does nothing", async () => {
+  const h = await verifyHarness({ user: { blocked: 1 } });
+  const token = await signVerify(h.key, "1", { nowMs: NOW });
+  assert.equal((await h.call("verify/confirm", { body: { token } })).status, 400);
+  assert.equal(h.marked.length, 0);
+});
+
+test("expired, forged and wrong-kind all answer identically", async () => {
+  // Telling them apart says which half of a stale link failed.
+  const h = await verifyHarness();
+  const expired = await signVerify(h.key, "1", { nowMs: NOW - 1_000_000_000 });
+  const a = await h.call("verify/confirm", { body: { token: expired } });
+  const b = await h.call("verify/confirm", { body: { token: "forged" } });
+  assert.deepEqual(a.body, b.body);
+});
+
+test("asking for a new link needs a session", async () => {
+  const h = await verifyHarness();
+  assert.equal((await h.call("verify/request", {})).status, 401);
+  const r = await h.call("verify/request", { token: h.session });
+  assert.equal(r.status, 200);
+  assert.equal(h.sentVerify.length, 1);
+});
+
+test("an already-verified member is not sent another link", async () => {
+  const h = await verifyHarness({ user: { verified: 1 } });
+  const r = await h.call("verify/request", { token: h.session });
+  assert.equal(r.body.already, true);
+  assert.equal(h.sentVerify.length, 0);
+});
+
+test("a mailer that throws does not fail the request", async () => {
+  // They are already signed in and can ask again; an error here helps nobody.
+  const h = await verifyHarness();
+  h.deps.sendVerify = async () => { throw new Error("mailer down"); };
+  assert.equal((await h.call("verify/request", { token: h.session })).status, 200);
+});
+
+test("resending is throttled", async () => {
+  const h = await verifyHarness({ throttled: true });
+  assert.equal((await h.call("verify/request", { token: h.session })).status, 429);
+});
+
+test("verify-email is not offered as a way to sign IN", () => {
+  const names = availableMethods({ mailer: true }).map((m) => m.name);
+  assert.ok(!names.includes("verify-email"));
+  // ...but its routes are declared in the registry like every other one.
+  assert.ok(routeFor("verify/confirm"));
+  assert.ok(routeFor("verify/request"));
+});
+
+test("the /verify page runs on the LIVE token family", () => {
+  // It ran on verifySiteUserToken, the D1-era scheme with a different key
+  // derivation, and called initSiteAuth — which creates a SECOND `_users` shape
+  // with pass_salt NOT NULL. On a site where this page ran before anyone signed
+  // up, that shape won and every later signup failed a NOT NULL constraint.
+  const start = WORKER.indexOf('url.pathname === "/verify"');
+  // Comments in this block NAME the old functions to explain why they are gone,
+  // so the assertion has to look at code rather than at prose.
+  // Wide enough to clear the inline HTML template that sits between the route
+  // match and the code being asserted on.
+  const page = WORKER.slice(start, start + 9000)
+    .split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
+  assert.match(page, /verifyVerification\(/, "the verify page must use the live token family");
+  assert.ok(!/verifySiteUserToken\(/.test(page), "the D1-era verifier must be gone from this path");
+  assert.ok(!/initSiteAuth\(/.test(page), "initSiteAuth creates a conflicting _users shape");
+});

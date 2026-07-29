@@ -10,7 +10,7 @@
 // else. Handing back a real session and "checking 2FA on the next request" is
 // how a second factor quietly becomes optional.
 
-import { signToken, verifyToken, hashPassword, verifyPassword, normalizeEmail } from "./site-auth.mjs";
+import { signToken, verifyToken, hashPassword, verifyPassword, normalizeEmail, signVerify, verifyVerification } from "./site-auth.mjs";
 import { resolveIdentity } from "./site-identity.mjs";
 import { startOAuth, completeOAuth, providerConfig } from "./site-oauth.mjs";
 import {
@@ -333,6 +333,36 @@ export async function handleAuthFlow(deps, { slug, route, body = {}, query = {},
     // be on a piece of paper somebody else now has.
     await deps.setTotp(user.id, { secret: user.totp_secret, enabled: 1, lastStep: user.totp_last_step, recovery: JSON.stringify(hashes) });
     return json({ ok: true, recovery });
+  }
+
+  // ------------------------------------------------------------- verification
+  if (route === "verify/request") {
+    // A session is required, so there is no address to enumerate and nothing to
+    // answer vaguely — you can only ask for your own link.
+    const user = await signedIn();
+    if (!user) return json({ error: "not signed in" }, 401);
+    if (!user.email) return json({ error: "This account has no email address.", code: "no_email" }, 400);
+    if (user.verified) return json({ ok: true, already: true });
+    const t = await deps.throttle(`verify:${slug}:${user.id}`);
+    if (!t.ok) return json({ error: "Too many attempts — try again shortly." }, 429);
+    // Never let a dark or failing mailer turn into an error the person can do
+    // nothing about; they are already signed in and can ask again.
+    try { await deps.sendVerify(user.email, await signVerify(key, String(user.id), { nowMs: now })); }
+    catch (e) { console.error("verify send failed:", slug, (e && e.message) || e); }
+    return json({ ok: true, sent: true });
+  }
+
+  if (route === "verify/confirm") {
+    const claims = await verifyVerification(key, body.token || query.token, { nowMs: now });
+    // One message for expired, forged and wrong-kind. Distinguishing them tells
+    // somebody holding a stale link which half of it failed.
+    if (!claims) return json({ error: "This link is invalid or has expired.", code: "token" }, 400);
+    const user = await deps.findUserById(claims.sub);
+    if (!user || user.blocked) return json({ error: "This link is invalid or has expired.", code: "token" }, 400);
+    // Idempotent: a link opened twice, prefetched by a mail client, or clicked
+    // again to check it worked must not read as a failure.
+    if (!user.verified) await deps.setVerified(user.id);
+    return json({ ok: true, email: user.email });
   }
 
   // ------------------------------------------------------------- linked accounts

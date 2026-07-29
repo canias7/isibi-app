@@ -116,6 +116,9 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     // mail configured would silently never sign anyone up. Told plainly instead.
     if (made.conflict) return json({ error: "That email already has an account.", code: "exists" }, 409);
     if (!made.id) return json({ error: "Could not create that account." }, 500);
+    // Ask them to confirm the address. Detached and best-effort by construction:
+    // the account exists either way, and a site with no mailer simply never asks.
+    if (deps.onSignedUp) { try { deps.onSignedUp(made.id, email); } catch (e) { console.error("signup hook failed:", slug, (e && e.message) || e); } }
     return json({ token: await mk({ id: made.id, email }), user: { id: made.id, email } });
   }
 
