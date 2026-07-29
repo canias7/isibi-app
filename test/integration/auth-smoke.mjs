@@ -149,9 +149,16 @@ try {
   if (br.status !== 200) throw new Error("cannot audit auth without a site");
   ok("every declared table was created", (bd.tables || []).length === 4, JSON.stringify(bd.tables));
   ok("the display table was seeded", (bd.seeded || {}).teachers > 0, JSON.stringify(bd.seeded));
+  // `notes` is the field that says WHY when there is no stage and no error —
+  // truncation, the credit floor, or a response with nothing usable in it. The
+  // route has always returned it and this printed everything except it, so a
+  // build that produced no files at all was indistinguishable from one that
+  // failed to compile. The same gap the designer's 503 had.
   ok("a real app was published, not the placeholder", bd.page === "app",
-    `page=${bd.page} stage=${bd.stage || "-"} error=${bd.error || "-"} problems=${JSON.stringify(bd.problems || [])}`);
-  console.log("   url:", bd.url, "| page:", bd.page, "| files:", JSON.stringify(bd.files || []));
+    `page=${bd.page} stage=${bd.stage || "-"} error=${bd.error || "-"} notes=${bd.notes || "-"} ` +
+    `cost=${bd.cost ?? "-"} files=${JSON.stringify(bd.files || [])} problems=${JSON.stringify(bd.problems || [])}`);
+  console.log("   url:", bd.url, "| page:", bd.page, "| cost:", bd.cost, "| files:", JSON.stringify(bd.files || []));
+  if (bd.notes) console.log("   notes:", bd.notes);
 
   // =================================================================== SIGNUP
   section("signup");
