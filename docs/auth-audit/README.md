@@ -1,6 +1,6 @@
 # Auth layer — production audit
 
-Run against `https://isibi.ai` · 148 passed, 5 failed.
+Run against `https://isibi.ai` · 154 passed, 1 failed.
 
 
 ## the site
@@ -121,8 +121,8 @@ Run against `https://isibi.ai` · 148 passed, 5 failed.
 - ✅ ...and hands over recovery codes, once
 - ✅ with 2FA on, the password alone returns a PENDING token, never a session
 - ✅ the pending token does NOT open the account
-- ❌ presenting the code completes the sign-in — `401 {"error":"That code didn't match.","code":"totp"}`
-- ❌ ...and THAT token is a working session — ``
+- ✅ presenting the code completes the sign-in
+- ✅ ...and THAT token is a working session
 - ✅ the SAME code cannot be used twice inside its window
 - ✅ a session cannot be presented in place of a pending token
 
@@ -175,11 +175,13 @@ Run against `https://isibi.ai` · 148 passed, 5 failed.
 - ✅ the assignment is on the member rows, not just in the response
 - ✅ a team member can write a team-scoped row
 - ✅ so can somebody with no team
-- ❌ the row is stamped with the writer's team — `team_id=undefined expected=1 row={"id":1,"title":"ada-deal","value":"100","owner_id":1,"created_at":"2026-07-29 17:26:51"}`
+- ✅ the row is stamped with the writer's team
 - ✅ a teamless writer's row carries no team
-- ❌ a team-mate sees the team's rows, not just their own — `200 []`
+- ✅ a team-mate sees the team's rows, not just their own
 - ✅ a member with NO team sees ONLY their own rows
 - ✅ ...and the team cannot see the teamless member's row
+- ✅ a team-mate can EDIT the team's row, not only read it
+- ✅ somebody outside the team gets 404, not 403
 - ✅ the owner's team list counts its members
 - ✅ an owner can delete a team
 - ✅ its members are released, so the team's rows stop being visible
