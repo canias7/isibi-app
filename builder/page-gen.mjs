@@ -331,6 +331,11 @@ or an access level — anything not in the schema below does not exist.
     table mints one, so its type is \`string | undefined\`. Take the whole result and
     narrow it (\`onSuccess: (data) => { if (!data.claim) return; … }\`); destructuring it
     as a required \`{ claim: string }\` does not typecheck and the page will be refused.
+    **Never annotate a mutation callback's parameter.** Write \`onSuccess: (data) => …\`,
+    not \`onSuccess: ({ row, claim }: { row: Booking; claim?: string }) => …\`. TanStack's
+    callback takes four arguments and its types are contravariant, so ANY hand-written
+    annotation is refused even when it looks right — this was three separate build
+    failures. Let it infer.
     That \`claim\` is a signed token for THAT ONE row and
     it is issued exactly once — if the page drops it, nobody can ever reach that booking
     again except the site owner. On the confirmation screen, show a link to a manage page
@@ -400,6 +405,8 @@ from \`@/lib/rows\`; there is no other auth API and no fetch:
 
 There is more than one way in, and WHICH ones depends on the site — so never hard-code buttons:
 
+- **Every list hook's \`data\` IS the array** — \`useRows\`, \`useSessions\`, \`usePublicRows\`.
+  Map it directly (\`sessions.data?.map(…)\`); there is no wrapper object to reach through.
 - \`useSignInMethods()\` → the list this site actually offers, each \`{ name, label, oauth }\`.
   Render the sign-in page FROM THIS. A provider the owner has not set up must not appear.
 - \`startOAuthSignIn(name)\` for any entry with \`oauth: true\` — Google, Microsoft, Apple and the

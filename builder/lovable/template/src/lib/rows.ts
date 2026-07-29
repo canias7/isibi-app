@@ -172,7 +172,14 @@ export function useUpdateRow<T extends Row = Row>(table: string) {
 export function useDeleteRow(table: string) {
   const invalidate = useInvalidate(table);
   return useMutation({
-    mutationFn: (id: RowId) => send<{ ok: true }>(`${base(table)}/${id}`, { method: "DELETE" }),
+    // Accepts a bare id OR `{ id }`. `useUpdateRow` takes an object, so a caller
+    // reasonably assumes its sibling does too — the generator passed `{ id }`
+    // here and it was a type error, in a sample that was otherwise correct.
+    // Cheaper to accept both than to be the exception nobody expects.
+    mutationFn: (arg: RowId | { id: RowId }) => {
+      const id = typeof arg === "object" && arg !== null ? arg.id : arg;
+      return send<{ ok: true }>(`${base(table)}/${id}`, { method: "DELETE" });
+    },
     onSuccess: invalidate,
   });
 }
@@ -451,6 +458,12 @@ export function useSessions() {
   return useQuery({
     queryKey: ["sessions", siteSlug()],
     queryFn: () => send<{ sessions: SiteSession[] }>(authUrl("sessions")),
+    // Unwrapped, like `useRows` and every other list hook. Returning the
+    // `{ sessions }` envelope made this the ONE list that had to be reached
+    // through a property, and the generator called `.map` straight onto it in
+    // all three eval samples — reasonably, because nothing else here behaves
+    // that way. Consistency is the feature.
+    select: (d) => d.sessions,
   });
 }
 
