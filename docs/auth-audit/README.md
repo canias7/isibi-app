@@ -8,7 +8,7 @@ Run against `https://isibi.ai` · 154 passed, 1 failed.
 - ✅ build returns 200
 - ✅ every declared table was created
 - ✅ the display table was seeded
-- ❌ a real app was published, not the placeholder — `page=placeholder stage=- error=- notes=Your database is live, but writing the pages didn't work this time — send it again to retry. cost=0 files=[] problems=[]`
+- ❌ a real app was published, not the placeholder — `page=placeholder stage=generate error=the model account has no balance notes=Your database is live. Writing the pages is temporarily unavailable — this is on us, not your brief. cost=0 files=[] problems=[]`
 
 ## signup
 
