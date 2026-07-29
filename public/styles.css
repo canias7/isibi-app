@@ -5014,6 +5014,11 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 /* chatbox lives inside the screen, docked bottom-centre */
 .crt-inbox{position:absolute;left:0;right:0;bottom:clamp(1.4rem,4vh,2.8rem);z-index:2;
   display:flex;flex-direction:column;align-items:center;gap:.75rem;padding:0 clamp(1.4rem,4vw,3rem)}
+/* The two doors above the landing chatbox. The container is a plain row —
+   the buttons themselves reuse .mkt-cta / .mkt-ghost, so they stay in step with
+   the rest of the landing rather than being a third button style. */
+.crt-doors{display:flex;gap:.7rem;flex-wrap:wrap;justify-content:center}
+.crt-doors .mkt-cta,.crt-doors .mkt-ghost{padding:.7rem 1.9rem;font-size:.92rem}
 .crt-chatbox{width:min(560px,88%);display:flex;align-items:stretch;gap:.9rem;cursor:text;
   padding:1.1rem 1rem 1.1rem 1.4rem;border-radius:20px;border:1px solid var(--line-2);background:var(--panel);
   box-shadow:0 28px 70px rgba(0,0,0,.55);transition:border-color .25s}
@@ -5040,7 +5045,10 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    in the DOM (hidden) so the channels/demos can be brought back if wanted. ── */
 .mkt-crt .crt-menu,
 .mkt-crt .crt-stage{display:none}
-.mkt-crt .crt-inbox{top:50%;bottom:auto;transform:translateY(-50%)}
+/* Centred, then nudged down by half the row the doors added. The crest above is
+   positioned independently, so a stack that grows from its middle grows INTO it
+   — measured at 11px of overlap before this. */
+.mkt-crt .crt-inbox{top:50%;bottom:auto;transform:translateY(calc(-50% + 1.6rem))}
 .mkt-crt .crt-crest{top:calc(50% - 7.5rem)}
 
 /* ── Gradient Halo chatbox (owner 2026-07-23): the ONE colored element on the

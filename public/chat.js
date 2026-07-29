@@ -9247,6 +9247,25 @@ function initCrt() {
     else if ((e.key === 'Enter' || e.key === ' ') && document.activeElement === menu) { e.preventDefault(); crtSelect(); }
   };
   document.addEventListener('keydown', onKey);
+
+  // The two doors above the chatbox. Same three lines the channel list uses, and
+  // deliberately so: the view is stashed under VIEW_KEY *before* the gate opens,
+  // because a signed-out visitor comes back through boot rather than through
+  // this handler, and boot is what reads it. Signed in, there is no gate to
+  // wait for and enterApp() takes them straight there.
+  const door = (id, view) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('click', (e) => {
+      e.preventDefault();
+      try { localStorage.setItem(VIEW_KEY, view); } catch (err) {}
+      if (window.Auth && Auth.isSignedIn()) { enterApp(); return; }
+      if (typeof openAuthFrom === 'function') openAuthFrom('start', 'app');
+    });
+  };
+  door('doorVideo', 'home');   // the media studio — video, image, voice
+  door('doorApp', 'sites');    // the site builder
+
   // Landing chatbox: let the visitor type freely; only funnel into the sign-up
   // popup when they commit (Enter) or hit the send arrow — not on tap/focus.
   const landInput = document.getElementById('crtLandInput');
