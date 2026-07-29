@@ -35,7 +35,11 @@ jobs:
   audit:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Longer than it looks like it needs. Two of the checks are WAITS that are
+    # the feature under test — the brute-force delay ending on its own (30s) and
+    # a TOTP step boundary — and the auth surface is deliberately rate limited,
+    # so a dense run backs off rather than failing on the limiter working.
+    timeout-minutes: 32
     steps:
       - uses: actions/checkout@v4
         with:

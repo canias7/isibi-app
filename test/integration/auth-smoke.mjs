@@ -21,6 +21,7 @@
 // already had twice.
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { dropUserProject } from "../../site-db.mjs";
 
 const BASE = process.env.SMOKE_BASE_URL || "https://isibi.ai";
@@ -58,18 +59,24 @@ const authUrl = (a) => `${BASE}/api/db/${slug}/auth/${a}`;
 // audit this dense outruns it — which is the limiter working, not a defect. The
 // alternative is a suite whose last section fails for a reason that has nothing
 // to do with what it is testing, which is exactly what the first run did.
-const auth = async (action, body, token, retried = false) => {
+const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+// Three attempts, not one. Signup is throttled per SITE (10/min) rather than per
+// address, and an audit this dense makes more than ten of them in a minute — so
+// a single retry ran out partway through and the run failed on the limiter
+// working correctly, which is the least useful failure a test can produce.
+const AUTH_RETRIES = 3;
+const auth = async (action, body, token, attempt = 0) => {
   const r = await fetch(authUrl(action), {
     method: "POST",
     headers: { "content-type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify(body || {}),
   });
   const out = { status: r.status, body: await J(r) };
-  if (out.status === 429 && !retried) {
+  if (out.status === 429 && attempt < AUTH_RETRIES) {
     const wait = Math.min(Number(out.body.retryAfter) || 30, 70);
     console.log(`   (rate limited — waiting ${wait}s, the limiter is doing its job)`);
-    await new Promise((res) => setTimeout(res, (wait + 2) * 1000));
-    return auth(action, body, token, true);
+    await sleep((wait + 2) * 1000);
+    return auth(action, body, token, attempt + 1);
   }
   return out;
 };
@@ -83,6 +90,46 @@ const owner = (p, init) => fetch(`${BASE}/api/site/${slug}${p}`, {
 
 // A member with a real, long, unbreached password.
 const newMemberPass = () => `Clover-Tandem-${rnd()}-${rnd()}`;
+
+// --------------------------------------------------------------- authenticator
+//
+// RFC 6238, written out here rather than imported from site-otp.mjs — on
+// purpose. Importing the implementation under test would prove only that it
+// agrees with itself; this stands in for a real authenticator app, so a code it
+// produces being accepted by production is the same evidence a phone would give.
+// The unit suite pins the module against the RFC's own vectors separately.
+const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+const b32bytes = (secret) => {
+  const clean = String(secret || "").toUpperCase().replace(/[^A-Z2-7]/g, "");
+  const out = [];
+  let bits = 0, value = 0;
+  for (const ch of clean) {
+    value = (value << 5) | B32.indexOf(ch); bits += 5;
+    if (bits >= 8) { out.push((value >>> (bits - 8)) & 255); bits -= 8; }
+  }
+  return Buffer.from(out);
+};
+const totpAt = (secret, counter) => {
+  const buf = Buffer.alloc(8);
+  buf.writeBigUInt64BE(BigInt(counter));
+  const h = crypto.createHmac("sha1", b32bytes(secret)).update(buf).digest();
+  const off = h[h.length - 1] & 0x0f;
+  const n = ((h[off] & 0x7f) << 24) | (h[off + 1] << 16) | (h[off + 2] << 8) | h[off + 3];
+  return String(n % 1e6).padStart(6, "0");
+};
+/**
+ * A code with most of its 30-second step still ahead of it.
+ *
+ * The replay check needs the SAME code presented twice inside one window. Taken
+ * at an arbitrary moment the step can roll between the two calls, and a rolled
+ * code is refused for being stale rather than for being a replay — the
+ * assertion still passes, for the wrong reason, which is worse than failing.
+ */
+const freshTotp = async (secret) => {
+  const into = Date.now() % 30000;
+  if (into > 12000) await sleep(30000 - into + 400);
+  return totpAt(secret, Math.floor(Date.now() / 30000));
+};
 
 try {
   // ---------------------------------------------------------------- account
@@ -125,6 +172,10 @@ try {
       },
       { name: "my_notes", access: "user", columns: ["title", "body"] },
       { name: "announcements", access: "admin", columns: ["title", "body"], writeRoles: ["admin"] },
+      // The fourth read model: not private-to-me and not everyone-sees-
+      // everything, but "ours". Dead at four layers until 2026-07-29 — parsed,
+      // stamping a column, referenced by nothing, undeclarable.
+      { name: "deals", access: "user", teamScope: true, columns: ["title", "value"] },
     ],
   };
   // TOP LEVEL, not inside `schema`: the route reads
@@ -147,7 +198,7 @@ try {
   section("the site");
   ok("build returns 200", br.status === 200, br.status + " " + JSON.stringify(bd).slice(0, 300));
   if (br.status !== 200) throw new Error("cannot audit auth without a site");
-  ok("every declared table was created", (bd.tables || []).length === 4, JSON.stringify(bd.tables));
+  ok("every declared table was created", (bd.tables || []).length === 5, JSON.stringify(bd.tables));
   ok("the display table was seeded", (bd.seeded || {}).teachers > 0, JSON.stringify(bd.seeded));
   // `notes` is the field that says WHY when there is no stage and no error —
   // truncation, the credit floor, or a response with nothing usable in it. The
@@ -422,6 +473,324 @@ try {
   ok("a lookalike domain does not match", looka.status === 403, looka.status);
   await owner("/access", { method: "POST", body: JSON.stringify({ mode: "open", domains: [] }) });
 
+  // ================================================ second factor: TOTP
+  //
+  // Everything below this line had unit tests and had never been run against
+  // the deployed thing. That is the gap this section and the four after it
+  // close: a second factor, the brute-force delay, single sign-on, teams, and
+  // passkeys in a real browser.
+  section("second factor — authenticator app");
+  const tfEmail = `otp-${rnd()}@example.com`, tfPass = newMemberPass();
+  const tfSignup = await auth("signup", { email: tfEmail, password: tfPass });
+  let tfTok = tfSignup.body.token;
+  ok("a member to enrol exists", tfSignup.status === 200 && !!tfTok, tfSignup.status + " " + JSON.stringify(tfSignup.body).slice(0, 160));
+
+  ok("enrolling needs a session", (await auth("totp/start", {})).status === 401);
+
+  const tStart = await auth("totp/start", {}, tfTok);
+  const secret = tStart.body.secret;
+  ok("an authenticator secret is issued", tStart.status === 200 && /^[A-Z2-7]{20,64}$/.test(String(secret || "")),
+    tStart.status + " " + JSON.stringify(tStart.body).slice(0, 200));
+  ok("...with an otpauth:// URI a real app can scan",
+    String(tStart.body.uri || "").startsWith("otpauth://totp/") && String(tStart.body.uri).includes(`secret=${secret}`),
+    String(tStart.body.uri || "").slice(0, 120));
+
+  // Started is NOT enabled. An account must never be gated by a factor its
+  // owner has not yet proved they can produce, or enrolling locks them out.
+  ok("a wrong code does not turn it on", (await auth("totp/enable", { code: "000000" }, tfTok)).status === 401);
+  const preEnable = await auth("login", { email: tfEmail, password: tfPass });
+  ok("a started-but-unconfirmed factor does not gate sign-in", preEnable.status === 200 && !!preEnable.body.token,
+    preEnable.status + " " + JSON.stringify(preEnable.body).slice(0, 160));
+  tfTok = preEnable.body.token || tfTok;
+
+  const enable = await auth("totp/enable", { code: totpAt(secret, Math.floor(Date.now() / 30000)) }, tfTok);
+  const recovery = enable.body.recovery || [];
+  ok("a code from a real authenticator turns it on", enable.status === 200 && enable.body.ok === true,
+    enable.status + " " + JSON.stringify(enable.body).slice(0, 200));
+  ok("...and hands over recovery codes, once", recovery.length > 0 && recovery.every((c) => /^[a-z0-9]{5}-[a-z0-9]{5}$/.test(String(c))),
+    JSON.stringify(recovery).slice(0, 160));
+
+  // THE assertion of this section. A primary method that succeeds on a 2FA
+  // account must return a PENDING token and never a session — a second factor
+  // that can be skipped is not a second factor.
+  const pend = await auth("login", { email: tfEmail, password: tfPass });
+  ok("with 2FA on, the password alone returns a PENDING token, never a session",
+    pend.status === 200 && !!pend.body.pending && !pend.body.token && pend.body.need === "totp",
+    pend.status + " " + JSON.stringify(pend.body).slice(0, 200));
+  ok("the pending token does NOT open the account", (await me(pend.body.pending)).status === 401);
+
+  const live = await freshTotp(secret);
+  const verified = await auth("totp/verify", { code: live }, pend.body.pending);
+  ok("presenting the code completes the sign-in", verified.status === 200 && !!verified.body.token,
+    verified.status + " " + JSON.stringify(verified.body).slice(0, 200));
+  let tfSession = verified.body.token;
+  ok("...and THAT token is a working session", (await me(tfSession)).status === 200);
+
+  // `verifyTotp` returns the matched step so the caller can store it and refuse
+  // a second use. Without that a code stays live for up to 90 seconds.
+  const pendAgain = await auth("login", { email: tfEmail, password: tfPass });
+  const replay = await auth("totp/verify", { code: live }, pendAgain.body.pending);
+  ok("the SAME code cannot be used twice inside its window", replay.status === 401,
+    replay.status + " " + JSON.stringify(replay.body).slice(0, 160));
+
+  ok("a session cannot be presented in place of a pending token",
+    (await auth("totp/verify", { code: totpAt(secret, Math.floor(Date.now() / 30000)) }, tfSession)).status === 401);
+
+  // ======================================================== recovery codes
+  section("recovery codes");
+  const rec1 = await auth("login", { email: tfEmail, password: tfPass });
+  const usedRec = await auth("totp/verify", { code: recovery[0] }, rec1.body.pending);
+  ok("a recovery code stands in for the app", usedRec.status === 200 && !!usedRec.body.token && usedRec.body.recoveryUsed === true,
+    usedRec.status + " " + JSON.stringify(usedRec.body).slice(0, 200));
+  ok("...and says how many are left", usedRec.body.recoveryLeft === recovery.length - 1,
+    `${usedRec.body.recoveryLeft} of ${recovery.length}`);
+  tfSession = usedRec.body.token || tfSession;
+
+  const rec2 = await auth("login", { email: tfEmail, password: tfPass });
+  const spent = await auth("totp/verify", { code: recovery[0] }, rec2.body.pending);
+  ok("a spent recovery code is refused", spent.status === 401, spent.status + " " + JSON.stringify(spent.body).slice(0, 160));
+
+  const regen = await auth("recovery/new", {}, tfSession);
+  ok("recovery codes can be regenerated", regen.status === 200 && (regen.body.recovery || []).length > 0,
+    regen.status + " " + JSON.stringify(regen.body).slice(0, 160));
+  const rec3 = await auth("login", { email: tfEmail, password: tfPass });
+  const stale = await auth("totp/verify", { code: recovery[1] }, rec3.body.pending);
+  ok("regenerating invalidates the codes somebody may still have on paper", stale.status === 401,
+    stale.status + " " + JSON.stringify(stale.body).slice(0, 160));
+
+  // Turning a factor OFF is the first thing somebody with a stolen session
+  // would want to do, so it costs the password even though a session is held.
+  ok("turning the factor off needs the password", (await auth("totp/disable", { current: "not-it" }, tfSession)).status === 401);
+  const off = await auth("totp/disable", { current: tfPass }, tfSession);
+  ok("...and with the password, it comes off", off.status === 200, off.status + " " + JSON.stringify(off.body).slice(0, 160));
+  const plain = await auth("login", { email: tfEmail, password: tfPass });
+  ok("sign-in returns a plain session again", plain.status === 200 && !!plain.body.token && !plain.body.pending,
+    plain.status + " " + JSON.stringify(plain.body).slice(0, 160));
+
+  // ==================================================== the brute-force delay
+  //
+  // The observable is indirect BY DESIGN: a delayed account answers
+  // byte-identically to a wrong password, because "try again in 10 minutes"
+  // confirms the address is a member here. So what is asserted is that the
+  // CORRECT password stops working after enough failures and starts working
+  // again on its own — which is the whole behaviour, seen from outside.
+  section("brute force — the escalating delay");
+  const bfEmail = `bf-${rnd()}@example.com`, bfPass = newMemberPass();
+  const bfSignup = await auth("signup", { email: bfEmail, password: bfPass });
+  ok("an account to attack exists", bfSignup.status === 200 && !!bfSignup.body.token, bfSignup.status);
+
+  ok("the right password works before any of this", (await auth("login", { email: bfEmail, password: bfPass })).status === 200);
+
+  // Five failures cost nothing; the sixth earns 30 seconds.
+  const failures = [];
+  for (let i = 0; i < 6; i++) failures.push((await auth("login", { email: bfEmail, password: `wrong-${i}` })).status);
+  ok("six wrong passwords are all refused the same way", failures.every((s) => s === 401), JSON.stringify(failures));
+
+  const during = await auth("login", { email: bfEmail, password: bfPass });
+  ok("the CORRECT password is now refused too — the delay is in force", during.status === 401,
+    during.status + " " + JSON.stringify(during.body).slice(0, 160));
+  ok("...and the refusal is byte-identical to a wrong password, not an oracle",
+    during.status === wrong.status && JSON.stringify(during.body) === JSON.stringify(wrong.body),
+    JSON.stringify(during.body) + " vs " + JSON.stringify(wrong.body));
+
+  // A delay that a human has to clear is a denial of service anyone can aim at
+  // anyone. This one ends on its own — which is the half that makes it shippable.
+  console.log("   (waiting out the 30s delay — this is the feature, not the test being slow)");
+  await sleep(34000);
+  const after = await auth("login", { email: bfEmail, password: bfPass });
+  ok("the delay ends by itself and the real person gets back in", after.status === 200 && !!after.body.token,
+    after.status + " " + JSON.stringify(after.body).slice(0, 160));
+
+  // ================================================== single sign-on (OAuth)
+  //
+  // The token exchange itself needs a real provider account, which no site has;
+  // what CAN be proved on production is the half that is ours, and it is the
+  // half where a mistake is a vulnerability rather than an outage — the state
+  // token, its provider pin, its kind, PKCE, and the open-redirect guard.
+  section("single sign-on — the parts that are ours");
+  const idp = "https://idp.invalid.test";
+  const cfg = await owner("/access", {
+    method: "POST",
+    body: JSON.stringify({
+      oauth: {
+        oidc: {
+          client_id: "audit-client-id", client_secret: "audit-client-secret", label: "Acme SSO",
+          authorize: `${idp}/authorize`, token: `${idp}/token`, userinfo: `${idp}/userinfo`,
+        },
+      },
+    }),
+  });
+  ok("an owner can configure a provider", cfg.status === 200, cfg.status + " " + JSON.stringify(await J(cfg)).slice(0, 200));
+
+  const methods = await fetch(authUrl("methods"), { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  const mList = (await J(methods)).methods || [];
+  ok("the sign-in page is offered the configured provider", mList.some((m) => m.name === "oidc"), JSON.stringify(mList));
+  ok("...and second factors are NOT offered as a way in", !mList.some((m) => m.name === "totp" || m.name === "recovery"), JSON.stringify(mList));
+
+  const acc2 = await J(await owner("/access"));
+  ok("reading the config back never returns the secret",
+    !JSON.stringify(acc2).includes("audit-client-secret") && JSON.stringify(acc2).includes("audit-client-id"),
+    JSON.stringify(acc2.oauth || {}).slice(0, 200));
+  ok("...and it tells the owner the exact redirect URI to register",
+    String((acc2.redirectUris || {}).oidc || "").endsWith(`/api/db/${slug}/auth/oauth/oidc/callback`),
+    JSON.stringify(acc2.redirectUris || {}));
+
+  // `start` is a real 302 for a browser, not JSON — followed manually so the
+  // Location can be read. No network is involved: the provider host does not
+  // resolve and does not need to, because everything asserted here is minted
+  // by us before anyone is redirected anywhere.
+  const startAt = async (next) => {
+    const r = await fetch(`${authUrl("oauth/oidc/start")}${next ? `?next=${encodeURIComponent(next)}` : ""}`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}", redirect: "manual" });
+    return { status: r.status, location: r.headers.get("location") || "" };
+  };
+  const started = await startAt("/account");
+  ok("starting a sign-in is a 302 to the provider",
+    started.status === 302 && started.location.startsWith(`${idp}/authorize?`),
+    started.status + " " + started.location.slice(0, 160));
+  const qp = new URLSearchParams(started.location.split("?")[1] || "");
+  ok("it carries the OWNER's client_id, so one revocation cannot take down every site",
+    qp.get("client_id") === "audit-client-id", qp.get("client_id"));
+  ok("PKCE is on, and it is S256",
+    qp.get("code_challenge_method") === "S256" && (qp.get("code_challenge") || "").length > 20,
+    `${qp.get("code_challenge_method")} ${String(qp.get("code_challenge")).slice(0, 12)}`);
+  ok("the redirect_uri is this site's callback, not something a caller chose",
+    String(qp.get("redirect_uri") || "").endsWith(`/api/db/${slug}/auth/oauth/oidc/callback`), qp.get("redirect_uri"));
+  const state = qp.get("state") || "";
+  ok("the state is a signed token, not a random string", state.split(".").length === 2, state.slice(0, 40));
+
+  // POSTed rather than GET: a GET callback lands on an HTML page (a browser
+  // arriving from a provider cannot read a JSON body), which collapses every
+  // failure to 400. POST answers with the real status and reason.
+  const callback = async (provider, params) => {
+    const r = await fetch(authUrl(`oauth/${provider}/callback`), {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(params),
+    });
+    return { status: r.status, body: await J(r) };
+  };
+  const noState = await callback("oidc", { code: "abc" });
+  ok("a callback with no state is refused", noState.status === 400 && noState.body.code === "state", noState.status + " " + JSON.stringify(noState.body));
+  const junkState = await callback("oidc", { code: "abc", state: "not-a-token" });
+  ok("a callback with a forged state is refused", junkState.status === 400 && junkState.body.code === "state", junkState.status + " " + JSON.stringify(junkState.body));
+  // Without the `use` check a session token would be accepted as state. This is
+  // the allow-list that the claim-token work turned `verifySession` into.
+  const sessionAsState = await callback("oidc", { code: "abc", state: String(plain.body.token) });
+  ok("a SESSION token presented as state is refused",
+    sessionAsState.status === 400 && sessionAsState.body.code === "state", sessionAsState.status + " " + JSON.stringify(sessionAsState.body));
+  // The pin. Without it, a state minted for a provider the attacker controls
+  // replays against one they do not.
+  const wrongProvider = await callback("google", { code: "abc", state });
+  ok("a state minted for one provider is refused by another", wrongProvider.status >= 400,
+    wrongProvider.status + " " + JSON.stringify(wrongProvider.body));
+
+  // The real state with a real-looking code, against a host that does not
+  // exist: it must get PAST our checks and fail at the exchange. Without this
+  // the refusals above would also pass on a callback that refuses everything.
+  const exch = await callback("oidc", { code: "abc", state });
+  ok("a VALID state gets past our checks and fails at the provider instead",
+    exch.status === 502 && exch.body.code === "exchange", exch.status + " " + JSON.stringify(exch.body).slice(0, 200));
+
+  // The browser-facing shape: HTML, and no token anywhere in the URL — where it
+  // would sit in history and in the next page's referrer.
+  const landing = await fetch(`${authUrl("oauth/oidc/callback")}?code=abc&state=nope`, { redirect: "manual" });
+  const landingHtml = await landing.text();
+  ok("a browser arriving at the callback gets a page, not JSON",
+    landing.status === 400 && (landing.headers.get("content-type") || "").includes("text/html"),
+    landing.status + " " + landing.headers.get("content-type"));
+  ok("...which reports the failure instead of signing anyone in",
+    landingHtml.includes("expired") && !landingHtml.includes('"token":"ey'), landingHtml.slice(0, 200));
+
+  // The open-redirect guard. `//evil.example` is protocol-relative, which
+  // browsers treat as absolute — the one people miss.
+  const evil = await startAt("//evil.example/phish");
+  const evilState = new URLSearchParams(evil.location.split("?")[1] || "").get("state") || "";
+  const landed = (() => { try { return JSON.parse(Buffer.from(evilState.split(".")[0], "base64url").toString()).n; } catch { return null; } })();
+  ok("an off-site `next` is reduced to a path on this site", landed === "/", JSON.stringify(landed));
+
+  // ================================================================== teams
+  section("teams — the shared read model");
+  const tCreate = await owner("/teams", { method: "POST", body: JSON.stringify({ name: "Sales" }) });
+  const tCreated = await J(tCreate);
+  const teamId = tCreated.team?.id;
+  ok("an owner can create a team", tCreate.status === 201 && !!teamId, tCreate.status + " " + JSON.stringify(tCreated).slice(0, 160));
+  ok("a team needs a name", (await owner("/teams", { method: "POST", body: JSON.stringify({ name: "  " }) })).status === 400);
+
+  // Two members in the team, one outside it. `deals` is `teamScope`.
+  const mem2 = await J(await owner("/members"));
+  const idFor = (email) => (mem2.members || []).find((x) => String(x.email) === email)?.id;
+  const adaId2 = idFor(m1b), bobId = idFor(m2);
+  const outEmail = `solo-${rnd()}@example.com`, outPass = newMemberPass();
+  const outSignup = await auth("signup", { email: outEmail, password: outPass });
+  const outTok = outSignup.body.token;
+
+  const assignA = await owner(`/members/${adaId2}`, { method: "PATCH", body: JSON.stringify({ team_id: teamId }) });
+  const assignB = await owner(`/members/${bobId}`, { method: "PATCH", body: JSON.stringify({ team_id: teamId }) });
+  ok("an owner can put members in a team", assignA.status === 200 && assignB.status === 200, `${assignA.status}/${assignB.status}`);
+
+  // Fresh tokens: both accounts have had their sessions churned above.
+  const adaTok = (await auth("login", { email: m1b, password: m1pass2 })).body.token;
+  const bobTok = (await auth("login", { email: m2, password: m2pass })).body.token;
+  const deal = (tok, title) => fetch(`${BASE}/api/db/${slug}/rows/deals`, {
+    method: "POST", headers: { "content-type": "application/json", Authorization: `Bearer ${tok}` },
+    body: JSON.stringify({ title, value: "100" }),
+  });
+  const readDeals = async (tok) => {
+    const r = await fetch(`${BASE}/api/db/${slug}/rows/deals`, { headers: { Authorization: `Bearer ${tok}` } });
+    return { status: r.status, rows: (await J(r)).rows || [] };
+  };
+  const dA = await deal(adaTok, "ada-deal");
+  const dOut = await deal(outTok, "solo-deal");
+  ok("a team member can write a team-scoped row", dA.status === 201, dA.status + " " + JSON.stringify(await J(dA)).slice(0, 160));
+  ok("so can somebody with no team", dOut.status === 201, dOut.status);
+
+  const bobSees = await readDeals(bobTok);
+  ok("a team-mate sees the team's rows, not just their own",
+    bobSees.status === 200 && bobSees.rows.some((x) => x.title === "ada-deal"),
+    bobSees.status + " " + JSON.stringify(bobSees.rows.map((x) => x.title)));
+
+  // The one assertion that matters. Every naive "same team" implementation gets
+  // this wrong in the same outward direction — null matching null — and before
+  // an owner sets any team up EVERY member is teamless, so the bug shows the
+  // whole site each other's records.
+  const soloSees = await readDeals(outTok);
+  ok("a member with NO team sees ONLY their own rows",
+    soloSees.status === 200 && soloSees.rows.length === 1 && soloSees.rows[0].title === "solo-deal",
+    soloSees.status + " " + JSON.stringify(soloSees.rows.map((x) => x.title)));
+  ok("...and the team cannot see the teamless member's row",
+    !bobSees.rows.some((x) => x.title === "solo-deal"), JSON.stringify(bobSees.rows.map((x) => x.title)));
+
+  // A flat team EDITS jointly — this is what separates `teamScope` from
+  // `teamRead`, which widens reads only. A tool where a colleague cannot
+  // correct a record is not the tool anybody asked for.
+  const adaDealId = bobSees.rows.find((x) => x.title === "ada-deal")?.id;
+  if (adaDealId != null) {
+    const edit = await fetch(`${BASE}/api/db/${slug}/rows/deals/${adaDealId}`, {
+      method: "PATCH", headers: { "content-type": "application/json", Authorization: `Bearer ${bobTok}` },
+      body: JSON.stringify({ value: "250" }),
+    });
+    ok("a team-mate can EDIT the team's row, not only read it", edit.status === 200, edit.status + " " + JSON.stringify(await J(edit)).slice(0, 160));
+    const outsider = await fetch(`${BASE}/api/db/${slug}/rows/deals/${adaDealId}`, {
+      method: "PATCH", headers: { "content-type": "application/json", Authorization: `Bearer ${outTok}` },
+      body: JSON.stringify({ value: "0" }),
+    });
+    ok("somebody outside the team gets 404, not 403", outsider.status === 404, outsider.status);
+  }
+
+  const teamList = await J(await owner("/teams"));
+  ok("the owner's team list counts its members", (teamList.teams || []).find((t) => t.id === teamId)?.members === 2,
+    JSON.stringify(teamList.teams));
+
+  // Deleting a team must release its members FIRST: Postgres reuses identity
+  // values, so a dangling team_id would be inherited wholesale by whichever
+  // team next takes that id.
+  const delTeam = await owner(`/teams/${teamId}`, { method: "DELETE" });
+  ok("an owner can delete a team", delTeam.status === 200, delTeam.status);
+  const afterDelete = await readDeals(bobTok);
+  ok("its members are released, so each sees only their own again",
+    afterDelete.rows.length === 1 && !afterDelete.rows.some((x) => x.title === "ada-deal"),
+    JSON.stringify(afterDelete.rows.map((x) => x.title)));
+  ok("deleting a team that is gone is 404", (await owner(`/teams/${teamId}`, { method: "DELETE" })).status === 404);
+
   // ================================================== what the visitor sees
   section("the published site, in a real browser");
   // The build returns a RELATIVE url ("/s/<slug>/"), which page.goto refuses as
@@ -582,6 +951,8 @@ async function shoot(url, { built, files, member } = {}) {
           console.log("   (could not read any bundle — skipping the key check rather than", JSON.stringify(reads) + ")");
         }
 
+        await passkeyPass(page);
+
         // Whatever routes the generator actually wrote — an account page, a
         // members area, a timetable. Named from the build response rather than
         // guessed, so this follows the site instead of assuming its shape.
@@ -602,6 +973,152 @@ async function shoot(url, { built, files, member } = {}) {
   } catch (e) {
     ok("the browser pass completed", false, (e && e.message) || String(e));
   } finally { await browser.close().catch(() => {}); }
+}
+
+/**
+ * Passkeys, in a real browser, with a real WebAuthn ceremony.
+ *
+ * The unit suite drives `site-webauthn.mjs` with an authenticator I wrote — a
+ * generated P-256 key and hand-built attestation objects. That proves the
+ * parser, and it cannot prove that Chrome and this server agree: the CBOR a
+ * real authenticator emits, the DER a real signature is wrapped in, the exact
+ * origin and rpId a browser puts in clientData. Chromium's virtual
+ * authenticator is the real implementation with the hardware removed, so
+ * everything above the key material is genuine.
+ *
+ * rpId is the Worker's own hostname and the site is served from a path on it,
+ * so the published origin is the RP origin — no configuration needed and none
+ * assumed here.
+ */
+async function passkeyPass(page) {
+  let cdp;
+  try {
+    cdp = await page.context().newCDPSession(page);
+    await cdp.send("WebAuthn.enable");
+    await cdp.send("WebAuthn.addVirtualAuthenticator", {
+      options: {
+        protocol: "ctap2", transport: "internal",
+        hasResidentKey: true, hasUserVerification: true,
+        isUserVerified: true, automaticPresenceSimulation: true,
+      },
+    });
+  } catch (e) {
+    ok("a virtual authenticator is available", false, (e && e.message) || String(e));
+    return;
+  }
+
+  const out = await page.evaluate(async (slug) => {
+    const b64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const unb64u = (s) => Uint8Array.from(atob(String(s).replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+    const post = async (route, body, tok) => {
+      const r = await fetch(`/api/db/${slug}/auth/${route}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
+        body: JSON.stringify(body || {}),
+      });
+      return { status: r.status, body: await r.json().catch(() => ({})) };
+    };
+    const token = localStorage.getItem(`site_session_${slug}`);
+    const res = { origin: location.origin };
+    try {
+      // ------------------------------------------------------------ enrol
+      const st = await post("passkey/register/start", {}, token);
+      res.startStatus = st.status;
+      if (st.status !== 200) return res;
+      const o = st.body;
+      const cred = await navigator.credentials.create({
+        publicKey: {
+          challenge: unb64u(o.challenge),
+          rp: o.rp,
+          user: { id: unb64u(o.user.id), name: o.user.name, displayName: o.user.displayName },
+          pubKeyCredParams: o.pubKeyCredParams,
+          excludeCredentials: (o.excludeCredentials || []).map((c) => ({ ...c, id: unb64u(c.id) })),
+          authenticatorSelection: { residentKey: "required", userVerification: "required" },
+          timeout: 30000,
+        },
+      });
+      const fin = await post("passkey/register/finish", {
+        label: "Audit key",
+        response: {
+          clientDataJSON: b64u(cred.response.clientDataJSON),
+          attestationObject: b64u(cred.response.attestationObject),
+        },
+      }, token);
+      res.registerStatus = fin.status;
+      res.registerBody = fin.body;
+
+      // The same challenge a second time: spent before it is used, so a
+      // ceremony that fails cannot be retried against forever.
+      const replay = await post("passkey/register/finish", {
+        response: {
+          clientDataJSON: b64u(cred.response.clientDataJSON),
+          attestationObject: b64u(cred.response.attestationObject),
+        },
+      }, token);
+      res.registerReplayStatus = replay.status;
+
+      // ----------------------------------------------------------- sign in
+      // No account is named — a discoverable credential says who this is.
+      const ls = await post("passkey/login/start", {});
+      res.loginStartStatus = ls.status;
+      const assertion = await navigator.credentials.get({
+        publicKey: { challenge: unb64u(ls.body.challenge), rpId: ls.body.rpId, userVerification: "required", timeout: 30000 },
+      });
+      const lf = await post("passkey/login/finish", {
+        challenge: ls.body.challenge,
+        credentialId: b64u(assertion.rawId),
+        response: {
+          clientDataJSON: b64u(assertion.response.clientDataJSON),
+          authenticatorData: b64u(assertion.response.authenticatorData),
+          signature: b64u(assertion.response.signature),
+        },
+      });
+      res.loginStatus = lf.status;
+      res.gotSession = !!lf.body.token;
+      if (lf.body.token) {
+        const m = await fetch(`/api/db/${slug}/auth/me`, { headers: { Authorization: `Bearer ${lf.body.token}` } });
+        res.meStatus = m.status;
+      }
+
+      // A captured assertion, replayed. The challenge is single-use.
+      const lr = await post("passkey/login/finish", {
+        challenge: ls.body.challenge,
+        credentialId: b64u(assertion.rawId),
+        response: {
+          clientDataJSON: b64u(assertion.response.clientDataJSON),
+          authenticatorData: b64u(assertion.response.authenticatorData),
+          signature: b64u(assertion.response.signature),
+        },
+      });
+      res.loginReplayStatus = lr.status;
+
+      // ------------------------------------------------- listed, and removed
+      const list = await post("identities", {}, token);
+      res.listed = (list.body.passkeys || []).length;
+      res.listedLabel = (list.body.passkeys || [])[0]?.label;
+      const keyId = (list.body.passkeys || [])[0]?.id;
+      // Removing the only passkey on an account that still has a password is
+      // allowed; removing the last way in of any kind is not.
+      const rm = await post("passkey/remove", { id: keyId }, token);
+      res.removeStatus = rm.status;
+      const rmAgain = await post("passkey/remove", { id: keyId }, token);
+      res.removeAgainStatus = rmAgain.status;
+    } catch (e) {
+      res.threw = String((e && e.message) || e).slice(0, 300);
+    }
+    return res;
+  }, slug);
+
+  ok("a passkey can be enrolled from the published site", out.registerStatus === 200, JSON.stringify(out).slice(0, 400));
+  ok("...and the browser's real attestation is accepted", !!out.registerBody?.credentialId, JSON.stringify(out.registerBody || {}).slice(0, 200));
+  ok("a registration challenge cannot be used twice", out.registerReplayStatus === 400, out.registerReplayStatus);
+  ok("a passkey signs in with no account named", out.loginStatus === 200 && out.gotSession === true, JSON.stringify(out).slice(0, 400));
+  ok("...and the session it mints is a working one", out.meStatus === 200, out.meStatus);
+  ok("a captured assertion cannot be replayed", out.loginReplayStatus === 400, out.loginReplayStatus);
+  ok("the passkey is listed on the account", out.listed === 1 && out.listedLabel === "Audit key", JSON.stringify({ n: out.listed, label: out.listedLabel }));
+  ok("a passkey can be removed", out.removeStatus === 200, out.removeStatus);
+  ok("removing it twice is 404, not a silent success", out.removeAgainStatus === 404, out.removeAgainStatus);
+  if (out.threw) ok("the passkey ceremony completed without throwing", false, out.threw);
 }
 
 function findChromium() {
