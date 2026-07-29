@@ -285,3 +285,71 @@ test("the placeholder page describes each access level correctly", () => {
   }
   assert.match(body, /only you can read it/, "a collect table must be described as write-only");
 });
+
+// -------------------------------------------- what a model failure may reveal
+//
+// `detail` from a model API is never returned: a 400 can quote the request back,
+// and the request carries the site's brief. But returning ONLY a numeric status
+// meant both CI suites went red at the same minute on `upstream: 400` and the
+// reason — the account that pays for the model had no balance — was logged in
+// Cloudflare and discarded from every response. Forty minutes of red with
+// nothing in the API to say why.
+//
+// `upstreamKind` is the narrow middle: the provider's error TYPE, which is a
+// fixed token from a small set, plus a boolean for the one message worth
+// checking. Everything else stays out.
+import { readFileSync as _rf } from "node:fs";
+const WORKER_SRC = _rf(new URL("../worker.js", import.meta.url), "utf8");
+
+/** The real function, lifted out of worker.js, which cannot be imported. */
+const upstreamKind = (() => {
+  const m = WORKER_SRC.match(/function upstreamKind\(detail\) \{[\s\S]*?\n\}/);
+  assert.ok(m, "upstreamKind was not found in worker.js");
+  return new Function("detail", m[0].replace(/^function upstreamKind\(detail\) \{/, "") .replace(/\n\}$/, "") + "\n");
+})();
+
+test("an upstream error type is passed through only when it is a plain token", () => {
+  assert.equal(upstreamKind('{"error":{"type":"invalid_request_error","message":"x"}}').type, "invalid_request_error");
+  assert.equal(upstreamKind('{"error":{"type":"rate_limit_error"}}').type, "rate_limit_error");
+  // Anything that is not a bare token is DROPPED, not echoed — this must never
+  // become a channel for arbitrary upstream text reaching a caller.
+  assert.equal(upstreamKind('{"error":{"type":"your brief was: build me a spa for Acme"}}').type, null);
+  assert.equal(upstreamKind('{"error":{"type":"<script>alert(1)</script>"}}').type, null);
+  assert.equal(upstreamKind('{"error":{"type":123}}').type, null);
+  assert.equal(upstreamKind("not json at all").type, null);
+  assert.equal(upstreamKind(undefined).type, null);
+});
+
+test("the billing case is recognised, and nothing else is", () => {
+  assert.equal(upstreamKind('{"error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API"}}').billing, true);
+  assert.equal(upstreamKind('{"error":{"type":"invalid_request_error","message":"insufficient credit"}}').billing, true);
+  // A 400 about the REQUEST is not a billing failure, and saying it is would
+  // send somebody to top up an account that is already funded.
+  assert.equal(upstreamKind('{"error":{"type":"invalid_request_error","message":"max_tokens: must be <= 8192"}}').billing, false);
+  assert.equal(upstreamKind('{"error":{"type":"overloaded_error","message":"Overloaded"}}').billing, false);
+  assert.equal(upstreamKind("").billing, false);
+});
+
+test("the model's own message never reaches a caller", () => {
+  // The whole reason `detail` is withheld. Whatever comes back, the only strings
+  // that leave are ones this repo wrote.
+  const out = upstreamKind('{"error":{"type":"invalid_request_error","message":"the brief said: Acme Dental, 42 High St"}}');
+  assert.deepEqual(Object.keys(out).sort(), ["billing", "type"]);
+  assert.ok(!JSON.stringify(out).includes("Acme"), JSON.stringify(out));
+});
+
+test("the page-generation catch returns the stage, not only a note", () => {
+  const branch = WORKER_SRC.slice(WORKER_SRC.indexOf('console.error("page generation failed:'));
+  const block = branch.slice(0, branch.indexOf("\n        }"));
+  assert.match(block, /pages\.stage = "generate"/, "a thrown generator must report its stage");
+  assert.match(block, /pages\.error =/, "…and why, or a total outage looks like an unusable page");
+  assert.match(block, /upstreamKind\(/, "…through the sanitiser, never the raw detail");
+  // `detail` may appear in exactly two places: the log line, and the argument
+  // to the sanitiser. Anywhere else it is on its way to the caller. Checked by
+  // removing those two and asserting nothing is left — the first version looked
+  // for one specific assignment and a ternary across two lines walked past it.
+  const rest = block
+    .replace(/console\.error\([^;]*\);/, "")
+    .replace(/upstreamKind\(e && e\.detail\)/, "");
+  assert.ok(!/e\.detail/.test(rest), "the raw upstream detail must not be returned: " + rest);
+});

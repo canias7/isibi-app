@@ -844,6 +844,38 @@ function briefErr(d) {
   return undefined;
 }
 
+/**
+ * The one part of a model API's error body that is safe to hand back.
+ *
+ * `detail` is deliberately never returned: a 400 can quote the request, and the
+ * request contains the site's brief. But the provider's error *type* is a fixed
+ * token from a small set that contains nothing of ours, and it is the difference
+ * between "they are overloaded" and "the account that pays for this has no
+ * balance" — which are the same "the designer is busy" to a caller today.
+ *
+ * Measured 2026-07-29: both CI suites went red at the same minute on `upstream:
+ * 400` and it took a dig through a job log to learn why, because the reason was
+ * logged in Cloudflare and thrown away in the response. The numeric status was
+ * added for exactly that lesson and did not go far enough.
+ *
+ * `billing` is the one message that is checked rather than passed through. It
+ * is a fixed provider string about OUR account, not about the request, and it
+ * is the failure an operator can actually act on.
+ */
+function upstreamKind(detail) {
+  let body = null;
+  try { body = JSON.parse(String(detail || "")); } catch { return { type: null, billing: false }; }
+  const err = body && body.error;
+  const t = err && err.type;
+  const msg = String((err && err.message) || "");
+  return {
+    // Shape-checked, not trusted: an unrecognised token is dropped rather than
+    // echoed, so this can never become a channel for arbitrary upstream text.
+    type: /^[a-z_]{1,40}$/.test(String(t)) ? String(t) : null,
+    billing: /credit balance is too low|insufficient (?:credit|quota)|billing/i.test(msg),
+  };
+}
+
 function harden(res, request) {
   const h = new Headers(res.headers);
   // The vendored marketing demos under /mkt/demo* are self-contained pages the
@@ -5987,13 +6019,22 @@ async function handleRequest(request, env, ctx) {
           // are sending something they reject" (400), and without it a total
           // outage of the builder's main path is indistinguishable from a busy
           // minute. This one hid for three merges behind exactly that.
+          const kind = upstreamKind(e && e.detail);
           return Response.json({
             ok: false,
             msg: e && e.truncated
               ? "That brief needs more room than the designer had — try describing fewer things to store."
-              : "The designer is busy — try again in a moment.",
+              // Named, because it is the one failure here that no amount of
+              // retrying fixes and that somebody can actually go and act on.
+              : kind.billing
+                ? "The site builder is temporarily unavailable — this is on us, not your brief."
+                : "The designer is busy — try again in a moment.",
             stage: "design",
             upstream: (e && e.status) || null,
+            // The provider's own error TYPE, shape-checked. Never its message,
+            // which a 400 can fill with the request.
+            upstreamType: kind.type,
+            billing: kind.billing || undefined,
             truncated: !!(e && e.truncated),
           }, { status: 503 });
         }
@@ -6116,7 +6157,23 @@ async function handleRequest(request, env, ctx) {
           });
         } catch (e) {
           console.error("page generation failed:", slug, (e && (e.detail || e.message)));
-          pages.notes = "Your database is live, but writing the pages didn't work this time — send it again to retry.";
+          // Returned, not only logged — the same lesson `publish-pages.mjs`
+          // learned. Until 2026-07-29 this branch reported `stage:-, error:-`
+          // and a note, so a total outage of the generator was indistinguishable
+          // from the model writing an unusable page, and telling them apart
+          // needed a Cloudflare log. Measured: both CI suites red on an upstream
+          // 400 for forty minutes with nothing in any response to say why.
+          const kind = upstreamKind(e && e.detail);
+          pages.stage = "generate";
+          pages.upstream = (e && e.status) || null;
+          pages.upstreamType = kind.type;
+          if (kind.billing) pages.billing = true;
+          pages.error = kind.billing
+            ? "the model account has no balance"
+            : String((e && e.message) || "page generation threw").slice(0, 200);
+          pages.notes = kind.billing
+            ? "Your database is live. Writing the pages is temporarily unavailable — this is on us, not your brief."
+            : "Your database is live, but writing the pages didn't work this time — send it again to retry.";
         }
       }
 
