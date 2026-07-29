@@ -16,6 +16,7 @@ import {
   verifySession, verifyReset, normalizeEmail, checkPassword,
 } from "./site-auth.mjs";
 import { lockState, afterFailure, afterSuccess } from "./site-lockout.mjs";
+import { checkPwned, PWNED_MESSAGE } from "./site-pwned.mjs";
 
 const json = (body, status = 200) => ({ status, body });
 
@@ -63,6 +64,20 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     return user;
   };
 
+  // The refusal, or null to carry on — three branches set a password and all
+  // three have to answer this the same way, including the failure direction.
+  //
+  // Only `known` refuses. `unknown` is the service being slow, down, blocked or
+  // rate-limiting us, and refusing to let somebody set a password because a
+  // third party is unavailable would make their outage into ours. Absent on a
+  // caller that does not wire `checkPwned`, so nothing changes for one that does
+  // not want an outbound request in its signup path at all.
+  const pwnedRefusal = async (password) => {
+    if (!deps.checkPwned) return null;
+    const breached = await checkPwned(password, { fetchImpl: deps.checkPwned });
+    return breached.known ? json({ error: PWNED_MESSAGE, code: "pwned", count: breached.count }, 400) : null;
+  };
+
   if (action === "me") {
     const claims = await verifySession(key, token, { nowMs: now });
     if (!claims) return json({ error: "not signed in" }, 401);
@@ -93,13 +108,24 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     const t = await deps.throttle(`signup:${slug}`);
     if (!t.ok) return json({ error: "Too many attempts — try again shortly." }, 429);
 
+    // Is this password already on a breach list?
+    //
+    // BEFORE the invite gate, which is the ordering that matters here. The gate
+    // SPENDS a code, and refusing the password afterwards would leave somebody
+    // holding a code that no longer works because of a retry they were told to
+    // make — the one failure mode of this check that a user would actually
+    // notice. The cost of putting it first is an outbound request on a signup
+    // that was going to be refused anyway, which the throttle above bounds.
+    const breached = await pwnedRefusal(body.password);
+    if (breached) return breached;
+
     // Is this site taking new accounts at all, and from whom?
     //
     // AFTER the throttle, so guessing invite codes is rate-limited like anything
     // else, and BEFORE the password is hashed, so a refused signup does not cost
     // a full PBKDF2 run of Worker CPU. Absent on a caller that does not wire it,
     // which keeps every site that never sets a mode behaving exactly as before.
-    const gate = deps.signupGate ? await deps.signupGate({ code: body.invite }) : { ok: true };
+    const gate = deps.signupGate ? await deps.signupGate({ code: body.invite, email }) : { ok: true };
     if (!gate.ok) return json({ error: gate.error, code: gate.reason }, gate.status);
 
     const made = await deps.createUser(slug, email, await hashPassword(body.password));
@@ -203,6 +229,12 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     const ok = await verifyPassword(typeof body.current === "string" ? body.current : "", (full && full.password_hash) || DUMMY);
     if (!ok) return json({ error: "That password doesn't match.", code: "current" }, 401);
 
+    // Last, once the caller has proved they are this account's owner. Anywhere
+    // earlier and a stolen session token — which is all `signedIn()` proves —
+    // is an outbound request per call to a service we do not run.
+    const breached = await pwnedRefusal(body.next);
+    if (breached) return breached;
+
     const epoch = await deps.setPassword(user.id, await hashPassword(body.next));
     // A fresh token, or the caller is signed out by the change they just made.
     return json({ ok: true, token: await mk(user, epoch) });
@@ -272,6 +304,8 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
       if (!pw.ok) return json({ error: pw.error }, 400);
       const user = await deps.findUserById(slug, claims.sub);
       if (!user) return json({ error: "This reset link is invalid or has expired." }, 400);
+      const breached = await pwnedRefusal(body.password);
+      if (breached) return breached;
       // setPassword bumps the epoch, so every session that existed before the
       // reset stops working. Somebody resetting a password is usually saying
       // they lost control of the account; leaving the thief signed in would

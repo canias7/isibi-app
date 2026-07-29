@@ -671,3 +671,105 @@ test("a site with no lockout wiring behaves exactly as before", async () => {
   const r = await goodLogin(h.deps);
   assert.equal(r.status, 200);
 });
+
+// --------------------------------------------------- breached passwords
+//
+// The policy is in test/site-pwned.test.mjs. What matters here is that a
+// service outage never stops somebody creating an account, and that a refused
+// password costs neither an invite nor a PBKDF2 run.
+
+const pwnedReply = (body) => async () => ({ ok: true, text: async () => body });
+// "password" and its real SHA-1 suffix.
+const BREACHED_SUFFIX = "1E4C9B93F3F0682250B6CF8331B7EE68FD8";
+
+test("a breached password is refused at signup", async () => {
+  const { deps, users } = await harness({ deps: { checkPwned: pwnedReply(`${BREACHED_SUFFIX}:24230577`) } });
+  const r = await call(deps, "signup", { body: { email: "new@example.com", password: "password" } });
+  assert.equal(r.status, 400);
+  assert.equal(r.body.code, "pwned");
+  assert.equal(users.has("cafe|new@example.com"), false);
+});
+
+test("a clean password sails through", async () => {
+  const { deps } = await harness({ deps: { checkPwned: pwnedReply("AAAA:1") } });
+  const r = await call(deps, "signup", { body: { email: "new@example.com", password: "a-long-password" } });
+  assert.equal(r.status, 200);
+});
+
+test("an outage does NOT stop a signup", async () => {
+  // Somebody else's downtime must not become ours.
+  const { deps } = await harness({ deps: { checkPwned: async () => { throw new Error("down"); } } });
+  const r = await call(deps, "signup", { body: { email: "new@example.com", password: "password" } });
+  assert.equal(r.status, 200);
+});
+
+test("a refused password costs no invite and no hash", async () => {
+  let hashed = false, burned = false;
+  const { deps } = await harness({
+    deps: {
+      checkPwned: pwnedReply(`${BREACHED_SUFFIX}:9`),
+      signupGate: async () => { burned = true; return { ok: true, burned: "ABCDEFGHJKLM" }; },
+      createUser: async () => { hashed = true; return { id: "x" }; },
+    },
+  });
+  await call(deps, "signup", { body: { email: "new@example.com", password: "password" } });
+  assert.equal(burned, false, "an invite must not be spent on a password we refuse");
+  assert.equal(hashed, false, "and no PBKDF2 run either");
+});
+
+test("changing to a breached password is refused", async () => {
+  const h = await epochHarness({ deps: { checkPwned: pwnedReply(`${BREACHED_SUFFIX}:9`) } });
+  const token = await signIn(h.deps);
+  const r = await call(h.deps, "password", { token, body: { current: PW, next: "password" } });
+  assert.equal(r.status, 400);
+  assert.equal(r.body.code, "pwned");
+});
+
+test("resetting to a breached password is refused", async () => {
+  const h = await epochHarness({ deps: { checkPwned: pwnedReply(`${BREACHED_SUFFIX}:9`) } });
+  const key = await sessionKey(SECRET, "cafe");
+  const link = await signReset(key, "u1", { nowMs: NOW });
+  const r = await call(h.deps, "reset", { body: { token: link, password: "password" } });
+  assert.equal(r.status, 400);
+  assert.equal(r.body.code, "pwned");
+});
+
+test("a site with no breach check wired behaves exactly as before", async () => {
+  const { deps } = await harness();
+  assert.equal((await call(deps, "signup", { body: { email: "new@example.com", password: "password" } })).status, 200);
+});
+
+// The other half of the ordering: on the two routes that need a credential, the
+// outbound request happens only once the caller has produced it. `checkPwned`
+// reaches a service we do not run, so anywhere earlier turns each of these into
+// a way for a stranger to make us call it.
+
+test("a wrong current password never reaches the breach service", async () => {
+  // A stolen session token is all `signedIn()` proves. The current password is
+  // what proves the account is theirs, and the check waits for it.
+  let asked = 0;
+  const h = await epochHarness({
+    deps: { checkPwned: async () => { asked++; return { ok: true, text: async () => `${BREACHED_SUFFIX}:9` }; } },
+  });
+  const token = await signIn(h.deps);
+  const r = await call(h.deps, "password", { token, body: { current: "not-the-password", next: "password" } });
+  assert.equal(r.status, 401);
+  assert.equal(r.body.code, "current");
+  assert.equal(asked, 0, "the wrong-password path must not cost an outbound request");
+  // And the same call with the right one does ask.
+  await call(h.deps, "password", { token, body: { current: PW, next: "password" } });
+  assert.equal(asked, 1);
+});
+
+test("an unusable reset link never reaches the breach service", async () => {
+  // A correctly signed token for an account that no longer exists.
+  let asked = 0;
+  const h = await epochHarness({
+    deps: { checkPwned: async () => { asked++; return { ok: true, text: async () => `${BREACHED_SUFFIX}:9` }; } },
+  });
+  const key = await sessionKey(SECRET, "cafe");
+  const link = await signReset(key, "nobody", { nowMs: NOW });
+  const r = await call(h.deps, "reset", { body: { token: link, password: "password" } });
+  assert.equal(r.status, 400);
+  assert.equal(asked, 0);
+});

@@ -803,3 +803,45 @@ test("removing anything needs a session", async () => {
   assert.equal((await h.call("passkey/remove", { body: { id: 1 } })).status, 401);
   assert.equal((await h.call("identities/unlink", { body: { id: 1 } })).status, 401);
 });
+
+test("no query touches a column its table never creates — every internal table", () => {
+  // Generalised from the `_users` version, because that check found login
+  // answering 500 on every existing site: `token_epoch` and `blocked` were
+  // selected on every request and created by nothing reachable. A missing
+  // column is a Postgres error, not a null, so this class of bug is total and
+  // silent until somebody tries to sign in.
+  const METHODS_SRC = fs.readFileSync(new URL("../site-auth-methods.mjs", import.meta.url), "utf8");
+  const src = METHODS_SRC + "\n" + WORKER;
+  const tables = ["_identities", "_credentials", "_auth_codes", "_invites"];
+
+  for (const t of tables) {
+    const created = new Set();
+    for (const m of src.matchAll(new RegExp("CREATE TABLE IF NOT EXISTS " + t + "\\s*\\(([\\s\\S]*?)\\)`", "g"))) {
+      for (const line of m[1].split(",")) {
+        const n = line.trim().split(/\s/)[0];
+        if (/^[a-z_]+$/.test(n)) created.add(n);
+      }
+    }
+    for (const m of src.matchAll(new RegExp("ALTER TABLE " + t + " ADD COLUMN ([a-z_]+)", "g"))) created.add(m[1]);
+    assert.ok(created.size > 0, t + " has no CREATE the scan can find — the regex has drifted");
+
+    const used = new Set();
+    for (const m of src.matchAll(new RegExp("SELECT ([^\"`]+?) FROM " + t, "g"))) {
+      for (const c of m[1].split(",")) {
+        const n = c.trim().split(/ AS /i)[0].split("(")[0].trim();
+        if (/^[a-z_]+$/.test(n)) used.add(n);
+      }
+    }
+    for (const m of src.matchAll(new RegExp("INSERT INTO " + t + " \\(([^)]*)\\)", "g"))) {
+      for (const c of m[1].split(",")) if (/^[a-z_]+$/.test(c.trim())) used.add(c.trim());
+    }
+    for (const m of src.matchAll(new RegExp("UPDATE " + t + " SET ([^\"]+?) WHERE", "g"))) {
+      for (const c of m[1].split(",")) {
+        const n = c.split("=")[0].trim();
+        if (/^[a-z_]+$/.test(n)) used.add(n);
+      }
+    }
+    const missing = [...used].filter((c) => !created.has(c));
+    assert.deepEqual(missing, [], t + " uses columns it never creates: " + missing.join(", "));
+  }
+});

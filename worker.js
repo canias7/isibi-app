@@ -14,7 +14,7 @@ import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { injectMeta } from "./site-meta.mjs";
 import { sessionKey, verifySession, signClaim, verifyClaim, signVerify, verifyVerification } from "./site-auth.mjs";
-import { checkSignup, newInviteCode, normalizeCode, normalizeMode, inviteOptions, SIGNUP_MODES } from "./site-invite.mjs";
+import { checkSignup, newInviteCode, normalizeCode, normalizeMode, inviteOptions, normalizeDomains, SIGNUP_MODES } from "./site-invite.mjs";
 import { handleAuthFlow } from "./site-auth-flows.mjs";
 import { AUTH_DDL, AUTH_USER_COLUMNS, routeFor, availableMethods } from "./site-auth-methods.mjs";
 import { providerConfig, decodeIdToken } from "./site-oauth.mjs";
@@ -3253,6 +3253,11 @@ function siteAuthDeps(env, db, slug) {
     deleteUser: async (id) => { await sqlQuery(db, "DELETE FROM _users WHERE id=?", [Number(id)]); },
     sendReset: async (email, token) => sendSiteResetEmail(env, slug, email, token),
     throttle: async (k) => authThrottle(k),
+    // The breach corpus. Injected as a fetch so the check itself stays pure and
+    // the tests never touch the network. K-anonymity means the password and its
+    // full hash never leave this Worker — only the first five hex characters of
+    // a SHA-1 go out, matching roughly one in a million hashes.
+    checkPwned: (url, init) => fetch(url, init),
     // One statement, so two failures racing cannot read-then-write over each
     // other. The values are computed from the row the caller already read, which
     // means a race writes near-identical numbers — benign, unlike a lost count.
@@ -3271,7 +3276,11 @@ function siteAuthDeps(env, db, slug) {
         } catch (e) { console.error("verify send failed:", slug, (e && e.message) || e); }
       })();
     },
-    signupGate: (opts) => checkSignup({ mode: () => siteSignupMode(db), burn: (c) => burnInvite(db, c) }, opts),
+    signupGate: (opts) => checkSignup({
+      mode: () => siteSignupMode(db),
+      domains: () => siteSignupDomains(db),
+      burn: (c) => burnInvite(db, c),
+    }, opts),
     refundInvite: (code) => refundInvite(db, code),
   };
 }
@@ -3289,6 +3298,14 @@ async function siteSignupMode(db) {
   await sqlQuery(db, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
   const rows = await sqlQuery(db, "SELECT v FROM _meta WHERE k='signup_mode'");
   return (rows[0] && rows[0].v) || "open";
+}
+
+/** The allow-listed email domains, or [] when the owner never set any. */
+async function siteSignupDomains(db) {
+  await sqlQuery(db, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
+  const rows = await sqlQuery(db, "SELECT v FROM _meta WHERE k='signup_domains'");
+  if (!rows[0] || !rows[0].v) return [];
+  try { const v = JSON.parse(rows[0].v); return Array.isArray(v) ? v : []; } catch { return []; }
 }
 
 /**
@@ -6039,6 +6056,7 @@ async function handleRequest(request, env, ctx) {
                   const cfg = await siteAuthConfig(env, adb, aslug);
                   return Response.json({
                     mode: normalizeMode(await siteSignupMode(adb)), modes: SIGNUP_MODES, invites,
+                    domains: await siteSignupDomains(adb),
                     // Which providers are set up and what the sign-in page will
                     // show — never the secrets. A GET that returned them would
                     // make every future read of this panel a place they can leak.
@@ -6081,6 +6099,20 @@ async function handleRequest(request, env, ctx) {
                   }
                 }
 
+                // Orthogonal to the mode, and settable on its own: an owner may
+                // want an open site limited to their company, or an invite-only
+                // one ALSO limited, so a leaked code cannot be used from a
+                // personal address. Independent because otherwise a client
+                // toggling the allow-list has to resend the mode, and a client
+                // that forgets gets a 400 for a field it never meant to touch.
+                let domains;
+                if (ab.domains !== undefined) {
+                  domains = normalizeDomains(ab.domains);
+                  await sqlQuery(adb, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
+                  await sqlQuery(adb, "INSERT INTO _meta (k,v) VALUES ('signup_domains', ?) ON CONFLICT (k) DO UPDATE SET v=excluded.v", [JSON.stringify(domains)]);
+                  if (ab.mode === undefined) return Response.json({ ok: true, domains });
+                }
+
                 // Allow-listed, not stored as sent: an unrecognised mode would
                 // read back as "open" and quietly reopen a site the owner closed.
                 const mode = normalizeMode(ab.mode);
@@ -6089,7 +6121,7 @@ async function handleRequest(request, env, ctx) {
                 }
                 await sqlQuery(adb, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
                 await sqlQuery(adb, "INSERT INTO _meta (k,v) VALUES ('signup_mode', ?) ON CONFLICT (k) DO UPDATE SET v=excluded.v", [mode]);
-                return Response.json({ ok: true, mode });
+                return Response.json(domains === undefined ? { ok: true, mode } : { ok: true, mode, domains });
               }
               // .../access/invite
               if (request.method === "DELETE") {
