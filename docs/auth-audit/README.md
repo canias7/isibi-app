@@ -1,6 +1,6 @@
 # Auth layer — production audit
 
-Run against `https://isibi.ai` · 84 passed, 0 failed.
+Run against `https://isibi.ai` · 81 passed, 3 failed.
 
 
 ## the site
@@ -8,7 +8,7 @@ Run against `https://isibi.ai` · 84 passed, 0 failed.
 - ✅ build returns 200
 - ✅ every declared table was created
 - ✅ the display table was seeded
-- ✅ a real app was published, not the placeholder
+- ❌ a real app was published, not the placeholder — `page=placeholder stage=typecheck error=src/routes/members.tsx(91,22): error TS2345: Argument of type '{}' is not assignable to parameter of type 'SetStateAction<string | null>'. problems=[]`
 
 ## signup
 
@@ -112,9 +112,24 @@ Run against `https://isibi.ai` · 84 passed, 0 failed.
 ## the published site, in a real browser
 
 - ✅ the published site serves 200
-- ✅ the app actually RENDERED (root is not empty)
+- ❌ the app actually RENDERED (root is not empty) — `root text length=0`
 - ✅ no uncaught error on load
-- ✅ seeded content is on the page
+- ❌ seeded content is on the page — `authsmoke-ms61eyro-ulqbr
+
+Database is live. These tables were created for this site.
+
+teachers
+
+anyone can read this
+
+name
+bio
+phone
+bookings
+
+visitors submit to this; only you can read it
+
+class_name`
 - ✅ the masked phone is NOT rendered in full
 
 ## The published site
