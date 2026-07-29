@@ -18,6 +18,7 @@ import { checkSignup, newInviteCode, normalizeCode, normalizeMode, inviteOptions
 import { handleAuthFlow } from "./site-auth-flows.mjs";
 import { AUTH_DDL, AUTH_USER_COLUMNS, SESSION_DDL, routeFor, availableMethods } from "./site-auth-methods.mjs";
 import { SESSION_JOIN, sessionUsable, trimUa, MAX_SESSIONS_LISTED, pruneBefore } from "./site-sessions.mjs";
+import { drainTeardown } from "./site-teardown.mjs";
 import {
   AUDIT_DDL, AUDIT_PAGE, AUDIT_MAX_ROWS, AUDIT_RETENTION_DAYS,
   auditRow, describeEvents, summarize, normalizeKind,
@@ -2009,8 +2010,66 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runAutoReply(env));
     ctx.waitUntil(runScheduledSiteFunctions(env, ctx));
+    // Drain the Neon teardown queue. This side is the ONLY one that can: the
+    // rows are written by a Postgres trigger as a project's record disappears,
+    // and Postgres cannot call the Neon API.
+    ctx.waitUntil(runNeonTeardown(env));
   },
 };
+
+/**
+ * Drain the Neon teardown queue — the cron half.
+ *
+ * The decisions (what counts as done, what must never count as done, how hard to
+ * keep trying) live in site-teardown.mjs where they are tested against fakes.
+ * This is the wiring only.
+ */
+async function runNeonTeardown(env) {
+  if (!env.NEON_API_KEY || !env.SUPABASE_SERVICE_KEY) return;
+  const rest = (path, init) => fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...init, headers: svcHeaders(env, { "content-type": "application/json", ...((init || {}).headers || {}) }),
+    signal: AbortSignal.timeout(12000),
+  });
+  try {
+    const out = await drainTeardown({
+      due: async (limit) => {
+        const g = await rest(`neon_teardown?next_try_at=lte.${encodeURIComponent(new Date().toISOString())}` +
+          `&select=id,project_id,attempts&order=next_try_at.asc&limit=${Number(limit) || 5}`);
+        if (!g.ok) throw new Error("neon_teardown read " + g.status);
+        return await g.json();
+      },
+      // The status is what the verdict turns on, so it is passed through rather
+      // than collapsed into ok/not-ok — 404 and 403 mean opposite things here.
+      drop: async (projectId) => {
+        const r = await fetch(`https://console.neon.tech/api/v2/projects/${encodeURIComponent(projectId)}`, {
+          method: "DELETE",
+          headers: { Authorization: "Bearer " + env.NEON_API_KEY, accept: "application/json" },
+          signal: AbortSignal.timeout(20000),
+        });
+        return { ok: r.ok, status: r.status };
+      },
+      forget: async (id) => {
+        const d = await rest(`neon_teardown?id=eq.${Number(id)}`, { method: "DELETE" });
+        if (!d.ok) throw new Error("neon_teardown delete " + d.status);
+      },
+      defer: async (id, attempts, sec, why) => {
+        const d = await rest(`neon_teardown?id=eq.${Number(id)}`, {
+          method: "PATCH",
+          headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({
+            attempts,
+            last_error: String(why || "").slice(0, 300),
+            next_try_at: new Date(Date.now() + Number(sec) * 1000).toISOString(),
+          }),
+        });
+        if (!d.ok) throw new Error("neon_teardown defer " + d.status);
+      },
+    });
+    // Only worth a line when something happened. A tick over an empty queue runs
+    // every two minutes and would otherwise bury everything else in the log.
+    if (out.attempted || out.errors.length) console.log("neon teardown:", JSON.stringify(out));
+  } catch (e) { console.error("neon teardown failed:", (e && e.message) || e); }
+}
 
 // ── Free-tier media proxy ──
 // Free/over-cap users can't save to the gallery, so their render is delivered
@@ -6792,17 +6851,16 @@ async function handleRequest(request, env, ctx) {
         await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(dslug)}`, { method: "DELETE", headers: svcHeaders(env) });
       } catch (e) { console.error("site row delete failed:", dslug, e && e.message); }
 
-      // The project record goes only if the project itself is gone. Kept
-      // otherwise, deliberately: it is the ONLY record that project exists, and
-      // deleting it would turn a retryable failure into an invisible billed
-      // orphan — the failure this repo has already had twice.
-      if (projectDropped) {
-        try {
-          await fetch(`${SUPABASE_URL}/rest/v1/site_project?slug=eq.${encodeURIComponent(dslug)}`, { method: "DELETE", headers: svcHeaders(env) });
-        } catch (e) { console.error("site project row delete failed:", dslug, e && e.message); }
-      } else {
-        console.error("site project NOT dropped, keeping its row so it stays findable:", dslug);
-      }
+      // The project record goes unconditionally now, and that is safe because of
+      // the trigger: deleting this row ENQUEUES the project into `neon_teardown`,
+      // so the cron finishes the job whether the inline drop above worked or not.
+      // Keeping the row on failure was the right answer only while there was
+      // nowhere to hand the work to — it left the site half-deleted and needed an
+      // operator. The queue is strictly better: the record is never lost, and the
+      // caller's site really is gone.
+      try {
+        await fetch(`${SUPABASE_URL}/rest/v1/site_project?slug=eq.${encodeURIComponent(dslug)}`, { method: "DELETE", headers: svcHeaders(env) });
+      } catch (e) { console.error("site project row delete failed:", dslug, e && e.message); }
 
       return Response.json({ ok: true, slug: dslug, removed, projectDropped });
     }

@@ -273,18 +273,35 @@ test("the per-site project is read by SLUG and only with the service key", () =>
   assert.match(fn[0], /throw Object\.assign\(new Error\("site project lookup failed"\)/);
 });
 
-test("deleting a site drops its PROJECT, and keeps the row if that failed", () => {
-  // The whole point of per-site projects, and the failure mode that comes with
-  // it: a project with no row is invisible and bills forever, so the record only
-  // goes once the project is actually gone.
+test("deleting a site drops its PROJECT", () => {
   const i = WORKER.indexOf("let projectDropped = false;");
   assert.ok(i > 0, "the project drop was not found in the delete path");
   const block = WORKER.slice(i, i + 2600);
   assert.match(block, /dropUserProject\(env, proj\.neon_project\)/, "the project itself must be dropped");
-  assert.match(block, /if \(projectDropped\) \{/, "the record must only go once the project is gone");
-  assert.match(block, /site_project\?slug=eq\./, "…and it must be the per-slug record that goes");
+  assert.match(block, /site_project\?slug=eq\./, "…and the per-slug record must go with it");
   // Legacy sites still have a database inside a shared per-user project.
   assert.match(block, /dropSiteDatabase\(env, legacy\.neon_project/, "a pre-change site must still have its database dropped");
+});
+
+test("the project record can never be lost, and the QUEUE is what guarantees it", () => {
+  // This rule changed on purpose, so it is worth writing down why. The first
+  // version gated the row deletion on the inline drop having worked, because
+  // there was nowhere to hand a failure to — which left the site half-deleted
+  // and needed an operator.
+  //
+  // The trigger is strictly better: deleting the row ENQUEUES the project, so the
+  // record survives as a queue entry and the cron finishes the job. The invariant
+  // is no longer "keep the row on failure" but "something is always still
+  // holding this project", and the sweeper is that something.
+  assert.match(WORKER, /ctx\.waitUntil\(runNeonTeardown\(env\)\)/, "the sweeper must be on the cron, or the queue never drains");
+  const fn = WORKER.match(/async function runNeonTeardown\(env\)[\s\S]*?\n\}/);
+  assert.ok(fn, "runNeonTeardown was not found");
+  assert.match(fn[0], /drainTeardown\(/, "the decisions belong in site-teardown.mjs, not inline here");
+  assert.match(fn[0], /neon_teardown\?next_try_at=lte\./, "it must respect the backoff, not retry every tick");
+  // The status has to reach the verdict: 404 and 403 mean opposite things, and
+  // collapsing them to ok/not-ok is what would delete a live project's record.
+  assert.match(fn[0], /return \{ ok: r\.ok, status: r\.status \}/, "the verdict turns on the status — it must be passed through");
+  assert.match(fn[0], /if \(!env\.NEON_API_KEY/, "no key means do nothing, not fail every row");
 });
 
 test("nothing provisions a project keyed by the owner any more", () => {
