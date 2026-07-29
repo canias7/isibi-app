@@ -3187,19 +3187,37 @@ async function oauthProfile(cfg, tokens) {
  * grows without bound on every site nobody looks at — which is all of them,
  * until the day something goes wrong.
  */
-function auditDeps(db, slug, request) {
+function auditDeps(db, slug, request, ctx) {
   const ip = (request && request.headers.get("CF-Connecting-IP")) || "";
   const ua = trimUa((request && request.headers.get("user-agent")) || "");
   const country = (request && request.cf && request.cf.country) || null;
   let writes = 0;
   return {
-    audit: async (event) => {
+    audit: (event) => {
+      // HANDED TO waitUntil, not fired and forgotten.
+      //
+      // The first production run of this log recorded 26 events where the audit
+      // had caused well over a hundred, and non-deterministically which: a
+      // Worker tears the request context down once the response is returned,
+      // and a promise nobody is holding is cancelled mid-flight. A log that
+      // keeps a random subset is worse than none, because the gaps look like
+      // "nothing happened". Nothing in the unit suite can see this — there is
+      // no request lifecycle in it.
+      //
+      // The response is still never blocked on the write: waitUntil extends the
+      // context, it does not delay the reply.
+      const p = (async () => {
       try {
         if (!normalizeKind(event && event.kind)) return;   // never a row nobody can find
-        const key = await sessionKey(await siteAuthSecret(db), slug);
+        // `db` may be a thunk. The owner routes wire this BEFORE they know the
+        // caller owns the site, so resolving the connection eagerly would do a
+        // lookup on behalf of somebody who is about to be refused.
+        const conn = typeof db === "function" ? await db() : db;
+        if (!conn) return;
+        const key = await sessionKey(await siteAuthSecret(conn), slug);
         const row = await auditRow({ ip, ua, country, ...event }, { key });
         if (!row) return;
-        await sqlQuery(db,
+        await sqlQuery(conn,
           "INSERT INTO _auth_events (at, kind, ok, user_id, email, who, ip, country, ua, sid, meta)" +
           " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
           [row.at, row.kind, row.ok, row.user_id, row.email, row.who, row.ip, row.country, row.ua, row.sid,
@@ -3208,13 +3226,16 @@ function auditDeps(db, slug, request) {
         // enough not to be a second statement on every sign-in.
         if ((++writes % 50) !== 1) return;
         const cut = auditPruneBefore(AUDIT_RETENTION_DAYS);
-        if (cut > 0) await sqlQuery(db, "DELETE FROM _auth_events WHERE at < ?", [cut]);
+        if (cut > 0) await sqlQuery(conn, "DELETE FROM _auth_events WHERE at < ?", [cut]);
         // …and a hard ceiling, because retention alone does not bound a site
         // being hammered: ninety days of a brute force is still ninety days.
-        await sqlQuery(db,
+        await sqlQuery(conn,
           "DELETE FROM _auth_events WHERE id NOT IN (SELECT id FROM _auth_events ORDER BY at DESC LIMIT ?)",
           [AUDIT_MAX_ROWS]);
       } catch (e) { console.error("audit write failed:", slug, (e && (e.detail || e.message)) || e); }
+      })();
+      if (ctx && ctx.waitUntil) ctx.waitUntil(p); else p.catch(() => {});
+      return p;
     },
   };
 }
@@ -3258,7 +3279,7 @@ function sessionDeps(db, request) {
   };
 }
 
-function authFlowDeps(env, db, slug, url, request) {
+function authFlowDeps(env, db, slug, url, request, ctx) {
   const q = (sql, args) => sqlQuery(db, sql, args);
   const one = async (sql, args) => (await q(sql, args))[0] || null;
   const nowSql = "to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')";
@@ -3280,7 +3301,7 @@ function authFlowDeps(env, db, slug, url, request) {
         )
       : null),
     ...sessionDeps(db, request),
-    ...auditDeps(db, slug, request),
+    ...auditDeps(db, slug, request, ctx),
     findUserByEmail: (e) => one("SELECT id, email, pass_hash AS password_hash, token_epoch, blocked, totp_secret, totp_enabled, totp_last_step, recovery_hashes FROM _users WHERE email=?", [e]),
     createUser: async (email, name) => {
       // No password: an account made through a provider has none until its owner
@@ -3481,11 +3502,11 @@ async function resolveSiteVisitor(env, request, slug) {
 const verifySiteSession = async (secret, token, slug) =>
   verifySession(await sessionKey(secret, slug), token);
 
-function siteAuthDeps(env, db, slug, request) {
+function siteAuthDeps(env, db, slug, request, ctx) {
   const one = async (sql, params) => { await ensureSiteUsers(db); const r = await sqlQuery(db, sql, params); return r[0] || null; };
   return {
     ...sessionDeps(db, request),
-    ...auditDeps(db, slug, request),
+    ...auditDeps(db, slug, request, ctx),
     secret: () => siteAuthSecret(db),
     // `totp_enabled` is load-bearing here and was missing until 2026-07-29: the
     // login handler asks `secondFactorRequired(user)`, and a column this query
@@ -5922,7 +5943,7 @@ async function handleRequest(request, env, ctx) {
           const flow = routeFor(action);
           if (flow) {
             await ensureAuthTables(db);
-            const r = await handleAuthFlow(authFlowDeps(env, db, slug, url, request), {
+            const r = await handleAuthFlow(authFlowDeps(env, db, slug, url, request, ctx), {
               slug, route: flow.route, body,
               query: Object.fromEntries(url.searchParams),
               token: bearer, key: await sessionKey(await siteAuthSecret(db), slug),
@@ -5940,7 +5961,7 @@ async function handleRequest(request, env, ctx) {
             }
             return Response.json(r.body, { status: r.status });
           }
-          const r = await handleSiteAuth(siteAuthDeps(env, db, slug, request), { slug, action, body, token: bearer });
+          const r = await handleSiteAuth(siteAuthDeps(env, db, slug, request, ctx), { slug, action, body, token: bearer });
           return Response.json(r.body, { status: r.status });
         } catch (e) {
           console.error("site auth failed:", slug, action, (e && (e.stack || e.message)) || e);
@@ -6314,7 +6335,14 @@ async function handleRequest(request, env, ctx) {
       if (om || mm || an || uf || xp || nt || ac || tm || ev) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
+        const ownerSlug = (om || mm || an || uf || xp || nt || ac || tm || ev)[1].toLowerCase();
         const ownerDeps = {
+          // What the OWNER did. Missing entirely until the first production run
+          // of the log reported `role_change`, `suspend` and `unsuspend` as
+          // never written: site-owner.mjs records them, and this dep object —
+          // which is a different one from the two auth surfaces — never carried
+          // the `audit` they call.
+          ...auditDeps(() => siteBackendBySlug(env, ownerSlug), ownerSlug, request, ctx),
           ownerOf: async (s2) => {
             const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s2)}&select=uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
             if (!g.ok) throw Object.assign(new Error("site lookup failed"), { detail: g.status });

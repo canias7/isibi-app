@@ -365,6 +365,41 @@ test("every kind the code emits is one the vocabulary declares", () => {
   assert.deepEqual(unknown, [], "these kinds are written and would be silently dropped: " + unknown.join(", "));
 });
 
+test("the audit write is handed to waitUntil, not fired and forgotten", () => {
+  // The first production run of this log recorded 26 events where the run had
+  // caused well over a hundred, and non-deterministically which. A Worker tears
+  // the request context down once the response is returned, so a promise nobody
+  // is holding is cancelled mid-flight — and a log that keeps a random subset is
+  // worse than none, because the gaps read as "nothing happened".
+  //
+  // Nothing in the unit suite can catch that by running: there is no request
+  // lifecycle in it. So it is asserted on the source, which is the only place
+  // the fact is visible.
+  const dep = WORKER.slice(WORKER.indexOf("function auditDeps("));
+  const body = dep.slice(0, dep.indexOf("\nfunction "));
+  assert.ok(body.length > 200, "auditDeps was not found in worker.js");
+  assert.match(body, /ctx\.waitUntil\(p\)/, "the write must extend the request context or it is cancelled");
+  assert.match(body, /else p\.catch\(\(\) => \{\}\)/, "…and must not become an unhandled rejection without a ctx");
+  // Still never blocking the response: waitUntil extends the context, it does
+  // not delay the reply, and an `await` here would put a database round trip in
+  // front of every sign-in.
+  assert.ok(!/await this\.audit|await deps\.audit/.test(WORKER), "an audit write is awaited into a response path");
+});
+
+test("the owner routes carry an audit dep at all", () => {
+  // site-owner.mjs records role_change, suspend, unsuspend, team_change and
+  // member_delete — and the owner dep object is a THIRD one, separate from the
+  // two auth surfaces, which never carried the `audit` those calls need. The
+  // first production run reported all five as never written.
+  const i = WORKER.indexOf("const ownerDeps = {");
+  assert.ok(i > 0, "ownerDeps was not found");
+  const block = WORKER.slice(i, i + 700);
+  assert.match(block, /\.\.\.auditDeps\(/, "the owner routes record nothing without this");
+  // Lazily, because this object is built BEFORE assertOwner runs and resolving
+  // the connection eagerly does a lookup for somebody about to be refused.
+  assert.match(block, /auditDeps\(\(\) =>/, "the connection must be resolved at write time, after authorization");
+});
+
 test("every kind the vocabulary declares is actually emitted somewhere", () => {
   // The converse of the test above, and the one that catches the failure that
   // matters most: deleting the `login` record. "Every action records something"
