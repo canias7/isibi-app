@@ -1,6 +1,6 @@
 # Auth layer — production audit
 
-Run against `https://isibi.ai` · 78 passed, 2 failed.
+Run against `https://isibi.ai` · 81 passed, 3 failed.
 
 
 ## the site
@@ -8,8 +8,8 @@ Run against `https://isibi.ai` · 78 passed, 2 failed.
 - ✅ build returns 200
 - ✅ every declared table was created
 - ✅ the display table was seeded
-- ❌ a real app was published, not the placeholder — `page=placeholder stage=typecheck error=src/routes/index.tsx(63,7): error TS2322: Type '({ row, claim }: { row: Row; claim: string; }) => void' is not assignable to type '(data: { row: Row; claim?: string | undefined; }, variables: Partial<Row>, onMutateResult: unknown, context: MutationFunctionContext) => void'.
-  Types of parameters '__ problems=[]`
+- ❌ a real app was published, not the placeholder — `page=placeholder stage=typecheck error=src/routes/account.tsx(109,27): error TS2345: Argument of type '{}' is not assignable to parameter of type 'SetStateAction<string | null>'.
+src/routes/timetable.tsx(69,28): error TS2322: Type 'number' is not assignable to type 'string'. problems=[]`
 
 ## signup
 
@@ -112,10 +112,28 @@ Run against `https://isibi.ai` · 78 passed, 2 failed.
 
 ## the published site, in a real browser
 
-- ❌ the browser pass completed — `page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
-Call log:
-  - navigating to "/s/authsmoke-ms5o90w9-dd0wq/", waiting until "networkidle"
-`
+- ✅ the published site serves 200
+- ❌ the app actually RENDERED (root is not empty) — `root text length=0`
+- ✅ no uncaught error on load
+- ❌ seeded content is on the page — `authsmoke-ms5oli69-d1le6
+
+Database is live. These tables were created for this site.
+
+teachers
+
+shared across visitors
+
+name
+bio
+phone
+bookings
+
+shared across visitors
+
+class_name
+customer_name
+custom`
+- ✅ the masked phone is NOT rendered in full
 
 ## The published site
 
