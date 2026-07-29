@@ -669,3 +669,25 @@ test("the member list never ships a password hash", async () => {
     assert.ok(!("password_hash" in m), JSON.stringify(m));
   }
 });
+
+test("blocked must be a real boolean, not anything truthy", async () => {
+  // `blocked: "false"` is a non-empty string. Coercing it would suspend the
+  // member the owner was trying to reinstate — the failure is silent and the
+  // member simply stays locked out.
+  for (const v of ["false", "true", 1, 0, "yes", null]) {
+    const { deps, exec } = members();
+    const r = await patch(deps, { blocked: v });
+    assert.equal(r.status, 400, JSON.stringify(v));
+    assert.equal(exec.length, 0);
+  }
+});
+
+test("suspending and reinstating both write the column", async () => {
+  for (const [v, want] of [[true, 1], [false, 0]]) {
+    const { deps, exec } = members();
+    const r = await patch(deps, { blocked: v });
+    assert.equal(r.status, 200);
+    assert.match(exec[0].sql, /"blocked"=\?/);
+    assert.equal(exec[0].args[0], want);
+  }
+});

@@ -2982,9 +2982,12 @@ async function resolveSiteVisitor(env, request, slug) {
     const claims = await verifySiteSession(await siteAuthSecret(db), bearer, slug);
     if (!claims) return null;
     if (!/^\d+$/.test(String(claims.sub))) return null;
-    const rows = await sqlQuery(db, "SELECT id, role, token_epoch FROM _users WHERE id=?", [Number(claims.sub)]);
+    const rows = await sqlQuery(db, "SELECT id, role, token_epoch, blocked FROM _users WHERE id=?", [Number(claims.sub)]);
     const u = rows[0];
     if (!u) return null;
+    // A suspended member is nobody, everywhere. Checked here as well as in `me`
+    // because this is the one on the data path — the half that reads rows.
+    if (u.blocked) return null;
     // Same epoch check as `me`. Without it here, a token invalidated by a
     // password change would still be refused at /auth/me and quietly ACCEPTED on
     // every data read — which is the half that actually matters.
@@ -3006,8 +3009,8 @@ function siteAuthDeps(env, db, slug) {
   const one = async (sql, params) => { await ensureSiteUsers(db); const r = await sqlQuery(db, sql, params); return r[0] || null; };
   return {
     secret: () => siteAuthSecret(db),
-    findUser: (_s, email) => one("SELECT id, email, pass_hash AS password_hash, token_epoch FROM _users WHERE email=?", [email]),
-    findUserById: (_s, id) => (/^\d+$/.test(String(id)) ? one("SELECT id, email, token_epoch FROM _users WHERE id=?", [Number(id)]) : null),
+    findUser: (_s, email) => one("SELECT id, email, pass_hash AS password_hash, token_epoch, blocked FROM _users WHERE email=?", [email]),
+    findUserById: (_s, id) => (/^\d+$/.test(String(id)) ? one("SELECT id, email, token_epoch, blocked FROM _users WHERE id=?", [Number(id)]) : null),
     createUser: async (_s, email, hash) => {
       await ensureSiteUsers(db);
       try {
@@ -3024,6 +3027,22 @@ function siteAuthDeps(env, db, slug) {
       return (r[0] && r[0].token_epoch) || 0;
     },
     touchLogin: async (id) => { try { await sqlQuery(db, "UPDATE _users SET last_login_at=to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') WHERE id=?", [Number(id)]); } catch {} },
+    bumpEpoch: async (id) => {
+      const r = await sqlQuery(db, "UPDATE _users SET token_epoch=COALESCE(token_epoch,0)+1 WHERE id=? RETURNING token_epoch", [Number(id)]);
+      return (r[0] && r[0].token_epoch) || 0;
+    },
+    setEmail: async (id, email) => {
+      try {
+        const r = await sqlQuery(db, "UPDATE _users SET email=? WHERE id=? RETURNING id", [email, Number(id)]);
+        return r[0] ? { ok: true } : { conflict: true };
+      } catch (e) {
+        // The UNIQUE index on email is what decides, so a race between two
+        // members claiming the same address surfaces here rather than winning.
+        if (/duplicate|unique/i.test(String((e && (e.detail || e.message)) || ""))) return { conflict: true };
+        throw e;
+      }
+    },
+    deleteUser: async (id) => { await sqlQuery(db, "DELETE FROM _users WHERE id=?", [Number(id)]); },
     sendReset: async (email, token) => sendSiteResetEmail(env, slug, email, token),
     throttle: async (k) => authThrottle(k),
     signupGate: (opts) => checkSignup({ mode: () => siteSignupMode(db), burn: (c) => burnInvite(db, c) }, opts),

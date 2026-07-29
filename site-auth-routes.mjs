@@ -49,6 +49,19 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     { nowMs: now },
   );
 
+  // Everything below needs a live session AND an account that still exists, is
+  // not suspended, and whose sessions have not been invalidated. Three separate
+  // things, checked once instead of three times in three slightly different ways.
+  const signedIn = async () => {
+    const claims = await verifySession(key, token, { nowMs: now });
+    if (!claims) return null;
+    const user = await deps.findUserById(slug, claims.sub);
+    if (!user) return null;
+    if (Number(claims.ep || 0) !== Number(user.token_epoch || 0)) return null;
+    if (user.blocked) return null;
+    return user;
+  };
+
   if (action === "me") {
     const claims = await verifySession(key, token, { nowMs: now });
     if (!claims) return json({ error: "not signed in" }, 401);
@@ -61,6 +74,10 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     // password change. Compared as numbers with 0 for absent, so a token issued
     // before any of this existed still works on an account that never changed.
     if (Number(claims.ep || 0) !== Number(user.token_epoch || 0)) return json({ error: "not signed in" }, 401);
+    // Suspension has to take effect on the token somebody is already holding,
+    // not just on their next login — otherwise a suspended member keeps full
+    // access for up to thirty days.
+    if (user.blocked) return json({ error: "not signed in" }, 401);
     return json({ user: { id: user.id, email: user.email } });
   }
 
@@ -114,6 +131,13 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     // not answer "does this address have an account here?".
     const ok = await verifyPassword(pw, (user && user.password_hash) || DUMMY);
     if (!user || !ok) return json({ error: "That email and password don't match." }, 401);
+    // A suspended member gets the SAME answer as a wrong password, byte for
+    // byte. Saying "your account is suspended" would tell a stranger guessing
+    // addresses that this one is a member here, which is the leak this whole
+    // endpoint is shaped around avoiding. The check is after the hash, so the
+    // timing does not answer it either. The owner tells them they are suspended;
+    // the login form does not.
+    if (user.blocked) return json({ error: "That email and password don't match." }, 401);
     await deps.touchLogin(user.id).catch?.(() => {});
     return json({ token: await mk(user), user: { id: user.id, email: user.email } });
   }
@@ -127,16 +151,16 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
 
     // Per account, and before anything is hashed: this endpoint verifies one
     // password and computes another, so it is two full PBKDF2 runs of Worker
-    // CPU per call.
+    // CPU per call. Keyed off the token's subject, which the full check below
+    // then has to agree with.
     const t = await deps.throttle(`password:${slug}:${claims.sub}`);
     if (!t.ok) return json({ error: "Too many attempts — try again shortly.", retryAfter: t.retryAfter }, 429);
 
     const pw = checkPassword(body.next);
     if (!pw.ok) return json({ error: pw.error }, 400);
 
-    const user = await deps.findUserById(slug, claims.sub);
+    const user = await signedIn();
     if (!user) return json({ error: "not signed in" }, 401);
-    if (Number(claims.ep || 0) !== Number(user.token_epoch || 0)) return json({ error: "not signed in" }, 401);
 
     // The CURRENT password, even though they are already signed in. Without it a
     // stolen session token is a permanent account takeover: the thief sets a new
@@ -148,6 +172,61 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     const epoch = await deps.setPassword(user.id, await hashPassword(body.next));
     // A fresh token, or the caller is signed out by the change they just made.
     return json({ ok: true, token: await mk(user, epoch) });
+  }
+
+  if (action === "logout-all") {
+    // Signs out every OTHER device and keeps this one. The primitive somebody
+    // wants after "I was signed in on a machine I no longer have" — and it only
+    // became possible today, when tokens started carrying an epoch.
+    const user = await signedIn();
+    if (!user) return json({ error: "not signed in" }, 401);
+    const epoch = await deps.bumpEpoch(user.id);
+    return json({ ok: true, token: await mk(user, epoch) });
+  }
+
+  if (action === "email") {
+    const user = await signedIn();
+    if (!user) return json({ error: "not signed in" }, 401);
+
+    const next = normalizeEmail(body.next);
+    if (!next) return json({ error: "Enter a valid email address." }, 400);
+
+    const t = await deps.throttle(`email:${slug}:${user.id}`);
+    if (!t.ok) return json({ error: "Too many attempts — try again shortly.", retryAfter: t.retryAfter }, 429);
+
+    // The current password, because the address IS the account: whoever holds it
+    // can reset their way back in. A stolen session that could change it would
+    // be handing the account over permanently.
+    const full = await deps.findUser(slug, user.email);
+    const ok = await verifyPassword(typeof body.current === "string" ? body.current : "", (full && full.password_hash) || DUMMY);
+    if (!ok) return json({ error: "That password doesn't match.", code: "current" }, 401);
+
+    if (next === user.email) return json({ ok: true, user: { id: user.id, email: user.email } });
+    const changed = await deps.setEmail(user.id, next);
+    if (changed && changed.conflict) return json({ error: "That email already has an account.", code: "exists" }, 409);
+    // A fresh token so the client's copy of the address is not stale.
+    return json({ ok: true, token: await mk({ ...user, email: next }), user: { id: user.id, email: next } });
+  }
+
+  if (action === "close") {
+    // A member deleting their own account. The owner could always delete them;
+    // they could never leave.
+    const user = await signedIn();
+    if (!user) return json({ error: "not signed in" }, 401);
+
+    const t = await deps.throttle(`close:${slug}:${user.id}`);
+    if (!t.ok) return json({ error: "Too many attempts — try again shortly.", retryAfter: t.retryAfter }, 429);
+
+    const full = await deps.findUser(slug, user.email);
+    const ok = await verifyPassword(typeof body.current === "string" ? body.current : "", (full && full.password_hash) || DUMMY);
+    if (!ok) return json({ error: "That password doesn't match.", code: "current" }, 401);
+
+    await deps.deleteUser(user.id);
+    // Their rows are left behind, exactly as when an owner deletes a member:
+    // `owner_id` stops matching anyone, so nothing is readable as them, but a
+    // departed customer's bookings should not vanish from the owner's list
+    // without the owner being asked.
+    return json({ ok: true });
   }
 
   if (action === "reset") {

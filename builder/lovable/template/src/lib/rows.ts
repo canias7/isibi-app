@@ -230,6 +230,45 @@ export function useChangePassword() {
   });
 }
 
+/** Sign out every OTHER device, keeping this one. */
+export function useLogoutOthers() {
+  return useMutation({
+    mutationFn: async () => {
+      const r = await send<{ ok: true; token: string }>(`/api/db/${siteSlug()}/auth/logout-all`, { method: "POST" });
+      try { localStorage.setItem(`site_session_${siteSlug()}`, r.token); } catch { /* private mode */ }
+      return r;
+    },
+  });
+}
+
+/** Change the account's email. Needs the password, because the address IS the account. */
+export function useChangeEmail() {
+  return useMutation({
+    mutationFn: async (vars: { current: string; next: string }) => {
+      const r = await send<{ ok: true; token: string; user: Member }>(`/api/db/${siteSlug()}/auth/email`, {
+        method: "POST",
+        body: JSON.stringify(vars),
+      });
+      try { localStorage.setItem(`site_session_${siteSlug()}`, r.token); } catch { /* private mode */ }
+      return r;
+    },
+  });
+}
+
+/** Close the account for good. Their existing rows stay with the site owner. */
+export function useCloseAccount() {
+  return useMutation({
+    mutationFn: async (vars: { current: string }) => {
+      const r = await send<{ ok: true }>(`/api/db/${siteSlug()}/auth/close`, {
+        method: "POST",
+        body: JSON.stringify(vars),
+      });
+      try { localStorage.removeItem(`site_session_${siteSlug()}`); } catch { /* private mode */ }
+      return r;
+    },
+  });
+}
+
 export function useRequestReset() {
   return useMutation({
     mutationFn: (values: { email: string }) =>

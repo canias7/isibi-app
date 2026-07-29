@@ -249,7 +249,7 @@ async function runWrite(deps, { db, def, access, tn, method, rowId, body }) {
  * columns explicitly: `pass_hash` must never leave the database, and a
  * `SELECT *` a year from now would ship it the moment someone added a column.
  */
-const MEMBER_COLUMNS = ["id", "email", "role", "verified", "created_at", "last_login_at", "manager_id"];
+const MEMBER_COLUMNS = ["id", "email", "role", "verified", "created_at", "last_login_at", "manager_id", "blocked"];
 
 export async function handleOwnerMembers(deps, { slug, uid, method = "GET", memberId, body = {}, params = {} } = {}) {
   const open = await openSite(deps, slug, uid);
@@ -277,6 +277,14 @@ export async function handleOwnerMembers(deps, { slug, uid, method = "GET", memb
         return json({ error: "role must be one of: " + allowed.join(", "), code: "role" }, 400);
       }
       sets.push(deps.ident("role") + "=?"); vals.push(role);
+    }
+    if (body.blocked !== undefined) {
+      // Suspension, which is what an owner actually wants when a member behaves
+      // badly. Before this the only option was DELETE — irreversible, and it
+      // leaves their rows behind pointing at nobody. A boolean, not anything
+      // truthy: `blocked: "false"` is a string and would suspend them.
+      if (typeof body.blocked !== "boolean") return json({ error: "blocked must be true or false" }, 400);
+      sets.push(deps.ident("blocked") + "=?"); vals.push(body.blocked ? 1 : 0);
     }
     if (body.manager_id !== undefined) {
       // null clears it. Anything else must be a real member of THIS site.
