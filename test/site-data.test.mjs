@@ -723,3 +723,73 @@ test("malformed JSON is a 400 with a reason, not a silent empty write", async ()
   assert.equal((await res.json()).code, "bad_json");
   assert.deepEqual(wrote, []);
 });
+
+// ------------------------------------------------------------- teamRead
+//
+// `user` is private-to-me and `feed` is everyone-sees-everything, with nothing
+// in between — and "my team's records" is the read model an internal tool
+// actually needs. `teamRead` has been parsed, validated and stored in `_meta`
+// since the schema engine was written, with nothing ever reading it.
+
+const TEAM_SPEC = {
+  tables: [
+    { name: "deals", access: "user", teamRead: true, columns: [{ name: "value" }] },
+    { name: "private", access: "user", columns: [{ name: "value" }] },
+    { name: "posts", access: "feed", teamRead: true, columns: [{ name: "body" }] },
+  ],
+};
+
+const teamCall = async (method, path, { visitor = { id: 7, role: "user" }, body } = {}) => {
+  const url = new URL("https://isibi.ai" + path);
+  const req = new Request(url, {
+    method,
+    headers: body ? { "content-type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const conn = fakeDb(TEAM_SPEC);
+  const deps = {
+    sqlQuery: async (_c, sql, p) => (await conn.query(sql, p)).rows,
+    sqlExec: async (_c, sql, p) => { const r = await conn.query(sql, p); return { results: r.rows, changes: r.rowCount }; },
+    loadSiteSchema: async () => TEAM_SPEC,
+    resolveVisitor: async () => visitor,
+  };
+  return { res: await handleSiteData({}, req, url, async () => conn, deps), seen: conn.__seen };
+};
+
+test("a teamRead table shows a manager their reports' rows as well as their own", async () => {
+  const { res, seen } = await teamCall("GET", "/api/db/shop/rows/deals");
+  assert.equal(res.status, 200);
+  const q = seen.find((s) => /FROM "deals"/.test(s.sql));
+  assert.match(q.sql, /"owner_id"=\? OR "owner_id" IN \(SELECT id FROM _users WHERE manager_id=\?\)/);
+  // Both parameters are the CALLER — never anything off the query string.
+  assert.deepEqual(q.params.slice(0, 2), [7, 7]);
+});
+
+test("a plain user table is still private, teamRead or not", async () => {
+  const { seen } = await teamCall("GET", "/api/db/shop/rows/private");
+  const q = seen.find((s) => /FROM "private"/.test(s.sql));
+  assert.match(q.sql, /"owner_id"=\?/);
+  assert.ok(!/manager_id/.test(q.sql), "a table that did not declare teamRead must not widen");
+});
+
+test("teamRead on a feed table changes nothing — feed is already shared", async () => {
+  const { seen } = await teamCall("GET", "/api/db/shop/rows/posts");
+  const q = seen.find((s) => /FROM "posts"/.test(s.sql));
+  assert.ok(!/manager_id/.test(q.sql));
+  assert.ok(!/owner_id/.test(q.sql), "feed is readable by any signed-in member");
+});
+
+test("teamRead widens READS only — a write still stamps the caller", async () => {
+  // A manager sees their team's rows. They do not get to write as their team.
+  const { seen } = await teamCall("POST", "/api/db/shop/rows/deals", { body: { value: "10" } });
+  const ins = seen.find((s) => /INSERT INTO "deals"/.test(s.sql));
+  assert.match(ins.sql, /owner_id/);
+  assert.ok(ins.params.includes(7));
+});
+
+test("teamRead does not let a query string reach the subquery", async () => {
+  const { seen } = await teamCall("GET", "/api/db/shop/rows/deals?owner_id=999&manager_id=999");
+  const q = seen.find((s) => /FROM "deals"/.test(s.sql));
+  assert.deepEqual(q.params.slice(0, 2), [7, 7]);
+  assert.ok(!q.params.includes("999"), "no caller value may reach the ownership clause");
+});

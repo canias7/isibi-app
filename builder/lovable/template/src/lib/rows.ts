@@ -209,6 +209,27 @@ export function useLogout() {
 }
 
 /** Ask for a reset link. Always succeeds, whether or not the address has an account. */
+/**
+ * Change the password while signed in.
+ *
+ * The current one is required even though there is already a session: without
+ * it, a stolen token is a permanent takeover. Succeeding signs out every OTHER
+ * session and hands back a fresh token for this one, which is stored here so the
+ * member stays logged in through their own change.
+ */
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: async (vars: { current: string; next: string }) => {
+      const r = await send<{ ok: true; token: string }>(`/api/db/${siteSlug()}/auth/password`, {
+        method: "POST",
+        body: JSON.stringify(vars),
+      });
+      try { localStorage.setItem(`site_session_${siteSlug()}`, r.token); } catch { /* private mode */ }
+      return r;
+    },
+  });
+}
+
 export function useRequestReset() {
   return useMutation({
     mutationFn: (values: { email: string }) =>

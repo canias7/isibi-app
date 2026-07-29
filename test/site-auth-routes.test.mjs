@@ -339,3 +339,108 @@ test("a site with no gate wired behaves exactly as before", async () => {
   assert.equal(r.status, 200);
   assert.ok(users.has("cafe|new@example.com"));
 });
+
+// ------------------------------------------- changing a password, and epochs
+//
+// No route offered this, so the only way a member could change their password
+// was the reset flow — which needs an email nobody can currently send. The
+// second half matters more: session tokens are stateless and valid for thirty
+// days, so before the epoch a stolen one survived both a password change AND a
+// reset. Somebody resetting a password is usually saying they lost control of
+// the account.
+
+async function epochHarness(over = {}) {
+  const h = await harness(over);
+  let epoch = over.epoch || 0;
+  h.deps.findUserById = async (_s, id) => {
+    const row = h.byId.get(String(id));
+    return row ? { ...row, token_epoch: epoch } : null;
+  };
+  h.deps.findUser = async (slug, email) => {
+    const row = h.users.get(`${slug}|${email}`);
+    return row ? { ...row, token_epoch: epoch } : null;
+  };
+  h.deps.setPassword = async (id, hash) => {
+    h.byId.get(String(id)).password_hash = hash;
+    return ++epoch;
+  };
+  h.getEpoch = () => epoch;
+  return h;
+}
+
+const signIn = async (deps) => {
+  const r = await call(deps, "login", { body: { email: "member@example.com", password: PW } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  return r.body.token;
+};
+
+test("a signed-in member can change their own password", async () => {
+  const h = await epochHarness();
+  const token = await signIn(h.deps);
+  const r = await call(h.deps, "password", { token, body: { current: PW, next: "a-brand-new-password" } });
+  assert.equal(r.status, 200);
+  assert.ok(r.body.token, "a fresh token, or they are signed out by their own change");
+});
+
+test("changing a password requires the CURRENT one", async () => {
+  // Without this a stolen session token is a permanent takeover: the thief sets
+  // a new password and the real owner is locked out of their own account.
+  const h = await epochHarness();
+  const token = await signIn(h.deps);
+  const r = await call(h.deps, "password", { token, body: { current: "not-it", next: "a-brand-new-password" } });
+  assert.equal(r.status, 401);
+  assert.equal(r.body.code, "current");
+  assert.equal(h.getEpoch(), 0, "a refused change must not bump the epoch");
+});
+
+test("a password change signs out every OTHER session", async () => {
+  const h = await epochHarness();
+  const stolen = await signIn(h.deps);
+  const mine = await signIn(h.deps);
+  const r = await call(h.deps, "password", { token: mine, body: { current: PW, next: "a-brand-new-password" } });
+  assert.equal(r.status, 200);
+  // The thief's token was minted under the old epoch.
+  assert.equal((await call(h.deps, "me", { token: stolen })).status, 401);
+  // ...and the token handed back by the change still works.
+  assert.equal((await call(h.deps, "me", { token: r.body.token })).status, 200);
+});
+
+test("a reset signs out every session too", async () => {
+  const h = await epochHarness();
+  const stolen = await signIn(h.deps);
+  const key = await sessionKey(SECRET, "cafe");
+  const link = await signReset(key, "u1", { nowMs: NOW });
+  const r = await call(h.deps, "reset", { body: { token: link, password: "a-brand-new-password" } });
+  assert.equal(r.status, 200);
+  assert.equal((await call(h.deps, "me", { token: stolen })).status, 401);
+});
+
+test("a token from before epochs existed still works on an untouched account", async () => {
+  // Every member currently holding a session is in exactly this state.
+  const h = await epochHarness();
+  const key = await sessionKey(SECRET, "cafe");
+  const old = await signToken(key, { sub: "u1", email: "member@example.com" }, { nowMs: NOW });
+  assert.equal((await call(h.deps, "me", { token: old })).status, 200);
+});
+
+test("changing a password is refused without a session", async () => {
+  const h = await epochHarness();
+  const r = await call(h.deps, "password", { body: { current: PW, next: "a-brand-new-password" } });
+  assert.equal(r.status, 401);
+});
+
+test("a weak new password is refused before anything changes", async () => {
+  const h = await epochHarness();
+  const token = await signIn(h.deps);
+  const r = await call(h.deps, "password", { token, body: { current: PW, next: "short" } });
+  assert.equal(r.status, 400);
+  assert.equal(h.getEpoch(), 0);
+});
+
+test("the password change is throttled per account", async () => {
+  const h = await epochHarness({ throttled: true });
+  const key = await sessionKey(SECRET, "cafe");
+  const token = await signToken(key, { sub: "u1", email: "member@example.com", ep: 0 }, { nowMs: NOW });
+  const r = await call(h.deps, "password", { token, body: { current: PW, next: "a-brand-new-password" } });
+  assert.equal(r.status, 429);
+});

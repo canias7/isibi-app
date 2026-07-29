@@ -2609,6 +2609,16 @@ const SITE_SCHEMA_TOOL = {
               type: "integer",
               description: "Cap how many rows this table may ever hold. Worth setting on a public form (a giveaway with 500 places, a class with 20 seats); a full table answers 409 rather than growing forever.",
             },
+            teamRead: {
+              type: "boolean",
+              description:
+                "On a \"user\" table ONLY: a member also sees rows belonging to the people who report to them, while still writing only their own. " +
+                "This is the middle setting between \"user\" (private to one member) and \"feed\" (every signed-in member sees everything), and it is what an INTERNAL TOOL needs — " +
+                "a sales pipeline where a rep sees their own deals and their manager sees the whole team's, a timesheet, a case list. " +
+                "Use it whenever the brief describes staff, a team, reports, or a manager who oversees other people's records. " +
+                "Do NOT use it for a customer-facing members area, where one customer must never see another's rows. " +
+                "Who reports to whom is set by the site owner afterwards, not here.",
+            },
             publicView: {
               type: "object",
               description:
@@ -2972,9 +2982,14 @@ async function resolveSiteVisitor(env, request, slug) {
     const claims = await verifySiteSession(await siteAuthSecret(db), bearer, slug);
     if (!claims) return null;
     if (!/^\d+$/.test(String(claims.sub))) return null;
-    const rows = await sqlQuery(db, "SELECT id, role FROM _users WHERE id=?", [Number(claims.sub)]);
+    const rows = await sqlQuery(db, "SELECT id, role, token_epoch FROM _users WHERE id=?", [Number(claims.sub)]);
     const u = rows[0];
-    return u ? { id: u.id, role: String(u.role || "user").toLowerCase() } : null;
+    if (!u) return null;
+    // Same epoch check as `me`. Without it here, a token invalidated by a
+    // password change would still be refused at /auth/me and quietly ACCEPTED on
+    // every data read — which is the half that actually matters.
+    if (Number(claims.ep || 0) !== Number(u.token_epoch || 0)) return null;
+    return { id: u.id, role: String(u.role || "user").toLowerCase() };
   } catch (e) {
     // A lookup failure must not silently downgrade to "anonymous", because for a
     // `user` table anonymous is refused — which is the safe direction — but it
@@ -2991,8 +3006,8 @@ function siteAuthDeps(env, db, slug) {
   const one = async (sql, params) => { await ensureSiteUsers(db); const r = await sqlQuery(db, sql, params); return r[0] || null; };
   return {
     secret: () => siteAuthSecret(db),
-    findUser: (_s, email) => one("SELECT id, email, pass_hash AS password_hash FROM _users WHERE email=?", [email]),
-    findUserById: (_s, id) => (/^\d+$/.test(String(id)) ? one("SELECT id, email FROM _users WHERE id=?", [Number(id)]) : null),
+    findUser: (_s, email) => one("SELECT id, email, pass_hash AS password_hash, token_epoch FROM _users WHERE email=?", [email]),
+    findUserById: (_s, id) => (/^\d+$/.test(String(id)) ? one("SELECT id, email, token_epoch FROM _users WHERE id=?", [Number(id)]) : null),
     createUser: async (_s, email, hash) => {
       await ensureSiteUsers(db);
       try {
@@ -3002,7 +3017,12 @@ function siteAuthDeps(env, db, slug) {
         return r[0] ? { id: r[0].id } : { conflict: true };
       } catch (e) { console.error("site signup failed:", slug, e && (e.detail || e.message)); return {}; }
     },
-    setPassword: async (id, hash) => { await sqlQuery(db, "UPDATE _users SET pass_hash=? WHERE id=?", [hash, Number(id)]); },
+    // Bumping the epoch is part of setting a password, not a separate step a
+    // caller might forget: every session minted before this moment stops working.
+    setPassword: async (id, hash) => {
+      const r = await sqlQuery(db, "UPDATE _users SET pass_hash=?, token_epoch=COALESCE(token_epoch,0)+1 WHERE id=? RETURNING token_epoch", [hash, Number(id)]);
+      return (r[0] && r[0].token_epoch) || 0;
+    },
     touchLogin: async (id) => { try { await sqlQuery(db, "UPDATE _users SET last_login_at=to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') WHERE id=?", [Number(id)]); } catch {} },
     sendReset: async (email, token) => sendSiteResetEmail(env, slug, email, token),
     throttle: async (k) => authThrottle(k),
@@ -5827,6 +5847,8 @@ async function handleRequest(request, env, ctx) {
             r = await handleOwnerMembers(ownerDeps, {
               slug: mslug.toLowerCase(), uid: ou.id, method: request.method,
               memberId: mid, params: Object.fromEntries(url.searchParams),
+              // PATCH is the only way a member's role or manager is ever set.
+              body: request.method === "PATCH" ? await request.json().catch(() => ({})) : {},
             });
           } else if (request.method === "GET") {
             const [, oslug, otable] = om;

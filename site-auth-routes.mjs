@@ -39,7 +39,15 @@ const DUMMY = "pbkdf2$210000$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAA
 export async function handleSiteAuth(deps, { slug, action, body = {}, token, nowMs } = {}) {
   const key = await sessionKey(await deps.secret(), slug);
   const now = nowMs == null ? Date.now() : nowMs;
-  const mk = async (user) => signToken(key, { sub: String(user.id), email: user.email }, { nowMs: now });
+  // `ep` is the account's session epoch. A token is only good while it matches
+  // what `_users.token_epoch` says, which is what lets a password change hang up
+  // every OTHER session — a stolen session token is otherwise valid for thirty
+  // days and changing the password does nothing to it.
+  const mk = async (user, epoch) => signToken(
+    key,
+    { sub: String(user.id), email: user.email, ep: Number(epoch == null ? (user.token_epoch || 0) : epoch) },
+    { nowMs: now },
+  );
 
   if (action === "me") {
     const claims = await verifySession(key, token, { nowMs: now });
@@ -49,6 +57,10 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     // token is valid for thirty days.
     const user = await deps.findUserById(slug, claims.sub);
     if (!user) return json({ error: "not signed in" }, 401);
+    // A token minted before the account's current epoch was signed out by a
+    // password change. Compared as numbers with 0 for absent, so a token issued
+    // before any of this existed still works on an account that never changed.
+    if (Number(claims.ep || 0) !== Number(user.token_epoch || 0)) return json({ error: "not signed in" }, 401);
     return json({ user: { id: user.id, email: user.email } });
   }
 
@@ -106,6 +118,38 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     return json({ token: await mk(user), user: { id: user.id, email: user.email } });
   }
 
+  if (action === "password") {
+    // Changing it while signed in — which no route offered, so the only way a
+    // member could change their password was the reset flow, which needs an
+    // email nobody can currently send.
+    const claims = await verifySession(key, token, { nowMs: now });
+    if (!claims) return json({ error: "not signed in" }, 401);
+
+    // Per account, and before anything is hashed: this endpoint verifies one
+    // password and computes another, so it is two full PBKDF2 runs of Worker
+    // CPU per call.
+    const t = await deps.throttle(`password:${slug}:${claims.sub}`);
+    if (!t.ok) return json({ error: "Too many attempts — try again shortly.", retryAfter: t.retryAfter }, 429);
+
+    const pw = checkPassword(body.next);
+    if (!pw.ok) return json({ error: pw.error }, 400);
+
+    const user = await deps.findUserById(slug, claims.sub);
+    if (!user) return json({ error: "not signed in" }, 401);
+    if (Number(claims.ep || 0) !== Number(user.token_epoch || 0)) return json({ error: "not signed in" }, 401);
+
+    // The CURRENT password, even though they are already signed in. Without it a
+    // stolen session token is a permanent account takeover: the thief sets a new
+    // password and the owner is locked out of their own account.
+    const full = await deps.findUser(slug, user.email);
+    const ok = await verifyPassword(typeof body.current === "string" ? body.current : "", (full && full.password_hash) || DUMMY);
+    if (!ok) return json({ error: "That password doesn't match.", code: "current" }, 401);
+
+    const epoch = await deps.setPassword(user.id, await hashPassword(body.next));
+    // A fresh token, or the caller is signed out by the change they just made.
+    return json({ ok: true, token: await mk(user, epoch) });
+  }
+
   if (action === "reset") {
     // Using a link: {token, password}
     if (body.token) {
@@ -115,6 +159,10 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
       if (!pw.ok) return json({ error: pw.error }, 400);
       const user = await deps.findUserById(slug, claims.sub);
       if (!user) return json({ error: "This reset link is invalid or has expired." }, 400);
+      // setPassword bumps the epoch, so every session that existed before the
+      // reset stops working. Somebody resetting a password is usually saying
+      // they lost control of the account; leaving the thief signed in would
+      // defeat the entire point of the reset.
       await deps.setPassword(user.id, await hashPassword(body.password));
       return json({ ok: true });
     }

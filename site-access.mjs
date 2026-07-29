@@ -34,6 +34,64 @@ export function normalizeAccess(access) {
   return ACCESS_LEVELS.includes(a) ? a : "collect";
 }
 
+// ------------------------------------------------------------- roles
+
+/**
+ * A member's role, as the API will store and compare it.
+ *
+ * Everyone is `user` until somebody says otherwise, and that "somebody" is only
+ * the site owner. Until 2026-07-28 there was no somebody at all: `_users.role`
+ * was created, `admin` tables checked it and per-table `writeRoles` compared
+ * against it, and **no route in the codebase could ever set it**. Every member
+ * on every site was `user` forever, which made an `admin` table writable by
+ * nobody and `writeRoles` a rule about a value that could not exist.
+ */
+export const DEFAULT_ROLE = "user";
+export function normalizeRole(role) {
+  // A string, not "anything stringifiable" — the same rule `checkPassword`
+  // learned. `String(7)` is "7", which passes the shape test below and would
+  // make a number a role; `String({})` is "[object Object]", which does not, but
+  // relying on that is relying on a coincidence.
+  if (typeof role !== "string") return null;
+  const r = role.trim().toLowerCase();
+  // The same shape the schema parser allows in `writeRoles`, so a role an owner
+  // can assign is exactly a role a table can name. Anything else is not a role.
+  return /^[a-z0-9_]{1,24}$/.test(r) ? r : null;
+}
+
+/**
+ * Which roles mean anything on THIS site.
+ *
+ * `user` and `admin` always, plus whatever the site's own tables named in their
+ * `writeRoles`. Bounded by the schema on purpose: an owner inventing a role no
+ * table mentions has granted a permission that can never be checked, which reads
+ * as "I gave them access" and does nothing at all.
+ */
+export function rolesForSchema(spec) {
+  const out = new Set([DEFAULT_ROLE, "admin"]);
+  for (const t of (spec && Array.isArray(spec.tables) ? spec.tables : [])) {
+    for (const r of (t && Array.isArray(t.writeRoles) ? t.writeRoles : [])) {
+      const n = normalizeRole(r);
+      if (n) out.add(n);
+    }
+  }
+  return [...out].sort();
+}
+
+/**
+ * Does this table let a manager see their reports' rows?
+ *
+ * `user` means private-per-member and `feed` means everyone-sees-everything,
+ * with nothing in between — which is the read model an internal tool actually
+ * needs ("my team's records"). `teamRead` is that middle, and it was parsed,
+ * validated and stored in `_meta` since the schema engine was written with
+ * nothing ever reading it. Only meaningful on `user`: `feed` is already shared,
+ * and `collect`/`display` have no owner to have a manager.
+ */
+export function teamReadable(def) {
+  return !!(def && def.teamRead) && normalizeAccess(def.access) === "user";
+}
+
 /**
  * Does this level need a signed-in MEMBER before anything is served?
  *

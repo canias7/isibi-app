@@ -13,7 +13,7 @@
 // Injected like the rest, so the decisions run without Supabase, Neon or a
 // Worker — see test/site-owner.test.mjs.
 
-import { isManagedColumn } from "./site-access.mjs";
+import { isManagedColumn, normalizeRole, rolesForSchema } from "./site-access.mjs";
 import { constraintError } from "./site-errors.mjs";
 
 const json = (body, status = 200) => ({ status, body });
@@ -249,12 +249,57 @@ async function runWrite(deps, { db, def, access, tn, method, rowId, body }) {
  * columns explicitly: `pass_hash` must never leave the database, and a
  * `SELECT *` a year from now would ship it the moment someone added a column.
  */
-const MEMBER_COLUMNS = ["id", "email", "role", "verified", "created_at", "last_login_at"];
+const MEMBER_COLUMNS = ["id", "email", "role", "verified", "created_at", "last_login_at", "manager_id"];
 
-export async function handleOwnerMembers(deps, { slug, uid, method = "GET", memberId, params = {} } = {}) {
+export async function handleOwnerMembers(deps, { slug, uid, method = "GET", memberId, body = {}, params = {} } = {}) {
   const open = await openSite(deps, slug, uid);
   if (open.error) return open.error;
   const db = open.db;
+
+  // Promoting a member, and saying who they report to.
+  //
+  // The only way a role is ever granted. Before this, `_users.role` existed,
+  // `admin` tables compared against it and `writeRoles` named values for it —
+  // and nothing could write it, so every member on every site was `user`
+  // forever and an `admin` table was writable by nobody.
+  if (method === "PATCH") {
+    const id = rowIdOf(memberId);
+    if (!id) return json({ error: "no member id" }, 400);
+
+    const sets = [], vals = [];
+    if (body.role !== undefined) {
+      const role = normalizeRole(body.role);
+      // Allow-listed against the site's OWN schema: a role no table names is a
+      // permission that can never be checked, which reads as "I granted access"
+      // and does precisely nothing.
+      const allowed = rolesForSchema(await deps.loadSchema(db));
+      if (!role || !allowed.includes(role)) {
+        return json({ error: "role must be one of: " + allowed.join(", "), code: "role" }, 400);
+      }
+      sets.push(deps.ident("role") + "=?"); vals.push(role);
+    }
+    if (body.manager_id !== undefined) {
+      // null clears it. Anything else must be a real member of THIS site.
+      if (body.manager_id === null || body.manager_id === "") {
+        sets.push(deps.ident("manager_id") + "=NULL");
+      } else {
+        const mid = rowIdOf(body.manager_id);
+        if (!mid) return json({ error: "manager_id must be a member id" }, 400);
+        // Self-management would make `teamRead` return the member's own rows
+        // twice and, worse, reads as a hierarchy that isn't one.
+        if (mid === id) return json({ error: "a member cannot manage themselves", code: "self" }, 400);
+        const exists = await deps.query(db, "SELECT id FROM _users WHERE id=?", [mid]);
+        if (!exists[0]) return json({ error: "no such member" }, 404);
+        sets.push(deps.ident("manager_id") + "=?"); vals.push(mid);
+      }
+    }
+    if (!sets.length) return json({ error: "nothing to change" }, 400);
+
+    const r = await deps.exec(db, "UPDATE _users SET " + sets.join(",") + " WHERE id=?", vals.concat([id]));
+    if (!r.changes) return json({ error: "no such member" }, 404);
+    const rows = await deps.query(db, "SELECT " + MEMBER_COLUMNS.map(deps.ident).join(",") + " FROM _users WHERE id=?", [id]);
+    return json({ member: rows[0] || null });
+  }
 
   if (method === "DELETE") {
     const id = rowIdOf(memberId);

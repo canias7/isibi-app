@@ -28,7 +28,7 @@ import { loadSiteSchema, sqlIdent } from "./site-schema.mjs";
 // The permission rules live in their own leaf module because the page generator
 // has to predict them to lint a page before it is published, and restating them
 // in both places is how they drifted.
-import { isManagedColumn, canReadAccess, canWriteAccess, needsMember } from "./site-access.mjs";
+import { isManagedColumn, canReadAccess, canWriteAccess, needsMember, teamReadable } from "./site-access.mjs";
 import { limitFor, bucketKey, tooMany } from "./rate-limit.mjs";
 import { constraintError } from "./site-errors.mjs";
 import { readJsonBody, clampFields, MAX_JSON_BODY } from "./request-limits.mjs";
@@ -240,8 +240,26 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
       // The `user` level means private-per-member. Appended to the caller's
       // filters rather than replacing them, so no query string can widen it.
       if (access === "user") {
-        sql += (f.sql ? " AND " : " WHERE ") + '"owner_id"=?';
-        vals.push(visitor.id);
+        if (teamReadable(def)) {
+          // ...unless the table declared `teamRead`, which is the middle the
+          // schema engine has always described and never enforced: `user` is
+          // private-to-me and `feed` is everyone-sees-everything, with nothing
+          // in between, and "my team's records" is the read model an internal
+          // tool actually needs.
+          //
+          // DIRECT reports only, deliberately. A recursive walk up an arbitrary
+          // hierarchy is a WITH RECURSIVE on every read of every row, and an
+          // accidental cycle in `manager_id` makes it non-terminating; one level
+          // is what an owner can reason about and is enough for the case this
+          // exists for. It is a READ widening only — a manager sees their team's
+          // rows and still writes only their own.
+          sql += (f.sql ? " AND " : " WHERE ") +
+            '("owner_id"=? OR "owner_id" IN (SELECT id FROM _users WHERE manager_id=?))';
+          vals.push(visitor.id, visitor.id);
+        } else {
+          sql += (f.sql ? " AND " : " WHERE ") + '"owner_id"=?';
+          vals.push(visitor.id);
+        }
       }
       // Full-text search, when the table declared it.
       const q = (url.searchParams.get("q") || "").trim();
