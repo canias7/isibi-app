@@ -36,8 +36,8 @@ let passed = 0, failed = 0;
 const results = [];
 const ok = (name, cond, extra) => {
   if (cond) { passed++; console.log(`  ok   ${name}`); }
-  else { failed++; console.log(`  FAIL ${name}${extra ? "  -> " + String(extra).slice(0, 300) : ""}`); }
-  results.push({ name, pass: !!cond, extra: cond ? "" : String(extra ?? "").slice(0, 300) });
+  else { failed++; console.log(`  FAIL ${name}${extra ? "  -> " + String(extra).slice(0, 1200) : ""}`); }
+  results.push({ name, pass: !!cond, extra: cond ? "" : String(extra ?? "").slice(0, 1200) });
 };
 const section = (t) => { console.log(`\n── ${t}`); results.push({ section: t }); };
 
