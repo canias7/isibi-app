@@ -8,7 +8,8 @@ Run against `https://isibi.ai` · 78 passed, 2 failed.
 - ✅ build returns 200
 - ✅ every declared table was created
 - ✅ the display table was seeded
-- ❌ a real app was published, not the placeholder — `page=placeholder stage=typecheck error=src/routes/booking.tsx(57,7): error TS2322: Type '(res: { row: { id: string; }; claim: string; }) => void' is not assignable to type '(data: { row: Row; claim?: string | undefined; }, variables: Partial<Row>, onMutateResult: unknown, context: MutationFunctionCo`
+- ❌ a real app was published, not the placeholder — `page=placeholder stage=typecheck error=src/routes/index.tsx(63,7): error TS2322: Type '({ row, claim }: { row: Row; claim: string; }) => void' is not assignable to type '(data: { row: Row; claim?: string | undefined; }, variables: Partial<Row>, onMutateResult: unknown, context: MutationFunctionContext) => void'.
+  Types of parameters '__ problems=[]`
 
 ## signup
 
@@ -113,7 +114,7 @@ Run against `https://isibi.ai` · 78 passed, 2 failed.
 
 - ❌ the browser pass completed — `page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
 Call log:
-  - navigating to "/s/authsmoke-ms5o35e2-uc9ci/", waiting until "networkidle"
+  - navigating to "/s/authsmoke-ms5o90w9-dd0wq/", waiting until "networkidle"
 `
 
 ## The published site
