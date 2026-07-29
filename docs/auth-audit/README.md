@@ -1,6 +1,6 @@
 # Auth layer — production audit
 
-Run against `https://isibi.ai` · 71 passed, 8 failed.
+Run against `https://isibi.ai` · 78 passed, 2 failed.
 
 
 ## the site
@@ -8,9 +8,7 @@ Run against `https://isibi.ai` · 71 passed, 8 failed.
 - ✅ build returns 200
 - ✅ every declared table was created
 - ✅ the display table was seeded
-- ❌ a real app was published, not the placeholder — `page=placeholder stage=typecheck error=src/routes/manage.tsx(30,54): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.
-src/routes/manage.tsx(47,9): error TS2322: Type 'string' is not assignable to type 'number'.
-src/routes/members.tsx(84,24): error TS2322: Type`
+- ❌ a real app was published, not the placeholder — `page=placeholder stage=typecheck error=src/routes/booking.tsx(57,7): error TS2322: Type '(res: { row: { id: string; }; claim: string; }) => void' is not assignable to type '(data: { row: Row; claim?: string | undefined; }, variables: Partial<Row>, onMutateResult: unknown, context: MutationFunctionCo`
 
 ## signup
 
@@ -35,9 +33,10 @@ src/routes/members.tsx(84,24): error TS2322: Type`
 - ✅ a token is useless against a different site
 - ✅ `sessions` lists this account's devices
 - ✅ exactly one device is marked `current`
+- ✅ the token's own device appears in the list
 - ✅ a device is named, not dumped as a UA string
 - ✅ revoking ONE device succeeds
-- ❌ the revoked device's token stops working — ``
+- ✅ the revoked device's token stops working
 - ✅ the device you are reading from still works
 - ✅ revoking it twice is a 404, not a silent success
 - ✅ an unknown sid answers identically to somebody else's
@@ -103,16 +102,19 @@ src/routes/members.tsx(84,24): error TS2322: Type`
 - ✅ invite-only refuses a signup with no code
 - ✅ a wrong code answers identically to no code
 - ✅ the owner can mint an invite code
-- ❌ a valid code lets somebody in — `403 {"error":"That invite code isn't valid.","code":"invite"}`
+- ✅ a valid code lets somebody in
 - ✅ a one-use code cannot be used twice
-- ❌ a domain allow-list refuses an address outside it — `429 {"error":"Too many requests — slow down and try again shortly.","code":"rate_limit","limit":30,"retryAfter":38}`
-- ❌ ...and admits one inside it — `429 {"error":"Too many requests — slow down and try again shortly.","code":"rate_limit","limit":30,"retryAfter":38}`
-- ❌ a SUBDOMAIN does not match — `429`
-- ❌ a lookalike domain does not match — `429`
+- ✅ a domain allow-list refuses an address outside it
+- ✅ ...and admits one inside it
+- ✅ a SUBDOMAIN does not match
+- ✅ a lookalike domain does not match
 
 ## the published site, in a real browser
 
-- ❌ playwright is available for screenshots — `not installed`
+- ❌ the browser pass completed — `page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+Call log:
+  - navigating to "/s/authsmoke-ms5o35e2-uc9ci/", waiting until "networkidle"
+`
 
 ## The published site
 
