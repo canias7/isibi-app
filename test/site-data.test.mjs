@@ -2,6 +2,7 @@
 // standing between a published site and its database. These tests drive the
 // real handler with a fake database, asserting on the SQL it actually emits.
 import { test } from "node:test";
+import fs from "node:fs";
 import assert from "node:assert/strict";
 import { handleSiteData } from "../site-data.mjs";
 
@@ -865,4 +866,143 @@ test("without a mailer the rule FAILS OPEN", async () => {
     visitor: { id: 7, role: "user", verified: false }, canVerify: false, body: { body: "hi" },
   });
   assert.equal(res.status, 201);
+});
+
+// ------------------------------------------------------------- mask
+//
+// `maskFields` was written with the schema engine and called by NOTHING until
+// 2026-07-29, so a table declaring `mask` served the raw value to everyone. The
+// third instance this session of implemented-and-unreachable, after `unique` and
+// `teamRead`.
+import { maskFields, normalizeSchema } from "../site-schema.mjs";
+
+const PHONE = "07700900123";
+const masked = (role, cfg = { roles: ["staff"], keep: 4 }) => {
+  const rows = [{ id: 1, phone: PHONE, name: "Ada" }];
+  maskFields({ mask: { phone: { char: "•", ...cfg } } }, rows, role);
+  return rows[0];
+};
+
+test("a role that may not see it gets the tail only", () => {
+  const r = masked("public");
+  assert.equal(r.phone, "•••••••0123");
+  assert.equal(r.name, "Ada", "only the declared column is touched");
+  assert.equal(r.id, 1);
+});
+
+test("a listed role sees the real value", () => {
+  assert.equal(masked("staff").phone, PHONE);
+});
+
+test("admin always sees the real value, listed or not", () => {
+  // Otherwise an owner's own staff view is redacted and nobody can read it back.
+  assert.equal(masked("admin").phone, PHONE);
+});
+
+test("an anonymous visitor counts as `public`", () => {
+  // The case it mostly exists for: a public directory showing a partial number.
+  for (const role of [null, undefined, ""]) assert.equal(masked(role).phone, "•••••••0123");
+});
+
+test("keep:0 hides the value completely, and a short value is not lengthened", () => {
+  assert.equal(masked("public", { roles: [], keep: 0 }).phone, "•".repeat(PHONE.length));
+  const rows = [{ phone: "12" }];
+  maskFields({ mask: { phone: { roles: [], keep: 4, char: "•" } } }, rows, "public");
+  assert.equal(rows[0].phone, "12", "keeping more than exists must not invent characters");
+});
+
+test("nothing to mask is left alone", () => {
+  const rows = [{ phone: null }, { phone: "" }, {}];
+  maskFields({ mask: { phone: { roles: [], keep: 4, char: "•" } } }, rows, "public");
+  assert.deepEqual(rows, [{ phone: null }, { phone: "" }, {}]);
+  assert.deepEqual(maskFields({}, [{ phone: PHONE }], "public"), [{ phone: PHONE }]);
+  assert.deepEqual(maskFields({ mask: { phone: {} } }, [], "public"), []);
+});
+
+test("the designer's ARRAY form parses to the map the enforcement reads", () => {
+  // A map keyed by column name needs `additionalProperties` in a tool schema,
+  // and an under-specified schema there took the builder down for three merges.
+  const spec = normalizeSchema({
+    tables: [{
+      name: "staff", access: "display", columns: ["name", "phone"],
+      mask: [{ column: "phone", roles: ["staff"], keep: 4 }],
+    }],
+  });
+  const t = spec.tables[0];
+  assert.deepEqual(t.mask, { phone: { roles: ["staff"], keep: 4, char: "•" } });
+});
+
+test("the map form still parses, so nothing already stored breaks", () => {
+  const spec = normalizeSchema({
+    tables: [{ name: "staff", access: "display", columns: ["phone"], mask: { phone: { roles: ["staff"], keep: 2 } } }],
+  });
+  assert.deepEqual(spec.tables[0].mask, { phone: { roles: ["staff"], keep: 2, char: "•" } });
+});
+
+test("the read path actually calls it", () => {
+  // The whole point. A test of maskFields alone would have passed every day it
+  // was dead code.
+  const src = fs.readFileSync(new URL("../site-data.mjs", import.meta.url), "utf8");
+  // ONE call site, deliberately: a single-row GET goes through the same list
+  // path (it is an id filter, not a separate query), and the only other place a
+  // row is returned is the 201 echoing back what the visitor just submitted —
+  // redacting somebody's own data back to them is wrong, not safe.
+  const calls = src.match(/maskFields\(/g) || [];
+  assert.equal(calls.length, 1, "expected exactly one mask call site, found " + calls.length);
+  assert.match(src, /maskFields\(def, rows, visitor && visitor\.role\)/,
+    "it must mask against the RESOLVED visitor's role, not a role off the request");
+});
+
+test("no query string can unmask a column", async () => {
+  // The mutation that survived the first pass: masking against a role read off
+  // the REQUEST rather than the resolved visitor. `?role=admin` would then
+  // unredact every masked column on a public table, for anyone who tried it.
+  const spec = {
+    tables: [{
+      name: "staff", access: "display", columns: [{ name: "name" }, { name: "phone" }],
+      mask: { phone: { roles: ["staff"], keep: 4, char: "•" } },
+    }],
+  };
+  const conn = {
+    __seen: [],
+    query: async (sql, p) => {
+      conn.__seen.push([sql, p]);
+      return { rows: [{ id: 1, name: "Ada", phone: "07700900123" }], rowCount: 1 };
+    },
+  };
+  const deps = {
+    sqlQuery: async (_c, sql, p) => (await conn.query(sql, p)).rows,
+    sqlExec: async (_c, sql, p) => { const r = await conn.query(sql, p); return { results: r.rows, changes: r.rowCount }; },
+    loadSiteSchema: async () => spec,
+  };
+  for (const qs of ["", "?role=admin", "?role=staff", "?visitor.role=admin"]) {
+    const url = new URL("https://isibi.ai/api/db/shop/rows/staff" + qs);
+    const res = await handleSiteData({}, new Request(url), url, async () => conn, deps);
+    const body = await res.json();
+    assert.equal(body.rows[0].phone, "•••••••0123", "unmasked by " + (qs || "(no query)"));
+  }
+});
+
+test("a single-row GET is the same path, so it masks too", async () => {
+  // It is an id FILTER on the list read, not a separate query — worth pinning,
+  // because "there is only one read path" is what justifies one call site.
+  const spec = {
+    tables: [{
+      name: "staff", access: "display", columns: [{ name: "name" }, { name: "phone" }],
+      mask: { phone: { roles: ["staff"], keep: 4, char: "\u2022" } },
+    }],
+  };
+  const conn = { query: async () => ({ rows: [{ id: 1, name: "Ada", phone: "07700900123" }], rowCount: 1 }) };
+  const deps = {
+    sqlQuery: async (_c, sql, p) => (await conn.query(sql, p)).rows,
+    sqlExec: async () => ({ results: [], changes: 1 }),
+    loadSiteSchema: async () => spec,
+  };
+  for (const qs of ["", "?role=admin"]) {
+    const url = new URL("https://isibi.ai/api/db/shop/rows/staff/1" + qs);
+    const res = await handleSiteData({}, new Request(url), url, async () => conn, deps);
+    const body = await res.json();
+    const row = body.row || (body.rows && body.rows[0]);
+    assert.equal(row.phone, "\u2022\u2022\u2022\u2022\u2022\u2022\u20220123", "unmasked by " + (qs || "(no query)"));
+  }
 });

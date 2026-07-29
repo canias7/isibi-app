@@ -29,6 +29,7 @@ import { loadSiteSchema, sqlIdent } from "./site-schema.mjs";
 // has to predict them to lint a page before it is published, and restating them
 // in both places is how they drifted.
 import { isManagedColumn, canReadAccess, canWriteAccess, needsMember, teamReadable, needsVerified, hasPublicView } from "./site-access.mjs";
+import { maskFields } from "./site-schema.mjs";
 import { limitFor, bucketKey, tooMany } from "./rate-limit.mjs";
 import { constraintError } from "./site-errors.mjs";
 import { readJsonBody, clampFields, MAX_JSON_BODY } from "./request-limits.mjs";
@@ -292,6 +293,12 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
       // forgot, which is a worse failure than one wasted column on the internal
       // Neon hop.
       for (const r of rows) if (r && r._fts !== undefined) delete r._fts;
+      // Redact what this caller may not see in full. `maskFields` was written
+      // with the schema engine and called by NOTHING until now, so a table that
+      // declared `mask` served the raw value to everyone — the same
+      // implemented-and-unreachable shape as `unique` and `teamRead`.
+      // An anonymous visitor is `public`, which is the case it mostly exists for.
+      maskFields(def, rows, visitor && visitor.role);
       return json({ rows, limit, offset });
     }
 
