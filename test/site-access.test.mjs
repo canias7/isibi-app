@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   MANAGED_COLUMNS, isManagedColumn, ACCESS_LEVELS, normalizeAccess,
-  normalizeRole, rolesForSchema, teamReadable, DEFAULT_ROLE,
+  normalizeRole, rolesForSchema, teamReadable, DEFAULT_ROLE, whyNotReadable,
 } from "../site-access.mjs";
 
 test("managed columns are never writable, whatever case they arrive in", () => {
@@ -84,4 +84,20 @@ test("a user table without teamRead stays private", () => {
   assert.equal(teamReadable({ access: "user" }), false);
   assert.equal(teamReadable({ access: "user", teamRead: false }), false);
   assert.equal(teamReadable(null), false);
+});
+
+// A mutation sweep flipped this branch and nothing noticed. It is only a
+// message — but it is the message the page generator's lint hands the model
+// during a repair pass, and a repair pass costs real tokens. Telling the model
+// a `collect` table "needs a signed-in member" sends it to build a sign-in for
+// a contact form, which is a page it then pays to get wrong.
+test("each refusal is explained in the terms of its OWN access level", () => {
+  assert.match(whyNotReadable("collect"), /other visitors' submissions/);
+  for (const level of ["user", "feed", "admin"]) {
+    assert.match(whyNotReadable(level), /signed-in member/, level);
+    assert.doesNotMatch(whyNotReadable(level), /other visitors' submissions/, level);
+  }
+  // `display` is readable, so it has no explanation to give beyond the generic
+  // one — and an unknown level must not be described as a member table.
+  assert.doesNotMatch(whyNotReadable("display"), /signed-in member/);
 });

@@ -216,3 +216,18 @@ test("resolveSiteVisitor returns every field the team scoping reads off it", () 
     "the visitor is missing " + missing.join(", ") + " — site-teams.mjs reads it, so it resolves as undefined " +
     "and every member reads as teamless: " + ret[0]);
 });
+
+// The counts come from a separate query, and a failed one hands this `null`.
+// The guard for that was written and never exercised — a mutation flipped it and
+// nothing noticed, and the un-guarded version throws while rendering the owner's
+// team list, turning "we could not count the members" into a 503 for the whole
+// panel.
+test("a team list still renders when the member counts are missing", () => {
+  const rows = [{ id: 1, name: "Sales", created_at: "2026-07-29 10:00:00" }];
+  for (const counts of [null, undefined, "not-an-object", 7]) {
+    const out = describeTeams(rows, counts);
+    assert.equal(out.length, 1, JSON.stringify(counts));
+    assert.equal(out[0].name, "Sales");
+    assert.equal(out[0].members, 0, "an uncountable team reads as zero, not as a crash: " + JSON.stringify(counts));
+  }
+});
