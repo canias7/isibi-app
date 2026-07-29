@@ -655,3 +655,17 @@ test("no hook demands a bare `number` for a row id", () => {
   assert.match(rows, /Omit<Partial<T>, "id"> & \{ id: RowId \}/,
     "useUpdateRow must omit `id` from Partial<T> before widening it");
 });
+
+test("the rules say `claim` is optional, because the type says so", () => {
+  // The generator wrote `onSuccess: ({ row, claim }: { row: Row; claim: string })`
+  // because rule 10 said the call "returns { row, claim }". `claim` is typed
+  // `string | undefined` (only a `collect` table mints one), and under
+  // strictFunctionTypes a callback demanding a required `claim` is not
+  // assignable — TS2322, the page refused, the site published as the
+  // placeholder. Measured live 2026-07-29.
+  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
+  assert.match(rows, /claim\?: string/, "the hook still types claim as optional");
+  assert.match(PAGE_RULES, /\*\*.?claim.? is optional\*\*|claim\\` is optional/,
+    "the rules must say so, or the model writes a callback that cannot compile");
+  assert.match(PAGE_RULES, /string \| undefined/);
+});
