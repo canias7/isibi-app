@@ -137,7 +137,10 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
       try { await deps.touchSession(claims.sid, Math.floor(now / 1000)); }
       catch (e) { console.error("session touch failed:", slug, (e && e.message) || e); }
     }
-    return json({ user: { id: user.id, email: user.email } });
+    // `role` too: the owner can grant one and `admin` tables check it, so a page
+    // that cannot read its own member's role cannot gate anything on it. Defaults
+    // to "user" for every member who has never been granted anything.
+    return json({ user: { id: user.id, email: user.email, role: String(user.role || "user").toLowerCase() } });
   }
 
   if (action === "signup") {

@@ -339,7 +339,7 @@ or an access level — anything not in the schema below does not exist.
     That \`claim\` is a signed token for THAT ONE row and
     it is issued exactly once — if the page drops it, nobody can ever reach that booking
     again except the site owner. On the confirmation screen, show a link to a manage page
-    carrying it: \`/manage?id=\${row.id}&claim=\${claim}\`. That page reads the two values
+    carrying it: \`/manage?id=\${row.id}&claim=\${claim}\`. If you hold that in state, type the id as \`RowId\`, not \`string\` — \`row.id\` comes back as a NUMBER and only becomes a string in the URL. That page reads the two values
     off the URL and calls \`useClaimedRow(table, id, claim)\` to show the booking and
     \`useCancelClaim(table)\` to cancel it. Build the manage page whenever you build a
     form on a \`collect\` table that represents an appointment, an order or a reservation

@@ -200,7 +200,19 @@ function setSessionToken(token: string | null) {
   try { token ? localStorage.setItem(TOKEN_KEY(), token) : localStorage.removeItem(TOKEN_KEY()); } catch { /* private mode */ }
 }
 
-export type Member = { id: number; email: string };
+export type Member = {
+  id: number;
+  email: string;
+  /**
+   * "user" or "admin", plus whatever this site's tables named in `writeRoles`.
+   *
+   * The owner grants it and `admin` tables check it, but `/auth/me` did not
+   * return it — so a page could not gate admin UI on the member's own role, and
+   * the generator reached for `member.role` anyway in an eval sample. A member
+   * who has never been granted anything is "user".
+   */
+  role: string;
+};
 
 const authUrl = (action: string) => `/api/db/${siteSlug()}/auth/${action}`;
 
@@ -233,10 +245,19 @@ export function useMember() {
 function useAuthAction(action: "signup" | "login") {
   const qc = useQueryClient();
   return useMutation({
+    // `SignInResult`, not `{ token, user }`.
+    //
+    // The server answers a 2FA account with `{ pending, need }` and NO token —
+    // that is the whole point of the second factor. Typed as always returning a
+    // token, this stored `undefined` as the session and handed the caller no way
+    // to learn a code was wanted, so password login was quietly broken for every
+    // member with 2FA on. Every OTHER sign-in method already goes through
+    // `settle`; this was the one that did not.
     mutationFn: (values: { email: string; password: string }) =>
-      send<{ token: string; user: Member }>(authUrl(action), { method: "POST", body: JSON.stringify(values) }),
+      send<SignInResult>(authUrl(action), { method: "POST", body: JSON.stringify(values) }),
     onSuccess: (d) => {
-      setSessionToken(d.token);
+      // Only when there is one. `settle` is the shared rule.
+      settle(d);
       // Every read changes meaning once there is a session — a `user` table goes
       // from 401 to that member's own rows.
       qc.invalidateQueries();
@@ -301,7 +322,9 @@ export function startOAuthSignIn(provider: string, next?: string) {
 }
 
 /** A response that may not be a session yet: a second factor can be pending. */
-export type SignInResult = { token?: string; pending?: string; need?: string; user?: Member };
+export type SignInResult =
+  | { token: string; user: Member; pending?: undefined; need?: undefined }
+  | { pending: string; need: string; token?: undefined; user?: undefined };
 
 function settle(r: SignInResult) {
   if (r.token) keepSession(r.token);

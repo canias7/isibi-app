@@ -3350,7 +3350,7 @@ function siteAuthDeps(env, db, slug, request) {
     // The session row joins onto the read that already happens; see SESSION_JOIN.
     findUserById: (_s, id, sid) => (/^\d+$/.test(String(id))
       ? one(
-          "SELECT u.id, u.email, u.token_epoch, u.blocked, s.revoked AS session_revoked, s.last_seen AS session_last_seen" +
+          "SELECT u.id, u.email, u.role, u.token_epoch, u.blocked, s.revoked AS session_revoked, s.last_seen AS session_last_seen" +
           " FROM _users u " + SESSION_JOIN + " WHERE u.id=?",
           [sid ? String(sid) : "", Number(id)],
         )
