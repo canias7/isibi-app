@@ -93,6 +93,33 @@ function collectDist(dir = DIST, base = "") {
   return out;
 }
 
+// One build at a time. Not an optimisation — a correctness requirement.
+//
+// `getContainer(env.SITE_BUILD_CONTAINER)` is called with no id, so EVERY build
+// on the platform lands in this one container, and a build wipes a shared
+// src/routes (and dist, and the generated route tree) before writing its own
+// pages. Two arriving together destroy each other: observed 2026-07-29 with two
+// real builds a second apart — one returned a build failure with no files, the
+// other returned a bundle containing neither site's content, and a third run had
+// one customer's pages published to another customer's slug.
+//
+// Serialised rather than given a directory each. A per-build working copy would
+// allow real parallelism, but it multiplies disk and memory per concurrent build
+// in a container sized for one, and this is the fix that cannot itself be
+// subtly wrong. Cloudflare scales container INSTANCES; this only has to make one
+// instance honest.
+let _chain = Promise.resolve();
+function oneAtATime(fn) {
+  // The chain is normalised: the result value is dropped so a finished build's
+  // whole dist is not retained by the queue, and a rejection is swallowed so it
+  // cannot surface as an unhandled one. Not exercised by the handler below,
+  // which catches everything itself — kept because those are properties of the
+  // primitive rather than of its current only caller.
+  const done = _chain.then(fn, fn);
+  _chain = done.then(() => {}, () => {});
+  return done;
+}
+
 const server = http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/health") { res.writeHead(200); res.end("ok"); return; }
   if (req.method !== "POST" || req.url !== "/build") { res.writeHead(404); res.end("nf"); return; }
@@ -104,6 +131,7 @@ const server = http.createServer((req, res) => {
     const files = payload && payload.files;
     if (!files || typeof files !== "object") return send(res, 400, { ok: false, error: "no files" });
     const t0 = Date.now();
+    return oneAtATime(async () => {
     try {
       resetRoutes();
       writeIndexHtml(payload.title);
@@ -147,6 +175,7 @@ const server = http.createServer((req, res) => {
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0 });
     }
+    });
   });
 });
 const PORT = process.env.PORT || 8080;

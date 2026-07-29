@@ -273,6 +273,47 @@ try {
   const solo = await post({ files: { "index.tsx": MENU.replace('createFileRoute("/menu")', 'createFileRoute("/")').replace("function Menu", "function Home").replace("component: Menu", "component: Home") }, slug: "fold-coffee" });
   ok("a rebuild with fewer pages succeeds", solo.ok === true, solo.stage + ": " + solo.error);
   ok("the previous build's extra route is gone", !fs.existsSync(path.join(sandbox, "src/routes/menu.tsx")));
+
+  // ── two builds at once ──────────────────────────────────────────────────────
+  //
+  // The reset above proves builds do not leak SEQUENTIALLY, and says nothing at
+  // all about two arriving together — which is the case that actually happens.
+  // `getContainer(env.SITE_BUILD_CONTAINER)` takes no id, so every build on the
+  // platform lands in ONE container, and the build handler wipes a shared
+  // src/routes before writing. Interleaved, one build deletes the other's pages
+  // and then publishes its own dist to the other's slug.
+  //
+  // Observed live 2026-07-29: the auth audit built a yoga studio and its
+  // published site served the barber shop that the build smoke test was
+  // compiling in the same second.
+  console.log("\nbuilding two sites at once…");
+  const page = (brand) => `import { createFileRoute } from "@tanstack/react-router";
+export const Route = createFileRoute("/")({ component: Home });
+function Home() { return <main><h1>${brand}</h1></main>; }`;
+  const [a, b] = await Promise.all([
+    post({ files: { "index.tsx": page("AURORA YOGA") }, slug: "conc-yoga", title: "Aurora Yoga" }),
+    post({ files: { "index.tsx": page("FADE AND CO") }, slug: "conc-barber", title: "Fade and Co" }),
+  ]);
+  ok("both concurrent builds succeed", a.ok === true && b.ok === true,
+    `a=${a.stage || "ok"}:${a.error || ""} b=${b.stage || "ok"}:${b.error || ""}`);
+  if (a.ok && b.ok) {
+    // collectDist returns {t: "<text>"} or {b: "<base64>"}, not raw strings —
+    // joining the objects gives "[object Object]" and finds nothing, which reads
+    // exactly like a corrupted build. It cost a round to notice.
+    const js = (r) => Object.entries(r.files || {})
+      .filter(([k]) => k.endsWith(".js"))
+      .map(([, v]) => (v && typeof v === "object" ? v.t || "" : String(v)))
+      .join("");
+    const A = js(a), B = js(b);
+    // Each build must get ITS OWN brand and, more importantly, must not carry
+    // the other's. Publishing one customer's copy on another customer's domain
+    // is the failure this is here to stop.
+    ok("the first build carries its own content", A.includes("AURORA YOGA"), "missing its own brand");
+    ok("the second build carries its own content", B.includes("FADE AND CO"), "missing its own brand");
+    ok("neither build carries the OTHER site's content",
+      !A.includes("FADE AND CO") && !B.includes("AURORA YOGA"),
+      "one build was published with the other's pages — a cross-tenant content leak");
+  }
 } catch (e) {
   failed++;
   console.log("\nUNCAUGHT: " + ((e && (e.stack || e.message)) || e));
