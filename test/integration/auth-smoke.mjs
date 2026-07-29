@@ -419,7 +419,11 @@ try {
   section("the published site, in a real browser");
   // The build returns a RELATIVE url ("/s/<slug>/"), which page.goto refuses as
   // an invalid URL. Absolutised against the base being audited.
-  await shoot(new URL(bd.url || `/s/${slug}/`, BASE).toString());
+  await shoot(new URL(bd.url || `/s/${slug}/`, BASE).toString(), {
+    built: bd.page === "app",
+    files: bd.files || [],
+    member: { email: `shot-${rnd()}@example.com`, password: newMemberPass() },
+  });
 
 } catch (e) {
   failed++;
@@ -462,7 +466,18 @@ try {
 
 // --------------------------------------------------------------- screenshots
 
-async function shoot(url) {
+/**
+ * The published site, in a real browser, signed out AND signed in.
+ *
+ * The session is established by calling the auth API from INSIDE the page and
+ * writing the token to the key `rows.ts` reads — rather than by hunting for a
+ * form and typing into it. Two reasons: the generated markup differs every
+ * build, so selector-hunting is a flaky test of the model's layout choices
+ * rather than of auth; and doing it this way asserts something real, that the
+ * key the client reads is the one a token can actually be stored under. If that
+ * convention ever drifts, every generated site silently signs nobody in.
+ */
+async function shoot(url, { built, files, member } = {}) {
   let chromium;
   try { ({ chromium } = await import("playwright")); }
   catch { ok("playwright is available for screenshots", false, "not installed"); return; }
@@ -482,12 +497,81 @@ async function shoot(url) {
     await page.screenshot({ path: path.join(SHOTS, "01-published-site.png"), fullPage: true });
 
     // The seeded content is what a visitor came for, and it is also proof the
-    // display table was populated at build time.
+    // display table was populated at build time. Only meaningful on a real app:
+    // the placeholder renders none of it, so asserting here when the build fell
+    // back reports one root cause three times.
     const body = await page.evaluate(() => document.body.innerText);
-    ok("seeded content is on the page", /Maya Iyer|Tom Beckett|Ana Ruiz/.test(body), body.slice(0, 200));
-    // ...and the masked column must not be readable in the rendered page either.
-    ok("the masked phone is NOT rendered in full", !body.includes("07700900123"), "the raw number reached the page");
+    if (built) {
+      ok("seeded content is on the page", /Maya Iyer|Tom Beckett|Ana Ruiz/.test(body), body.slice(0, 300));
+      ok("the masked phone is NOT rendered in full", !body.includes("07700900123"), "the raw number reached the page");
+    } else {
+      console.log("   (build fell back to the placeholder — skipping the content checks rather than");
+      console.log("    failing them, since they would report the same root cause a third time)");
+    }
     await page.screenshot({ path: path.join(SHOTS, "02-seeded-content.png"), fullPage: true });
+
+    // ---------------------------------------------------- signed in, for real
+    if (built && member) {
+      const created = await page.evaluate(async ({ slug, email, password }) => {
+        const r = await fetch(`/api/db/${slug}/auth/signup`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!d.token) return { ok: false, status: r.status, body: d };
+        // The exact key `rows.ts` reads. If this convention ever drifts, every
+        // generated site signs nobody in and nothing else would notice.
+        localStorage.setItem(`site_session_${slug}`, d.token);
+        return { ok: true };
+      }, { slug, email: member.email, password: member.password });
+      ok("a member can be signed in from inside the published page", created.ok, JSON.stringify(created));
+
+      if (created.ok) {
+        await page.reload({ waitUntil: "networkidle", timeout: 60000 });
+        await page.screenshot({ path: path.join(SHOTS, "03-signed-in.png"), fullPage: true });
+
+        // NOT "the page looks different signed in" — a timetable page can
+        // legitimately render the same either way, and that assertion fails on a
+        // correct site. What has to hold is that the token under this key is
+        // usable: a `user` table answers 401 without one and the member's own
+        // rows with it. Read straight out of localStorage, so it also proves the
+        // key the client writes is the key a request can be built from.
+        const scoped = await page.evaluate(async (slug) => {
+          const t = localStorage.getItem(`site_session_${slug}`);
+          const r = await fetch(`/api/db/${slug}/rows/my_notes`, { headers: t ? { Authorization: `Bearer ${t}` } : {} });
+          return { status: r.status, hadToken: !!t };
+        }, slug);
+        ok("the stored session actually opens a member-scoped read", scoped.status === 200, JSON.stringify(scoped));
+
+        // ...and that the app's own bundle reads that same key. If this
+        // convention ever drifts, every generated site stores a session nothing
+        // looks at and signs nobody in, silently.
+        const reads = await page.evaluate(async () => {
+          const srcs = [...document.querySelectorAll("script[src]")].map((x) => x.getAttribute("src"));
+          for (const src of srcs) {
+            try { if ((await (await fetch(src)).text()).includes("site_session_")) return true; } catch { /* next */ }
+          }
+          return false;
+        });
+        ok("the published bundle reads the session key the platform writes", reads,
+          "no bundle references `site_session_` — a stored session would be ignored");
+
+        // Whatever routes the generator actually wrote — an account page, a
+        // members area, a timetable. Named from the build response rather than
+        // guessed, so this follows the site instead of assuming its shape.
+        let n = 4;
+        for (const f of (files || []).slice(0, 4)) {
+          const route = String(f).replace(/^src\/routes\//, "").replace(/\.tsx$/, "");
+          if (route === "index" || route === "__root") continue;
+          try {
+            const r2 = await page.goto(new URL(route, url + "/").toString(), { waitUntil: "networkidle", timeout: 45000 });
+            if (!r2 || r2.status() >= 400) continue;
+            await page.screenshot({ path: path.join(SHOTS, `${String(n).padStart(2, "0")}-${route}.png`), fullPage: true });
+            n++;
+          } catch { /* a route that does not resolve is the generator's business, not this test's */ }
+        }
+      }
+    }
     console.log("   screenshots ->", SHOTS);
   } catch (e) {
     ok("the browser pass completed", false, (e && e.message) || String(e));
