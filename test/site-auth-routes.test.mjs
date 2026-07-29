@@ -244,3 +244,326 @@ test("an unknown action is a 404, not a crash", async () => {
     assert.equal((await call(deps, action, { body: {} })).status, 404, String(action));
   }
 });
+
+// ------------------------------------------- the signup gate (site-invite.mjs)
+//
+// The policy itself is driven in test/site-invite.test.mjs. What is tested here
+// is the WIRING, which is where the two mistakes worth making live: refusing
+// after the password has already been hashed (free CPU for an attacker), and
+// spending somebody's invite on a signup that never produced an account.
+
+test("a refused signup never creates the account", async () => {
+  const { deps, users } = await harness({
+    deps: { signupGate: async () => ({ error: "This site isn't accepting new accounts.", status: 403, reason: "closed" }) },
+  });
+  const r = await call(deps, "signup", { body: { email: "new@example.com", password: "a-long-password" } });
+  assert.equal(r.status, 403);
+  assert.equal(r.body.code, "closed");
+  assert.equal(users.has("cafe|new@example.com"), false);
+});
+
+test("the gate runs AFTER the throttle", async () => {
+  // Otherwise guessing invite codes is unthrottled, and the code is the only
+  // thing standing between a stranger and an account.
+  let gated = false;
+  const { deps, calls } = await harness({
+    throttled: true,
+    deps: { signupGate: async () => { gated = true; return { ok: true }; } },
+  });
+  const r = await call(deps, "signup", { body: { email: "new@example.com", password: "a-long-password" } });
+  assert.equal(r.status, 429);
+  assert.equal(gated, false, "a throttled signup must not get a free code attempt");
+  assert.ok(calls.throttled.length);
+});
+
+test("the gate runs BEFORE the password is hashed", async () => {
+  // PBKDF2 is paid by the Worker. A refusal that happens after it has run is a
+  // way to burn CPU on a public endpoint for free.
+  let hashed = false;
+  const { deps } = await harness({
+    deps: {
+      signupGate: async () => ({ error: "no", status: 403, reason: "invite" }),
+      createUser: async () => { hashed = true; return { id: "nope" }; },
+    },
+  });
+  await call(deps, "signup", { body: { email: "new@example.com", password: "a-long-password" } });
+  assert.equal(hashed, false);
+});
+
+test("a duplicate email gives the invite back", async () => {
+  // Without this, anybody holding a code can spend every use on it by signing up
+  // over and over with an address that already exists.
+  const refunded = [];
+  const { deps } = await harness({
+    deps: {
+      signupGate: async () => ({ ok: true, burned: "ABCDEFGHJKLM" }),
+      refundInvite: async (c) => { refunded.push(c); },
+    },
+  });
+  const r = await call(deps, "signup", { body: { email: "member@example.com", password: "a-long-password" } });
+  assert.equal(r.status, 409);
+  assert.deepEqual(refunded, ["ABCDEFGHJKLM"]);
+});
+
+test("a failed create gives the invite back too", async () => {
+  const refunded = [];
+  const { deps } = await harness({
+    deps: {
+      signupGate: async () => ({ ok: true, burned: "ABCDEFGHJKLM" }),
+      createUser: async () => ({}),
+      refundInvite: async (c) => { refunded.push(c); },
+    },
+  });
+  const r = await call(deps, "signup", { body: { email: "new@example.com", password: "a-long-password" } });
+  assert.equal(r.status, 500);
+  assert.deepEqual(refunded, ["ABCDEFGHJKLM"]);
+});
+
+test("a SUCCESSFUL signup does not give the invite back", async () => {
+  const refunded = [];
+  const { deps } = await harness({
+    deps: {
+      signupGate: async () => ({ ok: true, burned: "ABCDEFGHJKLM" }),
+      refundInvite: async (c) => { refunded.push(c); },
+    },
+  });
+  const r = await call(deps, "signup", { body: { email: "new@example.com", password: "a-long-password" } });
+  assert.equal(r.status, 200);
+  assert.deepEqual(refunded, [], "a spent invite must stay spent");
+});
+
+test("a site with no gate wired behaves exactly as before", async () => {
+  // Every published site is in this state until its owner changes the setting.
+  const { deps, users } = await harness();
+  const r = await call(deps, "signup", { body: { email: "new@example.com", password: "a-long-password" } });
+  assert.equal(r.status, 200);
+  assert.ok(users.has("cafe|new@example.com"));
+});
+
+// ------------------------------------------- changing a password, and epochs
+//
+// No route offered this, so the only way a member could change their password
+// was the reset flow — which needs an email nobody can currently send. The
+// second half matters more: session tokens are stateless and valid for thirty
+// days, so before the epoch a stolen one survived both a password change AND a
+// reset. Somebody resetting a password is usually saying they lost control of
+// the account.
+
+async function epochHarness(over = {}) {
+  const h = await harness(over);
+  let epoch = over.epoch || 0;
+  h.deps.findUserById = async (_s, id) => {
+    const row = h.byId.get(String(id));
+    return row ? { ...row, token_epoch: epoch } : null;
+  };
+  h.deps.findUser = async (slug, email) => {
+    const row = h.users.get(`${slug}|${email}`);
+    return row ? { ...row, token_epoch: epoch } : null;
+  };
+  h.deps.setPassword = async (id, hash) => {
+    h.byId.get(String(id)).password_hash = hash;
+    return ++epoch;
+  };
+  h.getEpoch = () => epoch;
+  return h;
+}
+
+const signIn = async (deps) => {
+  const r = await call(deps, "login", { body: { email: "member@example.com", password: PW } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  return r.body.token;
+};
+
+test("a signed-in member can change their own password", async () => {
+  const h = await epochHarness();
+  const token = await signIn(h.deps);
+  const r = await call(h.deps, "password", { token, body: { current: PW, next: "a-brand-new-password" } });
+  assert.equal(r.status, 200);
+  assert.ok(r.body.token, "a fresh token, or they are signed out by their own change");
+});
+
+test("changing a password requires the CURRENT one", async () => {
+  // Without this a stolen session token is a permanent takeover: the thief sets
+  // a new password and the real owner is locked out of their own account.
+  const h = await epochHarness();
+  const token = await signIn(h.deps);
+  const r = await call(h.deps, "password", { token, body: { current: "not-it", next: "a-brand-new-password" } });
+  assert.equal(r.status, 401);
+  assert.equal(r.body.code, "current");
+  assert.equal(h.getEpoch(), 0, "a refused change must not bump the epoch");
+});
+
+test("a password change signs out every OTHER session", async () => {
+  const h = await epochHarness();
+  const stolen = await signIn(h.deps);
+  const mine = await signIn(h.deps);
+  const r = await call(h.deps, "password", { token: mine, body: { current: PW, next: "a-brand-new-password" } });
+  assert.equal(r.status, 200);
+  // The thief's token was minted under the old epoch.
+  assert.equal((await call(h.deps, "me", { token: stolen })).status, 401);
+  // ...and the token handed back by the change still works.
+  assert.equal((await call(h.deps, "me", { token: r.body.token })).status, 200);
+});
+
+test("a reset signs out every session too", async () => {
+  const h = await epochHarness();
+  const stolen = await signIn(h.deps);
+  const key = await sessionKey(SECRET, "cafe");
+  const link = await signReset(key, "u1", { nowMs: NOW });
+  const r = await call(h.deps, "reset", { body: { token: link, password: "a-brand-new-password" } });
+  assert.equal(r.status, 200);
+  assert.equal((await call(h.deps, "me", { token: stolen })).status, 401);
+});
+
+test("a token from before epochs existed still works on an untouched account", async () => {
+  // Every member currently holding a session is in exactly this state.
+  const h = await epochHarness();
+  const key = await sessionKey(SECRET, "cafe");
+  const old = await signToken(key, { sub: "u1", email: "member@example.com" }, { nowMs: NOW });
+  assert.equal((await call(h.deps, "me", { token: old })).status, 200);
+});
+
+test("changing a password is refused without a session", async () => {
+  const h = await epochHarness();
+  const r = await call(h.deps, "password", { body: { current: PW, next: "a-brand-new-password" } });
+  assert.equal(r.status, 401);
+});
+
+test("a weak new password is refused before anything changes", async () => {
+  const h = await epochHarness();
+  const token = await signIn(h.deps);
+  const r = await call(h.deps, "password", { token, body: { current: PW, next: "short" } });
+  assert.equal(r.status, 400);
+  assert.equal(h.getEpoch(), 0);
+});
+
+test("the password change is throttled per account", async () => {
+  const h = await epochHarness({ throttled: true });
+  const key = await sessionKey(SECRET, "cafe");
+  const token = await signToken(key, { sub: "u1", email: "member@example.com", ep: 0 }, { nowMs: NOW });
+  const r = await call(h.deps, "password", { token, body: { current: PW, next: "a-brand-new-password" } });
+  assert.equal(r.status, 429);
+});
+
+// ------------------------------------------- suspension and self-service
+//
+// `blocked` was stamped onto every site's _users by ensureAuthExtras and read by
+// nothing, so an owner's only option for a member behaving badly was DELETE —
+// irreversible, and it leaves their rows behind pointing at nobody.
+
+async function selfHarness(over = {}) {
+  const h = await epochHarness(over);
+  const state = { blocked: over.blocked ? 1 : 0, deleted: false, emails: [] };
+  const base = h.deps.findUserById;
+  h.deps.findUserById = async (s, id) => {
+    if (state.deleted) return null;
+    const u = await base(s, id);
+    return u ? { ...u, blocked: state.blocked } : null;
+  };
+  const baseFind = h.deps.findUser;
+  h.deps.findUser = async (s, e) => {
+    const u = await baseFind(s, e);
+    return u ? { ...u, blocked: state.blocked } : null;
+  };
+  h.deps.bumpEpoch = async (id) => h.deps.setPassword(id, "unchanged");
+  h.deps.setEmail = async (id, email) => { if (over.emailTaken) return { conflict: true }; state.emails.push(email); return { ok: true }; };
+  h.deps.deleteUser = async () => { state.deleted = true; };
+  h.state = state;
+  return h;
+}
+
+test("a suspended member cannot log in, and is told nothing extra", async () => {
+  const h = await selfHarness({ blocked: true });
+  const r = await call(h.deps, "login", { body: { email: "member@example.com", password: PW } });
+  assert.equal(r.status, 401);
+  // Byte-identical to a wrong password: "your account is suspended" would tell a
+  // stranger guessing addresses that this one is a member here.
+  const wrong = await call((await selfHarness()).deps, "login", { body: { email: "member@example.com", password: "nope" } });
+  assert.deepEqual(r.body, wrong.body);
+});
+
+test("suspension kills the token they are already holding", async () => {
+  // Otherwise a suspended member keeps full access for up to thirty days.
+  const h = await selfHarness();
+  const token = await signIn(h.deps);
+  assert.equal((await call(h.deps, "me", { token })).status, 200);
+  h.state.blocked = 1;
+  assert.equal((await call(h.deps, "me", { token })).status, 401);
+});
+
+test("logout-all signs out other devices and keeps this one", async () => {
+  const h = await selfHarness();
+  const other = await signIn(h.deps);
+  const mine = await signIn(h.deps);
+  const r = await call(h.deps, "logout-all", { token: mine });
+  assert.equal(r.status, 200);
+  assert.equal((await call(h.deps, "me", { token: other })).status, 401);
+  assert.equal((await call(h.deps, "me", { token: r.body.token })).status, 200);
+});
+
+test("logout-all needs a session", async () => {
+  const h = await selfHarness();
+  assert.equal((await call(h.deps, "logout-all", {})).status, 401);
+});
+
+test("changing an email needs the current password", async () => {
+  // The address IS the account — whoever holds it can reset their way back in.
+  const h = await selfHarness();
+  const token = await signIn(h.deps);
+  const r = await call(h.deps, "email", { token, body: { current: "wrong", next: "new@example.com" } });
+  assert.equal(r.status, 401);
+  assert.equal(r.body.code, "current");
+  assert.deepEqual(h.state.emails, []);
+});
+
+test("changing an email works and hands back a fresh token", async () => {
+  const h = await selfHarness();
+  const token = await signIn(h.deps);
+  const r = await call(h.deps, "email", { token, body: { current: PW, next: "New@Example.com " } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.user.email, "new@example.com", "normalized on the way in");
+  assert.ok(r.body.token);
+});
+
+test("an email already in use is a 409", async () => {
+  const h = await selfHarness({ emailTaken: true });
+  const token = await signIn(h.deps);
+  const r = await call(h.deps, "email", { token, body: { current: PW, next: "taken@example.com" } });
+  assert.equal(r.status, 409);
+  assert.equal(r.body.code, "exists");
+});
+
+test("an invalid email is refused before the password is checked", async () => {
+  const h = await selfHarness();
+  const token = await signIn(h.deps);
+  const r = await call(h.deps, "email", { token, body: { current: PW, next: "not-an-email" } });
+  assert.equal(r.status, 400);
+});
+
+test("a member can close their own account, with their password", async () => {
+  const h = await selfHarness();
+  const token = await signIn(h.deps);
+  const r = await call(h.deps, "close", { token, body: { current: PW } });
+  assert.equal(r.status, 200);
+  assert.equal(h.state.deleted, true);
+  // And the token stops working at once — `me` reads through to storage.
+  assert.equal((await call(h.deps, "me", { token })).status, 401);
+});
+
+test("closing an account needs the current password", async () => {
+  const h = await selfHarness();
+  const token = await signIn(h.deps);
+  const r = await call(h.deps, "close", { token, body: { current: "nope" } });
+  assert.equal(r.status, 401);
+  assert.equal(h.state.deleted, false);
+});
+
+test("a suspended member cannot use the self-service routes either", async () => {
+  const h = await selfHarness();
+  const token = await signIn(h.deps);
+  h.state.blocked = 1;
+  for (const action of ["logout-all", "email", "close", "password"]) {
+    const r = await call(h.deps, action, { token, body: { current: PW, next: "a-long-new-password" } });
+    assert.equal(r.status, 401, action);
+  }
+});

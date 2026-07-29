@@ -164,9 +164,67 @@ export async function verifyReset(key, token, opts = {}) {
   const body = await verifyToken(key, token, opts);
   return body && body.use === "reset" ? body : null;
 }
-// The mirror: a login token must not be usable as a password-reset, and a reset
-// token must not be usable as a login.
+
+// ------------------------------------------------------------- claims
+
+/**
+ * The third kind of token, and the one that belongs to nobody.
+ *
+ * A `collect` row — a booking, an enquiry — is written by a stranger with no
+ * account who will never have one. That is the whole design of `collect`, and
+ * the cost of it is that the person who made the booking could never see it
+ * again, change it, or cancel it: the row has no `owner_id`, so there is no
+ * principal for authorization to attach to. Only the site owner could, from
+ * inside isibi. The row was never missing and the page was never missing — the
+ * SUBJECT was.
+ *
+ * A claim token IS the subject. It carries the right to act on exactly one row,
+ * of exactly one table, of exactly one site, and on nothing else — the shape
+ * everybody already knows as a magic link. Three bindings, and each one is load
+ * bearing:
+ *
+ *   - the SITE comes free, because `sessionKey` already mixes the slug in;
+ *   - the TABLE is in the payload, or a claim on `bookings` 4 would open
+ *     `enquiries` 4 — different table, same integer, same site;
+ *   - the ROW is in the payload, or a claim on row 1 would open row 2, and ids
+ *     here are sequential integers.
+ *
+ * Long-lived deliberately: an appointment can be months out and this link lives
+ * in a confirmation email, not in a session. Bounded all the same — a token that
+ * never expires is a credential nobody can ever take back.
+ */
+export const CLAIM_TTL_SEC = 60 * 60 * 24 * 90; // 90 days
+
+export const signClaim = (key, table, id, opts = {}) =>
+  signToken(
+    key,
+    { sub: String(id), use: "claim", tbl: String(table == null ? "" : table).toLowerCase() },
+    { ...opts, ttlSec: opts.ttlSec || CLAIM_TTL_SEC },
+  );
+
+/** The payload, or null. Table and row are checked, not just the signature. */
+export async function verifyClaim(key, token, table, id, opts = {}) {
+  const body = await verifyToken(key, token, opts);
+  if (!body || body.use !== "claim") return null;
+  if (body.tbl !== String(table == null ? "" : table).toLowerCase()) return null;
+  // String-compared because the id arrives off a URL and the payload holds
+  // whatever it was minted with. `4` and `"4"` are the same row; `"4x"` is not.
+  if (String(body.sub) !== String(id == null ? "" : id)) return null;
+  return body;
+}
+
+// The mirror: each kind of token is good for exactly one thing.
+//
+// This is an ALLOW-list, and it has to be. It read `use !== "reset"` — a
+// deny-list, which was correct for exactly as long as `reset` was the only other
+// kind, and became wrong the moment a third one existed. A claim token is handed
+// to anyone who submits a booking form; under the old rule that token would have
+// authenticated as a MEMBER, because it simply wasn't a reset.
+//
+// `undefined` stays valid because that is what a session minted before any of
+// this looks like, and signing every live member out is not an acceptable price
+// for tightening a check.
 export async function verifySession(key, token, opts = {}) {
   const body = await verifyToken(key, token, opts);
-  return body && body.use !== "reset" ? body : null;
+  return body && (body.use === undefined || body.use === "session") ? body : null;
 }

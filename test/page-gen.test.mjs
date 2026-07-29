@@ -13,7 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   REFERENCE_PAGE, UI_COMPONENTS, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MANAGED_COLUMNS,
-  schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages,
+  schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, ACCESS_NOTE,
 } from "../builder/page-gen.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -445,4 +445,73 @@ test("the rules tell the model how a booking page shows a taken slot", () => {
   assert.match(PAGE_RULES, /never a name or an email/);
   const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
   assert.match(rows, /export function usePublicRows/, "a rule naming an export the template lacks produces code that does not compile");
+});
+
+test("the rules tell the model to hand back the claim, and the hooks exist", () => {
+  // The token is issued exactly once, in the response to the insert. A page that
+  // drops it strands that booking forever — nobody but the site owner can ever
+  // reach it again — so the model has to be told, and told what to do with it.
+  assert.match(PAGE_RULES, /claim/);
+  assert.match(PAGE_RULES, /useClaimedRow/);
+  assert.match(PAGE_RULES, /useCancelClaim/);
+  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
+  for (const fn of ["useClaimedRow", "useCancelClaim"]) {
+    assert.match(rows, new RegExp("export function " + fn), fn + " is named by the rules but missing from the template");
+  }
+  // And the type has to admit the field exists, or reading it fails `tsc`.
+  assert.match(rows, /claim\?: string/, "useCreateRow must type the claim it returns");
+});
+
+test("the rules describe member tables as they actually behave", () => {
+  // They said a `user` table returns 403 and told the model to LEAVE member
+  // tables out — text written before visitor accounts existed, sitting under a
+  // heading that says "this is not a matter of taste". It would have stopped
+  // the generator ever building a sign-in page.
+  assert.ok(!/leave it out rather than build against it/.test(PAGE_RULES),
+    "the rules must not tell the model to skip member tables");
+  assert.match(PAGE_RULES, /PRIVATE PER MEMBER/);
+  assert.match(PAGE_RULES, /signed out, both return 401/i, "signed out is 401, not 403");
+});
+
+test("the rules and ACCESS_NOTE agree about every access level", () => {
+  // Two descriptions of the same rule in one prompt is how they drifted apart
+  // the first time.
+  for (const level of ["user", "feed", "admin"]) {
+    assert.ok(ACCESS_NOTE[level], level);
+  }
+  for (const phrase of ["PRIVATE PER MEMBER", "SHARED, MEMBER-AUTHORED", "SHARED, ROLE-WRITABLE"]) {
+    assert.ok(PAGE_RULES.includes(phrase), "rule 2 must match ACCESS_NOTE: " + phrase);
+    assert.ok(Object.values(ACCESS_NOTE).some((v) => v.includes(phrase)), phrase);
+  }
+});
+
+test("the rules tell the model how to render sign-in, and every hook exists", () => {
+  // Which methods a site offers is per-site, so a hard-coded Google button is a
+  // button that 404s on most sites.
+  assert.match(PAGE_RULES, /useSignInMethods/);
+  assert.match(PAGE_RULES, /never hard-code buttons/i);
+  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
+  for (const fn of [
+    "useSignInMethods", "startOAuthSignIn", "usePasskeySignIn", "useRequestSignInCode",
+    "useVerifySignInCode", "useVerifySecondFactor", "useAddPasskey", "useConnectedAccounts",
+    "useStartTotp", "useEnableTotp", "useDisableTotp",
+  ]) {
+    assert.ok(PAGE_RULES.includes(fn), "the rules must name " + fn);
+    assert.match(rows, new RegExp("export (async )?function " + fn), fn + " named by the rules but missing from the template");
+  }
+});
+
+test("the rules warn that a sign-in may not finish in one step", () => {
+  // Treating a pending 2FA response as a session leaves the person on a page
+  // that thinks they are signed in and cannot read anything.
+  assert.match(PAGE_RULES, /pending/);
+  assert.match(PAGE_RULES, /useVerifySecondFactor/);
+});
+
+test("the rules no longer claim uploads are impossible", () => {
+  // Rule 8 tells the model a form MAY accept an image; this section used to say
+  // there was no route for one. A prompt that contradicts itself gets obeyed
+  // unpredictably.
+  assert.ok(!/No file or image upload/.test(PAGE_RULES));
+  assert.match(PAGE_RULES, /uploadFile|useUploadFile/);
 });

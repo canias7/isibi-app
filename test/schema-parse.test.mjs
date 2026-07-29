@@ -16,6 +16,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { normalizeSchema, sqlIdent } from "../site-schema.mjs";
+import fs from "node:fs";
 
 const one = (def) => normalizeSchema({ tables: [{ name: "t", ...def }] }).tables[0];
 
@@ -244,4 +245,23 @@ test("a nonsense constraint is dropped rather than half-applied", () => {
   ] });
   assert.equal(spec.tables[0].noOverlap, null, "start and end may not be the same column");
   assert.equal(spec.tables[0].maxRows, 0, "a negative cap is no cap, not a locked table");
+});
+
+test("teamRead survives parsing, and the designer can now ask for it", () => {
+  // Enforced in site-data.mjs since 2026-07-28: a `user` table with teamRead
+  // shows a manager their reports' rows as well as their own. It had been
+  // parsed and stored in _meta since the engine was written with nothing
+  // reading it — and even now that it is enforced it would be unreachable if
+  // the designer's tool could not emit it, which is how `unique` spent months
+  // fully implemented and never once declared.
+  const spec = normalizeSchema({ tables: [
+    { name: "deals", access: "user", teamRead: true, columns: [{ name: "value" }] },
+  ] });
+  assert.equal(spec.tables[0].teamRead, true);
+
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const i = src.indexOf('name: "design_schema"');
+  assert.ok(i > 0, "the designer tool must exist");
+  const tool = src.slice(i, i + 12000);
+  assert.match(tool, /teamRead: \{/, "the designer must be able to declare teamRead or no site can ever have it");
 });

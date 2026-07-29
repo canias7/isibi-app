@@ -658,3 +658,138 @@ test("a caller cannot bury the declared filter under a thousand of their own", a
   assert.ok(filters <= 6, `${filters} filters reached SQL`);
   assert.match(seen[0].sql, /"status"=\?/, "and the declared one is still there");
 });
+
+// ═══════════════════════════════════════════ how much a stranger may send
+//
+// Until 2026-07-28 the answer was "anything". Measured live: a 3,000,000
+// character field went through POST /api/db/<slug>/rows/<table> and landed in
+// the owner's Neon database — which they pay for. At 60 writes a minute that is
+// ~180 MB a minute of junk into somebody's bill.
+
+const bodyCall = async (method, path, raw, headers = {}) => {
+  const url = new URL("https://isibi.ai" + path);
+  const db = fakeDb(SPEC);
+  const deps = {
+    sqlQuery: async (_c, sql, p) => (await db.query(sql, p)).rows,
+    sqlExec: async (_c, sql, p) => { const r = await db.query(sql, p); return { results: r.rows, changes: r.rowCount }; },
+    loadSiteSchema: async () => SPEC,
+  };
+  const req = new Request(url, { method, headers: { "content-type": "application/json", ...headers }, body: raw });
+  const res = await handleSiteData({}, req, url, async () => db, deps);
+  return { res, wrote: db.__seen.filter((q) => /^INSERT|^UPDATE/i.test(q.sql.trim())) };
+};
+
+test("the body that reached production is now refused, and nothing is written", async () => {
+  const { res, wrote } = await bodyCall("POST", "/api/db/shop/rows/bookings",
+    JSON.stringify({ date: "2030-01-01", title: "x".repeat(3_000_000) }));
+  assert.equal(res.status, 413);
+  assert.equal((await res.json()).code, "too_big");
+  assert.deepEqual(wrote, [], "not one row");
+});
+
+test("an ordinary submission still goes through", async () => {
+  const { res, wrote } = await bodyCall("POST", "/api/db/shop/rows/bookings",
+    JSON.stringify({ date: "2030-01-01", title: "Skin fade" }));
+  assert.equal(res.status, 201);
+  assert.equal(wrote.length, 1);
+});
+
+test("a long single field is clamped rather than losing the booking", async () => {
+  // A visitor who pasted too much should get their appointment, not an error
+  // about a field they cannot see.
+  const { res, wrote } = await bodyCall("POST", "/api/db/shop/rows/bookings",
+    JSON.stringify({ date: "2030-01-01", title: "y".repeat(50_000) }));
+  assert.equal(res.status, 201);
+  const stored = wrote[0].params.find((v) => typeof v === "string" && v.startsWith("yyy"));
+  assert.ok(stored.length < 50_000, `stored ${stored.length} chars`);
+});
+
+test("the PATCH path is guarded too, not just POST", async () => {
+  // A member editing their own row can send just as much as one creating it.
+  const url = new URL("https://isibi.ai/api/db/shop/rows/mine/3");
+  const db = fakeDb(SPEC);
+  const req = new Request(url, {
+    method: "PATCH", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ date: "z".repeat(3_000_000) }),
+  });
+  const res = await handleSiteData({}, req, url, async () => db, memberDeps(db, SPEC, { id: 7, role: "user" }));
+  assert.equal(res.status, 413);
+  assert.ok(!db.__seen.some((q) => /^UPDATE/i.test(q.sql.trim())), "nothing was updated");
+});
+
+test("malformed JSON is a 400 with a reason, not a silent empty write", async () => {
+  const { res, wrote } = await bodyCall("POST", "/api/db/shop/rows/bookings", "{not json");
+  assert.equal(res.status, 400);
+  assert.equal((await res.json()).code, "bad_json");
+  assert.deepEqual(wrote, []);
+});
+
+// ------------------------------------------------------------- teamRead
+//
+// `user` is private-to-me and `feed` is everyone-sees-everything, with nothing
+// in between — and "my team's records" is the read model an internal tool
+// actually needs. `teamRead` has been parsed, validated and stored in `_meta`
+// since the schema engine was written, with nothing ever reading it.
+
+const TEAM_SPEC = {
+  tables: [
+    { name: "deals", access: "user", teamRead: true, columns: [{ name: "value" }] },
+    { name: "private", access: "user", columns: [{ name: "value" }] },
+    { name: "posts", access: "feed", teamRead: true, columns: [{ name: "body" }] },
+  ],
+};
+
+const teamCall = async (method, path, { visitor = { id: 7, role: "user" }, body } = {}) => {
+  const url = new URL("https://isibi.ai" + path);
+  const req = new Request(url, {
+    method,
+    headers: body ? { "content-type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const conn = fakeDb(TEAM_SPEC);
+  const deps = {
+    sqlQuery: async (_c, sql, p) => (await conn.query(sql, p)).rows,
+    sqlExec: async (_c, sql, p) => { const r = await conn.query(sql, p); return { results: r.rows, changes: r.rowCount }; },
+    loadSiteSchema: async () => TEAM_SPEC,
+    resolveVisitor: async () => visitor,
+  };
+  return { res: await handleSiteData({}, req, url, async () => conn, deps), seen: conn.__seen };
+};
+
+test("a teamRead table shows a manager their reports' rows as well as their own", async () => {
+  const { res, seen } = await teamCall("GET", "/api/db/shop/rows/deals");
+  assert.equal(res.status, 200);
+  const q = seen.find((s) => /FROM "deals"/.test(s.sql));
+  assert.match(q.sql, /"owner_id"=\? OR "owner_id" IN \(SELECT id FROM _users WHERE manager_id=\?\)/);
+  // Both parameters are the CALLER — never anything off the query string.
+  assert.deepEqual(q.params.slice(0, 2), [7, 7]);
+});
+
+test("a plain user table is still private, teamRead or not", async () => {
+  const { seen } = await teamCall("GET", "/api/db/shop/rows/private");
+  const q = seen.find((s) => /FROM "private"/.test(s.sql));
+  assert.match(q.sql, /"owner_id"=\?/);
+  assert.ok(!/manager_id/.test(q.sql), "a table that did not declare teamRead must not widen");
+});
+
+test("teamRead on a feed table changes nothing — feed is already shared", async () => {
+  const { seen } = await teamCall("GET", "/api/db/shop/rows/posts");
+  const q = seen.find((s) => /FROM "posts"/.test(s.sql));
+  assert.ok(!/manager_id/.test(q.sql));
+  assert.ok(!/owner_id/.test(q.sql), "feed is readable by any signed-in member");
+});
+
+test("teamRead widens READS only — a write still stamps the caller", async () => {
+  // A manager sees their team's rows. They do not get to write as their team.
+  const { seen } = await teamCall("POST", "/api/db/shop/rows/deals", { body: { value: "10" } });
+  const ins = seen.find((s) => /INSERT INTO "deals"/.test(s.sql));
+  assert.match(ins.sql, /owner_id/);
+  assert.ok(ins.params.includes(7));
+});
+
+test("teamRead does not let a query string reach the subquery", async () => {
+  const { seen } = await teamCall("GET", "/api/db/shop/rows/deals?owner_id=999&manager_id=999");
+  const q = seen.find((s) => /FROM "deals"/.test(s.sql));
+  assert.deepEqual(q.params.slice(0, 2), [7, 7]);
+  assert.ok(!q.params.includes("999"), "no caller value may reach the ownership clause");
+});

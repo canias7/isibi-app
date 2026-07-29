@@ -536,3 +536,158 @@ test("a failed read is 503, not a page of confident zeros", async () => {
   assert.notEqual(r.body.views, 0);
   assert.equal(r.body.views, undefined);
 });
+
+// ------------------------------------------------- promoting a member
+//
+// Until 2026-07-28 nothing in the codebase could write `_users.role`. The column
+// existed, `admin` tables compared against it and per-table `writeRoles` named
+// values for it — so every member on every site was `user` forever, which made
+// an `admin` table writable by nobody and `writeRoles` a rule about a value that
+// could not exist. This is the only route that grants one.
+
+const ROLE_SPEC = {
+  tables: [
+    { name: "bookings", access: "collect", columns: [{ name: "customer_name" }] },
+    { name: "notices", access: "admin", writeRoles: ["editor"], columns: [{ name: "body" }] },
+  ],
+};
+
+function members(over = {}) {
+  const exec = [];
+  const deps = {
+    ownerOf: async () => "owner-1",
+    dbFor: async () => "postgres://conn",
+    loadSchema: async () => ROLE_SPEC,
+    query: async (_db, sql, args) => {
+      if (/FROM _users WHERE id=\?/.test(sql) && over.noSuchMember) return [];
+      if (/SELECT id FROM _users/.test(sql)) return over.managerMissing ? [] : [{ id: args[0] }];
+      return [{ id: 5, email: "m@x.co", role: "editor", manager_id: 9 }];
+    },
+    exec: async (_db, sql, args) => { exec.push({ sql, args }); return { changes: over.changes === undefined ? 1 : over.changes }; },
+    ident: (n) => '"' + n + '"',
+    ...over.deps,
+  };
+  return { deps, exec };
+}
+
+const patch = (deps, body, memberId = "5") =>
+  handleOwnerMembers(deps, { slug: "cafe", uid: "owner-1", method: "PATCH", memberId, body });
+
+test("the owner can grant a role the schema actually names", async () => {
+  const { deps, exec } = members();
+  const r = await patch(deps, { role: "editor" });
+  assert.equal(r.status, 200);
+  assert.match(exec[0].sql, /UPDATE _users SET "role"=\?/);
+  assert.equal(exec[0].args[0], "editor");
+});
+
+test("user and admin are always grantable", async () => {
+  for (const role of ["user", "admin"]) {
+    const { deps } = members();
+    assert.equal((await patch(deps, { role })).status, 200, role);
+  }
+});
+
+test("a role no table names is refused", async () => {
+  // Granting it would read as "I gave them access" and check against nothing.
+  const { deps, exec } = members();
+  const r = await patch(deps, { role: "wizard" });
+  assert.equal(r.status, 400);
+  assert.equal(r.body.code, "role");
+  assert.match(r.body.error, /editor/);
+  assert.equal(exec.length, 0);
+});
+
+test("a role that is not a role at all is refused", async () => {
+  for (const role of ["", "  ", "a b", "x".repeat(40), "DROP TABLE", null, 7]) {
+    const { deps, exec } = members();
+    const r = await patch(deps, { role });
+    assert.equal(r.status, 400, JSON.stringify(role));
+    assert.equal(exec.length, 0);
+  }
+});
+
+test("the owner can say who a member reports to", async () => {
+  const { deps, exec } = members();
+  const r = await patch(deps, { manager_id: 9 });
+  assert.equal(r.status, 200);
+  assert.match(exec[0].sql, /"manager_id"=\?/);
+});
+
+test("a manager must be a real member of this site", async () => {
+  const { deps, exec } = members({ managerMissing: true });
+  const r = await patch(deps, { manager_id: 999 });
+  assert.equal(r.status, 404);
+  assert.equal(exec.length, 0);
+});
+
+test("a member cannot manage themselves", async () => {
+  // It reads as a hierarchy and is not one, and it makes teamRead return the
+  // member's own rows twice.
+  const { deps, exec } = members();
+  const r = await patch(deps, { manager_id: 5 }, "5");
+  assert.equal(r.status, 400);
+  assert.equal(r.body.code, "self");
+  assert.equal(exec.length, 0);
+});
+
+test("manager_id can be cleared", async () => {
+  const { deps, exec } = members();
+  const r = await patch(deps, { manager_id: null });
+  assert.equal(r.status, 200);
+  assert.match(exec[0].sql, /"manager_id"=NULL/);
+});
+
+test("a PATCH that changes nothing is a 400, not a silent no-op", async () => {
+  const { deps, exec } = members();
+  const r = await patch(deps, {});
+  assert.equal(r.status, 400);
+  assert.equal(exec.length, 0);
+});
+
+test("a bad member id never reaches the database", async () => {
+  const { deps, exec } = members();
+  for (const id of ["abc", "-1", "", "1.5"]) {
+    assert.equal((await patch(deps, { role: "user" }, id)).status, 400, id);
+  }
+  assert.equal(exec.length, 0);
+});
+
+test("patching a member that is not there is a 404", async () => {
+  const { deps } = members({ changes: 0 });
+  assert.equal((await patch(deps, { role: "user" })).status, 404);
+});
+
+test("the member list never ships a password hash", async () => {
+  // It names its columns; a SELECT * would ship pass_hash the day someone adds
+  // a column. manager_id joined that list and must not have widened it.
+  const { deps } = members();
+  const r = await handleOwnerMembers(deps, { slug: "cafe", uid: "owner-1", method: "GET" });
+  assert.equal(r.status, 200);
+  for (const m of r.body.members) {
+    assert.ok(!("pass_hash" in m), JSON.stringify(m));
+    assert.ok(!("password_hash" in m), JSON.stringify(m));
+  }
+});
+
+test("blocked must be a real boolean, not anything truthy", async () => {
+  // `blocked: "false"` is a non-empty string. Coercing it would suspend the
+  // member the owner was trying to reinstate — the failure is silent and the
+  // member simply stays locked out.
+  for (const v of ["false", "true", 1, 0, "yes", null]) {
+    const { deps, exec } = members();
+    const r = await patch(deps, { blocked: v });
+    assert.equal(r.status, 400, JSON.stringify(v));
+    assert.equal(exec.length, 0);
+  }
+});
+
+test("suspending and reinstating both write the column", async () => {
+  for (const [v, want] of [[true, 1], [false, 0]]) {
+    const { deps, exec } = members();
+    const r = await patch(deps, { blocked: v });
+    assert.equal(r.status, 200);
+    assert.match(exec[0].sql, /"blocked"=\?/);
+    assert.equal(exec[0].args[0], want);
+  }
+});

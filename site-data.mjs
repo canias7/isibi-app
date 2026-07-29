@@ -28,9 +28,11 @@ import { loadSiteSchema, sqlIdent } from "./site-schema.mjs";
 // The permission rules live in their own leaf module because the page generator
 // has to predict them to lint a page before it is published, and restating them
 // in both places is how they drifted.
-import { isManagedColumn, canReadAccess, canWriteAccess, needsMember } from "./site-access.mjs";
+import { isManagedColumn, canReadAccess, canWriteAccess, needsMember, teamReadable } from "./site-access.mjs";
 import { limitFor, bucketKey, tooMany } from "./rate-limit.mjs";
 import { constraintError } from "./site-errors.mjs";
+import { readJsonBody, clampFields, MAX_JSON_BODY } from "./request-limits.mjs";
+import { handleClaim, claimable, CLAIM_PARAM } from "./site-claim.mjs";
 
 const MAX_LIMIT = 100;
 const MAX_BODY_KEYS = 60;
@@ -143,6 +145,32 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
     }
   }
 
+  // Someone coming back to their own submission, holding the token that was
+  // handed to them when they made it.
+  //
+  // Placed here for the same reason the public projection is placed above the
+  // gate: escaping the gate — narrowly, for one row, for the person who wrote it
+  // — is the entire purpose. Everything protective still runs first. It is after
+  // the rate limit, so guessing tokens is throttled like any other traffic, and
+  // after the schema, so the table is one the site actually declared.
+  const claimToken = url.searchParams.get(CLAIM_PARAM);
+  if (claimToken && rowId !== undefined) {
+    // Without the wiring there is no way to check a signature, and an unchecked
+    // claim must never be honoured. Same 404 as a bad one.
+    if (!deps.claim) return json({ error: "no such row" }, 404);
+    const r = await handleClaim({
+      verify: (tok, table, id) => deps.claim.verify(slug, tok, table, id),
+      selectRow: async (table, id) => {
+        const rows = await sqlQuery(db, "SELECT * FROM " + sqlIdent(table) + " WHERE id=?", [id]);
+        return rows[0] || null;
+      },
+      cancelRow: (table, id) => (def.trash
+        ? sqlExec(db, "UPDATE " + sqlIdent(table) + ' SET "deleted_at"=to_char(now() AT TIME ZONE \'UTC\',\'YYYY-MM-DD HH24:MI:SS\') WHERE id=? AND "deleted_at" IS NULL', [id])
+        : sqlExec(db, "DELETE FROM " + sqlIdent(table) + " WHERE id=?", [id])),
+    }, { def, id: rowId, token: claimToken, method: request.method });
+    return json(r.body, r.status);
+  }
+
   // Per-level gate.
   //
   // `collect` is deliberately write-only: a booking form must submit, and must
@@ -212,8 +240,26 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
       // The `user` level means private-per-member. Appended to the caller's
       // filters rather than replacing them, so no query string can widen it.
       if (access === "user") {
-        sql += (f.sql ? " AND " : " WHERE ") + '"owner_id"=?';
-        vals.push(visitor.id);
+        if (teamReadable(def)) {
+          // ...unless the table declared `teamRead`, which is the middle the
+          // schema engine has always described and never enforced: `user` is
+          // private-to-me and `feed` is everyone-sees-everything, with nothing
+          // in between, and "my team's records" is the read model an internal
+          // tool actually needs.
+          //
+          // DIRECT reports only, deliberately. A recursive walk up an arbitrary
+          // hierarchy is a WITH RECURSIVE on every read of every row, and an
+          // accidental cycle in `manager_id` makes it non-terminating; one level
+          // is what an owner can reason about and is enough for the case this
+          // exists for. It is a READ widening only — a manager sees their team's
+          // rows and still writes only their own.
+          sql += (f.sql ? " AND " : " WHERE ") +
+            '("owner_id"=? OR "owner_id" IN (SELECT id FROM _users WHERE manager_id=?))';
+          vals.push(visitor.id, visitor.id);
+        } else {
+          sql += (f.sql ? " AND " : " WHERE ") + '"owner_id"=?';
+          vals.push(visitor.id);
+        }
       }
       // Full-text search, when the table declared it.
       const q = (url.searchParams.get("q") || "").trim();
@@ -241,7 +287,12 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
     }
 
     if (request.method === "POST") {
-      const body = await request.json().catch(() => ({}));
+      // How much a stranger may send. Until 2026-07-28 the answer was "anything"
+      // — a 3,000,000 character field went through here into the owner's Neon
+      // database, and they pay for the storage.
+      const read = await readJsonBody(request);
+      if (!read.ok) return json({ error: read.error, code: read.code }, read.status);
+      const body = clampFields(read.body).body;
       const { cols: wc, vals } = pickWritable(def, body);
       // owner_id is stamped from the VERIFIED session, never taken from the body
       // — pickWritable already drops it as a managed column, so a sender cannot
@@ -262,12 +313,25 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
         try { deps.onSubmit({ slug, table: def.name, access, method: request.method, row: rows[0] || {} }); }
         catch (e) { console.error("notify hook failed:", slug, (e && e.message) || e); }
       }
-      return json({ row: rows[0] || null }, 201);
+      // Hand back the claim, which is the only time it is ever issued. This is
+      // what makes the row reachable by the person who wrote it — the link in
+      // their confirmation, the "manage your booking" button on the thank-you
+      // page. Best-effort by construction: a booking that succeeded must not be
+      // reported as failed because a signature could not be produced.
+      const created = rows[0] || null;
+      let claim = null;
+      if (deps.claim && claimable(def) && created && created.id != null) {
+        try { claim = await deps.claim.sign(slug, def.name, created.id); }
+        catch (e) { console.error("claim mint failed:", slug, def.name, (e && e.message) || e); }
+      }
+      return json(claim ? { row: created, claim } : { row: created }, 201);
     }
 
     if (request.method === "PATCH") {
       if (!rowId) return json({ error: "no row id" }, 400);
-      const body = await request.json().catch(() => ({}));
+      const read = await readJsonBody(request);
+      if (!read.ok) return json({ error: read.error, code: read.code }, read.status);
+      const body = clampFields(read.body).body;
       const { cols: wc, vals } = pickWritable(def, body);
       if (!wc.length) return json({ error: "nothing to update" }, 400);
       const r = await sqlExec(

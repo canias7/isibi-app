@@ -113,7 +113,12 @@ export function useCreateRow<T extends Row = Row>(table: string) {
   const invalidate = useInvalidate(table);
   return useMutation({
     mutationFn: (values: Partial<T>) =>
-      send<{ row: T }>(base(table), { method: "POST", body: JSON.stringify(values) }),
+      // `claim` comes back only for a `collect` table: a signed token for THIS
+      // row, and the only time it is ever issued. Keep it (a link, an email, the
+      // thank-you page) and the person who submitted can come back to their own
+      // submission — see useClaimedRow. Optional because no other access level
+      // mints one.
+      send<{ row: T; claim?: string }>(base(table), { method: "POST", body: JSON.stringify(values) }),
     onSuccess: invalidate,
   });
 }
@@ -204,6 +209,236 @@ export function useLogout() {
 }
 
 /** Ask for a reset link. Always succeeds, whether or not the address has an account. */
+/**
+ * Change the password while signed in.
+ *
+ * The current one is required even though there is already a session: without
+ * it, a stolen token is a permanent takeover. Succeeding signs out every OTHER
+ * session and hands back a fresh token for this one, which is stored here so the
+ * member stays logged in through their own change.
+ */
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: async (vars: { current: string; next: string }) => {
+      const r = await send<{ ok: true; token: string }>(`/api/db/${siteSlug()}/auth/password`, {
+        method: "POST",
+        body: JSON.stringify(vars),
+      });
+      try { localStorage.setItem(`site_session_${siteSlug()}`, r.token); } catch { /* private mode */ }
+      return r;
+    },
+  });
+}
+
+// ---------------------------------------------------------------- sign-in methods
+
+function keepSession(token: string) {
+  try { localStorage.setItem(`site_session_${siteSlug()}`, token); } catch { /* private mode */ }
+}
+
+export type SignInMethod = { name: string; label: string; oauth: boolean };
+
+/**
+ * What this site actually offers. Render the sign-in page from this rather than
+ * hard-coding buttons — a provider the owner has not set up is not a button that
+ * fails, it simply is not there.
+ */
+export function useSignInMethods() {
+  return useQuery({
+    queryKey: ["auth-methods", siteSlug()],
+    queryFn: () => send<{ methods: SignInMethod[] }>(authUrl("methods")).then((r) => r.methods),
+  });
+}
+
+/** Send them to a provider. A full navigation, because the provider redirects back. */
+export function startOAuthSignIn(provider: string, next?: string) {
+  const q = next ? `?next=${encodeURIComponent(next)}` : "";
+  location.href = authUrl(`oauth/${provider}/start`) + q;
+}
+
+/** A response that may not be a session yet: a second factor can be pending. */
+export type SignInResult = { token?: string; pending?: string; need?: string; user?: Member };
+
+function settle(r: SignInResult) {
+  if (r.token) keepSession(r.token);
+  return r;
+}
+
+/** Sign in with a passkey. No password, nothing typed, phishing-proof. */
+export function usePasskeySignIn() {
+  return useMutation({
+    mutationFn: async (): Promise<SignInResult> => {
+      const start = await send<{ challenge: string; rpId: string }>(authUrl("passkey/login/start"), { method: "POST" });
+      const cred = (await navigator.credentials.get({
+        publicKey: { challenge: fromB64u(start.challenge), rpId: start.rpId, userVerification: "preferred" },
+      })) as PublicKeyCredential | null;
+      if (!cred) throw new Error("No passkey was chosen.");
+      const res = cred.response as AuthenticatorAssertionResponse;
+      return settle(await send<SignInResult>(authUrl("passkey/login/finish"), {
+        method: "POST",
+        body: JSON.stringify({
+          challenge: start.challenge,
+          credentialId: toB64u(cred.rawId),
+          response: {
+            clientDataJSON: toB64u(res.clientDataJSON),
+            authenticatorData: toB64u(res.authenticatorData),
+            signature: toB64u(res.signature),
+          },
+        }),
+      }));
+    },
+  });
+}
+
+/** Add a passkey to the account they are already signed into. */
+export function useAddPasskey() {
+  return useMutation({
+    mutationFn: async (vars?: { label?: string }) => {
+      const start = await send<{
+        challenge: string; rp: { id: string; name: string };
+        user: { id: string; name: string; displayName: string };
+        excludeCredentials: { id: string; type: string }[];
+        pubKeyCredParams: { type: string; alg: number }[];
+      }>(authUrl("passkey/register/start"), { method: "POST" });
+      const cred = (await navigator.credentials.create({
+        publicKey: {
+          challenge: fromB64u(start.challenge),
+          rp: start.rp,
+          user: { id: fromB64u(start.user.id), name: start.user.name, displayName: start.user.displayName },
+          pubKeyCredParams: start.pubKeyCredParams as PublicKeyCredentialParameters[],
+          excludeCredentials: start.excludeCredentials.map((c) => ({ id: fromB64u(c.id), type: "public-key" as const })),
+          authenticatorSelection: { residentKey: "preferred", userVerification: "preferred" },
+        },
+      })) as PublicKeyCredential | null;
+      if (!cred) throw new Error("No passkey was created.");
+      const res = cred.response as AuthenticatorAttestationResponse;
+      return send<{ ok: true }>(authUrl("passkey/register/finish"), {
+        method: "POST",
+        body: JSON.stringify({
+          label: vars?.label,
+          response: { clientDataJSON: toB64u(res.clientDataJSON), attestationObject: toB64u(res.attestationObject) },
+        }),
+      });
+    },
+  });
+}
+
+/** Ask for a sign-in code by email. Always succeeds, account or not. */
+export function useRequestSignInCode() {
+  return useMutation({
+    mutationFn: (vars: { email: string }) =>
+      send<{ ok: true }>(authUrl("code/request"), { method: "POST", body: JSON.stringify(vars) }),
+  });
+}
+
+export function useVerifySignInCode() {
+  return useMutation({
+    mutationFn: (vars: { email: string; code: string }) =>
+      send<SignInResult>(authUrl("code/verify"), { method: "POST", body: JSON.stringify(vars) }).then(settle),
+  });
+}
+
+/**
+ * Present the second factor.
+ *
+ * `pending` comes from whichever primary method returned it — a session is not
+ * issued until this succeeds. A recovery code works here too.
+ */
+export function useVerifySecondFactor() {
+  return useMutation({
+    mutationFn: async (vars: { pending: string; code: string }) => {
+      const r = await send<SignInResult>(authUrl("totp/verify"), {
+        method: "POST",
+        body: JSON.stringify({ code: vars.code }),
+        headers: { Authorization: `Bearer ${vars.pending}` },
+      });
+      return settle(r);
+    },
+  });
+}
+
+/** Turn on an authenticator app: scan, then confirm with a code. */
+export function useStartTotp() {
+  return useMutation({ mutationFn: () => send<{ secret: string; uri: string }>(authUrl("totp/start"), { method: "POST" }) });
+}
+export function useEnableTotp() {
+  return useMutation({
+    mutationFn: (vars: { code: string }) =>
+      send<{ ok: true; recovery: string[] }>(authUrl("totp/enable"), { method: "POST", body: JSON.stringify(vars) }),
+  });
+}
+export function useDisableTotp() {
+  return useMutation({
+    mutationFn: (vars: { current: string }) =>
+      send<{ ok: true }>(authUrl("totp/disable"), { method: "POST", body: JSON.stringify(vars) }),
+  });
+}
+
+/** What this member has connected — providers, passkeys, whether 2FA is on. */
+export function useConnectedAccounts() {
+  return useQuery({
+    queryKey: ["identities", siteSlug()],
+    queryFn: () => send<{
+      identities: { id: number; provider: string; email: string | null; created_at: string }[];
+      passkeys: { id: number; label: string | null; created_at: string; last_used_at: string | null }[];
+      hasPassword: boolean; totp: boolean;
+    }>(authUrl("identities")),
+  });
+}
+
+// WebAuthn speaks ArrayBuffers; the API speaks base64url.
+function toB64u(buf: ArrayBuffer) {
+  let s = "";
+  for (const b of new Uint8Array(buf)) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function fromB64u(v: string) {
+  const p = v.replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(p + "=".repeat((4 - (p.length % 4)) % 4));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/** Sign out every OTHER device, keeping this one. */
+export function useLogoutOthers() {
+  return useMutation({
+    mutationFn: async () => {
+      const r = await send<{ ok: true; token: string }>(`/api/db/${siteSlug()}/auth/logout-all`, { method: "POST" });
+      try { localStorage.setItem(`site_session_${siteSlug()}`, r.token); } catch { /* private mode */ }
+      return r;
+    },
+  });
+}
+
+/** Change the account's email. Needs the password, because the address IS the account. */
+export function useChangeEmail() {
+  return useMutation({
+    mutationFn: async (vars: { current: string; next: string }) => {
+      const r = await send<{ ok: true; token: string; user: Member }>(`/api/db/${siteSlug()}/auth/email`, {
+        method: "POST",
+        body: JSON.stringify(vars),
+      });
+      try { localStorage.setItem(`site_session_${siteSlug()}`, r.token); } catch { /* private mode */ }
+      return r;
+    },
+  });
+}
+
+/** Close the account for good. Their existing rows stay with the site owner. */
+export function useCloseAccount() {
+  return useMutation({
+    mutationFn: async (vars: { current: string }) => {
+      const r = await send<{ ok: true }>(`/api/db/${siteSlug()}/auth/close`, {
+        method: "POST",
+        body: JSON.stringify(vars),
+      });
+      try { localStorage.removeItem(`site_session_${siteSlug()}`); } catch { /* private mode */ }
+      return r;
+    },
+  });
+}
+
 export function useRequestReset() {
   return useMutation({
     mutationFn: (values: { email: string }) =>
@@ -279,5 +514,33 @@ export function usePublicRows<T extends Row = Row>(table: string, params?: RowQu
   return useQuery({
     queryKey: ["public", siteSlug(), table, params],
     queryFn: () => send<{ rows: T[] }>(`${base(table)}/public${qs(params)}`).then((r) => r.rows),
+  });
+}
+
+/**
+ * One submission, read back by the person who made it.
+ *
+ * A `collect` table is write-only — nobody can list it — so this is the single
+ * exception, and it opens exactly one row: the `claim` handed back by
+ * `useCreateRow` when that row was created. Put the token in the link you send
+ * ("manage your booking") and read it off the URL here. A missing, wrong, or
+ * expired token is a plain 404, the same as a row that isn't there.
+ */
+export function useClaimedRow<T extends Row = Row>(table: string, id: number | undefined, claim: string | undefined) {
+  return useQuery({
+    enabled: id !== undefined && !!claim,
+    queryKey: ["claim", siteSlug(), table, id],
+    queryFn: () =>
+      send<{ row: T }>(`${base(table)}/${id}?claim=${encodeURIComponent(claim as string)}`).then((r) => r.row),
+  });
+}
+
+/** Cancel that same submission. Safe to call twice — the second answers ok too. */
+export function useCancelClaim(table: string) {
+  const invalidate = useInvalidate(table);
+  return useMutation({
+    mutationFn: ({ id, claim }: { id: number; claim: string }) =>
+      send<{ ok: true; cancelled: true }>(`${base(table)}/${id}?claim=${encodeURIComponent(claim)}`, { method: "DELETE" }),
+    onSuccess: invalidate,
   });
 }

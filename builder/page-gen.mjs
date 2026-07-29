@@ -265,9 +265,12 @@ or an access level — anything not in the schema below does not exist.
    - \`display\` — you may LIST and READ it. A write returns 403.
    - \`collect\` — you may SUBMIT a form to it. A read returns 403. These rows are other
      visitors' submissions; never list them, never count them, never show "3 people booked".
-   - \`user\` — neither. A read and a write both return 403 without a visitor login.
-   - \`feed\` / \`admin\` — reads are served, but a write returns 403 without a visitor
-     login. Only half the table works, so leave it out rather than build against it.
+   - \`user\` — PRIVATE PER MEMBER. Signed in, they read and write only their OWN rows;
+     signed out, both return 401. Build the signed-in view AND a sign-in prompt.
+   - \`feed\` — SHARED, MEMBER-AUTHORED. Anyone signed in reads every row; a signed-in
+     member writes rows that become theirs. Signed out, both return 401.
+   - \`admin\` — SHARED, ROLE-WRITABLE. Anyone signed in reads it; only a member whose role
+     the table names in \`writeRoles\` may write. Anyone else gets 403 with \`code: "role"\`.
 
 3. SHADCN FOR EVERY CONTROL, imported from "@/components/ui/<name>". Never hand-roll a
    button, input, select, checkbox or dialog. These exist and nothing else does:
@@ -316,6 +319,18 @@ or an access level — anything not in the schema below does not exist.
    out a time somebody already booked. \`usePublicRows("bookings")\` returns only the
    columns the schema chose to publish, never a name or an email. If the table declares no
    public view, do not call it — there is nothing to read and the answer is a 404.
+
+10. GIVE THE VISITOR THEIR SUBMISSION BACK. A successful \`useCreateRow\` on a \`collect\`
+    table returns \`{ row, claim }\`. That \`claim\` is a signed token for THAT ONE row and
+    it is issued exactly once — if the page drops it, nobody can ever reach that booking
+    again except the site owner. On the confirmation screen, show a link to a manage page
+    carrying it: \`/manage?id=\${row.id}&claim=\${claim}\`. That page reads the two values
+    off the URL and calls \`useClaimedRow(table, id, claim)\` to show the booking and
+    \`useCancelClaim(table)\` to cancel it. Build the manage page whenever you build a
+    form on a \`collect\` table that represents an appointment, an order or a reservation
+    — anything a person would reasonably want to check or call off. Do not build it for a
+    plain contact form, which nobody comes back to. Never try to list a \`collect\` table:
+    the claim opens one row, and only for the person who wrote it.
 
 ## Reading rows
 
@@ -373,6 +388,24 @@ from \`@/lib/rows\`; there is no other auth API and no fetch:
 - \`useRequestReset()\` → \`{ email }\`. Always succeeds; tell the visitor to check their inbox
   whether or not the address has an account. The link itself is handled by the platform.
 
+There is more than one way in, and WHICH ones depends on the site — so never hard-code buttons:
+
+- \`useSignInMethods()\` → the list this site actually offers, each \`{ name, label, oauth }\`.
+  Render the sign-in page FROM THIS. A provider the owner has not set up must not appear.
+- \`startOAuthSignIn(name)\` for any entry with \`oauth: true\` — Google, Microsoft, Apple and the
+  rest. It navigates away and the platform brings them back signed in; there is nothing to await.
+- \`usePasskeySignIn()\` → Face ID, Touch ID, a security key. Offer it whenever \`passkey\` is in
+  the list; it needs no password and no email.
+- \`useRequestSignInCode()\` then \`useVerifySignInCode()\` → \`{ email }\`, then \`{ email, code }\`.
+  Only when \`email-code\` is in the list.
+- \`useAddPasskey()\`, \`useConnectedAccounts()\`, \`useStartTotp()\` / \`useEnableTotp()\` /
+  \`useDisableTotp()\` belong on an ACCOUNT page, never on the sign-in page.
+
+**A sign-in may not finish in one step.** \`useLogin\`, \`usePasskeySignIn\` and
+\`useVerifySignInCode\` all return \`{ token }\` OR \`{ pending, need }\`. When \`pending\` comes back
+the person has two-factor on: show a code field and call \`useVerifySecondFactor({ pending, code })\`.
+Treating \`pending\` as a successful login leaves them stuck on a page that thinks they are signed in.
+
 Build sign-in and sign-up ONLY when the schema actually has a \`user\`, \`feed\` or \`admin\` table.
 A site of \`display\` and \`collect\` tables needs no accounts, and adding them is friction nobody
 asked for. Surface the API's message on failure — it distinguishes a wrong password from an address
@@ -384,8 +417,8 @@ that already has an account (\`code: "exists"\`).
   \`useUpdateRow\`/\`useDeleteRow\` and a signed-in member. A \`collect\` or \`display\` row has no
   owner and can never be changed from a page. Someone else's row answers 404, so treat "not found"
   as "not yours" and say so gently.
-- No file or image upload. There is no route for it.
-- No owner/admin dashboard — a \`collect\` table cannot be read back by anyone.
+- No owner/admin dashboard IN THE SITE — a \`collect\` table cannot be read back from a page.
+  Its owner reads those submissions inside isibi, which is not something you build.
 If the brief asks for one of these, build everything else and say plainly in \`notes\` what was
 left out and why. Never generate UI that cannot work.
 
@@ -434,7 +467,7 @@ export const SITE_PAGES_TOOL = {
   },
 };
 
-const ACCESS_NOTE = {
+export const ACCESS_NOTE = {
   display: "visitors READ it. List it, show it, search it. Writing to it returns 403.",
   collect: "visitors WRITE to it. Submit a form. Reading it returns 403 — never list these rows.",
   user: "PRIVATE PER MEMBER. Signed in, a member reads and writes only their OWN rows; signed out, both return 401. Build the signed-in view AND a sign-in prompt for when there is no member.",
