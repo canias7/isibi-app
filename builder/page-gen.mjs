@@ -729,3 +729,41 @@ export function repairPrompt(brief, spec, pages, problems, brand) {
     "\n\nWHAT YOU WROTE\n" + files.slice(0, 60000) +
     "\n\n" + pagesPrompt(brief, spec, brand);
 }
+
+// ------------------------------------------------------- the request itself
+
+/**
+ * Page generation is a much bigger call than the schema design — whole .tsx
+ * files rather than a handful of column names.
+ *
+ * Sized above what the pages themselves need: Sonnet 5 runs adaptive thinking
+ * when `thinking` is omitted, and max_tokens caps thinking AND the response
+ * together, so a budget tight around the files would spend part of itself
+ * reasoning and truncate the last one.
+ */
+export const SITE_PAGES_MAX_TOKENS = 24000;
+
+/**
+ * The exact body the Worker POSTs to the model.
+ *
+ * Extracted so the eval harness issues the SAME request the Worker does. It was
+ * built inline in worker.js, which cannot be imported — so any harness had to
+ * restate the model, the budget, the tool and the prompt, and would then be
+ * tuning against something subtly different from what production runs. A test
+ * asserts worker.js calls this rather than rebuilding the body.
+ */
+export function pagesRequest({ brief, spec, brand, fix } = {}) {
+  return {
+    model: "claude-sonnet-5",
+    max_tokens: SITE_PAGES_MAX_TOKENS,
+    tools: [SITE_PAGES_TOOL],
+    tool_choice: { type: "tool", name: "write_pages" },
+    system: PAGE_RULES,
+    messages: [{
+      role: "user",
+      content: fix
+        ? repairPrompt(brief, spec, fix.pages, fix.problems, brand)
+        : pagesPrompt(brief, spec, brand),
+    }],
+  };
+}

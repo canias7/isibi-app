@@ -270,3 +270,18 @@ test("every tool the model is given is a schema the API will accept", () => {
   // coverage.
   assert.deepEqual(skipped, [], "tool schemas that could not be parsed, so were never checked:\n" + skipped.join("\n"));
 });
+
+test("the placeholder page describes each access level correctly", () => {
+  // It is the only thing a failed build leaves the owner, and it called a
+  // `collect` table "shared across visitors" — the opposite of write-only.
+  // Seen on a real published fallback on 2026-07-29.
+  const i = SRC.indexOf("function schemaPlaceholderPage");
+  assert.ok(i > 0, "the placeholder moved");
+  const body = SRC.slice(i, i + 1800);
+  assert.ok(!/\? "each visitor sees only their own rows" : "shared across visitors"/.test(body),
+    "the two-way label is back — collect and admin are not 'shared across visitors'");
+  for (const level of ["display", "collect", "user", "feed", "admin"]) {
+    assert.match(body, new RegExp("\\b" + level + ":"), "no wording for access level " + level);
+  }
+  assert.match(body, /only you can read it/, "a collect table must be described as write-only");
+});

@@ -1,0 +1,81 @@
+# How often does the page generator produce something that COMPILES?
+#
+# The production audit kept landing on the placeholder with a different
+# TypeScript error each run. One sample per deploy cannot tell a systematic
+# mismatch from noise, and each one costs a Neon project, an R2 publish and
+# fifteen minutes.
+#
+# This samples the generation call alone — no database, no publish, no account —
+# and reports the distinct errors by shape. It runs when the generator or the
+# client API it writes against CHANGES, which is exactly when the number is
+# worth having, rather than on every deploy.
+name: page gen eval
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "builder/page-gen.mjs"
+      - "builder/lovable/template/src/lib/rows.ts"
+      - "builder/GENERATOR.md"
+      - "test/integration/page-gen-eval.mjs"
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: "How many pages to generate (1-10)"
+        required: false
+        default: "3"
+
+permissions:
+  contents: write
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci --no-audit --no-fund --loglevel=error
+
+      # The compile half runs the real build service against a sandbox copy of
+      # the template, so the template's own dependencies have to be present.
+      - run: npm ci --no-audit --no-fund --loglevel=error
+        working-directory: builder/lovable/template
+
+      - name: Sample the generator
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EVAL_SAMPLES: ${{ github.event.inputs.samples || '3' }}
+        run: node test/integration/page-gen-eval.mjs
+
+      - name: Commit the report
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain docs/auth-audit)" ]; then
+            git add docs/auth-audit
+            # The marker below stops this push re-triggering the workflows that
+            # would otherwise trigger this one. Never write it into an ordinary
+            # commit message or PR body — GitHub scans the whole message and
+            # skips every workflow for that push, silently and with a green tick.
+            git commit -m "Page generator eval ($(date -u +%Y-%m-%dT%H:%MZ)) [skip ci]"
+            for i in 1 2 3; do
+              git pull --rebase origin main && git push origin HEAD:main && break
+              sleep $((i * 5))
+            done
+          else
+            echo "no report to commit"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: page-gen-eval
+          path: docs/auth-audit/PAGE-GEN.md
+          if-no-files-found: ignore

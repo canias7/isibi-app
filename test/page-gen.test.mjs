@@ -15,6 +15,7 @@ import {
   REFERENCE_PAGE, UI_COMPONENTS, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MANAGED_COLUMNS,
   schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, ACCESS_NOTE,
 } from "../builder/page-gen.mjs";
+import * as api from "../builder/page-gen.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TEMPLATE = path.join(ROOT, "builder", "lovable", "template");
@@ -668,4 +669,32 @@ test("the rules say `claim` is optional, because the type says so", () => {
   assert.match(PAGE_RULES, /\*\*.?claim.? is optional\*\*|claim\\` is optional/,
     "the rules must say so, or the model writes a callback that cannot compile");
   assert.match(PAGE_RULES, /string \| undefined/);
+});
+
+test("the Worker and the eval issue the SAME generation request", () => {
+  // The eval exists to tune the generator. If it built its own request body, it
+  // would be tuning a different prompt from the one production runs and every
+  // conclusion drawn from it would be about nothing.
+  const worker = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
+  const gen = worker.slice(worker.indexOf("async function generateSitePages"), worker.indexOf("function schemaPlaceholderPage"));
+  assert.match(gen, /JSON\.stringify\(pagesRequest\(/, "generateSitePages must use pagesRequest");
+  assert.ok(!/model:\s*"claude-/.test(gen), "the model must come from pagesRequest, not be restated here");
+  assert.ok(!/tool_choice/.test(gen), "the tool choice must come from pagesRequest");
+  const evalSrc = fs.readFileSync(path.join(ROOT, "test", "integration", "page-gen-eval.mjs"), "utf8");
+  assert.match(evalSrc, /JSON\.stringify\(pagesRequest\(/, "the eval must use it too");
+  assert.ok(!/model:\s*"claude-/.test(evalSrc), "the eval must not restate the model");
+});
+
+test("pagesRequest carries the budget, the tool and the repair prompt", () => {
+  const req = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe" });
+  assert.equal(req.model, "claude-sonnet-5");
+  assert.equal(req.max_tokens, api.SITE_PAGES_MAX_TOKENS);
+  assert.equal(req.tool_choice.name, "write_pages");
+  assert.equal(req.tools[0], api.SITE_PAGES_TOOL);
+  assert.equal(req.system, api.PAGE_RULES);
+  // A repair sends a DIFFERENT user turn, or the retry re-reads the original
+  // brief and rewrites the same broken page.
+  const fix = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe", fix: { pages: [{ path: "index.tsx", source: "x" }], problems: ["boom"] } });
+  assert.notEqual(fix.messages[0].content, req.messages[0].content);
+  assert.match(fix.messages[0].content, /boom/);
 });
