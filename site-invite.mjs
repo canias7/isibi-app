@@ -77,6 +77,57 @@ export function normalizeCode(value) {
 }
 
 /**
+ * "Anyone at acme.com".
+ *
+ * The shape a team tool actually wants, and orthogonal to the three modes: an
+ * owner may want an open site restricted to their company, or an invite-only one
+ * ALSO restricted, so a leaked code cannot be used from a personal address.
+ * Applied to every mode except `closed`, which already refuses everyone.
+ *
+ * Stored lowercase and without a leading @ or dot, so `@Acme.com`, `acme.com`
+ * and `ACME.COM ` are one entry rather than three that behave differently.
+ */
+export const MAX_DOMAINS = 20;
+
+export function normalizeDomain(value) {
+  if (typeof value !== "string") return null;
+  const d = value.trim().toLowerCase().replace(/^@+/, "").replace(/^\.+|\.+$/g, "");
+  // A domain, not a pattern and not an address: no wildcards, because `*.com`
+  // reads as a restriction and is not one.
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(d)) return null;
+  if (d.length > 253) return null;
+  return d;
+}
+
+export function normalizeDomains(list) {
+  const out = [];
+  for (const v of (Array.isArray(list) ? list : [])) {
+    const d = normalizeDomain(v);
+    if (d && !out.includes(d)) out.push(d);
+    if (out.length >= MAX_DOMAINS) break;
+  }
+  return out;
+}
+
+/**
+ * Is this address allowed in?
+ *
+ * An EMPTY list allows everything — the setting is opt-in, and a site that never
+ * configured one must not suddenly refuse its own customers. Subdomains do NOT
+ * match: `acme.com` does not admit `evil.acme.com.attacker.net`, and it does not
+ * admit `mail.acme.com` either, which is the conservative reading and the one an
+ * owner can correct by adding the entry they meant.
+ */
+export function domainAllowed(email, domains) {
+  const list = Array.isArray(domains) ? domains : [];
+  if (!list.length) return true;
+  const at = String(email == null ? "" : email).toLowerCase().lastIndexOf("@");
+  if (at < 0) return false;
+  const domain = String(email).toLowerCase().slice(at + 1);
+  return list.includes(domain);
+}
+
+/**
  * May this signup proceed?
  *
  * deps:
@@ -86,7 +137,7 @@ export function normalizeCode(value) {
  * Returns {ok:true, code} — `code` is what to hand back on failure — or
  * {error, status, reason}.
  */
-export async function checkSignup(deps, { code } = {}) {
+export async function checkSignup(deps, { code, email } = {}) {
   let mode;
   try { mode = normalizeMode(await deps.mode()); }
   catch {
@@ -98,6 +149,14 @@ export async function checkSignup(deps, { code } = {}) {
 
   if (mode === "closed") {
     return { error: "This site isn't accepting new accounts.", status: 403, reason: "closed" };
+  }
+
+  // Checked BEFORE a code is spent: an address that can never be admitted must
+  // not consume somebody's invite on the way to being refused.
+  let domains = [];
+  try { domains = normalizeDomains(await (deps.domains ? deps.domains() : [])); } catch { domains = []; }
+  if (!domainAllowed(email, domains)) {
+    return { error: "That email address isn't allowed on this site.", status: 403, reason: "domain" };
   }
 
   if (mode !== "invite") return { ok: true, mode };

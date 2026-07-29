@@ -28,7 +28,7 @@ import { loadSiteSchema, sqlIdent } from "./site-schema.mjs";
 // The permission rules live in their own leaf module because the page generator
 // has to predict them to lint a page before it is published, and restating them
 // in both places is how they drifted.
-import { isManagedColumn, canReadAccess, canWriteAccess, needsMember, teamReadable } from "./site-access.mjs";
+import { isManagedColumn, canReadAccess, canWriteAccess, needsMember, teamReadable, needsVerified } from "./site-access.mjs";
 import { limitFor, bucketKey, tooMany } from "./rate-limit.mjs";
 import { constraintError } from "./site-errors.mjs";
 import { readJsonBody, clampFields, MAX_JSON_BODY } from "./request-limits.mjs";
@@ -196,6 +196,15 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
     }
   } else if (!canWriteAccess(access) && !needsVisitor) {
     return json({ error: "that table is not writable here", access }, 403);
+  }
+
+  // Some tables want a confirmed address before they accept anything — a public
+  // review, a post under somebody's name. Reads are untouched: the point is to
+  // stop unattributable WRITING, not to hide the site from a new member.
+  if (method !== "GET" && needsVerified(def, deps.canVerify)) {
+    if (!visitor || !visitor.verified) {
+      return json({ error: "Confirm your email address first — check your inbox.", code: "verify" }, 403);
+    }
   }
 
   // An `admin` table is a shared CMS: everyone signed in may read it, only the

@@ -190,3 +190,99 @@ test("invite options are clamped, never trusted", () => {
 test("a single-use code is the default", () => {
   assert.equal(inviteOptions({}).uses, 1);
 });
+
+// --------------------------------------------------------- domain allow-list
+//
+// "Anyone at acme.com" — the shape a team tool actually wants, and orthogonal
+// to the three modes.
+
+import { normalizeDomain, normalizeDomains, domainAllowed, MAX_DOMAINS } from "../site-invite.mjs";
+
+test("a domain normalizes past @, case, and stray dots", () => {
+  for (const v of ["acme.com", "@acme.com", "ACME.COM", " @Acme.Com ", ".acme.com."]) {
+    assert.equal(normalizeDomain(v), "acme.com", JSON.stringify(v));
+  }
+  assert.equal(normalizeDomain("mail.acme.co.uk"), "mail.acme.co.uk");
+});
+
+test("anything that is not a domain is refused", () => {
+  // No wildcards: `*.com` reads as a restriction and is not one.
+  for (const v of ["", "  ", "acme", "*.acme.com", "ac me.com", "a@b.com", "-acme.com", "acme-.com", null, 7, {}]) {
+    assert.equal(normalizeDomain(v), null, JSON.stringify(v));
+  }
+  assert.equal(normalizeDomain("a".repeat(300) + ".com"), null);
+});
+
+test("the list is deduped, normalized and capped", () => {
+  assert.deepEqual(normalizeDomains(["acme.com", "@ACME.com", "other.io"]), ["acme.com", "other.io"]);
+  assert.deepEqual(normalizeDomains(["acme.com", "nonsense", null]), ["acme.com"]);
+  assert.equal(normalizeDomains(Array.from({ length: 50 }, (_, i) => `d${i}.com`)).length, MAX_DOMAINS);
+  assert.deepEqual(normalizeDomains(null), []);
+});
+
+test("a bare string is not a one-entry list", () => {
+  // It arrives as JSON out of `_meta`, so a setting written by hand can be a
+  // string. Coercing it would turn a malformed config into a REAL restriction —
+  // the site starts refusing everyone outside a domain nobody chose in that
+  // form. Empty means the same thing as unset, which is the safe reading.
+  assert.deepEqual(normalizeDomains("acme.com"), []);
+  assert.deepEqual(normalizeDomains("acme.com,other.io"), [], "and it is not split on commas");
+  assert.deepEqual(normalizeDomains({ 0: "acme.com", length: 1 }), [], "nor is an array-like");
+});
+
+test("an EMPTY list allows everyone", () => {
+  // Opt-in: a site that never configured one must not start refusing its own
+  // customers the day this shipped.
+  assert.equal(domainAllowed("anyone@anywhere.com", []), true);
+  assert.equal(domainAllowed("anyone@anywhere.com", null), true);
+});
+
+test("a configured list admits only those domains", () => {
+  const list = ["acme.com"];
+  assert.equal(domainAllowed("ada@acme.com", list), true);
+  assert.equal(domainAllowed("ADA@ACME.COM", list), true);
+  assert.equal(domainAllowed("ada@gmail.com", list), false);
+  assert.equal(domainAllowed("", list), false);
+  assert.equal(domainAllowed("no-at-sign", list), false);
+});
+
+test("a subdomain does NOT match, and neither does a lookalike", () => {
+  const list = ["acme.com"];
+  assert.equal(domainAllowed("ada@mail.acme.com", list), false, "conservative: the owner adds what they meant");
+  // The one that matters — a suffix check would admit this.
+  assert.equal(domainAllowed("ada@evil-acme.com", list), false);
+  assert.equal(domainAllowed("ada@acme.com.attacker.net", list), false);
+  // And an address with more than one @ takes the LAST one, as mail does.
+  assert.equal(domainAllowed('"a@b"@acme.com', list), true);
+});
+
+test("a refused domain does not spend an invite", async () => {
+  // An address that can never be admitted must not consume somebody's code on
+  // the way to being turned away.
+  const g = gate({ mode: "invite", codes: { ABCDEFGHJKLM: 3 } });
+  g.domains = async () => ["acme.com"];
+  const r = await checkSignup(g, { code: "ABCDEFGHJKLM", email: "ada@gmail.com" });
+  assert.equal(r.status, 403);
+  assert.equal(r.reason, "domain");
+  assert.equal(g.codes.ABCDEFGHJKLM, 3, "untouched");
+});
+
+test("the allow-list applies in OPEN mode too", async () => {
+  const g = gate({ mode: "open" });
+  g.domains = async () => ["acme.com"];
+  assert.equal((await checkSignup(g, { email: "ada@gmail.com" })).reason, "domain");
+  assert.equal((await checkSignup(g, { email: "ada@acme.com" })).ok, true);
+});
+
+test("an unreadable domain list allows everyone rather than nobody", async () => {
+  // Same reasoning as the empty list: a storage blip must not lock a site's own
+  // customers out of signing up.
+  const g = gate({ mode: "open" });
+  g.domains = async () => { throw new Error("unreadable"); };
+  assert.equal((await checkSignup(g, { email: "ada@gmail.com" })).ok, true);
+});
+
+test("a site with no domains dep behaves exactly as before", async () => {
+  const g = gate({ mode: "open" });
+  assert.equal((await checkSignup(g, { email: "ada@gmail.com" })).ok, true);
+});

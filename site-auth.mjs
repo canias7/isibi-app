@@ -213,6 +213,36 @@ export async function verifyClaim(key, token, table, id, opts = {}) {
   return body;
 }
 
+// ------------------------------------------------------------- verification
+
+/**
+ * Proving the address is theirs.
+ *
+ * There WAS a verification flow: `verified`, `verify_token` and `verify_exp` are
+ * columns on every site's `_users`, and a `/verify` page still exists. It ran on
+ * the pre-deletion D1 token scheme, whose signing key is derived differently
+ * from this one — so it could not have validated a token minted by the live
+ * system even if anything had minted one, and nothing did. This replaces it on
+ * the family every other kind uses.
+ *
+ * STATELESS, so `verify_token` and `verify_exp` stay unused: a signed token
+ * carries its own subject and expiry, and storing a copy only creates a second
+ * thing that can disagree with the first.
+ *
+ * Two days, because a confirmation email is often opened on another device or
+ * the next morning, and a link that died overnight sends somebody to support
+ * instead of into the site. Replay is harmless — the only thing it can do is set
+ * a flag that is already set.
+ */
+export const VERIFY_TTL_SEC = 60 * 60 * 48;
+export const signVerify = (key, sub, opts = {}) =>
+  signToken(key, { sub, use: "verify" }, { ...opts, ttlSec: opts.ttlSec || VERIFY_TTL_SEC });
+
+export async function verifyVerification(key, token, opts = {}) {
+  const body = await verifyToken(key, token, opts);
+  return body && body.use === "verify" ? body : null;
+}
+
 // The mirror: each kind of token is good for exactly one thing.
 //
 // This is an ALLOW-list, and it has to be. It read `use !== "reset"` — a

@@ -10,8 +10,8 @@
 // else. Handing back a real session and "checking 2FA on the next request" is
 // how a second factor quietly becomes optional.
 
-import { signToken, verifyToken, hashPassword, verifyPassword, normalizeEmail } from "./site-auth.mjs";
-import { resolveIdentity } from "./site-identity.mjs";
+import { signToken, verifyToken, hashPassword, verifyPassword, normalizeEmail, signVerify, verifyVerification } from "./site-auth.mjs";
+import { resolveIdentity, canUnlink } from "./site-identity.mjs";
 import { startOAuth, completeOAuth, providerConfig } from "./site-oauth.mjs";
 import {
   verifyRegistration, verifyAssertion, newChallenge, b64u,
@@ -21,6 +21,7 @@ import {
   newRecoveryCodes, normalizeRecovery, EMAIL_CODE_TTL_SEC, EMAIL_CODE_ATTEMPTS,
 } from "./site-otp.mjs";
 import { availableMethods, secondFactorRequired } from "./site-auth-methods.mjs";
+import { newSessionId, normalizeSid, describeSessions, MAX_SESSIONS_LISTED } from "./site-sessions.mjs";
 
 const json = (body, status = 200) => ({ status, body });
 
@@ -45,8 +46,15 @@ export async function finishSignIn(deps, user, { key, nowMs }) {
     return json({ pending, need: "totp", user: { id: user.id, email: user.email } });
   }
   await deps.touchLogin?.(user.id).catch?.(() => {});
+  // Name the device, so the member can find this session in their list and drop
+  // it without signing every other one out. Recorded BEFORE the token is handed
+  // back but best-effort: a failed write must not fail a correct sign-in, and
+  // `sessionUsable` treats a sid with no row as live precisely so it cannot.
+  const sid = newSessionId();
+  try { await deps.startSession?.(user.id, sid); }
+  catch (e) { console.error("session record failed:", (e && e.message) || e); }
   return json({
-    token: await signToken(key, { sub: String(user.id), email: user.email, ep: Number(user.token_epoch || 0) }, { nowMs }),
+    token: await signToken(key, { sub: String(user.id), email: user.email, ep: Number(user.token_epoch || 0), sid }, { nowMs }),
     user: { id: user.id, email: user.email },
   });
 }
@@ -76,9 +84,15 @@ export async function handleAuthFlow(deps, { slug, route, body = {}, query = {},
   const signedIn = async () => {
     const claims = await verifyToken(key, token, { nowMs: now });
     if (!claims || (claims.use !== undefined && claims.use !== "session")) return null;
-    const user = await deps.findUserById(claims.sub);
+    // The sid rides along on the lookup rather than costing a second statement;
+    // the dep joins `_sessions` and sets `session_revoked`. See SESSION_JOIN.
+    const user = await deps.findUserById(claims.sub, claims.sid);
     if (!user || user.blocked) return null;
     if (Number(claims.ep || 0) !== Number(user.token_epoch || 0)) return null;
+    // A revoked device is refused everywhere a session is, not just on the data
+    // path — otherwise the tablet somebody just signed out could still add a
+    // passkey to the account.
+    if (claims.sid && user.session_revoked) return null;
     return user;
   };
 
@@ -335,6 +349,36 @@ export async function handleAuthFlow(deps, { slug, route, body = {}, query = {},
     return json({ ok: true, recovery });
   }
 
+  // ------------------------------------------------------------- verification
+  if (route === "verify/request") {
+    // A session is required, so there is no address to enumerate and nothing to
+    // answer vaguely — you can only ask for your own link.
+    const user = await signedIn();
+    if (!user) return json({ error: "not signed in" }, 401);
+    if (!user.email) return json({ error: "This account has no email address.", code: "no_email" }, 400);
+    if (user.verified) return json({ ok: true, already: true });
+    const t = await deps.throttle(`verify:${slug}:${user.id}`);
+    if (!t.ok) return json({ error: "Too many attempts — try again shortly." }, 429);
+    // Never let a dark or failing mailer turn into an error the person can do
+    // nothing about; they are already signed in and can ask again.
+    try { await deps.sendVerify(user.email, await signVerify(key, String(user.id), { nowMs: now })); }
+    catch (e) { console.error("verify send failed:", slug, (e && e.message) || e); }
+    return json({ ok: true, sent: true });
+  }
+
+  if (route === "verify/confirm") {
+    const claims = await verifyVerification(key, body.token || query.token, { nowMs: now });
+    // One message for expired, forged and wrong-kind. Distinguishing them tells
+    // somebody holding a stale link which half of it failed.
+    if (!claims) return json({ error: "This link is invalid or has expired.", code: "token" }, 400);
+    const user = await deps.findUserById(claims.sub);
+    if (!user || user.blocked) return json({ error: "This link is invalid or has expired.", code: "token" }, 400);
+    // Idempotent: a link opened twice, prefetched by a mail client, or clicked
+    // again to check it worked must not read as a failure.
+    if (!user.verified) await deps.setVerified(user.id);
+    return json({ ok: true, email: user.email });
+  }
+
   // ------------------------------------------------------------- linked accounts
   if (route === "identities") {
     const user = await signedIn();
@@ -349,6 +393,78 @@ export async function handleAuthFlow(deps, { slug, route, body = {}, query = {},
       hasPassword: !!user.has_password,
       totp: !!user.totp_enabled,
     });
+  }
+
+  // ------------------------------------------------------- disconnecting things
+  //
+  // `canUnlink` was written with the last-way-in rule and then called by nothing,
+  // and `deleteCredential` was wired as a dep with no route: a member could add a
+  // passkey and never remove one. A stolen laptop's passkey worked forever.
+  if (route === "identities/unlink" || route === "passkey/remove") {
+    const user = await signedIn();
+    if (!user) return json({ error: "not signed in" }, 401);
+
+    const [identities, credentials] = await Promise.all([
+      deps.identitiesFor(user.id),
+      deps.credentialsFor(user.id),
+    ]);
+    // Every way in counts as one, whichever kind is being removed — otherwise
+    // dropping your only passkey while having no password locks you out of an
+    // account that still exists and still owns rows, with no recovery path,
+    // because the reset flow needs an address you may never have given us.
+    const ways = identities.length + credentials.length;
+    if (!canUnlink({ identities: new Array(ways), hasPassword: !!user.has_password })) {
+      return json({ error: "That's your only way to sign in — add another first.", code: "last_method" }, 409);
+    }
+
+    if (route === "passkey/remove") {
+      const r = await deps.deleteCredential(user.id, body.id);
+      // Scoped to the caller AND answering 404 for somebody else's, so a member
+      // cannot probe which credential ids exist by watching the status.
+      if (!r || !r.changes) return json({ error: "no such passkey" }, 404);
+      return json({ ok: true });
+    }
+
+    const r = await deps.unlinkIdentity(user.id, body.id);
+    if (!r || !r.changes) return json({ error: "no such connection" }, 404);
+    return json({ ok: true });
+  }
+
+  // ------------------------------------------------------------- devices
+  //
+  // `logout-all` is all-or-nothing — it bumps the account's epoch, so signing
+  // out one old tablet meant signing back in everywhere. And nothing could show
+  // a member what their devices ARE, so the choice was made blind.
+  if (route === "sessions") {
+    const user = await signedIn();
+    if (!user) return json({ error: "not signed in" }, 401);
+    const claims = await verifyToken(key, token, { nowMs: now });
+    const rows = await deps.sessionsFor(user.id, MAX_SESSIONS_LISTED);
+    return json({ sessions: describeSessions(rows, claims && claims.sid, now) });
+  }
+
+  if (route === "sessions/revoke") {
+    const user = await signedIn();
+    if (!user) return json({ error: "not signed in" }, 401);
+    const sid = normalizeSid(body.sid);
+    if (!sid) return json({ error: "no such session" }, 404);
+
+    // Scoped to the caller in the STATEMENT, not by having already read the
+    // row — the sid is unguessable, but "hard to guess" is not an authorization
+    // model, and the same shape here as `passkey/remove` means one reviewer's
+    // rule covers both.
+    const r = await deps.revokeSession(user.id, sid);
+    // Somebody else's session answers 404, identically to one that never
+    // existed. A 403 would confirm the sid is real, which is the only thing a
+    // stranger holding one could learn.
+    if (!r || !r.changes) return json({ error: "no such session" }, 404);
+
+    // Revoking the session you are reading from IS just logging out, and it
+    // works — but the caller is told, because the alternative is a settings page
+    // that appears to succeed and then 401s on its next request with no
+    // explanation.
+    const claims = await verifyToken(key, token, { nowMs: now });
+    return json({ ok: true, self: !!(claims && claims.sid === sid) });
   }
 
   return json({ error: "not found" }, 404);

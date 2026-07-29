@@ -79,6 +79,24 @@ export function rolesForSchema(spec) {
 }
 
 /**
+ * Must a member have confirmed their address before writing here?
+ *
+ * `requireVerified` has been parsed and stored in `_meta` since the schema
+ * engine was written, enforced by nothing. Wiring it was deliberately left until
+ * verification existed, because a gate nobody can pass is not a gate — it is a
+ * wall, and a table declaring it would have locked every member out permanently.
+ *
+ * `canVerify` is why this takes two arguments. It is false on a site with no
+ * mailer, where confirming an address is impossible, and there the rule FAILS
+ * OPEN. That looks wrong for a security control and is not: without a mailer the
+ * guarantee is unobtainable either way, so enforcing buys nothing and costs the
+ * site every write. It starts working the day the mailer key ships.
+ */
+export function needsVerified(def, canVerify) {
+  return !!(def && def.requireVerified) && !!canVerify;
+}
+
+/**
  * Does this table let a manager see their reports' rows?
  *
  * `user` means private-per-member and `feed` means everyone-sees-everything,

@@ -19,8 +19,44 @@
 
 import { PROVIDERS, PROVIDER_NAMES } from "./site-oauth.mjs";
 
+/**
+ * The device list, kept separate from the rest of `AUTH_DDL` because it is the
+ * one internal table BOTH auth surfaces read.
+ *
+ * `AUTH_DDL` is applied only on the routes the registry owns — passkeys, OAuth,
+ * emailed codes. Plain email-and-password sign-in never goes near it, and it now
+ * joins `_sessions` on every authenticated request. A table that exists only on
+ * sites where somebody happened to use a passkey would make `me` answer 500
+ * everywhere else, which is precisely how login broke last time. Defined once
+ * and run from both `AUTH_DDL` and `ensureSiteUsers`.
+ */
+export const SESSION_DDL = [
+  // One row per signed-in device, so a member can see where they are signed in
+  // and drop ONE. Sessions are still verified by their signature; this row only
+  // answers "has this one been revoked", and it is read on the same statement as
+  // the `_users` row rather than a second round trip.
+  //
+  // `revoked` is a flag and nothing ever deletes a row to revoke it: a missing
+  // row reads as LIVE (see `sessionUsable`), so deleting would UN-revoke. The
+  // sweeper only removes rows older than twice a token's life, by which point
+  // the signature layer has been refusing them for a month.
+  //
+  // Times are BIGINT epoch seconds rather than the schema's TEXT timestamps —
+  // they are only ever compared and subtracted, same as the lockout columns.
+  `CREATE TABLE IF NOT EXISTS _sessions (
+     sid TEXT PRIMARY KEY,
+     user_id INTEGER NOT NULL,
+     ua TEXT,
+     country TEXT,
+     created_at BIGINT,
+     last_seen BIGINT,
+     revoked INTEGER DEFAULT 0)`,
+  `CREATE INDEX IF NOT EXISTS _sessions_user ON _sessions (user_id)`,
+];
+
 /** Tables a site needs before any of this works. Applied lazily, idempotently. */
 export const AUTH_DDL = [
+  ...SESSION_DDL,
   // One row per external identity. UNIQUE on (provider, subject) is the whole
   // integrity story: it is what stops two accounts claiming one Google user.
   `CREATE TABLE IF NOT EXISTS _identities (
@@ -94,7 +130,7 @@ export const METHODS = [
     label: "Passkey",
     // Needs nothing from anyone — no mailer, no provider, no account elsewhere.
     configured: (site) => site.passkeys !== false,
-    routes: ["passkey/register/start", "passkey/register/finish", "passkey/login/start", "passkey/login/finish"],
+    routes: ["passkey/register/start", "passkey/register/finish", "passkey/login/start", "passkey/login/finish", "passkey/remove"],
   },
   {
     name: "email-code",
@@ -121,6 +157,18 @@ export const METHODS = [
     routes: ["totp/start", "totp/enable", "totp/verify", "totp/disable"],
   },
   {
+    name: "verify-email",
+    // Not a way IN and not a second factor — account maintenance. Kept in the
+    // registry anyway so its routes are declared in the same place as every
+    // other one, and so `availableMethods` can keep ignoring it by kind.
+    kind: "account",
+    label: "Confirm your email",
+    // Only where mail can actually leave. Offering "resend" against a dark
+    // mailer is a button that reports success and does nothing.
+    configured: (site) => !!site.mailer,
+    routes: ["verify/request", "verify/confirm"],
+  },
+  {
     name: "recovery",
     kind: "second",
     label: "Recovery code",
@@ -130,7 +178,7 @@ export const METHODS = [
 ];
 
 /** Routes that belong to the surface rather than to any one method. */
-export const SHARED_ROUTES = ["methods", "identities"];
+export const SHARED_ROUTES = ["methods", "identities", "identities/unlink", "sessions", "sessions/revoke"];
 
 export const METHOD_NAMES = METHODS.map((m) => m.name);
 
