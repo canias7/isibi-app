@@ -13,8 +13,12 @@
 //   POST reset    {token, password}          → {ok:true}   use the link
 import {
   hashPassword, verifyPassword, sessionKey, signToken, signReset,
-  verifySession, verifyReset, normalizeEmail, checkPassword,
+  verifySession, verifyReset, normalizeEmail, checkPassword, signPending,
 } from "./site-auth.mjs";
+// The same predicate the registry flows use, imported rather than restated —
+// two copies of "does this account have a second factor" is exactly how this
+// came to be enforced on three sign-in methods and not on the fourth.
+import { secondFactorRequired } from "./site-auth-methods.mjs";
 import { lockState, afterFailure, afterSuccess } from "./site-lockout.mjs";
 import { checkPwned, PWNED_MESSAGE } from "./site-pwned.mjs";
 import { newSessionId, shouldTouch } from "./site-sessions.mjs";
@@ -244,6 +248,24 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     // eventually without ever having been attacked.
     if (deps.recordLoginAttempt && (user.failed || user.locked_until)) {
       try { await deps.recordLoginAttempt(user.id, afterSuccess()); } catch { /* never fail a good login over bookkeeping */ }
+    }
+    // The password proved who they are. If the account has a second factor, that
+    // is not the same as being signed in — hand back a PENDING token, which is
+    // good for presenting the factor and refused everywhere a session is
+    // expected.
+    //
+    // This was missing entirely until 2026-07-29, and the production audit is
+    // what found it: `finishSignIn` enforces the factor for passkeys, OAuth and
+    // emailed codes, and the password route predates that function and minted
+    // its own session. So on every site the builder has made, a member who
+    // enabled an authenticator app was handed recovery codes, a confirmation,
+    // and no protection at all on the one method every site has.
+    //
+    // Placed AFTER the lockout bookkeeping on purpose: the password was correct,
+    // so the failure counter should be cleared whether or not a second factor is
+    // still to come. Otherwise a 2FA account could never forget its failures.
+    if (secondFactorRequired(user)) {
+      return json({ pending: await signPending(key, user.id, { nowMs: now }), need: "totp", user: { id: user.id, email: user.email } });
     }
     return json({ token: await mk(user), user: { id: user.id, email: user.email } });
   }

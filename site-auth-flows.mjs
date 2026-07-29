@@ -10,7 +10,7 @@
 // else. Handing back a real session and "checking 2FA on the next request" is
 // how a second factor quietly becomes optional.
 
-import { signToken, verifyToken, hashPassword, verifyPassword, normalizeEmail, signVerify, verifyVerification } from "./site-auth.mjs";
+import { signToken, verifyToken, hashPassword, verifyPassword, normalizeEmail, signVerify, verifyVerification, signPending } from "./site-auth.mjs";
 import { resolveIdentity, canUnlink } from "./site-identity.mjs";
 import { startOAuth, completeOAuth, providerConfig } from "./site-oauth.mjs";
 import {
@@ -27,23 +27,24 @@ const json = (body, status = 200) => ({ status, body });
 
 /** Ten minutes to complete a passkey ceremony or type an emailed code. */
 export const CHALLENGE_TTL_SEC = 10 * 60;
-/** Five minutes to present a second factor. Long enough to open an app. */
-export const PENDING_TTL_SEC = 5 * 60;
+// Re-exported, not redefined. The password route in site-auth-routes.mjs is the
+// OTHER sign-in path and it mints the same token; two copies of this constant is
+// how the two paths would fall out of step again.
+export { PENDING_TTL_SEC } from "./site-auth.mjs";
 
 /**
  * A primary method has succeeded. Turn that into what the caller gets back.
  *
- * The single place a session is minted from a successful sign-in, so the second
- * factor cannot be forgotten on one path and remembered on another.
+ * The single place a session is minted from a successful sign-in **among the
+ * registry methods**. It was never true of the password route, which predates
+ * this and mints its own — the audit measured that on production 2026-07-29 and
+ * found the second factor completely unenforced there. Both now call
+ * `signPending`, so the shape of the half-finished sign-in has one definition
+ * even though the two paths still have their own storage deps.
  */
 export async function finishSignIn(deps, user, { key, nowMs }) {
   if (secondFactorRequired(user)) {
-    const pending = await signToken(
-      key,
-      { sub: String(user.id), use: "2fa" },
-      { nowMs, ttlSec: PENDING_TTL_SEC },
-    );
-    return json({ pending, need: "totp", user: { id: user.id, email: user.email } });
+    return json({ pending: await signPending(key, user.id, { nowMs }), need: "totp", user: { id: user.id, email: user.email } });
   }
   await deps.touchLogin?.(user.id).catch?.(() => {});
   // Name the device, so the member can find this session in their list and drop

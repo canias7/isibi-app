@@ -1077,3 +1077,94 @@ test("a pending 2FA token names no device", async () => {
   assert.ok(r.body.pending);
   assert.equal(h.sessions.size, 0);
 });
+
+// ------------------------------- what the login path READS vs what it is GIVEN
+//
+// The audit found the second factor completely unenforced on password sign-in,
+// and there were TWO independent reasons — either alone was enough. The route
+// never asked the question, and the query behind it did not select the column
+// the question is about. A column a SELECT omits reads as `undefined`, which is
+// falsy, which is "no second factor": the failure is silent and total, and it
+// looks exactly like a member who never enabled one.
+//
+// The existing derived sweep asserts every column a query SELECTS is one that
+// something CREATES. That is the layer below this one, it was true throughout,
+// and it is why nothing caught this. The invariant here is the other direction:
+// every field the login decision reads must be one the login query supplies.
+//
+// Derived on both sides, so it cannot drift. The read side includes the helper
+// predicates the handler hands the user to — `secondFactorRequired` reads
+// `totp_enabled` inside another module, and a scan of the handler body alone
+// would have seen nothing and passed while the bug was live.
+const ROUTES_SRC = fs.readFileSync(new URL("../site-auth-routes.mjs", import.meta.url), "utf8");
+const LOCKOUT_SRC = fs.readFileSync(new URL("../site-lockout.mjs", import.meta.url), "utf8");
+const METHODS_SRC = fs.readFileSync(new URL("../site-auth-methods.mjs", import.meta.url), "utf8");
+
+const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+
+/** The body of `if (action === "login") { … }`, comments removed. */
+function loginHandler() {
+  const src = stripComments(ROUTES_SRC);
+  const start = src.indexOf('if (action === "login")');
+  assert.ok(start > 0, "the login handler was not found in site-auth-routes.mjs");
+  // To the next top-level `if (action === ...)`, which is where it ends.
+  const rest = src.slice(start + 10);
+  const next = rest.search(/\n  if \(action === "/);
+  return rest.slice(0, next > 0 ? next : rest.length);
+}
+
+/** Property names read off a parameter called `user` in a chunk of source. */
+const readsOfUser = (src) => new Set([...stripComments(src).matchAll(/\buser\.([a-z_][a-z0-9_]*)/gi)].map((m) => m[1]));
+
+test("every field the login decision reads is one the login query selects", () => {
+  const body = loginHandler();
+
+  // The helpers the handler hands the user to. Named from the source, not
+  // listed: whatever it calls is what has to be scanned.
+  const helpers = [];
+  for (const [, fn] of body.matchAll(/\b(lockState|afterFailure|secondFactorRequired)\(user\b/g)) helpers.push(fn);
+  assert.ok(helpers.includes("secondFactorRequired"),
+    "the password login must ask whether the account has a second factor — it did not until 2026-07-29, " +
+    "and enabling an authenticator app protected passkey, OAuth and emailed-code sign-in and nothing else");
+
+  const needed = readsOfUser(body);
+  for (const fn of new Set(helpers)) {
+    const src = fn === "secondFactorRequired" ? METHODS_SRC : LOCKOUT_SRC;
+    const m = src.match(new RegExp("export function " + fn + "\\([\\s\\S]*?\\n}", ""));
+    assert.ok(m, fn + " was not found to scan");
+    for (const f of readsOfUser(m[0])) needed.add(f);
+  }
+  // Read but never selected, by design: `password_hash` is an alias and `id`
+  // and `email` are always there.
+  needed.delete("password_hash");
+
+  const sel = WORKER.match(/findUser: \(_s, email\) => one\("SELECT ([^"]+) FROM _users/);
+  assert.ok(sel, "the login lookup was not found in worker.js");
+  const selected = new Set(
+    sel[1].split(",").map((c) => c.trim().split(/\s+AS\s+/i)[0].trim().replace(/^\w+\./, "").toLowerCase()),
+  );
+
+  const missing = [...needed].filter((f) => !selected.has(f.toLowerCase()));
+  assert.deepEqual(missing, [],
+    "the login decision reads " + missing.join(", ") + " and the query does not select it — " +
+    "a missing column is `undefined`, not an error, so the check silently answers no");
+});
+
+test("the login lookup selects totp_enabled by name", () => {
+  // The derived test above is the real guard; this one names the column so a
+  // failure says what broke rather than only that the sets differ. It is the
+  // one that was actually missing, and it is the one whose absence is silent.
+  const sel = WORKER.match(/findUser: \(_s, email\) => one\("SELECT ([^"]+) FROM _users/);
+  assert.ok(sel && /\btotp_enabled\b/.test(sel[1]), "login must select totp_enabled: " + (sel && sel[1]));
+});
+
+test("both sign-in paths mint the pending token from ONE definition", () => {
+  // Not "both contain the same literal" — that is the state this bug came from.
+  // Each must call the shared helper, and neither may build the payload itself.
+  const routes = stripComments(ROUTES_SRC);
+  const flows = stripComments(fs.readFileSync(new URL("../site-auth-flows.mjs", import.meta.url), "utf8"));
+  for (const [name, src] of [["site-auth-routes.mjs", routes], ["site-auth-flows.mjs", flows]]) {
+    assert.match(src, /signPending\(/, name + " must mint the pending token through signPending");
+    assert.ok(!/use: ?"2fa"/.test(src), name + " restates the pending token's payload instead of calling signPending");
+  }
+});
