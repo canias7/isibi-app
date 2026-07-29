@@ -177,3 +177,42 @@ test("deleting a team releases its members FIRST", () => {
   assert.ok(drop > 0, "the team must actually be deleted");
   assert.ok(release < drop, "the release has to happen BEFORE the drop, or a failed drop leaves a dangling team_id");
 });
+
+// -------------------------- the visitor actually CARRIES what the scoping reads
+//
+// `teamScope` was dead at four layers when it was built, and the fix left it
+// dead at a fifth: `resolveSiteVisitor` SELECTed `u.team_id` and then returned
+// `{id, role, verified}`, dropping it. So `teamOf` read `undefined` on every
+// request, every member on every site resolved as teamless, and the feature did
+// nothing — measured on production 2026-07-29, where two members of one team
+// could not see each other's rows.
+//
+// The wiring test that existed asserted the QUERY selects the column. That was
+// true and was never the broken part. This one asserts the value survives to
+// the object the scoping functions are handed, which is the actual chain.
+//
+// Derived on both ends: whatever `site-teams.mjs` reads off a visitor is what
+// the visitor has to carry. Adding a second column there cannot silently repeat
+// this.
+test("resolveSiteVisitor returns every field the team scoping reads off it", () => {
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const teams = fs.readFileSync(new URL("../site-teams.mjs", import.meta.url), "utf8");
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+
+  // What the scoping reads off a visitor, from the source of the module that
+  // does the reading.
+  const reads = new Set([...strip(teams).matchAll(/\bvisitor\s*&&\s*visitor\.([a-z_][a-z0-9_]*)|\bvisitor\.([a-z_][a-z0-9_]*)/gi)]
+    .map((m) => m[1] || m[2]));
+  assert.ok(reads.has("team_id"), "site-teams.mjs must read team_id off the visitor, or this test is watching nothing");
+
+  // The object resolveSiteVisitor actually hands back.
+  const fn = strip(worker).match(/async function resolveSiteVisitor[\s\S]*?\n}/);
+  assert.ok(fn, "resolveSiteVisitor was not found in worker.js");
+  const ret = fn[0].match(/return \{ id: u\.id[^}]*\}/);
+  assert.ok(ret, "the visitor object literal was not found: " + fn[0].slice(-200));
+
+  const missing = [...reads].filter((f) => !new RegExp("\\b" + f + "\\b").test(ret[0]));
+  assert.deepEqual(missing, [],
+    "the visitor is missing " + missing.join(", ") + " — site-teams.mjs reads it, so it resolves as undefined " +
+    "and every member reads as teamless: " + ret[0]);
+});

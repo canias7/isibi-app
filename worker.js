@@ -3346,7 +3346,16 @@ async function resolveSiteVisitor(env, request, slug) {
     // password change would still be refused at /auth/me and quietly ACCEPTED on
     // every data read — which is the half that actually matters.
     if (Number(claims.ep || 0) !== Number(u.token_epoch || 0)) return null;
-    return { id: u.id, role: String(u.role || "user").toLowerCase(), verified: !!u.verified };
+    // `team_id` is what `teamOf` reads, and it was SELECTed above and then left
+    // out of this object until 2026-07-29 — so every member on every site
+    // resolved as teamless and `teamScope` was dead for the fifth time, one
+    // layer further along than the four it had already been dead at. The
+    // wiring test asserted the query selects it, which was true and not the
+    // thing that was broken.
+    //
+    // Passed through as the raw column: `teamOf` is the one place that decides
+    // what counts as a team, and normalising here would be a second opinion.
+    return { id: u.id, role: String(u.role || "user").toLowerCase(), team_id: u.team_id, verified: !!u.verified };
   } catch (e) {
     // A lookup failure must not silently downgrade to "anonymous", because for a
     // `user` table anonymous is refused — which is the safe direction — but it
@@ -3364,7 +3373,12 @@ function siteAuthDeps(env, db, slug, request) {
   return {
     ...sessionDeps(db, request),
     secret: () => siteAuthSecret(db),
-    findUser: (_s, email) => one("SELECT id, email, pass_hash AS password_hash, token_epoch, blocked, failed, locked_until, last_failed_at FROM _users WHERE email=?", [email]),
+    // `totp_enabled` is load-bearing here and was missing until 2026-07-29: the
+    // login handler asks `secondFactorRequired(user)`, and a column this query
+    // does not select reads as undefined, which is falsy, which is "no second
+    // factor". Same shape as the token_epoch failure — the value exists on the
+    // row and never reaches the code that decides with it.
+    findUser: (_s, email) => one("SELECT id, email, pass_hash AS password_hash, token_epoch, blocked, failed, locked_until, last_failed_at, totp_enabled FROM _users WHERE email=?", [email]),
     // The session row joins onto the read that already happens; see SESSION_JOIN.
     findUserById: (_s, id, sid) => (/^\d+$/.test(String(id))
       ? one(

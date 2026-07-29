@@ -165,6 +165,27 @@ export async function verifyReset(key, token, opts = {}) {
   return body && body.use === "reset" ? body : null;
 }
 
+/**
+ * The half-finished sign-in: a primary method succeeded, a second factor has
+ * not been presented yet.
+ *
+ * Good for exactly one thing — presenting that factor — and for nothing else.
+ * `verifySession` is an allow-list, so this is refused everywhere a session is
+ * expected; handing back a real session here and "checking the second factor on
+ * the next request" is the classic way a second factor becomes optional.
+ *
+ * Lives HERE rather than next to either sign-in path, because there are two of
+ * them: the registry flows (passkey, OAuth, emailed code) and the original
+ * password route. They minted their own tokens, and on 2026-07-29 the audit
+ * measured the consequence on production — the password route, the one method
+ * every site has, never consulted the second factor at all. A member who turned
+ * on an authenticator app got recovery codes, a confirmation, and no protection.
+ * One definition is the only thing that stops those two drifting apart again.
+ */
+export const PENDING_TTL_SEC = 5 * 60; // long enough to open an app, short enough to be useless later
+export const signPending = (key, sub, opts = {}) =>
+  signToken(key, { sub: String(sub), use: "2fa" }, { ...opts, ttlSec: PENDING_TTL_SEC });
+
 // ------------------------------------------------------------- claims
 
 /**

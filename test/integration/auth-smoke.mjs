@@ -937,18 +937,39 @@ async function shoot(url, { built, files, member } = {}) {
           // /s/<slug>/ and a root-relative src read the wrong way answers 404,
           // which is indistinguishable from "the key is missing" unless the two
           // are reported apart.
-          const srcs = [...document.querySelectorAll("script[src]")]
-            .map((x) => new URL(x.getAttribute("src"), document.baseURI).toString());
+          //
+          // The entry script is NOT enough. Vite code-splits, so `@/lib/rows`
+          // lives in a chunk the entry only names, and scanning the entry alone
+          // reported "no bundle references site_session_" on a site where it
+          // plainly did — a false alarm on the exact check that exists to catch
+          // a silent drift. So: the modulepreload links too, and one level of
+          // chunk names discovered inside what has already been read.
+          const abs = (u) => new URL(u, document.baseURI).toString();
+          const queue = [
+            ...[...document.querySelectorAll("script[src]")].map((x) => abs(x.getAttribute("src"))),
+            ...[...document.querySelectorAll('link[rel="modulepreload"][href]')].map((x) => abs(x.getAttribute("href"))),
+          ];
+          const seen = new Set(queue);
+          const declared = queue.length;
           let fetched = 0;
-          for (const src of srcs) {
+          for (let i = 0; i < queue.length && i < 40; i++) {
             try {
-              const r = await fetch(src);
+              const r = await fetch(queue[i]);
               if (!r.ok) continue;
               fetched++;
-              if ((await r.text()).includes("site_session_")) return { found: true, scripts: srcs.length, fetched };
+              const text = await r.text();
+              if (text.includes("site_session_")) return { found: true, declared, scripts: queue.length, fetched };
+              // Chunk names as they appear in an import: "./chunk-ABC.js" or
+              // "/s/<slug>/assets/chunk-ABC.js". Bounded to one sweep by the
+              // loop cap above, which is the point — this is a search for a
+              // string, not a module graph walk.
+              for (const m of text.matchAll(/["'`]([^"'`]*\/?assets\/[A-Za-z0-9_.-]+\.js)["'`]/g)) {
+                const u = abs(m[1]);
+                if (!seen.has(u)) { seen.add(u); queue.push(u); }
+              }
             } catch { /* next */ }
           }
-          return { found: false, scripts: srcs.length, fetched };
+          return { found: false, declared, scripts: queue.length, fetched };
         });
         // Only a real answer counts as a failure. Reading NO bundle at all is
         // this check not working, and reporting that as "the key is missing"
