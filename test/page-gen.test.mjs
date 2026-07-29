@@ -698,3 +698,26 @@ test("pagesRequest carries the budget, the tool and the repair prompt", () => {
   assert.notEqual(fix.messages[0].content, req.messages[0].content);
   assert.match(fix.messages[0].content, /boom/);
 });
+
+test("every list hook unwraps, and the rules say so", () => {
+  // `useSessions` returned the `{ sessions }` envelope while every other list
+  // hook unwrapped via `select`. The generator called `.map` straight onto it in
+  // ALL THREE eval samples — reasonably, since nothing else behaves that way.
+  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
+  const src = rows.replace(/^\s*\/\/.*$/gm, "");
+  for (const hook of ["useRows", "useSessions", "usePublicRows"]) {
+    const i = src.indexOf("export function " + hook);
+    assert.ok(i > 0, hook + " moved");
+    const block = src.slice(i, src.indexOf("\n}", i));
+    assert.match(block, /select:\s*\(d\)\s*=>\s*d\.\w+|=>\s*r\.rows\)/,
+      hook + " must hand back the array itself, not an envelope");
+  }
+  assert.match(PAGE_RULES, /Every list hook's .{0,8}data.{0,8} IS the array/);
+});
+
+test("the rules forbid annotating a mutation callback's parameter", () => {
+  // TanStack's callback takes four arguments and its types are contravariant, so
+  // a hand-written annotation is refused even when it looks right. Three build
+  // failures came from exactly this.
+  assert.match(PAGE_RULES, /Never annotate a mutation callback's parameter/);
+});
