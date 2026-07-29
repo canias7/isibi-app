@@ -2576,6 +2576,28 @@ const SITE_SCHEMA_TOOL = {
               type: "integer",
               description: "Cap how many rows this table may ever hold. Worth setting on a public form (a giveaway with 500 places, a class with 20 seats); a full table answers 409 rather than growing forever.",
             },
+            // Field-level redaction. Enforced on the read path since 2026-07-29;
+            // before that `maskFields` was written and called by nothing, so a
+            // table declaring it served the raw value to everyone. An ARRAY,
+            // not a map keyed by column name — a map needs `additionalProperties`
+            // in a tool schema, and an under-specified schema there is what took
+            // the builder down for three merges.
+            mask: {
+              type: "array",
+              description:
+                "Columns whose value is REDACTED for callers who may not see it in full — a phone shown as \"••••1234\" on a public page, a member's email hidden from other members. " +
+                "Use it when a table is readable by people who should not see every field of it; do NOT use it to hide a column from everyone (leave that column off the table instead). " +
+                "An `admin` always sees the full value, and an anonymous visitor counts as the role \"public\".",
+              items: {
+                type: "object",
+                properties: {
+                  column: { type: "string", description: "The column to redact." },
+                  roles: { type: "array", items: { type: "string" }, description: "Roles that DO see the full value, e.g. [\"staff\"]. Everyone else sees it redacted; admin always sees it." },
+                  keep: { type: "integer", description: "How many trailing characters stay visible (default 4), so \"07700900123\" shows as \"•••••••0123\"." },
+                },
+                required: ["column", "roles"],
+              },
+            },
             teamRead: {
               type: "boolean",
               description:
@@ -3358,7 +3380,13 @@ function siteAuthDeps(env, db, slug, request) {
     },
     setEmail: async (id, email) => {
       try {
-        const r = await sqlQuery(db, "UPDATE _users SET email=? WHERE id=? RETURNING id", [email, Number(id)]);
+        // `verified=0` in the SAME statement, so it is not possible to change an
+        // address without un-proving it — the discipline `setPassword` follows
+        // with the epoch. Without it: verify a real address, change to somebody
+        // else's, and the account stays "verified" on an address it never
+        // proved. Inert only while `requireVerified` fails open for want of a
+        // mailer; it becomes a live gate bypass the day that key ships.
+        const r = await sqlQuery(db, "UPDATE _users SET email=?, verified=0 WHERE id=? RETURNING id", [email, Number(id)]);
         return r[0] ? { ok: true } : { conflict: true };
       } catch (e) {
         // The UNIQUE index on email is what decides, so a race between two

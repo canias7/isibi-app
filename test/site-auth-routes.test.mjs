@@ -7,6 +7,7 @@
 // that matters more than the password itself.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { handleSiteAuth } from "../site-auth-routes.mjs";
 import { hashPassword, sessionKey, signToken, signReset, verifySession } from "../site-auth.mjs";
 
@@ -18,7 +19,7 @@ const FAST = { iterations: 1000 };
 async function harness(over = {}) {
   const users = new Map(); // "slug|email" -> row
   const byId = new Map();
-  const calls = { sent: [], throttled: [], setPassword: [], touched: [], swept: [], touched_sessions: [] };
+  const calls = { sent: [], throttled: [], setPassword: [], touched: [], swept: [], touched_sessions: [], verifySent: [] };
   let nextId = 1;
 
   if (over.withUser !== false) {
@@ -50,6 +51,8 @@ async function harness(over = {}) {
       return { id: row.id };
     },
     setPassword: async (id, hash) => { calls.setPassword.push(id); byId.get(String(id)).password_hash = hash; },
+    setEmail: async (id, email) => { const u = byId.get(String(id)); if (!u) return { conflict: true }; u.email = email; u.verified = 0; return { ok: true }; },
+    onSignedUp: (id, email) => { calls.verifySent.push([id, email]); },
     touchLogin: async (id) => { calls.touched.push(id); },
     secret: async () => SECRET,
     sendReset: async (email, token) => { calls.sent.push({ email, token }); },
@@ -920,4 +923,59 @@ test("a sid with no row still works — a failed write is not a locked account",
   const h = await epochHarness();
   const orphan = await sidToken("eeeeeeeeeeeeeeeeeeee");
   assert.equal((await call(h.deps, "me", { token: orphan })).status, 200);
+});
+
+// ------------------------------------------------- changing the address un-proves it
+//
+// `setEmail` wrote `email=?` and left `verified` alone, so: prove a real
+// address, change to somebody else's, and the account stays "verified" on one it
+// never proved. Inert only while `requireVerified` fails open for want of a
+// mailer — it becomes a live gate bypass the day that key ships, which is
+// exactly the moment nobody would be looking for it.
+
+test("changing the address clears `verified` and asks again", async () => {
+  const asked = [];
+  const h = await epochHarness({ deps: { onSignedUp: (id, email) => asked.push([id, email]) } });
+  let wrote = null;
+  h.deps.setEmail = async (id, email) => { wrote = { id, email }; return { ok: true }; };
+  const token = await signIn(h.deps);
+  const r = await call(h.deps, "email", { token, body: { current: PW, next: "moved@example.com" } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.user.email, "moved@example.com");
+  assert.deepEqual(asked, [["u1", "moved@example.com"]], "the new address has to be proved");
+  assert.deepEqual(wrote, { id: "u1", email: "moved@example.com" });
+});
+
+test("the un-proving happens in the STATEMENT, not in the route", () => {
+  // A caller that forgets is a caller that leaves a verified account on an
+  // unproven address, so the write owns it — the discipline setPassword follows
+  // with the epoch.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const i = src.indexOf("setEmail: async");
+  assert.ok(i > 0, "setEmail moved");
+  const body = src.slice(i, i + 600);
+  assert.match(body, /UPDATE _users SET email=\?, verified=0/,
+    "clearing `verified` must be part of the same UPDATE, not a second step somebody can skip");
+});
+
+test("a dark mailer does not break an email change", async () => {
+  // The change already succeeded; a throwing mailer must not report failure.
+  const h = await epochHarness({ deps: { onSignedUp: () => { throw new Error("no mailer"); } } });
+  const token = await signIn(h.deps);
+  const r = await call(h.deps, "email", { token, body: { current: PW, next: "moved@example.com" } });
+  assert.equal(r.status, 200);
+});
+
+test("a REFUSED email change asks for nothing", async () => {
+  // Wrong password, unchanged address, and a taken address must not each send a
+  // verification link to an address the caller does not control — that is a way
+  // to mail anybody, from our domain, on demand.
+  const asked = [];
+  const h = await epochHarness({ deps: { onSignedUp: (id, e) => asked.push(e) } });
+  const token = await signIn(h.deps);
+  await call(h.deps, "email", { token, body: { current: "wrong", next: "moved@example.com" } });
+  await call(h.deps, "email", { token, body: { current: PW, next: "member@example.com" } });
+  h.deps.setEmail = async () => ({ conflict: true });
+  await call(h.deps, "email", { token, body: { current: PW, next: "taken@example.com" } });
+  assert.deepEqual(asked, []);
 });

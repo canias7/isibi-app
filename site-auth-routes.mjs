@@ -317,6 +317,11 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     if (next === user.email) return json({ ok: true, user: { id: user.id, email: user.email } });
     const changed = await deps.setEmail(user.id, next);
     if (changed && changed.conflict) return json({ error: "That email already has an account.", code: "exists" }, 409);
+    // `setEmail` cleared `verified`, so ask them to prove the new one. Same
+    // fire-and-forget path as signup: the change already succeeded, and a site
+    // with no mailer simply never asks.
+    try { deps.onSignedUp?.(user.id, next); }
+    catch (e) { console.error("verify send failed after email change:", slug, (e && e.message) || e); }
     // A fresh token so the client's copy of the address is not stale.
     return json({ ok: true, token: await mk({ ...user, email: next }), user: { id: user.id, email: next } });
   }
