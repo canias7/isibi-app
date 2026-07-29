@@ -24,7 +24,7 @@ import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlI
 import { handleSiteData } from "./site-data.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
-import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, repairPrompt, briefForPages } from "./builder/page-gen.mjs";
+import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, repairPrompt, briefForPages, pagesRequest, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
 import { publishPages } from "./builder/publish-pages.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
 import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
@@ -2726,16 +2726,6 @@ async function designSiteSchema(env, brief) {
   return (use && use.input) || null;
 }
 
-// Page generation is a much bigger call than the schema design — whole .tsx files
-// rather than a handful of column names — so it is metered on what it actually
-// used, like the game builder, instead of a flat fee sized for the worst case.
-//
-// Sized above what the pages themselves need: Sonnet 5 runs adaptive thinking
-// when `thinking` is omitted, and max_tokens caps thinking AND the response
-// together — so a budget tight around the files would spend part of itself
-// reasoning and truncate the last one. (Truncation is caught below rather than
-// published, but a truncated generation is a paid call that produced nothing.)
-const SITE_PAGES_MAX_TOKENS = 24000;
 
 // The pages themselves. Same tool-use shape as designSiteSchema directly above:
 // the model fills in a tool whose input_schema IS the return type, so there is no
@@ -2751,14 +2741,10 @@ async function generateSitePages(env, brief, spec, brand, fix) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-5",
-      max_tokens: SITE_PAGES_MAX_TOKENS,
-      tools: [SITE_PAGES_TOOL],
-      tool_choice: { type: "tool", name: "write_pages" },
-      system: PAGE_RULES,
-      messages: [{ role: "user", content: fix ? repairPrompt(brief, spec, fix.pages, fix.problems, brand) : pagesPrompt(brief, spec, brand) }],
-    }),
+    // One definition, shared with the eval harness — see pagesRequest. Restating
+    // it here would mean the harness tunes against a different request from the
+    // one production runs.
+    body: JSON.stringify(pagesRequest({ brief, spec, brand, fix })),
     signal: AbortSignal.timeout(240000),
   });
   if (!r.ok) {
@@ -2784,7 +2770,18 @@ function schemaPlaceholderPage(brand, spec) {
   const esc = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const tables = (spec.tables || []).map((t) => {
     const cols = (t.columns || []).map((c) => "<li><code>" + esc(typeof c === "string" ? c : c.name) + "</code></li>").join("");
-    return "<section><h2>" + esc(t.name) + "</h2><p>" + esc(t.access === "user" ? "each visitor sees only their own rows" : "shared across visitors") +
+    // Every access level, not "user vs everything else". A `collect` table is
+    // WRITE-ONLY — calling it "shared across visitors" on the owner's fallback
+    // page says the opposite of what it does, and this page is the only thing a
+    // failed build leaves them.
+    const says = {
+      display: "anyone can read this",
+      collect: "visitors submit to this; only you can read it",
+      user: "each visitor sees only their own rows",
+      feed: "signed-in visitors read all of it, and write their own",
+      admin: "signed-in visitors read it; only an admin writes it",
+    }[String(t.access || "collect").toLowerCase()] || "visitors submit to this; only you can read it";
+    return "<section><h2>" + esc(t.name) + "</h2><p>" + esc(says) +
            "</p><ul>" + cols + "</ul></section>";
   }).join("");
   return "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\">" +
