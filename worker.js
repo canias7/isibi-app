@@ -18,6 +18,7 @@ import { checkSignup, newInviteCode, normalizeCode, normalizeMode, inviteOptions
 import { handleAuthFlow } from "./site-auth-flows.mjs";
 import { AUTH_DDL, AUTH_USER_COLUMNS, SESSION_DDL, routeFor, availableMethods } from "./site-auth-methods.mjs";
 import { SESSION_JOIN, sessionUsable, trimUa, MAX_SESSIONS_LISTED, pruneBefore } from "./site-sessions.mjs";
+import { TEAM_DDL, normalizeTeamName, normalizeTeamId, describeTeams } from "./site-teams.mjs";
 import { providerConfig, decodeIdToken } from "./site-oauth.mjs";
 import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
@@ -2598,6 +2599,18 @@ const SITE_SCHEMA_TOOL = {
                 required: ["column", "roles"],
               },
             },
+            // "OURS" — the read model a business tool needs, and the one the
+            // engine has never had reachable. Parsed since the schema engine was
+            // written and undeclarable until 2026-07-29, so no site has ever had
+            // one, exactly like `unique` before it.
+            teamScope: {
+              type: "boolean",
+              description:
+                "Share this table across a TEAM: everyone in the same team reads and edits the same rows, and a write records who made it. " +
+                "USE THIS FOR AN INTERNAL TOOL where colleagues work the same records — a CRM's deals, a shared job list, a client roster. " +
+                "Only meaningful with access 'user'. Do NOT use it for a customer-facing members area, where one customer must never see another's rows. " +
+                "A member the owner has not put in a team sees only their own, so a site is safe before any team exists.",
+            },
             teamRead: {
               type: "boolean",
               description:
@@ -2956,7 +2969,12 @@ async function ensureSiteUsers(db) {
     "ALTER TABLE _users ADD COLUMN totp_enabled INTEGER DEFAULT 0",
     "ALTER TABLE _users ADD COLUMN totp_last_step BIGINT",
     "ALTER TABLE _users ADD COLUMN recovery_hashes TEXT",
+    "ALTER TABLE _users ADD COLUMN team_id INTEGER",
   ]) { try { await sqlQuery(db, sql); } catch {} }
+  // The table `team_id` points at. `applySiteSchema` has been stamping that
+  // column onto every table declaring `teamScope` since the schema engine was
+  // written, with no `_teams` anywhere for it to reference.
+  for (const sql of TEAM_DDL) { try { await sqlQuery(db, sql); } catch {} }
   // The device list, for the same reason the columns above are here: it is
   // JOINed onto the `_users` read on every authenticated request, and the rest
   // of `AUTH_DDL` is applied only on the routes the registry owns. A `_sessions`
@@ -3310,7 +3328,7 @@ async function resolveSiteVisitor(env, request, slug) {
     await ensureSiteUsers(db);
     const rows = await sqlQuery(
       db,
-      "SELECT u.id, u.role, u.token_epoch, u.blocked, u.verified, s.revoked AS session_revoked" +
+      "SELECT u.id, u.role, u.team_id, u.token_epoch, u.blocked, u.verified, s.revoked AS session_revoked" +
       " FROM _users u " + SESSION_JOIN + " WHERE u.id=?",
       [claims.sid ? String(claims.sid) : "", Number(claims.sub)],
     );
@@ -6130,7 +6148,7 @@ async function handleRequest(request, env, ctx) {
     // Ordered BEFORE the site-delete branch below on purpose: that one matches
     // any DELETE under /api/site/, so a row delete would otherwise be read as a
     // request to take the entire site down.
-    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads") || url.pathname.includes("/export") || url.pathname.includes("/notify") || url.pathname.includes("/access"))) {
+    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads") || url.pathname.includes("/export") || url.pathname.includes("/notify") || url.pathname.includes("/access") || url.pathname.includes("/teams"))) {
       const om = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rows(?:\/([a-z_][a-z0-9_]{0,40})(?:\/([0-9]{1,18}))?)?$/i);
       const mm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/members(?:\/([0-9]{1,18}))?$/i);
       const an = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/analytics$/i);
@@ -6138,7 +6156,8 @@ async function handleRequest(request, env, ctx) {
       const xp = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/export$/i);
       const nt = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/notify$/i);
       const ac = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/access(?:\/invite(?:\/([A-Za-z0-9-]{1,32}))?)?$/i);
-      if (om || mm || an || uf || xp || nt || ac) {
+      const tm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/teams(?:\/([0-9]{1,18}))?$/i);
+      if (om || mm || an || uf || xp || nt || ac || tm) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
         const ownerDeps = {
@@ -6195,6 +6214,51 @@ async function handleRequest(request, env, ctx) {
             });
             if (!q.ok) return Response.json({ error: "couldn't save that just now" }, { status: 503 });
             return Response.json({ ok: true, notify: on });
+          } else if (tm) {
+            // Teams — the group a member belongs to, and the only way `teamScope`
+            // becomes reachable. That flag has been parsed, and its `team_id`
+            // column stamped onto tables, since the schema engine was written,
+            // with no table to reference and nothing able to populate it.
+            const tslug = tm[1].toLowerCase();
+            const g = await assertOwner(ownerDeps, tslug, ou.id);
+            if (g.error) return Response.json(g.error.body, { status: g.error.status });
+            const tdb = await siteBackendBySlug(env, tslug);
+            if (!tdb) return Response.json({ error: "no such site" }, { status: 404 });
+            try {
+              await ensureSiteUsers(tdb);
+              if (request.method === "GET") {
+                const rows = await sqlQuery(tdb, "SELECT id, name, created_at FROM _teams ORDER BY id");
+                // One grouped count rather than a query per team.
+                const counts = {};
+                for (const r of await sqlQuery(tdb, "SELECT team_id, COUNT(*) AS n FROM _users WHERE team_id IS NOT NULL GROUP BY team_id")) {
+                  counts[String(r.team_id)] = Number(r.n) || 0;
+                }
+                return Response.json({ teams: describeTeams(rows, counts) });
+              }
+              if (request.method === "POST") {
+                const tb = await request.json().catch(() => ({}));
+                const name = normalizeTeamName(tb.name);
+                if (!name) return Response.json({ error: "a team needs a name" }, { status: 400 });
+                const r = await sqlQuery(tdb, "INSERT INTO _teams (name) VALUES (?) RETURNING id, name, created_at", [name]);
+                return Response.json({ ok: true, team: describeTeams(r, {})[0] }, { status: 201 });
+              }
+              if (request.method === "DELETE") {
+                const tid = Number(tm[2]);
+                if (!Number.isInteger(tid) || tid <= 0) return Response.json({ error: "no such team" }, { status: 404 });
+                // Members are released FIRST. Dropping the team while rows still
+                // point at it would leave `team_id` values referencing nothing —
+                // and a later team reusing that id would inherit the old team's
+                // records, which is a data leak between two unrelated groups.
+                await sqlQuery(tdb, "UPDATE _users SET team_id=NULL WHERE team_id=?", [tid]);
+                const d = await sqlExec(tdb, "DELETE FROM _teams WHERE id=?", [tid]);
+                if (!d.changes) return Response.json({ error: "no such team" }, { status: 404 });
+                return Response.json({ ok: true });
+              }
+              return Response.json({ error: "method not allowed" }, { status: 405 });
+            } catch (e) {
+              console.error("site teams failed:", tslug, (e && (e.detail || e.message)) || e);
+              return Response.json({ error: "couldn't do that just now" }, { status: 503 });
+            }
           } else if (ac) {
             // Who may become a member. Open by default — every site built before
             // this has no setting and must keep behaving exactly as it did.

@@ -753,3 +753,34 @@ test("a member knows its own role", () => {
   const worker = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
   assert.match(worker, /SELECT u\.id, u\.email, u\.role,/, "findUserById must select role");
 });
+
+test("the digest says when a `user` table is actually shared with a team", () => {
+  // `user` normally means private-to-me. `teamScope` changes it to "ours", and
+  // a page captioned "your notes" over a shared team table describes something
+  // the API does not do.
+  const d = schemaDigest({ tables: [
+    { name: "deals", access: "user", teamScope: true, columns: [{ name: "title" }] },
+    { name: "notes", access: "user", columns: [{ name: "body" }] },
+  ] });
+  assert.match(d, /deals[\s\S]*?SHARED WITH THE TEAM/);
+  assert.ok(!/notes[\s\S]*?SHARED WITH THE TEAM/.test(d.split("TABLE notes")[1] || ""), "a plain user table must not claim to be shared");
+});
+
+test("teamScope is reachable end to end", () => {
+  // It was parsed since the schema engine was written, stamped a `team_id`
+  // column onto every table declaring it, and was read by nothing, populated by
+  // nothing, and undeclarable by the designer — dead at four layers at once.
+  // Each link asserted, because any one of them missing makes the rest useless.
+  const worker = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
+  const data = fs.readFileSync(path.join(ROOT, "site-data.mjs"), "utf8");
+  const owner = fs.readFileSync(path.join(ROOT, "site-owner.mjs"), "utf8");
+
+  assert.match(worker, /teamScope: \{\s*\n\s*type: "boolean"/, "the designer must be able to declare it");
+  assert.match(worker, /ALTER TABLE _users ADD COLUMN team_id INTEGER/, "a member needs somewhere to hold their team");
+  assert.match(worker, /SELECT u\.id, u\.role, u\.team_id,/, "the visitor must carry it, or everyone reads as teamless");
+  assert.match(worker, /for \(const sql of TEAM_DDL\)/, "the table team_id points at must exist");
+  assert.match(worker, /INSERT INTO _teams \(name\)/, "an owner must be able to create one");
+  assert.match(owner, /normalizeTeamId\(body\.team_id\)/, "...and put a member in it");
+  assert.match(data, /teamScoped\(def\)/, "the read path must act on it");
+  assert.match(data, /teamStamp\(visitor\)/, "and a write must stamp it");
+});

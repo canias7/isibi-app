@@ -1006,3 +1006,105 @@ test("a single-row GET is the same path, so it masks too", async () => {
     assert.equal(row.phone, "\u2022\u2022\u2022\u2022\u2022\u2022\u20220123", "unmasked by " + (qs || "(no query)"));
   }
 });
+
+// ------------------------------------------------------------- teamScope
+//
+// `teamScope` has been parsed since the schema engine was written, and
+// `applySiteSchema` has been stamping a `team_id` column onto every table that
+// declares it — with no query ever reading or setting it. The fifth
+// implemented-and-unreachable feature this session.
+
+const SCOPE_SPEC = {
+  tables: [{ name: "deals", access: "user", teamScope: true, columns: [{ name: "title" }] }],
+};
+const scopeCall = async (method, path, { body, visitor } = {}) => {
+  const url = new URL("https://isibi.ai" + path);
+  const req = new Request(url, {
+    method,
+    headers: body ? { "content-type": "application/json", Authorization: "Bearer t" } : { Authorization: "Bearer t" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const seen = [];
+  const conn = { query: async (sql, p) => { seen.push([sql, p]); return { rows: [{ id: 1 }], rowCount: 1 }; } };
+  const deps = {
+    sqlQuery: async (_c, sql, p) => (await conn.query(sql, p)).rows,
+    sqlExec: async (_c, sql, p) => { const r = await conn.query(sql, p); return { results: r.rows, changes: r.rowCount }; },
+    loadSiteSchema: async () => SCOPE_SPEC,
+    resolveVisitor: async () => visitor,
+  };
+  const res = await handleSiteData({}, req, url, async () => conn, deps);
+  return { res, seen };
+};
+
+test("a member WITH a team reads their own rows and the team's", async () => {
+  const { seen } = await scopeCall("GET", "/api/db/shop/rows/deals", { visitor: { id: 7, role: "user", team_id: 3 } });
+  const [sql, p] = seen.find(([s]) => /SELECT \* FROM/.test(s));
+  assert.match(sql, /\("owner_id"=\? OR "team_id"=\?\)/, sql);
+  assert.ok(p.includes(7) && p.includes(3), JSON.stringify(p));
+});
+
+test("a member with NO team never sees another teamless member's rows", async () => {
+  // Before an owner sets any team up, EVERY member is teamless — so getting this
+  // wrong shows the whole site each other's records.
+  const { seen } = await scopeCall("GET", "/api/db/shop/rows/deals", { visitor: { id: 7, role: "user", team_id: null } });
+  const [sql, p] = seen.find(([s]) => /SELECT \* FROM/.test(s));
+  assert.ok(!/team_id/.test(sql), "a teamless read must not mention team_id: " + sql);
+  assert.match(sql, /"owner_id"=\?/);
+  assert.deepEqual(p.slice(0, 1), [7]);
+});
+
+test("a write stamps the team from the session, never the body", async () => {
+  const { seen } = await scopeCall("POST", "/api/db/shop/rows/deals", {
+    visitor: { id: 7, role: "user", team_id: 3 },
+    body: { title: "x", team_id: 999, owner_id: 999 },
+  });
+  const [sql, p] = seen.find(([s]) => /INSERT INTO/.test(s));
+  assert.match(sql, /"team_id"/, sql);
+  assert.ok(p.includes(3), "the session's team: " + JSON.stringify(p));
+  assert.ok(!p.includes(999), "a body must not be able to claim a team or an owner: " + JSON.stringify(p));
+});
+
+test("a teamless write stamps an owner and no team at all", async () => {
+  // Not `team_id = null` explicitly — the column defaults to null, and writing
+  // it would be indistinguishable from a bug that cleared somebody's team.
+  const { seen } = await scopeCall("POST", "/api/db/shop/rows/deals", {
+    visitor: { id: 7, role: "user", team_id: null }, body: { title: "x" },
+  });
+  const [sql] = seen.find(([s]) => /INSERT INTO/.test(s));
+  assert.ok(!/team_id/.test(sql), sql);
+});
+
+test("the team may EDIT the team's rows — the difference from teamRead", async () => {
+  const { seen } = await scopeCall("PATCH", "/api/db/shop/rows/deals/5", {
+    visitor: { id: 7, role: "user", team_id: 3 }, body: { title: "corrected" },
+  });
+  const [sql, p] = seen.find(([s]) => /UPDATE/.test(s));
+  assert.match(sql, /\("owner_id"=\? OR "team_id"=\?\)/, sql);
+  assert.ok(p.includes(3), JSON.stringify(p));
+});
+
+test("a teamless member still edits only their own", async () => {
+  const { seen } = await scopeCall("PATCH", "/api/db/shop/rows/deals/5", {
+    visitor: { id: 7, role: "user", team_id: null }, body: { title: "x" },
+  });
+  const [sql] = seen.find(([s]) => /UPDATE/.test(s));
+  assert.ok(!/team_id/.test(sql), sql);
+  assert.match(sql, /"owner_id"=\?/);
+});
+
+test("a table that does NOT declare teamScope is untouched", async () => {
+  // The whole feature is opt-in; a customer-facing members area must keep
+  // behaving exactly as it did.
+  const url = new URL("https://isibi.ai/api/db/shop/rows/mine");
+  const seen = [];
+  const conn = { query: async (sql, p) => { seen.push([sql, p]); return { rows: [], rowCount: 0 }; } };
+  const deps = {
+    sqlQuery: async (_c, sql, p) => (await conn.query(sql, p)).rows,
+    sqlExec: async () => ({ results: [], changes: 0 }),
+    loadSiteSchema: async () => SPEC,
+    resolveVisitor: async () => ({ id: 7, role: "user", team_id: 3 }),
+  };
+  await handleSiteData({}, new Request(url, { headers: { Authorization: "Bearer t" } }), url, async () => conn, deps);
+  const [sql] = seen.find(([s]) => /SELECT \* FROM/.test(s));
+  assert.ok(!/team_id/.test(sql), "a table without teamScope must not gain a team clause: " + sql);
+});
