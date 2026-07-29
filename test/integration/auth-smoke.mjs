@@ -887,7 +887,14 @@ async function shoot(url, { built, files, member } = {}) {
     await page.screenshot({ path: path.join(SHOTS, "02-seeded-content.png"), fullPage: true });
 
     // ---------------------------------------------------- signed in, for real
-    if (built && member) {
+    // Deliberately NOT gated on `built`. The content checks above are about the
+    // generator and cannot pass on a placeholder, so they are skipped when it
+    // falls back. These are about AUTH: the placeholder is served from the same
+    // origin, by the same Worker, with the same API behind it. Gating them too
+    // meant a generator failure silently deleted the browser half of this audit
+    // — which is how passkeys and the session-key convention would go untested
+    // on exactly the runs where something is already wrong.
+    if (member) {
       const created = await page.evaluate(async ({ slug, email, password }) => {
         const r = await fetch(`/api/db/${slug}/auth/signup`, {
           method: "POST", headers: { "content-type": "application/json" },
@@ -944,7 +951,11 @@ async function shoot(url, { built, files, member } = {}) {
         // this check not working, and reporting that as "the key is missing"
         // would be a false alarm on an otherwise-correct site — which is exactly
         // what the first version did.
-        if (reads.fetched > 0) {
+        // This one IS about the generated app — the placeholder has no client
+        // API in it and would fail the check for a reason that is not a defect.
+        if (!built) {
+          console.log("   (placeholder — skipping the bundle key check, which is a claim about the generated app)");
+        } else if (reads.fetched > 0) {
           ok("the published bundle reads the session key the platform writes", reads.found,
             "no bundle references `site_session_` — a stored session would be ignored: " + JSON.stringify(reads));
         } else {
