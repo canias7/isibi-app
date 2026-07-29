@@ -54,13 +54,24 @@ let userId = null, slug = null, jwt = null;
 // The site's own members. `auth` drives /api/db/<slug>/auth/* — public by
 // design, because a customer booking a class has no isibi account.
 const authUrl = (a) => `${BASE}/api/db/${slug}/auth/${a}`;
-const auth = async (action, body, token) => {
+// Retries once on 429. The auth surface is rate limited per IP (30/min) and an
+// audit this dense outruns it — which is the limiter working, not a defect. The
+// alternative is a suite whose last section fails for a reason that has nothing
+// to do with what it is testing, which is exactly what the first run did.
+const auth = async (action, body, token, retried = false) => {
   const r = await fetch(authUrl(action), {
     method: "POST",
     headers: { "content-type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify(body || {}),
   });
-  return { status: r.status, body: await J(r) };
+  const out = { status: r.status, body: await J(r) };
+  if (out.status === 429 && !retried) {
+    const wait = Math.min(Number(out.body.retryAfter) || 30, 70);
+    console.log(`   (rate limited — waiting ${wait}s, the limiter is doing its job)`);
+    await new Promise((res) => setTimeout(res, (wait + 2) * 1000));
+    return auth(action, body, token, true);
+  }
+  return out;
 };
 const me = async (token) => {
   const r = await fetch(authUrl("me"), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
@@ -200,7 +211,14 @@ try {
     list.status + " " + JSON.stringify(listed).slice(0, 200));
   const current = (listed.sessions || []).filter((s) => s.current);
   ok("exactly one device is marked `current`", current.length === 1, JSON.stringify(listed.sessions));
-  const other = (listed.sessions || []).find((s) => !s.current);
+  // The sid to revoke is read out of m1token ITSELF, not picked as "the first
+  // one that is not current". Signup and each login mint a session, so several
+  // are not current, and the first draft revoked whichever sorted first and then
+  // asserted a DIFFERENT token had died — a flaky test that reads as a product
+  // bug. The payload is the unsigned half of the token, so this needs no secret.
+  const sidOf = (t) => { try { return JSON.parse(Buffer.from(String(t).split(".")[0], "base64url").toString()).sid; } catch { return null; } };
+  const other = (listed.sessions || []).find((s) => s.sid === sidOf(m1token));
+  ok("the token's own device appears in the list", !!other, `sid=${sidOf(m1token)} listed=${JSON.stringify((listed.sessions || []).map((x) => x.sid))}`);
   ok("a device is named, not dumped as a UA string", !!other && typeof other.device === "string" && other.device.length < 40, JSON.stringify(other));
 
   if (other) {

@@ -45,8 +45,12 @@ jobs:
           node-version: "22"
       - run: npm ci --no-audit --no-fund --loglevel=error
 
-      # The audit drives the published site in a real browser — the only check
-      # that fails when a site is published but dead.
+      # `playwright` is NOT a repo dependency (nothing the Worker ships needs
+      # it), so `npm ci` does not install it and `import("playwright")` throws —
+      # which is why every screenshot step in this repo has silently produced
+      # nothing. Installed here, unsaved, so the lockfile and the deploy are
+      # untouched. The browser itself is a separate download.
+      - run: npm i --no-save playwright
       - run: npx playwright install --with-deps chromium
 
       - name: Audit the auth layer
