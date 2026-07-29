@@ -3218,10 +3218,29 @@ function authFlowDeps(env, db, slug, url, request) {
     unlinkIdentity: (uid, id) => sqlExec(db, "DELETE FROM _identities WHERE id=? AND user_id=?", [Number(id), Number(uid)]),
     setVerified: (uid) => q("UPDATE _users SET verified=1 WHERE id=?", [Number(uid)]),
     sendVerify: (email, token) => sendSiteVerifyEmail(env, slug, email, token),
-    setTotp: (uid, v) => q(
-      "UPDATE _users SET totp_secret=?, totp_enabled=?, totp_last_step=?, recovery_hashes=? WHERE id=?",
-      [v.secret ?? null, v.enabled ? 1 : 0, v.lastStep ?? null, v.recovery ?? null, Number(uid)],
-    ),
+    // ONLY the fields it was given. This wrote all four columns unconditionally
+    // until 2026-07-29, and `totp/verify` does not pass `recovery` — so the
+    // FIRST successful sign-in with the authenticator app set `recovery_hashes`
+    // to NULL and destroyed every recovery code. Silent, and it only bites at
+    // the one moment those codes exist for: the phone is gone and there is now
+    // no way back into the account at all.
+    //
+    // The unit suite could not see it because its fake already behaved this way
+    // — a fake more capable than the thing it stands in for. Found by the
+    // production audit; the fake is now the contract, and a test holds the real
+    // one to it.
+    setTotp: (uid, v) => {
+      const sets = [], vals = [];
+      const put = (col, key, map) => { if (Object.hasOwn(v, key)) { sets.push(col + "=?"); vals.push(map(v[key])); } };
+      put("totp_secret", "secret", (x) => x ?? null);
+      put("totp_enabled", "enabled", (x) => (x ? 1 : 0));
+      put("totp_last_step", "lastStep", (x) => x ?? null);
+      // Passed explicitly as null by `totp/disable`, which is how turning the
+      // factor off still clears them.
+      put("recovery_hashes", "recovery", (x) => x ?? null);
+      if (!sets.length) return Promise.resolve([]);
+      return q("UPDATE _users SET " + sets.join(",") + " WHERE id=?", vals.concat([Number(uid)]));
+    },
 
     // A provider sign-in is still a signup when nobody here matches, so it obeys
     // the same open/invite/closed setting as the form.

@@ -726,6 +726,15 @@ try {
   const assignA = await owner(`/members/${adaId2}`, { method: "PATCH", body: JSON.stringify({ team_id: teamId }) });
   const assignB = await owner(`/members/${bobId}`, { method: "PATCH", body: JSON.stringify({ team_id: teamId }) });
   ok("an owner can put members in a team", assignA.status === 200 && assignB.status === 200, `${assignA.status}/${assignB.status}`);
+  // Read back from the members list rather than trusting the 200. This chain has
+  // been broken at five separate layers now, and each time the layer above
+  // reported success — so each link is asserted on its own, or a failure at the
+  // end says only "the feature does not work" and not which half.
+  const mem3 = await J(await owner("/members"));
+  const teamOfMember = (email) => (mem3.members || []).find((x) => String(x.email) === email)?.team_id;
+  ok("the assignment is on the member rows, not just in the response",
+    Number(teamOfMember(m1b)) === Number(teamId) && Number(teamOfMember(m2)) === Number(teamId),
+    `ada=${teamOfMember(m1b)} bob=${teamOfMember(m2)} team=${teamId}`);
 
   // Fresh tokens: both accounts have had their sessions churned above.
   const adaTok = (await auth("login", { email: m1b, password: m1pass2 })).body.token;
@@ -742,6 +751,19 @@ try {
   const dOut = await deal(outTok, "solo-deal");
   ok("a team member can write a team-scoped row", dA.status === 201, dA.status + " " + JSON.stringify(await J(dA)).slice(0, 160));
   ok("so can somebody with no team", dOut.status === 201, dOut.status);
+
+  // The other half of the chain, and the one that decides which side a failure
+  // is on: was the row STAMPED with the team? The owner's door returns raw rows,
+  // so this reads `team_id` directly instead of inferring it from what a
+  // team-mate can see. A write-side failure and a read-side failure look
+  // identical from the member's end — both are an empty list.
+  const ownerDeals = await J(await owner("/rows/deals"));
+  const adaRow = (ownerDeals.rows || []).find((x) => x.title === "ada-deal");
+  const soloRow = (ownerDeals.rows || []).find((x) => x.title === "solo-deal");
+  ok("the row is stamped with the writer's team", adaRow && Number(adaRow.team_id) === Number(teamId),
+    `team_id=${adaRow && adaRow.team_id} expected=${teamId} row=${JSON.stringify(adaRow || null).slice(0, 200)}`);
+  ok("a teamless writer's row carries no team", soloRow && (soloRow.team_id === null || soloRow.team_id === undefined),
+    `team_id=${soloRow && soloRow.team_id}`);
 
   const bobSees = await readDeals(bobTok);
   ok("a team-mate sees the team's rows, not just their own",
@@ -870,8 +892,12 @@ async function shoot(url, { built, files, member } = {}) {
     const resp = await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
     ok("the published site serves 200", !!resp && resp.status() === 200, resp && resp.status());
     // An empty #root means the bundle threw — the page "loads" and shows nothing.
+    // A claim about the generated app, so it is skipped on a placeholder, which
+    // is a static page with no #root at all: failing it there reports the
+    // generator's fallback a second time under a name that suggests a crash.
     const rendered = await page.evaluate(() => (document.getElementById("root")?.innerText || "").trim().length);
-    ok("the app actually RENDERED (root is not empty)", rendered > 20, "root text length=" + rendered);
+    if (built) ok("the app actually RENDERED (root is not empty)", rendered > 20, "root text length=" + rendered);
+    else console.log("   (placeholder — skipping the render check, which is a claim about the generated app)");
     ok("no uncaught error on load", errors.length === 0, errors.join(" | "));
     await page.screenshot({ path: path.join(SHOTS, "01-published-site.png"), fullPage: true });
 
