@@ -1168,3 +1168,56 @@ test("both sign-in paths mint the pending token from ONE definition", () => {
     assert.ok(!/use: ?"2fa"/.test(src), name + " restates the pending token's payload instead of calling signPending");
   }
 });
+
+// ------------------------------------------ signing in must not spend the codes
+//
+// `totp/verify` records the step it matched (so a code cannot be replayed) and
+// passes `{secret, enabled, lastStep}` — no `recovery`. The real `setTotp` wrote
+// all four columns unconditionally, so **the first successful sign-in with the
+// authenticator app set recovery_hashes to NULL** and destroyed every recovery
+// code. Silent, and it bites at the only moment those codes exist for: the phone
+// is gone and there is no way back in.
+//
+// The fake above already did a partial update — a fake more capable than the
+// thing it stands in for, which is why 978 unit tests never saw this. The fake
+// is the contract now, and the test below holds the real one to it.
+test("a successful TOTP sign-in leaves the recovery codes alone", async () => {
+  const secret = newTotpSecret();
+  const h = await harness({ user: { totp_secret: secret } });
+
+  // Turn it on the way a member does, so the codes come from the real path.
+  const on = await h.call("totp/enable", { token: h.session, body: { code: await totpCode(secret, { nowMs: NOW }) } });
+  assert.equal(on.status, 200, JSON.stringify(on.body));
+  const codes = on.body.recovery;
+  assert.ok(codes && codes.length, "enabling must issue recovery codes");
+
+  // Sign in with the app. This is the call that used to wipe them.
+  // A LATER step than the one `enable` consumed: `enable` records the step it
+  // matched, so the identical code is a replay and is correctly refused.
+  const later = NOW + 60_000;
+  const pending = (await finishSignIn(h.deps, h.users.get("1"), { key: h.key, nowMs: later })).body.pending;
+  const used = await h.call("totp/verify", { token: pending, nowMs: later, body: { code: await totpCode(secret, { nowMs: later }) } });
+  assert.equal(used.status, 200, JSON.stringify(used.body));
+  assert.ok(used.body.token, "the second factor must complete the sign-in");
+
+  const after = h.users.get("1");
+  assert.ok(after.recovery_hashes, "signing in with the app must not erase the recovery codes");
+  assert.equal(JSON.parse(after.recovery_hashes).length, codes.length, "every code must survive a sign-in");
+});
+
+test("setTotp writes only the fields it is given", () => {
+  // The behavioural test above runs against the fake; this holds the real one in
+  // worker.js to the same contract, because worker.js cannot be imported and the
+  // divergence between the two is what the bug WAS.
+  assert.ok(
+    !/UPDATE _users SET totp_secret=\?, ?totp_enabled=\?, ?totp_last_step=\?, ?recovery_hashes=\?/.test(WORKER),
+    "setTotp must not write all four columns unconditionally — totp/verify passes no `recovery`, " +
+    "so every successful sign-in with the app would erase the recovery codes",
+  );
+  const fn = WORKER.match(/setTotp: \(uid, v\) => \{[\s\S]*?\n    \},/);
+  assert.ok(fn, "setTotp was not found in worker.js");
+  assert.match(fn[0], /hasOwn\(v,/, "the SET clause must be built from the keys actually present");
+  // And it must still be able to CLEAR them, or turning the factor off would
+  // leave live recovery codes on a disabled account.
+  assert.match(fn[0], /recovery_hashes/, "setTotp must still be able to clear the recovery codes");
+});
