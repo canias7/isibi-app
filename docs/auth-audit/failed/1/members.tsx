@@ -1,23 +1,27 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 
-import { useMember, useRows, useCreateRow, useDeleteRow, type Row } from "@/lib/rows";
+import {
+  useMember,
+  useRows,
+  useCreateRow,
+  useDeleteRow,
+  type Row,
+} from "@/lib/rows";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import SignInPrompt from "@/components/sign-in-prompt";
 
 export const Route = createFileRoute("/members")({ component: Members });
 
-type Note = Row & {
-  title: string;
-  body: string | null;
-};
+type Note = Row & { title: string; body: string | null };
 
 const noteSchema = z.object({
   title: z.string().min(1, "Give it a title"),
@@ -31,8 +35,8 @@ function Members() {
 
   if (member.isPending) {
     return (
-      <main className="mx-auto max-w-2xl px-6 py-16">
-        <Skeleton className="h-8 w-48" />
+      <main className="mx-auto max-w-3xl px-6 py-16">
+        <Skeleton className="h-10 w-64" />
         <Skeleton className="mt-6 h-40 rounded-xl" />
       </main>
     );
@@ -40,26 +44,26 @@ function Members() {
 
   if (!member.data) {
     return (
-      <main className="mx-auto max-w-2xl px-6 py-16">
-        <h1 className="text-3xl font-semibold tracking-tight">Members area</h1>
+      <main className="mx-auto max-w-md px-6 py-16">
+        <h1 className="text-3xl font-semibold">Members area</h1>
         <p className="mt-2 text-muted-foreground">
-          Sign in to keep your own practice notes — poses to work on, how a class felt, whatever
-          helps you remember.
+          Sign in to keep your own practice notes — reminders about what to work on, poses that felt
+          good, anything at all.
         </p>
-        <Button asChild className="mt-6">
-          <Link to="/account">Sign in</Link>
-        </Button>
+        <div className="mt-8">
+          <SignInPrompt />
+        </div>
       </main>
     );
   }
 
-  return <NotesPanel />;
+  return <NotesArea />;
 }
 
-function NotesPanel() {
+function NotesArea() {
   const notes = useRows<Note>("my_notes", { order: "id", dir: "desc" });
   const create = useCreateRow("my_notes");
-  const del = useDeleteRow("my_notes");
+  const remove = useDeleteRow("my_notes");
 
   const form = useForm<NoteForm>({
     resolver: zodResolver(noteSchema),
@@ -72,55 +76,28 @@ function NotesPanel() {
         toast.success("Note saved.");
         form.reset();
       },
-      onError: (e: Error) => toast.error(e.message),
+      onError: (e) => toast.error(e.message),
     });
   };
 
-  const onDelete = (id: string) => {
-    del.mutate(
+  const onDelete = (id: Note["id"]) => {
+    remove.mutate(
       { id },
       {
         onSuccess: () => toast.success("Note deleted."),
-        onError: (e: Error) => toast.error(e.message),
+        onError: (e) => toast.error(e.message),
       }
     );
   };
 
   return (
-    <main className="mx-auto max-w-2xl px-6 py-16">
-      <h1 className="text-3xl font-semibold tracking-tight">Your notes</h1>
-      <p className="mt-2 text-muted-foreground">Private to you — nobody else at the studio sees these.</p>
+    <main className="mx-auto max-w-3xl px-6 py-16">
+      <h1 className="text-3xl font-semibold">Your notes</h1>
+      <p className="mt-2 text-muted-foreground">Only you can see these.</p>
 
       <section className="mt-10">
-        <div className="grid gap-3">
-          {notes.isPending && [0, 1, 2].map((i) => <Skeleton key={i} className="h-20 rounded-xl" />)}
-
-          {notes.isError && (
-            <p className="text-sm text-destructive">Couldn't load your notes. Refresh and try again.</p>
-          )}
-
-          {notes.data?.length === 0 && (
-            <p className="text-sm text-muted-foreground">No notes yet — add your first one below.</p>
-          )}
-
-          {notes.data?.map((n) => (
-            <Card key={n.id}>
-              <CardHeader className="flex flex-row items-start justify-between space-y-0">
-                <CardTitle className="text-base">{n.title}</CardTitle>
-                <Button variant="ghost" size="sm" onClick={() => onDelete(n.id)} disabled={del.isPending}>
-                  Delete
-                </Button>
-              </CardHeader>
-              {n.body && <CardContent className="text-sm text-muted-foreground">{n.body}</CardContent>}
-            </Card>
-          ))}
-        </div>
-      </section>
-
-      <section className="mt-10">
-        <h2 className="text-lg font-medium">Add a note</h2>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="mt-4 grid gap-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4">
             <FormField
               control={form.control}
               name="title"
@@ -139,7 +116,7 @@ function NotesPanel() {
               name="body"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Notes</FormLabel>
+                  <FormLabel>Note</FormLabel>
                   <FormControl>
                     <Textarea rows={4} {...field} />
                   </FormControl>
@@ -149,11 +126,39 @@ function NotesPanel() {
             />
             <div>
               <Button type="submit" disabled={create.isPending}>
-                {create.isPending ? "Saving…" : "Save note"}
+                {create.isPending ? "Saving…" : "Add note"}
               </Button>
             </div>
           </form>
         </Form>
+      </section>
+
+      <section className="mt-12">
+        <h2 className="text-lg font-medium">Saved notes</h2>
+        <div className="mt-4 grid gap-3">
+          {notes.isPending &&
+            [0, 1, 2].map((i) => <Skeleton key={i} className="h-20 rounded-xl" />)}
+
+          {notes.isError && (
+            <p className="text-sm text-destructive">Couldn't load your notes. Refresh and try again.</p>
+          )}
+
+          {notes.data?.length === 0 && (
+            <p className="text-sm text-muted-foreground">No notes yet — add your first one above.</p>
+          )}
+
+          {notes.data?.map((n) => (
+            <Card key={n.id}>
+              <CardHeader className="flex flex-row items-start justify-between pb-2">
+                <CardTitle className="text-base">{n.title}</CardTitle>
+                <Button variant="ghost" size="sm" onClick={() => onDelete(n.id)}>
+                  Delete
+                </Button>
+              </CardHeader>
+              {n.body && <CardContent className="text-sm text-muted-foreground">{n.body}</CardContent>}
+            </Card>
+          ))}
+        </div>
       </section>
     </main>
   );

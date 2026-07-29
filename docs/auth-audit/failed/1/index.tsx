@@ -19,12 +19,12 @@ function Home() {
     <main className="mx-auto max-w-4xl px-6 py-16">
       <h1 className="text-4xl font-semibold tracking-tight">Aurora Yoga</h1>
       <p className="mt-2 text-muted-foreground">
-        A calm room, steady breath, and teachers who remember your name. Come practice with us.
+        A calm, well-lit studio for morning stretches and evening wind-downs. Come as you are.
       </p>
 
       <div className="mt-8 flex flex-wrap gap-3">
         <Button asChild>
-          <Link to="/book">Book a class</Link>
+          <Link to="/booking">Book a class</Link>
         </Button>
         <Button asChild variant="outline">
           <Link to="/members">Members area</Link>
@@ -42,13 +42,13 @@ function Home() {
 
           {teachers.isError && (
             <p className="text-sm text-destructive sm:col-span-2">
-              Couldn't load our teachers. Refresh and try again.
+              Couldn't load our teachers right now. Refresh and try again.
             </p>
           )}
 
           {teachers.data?.length === 0 && (
             <p className="text-sm text-muted-foreground sm:col-span-2">
-              No teachers listed yet — check back soon.
+              No teacher profiles listed yet — check back soon.
             </p>
           )}
 
@@ -62,6 +62,15 @@ function Home() {
             </Card>
           ))}
         </div>
+      </section>
+
+      <section className="mt-14">
+        <h2 className="text-xl font-medium">Timetable</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Classes run daily — morning flow at 7:30am, gentle stretch at noon, and evening vinyasa
+          at 6:30pm. Pick a class and a time on the booking page; we'll grey out anything already
+          taken.
+        </p>
       </section>
     </main>
   );
