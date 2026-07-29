@@ -17,6 +17,7 @@ import {
 } from "./site-auth.mjs";
 import { lockState, afterFailure, afterSuccess } from "./site-lockout.mjs";
 import { checkPwned, PWNED_MESSAGE } from "./site-pwned.mjs";
+import { newSessionId, shouldTouch } from "./site-sessions.mjs";
 
 const json = (body, status = 200) => ({ status, body });
 
@@ -30,10 +31,12 @@ const DUMMY = "pbkdf2$210000$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAA
 /**
  * deps:
  *   findUser(slug, email)      → {id, password_hash} | null
- *   findUserById(slug, id)     → {id, email} | null
+ *   findUserById(slug, id, sid)→ {id, email, session_revoked} | null
  *   createUser(slug, email, h) → {id} | {conflict:true}
  *   setPassword(id, hash)      → void
  *   touchLogin(id)             → void
+ *   startSession(id, sid)      → void      records a device; best-effort
+ *   revokeAllSessions(id, keep)→ void      the list half of `logout-all`
  *   secret()                   → the server-only string the signing key derives from
  *   sendReset(email, token)    → void      may be a no-op when no mailer is configured
  *   throttle(key)              → {ok} | {ok:false, retryAfter}
@@ -45,11 +48,22 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
   // what `_users.token_epoch` says, which is what lets a password change hang up
   // every OTHER session — a stolen session token is otherwise valid for thirty
   // days and changing the password does nothing to it.
-  const mk = async (user, epoch) => signToken(
-    key,
-    { sub: String(user.id), email: user.email, ep: Number(epoch == null ? (user.token_epoch || 0) : epoch) },
-    { nowMs: now },
-  );
+  //
+  // `sid` names the DEVICE, which is what makes signing out one of them possible
+  // at all. Recorded best-effort: a failed write must not fail a correct
+  // sign-in, and `sessionUsable` reads a sid with no row as live so that it
+  // cannot. A caller that wires no `startSession` mints tokens with a sid that
+  // nothing has a row for, which is exactly the pre-existing behaviour.
+  const mk = async (user, epoch) => {
+    const sid = newSessionId();
+    try { await deps.startSession?.(user.id, sid); }
+    catch (e) { console.error("session record failed:", slug, (e && e.message) || e); }
+    return signToken(
+      key,
+      { sub: String(user.id), email: user.email, ep: Number(epoch == null ? (user.token_epoch || 0) : epoch), sid },
+      { nowMs: now },
+    );
+  };
 
   // Everything below needs a live session AND an account that still exists, is
   // not suspended, and whose sessions have not been invalidated. Three separate
@@ -57,10 +71,13 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
   const signedIn = async () => {
     const claims = await verifySession(key, token, { nowMs: now });
     if (!claims) return null;
-    const user = await deps.findUserById(slug, claims.sub);
+    // The sid rides along on the lookup rather than costing a second statement.
+    const user = await deps.findUserById(slug, claims.sub, claims.sid);
     if (!user) return null;
     if (Number(claims.ep || 0) !== Number(user.token_epoch || 0)) return null;
     if (user.blocked) return null;
+    // This device was signed out from another one.
+    if (claims.sid && user.session_revoked) return null;
     return user;
   };
 
@@ -78,13 +95,28 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     return breached.known ? json({ error: PWNED_MESSAGE, code: "pwned", count: breached.count }, 400) : null;
   };
 
+  // Everything that bumps the epoch also has to clear the device list.
+  //
+  // The epoch is what actually stops those tokens; this is about what the member
+  // SEES. Without it every device they just signed out keeps appearing in their
+  // settings as somewhere they are signed in, and the one screen that exists to
+  // answer that question answers it wrongly.
+  //
+  // Best-effort, because a failed write leaves a stale row rather than a live
+  // session. Must run BEFORE the replacement token is minted — `mk` records a
+  // row, and a sweep after it would revoke the session being handed back.
+  const sweepSessions = async (userId) => {
+    try { await deps.revokeAllSessions?.(userId); }
+    catch (e) { console.error("session sweep failed:", slug, (e && e.message) || e); }
+  };
+
   if (action === "me") {
     const claims = await verifySession(key, token, { nowMs: now });
     if (!claims) return json({ error: "not signed in" }, 401);
     // Read through to storage rather than trusting the token's copy: an account
     // deleted after its token was issued must stop working immediately, and the
     // token is valid for thirty days.
-    const user = await deps.findUserById(slug, claims.sub);
+    const user = await deps.findUserById(slug, claims.sub, claims.sid);
     if (!user) return json({ error: "not signed in" }, 401);
     // A token minted before the account's current epoch was signed out by a
     // password change. Compared as numbers with 0 for absent, so a token issued
@@ -94,6 +126,17 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     // not just on their next login — otherwise a suspended member keeps full
     // access for up to thirty days.
     if (user.blocked) return json({ error: "not signed in" }, 401);
+    // Signed out from another device. Same rule as the epoch above, per-session
+    // rather than per-account.
+    if (claims.sid && user.session_revoked) return json({ error: "not signed in" }, 401);
+    // The app calls this on load, which is the cheapest honest moment to stamp
+    // "last seen" — the data path is left alone deliberately, so a device list
+    // never costs a write on a read. Fire-and-forget: a failed stamp is a stale
+    // timestamp, not a failed request.
+    if (claims.sid && deps.touchSession && shouldTouch(user.session_last_seen, now)) {
+      try { await deps.touchSession(claims.sid, Math.floor(now / 1000)); }
+      catch (e) { console.error("session touch failed:", slug, (e && e.message) || e); }
+    }
     return json({ user: { id: user.id, email: user.email } });
   }
 
@@ -236,6 +279,7 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     if (breached) return breached;
 
     const epoch = await deps.setPassword(user.id, await hashPassword(body.next));
+    await sweepSessions(user.id);
     // A fresh token, or the caller is signed out by the change they just made.
     return json({ ok: true, token: await mk(user, epoch) });
   }
@@ -247,6 +291,9 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     const user = await signedIn();
     if (!user) return json({ error: "not signed in" }, 401);
     const epoch = await deps.bumpEpoch(user.id);
+    await sweepSessions(user.id);
+    // AFTER the sweep, because `mk` records a row for the token it mints and a
+    // sweep run afterwards would revoke the session the caller is being handed.
     return json({ ok: true, token: await mk(user, epoch) });
   }
 
@@ -311,6 +358,9 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
       // they lost control of the account; leaving the thief signed in would
       // defeat the entire point of the reset.
       await deps.setPassword(user.id, await hashPassword(body.password));
+      // Nothing is minted here — a reset ends at the sign-in page — so every
+      // device really is signed out, and the list has to say so.
+      await sweepSessions(user.id);
       return json({ ok: true });
     }
 

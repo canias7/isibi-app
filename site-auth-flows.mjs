@@ -21,6 +21,7 @@ import {
   newRecoveryCodes, normalizeRecovery, EMAIL_CODE_TTL_SEC, EMAIL_CODE_ATTEMPTS,
 } from "./site-otp.mjs";
 import { availableMethods, secondFactorRequired } from "./site-auth-methods.mjs";
+import { newSessionId, normalizeSid, describeSessions, MAX_SESSIONS_LISTED } from "./site-sessions.mjs";
 
 const json = (body, status = 200) => ({ status, body });
 
@@ -45,8 +46,15 @@ export async function finishSignIn(deps, user, { key, nowMs }) {
     return json({ pending, need: "totp", user: { id: user.id, email: user.email } });
   }
   await deps.touchLogin?.(user.id).catch?.(() => {});
+  // Name the device, so the member can find this session in their list and drop
+  // it without signing every other one out. Recorded BEFORE the token is handed
+  // back but best-effort: a failed write must not fail a correct sign-in, and
+  // `sessionUsable` treats a sid with no row as live precisely so it cannot.
+  const sid = newSessionId();
+  try { await deps.startSession?.(user.id, sid); }
+  catch (e) { console.error("session record failed:", (e && e.message) || e); }
   return json({
-    token: await signToken(key, { sub: String(user.id), email: user.email, ep: Number(user.token_epoch || 0) }, { nowMs }),
+    token: await signToken(key, { sub: String(user.id), email: user.email, ep: Number(user.token_epoch || 0), sid }, { nowMs }),
     user: { id: user.id, email: user.email },
   });
 }
@@ -76,9 +84,15 @@ export async function handleAuthFlow(deps, { slug, route, body = {}, query = {},
   const signedIn = async () => {
     const claims = await verifyToken(key, token, { nowMs: now });
     if (!claims || (claims.use !== undefined && claims.use !== "session")) return null;
-    const user = await deps.findUserById(claims.sub);
+    // The sid rides along on the lookup rather than costing a second statement;
+    // the dep joins `_sessions` and sets `session_revoked`. See SESSION_JOIN.
+    const user = await deps.findUserById(claims.sub, claims.sid);
     if (!user || user.blocked) return null;
     if (Number(claims.ep || 0) !== Number(user.token_epoch || 0)) return null;
+    // A revoked device is refused everywhere a session is, not just on the data
+    // path — otherwise the tablet somebody just signed out could still add a
+    // passkey to the account.
+    if (claims.sid && user.session_revoked) return null;
     return user;
   };
 
@@ -414,6 +428,43 @@ export async function handleAuthFlow(deps, { slug, route, body = {}, query = {},
     const r = await deps.unlinkIdentity(user.id, body.id);
     if (!r || !r.changes) return json({ error: "no such connection" }, 404);
     return json({ ok: true });
+  }
+
+  // ------------------------------------------------------------- devices
+  //
+  // `logout-all` is all-or-nothing — it bumps the account's epoch, so signing
+  // out one old tablet meant signing back in everywhere. And nothing could show
+  // a member what their devices ARE, so the choice was made blind.
+  if (route === "sessions") {
+    const user = await signedIn();
+    if (!user) return json({ error: "not signed in" }, 401);
+    const claims = await verifyToken(key, token, { nowMs: now });
+    const rows = await deps.sessionsFor(user.id, MAX_SESSIONS_LISTED);
+    return json({ sessions: describeSessions(rows, claims && claims.sid, now) });
+  }
+
+  if (route === "sessions/revoke") {
+    const user = await signedIn();
+    if (!user) return json({ error: "not signed in" }, 401);
+    const sid = normalizeSid(body.sid);
+    if (!sid) return json({ error: "no such session" }, 404);
+
+    // Scoped to the caller in the STATEMENT, not by having already read the
+    // row — the sid is unguessable, but "hard to guess" is not an authorization
+    // model, and the same shape here as `passkey/remove` means one reviewer's
+    // rule covers both.
+    const r = await deps.revokeSession(user.id, sid);
+    // Somebody else's session answers 404, identically to one that never
+    // existed. A 403 would confirm the sid is real, which is the only thing a
+    // stranger holding one could learn.
+    if (!r || !r.changes) return json({ error: "no such session" }, 404);
+
+    // Revoking the session you are reading from IS just logging out, and it
+    // works — but the caller is told, because the alternative is a settings page
+    // that appears to succeed and then 401s on its next request with no
+    // explanation.
+    const claims = await verifyToken(key, token, { nowMs: now });
+    return json({ ok: true, self: !!(claims && claims.sid === sid) });
   }
 
   return json({ error: "not found" }, 404);

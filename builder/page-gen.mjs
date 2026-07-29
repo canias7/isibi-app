@@ -400,6 +400,12 @@ There is more than one way in, and WHICH ones depends on the site — so never h
   Only when \`email-code\` is in the list.
 - \`useAddPasskey()\`, \`useConnectedAccounts()\`, \`useStartTotp()\` / \`useEnableTotp()\` /
   \`useDisableTotp()\` belong on an ACCOUNT page, never on the sign-in page.
+- \`useSessions()\` → where this account is signed in, each \`{ sid, device, country, lastSeen,
+  ageSec, current }\`; \`useRevokeSession()\` takes \`{ sid }\` and signs out that ONE device.
+  Also an ACCOUNT page. \`useLogoutOthers()\` is the blunt version — offer both, because "sign out
+  everywhere" makes somebody log back in on every machine they still have. Revoking the row
+  marked \`current\` is allowed and simply logs them out here; the response says \`self: true\`,
+  so send them to the sign-in page rather than leaving them on one that will 401.
 
 **A sign-in may not finish in one step.** \`useLogin\`, \`usePasskeySignIn\` and
 \`useVerifySignInCode\` all return \`{ token }\` OR \`{ pending, need }\`. When \`pending\` comes back

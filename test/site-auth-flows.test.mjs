@@ -19,6 +19,7 @@ const PW = "correct horse battery";
 async function harness(over = {}) {
   const key = await sessionKey(SECRET, "cafe");
   const users = new Map();
+  const sessions = new Map();
   const codes = [];
   const creds = [];
   const identities = [];
@@ -35,7 +36,15 @@ async function harness(over = {}) {
   const deps = {
     rpId: "isibi.ai",
     siteConfig: async () => ({ mailer: true, passkeys: true, oauth: {}, ...over.site }),
-    findUserById: async (id) => users.get(String(id)) || null,
+    // Shaped like the real one: the session row is JOINed onto the user read,
+    // not fetched separately, so a test can never accidentally prove the check
+    // works on a path the Worker does not take.
+    findUserById: async (id, sid) => {
+      const u = users.get(String(id));
+      if (!u) return null;
+      const s = sid ? sessions.get(String(sid)) : null;
+      return { ...u, session_revoked: s && s.user_id === u.id ? s.revoked : null };
+    },
     findUserByEmail: async (e) => [...users.values()].find((u) => u.email === e) || null,
     createUser: async (email) => { const u = { id: 99, email, token_epoch: 0 }; users.set("99", u); return u; },
     findIdentity: async (p, s) => identities.find((i) => i.provider === p && i.subject === s) || null,
@@ -56,6 +65,16 @@ async function harness(over = {}) {
       if (v.recovery !== undefined) u.recovery_hashes = v.recovery;
     },
     touchLogin: async () => {},
+    startSession: async (uid, sid) => {
+      sessions.set(String(sid), { sid: String(sid), user_id: uid, ua: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) Version/17.1 Safari/604.1", country: "gb", created_at: Math.floor(NOW / 1000), last_seen: Math.floor(NOW / 1000), revoked: 0 });
+    },
+    sessionsFor: async (uid) => [...sessions.values()].filter((s) => s.user_id === uid),
+    revokeSession: async (uid, sid) => {
+      const s = sessions.get(String(sid));
+      if (!s || s.user_id !== uid || s.revoked) return { changes: 0 };
+      s.revoked = 1;
+      return { changes: 1 };
+    },
     signupAllowed: async () => over.signupAllowed !== false,
     sendCode: async (email, code) => { sent.push({ email, code }); },
     throttle: async () => ({ ok: over.throttled !== true }),
@@ -68,7 +87,12 @@ async function harness(over = {}) {
 
   const session = await signToken(key, { sub: "1", email: base.email, ep: 0 }, { nowMs: NOW });
   const call = (route, opts = {}) => handleAuthFlow(deps, { slug: "cafe", route, key, nowMs: NOW, origin: ORIGIN, ...opts });
-  return { deps, key, users, codes, creds, identities, sent, session, call, user: base };
+  // A token that names a device, as everything minted from today does.
+  const withSid = async (sid, uid = 1) => {
+    await deps.startSession(uid, sid);
+    return signToken(key, { sub: String(uid), email: base.email, ep: 0, sid }, { nowMs: NOW });
+  };
+  return { deps, key, users, sessions, codes, creds, identities, sent, session, call, user: base, withSid };
 }
 
 // ------------------------------------------------------- the registry
@@ -514,17 +538,43 @@ test("the Worker creates the tables the registry declares", () => {
   assert.match(WORKER, /await ensureAuthTables\(db\)/, "a table nobody creates makes every method route a 500");
 });
 
-test("every dep handleAuthFlow calls is supplied by the Worker", () => {
-  // A missing one is a runtime TypeError on a public endpoint, which is exactly
-  // the class of thing a test should catch instead of a visitor.
-  const flows = fs.readFileSync(new URL("../site-auth-flows.mjs", import.meta.url), "utf8");
-  const used = [...flows.matchAll(/deps\.([a-zA-Z]+)/g)].map((m) => m[1]);
-  const wired = WORKER.slice(WORKER.indexOf("function authFlowDeps"));
-  for (const name of new Set(used)) {
-    assert.ok(wired.includes(name + ":") || wired.includes(name + " ") || wired.includes(name + "("),
-      "authFlowDeps is missing " + name);
+// What a dep factory actually supplies — its own body, PLUS the body of any
+// helper it spreads in. Both factories share `sessionDeps` that way, and a check
+// that only read the factory itself would report every shared dep as missing.
+// Derived from the `...helper(` in the source rather than naming the helper, so
+// the next shared group needs no change here.
+function factorySource(name) {
+  const start = WORKER.indexOf("function " + name);
+  assert.ok(start >= 0, "no such factory: " + name);
+  const body = WORKER.slice(start, WORKER.indexOf("\n}\n", start));
+  let out = body;
+  for (const m of body.matchAll(/\.\.\.([a-zA-Z]+)\(/g)) {
+    const h = WORKER.indexOf("function " + m[1]);
+    assert.ok(h >= 0, name + " spreads " + m[1] + "(), which is not a function in worker.js");
+    out += "\n" + WORKER.slice(h, WORKER.indexOf("\n}\n", h));
   }
-});
+  return out;
+}
+
+// A missing dep is a runtime TypeError on a public endpoint, which is exactly
+// the class of thing a test should catch instead of a visitor. Both auth
+// surfaces are checked: `handleSiteAuth` had no such guard at all, and it grew
+// three new deps the day sessions became listable.
+for (const [module, factory] of [
+  ["site-auth-flows.mjs", "authFlowDeps"],
+  ["site-auth-routes.mjs", "siteAuthDeps"],
+]) {
+  test(`every dep ${module} calls is supplied by ${factory}`, () => {
+    const src = fs.readFileSync(new URL("../" + module, import.meta.url), "utf8");
+    const used = [...src.matchAll(/deps\.([a-zA-Z]+)/g)].map((m) => m[1]);
+    assert.ok(used.length > 5, "the scan found almost nothing — the regex has drifted");
+    const wired = factorySource(factory);
+    for (const name of new Set(used)) {
+      assert.ok(wired.includes(name + ":") || wired.includes(name + " ") || wired.includes(name + "("),
+        `${factory} is missing ${name}`);
+    }
+  });
+}
 
 test("the client can reach every method the registry offers", () => {
   for (const hook of [
@@ -577,16 +627,55 @@ test("every column a query selects from _users is one ensureSiteUsers creates", 
   const create = body.slice(body.indexOf("CREATE TABLE"), body.indexOf(")`"));
   for (const m of create.matchAll(/^\s*([a-z_]+) /gm)) created.add(m[1]);
 
+  // Adjacent string literals are joined first. Without this the scan silently
+  // stops covering any query long enough to be split across two lines — which is
+  // exactly what the two session JOINs are, and they are the queries on every
+  // authenticated request. A guard that quietly narrows is worse than none.
+  const joined = WORKER.replace(/"\s*\+\s*\n?\s*"/g, "");
   const selected = new Set();
-  for (const m of WORKER.matchAll(/SELECT ([^"`]+?) FROM _users/g)) {
+  let sawJoin = false;
+  for (const m of joined.matchAll(/SELECT ([^"`]+?) FROM _users/g)) {
+    if (/\bs\./.test(m[1])) sawJoin = true;
     for (const col of m[1].split(",")) {
       const name = col.trim().replace(/ AS .*/i, "").replace(/\(.*/, "").trim();
-      if (/^[a-z_]+$/.test(name) && name !== "SELECT") selected.add(name);
+      // `s.` columns come from the joined _sessions row, not from _users.
+      if (name.startsWith("s.")) continue;
+      const bare = name.replace(/^u\./, "");
+      if (/^[a-z_]+$/.test(bare) && bare !== "SELECT") selected.add(bare);
     }
   }
   assert.ok(selected.size > 5, "the query scan found nothing — the regex has drifted");
+  assert.ok(sawJoin, "the scan is not reaching the session-join queries, which run on every request");
   const missing = [...selected].filter((c) => !created.has(c));
   assert.deepEqual(missing, [], "selected from _users but never created: " + missing.join(", "));
+});
+
+test("_sessions is created on the path that READS it, not only where it is declared", () => {
+  // The `_users` bug again, one level up: `AUTH_DDL` is applied by
+  // `ensureAuthTables`, which only the registry's routes call. Plain
+  // email-and-password sign-in never goes near it and now JOINs `_sessions` on
+  // every authenticated request — so a table that existed only on sites where
+  // somebody happened to use a passkey would make `me` answer 500 everywhere
+  // else. A missing table is a Postgres error, not an empty result.
+  const ensure = WORKER.slice(WORKER.indexOf("async function ensureSiteUsers"));
+  const body = ensure.slice(0, ensure.indexOf("_usersReady.add"));
+  assert.match(body, /for \(const sql of SESSION_DDL\)/, "ensureSiteUsers must create _sessions");
+  // And it is ONE definition, shared — not a second copy that can drift.
+  const methods = fs.readFileSync(new URL("../site-auth-methods.mjs", import.meta.url), "utf8");
+  assert.match(methods, /export const SESSION_DDL = \[/);
+  assert.match(methods, /export const AUTH_DDL = \[\s*\n\s*\.\.\.SESSION_DDL,/, "AUTH_DDL must reuse it, not restate it");
+  assert.equal((methods.match(/CREATE TABLE IF NOT EXISTS _sessions/g) || []).length, 1, "one definition only");
+});
+
+test("the data path checks the session, not just /auth/me", () => {
+  // This is the half that reads rows. A revocation that only took effect on
+  // `me` would leave the device somebody just signed out with full access to
+  // the site's data for thirty days.
+  const start = WORKER.indexOf("async function resolveSiteVisitor");
+  const body = WORKER.slice(start, WORKER.indexOf("\n}\n", start));
+  assert.ok(body.includes("SESSION_JOIN"), "resolveSiteVisitor must join _sessions");
+  assert.ok(body.includes("sessionUsable("), "...and act on what it finds");
+  assert.ok(body.includes("ensureSiteUsers"), "...against a table something has created");
 });
 // ------------------------------------------------------- confirming an address
 //
@@ -812,7 +901,7 @@ test("no query touches a column its table never creates — every internal table
   // silent until somebody tries to sign in.
   const METHODS_SRC = fs.readFileSync(new URL("../site-auth-methods.mjs", import.meta.url), "utf8");
   const src = METHODS_SRC + "\n" + WORKER;
-  const tables = ["_identities", "_credentials", "_auth_codes", "_invites"];
+  const tables = ["_identities", "_credentials", "_auth_codes", "_invites", "_sessions"];
 
   for (const t of tables) {
     const created = new Set();
@@ -844,4 +933,142 @@ test("no query touches a column its table never creates — every internal table
     const missing = [...used].filter((c) => !created.has(c));
     assert.deepEqual(missing, [], t + " uses columns it never creates: " + missing.join(", "));
   }
+});
+
+// ------------------------------------------------------------- devices
+//
+// `logout-all` was all-or-nothing, and nothing could show a member what their
+// devices ARE — so the one choice available was made blind. These prove the two
+// halves that make it worth the row per session: the list is accurate, and a
+// revoked device actually stops working.
+
+test("the list names each device and marks the one you are reading from", async () => {
+  const h = await harness();
+  const a = await h.withSid("aaaaaaaaaaaaaaaaaaaa");
+  await h.withSid("bbbbbbbbbbbbbbbbbbbb");
+  const r = await h.call("sessions", { token: a });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.sessions.length, 2);
+  assert.deepEqual(r.body.sessions.filter((s) => s.current).map((s) => s.sid), ["aaaaaaaaaaaaaaaaaaaa"]);
+  assert.equal(r.body.sessions[0].device, "iPhone · Safari", "a UA, not a UA string");
+});
+
+test("a revoked device stops working — everywhere, not just on the list", async () => {
+  // The assertion the whole table exists for. If this only took effect on
+  // `/auth/me`, the tablet somebody just signed out could still add a passkey.
+  const h = await harness();
+  const keep = await h.withSid("aaaaaaaaaaaaaaaaaaaa");
+  const drop = await h.withSid("bbbbbbbbbbbbbbbbbbbb");
+  assert.equal((await h.call("identities", { token: drop })).status, 200, "live before");
+
+  const r = await h.call("sessions/revoke", { token: keep, body: { sid: "bbbbbbbbbbbbbbbbbbbb" } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.self, false);
+
+  assert.equal((await h.call("identities", { token: drop })).status, 401, "and refused after");
+  assert.equal((await h.call("sessions", { token: drop })).status, 401);
+  assert.equal((await h.call("identities", { token: keep })).status, 200, "the other device is untouched");
+});
+
+test("a revoked device drops off the list", async () => {
+  const h = await harness();
+  const keep = await h.withSid("aaaaaaaaaaaaaaaaaaaa");
+  await h.withSid("bbbbbbbbbbbbbbbbbbbb");
+  await h.call("sessions/revoke", { token: keep, body: { sid: "bbbbbbbbbbbbbbbbbbbb" } });
+  const r = await h.call("sessions", { token: keep });
+  assert.deepEqual(r.body.sessions.map((s) => s.sid), ["aaaaaaaaaaaaaaaaaaaa"]);
+});
+
+test("revoking the device you are reading from works, and says so", async () => {
+  // It is just logging out. The caller is told because the alternative is a
+  // settings page that appears to succeed and then 401s with no explanation.
+  const h = await harness();
+  const me = await h.withSid("aaaaaaaaaaaaaaaaaaaa");
+  const r = await h.call("sessions/revoke", { token: me, body: { sid: "aaaaaaaaaaaaaaaaaaaa" } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.self, true);
+  assert.equal((await h.call("sessions", { token: me })).status, 401);
+});
+
+test("somebody else's session cannot be revoked, and answers like one that never existed", async () => {
+  const h = await harness();
+  h.users.set("2", { id: 2, email: "other@example.com", token_epoch: 0, blocked: 0 });
+  await h.deps.startSession(2, "cccccccccccccccccccc");
+  const me = await h.withSid("aaaaaaaaaaaaaaaaaaaa");
+
+  const theirs = await h.call("sessions/revoke", { token: me, body: { sid: "cccccccccccccccccccc" } });
+  const nothing = await h.call("sessions/revoke", { token: me, body: { sid: "dddddddddddddddddddd" } });
+  // Identical, or the status confirms which sids are real.
+  assert.equal(theirs.status, 404);
+  assert.deepEqual(theirs.body, nothing.body);
+  assert.equal(h.sessions.get("cccccccccccccccccccc").revoked, 0, "untouched");
+});
+
+test("revoking twice is a 404 the second time, not a silent success", async () => {
+  const h = await harness();
+  const me = await h.withSid("aaaaaaaaaaaaaaaaaaaa");
+  await h.withSid("bbbbbbbbbbbbbbbbbbbb");
+  assert.equal((await h.call("sessions/revoke", { token: me, body: { sid: "bbbbbbbbbbbbbbbbbbbb" } })).status, 200);
+  assert.equal((await h.call("sessions/revoke", { token: me, body: { sid: "bbbbbbbbbbbbbbbbbbbb" } })).status, 404);
+});
+
+test("a malformed sid never reaches the database", async () => {
+  let asked = false;
+  const h = await harness({ deps: { revokeSession: async () => { asked = true; return { changes: 1 }; } } });
+  const me = await h.withSid("aaaaaaaaaaaaaaaaaaaa");
+  for (const sid of ["", "short", "has spaces", null, 7, { }]) {
+    assert.equal((await h.call("sessions/revoke", { token: me, body: { sid } })).status, 404, JSON.stringify(sid));
+  }
+  assert.equal(asked, false);
+});
+
+test("devices need a session", async () => {
+  const h = await harness();
+  assert.equal((await h.call("sessions", {})).status, 401);
+  assert.equal((await h.call("sessions/revoke", { body: { sid: "aaaaaaaaaaaaaaaaaaaa" } })).status, 401);
+});
+
+test("a token minted before any of this still works", async () => {
+  // `h.session` has no sid — which is every live member of every site.
+  const h = await harness();
+  assert.equal((await h.call("identities", { token: h.session })).status, 200);
+  const r = await h.call("sessions", { token: h.session });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.sessions.filter((s) => s.current), [], "nothing is `current` when the caller has no sid");
+});
+
+test("a sid with no row still works — a failed write is not a locked account", async () => {
+  // If this were refused, a transient error on the INSERT at sign-in would hand
+  // somebody a token that authenticates nowhere: a login that appears to succeed
+  // and then silently fails every request after it.
+  const h = await harness();
+  const orphan = await signToken(h.key, { sub: "1", email: "member@example.com", ep: 0, sid: "eeeeeeeeeeeeeeeeeeee" }, { nowMs: NOW });
+  assert.equal((await h.call("identities", { token: orphan })).status, 200);
+});
+
+test("signing in records the device", async () => {
+  const h = await harness();
+  const r = await finishSignIn(h.deps, h.users.get("1"), { key: h.key, nowMs: NOW });
+  assert.equal(h.sessions.size, 1, "a session nobody recorded can never be listed or revoked");
+  const [row] = [...h.sessions.values()];
+  assert.equal(row.user_id, 1);
+  assert.ok(r.body.token.length > 20);
+  // And the token names it, or the row belongs to nothing.
+  const claims = await verifySession(h.key, r.body.token, { nowMs: NOW });
+  assert.equal(claims.sid, row.sid);
+});
+
+test("a failed device write does not fail a correct sign-in", async () => {
+  const h = await harness({ deps: { startSession: async () => { throw new Error("write failed"); } } });
+  const r = await finishSignIn(h.deps, h.users.get("1"), { key: h.key, nowMs: NOW });
+  assert.ok(r.body.token, "the sign-in was correct; the bookkeeping was not");
+});
+
+test("a pending 2FA token names no device", async () => {
+  // It is not a session, so recording one would put a device in the list that
+  // nobody has finished signing in on.
+  const h = await harness({ user: { totp_enabled: 1, totp_secret: newTotpSecret() } });
+  const r = await finishSignIn(h.deps, h.users.get("1"), { key: h.key, nowMs: NOW });
+  assert.ok(r.body.pending);
+  assert.equal(h.sessions.size, 0);
 });

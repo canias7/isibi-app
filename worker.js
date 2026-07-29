@@ -13,10 +13,11 @@ import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { injectMeta } from "./site-meta.mjs";
-import { sessionKey, verifySession, signClaim, verifyClaim, signVerify, verifyVerification } from "./site-auth.mjs";
+import { sessionKey, verifySession, signClaim, verifyClaim, signVerify, verifyVerification, SESSION_TTL_SEC } from "./site-auth.mjs";
 import { checkSignup, newInviteCode, normalizeCode, normalizeMode, inviteOptions, normalizeDomains, SIGNUP_MODES } from "./site-invite.mjs";
 import { handleAuthFlow } from "./site-auth-flows.mjs";
-import { AUTH_DDL, AUTH_USER_COLUMNS, routeFor, availableMethods } from "./site-auth-methods.mjs";
+import { AUTH_DDL, AUTH_USER_COLUMNS, SESSION_DDL, routeFor, availableMethods } from "./site-auth-methods.mjs";
+import { SESSION_JOIN, sessionUsable, trimUa, MAX_SESSIONS_LISTED, pruneBefore } from "./site-sessions.mjs";
 import { providerConfig, decodeIdToken } from "./site-oauth.mjs";
 import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
@@ -2909,6 +2910,12 @@ async function ensureSiteUsers(db) {
     "ALTER TABLE _users ADD COLUMN totp_last_step BIGINT",
     "ALTER TABLE _users ADD COLUMN recovery_hashes TEXT",
   ]) { try { await sqlQuery(db, sql); } catch {} }
+  // The device list, for the same reason the columns above are here: it is
+  // JOINed onto the `_users` read on every authenticated request, and the rest
+  // of `AUTH_DDL` is applied only on the routes the registry owns. A `_sessions`
+  // that existed only where somebody used a passkey would make `me` answer 500
+  // on every ordinary email-and-password site.
+  for (const sql of SESSION_DDL) { try { await sqlQuery(db, sql); } catch {} }
   _usersReady.add(db);
 }
 
@@ -3039,7 +3046,61 @@ async function oauthProfile(cfg, tokens) {
   return r.json();
 }
 
-function authFlowDeps(env, db, slug, url) {
+/**
+ * The device-list half of a session, shared by both auth surfaces.
+ *
+ * Split out because `handleSiteAuth` and `handleAuthFlow` both mint sessions and
+ * both have to record them the same way — a method that signed somebody in
+ * without a row would leave a device that cannot be listed and cannot be
+ * revoked, which is the failure nobody notices until they go looking.
+ *
+ * `request` is here only for the two things stamped on the row: the user agent,
+ * which is what makes the list readable, and the country Cloudflare already
+ * knows. **The IP is deliberately not stored**, hashed or otherwise — it is PII
+ * in the site owner's database bought for a feature ("was this login from
+ * somewhere odd?") that needs geolocation we do not have. `request.cf.country`
+ * gives the useful part for free and carries nothing identifying.
+ */
+function sessionDeps(db, request) {
+  const q = (sql, args) => sqlQuery(db, sql, args);
+  const ua = trimUa((request && request.headers.get("user-agent")) || "");
+  const country = (request && request.cf && request.cf.country) || null;
+  return {
+    startSession: (uid, sid) => q(
+      "INSERT INTO _sessions (sid, user_id, ua, country, created_at, last_seen, revoked)" +
+      " VALUES (?,?,?,?,?,?,0) ON CONFLICT (sid) DO NOTHING",
+      [String(sid), Number(uid), ua || null, country ? String(country).slice(0, 2) : null,
+       Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    ),
+    // Revoked rows are read back too — `describeSessions` drops them, and a
+    // caller that filtered here would have to be trusted to keep doing so.
+    //
+    // The prune rides here rather than on sign-in: this is the rare route, it is
+    // scoped to one member's rows, and it is the moment the list is about to be
+    // shown. `pruneBefore` is twice a token's life, so a row can only go once
+    // the signature layer has been refusing its token for a month — deleting one
+    // sooner would read as "no row", which reads as LIVE.
+    sessionsFor: async (uid, limit) => {
+      // `created_at IS NOT NULL`, not COALESCE to 0 — a row whose stamp is
+      // missing would compare as 1970 and be deleted on the first list, which
+      // reads as "no row", which reads as LIVE. Keeping an oddity is cheaper
+      // than deleting a session that then cannot be seen or revoked.
+      try { await q("DELETE FROM _sessions WHERE user_id=? AND created_at IS NOT NULL AND created_at < ?", [Number(uid), pruneBefore(SESSION_TTL_SEC)]); }
+      catch (e) { console.error("session prune failed:", (e && e.message) || e); }
+      return q(
+        "SELECT sid, ua, country, created_at, last_seen, revoked FROM _sessions WHERE user_id=? ORDER BY last_seen DESC NULLS LAST LIMIT ?",
+        [Number(uid), Math.min(Number(limit) || MAX_SESSIONS_LISTED, MAX_SESSIONS_LISTED)],
+      );
+    },
+    // Scoped to the owner in the STATEMENT. A flag, never a DELETE: a missing
+    // row reads as LIVE (see `sessionUsable`), so deleting would un-revoke.
+    revokeSession: (uid, sid) => sqlExec(db, "UPDATE _sessions SET revoked=1 WHERE sid=? AND user_id=? AND revoked=0", [String(sid), Number(uid)]),
+    revokeAllSessions: (uid) => q("UPDATE _sessions SET revoked=1 WHERE user_id=? AND revoked=0", [Number(uid)]),
+    touchSession: (sid, at) => q("UPDATE _sessions SET last_seen=? WHERE sid=?", [Number(at) || 0, String(sid)]),
+  };
+}
+
+function authFlowDeps(env, db, slug, url, request) {
   const q = (sql, args) => sqlQuery(db, sql, args);
   const one = async (sql, args) => (await q(sql, args))[0] || null;
   const nowSql = "to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')";
@@ -3049,9 +3110,18 @@ function authFlowDeps(env, db, slug, url) {
     rpId: url.hostname,
     siteConfig: () => siteAuthConfig(env, db, slug),
 
-    findUserById: (id) => (/^\d+$/.test(String(id))
-      ? one("SELECT id, email, token_epoch, blocked, totp_secret, totp_enabled, totp_last_step, recovery_hashes, (pass_hash IS NOT NULL) AS has_password FROM _users WHERE id=?", [Number(id)])
+    // The session row rides along on the user lookup — see SESSION_JOIN. Two
+    // statements here would double the round trips on the path the routing and
+    // cache work spent itself getting down to one.
+    findUserById: (id, sid) => (/^\d+$/.test(String(id))
+      ? one(
+          "SELECT u.id, u.email, u.token_epoch, u.blocked, u.totp_secret, u.totp_enabled, u.totp_last_step, u.recovery_hashes," +
+          " (u.pass_hash IS NOT NULL) AS has_password, s.revoked AS session_revoked, s.last_seen AS session_last_seen" +
+          " FROM _users u " + SESSION_JOIN + " WHERE u.id=?",
+          [sid ? String(sid) : "", Number(id)],
+        )
       : null),
+    ...sessionDeps(db, request),
     findUserByEmail: (e) => one("SELECT id, email, pass_hash AS password_hash, token_epoch, blocked, totp_secret, totp_enabled, totp_last_step, recovery_hashes FROM _users WHERE email=?", [e]),
     createUser: async (email, name) => {
       // No password: an account made through a provider has none until its owner
@@ -3190,9 +3260,20 @@ async function resolveSiteVisitor(env, request, slug) {
     const claims = await verifySiteSession(await siteAuthSecret(db), bearer, slug);
     if (!claims) return null;
     if (!/^\d+$/.test(String(claims.sub))) return null;
-    const rows = await sqlQuery(db, "SELECT id, role, token_epoch, blocked, verified FROM _users WHERE id=?", [Number(claims.sub)]);
+    await ensureSiteUsers(db);
+    const rows = await sqlQuery(
+      db,
+      "SELECT u.id, u.role, u.token_epoch, u.blocked, u.verified, s.revoked AS session_revoked" +
+      " FROM _users u " + SESSION_JOIN + " WHERE u.id=?",
+      [claims.sid ? String(claims.sid) : "", Number(claims.sub)],
+    );
     const u = rows[0];
     if (!u) return null;
+    // A device signed out from another one. Checked HERE as well as in `me` for
+    // the same reason the epoch is: this is the half that reads rows, and a
+    // revocation that only took effect at /auth/me would leave the revoked
+    // device with full access to the data for thirty days.
+    if (!sessionUsable(claims, claims.sid ? { revoked: u.session_revoked } : null)) return null;
     // A suspended member is nobody, everywhere. Checked here as well as in `me`
     // because this is the one on the data path — the half that reads rows.
     if (u.blocked) return null;
@@ -3213,12 +3294,20 @@ async function resolveSiteVisitor(env, request, slug) {
 const verifySiteSession = async (secret, token, slug) =>
   verifySession(await sessionKey(secret, slug), token);
 
-function siteAuthDeps(env, db, slug) {
+function siteAuthDeps(env, db, slug, request) {
   const one = async (sql, params) => { await ensureSiteUsers(db); const r = await sqlQuery(db, sql, params); return r[0] || null; };
   return {
+    ...sessionDeps(db, request),
     secret: () => siteAuthSecret(db),
     findUser: (_s, email) => one("SELECT id, email, pass_hash AS password_hash, token_epoch, blocked, failed, locked_until, last_failed_at FROM _users WHERE email=?", [email]),
-    findUserById: (_s, id) => (/^\d+$/.test(String(id)) ? one("SELECT id, email, token_epoch, blocked FROM _users WHERE id=?", [Number(id)]) : null),
+    // The session row joins onto the read that already happens; see SESSION_JOIN.
+    findUserById: (_s, id, sid) => (/^\d+$/.test(String(id))
+      ? one(
+          "SELECT u.id, u.email, u.token_epoch, u.blocked, s.revoked AS session_revoked, s.last_seen AS session_last_seen" +
+          " FROM _users u " + SESSION_JOIN + " WHERE u.id=?",
+          [sid ? String(sid) : "", Number(id)],
+        )
+      : null),
     createUser: async (_s, email, hash) => {
       await ensureSiteUsers(db);
       try {
@@ -5634,7 +5723,7 @@ async function handleRequest(request, env, ctx) {
           const flow = routeFor(action);
           if (flow) {
             await ensureAuthTables(db);
-            const r = await handleAuthFlow(authFlowDeps(env, db, slug, url), {
+            const r = await handleAuthFlow(authFlowDeps(env, db, slug, url, request), {
               slug, route: flow.route, body,
               query: Object.fromEntries(url.searchParams),
               token: bearer, key: await sessionKey(await siteAuthSecret(db), slug),
@@ -5652,7 +5741,7 @@ async function handleRequest(request, env, ctx) {
             }
             return Response.json(r.body, { status: r.status });
           }
-          const r = await handleSiteAuth(siteAuthDeps(env, db, slug), { slug, action, body, token: bearer });
+          const r = await handleSiteAuth(siteAuthDeps(env, db, slug, request), { slug, action, body, token: bearer });
           return Response.json(r.body, { status: r.status });
         } catch (e) {
           console.error("site auth failed:", slug, action, (e && (e.stack || e.message)) || e);

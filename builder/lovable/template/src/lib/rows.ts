@@ -399,6 +399,48 @@ export function useResendVerification() {
   return useMutation({ mutationFn: () => send<{ ok: true }>(authUrl("verify/request"), { method: "POST" }) });
 }
 
+/** Where this account is signed in. `current` marks the device you are reading from. */
+export type SiteSession = {
+  sid: string;
+  device: string;
+  country: string | null;
+  createdAt: number | null;
+  lastSeen: number | null;
+  ageSec: number | null;
+  current: boolean;
+};
+
+export function useSessions() {
+  return useQuery({
+    queryKey: ["sessions", siteSlug()],
+    queryFn: () => send<{ sessions: SiteSession[] }>(authUrl("sessions")),
+  });
+}
+
+/**
+ * Sign out ONE device.
+ *
+ * `logout-all` is the other primitive and it is all-or-nothing — dropping an old
+ * tablet with it means signing back in on every machine you still have.
+ *
+ * Revoking the device you are reading from is allowed, because that is just
+ * logging out; the response says `self: true` so the page can send them to the
+ * sign-in screen rather than 401 on its next request with no explanation.
+ */
+export function useRevokeSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { sid: string }) =>
+      send<{ ok: true; self: boolean }>(authUrl("sessions/revoke"), { method: "POST", body: JSON.stringify(vars) }),
+    onSuccess: (r) => {
+      if (r.self) {
+        try { localStorage.removeItem(`site_session_${siteSlug()}`); } catch { /* private mode */ }
+      }
+      qc.invalidateQueries({ queryKey: ["sessions", siteSlug()] });
+    },
+  });
+}
+
 /** What this member has connected — providers, passkeys, whether 2FA is on. */
 export function useConnectedAccounts() {
   return useQuery({
