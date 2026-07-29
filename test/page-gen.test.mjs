@@ -721,3 +721,35 @@ test("the rules forbid annotating a mutation callback's parameter", () => {
   // failures came from exactly this.
   assert.match(PAGE_RULES, /Never annotate a mutation callback's parameter/);
 });
+
+test("password sign-in handles a 2FA challenge like every other method", () => {
+  // The server answers a 2FA account with `{ pending, need }` and NO token.
+  // `useAuthAction` was typed `{ token, user }`, so it stored `undefined` as the
+  // session and gave the caller no way to learn a code was wanted — password
+  // login was quietly broken for every member with a second factor. Every other
+  // sign-in method already went through `settle`. Found by the eval, because the
+  // generator kept writing `"pending" in data` against a type that denied it.
+  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
+  const i = rows.indexOf("function useAuthAction");
+  assert.ok(i > 0, "useAuthAction moved");
+  const block = rows.slice(i, rows.indexOf("\n}", i));
+  assert.match(block, /send<SignInResult>/, "it must accept the pending shape the server can return");
+  assert.match(block, /settle\(d\)/, "and store a token only when there is one");
+  assert.ok(!/setSessionToken\(d\.token\)/.test(block),
+    "storing d.token unconditionally writes `undefined` as the session on a 2FA account");
+  // A discriminated union, so `if (data.pending)` narrows instead of yielding {}.
+  assert.match(rows, /export type SignInResult =\s*\n\s*\|/, "SignInResult must be a union, not all-optional");
+});
+
+test("a member knows its own role", () => {
+  // An owner can grant one and `admin` tables check it, but `/auth/me` never
+  // returned it — so no page could gate admin UI on it, and the generator
+  // reached for `member.role` anyway.
+  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
+  assert.match(rows, /export type Member = \{[\s\S]*?role: string;/, "Member must carry a role");
+  const routes = fs.readFileSync(path.join(ROOT, "site-auth-routes.mjs"), "utf8");
+  assert.match(routes, /role: String\(user\.role \|\| "user"\)/, "and `me` must send it");
+  // ...against a query that actually selects it, or every member reads as "user".
+  const worker = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
+  assert.match(worker, /SELECT u\.id, u\.email, u\.role,/, "findUserById must select role");
+});
