@@ -78,6 +78,24 @@ export function projectNameForUser(uid) {
   return "isibi-user-" + String(uid || "").slice(0, 40);
 }
 
+/**
+ * A project's name, per SITE.
+ *
+ * This is what an operator reads in the Neon console, and it is the only place
+ * they can tell one project from another — so it carries the slug. Named after
+ * the owner instead, a user with seven sites would have seven
+ * identically-named projects and no way to know which to delete.
+ *
+ * Normalised the same way `dbNameForSite` normalises, and bounded: Neon
+ * project names are not Postgres identifiers, but a name assembled from
+ * user input still gets the same treatment as one that is.
+ */
+export function projectNameForSite(slug) {
+  const s = String(slug || "").toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+  if (!s) throw Object.assign(new Error("bad site slug: " + slug), { bad: true });
+  return ("isibi-" + s).slice(0, 60);
+}
+
 // Swap the database name in a Neon connection URI. Every database inside a
 // project shares one endpoint host and role, so a site's connection string is
 // the project's connection string with a different path segment — no extra API
@@ -142,6 +160,36 @@ export async function createUserProject(env, uid) {
     branchId: (d.branch && d.branch.id) || null,
     roleName: ((d.roles || [])[0] || {}).name || null,
     conn, // points at the project's default database
+  };
+}
+
+/**
+ * One site's own Neon project (2026-07-29 — was one per user).
+ *
+ * Identical to `createUserProject` in everything but the name, and kept as its
+ * own function rather than a flag because the two answer different questions and
+ * the caller should have to say which it means. `createUserProject` stays for the
+ * legacy rows that predate the change.
+ */
+export async function createSiteProject(env, slug) {
+  const project = { name: projectNameForSite(slug), region_id: NEON_REGION };
+  const org = await neonOrgId(env);
+  if (org) project.org_id = org;
+
+  const d = await neonApi(env, "/projects", { method: "POST", body: JSON.stringify({ project }) });
+  const conn = ((d.connection_uris || [])[0] || {}).connection_uri;
+  if (!d.project || !d.project.id || !conn) {
+    throw Object.assign(new Error("neon create project: unexpected response"), {
+      detail: JSON.stringify(d).slice(0, 300),
+    });
+  }
+  // Scheduled, not built. Nothing may touch it until quiet — see waitForProject.
+  await waitForProject(env, d.project.id);
+  return {
+    projectId: d.project.id,
+    branchId: (d.branch && d.branch.id) || null,
+    roleName: ((d.roles || [])[0] || {}).name || null,
+    conn,
   };
 }
 

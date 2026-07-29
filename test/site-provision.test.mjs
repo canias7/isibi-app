@@ -32,7 +32,7 @@ function harness(over = {}) {
     lookupProject: (u) => pick("lookupProject")(u),
     createProject: (u) => { calls.createProject++; return pick("createProject")(u); },
     dropProject: (id) => { calls.dropProject.push(id); return pick("dropProject")(id); },
-    saveProject: (u, p) => { calls.saveProject.push({ u, p }); return pick("saveProject")(u, p); },
+    saveProject: (s2, u, p) => { calls.saveProject.push({ s: s2, u, p }); return pick("saveProject")(s2, u, p); },
     createDatabase: (p, s) => { calls.createDatabase.push(s); return pick("createDatabase")(p, s); },
     saveBackend: (s, u, db) => { calls.saveBackend.push({ s, u, db }); return pick("saveBackend")(s, u, db); },
     connFor: (conn, db) => conn.replace(/\/[^/]*$/, "/" + db),
@@ -83,20 +83,50 @@ test("a claimed slug with no connection IS ours to finish", async () => {
   assert.deepEqual(calls.createDatabase, ["cafe"]);
 });
 
-test("a user with a project gets only a new database", async () => {
+test("a RETRIED build reuses the project that slug already has", async () => {
+  // The per-site version of the leak this module exists to stop. Keyed by slug,
+  // so a retry finds the project the last attempt made; keyed by anything else,
+  // every retry creates another one and burns the cap.
   const { deps, calls } = harness();
   assert.equal(await run(deps), "postgres://u:p@h/site_cafe");
-  assert.equal(calls.createProject, 0, "one Neon project per user, not per site");
+  assert.equal(calls.createProject, 0, "an existing project for this slug must be reused, not duplicated");
   assert.deepEqual(calls.createDatabase, ["cafe"]);
   assert.deepEqual(calls.saveBackend, [{ s: "cafe", u: "u1", db: "site_cafe" }]);
 });
 
-test("a first-time user gets a project, recorded before anything else", async () => {
+test("the project is looked up by SLUG, not by owner", async () => {
+  // One project per SITE (2026-07-29). If this were keyed by uid, a user's
+  // second site would find the first site's project and be provisioned INSIDE
+  // it — which is precisely the isolation the change was made to get.
+  const seen = [];
+  const { deps } = harness({ lookupProject: async (k) => { seen.push(k); return null; } });
+  await run(deps);
+  assert.deepEqual(seen, ["cafe"], "looked up by " + JSON.stringify(seen) + " — must be the slug");
+});
+
+test("a first build gets a project, recorded before anything else", async () => {
   const { deps, calls } = harness({ lookupProject: async () => null });
   await run(deps);
   assert.equal(calls.createProject, 1);
   assert.deepEqual(calls.saveProject[0].p, PROJ);
+  // Recorded against BOTH the slug and the owner: the slug is how a retry finds
+  // it, the owner is how account deletion can ever find it.
+  assert.equal(calls.saveProject[0].s, "cafe");
+  assert.equal(calls.saveProject[0].u, "u1");
   assert.deepEqual(calls.dropProject, [], "a recorded project is not dropped");
+});
+
+test("the project is named per site, so two sites cannot collide", async () => {
+  // createProject receives the slug, and Neon project names are what an operator
+  // reads in the console. `isibi-user-<uid>` for every site would make seven
+  // sites seven identically-named projects.
+  const got = [];
+  const { deps } = harness({
+    lookupProject: async () => null,
+    createProject: async (k) => { got.push(k); return { projectId: "p9", branchId: "b", roleName: "o", conn: PROJ.neon_conn }; },
+  });
+  await run(deps);
+  assert.deepEqual(got, ["cafe"]);
 });
 
 // ---------------------------------------------------- the leak this prevents
@@ -210,4 +240,60 @@ test("the returned connection points at the site's own database", async () => {
   // one site's queries to another site's data.
   const { deps } = harness();
   assert.equal(await run(deps, "my-shop"), "postgres://u:p@h/site_my_shop");
+});
+
+// ------------------------------------------- the wiring, and the credential
+//
+// One project per SITE means the connection string moved from a per-user row to
+// a per-slug one, and a connection URI carries a PASSWORD. `site_backends` has
+// an own-read RLS policy — a signed-in user can read their own rows over the
+// REST API — so the conn landing there would hand every owner a credential.
+// These read worker.js, because that is where the choice of table lives.
+import fs from "node:fs";
+const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+
+test("the connection string is never selected from, or written to, site_backends", () => {
+  // Both directions. Reading it back would expose it; writing it there is how it
+  // would come to be readable in the first place.
+  for (const m of WORKER.matchAll(/site_backends\?[^`"']*select=([^&`"']*)/g)) {
+    assert.ok(!/conn/.test(m[1]), "site_backends is client-readable — it must not carry a connection string: " + m[1]);
+  }
+  const writes = [...WORKER.matchAll(/write\("site_backends",\s*\{([^}]*)\}/g)].map((m) => m[1]);
+  assert.ok(writes.length > 0, "the site_backends write was not found");
+  for (const w of writes) assert.ok(!/conn/.test(w), "a connection string is being written to a client-readable table: " + w);
+});
+
+test("the per-site project is read by SLUG and only with the service key", () => {
+  const fn = WORKER.match(/async function siteNeonProject\(env, slug\)[\s\S]*?\n\}/);
+  assert.ok(fn, "siteNeonProject was not found");
+  assert.match(fn[0], /site_project\?slug=eq\./, "keyed by slug, or a user's second site resolves to their first site's project");
+  assert.match(fn[0], /svcHeaders\(env\)/, "this table is policy-less: only the service key can read it");
+  // Throwing rather than answering null is load-bearing on the write path: a
+  // Supabase hiccup reading as "no project" makes the next build create another.
+  assert.match(fn[0], /throw Object\.assign\(new Error\("site project lookup failed"\)/);
+});
+
+test("deleting a site drops its PROJECT, and keeps the row if that failed", () => {
+  // The whole point of per-site projects, and the failure mode that comes with
+  // it: a project with no row is invisible and bills forever, so the record only
+  // goes once the project is actually gone.
+  const i = WORKER.indexOf("let projectDropped = false;");
+  assert.ok(i > 0, "the project drop was not found in the delete path");
+  const block = WORKER.slice(i, i + 2600);
+  assert.match(block, /dropUserProject\(env, proj\.neon_project\)/, "the project itself must be dropped");
+  assert.match(block, /if \(projectDropped\) \{/, "the record must only go once the project is gone");
+  assert.match(block, /site_project\?slug=eq\./, "…and it must be the per-slug record that goes");
+  // Legacy sites still have a database inside a shared per-user project.
+  assert.match(block, /dropSiteDatabase\(env, legacy\.neon_project/, "a pre-change site must still have its database dropped");
+});
+
+test("nothing provisions a project keyed by the owner any more", () => {
+  // `createUserProject` survives for the legacy rows, but nothing on the build
+  // path may call it — that is what would put a second site inside the first
+  // one's project and quietly undo the isolation.
+  const deps = WORKER.slice(WORKER.indexOf("const conn = await ensureSiteBackendPure({"), WORKER.indexOf("}, { slug, uid });"));
+  assert.ok(deps.length > 200, "the dep wiring was not found");
+  assert.match(deps, /createProject: \(s2\) => createSiteProject\(env, s2\)/);
+  assert.ok(!/createUserProject/.test(deps), "the build path must not create a per-user project");
+  assert.ok(!/userSiteProject/.test(deps), "the build path must not resolve a project by owner");
 });

@@ -25,7 +25,7 @@ import {
 } from "./site-audit.mjs";
 import { TEAM_DDL, normalizeTeamName, normalizeTeamId, describeTeams } from "./site-teams.mjs";
 import { providerConfig, decodeIdToken } from "./site-oauth.mjs";
-import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
+import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
 import { handleSiteData } from "./site-data.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
@@ -2888,13 +2888,6 @@ const _resolveBackend = memoize(_connCache, async (slug, env) => lookupRoute(rou
 // Argument order is (env, slug) because that is what handleSiteData passes.
 async function siteBackendBySlug(env, slug) { return _resolveBackend(slug, env); }
 
-// Provision (or reuse) one site's database, returning its connection string.
-// Called when a build starts, so a site has somewhere to put data the moment
-// the generator declares a schema.
-//
-// The user's Neon PROJECT is created lazily on their first build rather than at
-// signup: most accounts never build a site, and projects are a capped resource —
-// provisioning per signup would spend the quota on people who never use it.
 // An uncached slug lookup. siteBackendBySlug caches for five minutes, which is
 // right on the request path and wrong here — see site-provision.mjs.
 async function siteBackendBySlugFresh(env, slug) {
@@ -2913,8 +2906,32 @@ async function siteBackendRowFresh(env, slug) {
   const row = Array.isArray(rows) && rows[0];
   if (!row) return null;
   if (!row.neon_db) return { conn: null, uid: row.uid, brief: row.brief || "" };
-  const proj = await userSiteProject(env, row.uid);
+  // By SLUG. One Neon project per SITE since 2026-07-29 — keyed by the owner, a
+  // user's second site would resolve to their FIRST site's project, which is
+  // exactly the isolation the change was made to get.
+  const proj = await siteNeonProject(env, slug);
   return { conn: proj ? connForDatabase(proj.neon_conn, row.neon_db) : null, uid: row.uid, brief: row.brief || "" };
+}
+
+/**
+ * A site's Neon project, by slug.
+ *
+ * `site_project` rather than a column on `site_backends`, and that separation is
+ * the whole point: `site_backends` has an own-read RLS policy, so a signed-in
+ * user can read their own rows over the REST API — and `neon_conn` carries a
+ * PASSWORD. This table has RLS on with NO policies, so only the service key can
+ * see it, the same protection `user_site_project` has and for the same reason.
+ */
+async function siteNeonProject(env, slug) {
+  const g = await fetch(
+    `${SUPABASE_URL}/rest/v1/site_project?slug=eq.${encodeURIComponent(String(slug || "").toLowerCase())}` +
+    "&select=neon_project,neon_branch,neon_role,neon_conn&limit=1",
+    { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
+  // Throws rather than answering null: "Supabase is down" must not read as
+  // "this site has no project", which on the write path would create another.
+  if (!g.ok) throw Object.assign(new Error("site project lookup failed"), { detail: g.status + " " + (await g.text().catch(() => "")).slice(0, 200) });
+  const rows = await g.json().catch(() => []);
+  return (Array.isArray(rows) && rows[0]) || null;
 }
 
 // Provision (or reuse) one site's database, returning its connection string.
@@ -2934,13 +2951,13 @@ async function ensureSiteBackend(env, slug, uid, brief) {
   };
   const conn = await ensureSiteBackendPure({
     lookupSite: (s2) => siteBackendRowFresh(env, s2),
-    lookupProject: (u) => userSiteProject(env, u),
-    createProject: (u) => createUserProject(env, u),
+    lookupProject: (s2) => siteNeonProject(env, s2),
+    createProject: (s2) => createSiteProject(env, s2),
     dropProject: async (id) => {
       console.error("dropping unrecorded neon project:", id);
       return dropUserProject(env, id);
     },
-    saveProject: (u, proj) => write("user_site_project", { uid: u, ...proj }),
+    saveProject: (s2, u, proj) => write("site_project", { slug: s2, uid: u, ...proj }),
     createDatabase: (proj, s2) => createSiteDatabase(env, proj.neon_project, proj.neon_branch, proj.neon_role, s2),
     // The brief rides along on the row that claims the slug. ensureSiteBackend
     // returns early when the slug already has a database, so saveBackend runs
@@ -6729,14 +6746,36 @@ async function handleRequest(request, env, ctx) {
       // reads with a connection error instead of an honest 404.
       await dropRoute(routeDeps(env), dslug);
 
-      // Drop the site's database first — it is the only step that still needs the
-      // row being deleted below. Best-effort: a database left behind costs money,
-      // but failing the whole call over it would leave the published files up,
-      // which is the thing the caller actually asked to take down.
+      // Drop the site's whole PROJECT, not just its database.
+      //
+      // This is what one-project-per-site buys (2026-07-29): deleting a site
+      // deletes the project, so nothing of it is left sharing a home with its
+      // owner's other sites. Under the old per-user layout the project had to
+      // survive — its siblings lived in it — and a dropped database left an
+      // empty, billed project behind that only an operator could clear. That is
+      // exactly the leftover this session had to leave in place by hand.
+      //
+      // Best-effort on the DROP but NOT on the record: a project left behind
+      // costs money, and failing the whole call over it would leave the
+      // published files up, which is the thing the caller actually asked to take
+      // down. So the drop is tried, and the row is only removed if it worked —
+      // a row with no project is a 404 the owner can retry, while a project with
+      // no row is invisible and bills forever.
+      let projectDropped = false;
       try {
-        const proj = await userSiteProject(env, du.id);
-        if (proj && proj.neon_project) await dropSiteDatabase(env, proj.neon_project, proj.neon_branch, dslug);
-      } catch (e) { console.error("site db drop failed:", dslug, e && (e.detail || e.message)); }
+        const proj = await siteNeonProject(env, dslug);
+        if (proj && proj.neon_project) {
+          await dropUserProject(env, proj.neon_project);
+          projectDropped = true;
+        } else {
+          // Nothing recorded to drop. Legacy sites provisioned under the
+          // per-user layout still have their database inside a shared project,
+          // so fall back to dropping just that.
+          const legacy = await userSiteProject(env, du.id);
+          if (legacy && legacy.neon_project) await dropSiteDatabase(env, legacy.neon_project, legacy.neon_branch, dslug);
+          projectDropped = true;
+        }
+      } catch (e) { console.error("site project drop failed:", dslug, e && (e.detail || e.message)); }
 
       let removed = 0;
       try {
@@ -6753,7 +6792,19 @@ async function handleRequest(request, env, ctx) {
         await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(dslug)}`, { method: "DELETE", headers: svcHeaders(env) });
       } catch (e) { console.error("site row delete failed:", dslug, e && e.message); }
 
-      return Response.json({ ok: true, slug: dslug, removed });
+      // The project record goes only if the project itself is gone. Kept
+      // otherwise, deliberately: it is the ONLY record that project exists, and
+      // deleting it would turn a retryable failure into an invisible billed
+      // orphan — the failure this repo has already had twice.
+      if (projectDropped) {
+        try {
+          await fetch(`${SUPABASE_URL}/rest/v1/site_project?slug=eq.${encodeURIComponent(dslug)}`, { method: "DELETE", headers: svcHeaders(env) });
+        } catch (e) { console.error("site project row delete failed:", dslug, e && e.message); }
+      } else {
+        console.error("site project NOT dropped, keeping its row so it stays findable:", dslug);
+      }
+
+      return Response.json({ ok: true, slug: dslug, removed, projectDropped });
     }
 
     // Sonnet 5 director: chats, reads intent (rerun/revise/new), writes prompts.

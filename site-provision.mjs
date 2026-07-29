@@ -1,5 +1,12 @@
-// Getting a user their Neon backend: a project on first build, a database per
-// site, and the two rows that remember both.
+// Getting a site its Neon backend: ONE PROJECT PER SITE, a database inside it,
+// and the two rows that remember both.
+//
+// Per-site rather than per-user (changed 2026-07-29, owner's call) buys genuine
+// isolation: a connection string can be handed to somebody without exposing that
+// owner's other sites, each site scales to zero on its own, and deleting a site
+// means deleting a project rather than dropping one database out of a shared one.
+// The cost is the project CAP — Neon limits projects per account, and this
+// multiplies consumption of that limit by sites-per-user rather than by users.
 //
 // This is the step where a failure costs something that is not recoverable by
 // retrying. A Neon project is a CAPPED, billed resource, and the only record
@@ -16,10 +23,10 @@
 /**
  * deps:
  *   lookupSite(slug)            → conn | null      does this slug already have a database
- *   lookupProject(uid)          → proj | null      does this user already have a Neon project
- *   createProject(uid)          → {projectId, branchId, roleName, conn}
+ *   lookupProject(slug)         → proj | null      does this SITE already have a Neon project
+ *   createProject(slug)         → {projectId, branchId, roleName, conn}
  *   dropProject(projectId)      → void             cleanup for a project we failed to record
- *   saveProject(uid, proj)      → {ok}             write the user_site_project row
+ *   saveProject(slug, uid, proj)→ {ok}             write the site_project row
  *   createDatabase(proj, slug)  → dbName
  *   saveBackend(slug, uid, db)  → {ok}             write the site_backends row
  *   connFor(projectConn, dbName)→ conn
@@ -50,16 +57,20 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
     throw Object.assign(new Error("that name is taken"), { stage: "owner", conflict: true });
   }
 
-  let proj = await deps.lookupProject(uid);
+  // Keyed by SLUG now, not by uid. A retried build for the same site must find
+  // the project it made last time — otherwise every retry creates another one
+  // and burns the cap, which is the per-site version of the leak this module was
+  // written to stop.
+  let proj = await deps.lookupProject(slug);
   if (!proj) {
-    const made = await deps.createProject(uid);
+    const made = await deps.createProject(slug);
     proj = { neon_project: made.projectId, neon_branch: made.branchId, neon_role: made.roleName, neon_conn: made.conn };
 
     // Record it, or destroy it. Those are the only two acceptable outcomes —
     // an unrecorded project is a permanent leak against a capped quota, and the
-    // user's NEXT build would create yet another one.
+    // NEXT build of this slug would create yet another one.
     let saved = { ok: false };
-    try { saved = await deps.saveProject(uid, proj); } catch (e) { saved = { ok: false, error: e }; }
+    try { saved = await deps.saveProject(slug, uid, proj); } catch (e) { saved = { ok: false, error: e }; }
     if (!saved || !saved.ok) {
       try { await deps.dropProject(made.projectId); } catch { /* best effort; logged by the caller */ }
       throw Object.assign(new Error("could not record the Neon project"), {
