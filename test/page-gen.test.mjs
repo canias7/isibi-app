@@ -615,3 +615,43 @@ test("the lint and the data path ask ONE question about public views", () => {
     assert.ok(!/Array\.isArray\(pv\.columns\)/.test(src), name + " keeps its own copy of the rule");
   }
 });
+
+test("no hook demands a bare `number` for a row id", () => {
+  // Every id a page has arrives from the URL, and a router hands those over as
+  // STRINGS. Typing the argument `number` meant no page that edits, deletes or
+  // manages a row could compile — three separate TS errors in one production
+  // build on 2026-07-29, and the whole site published as the placeholder each
+  // time. `number` coming out, `string | number` going in.
+  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
+  assert.match(rows, /export type RowId = string \| number/);
+
+  // Selected by BEHAVIOUR, not by name: any hook that puts an id into a row URL
+  // is one the generator reaches with a route param. Matching on the name is
+  // what let the first version of this guard pass while two hooks were still
+  // wrong — `\bRow\b` never matches inside `useDeleteRow`.
+  // Comments are stripped first: this file EXPLAINS the number/string asymmetry,
+  // and prose about `id?: number` is not a signature. The same trap the
+  // initSiteAuth guard hit.
+  const blocks = rows.replace(/^\s*\/\/.*$/gm, "").split(/\nexport function /).slice(1);
+  const offenders = [];
+  let checked = 0;
+  for (const b of blocks) {
+    const name = b.slice(0, b.indexOf("(")).replace(/<.*/, "");
+    // Any TABLE-scoped hook that accepts an id. Not "id in a path segment":
+    // `useRow` passes it as a query string, and selecting on the path shape
+    // silently skipped it. The passkey and identity hooks take an id too, but
+    // theirs comes from a list response and never from a URL — they use
+    // `authUrl`, not `base(table)`, so this excludes them by construction.
+    if (!/\bbase\(table\)/.test(b) || !/\bid\b/.test(b)) continue;
+    checked++;
+    if (/\bid\??: number\b/.test(b)) offenders.push(name);
+  }
+  assert.ok(checked >= 4, "the scan found only " + checked + " id-in-URL hooks — it has drifted");
+  assert.deepEqual(offenders, [], "these take a row id as a bare number: " + offenders.join(", "));
+
+  // `Partial<T>` carries `id?: number` from Row, so intersecting narrows RowId
+  // straight back to number unless the id is omitted first. That was the third
+  // production error, still failing after the other signatures were widened.
+  assert.match(rows, /Omit<Partial<T>, "id"> & \{ id: RowId \}/,
+    "useUpdateRow must omit `id` from Partial<T> before widening it");
+});

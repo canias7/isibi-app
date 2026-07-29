@@ -17,6 +17,22 @@ import {
 export type Row = Record<string, unknown> & { id: number };
 
 /**
+ * A row id being passed IN.
+ *
+ * Deliberately not `number`, even though a row genuinely comes back with a
+ * numeric `id`. Every id a page has to hand arrives from the URL — a route
+ * param or a search param — and the router hands those over as STRINGS. Typing
+ * the argument as `number` meant no page that edits, deletes or manages a row
+ * could compile without a `Number()` the generator had no reason to write, so
+ * `tsc` refused the page and the whole site published as the placeholder.
+ * Measured live 2026-07-29, three separate errors in one build.
+ *
+ * Nothing does arithmetic on an id; it goes straight into a URL. So: `number`
+ * coming out, `string | number` going in.
+ */
+export type RowId = string | number;
+
+/**
  * A row from a table's public projection, which has NO `id`.
  *
  * Not a cosmetic distinction. The schema engine refuses `id` and `owner_id` in a
@@ -108,7 +124,7 @@ export function useRows<T extends Row = Row>(
 }
 
 /** One row by id, read from the list endpoint so it obeys the same rules. */
-export function useRow<T extends Row = Row>(table: string, id: number | undefined) {
+export function useRow<T extends Row = Row>(table: string, id: RowId | undefined) {
   return useQuery({
     queryKey: ["row", table, id],
     enabled: id !== undefined,
@@ -143,7 +159,11 @@ export function useCreateRow<T extends Row = Row>(table: string) {
 export function useUpdateRow<T extends Row = Row>(table: string) {
   const invalidate = useInvalidate(table);
   return useMutation({
-    mutationFn: ({ id, ...values }: Partial<T> & { id: number }) =>
+    // `Omit<…, "id">` is load-bearing: `Partial<T>` already carries `id?: number`
+    // from `Row`, and intersecting narrows RowId straight back to `number` — so
+    // a string id was still refused, which is the TS2322 production hit on the
+    // members page even after the other signatures were widened.
+    mutationFn: ({ id, ...values }: Omit<Partial<T>, "id"> & { id: RowId }) =>
       send<{ row: T }>(`${base(table)}/${id}`, { method: "PATCH", body: JSON.stringify(values) }),
     onSuccess: invalidate,
   });
@@ -152,7 +172,7 @@ export function useUpdateRow<T extends Row = Row>(table: string) {
 export function useDeleteRow(table: string) {
   const invalidate = useInvalidate(table);
   return useMutation({
-    mutationFn: (id: number) => send<{ ok: true }>(`${base(table)}/${id}`, { method: "DELETE" }),
+    mutationFn: (id: RowId) => send<{ ok: true }>(`${base(table)}/${id}`, { method: "DELETE" }),
     onSuccess: invalidate,
   });
 }
@@ -610,7 +630,7 @@ export function usePublicRows<T = PublicRow>(table: string, params?: RowQuery) {
  * ("manage your booking") and read it off the URL here. A missing, wrong, or
  * expired token is a plain 404, the same as a row that isn't there.
  */
-export function useClaimedRow<T extends Row = Row>(table: string, id: string | number | undefined, claim: string | undefined) {
+export function useClaimedRow<T extends Row = Row>(table: string, id: RowId | undefined, claim: string | undefined) {
   return useQuery({
     enabled: id !== undefined && !!claim,
     queryKey: ["claim", siteSlug(), table, id],
@@ -623,7 +643,7 @@ export function useClaimedRow<T extends Row = Row>(table: string, id: string | n
 export function useCancelClaim(table: string) {
   const invalidate = useInvalidate(table);
   return useMutation({
-    mutationFn: ({ id, claim }: { id: number; claim: string }) =>
+    mutationFn: ({ id, claim }: { id: RowId; claim: string }) =>
       send<{ ok: true; cancelled: true }>(`${base(table)}/${id}?claim=${encodeURIComponent(claim)}`, { method: "DELETE" }),
     onSuccess: invalidate,
   });
