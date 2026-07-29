@@ -1,6 +1,6 @@
 # Auth layer — production audit
 
-Run against `https://isibi.ai` · 80 passed, 2 failed.
+Run against `https://isibi.ai` · 86 passed, 1 failed.
 
 
 ## the site
@@ -8,7 +8,7 @@ Run against `https://isibi.ai` · 80 passed, 2 failed.
 - ✅ build returns 200
 - ✅ every declared table was created
 - ✅ the display table was seeded
-- ❌ a real app was published, not the placeholder — `page=placeholder stage=- error=- problems=[]`
+- ✅ a real app was published, not the placeholder
 
 ## signup
 
@@ -112,8 +112,13 @@ Run against `https://isibi.ai` · 80 passed, 2 failed.
 ## the published site, in a real browser
 
 - ✅ the published site serves 200
-- ❌ the app actually RENDERED (root is not empty) — `root text length=0`
+- ✅ the app actually RENDERED (root is not empty)
 - ✅ no uncaught error on load
+- ✅ seeded content is on the page
+- ✅ the masked phone is NOT rendered in full
+- ✅ a member can be signed in from inside the published page
+- ✅ the stored session actually opens a member-scoped read
+- ❌ the published bundle reads the session key the platform writes — `no bundle references `site_session_` — a stored session would be ignored`
 
 ## The published site
 
