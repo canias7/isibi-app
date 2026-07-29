@@ -66,9 +66,16 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           if [ -n "$(git status --porcelain docs/auth-audit)" ]; then
             git add docs/auth-audit
-            # [skip ci] is load-bearing, not tidiness: this pushes to main,
-            # main triggers Deploy, and Deploy triggers THIS workflow. Without it
-            # the audit re-runs itself forever, spending a build every cycle.
+            # The skip-CI marker below is load-bearing, not tidiness: this
+            # pushes to main, main triggers Deploy, and Deploy triggers THIS
+            # workflow. Without it the audit re-runs itself forever, spending a
+            # build every cycle.
+            #
+            # NEVER write that marker into an ordinary commit message or a PR
+            # body, including while explaining it. GitHub scans the WHOLE message
+            # and skips every workflow for that push — done exactly once, on
+            # 2026-07-29: the merge landed on main and nothing deployed, tested
+            # or audited, silently and with a green tick.
             git commit -m "Auth audit against production ($(date -u +%Y-%m-%dT%H:%MZ)) [skip ci]"
             # The branch moves under long runs; rebase rather than fail.
             for i in 1 2 3; do
