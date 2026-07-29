@@ -9,6 +9,7 @@
 // racing UPDATEs can both win is a property of Postgres and not of this file.
 // Everything that decides *whether* to burn is here and runs against fakes.
 import { test } from "node:test";
+import fs from "node:fs";
 import assert from "node:assert/strict";
 import {
   SIGNUP_MODES, normalizeMode, newInviteCode, normalizeCode,
@@ -285,4 +286,31 @@ test("an unreadable domain list allows everyone rather than nobody", async () =>
 test("a site with no domains dep behaves exactly as before", async () => {
   const g = gate({ mode: "open" });
   assert.equal((await checkSignup(g, { email: "ada@gmail.com" })).ok, true);
+});
+
+test("a minted code is STORED in the form redemption looks for", () => {
+  // Invite codes had never worked on any site. `newInviteCode()` returns
+  // `XXXX-XXXX-XXXX` so it can be read aloud; every redemption path runs
+  // `normalizeCode` first, which strips the separators. The mint stored the
+  // pretty form, so `burnInvite`'s `WHERE code=?` could never match it.
+  //
+  // Both halves live in worker.js and the unit tests drive a fake `burn` over
+  // already-normalized codes, so nothing spanned the two. Measured live
+  // 2026-07-29 — this reads the source, which is the only place the seam shows.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const i = src.indexOf("const code = newInviteCode()");
+  assert.ok(i > 0, "the invite mint moved");
+  const mint = src.slice(i, i + 2000);
+  assert.match(mint, /const stored = normalizeCode\(code\)/, "the mint must normalize before storing");
+  // What matters is what gets BOUND, not that the normalizer is mentioned: the
+  // first version of this guard passed with `stored` computed and then ignored,
+  // which is precisely the live bug wearing a fix.
+  const bound = mint.match(/opt\.days \? \[([a-zA-Z]+),[\s\S]*?\[([a-zA-Z]+),/);
+  assert.ok(bound, "could not find the INSERT's bound parameters");
+  assert.deepEqual([bound[1], bound[2]], ["stored", "stored"],
+    "both INSERT paths must bind the NORMALIZED code, not the grouped one");
+  // And redemption still normalizes, or fixing one half would break the other.
+  const burn = src.slice(src.indexOf("async function burnInvite"), src.indexOf("async function refundInvite"));
+  assert.match(burn, /WHERE code=\?/);
+  assert.match(src, /normalizeCode\(code\)/);
 });

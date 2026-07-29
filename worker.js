@@ -6298,11 +6298,21 @@ async function handleRequest(request, env, ctx) {
               const opt = inviteOptions(ib);
               await ensureInvites(adb);
               const code = newInviteCode();
+              // STORED NORMALIZED, shown grouped. `newInviteCode` returns
+              // `XXXX-XXXX-XXXX` for reading aloud, and every redemption path
+              // runs `normalizeCode` first — which strips the separators. Storing
+              // the pretty form meant the lookup could never match it, so NO
+              // invite code has ever been redeemable, on any site. Measured live
+              // 2026-07-29. The unit tests could not see it: they drive a fake
+              // `burn` over already-normalized codes, and the mismatch is between
+              // two halves of worker.js that no single test spanned. Revoke
+              // normalizes too, so it was broken the same way and this fixes both.
+              const stored = normalizeCode(code);
               await sqlQuery(
                 adb,
                 "INSERT INTO _invites (code, uses_left, note, expires_at) VALUES (?,?,?," +
                   (opt.days ? "to_char(now() AT TIME ZONE 'UTC' + (? || ' days')::interval,'YYYY-MM-DD HH24:MI:SS')" : "NULL") + ")",
-                opt.days ? [code, opt.uses, opt.note, String(opt.days)] : [code, opt.uses, opt.note],
+                opt.days ? [stored, opt.uses, opt.note, String(opt.days)] : [stored, opt.uses, opt.note],
               );
               return Response.json({ ok: true, code, uses: opt.uses, days: opt.days, note: opt.note }, { status: 201 });
             } catch (e) {

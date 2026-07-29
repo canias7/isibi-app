@@ -610,7 +610,7 @@ export function usePublicRows<T = PublicRow>(table: string, params?: RowQuery) {
  * ("manage your booking") and read it off the URL here. A missing, wrong, or
  * expired token is a plain 404, the same as a row that isn't there.
  */
-export function useClaimedRow<T extends Row = Row>(table: string, id: number | undefined, claim: string | undefined) {
+export function useClaimedRow<T extends Row = Row>(table: string, id: string | number | undefined, claim: string | undefined) {
   return useQuery({
     enabled: id !== undefined && !!claim,
     queryKey: ["claim", siteSlug(), table, id],
