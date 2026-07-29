@@ -419,6 +419,7 @@ There is more than one way in, and WHICH ones depends on the site — so never h
   \`useDisableTotp()\` belong on an ACCOUNT page, never on the sign-in page.
 - \`useSessions()\` → where this account is signed in, each \`{ sid, device, country, lastSeen,
   ageSec, current }\`; \`useRevokeSession()\` takes \`{ sid }\` and signs out that ONE device.
+  Render \`lastSeenLabel\` (\"2 days ago\", always a string) — \`ageSec\` is a number OR null.
   Also an ACCOUNT page. \`useLogoutOthers()\` is the blunt version — offer both, because "sign out
   everywhere" makes somebody log back in on every machine they still have. Revoking the row
   marked \`current\` is allowed and simply logs them out here; the response says \`self: true\`,

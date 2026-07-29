@@ -451,6 +451,15 @@ export type SiteSession = {
   createdAt: number | null;
   lastSeen: number | null;
   ageSec: number | null;
+  /**
+   * "2 days ago" — always a string, never null.
+   *
+   * `ageSec` is nullable on purpose (an unknown time is unknown, not 1970), but
+   * that put a null-guard between the generator and the one thing it wants to
+   * render, and it skipped the guard in every eval sample. Formatting a relative
+   * time is also exactly the fiddly thing not worth re-deriving per site.
+   */
+  lastSeenLabel: string;
   current: boolean;
 };
 

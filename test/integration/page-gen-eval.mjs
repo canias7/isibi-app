@@ -168,6 +168,16 @@ try {
       } else {
         row.stage = built.stage || "compile";
         row.errors = String(built.error || "").split("\n").filter((l) => /error TS/.test(l));
+        // Keep the SOURCE of a failing sample. Two rounds were spent inferring
+        // what the model wrote from a filename and a column number, and one of
+        // them is still a guess. A compile error names a position; only the file
+        // says what is actually there.
+        try {
+          const dir = path.join(ROOT, "docs", "auth-audit", "failed", String(n));
+          fs.mkdirSync(dir, { recursive: true });
+          for (const p2 of v.pages) fs.writeFileSync(path.join(dir, p2.path.replace(/[/\\]/g, "_")), p2.source);
+          fs.writeFileSync(path.join(dir, "_errors.txt"), row.errors.join("\n"));
+        } catch (e) { console.error("could not save the failing sample:", e && e.message); }
         for (const e of row.errors) errorCounts.set(shapeOf(e), (errorCounts.get(shapeOf(e)) || 0) + 1);
         console.log(`  ${n}. FAILED ${row.stage}`);
         for (const e of row.errors.slice(0, 5)) console.log(`       ${e}`);

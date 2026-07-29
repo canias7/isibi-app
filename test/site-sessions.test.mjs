@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import {
   newSessionId, normalizeSid, sessionUsable, SESSION_JOIN,
   trimUa, deviceLabel, UA_MAX,
-  describeSessions, shouldTouch, TOUCH_AFTER_SEC, pruneBefore,
+  describeSessions, shouldTouch, TOUCH_AFTER_SEC, pruneBefore, agoLabel,
 } from "../site-sessions.mjs";
 
 const NOW = 1_800_000_000_000; // ms
@@ -258,4 +258,26 @@ test("pruning cannot resurrect a revoked session", () => {
   for (const bad of [0, -1, NaN, null, undefined, "thirty days"]) {
     assert.equal(pruneBefore(bad, NOW), 0, String(bad));
   }
+});
+
+test("every session carries a label that is never null", () => {
+  // `ageSec` is nullable on purpose, and that put a null-guard between the
+  // generator and the one thing it renders — it skipped the guard in every eval
+  // sample, three times out of three.
+  const out = describeSessions([row({ last_seen: S - 3600 }), row({ sid: "s2", created_at: null, last_seen: null })], null, NOW);
+  for (const s of out) assert.equal(typeof s.lastSeenLabel, "string", JSON.stringify(s));
+  assert.equal(out.find((s) => s.ageSec === 3600).lastSeenLabel, "1 hour ago");
+  assert.equal(out.find((s) => s.ageSec === null).lastSeenLabel, "unknown");
+});
+
+test("the label is coarse, and reads like a person wrote it", () => {
+  // It answers "is that still me?" — 90 minutes and 100 minutes are one answer.
+  assert.equal(agoLabel(0), "just now");
+  assert.equal(agoLabel(89), "just now");
+  assert.equal(agoLabel(90), "2 minutes ago");
+  assert.equal(agoLabel(60 * 60), "1 hour ago");
+  assert.equal(agoLabel(60 * 60 * 24 * 2), "2 days ago");
+  assert.equal(agoLabel(60 * 60 * 24 * 60), "2 months ago");
+  assert.equal(agoLabel(60 * 60 * 24 * 500), "over a year ago");
+  for (const bad of [null, undefined, NaN, Infinity, "x"]) assert.equal(agoLabel(bad), "unknown", String(bad));
 });
