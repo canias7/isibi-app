@@ -827,6 +827,92 @@ try {
     afterDelete.status + " " + JSON.stringify(afterDelete.rows.map((x) => x.title)));
   ok("deleting a team that is gone is 404", (await owner(`/teams/${teamId}`, { method: "DELETE" })).status === 404);
 
+  // ============================================== the auth audit log
+  //
+  // Last, deliberately: by this point the run has signed in and out, failed
+  // logins on purpose, been locked out, enrolled and used a second factor,
+  // spent a recovery code, changed a password and an address, been granted a
+  // role, suspended and reinstated. The log either has all of that or it does
+  // not, and that is the only honest way to test a thing whose whole job is to
+  // have been watching the entire time.
+  section("the auth audit log");
+  const evRes = await owner("/events");
+  const ev = await J(evRes);
+  ok("the owner can read the log", evRes.status === 200 && Array.isArray(ev.events),
+    evRes.status + " " + JSON.stringify(ev).slice(0, 200));
+
+  // PAGED, not one call. This run makes well over a page of events, and the
+  // earliest ones — the first signup, the password change — are the ones that
+  // would fall off the end. Following `nextBefore` is also the only test
+  // pagination gets: a cursor that repeated itself would loop here, and one
+  // that skipped would lose rows the assertions below are looking for.
+  const all = [...(ev.events || [])];
+  let cursor = ev.nextBefore, pages = 1;
+  while (cursor && pages < 8) {
+    const more = await J(await owner("/events?before=" + encodeURIComponent(cursor)));
+    const got = more.events || [];
+    if (!got.length) break;
+    all.push(...got);
+    pages++;
+    if (more.nextBefore === cursor) { ok("the cursor moves", false, "nextBefore repeated: " + cursor); break; }
+    cursor = more.nextBefore;
+  }
+  ok("the log pages without repeating or skipping",
+    pages >= 1 && new Set(all.map((e) => e.id)).size === all.length,
+    pages + " pages, " + all.length + " rows, " + new Set(all.map((e) => e.id)).size + " distinct");
+  const kinds = new Set(all.map((e) => e.kind));
+  ok("it recorded everything this run did",
+    ["signup", "login", "login_failed", "locked", "password_change", "email_change",
+     "2fa_required", "2fa_ok", "recovery_used", "totp_on", "totp_off",
+     "role_change", "suspend", "unsuspend", "signup_refused"].every((k) => kinds.has(k)),
+    "missing: " + ["signup", "login", "login_failed", "locked", "password_change", "email_change",
+      "2fa_required", "2fa_ok", "recovery_used", "totp_on", "totp_off",
+      "role_change", "suspend", "unsuspend", "signup_refused"].filter((k) => !kinds.has(k)).join(", ") +
+    " | present: " + [...kinds].join(", "));
+
+  // The two rules the whole design rests on, checked against real rows rather
+  // than against the unit tests' fakes.
+  const blob = JSON.stringify(all);
+  ok("no password this run used is anywhere in the log",
+    ![m1pass2, m2pass, tfPass, bfPass, outPass].some((p) => p && blob.includes(p)), "a password reached the log");
+  const strangers = all.filter((e) => e.who);
+  ok("somebody with no account here is a tag, never an address",
+    strangers.length > 0 && strangers.every((e) => !e.email && /^unknown·/.test(e.who)),
+    strangers.length + " tagged: " + JSON.stringify(strangers.slice(0, 2)));
+  ok("...and a MEMBER is named, because the owner already has their address",
+    all.some((e) => e.email && !e.who), JSON.stringify(all[0] || null).slice(0, 200));
+  ok("an IP is a network block, never a full address",
+    all.every((e) => !e.ip || /\/(24|48)$/.test(e.ip)),
+    JSON.stringify(all.map((e) => e.ip).filter(Boolean).slice(0, 4)));
+
+  // The headline, which is what an owner actually reads.
+  const sum = ev.summary || {};
+  ok("the summary counts the failures this run caused", Number(sum.failures) >= 6, JSON.stringify(sum));
+  ok("...and how many separate sources they came from", Number(sum.sources) >= 1, JSON.stringify(sum));
+  ok("a pending second factor is not counted as a sign-in",
+    Number(sum.signIns) >= 1 && !kinds.has("__never__"), JSON.stringify(sum));
+
+  // Filters, which are also the injection surface: both go into the statement
+  // as parameters and `kind` is checked against the closed set first.
+  const filtered = await J(await owner("/events?kind=login_failed"));
+  ok("the log can be filtered to one kind",
+    (filtered.events || []).length > 0 && (filtered.events || []).every((e) => e.kind === "login_failed"),
+    JSON.stringify((filtered.events || []).map((e) => e.kind).slice(0, 5)));
+  const junk = await owner("/events?kind=" + encodeURIComponent("login_failed'; DROP TABLE _auth_events; --"));
+  const junkBody = await J(junk);
+  ok("an unknown kind is ignored rather than run", junk.status === 200 && Array.isArray(junkBody.events), junk.status);
+  ok("...and the table is still there afterwards",
+    ((await J(await owner("/events"))).events || []).length > 0, "the log went empty after a filter");
+
+  // Owner-only, and read-only. It names other members, their addresses and
+  // where they signed in from.
+  const asMember = await fetch(`${BASE}/api/site/${slug}/events`, { headers: { Authorization: `Bearer ${plain.body.token}` } });
+  ok("a MEMBER's token cannot read the log", asMember.status === 401 || asMember.status === 403, asMember.status);
+  ok("an anonymous visitor cannot read the log",
+    (await fetch(`${BASE}/api/site/${slug}/events`)).status === 401, "anonymous read allowed");
+  ok("nothing can WRITE to the log through the API",
+    (await owner("/events", { method: "POST", body: "{}" })).status === 405, "a write was accepted");
+
   // ================================================== what the visitor sees
   section("the published site, in a real browser");
   // The build returns a RELATIVE url ("/s/<slug>/"), which page.goto refuses as
