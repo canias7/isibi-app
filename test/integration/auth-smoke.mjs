@@ -417,7 +417,9 @@ try {
 
   // ================================================== what the visitor sees
   section("the published site, in a real browser");
-  await shoot(bd.url || `${BASE}/s/${slug}/`);
+  // The build returns a RELATIVE url ("/s/<slug>/"), which page.goto refuses as
+  // an invalid URL. Absolutised against the base being audited.
+  await shoot(new URL(bd.url || `/s/${slug}/`, BASE).toString());
 
 } catch (e) {
   failed++;

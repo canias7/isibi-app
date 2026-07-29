@@ -327,7 +327,11 @@ or an access level — anything not in the schema below does not exist.
    the list on a published column or the index.
 
 10. GIVE THE VISITOR THEIR SUBMISSION BACK. A successful \`useCreateRow\` on a \`collect\`
-    table returns \`{ row, claim }\`. That \`claim\` is a signed token for THAT ONE row and
+    table resolves to \`{ row, claim }\` where **\`claim\` is optional** — only a \`collect\`
+    table mints one, so its type is \`string | undefined\`. Take the whole result and
+    narrow it (\`onSuccess: (data) => { if (!data.claim) return; … }\`); destructuring it
+    as a required \`{ claim: string }\` does not typecheck and the page will be refused.
+    That \`claim\` is a signed token for THAT ONE row and
     it is issued exactly once — if the page drops it, nobody can ever reach that booking
     again except the site owner. On the confirmation screen, show a link to a manage page
     carrying it: \`/manage?id=\${row.id}&claim=\${claim}\`. That page reads the two values
