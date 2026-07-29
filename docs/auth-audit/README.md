@@ -1,6 +1,6 @@
 # Auth layer — production audit
 
-Run against `https://isibi.ai` · 85 passed, 2 failed.
+Run against `https://isibi.ai` · 80 passed, 2 failed.
 
 
 ## the site
@@ -8,7 +8,12 @@ Run against `https://isibi.ai` · 85 passed, 2 failed.
 - ✅ build returns 200
 - ✅ every declared table was created
 - ✅ the display table was seeded
-- ✅ a real app was published, not the placeholder
+- ❌ a real app was published, not the placeholder — `page=placeholder stage=typecheck error=error TS6053: File '/app/src/routes/announcements.tsx' not found.
+  The file is in the program because:
+    Matched by include pattern 'src/**/*.tsx' in '/app/tsconfig.json'
+error TS6053: File '/app/src/routes/manage.tsx' not found.
+  The file is in the program because:
+    Matched by include patter notes=The pages didn't compile, so the site is showing its data model for now — send it again to retry. cost=55 files=["src/routes/index.tsx","src/routes/manage.tsx","src/routes/members.tsx","src/routes/announcements.tsx"] problems=[]`
 
 ## signup
 
@@ -112,39 +117,8 @@ Run against `https://isibi.ai` · 85 passed, 2 failed.
 ## the published site, in a real browser
 
 - ✅ the published site serves 200
-- ✅ the app actually RENDERED (root is not empty)
+- ❌ the app actually RENDERED (root is not empty) — `root text length=0`
 - ✅ no uncaught error on load
-- ❌ seeded content is on the page — `Fade & Co Barbershop
-
-Sharp fades, clean lines. Pick a service, then book your chair.
-
-Services
-
-Couldn't load the services. Refresh and try again.
-
-Book an appointment
-Service
-Choose one
-Your name
-Phone
-Email (optional)
-Date
-Time
-Choose a time
-09:00
-09:30
-10:00
-10:30
-11:00
-11:30
-12:00
-12:30
-13:00
-1`
-- ✅ the masked phone is NOT rendered in full
-- ✅ a member can be signed in from inside the published page
-- ✅ the stored session actually opens a member-scoped read
-- ❌ the published bundle reads the session key the platform writes — `no bundle references `site_session_` — a stored session would be ignored: {"found":false,"scripts":1,"fetched":1}`
 
 ## The published site
 
