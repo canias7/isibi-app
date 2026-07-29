@@ -447,6 +447,32 @@ test("the rules tell the model how a booking page shows a taken slot", () => {
   assert.match(rows, /export function usePublicRows/, "a rule naming an export the template lacks produces code that does not compile");
 });
 
+test("a public projection is typed as having no id, because it has none", () => {
+  // `usePublicRows` was `<T extends Row>`, and `Row` requires `id: number` — the
+  // one field a publicView can NEVER carry, since the schema engine refuses
+  // `id` and `owner_id` in a projection. So an honest type was a compile error
+  // and the only type that compiled was a lie that left `row.id` undefined, and
+  // therefore a React key of `undefined` on every row. Measured live
+  // 2026-07-29: TS2344, the page refused, the whole site published as the
+  // placeholder.
+  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
+  assert.match(rows, /export type PublicRow/, "the projection needs a type of its own");
+  assert.ok(!/export function usePublicRows<T extends Row/.test(rows),
+    "usePublicRows must not demand a field the projection cannot contain");
+  assert.match(rows, /export function usePublicRows<T = PublicRow>/);
+  // And the model has to be told, or it writes `Row & {…}` and keys on id.
+  assert.match(PAGE_RULES, /These rows have NO `id`/);
+  assert.match(PAGE_RULES, /PublicRow/);
+});
+
+test("the schema engine really does refuse id in a projection", () => {
+  // The premise the type rests on. If this ever changed, PublicRow would be
+  // wrong in the other direction and nothing else would say so.
+  const schema = fs.readFileSync(path.join(ROOT, "site-schema.mjs"), "utf8");
+  assert.match(schema, /c !== "owner_id" && c !== "id"/,
+    "publicView must still strip id and owner_id — PublicRow is typed on that");
+});
+
 test("the rules tell the model to hand back the claim, and the hooks exist", () => {
   // The token is issued exactly once, in the response to the insert. A page that
   // drops it strands that booking forever — nobody but the site owner can ever

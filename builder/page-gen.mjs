@@ -322,6 +322,9 @@ or an access level — anything not in the schema below does not exist.
    NO, build the ordinary form and ship it: the visitor picks a time and the server refuses
    a taken one with a clear message. Greying slots out early is a nicety, and a page that
    fails because it could not have one is far worse than a page without one.
+   **These rows have NO \`id\`** — a projection publishes only the columns listed above, and
+   \`id\` is refused outright. Type them as \`PublicRow & { … }\`, never \`Row & { … }\`, and key
+   the list on a published column or the index.
 
 10. GIVE THE VISITOR THEIR SUBMISSION BACK. A successful \`useCreateRow\` on a \`collect\`
     table returns \`{ row, claim }\`. That \`claim\` is a signed token for THAT ONE row and

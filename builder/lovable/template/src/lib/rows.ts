@@ -16,6 +16,23 @@ import {
 
 export type Row = Record<string, unknown> & { id: number };
 
+/**
+ * A row from a table's public projection, which has NO `id`.
+ *
+ * Not a cosmetic distinction. The schema engine refuses `id` and `owner_id` in a
+ * `publicView` — publishing a sequential id from an owner-scoped table tells a
+ * stranger how many bookings exist and lets them be counted — and the API
+ * selects only the columns the projection declares. So these rows really do
+ * arrive without one.
+ *
+ * `usePublicRows` was typed `<T extends Row>`, which demanded the very field the
+ * projection can never contain: an honest type was a compile error, and the only
+ * type that compiled was a lie that left `row.id` undefined at runtime — which
+ * is a React `key` of `undefined` on every row. There was no correct way to call
+ * it. Use a published column as the key, or the index.
+ */
+export type PublicRow = Record<string, unknown>;
+
 /** Query parameters a list read accepts. Anything else is ignored by the API. */
 export type RowQuery = {
   limit?: number;
@@ -577,7 +594,7 @@ export function useUploadFile(table: string) {
  * anything else is ignored by the API rather than honoured, so this cannot be
  * used to ask about a column the site chose not to publish.
  */
-export function usePublicRows<T extends Row = Row>(table: string, params?: RowQuery) {
+export function usePublicRows<T = PublicRow>(table: string, params?: RowQuery) {
   return useQuery({
     queryKey: ["public", siteSlug(), table, params],
     queryFn: () => send<{ rows: T[] }>(`${base(table)}/public${qs(params)}`).then((r) => r.rows),
