@@ -9990,6 +9990,7 @@ function moreCloud(site) {
   const auxLive = isReact ? false : !!site.slug;    // Emails/Payments/Files dedicated panels: static only for now
   const cards = [
     ['users', 'Members', dataLive ? 'Accounts that sign up in your app' : (isReact ? 'Add a login to your app to collect members' : 'Publish to enable member accounts'), dataLive, 'members'],
+    ['key', 'Security log', dataLive ? 'Sign-ins, failures and what you changed' : (isReact ? 'Add a login to your app to see this' : 'Publish to enable the security log'), dataLive, 'security'],
     ['inbox', 'Submissions', dataLive ? 'Form entries from your visitors' : (isReact ? 'Add a form to your app to collect entries' : 'Publish to collect submissions'), dataLive, 'inbox'],
     ['database', 'Database', dataLive ? 'Your app’s tables + rows' : (isReact ? 'Add data to your app to see it here' : 'Publish to enable collections'), dataLive, 'database'],
     ['chart', 'Insights', dataLive ? 'Traffic, top pages + error rate' : (isReact ? 'Add data/traffic to see insights' : 'Publish to see insights'), dataLive, 'insights'],
@@ -10264,6 +10265,7 @@ function renderSiteWorkspace(view, site) {
   // Cloud cards that are live open their real panels.
   view.querySelectorAll('[data-cloud]').forEach((b) => b.onclick = () => {
     if (b.dataset.cloud === 'members') siteMembers(site);
+    else if (b.dataset.cloud === 'security') siteSecurity(site);
     else if (b.dataset.cloud === 'database') siteDatabase(site);
     else if (b.dataset.cloud === 'insights') siteInsights(site);
     else if (b.dataset.cloud === 'backups') siteBackups(site);
@@ -10859,6 +10861,50 @@ function stFmtTime(t) { try { if (!t) return '—'; const iso = /^\d{4}-\d\d-\d\
 
 // Insights — visitor traffic (page views + key actions) and the app's API request/error
 // counts. Read-only; owner-scoped.
+// The auth audit log — who signed in, who failed, and what the owner changed.
+// Reads GET /api/site/<slug>/events, which is owner-only and GET-only; there is
+// deliberately no member-facing view, because the log names other members and
+// where they signed in from.
+async function siteSecurity(site) {
+  const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
+  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — the security log starts then.'); return; }
+  const { bodyEl } = stCloudModal('siteSecurityModal', 'Security log');
+  bodyEl.innerHTML = '<div class="si-empty">Loading…</div>';
+  try {
+    const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/events');
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { bodyEl.innerHTML = '<div class="si-empty">' + esc(d.error || 'Couldn’t load the log just now.') + '</div>'; return; }
+    const sum = d.summary || {};
+    const events = d.events || [];
+    // The headline first. `sources` is the number that decides whether the
+    // failure count is somebody who forgot their password or somebody working
+    // through a list — a wall of rows answers neither.
+    const head =
+      '<div class="si-stat-row">' +
+      '<div class="si-stat"><b>' + (sum.signIns || 0) + '</b><span>sign-ins · 24h</span></div>' +
+      '<div class="si-stat"><b>' + (sum.failures || 0) + '</b><span>failed attempts</span></div>' +
+      '<div class="si-stat"><b>' + (sum.sources || 0) + '</b><span>separate sources</span></div>' +
+      '<div class="si-stat"><b>' + (sum.membersTargeted || 0) + '</b><span>of your members targeted</span></div>' +
+      '</div>';
+    const row = (e) => {
+      // One or the other, never both: a member is named, a stranger is a tag.
+      const who = e.email ? esc(e.email) : (e.who ? esc(e.who) : 'someone');
+      const where = [e.country ? esc(String(e.country).toUpperCase()) : '', e.ip ? esc(e.ip) : ''].filter(Boolean).join(' · ');
+      return '<div class="sec-row' + (e.failure ? ' sec-bad' : (e.owner ? ' sec-own' : '')) + '">' +
+        '<span class="sec-who">' + who + '</span>' +
+        '<span class="sec-what">' + esc(e.what) + '</span>' +
+        '<span class="sec-when">' + esc(e.ago) + '</span>' +
+        (where ? '<span class="sec-where">' + where + '</span>' : '') +
+        '</div>';
+    };
+    bodyEl.innerHTML = head +
+      (events.length
+        ? '<div class="si-panel-sub">Recent</div>' + events.map(row).join('')
+        : '<div class="si-empty">Nothing yet — this fills up as people use your site.</div>') +
+      '<div class="si-note">Kept for 90 days. Addresses of people with no account here are never stored — they show as a tag, so you can still tell one repeat visitor from many.</div>';
+  } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load the log just now — try again.</div>'; }
+}
+
 async function siteInsights(site) {
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
   if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — insights show up here.'); return; }

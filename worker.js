@@ -18,6 +18,11 @@ import { checkSignup, newInviteCode, normalizeCode, normalizeMode, inviteOptions
 import { handleAuthFlow } from "./site-auth-flows.mjs";
 import { AUTH_DDL, AUTH_USER_COLUMNS, SESSION_DDL, routeFor, availableMethods } from "./site-auth-methods.mjs";
 import { SESSION_JOIN, sessionUsable, trimUa, MAX_SESSIONS_LISTED, pruneBefore } from "./site-sessions.mjs";
+import {
+  AUDIT_DDL, AUDIT_PAGE, AUDIT_MAX_ROWS, AUDIT_RETENTION_DAYS,
+  auditRow, describeEvents, summarize, normalizeKind,
+  pruneBefore as auditPruneBefore,
+} from "./site-audit.mjs";
 import { TEAM_DDL, normalizeTeamName, normalizeTeamId, describeTeams } from "./site-teams.mjs";
 import { providerConfig, decodeIdToken } from "./site-oauth.mjs";
 import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
@@ -3013,6 +3018,11 @@ async function ensureSiteUsers(db) {
   // that existed only where somebody used a passkey would make `me` answer 500
   // on every ordinary email-and-password site.
   for (const sql of SESSION_DDL) { try { await sqlQuery(db, sql); } catch {} }
+  // The audit log, here for exactly the same reason: plain email-and-password
+  // login WRITES to it, and the registry's DDL only runs on the routes the
+  // registry owns. A table that existed only where somebody used a passkey
+  // would make every ordinary sign-in throw on its own audit write.
+  for (const sql of AUDIT_DDL) { try { await sqlQuery(db, sql); } catch {} }
   _usersReady.add(db);
 }
 
@@ -3158,6 +3168,57 @@ async function oauthProfile(cfg, tokens) {
  * somewhere odd?") that needs geolocation we do not have. `request.cf.country`
  * gives the useful part for free and carries nothing identifying.
  */
+/**
+ * Writing to the audit log, wired once for BOTH auth surfaces.
+ *
+ * Defined here rather than in each dep factory because there are two of them —
+ * `siteAuthDeps` for the password routes and `authFlowDeps` for the registry
+ * methods — and a second copy of "how an event is recorded" is precisely how the
+ * second factor came to be enforced on three sign-in methods and not the fourth.
+ *
+ * BEST-EFFORT, always. An audit write that fails must never fail the sign-in it
+ * is describing: the log exists to explain what happened to an account, and
+ * taking the account down to protect the record of it gets the priority exactly
+ * backwards. Errors are logged and swallowed, the same contract `startSession`
+ * has.
+ *
+ * The prune rides on the WRITE rather than on the owner's read: the read is
+ * rare, and a table that is only trimmed when somebody happens to open the page
+ * grows without bound on every site nobody looks at — which is all of them,
+ * until the day something goes wrong.
+ */
+function auditDeps(db, slug, request) {
+  const ip = (request && request.headers.get("CF-Connecting-IP")) || "";
+  const ua = trimUa((request && request.headers.get("user-agent")) || "");
+  const country = (request && request.cf && request.cf.country) || null;
+  let writes = 0;
+  return {
+    audit: async (event) => {
+      try {
+        if (!normalizeKind(event && event.kind)) return;   // never a row nobody can find
+        const key = await sessionKey(await siteAuthSecret(db), slug);
+        const row = await auditRow({ ip, ua, country, ...event }, { key });
+        if (!row) return;
+        await sqlQuery(db,
+          "INSERT INTO _auth_events (at, kind, ok, user_id, email, who, ip, country, ua, sid, meta)" +
+          " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+          [row.at, row.kind, row.ok, row.user_id, row.email, row.who, row.ip, row.country, row.ua, row.sid,
+           row.meta ? JSON.stringify(row.meta) : null]);
+        // Roughly one sweep in fifty writes. Cheap enough to ride along, rare
+        // enough not to be a second statement on every sign-in.
+        if ((++writes % 50) !== 1) return;
+        const cut = auditPruneBefore(AUDIT_RETENTION_DAYS);
+        if (cut > 0) await sqlQuery(db, "DELETE FROM _auth_events WHERE at < ?", [cut]);
+        // …and a hard ceiling, because retention alone does not bound a site
+        // being hammered: ninety days of a brute force is still ninety days.
+        await sqlQuery(db,
+          "DELETE FROM _auth_events WHERE id NOT IN (SELECT id FROM _auth_events ORDER BY at DESC LIMIT ?)",
+          [AUDIT_MAX_ROWS]);
+      } catch (e) { console.error("audit write failed:", slug, (e && (e.detail || e.message)) || e); }
+    },
+  };
+}
+
 function sessionDeps(db, request) {
   const q = (sql, args) => sqlQuery(db, sql, args);
   const ua = trimUa((request && request.headers.get("user-agent")) || "");
@@ -3219,6 +3280,7 @@ function authFlowDeps(env, db, slug, url, request) {
         )
       : null),
     ...sessionDeps(db, request),
+    ...auditDeps(db, slug, request),
     findUserByEmail: (e) => one("SELECT id, email, pass_hash AS password_hash, token_epoch, blocked, totp_secret, totp_enabled, totp_last_step, recovery_hashes FROM _users WHERE email=?", [e]),
     createUser: async (email, name) => {
       // No password: an account made through a provider has none until its owner
@@ -3423,6 +3485,7 @@ function siteAuthDeps(env, db, slug, request) {
   const one = async (sql, params) => { await ensureSiteUsers(db); const r = await sqlQuery(db, sql, params); return r[0] || null; };
   return {
     ...sessionDeps(db, request),
+    ...auditDeps(db, slug, request),
     secret: () => siteAuthSecret(db),
     // `totp_enabled` is load-bearing here and was missing until 2026-07-29: the
     // login handler asks `secondFactorRequired(user)`, and a column this query
@@ -6238,7 +6301,7 @@ async function handleRequest(request, env, ctx) {
     // Ordered BEFORE the site-delete branch below on purpose: that one matches
     // any DELETE under /api/site/, so a row delete would otherwise be read as a
     // request to take the entire site down.
-    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads") || url.pathname.includes("/export") || url.pathname.includes("/notify") || url.pathname.includes("/access") || url.pathname.includes("/teams"))) {
+    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads") || url.pathname.includes("/export") || url.pathname.includes("/notify") || url.pathname.includes("/access") || url.pathname.includes("/teams") || url.pathname.includes("/events"))) {
       const om = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rows(?:\/([a-z_][a-z0-9_]{0,40})(?:\/([0-9]{1,18}))?)?$/i);
       const mm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/members(?:\/([0-9]{1,18}))?$/i);
       const an = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/analytics$/i);
@@ -6247,7 +6310,8 @@ async function handleRequest(request, env, ctx) {
       const nt = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/notify$/i);
       const ac = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/access(?:\/invite(?:\/([A-Za-z0-9-]{1,32}))?)?$/i);
       const tm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/teams(?:\/([0-9]{1,18}))?$/i);
-      if (om || mm || an || uf || xp || nt || ac || tm) {
+      const ev = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/events$/i);
+      if (om || mm || an || uf || xp || nt || ac || tm || ev) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
         const ownerDeps = {
@@ -6304,6 +6368,48 @@ async function handleRequest(request, env, ctx) {
             });
             if (!q.ok) return Response.json({ error: "couldn't save that just now" }, { status: 503 });
             return Response.json({ ok: true, notify: on });
+          } else if (ev) {
+            // The auth audit log, owner-only. There is no member-facing view of
+            // this and there should not be: it names other members, their
+            // addresses and where they signed in from.
+            const eslug = ev[1].toLowerCase();
+            const g = await assertOwner(ownerDeps, eslug, ou.id);
+            if (g.error) return Response.json(g.error.body, { status: g.error.status });
+            if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
+            const edb = await siteBackendBySlug(env, eslug);
+            if (!edb) return Response.json({ error: "no such site" }, { status: 404 });
+            try {
+              await ensureSiteUsers(edb);
+              const limit = Math.min(AUDIT_PAGE, Math.max(1, parseInt(url.searchParams.get("limit") || String(AUDIT_PAGE), 10) || AUDIT_PAGE));
+              const before = parseInt(url.searchParams.get("before") || "", 10);
+              // Filters are allow-listed, not interpolated: `kind` is checked
+              // against the closed set and `member` has to be an integer, so no
+              // query string reaches the statement as anything but a parameter.
+              const kind = normalizeKind(url.searchParams.get("kind"));
+              const member = parseInt(url.searchParams.get("member") || "", 10);
+              const where = [], args = [];
+              if (Number.isFinite(before) && before > 0) { where.push("at < ?"); args.push(before); }
+              if (kind) { where.push("kind = ?"); args.push(kind); }
+              if (Number.isInteger(member) && member > 0) { where.push("user_id = ?"); args.push(member); }
+              const sql = "SELECT * FROM _auth_events" + (where.length ? " WHERE " + where.join(" AND ") : "") +
+                " ORDER BY at DESC, id DESC LIMIT ?";
+              const rows = await sqlQuery(edb, sql, args.concat([limit]));
+              // The headline is computed over a WIDER, unfiltered window than the
+              // page: "is something happening right now" must not change because
+              // somebody filtered the list to one member.
+              const dayAgo = Math.floor(Date.now() / 1000) - 86400;
+              const recent = await sqlQuery(edb,
+                "SELECT at, kind, ok, user_id, email, who, ip FROM _auth_events WHERE at >= ? ORDER BY at DESC LIMIT 2000", [dayAgo]);
+              return Response.json({
+                events: describeEvents(rows),
+                summary: summarize(recent),
+                // What the NEXT page starts before. Absent when this is the last.
+                nextBefore: rows.length === limit ? Number(rows[rows.length - 1].at) : null,
+              });
+            } catch (e) {
+              console.error("site events failed:", eslug, (e && (e.detail || e.message)) || e);
+              return Response.json({ error: "couldn't do that just now" }, { status: 503 });
+            }
           } else if (tm) {
             // Teams — the group a member belongs to, and the only way `teamScope`
             // becomes reachable. That flag has been parsed, and its `team_id`
@@ -6465,6 +6571,12 @@ async function handleRequest(request, env, ctx) {
                   (opt.days ? "to_char(now() AT TIME ZONE 'UTC' + (? || ' days')::interval,'YYYY-MM-DD HH24:MI:SS')" : "NULL") + ")",
                 opt.days ? [stored, opt.uses, opt.note, String(opt.days)] : [stored, opt.uses, opt.note],
               );
+              // The code itself is NEVER logged — it is a credential, and a
+              // log that carries it hands an account to whoever reads it.
+              try {
+                const p = auditDeps(adb, aslug, request).audit({ kind: "invite_mint", meta: { count: opt.uses } });
+                if (p && p.catch) p.catch(() => {});
+              } catch (e) { console.error("audit failed:", aslug, (e && e.message) || e); }
               return Response.json({ ok: true, code, uses: opt.uses, days: opt.days, note: opt.note }, { status: 201 });
             } catch (e) {
               console.error("site access failed:", aslug, (e && (e.detail || e.message)) || e);

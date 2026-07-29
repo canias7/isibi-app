@@ -5017,6 +5017,18 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 /* The two doors above the landing chatbox. The container is a plain row —
    the buttons themselves reuse .mkt-cta / .mkt-ghost, so they stay in step with
    the rest of the landing rather than being a third button style. */
+/* The security log's rows. Deliberately plain — it is a list somebody scans
+   when they are worried, so the only colour carries meaning: a failure and an
+   action the owner took are the two things worth picking out of a wall of
+   ordinary sign-ins. */
+.sec-row{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1.3fr) auto auto;gap:.6rem;align-items:baseline;
+  padding:.5rem .1rem;border-bottom:1px solid var(--line);font-size:.86rem}
+.sec-row:last-child{border-bottom:none}
+.sec-who{color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sec-what{color:var(--muted)}
+.sec-when,.sec-where{color:var(--muted);opacity:.75;font-size:.8rem;white-space:nowrap}
+.sec-bad .sec-what{color:#ff9b9b}
+.sec-own .sec-what{color:var(--neon)}
 .crt-doors{display:flex;gap:.7rem;flex-wrap:wrap;justify-content:center}
 .crt-doors .mkt-cta,.crt-doors .mkt-ghost{padding:.7rem 1.9rem;font-size:.92rem}
 .crt-chatbox{width:min(560px,88%);display:flex;align-items:stretch;gap:.9rem;cursor:text;

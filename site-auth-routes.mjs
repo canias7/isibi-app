@@ -114,6 +114,24 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     catch (e) { console.error("session sweep failed:", slug, (e && e.message) || e); }
   };
 
+  /**
+   * Write it down. Never awaited into the response path and never able to fail
+   * it: the log exists to explain what happened to an account, and taking the
+   * account down to protect the record of it has the priority backwards.
+   *
+   * Absent on a caller that wires no `audit`, which is every existing test.
+   *
+   * A correct password on an account with a second factor is recorded as
+   * `2fa_required` — not as a sign-in, because no session was minted, and not
+   * as a failure, because nothing failed. It is the row that says somebody HAS
+   * the password, which is what an owner investigating a break-in needs most.
+   */
+  const rec = (kind, event) => {
+    if (!deps.audit) return;
+    try { const p = deps.audit({ kind, ...event }); if (p && p.catch) p.catch(() => {}); }
+    catch (e) { console.error("audit failed:", slug, (e && e.message) || e); }
+  };
+
   if (action === "me") {
     const claims = await verifySession(key, token, { nowMs: now });
     if (!claims) return json({ error: "not signed in" }, 401);
@@ -167,7 +185,7 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     // notice. The cost of putting it first is an outbound request on a signup
     // that was going to be refused anyway, which the throttle above bounds.
     const breached = await pwnedRefusal(body.password);
-    if (breached) return breached;
+    if (breached) { rec("signup_refused", { email, meta: { reason: "pwned" } }); return breached; }
 
     // Is this site taking new accounts at all, and from whom?
     //
@@ -176,7 +194,7 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     // a full PBKDF2 run of Worker CPU. Absent on a caller that does not wire it,
     // which keeps every site that never sets a mode behaving exactly as before.
     const gate = deps.signupGate ? await deps.signupGate({ code: body.invite, email }) : { ok: true };
-    if (!gate.ok) return json({ error: gate.error, code: gate.reason }, gate.status);
+    if (!gate.ok) { rec("signup_refused", { email, meta: { reason: gate.reason } }); return json({ error: gate.error, code: gate.reason }, gate.status); }
 
     const made = await deps.createUser(slug, email, await hashPassword(body.password));
     // Give the use back when the account was not created. Otherwise anyone
@@ -190,11 +208,12 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     // this site. The privacy-preserving alternative — always answer 200 and mail
     // "you already have an account" — needs a working mailer, and a site with no
     // mail configured would silently never sign anyone up. Told plainly instead.
-    if (made.conflict) return json({ error: "That email already has an account.", code: "exists" }, 409);
+    if (made.conflict) { rec("signup_refused", { email, meta: { reason: "exists" } }); return json({ error: "That email already has an account.", code: "exists" }, 409); }
     if (!made.id) return json({ error: "Could not create that account." }, 500);
     // Ask them to confirm the address. Detached and best-effort by construction:
     // the account exists either way, and a site with no mailer simply never asks.
     if (deps.onSignedUp) { try { deps.onSignedUp(made.id, email); } catch (e) { console.error("signup hook failed:", slug, (e && e.message) || e); } }
+    rec("signup", { userId: made.id, email, meta: { method: "password" } });
     return json({ token: await mk({ id: made.id, email }), user: { id: made.id, email } });
   }
 
@@ -226,6 +245,8 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
         // Byte-identical to a wrong password. "Try again in 10 minutes" would
         // confirm the account exists, and confirming that is the leak this whole
         // endpoint is shaped around avoiding.
+        // The one event a byte-identical refusal makes invisible from outside.
+        rec("locked", { userId: user.id, email: user.email, meta: { reason: "delay" } });
         return json({ error: "That email and password don't match." }, 401);
       }
       if (!ok) {
@@ -234,14 +255,23 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
       }
     }
 
-    if (!user || !ok) return json({ error: "That email and password don't match." }, 401);
+    if (!user || !ok) {
+      // `member` says the address belongs to an account here even though the
+      // attempt failed — which is what decides whether the owner sees the
+      // address or a fingerprint, and the targeted case is the useful one.
+      rec("login_failed", { userId: user ? user.id : null, member: !!user, email, meta: { method: "password" } });
+      return json({ error: "That email and password don't match." }, 401);
+    }
     // A suspended member gets the SAME answer as a wrong password, byte for
     // byte. Saying "your account is suspended" would tell a stranger guessing
     // addresses that this one is a member here, which is the leak this whole
     // endpoint is shaped around avoiding. The check is after the hash, so the
     // timing does not answer it either. The owner tells them they are suspended;
     // the login form does not.
-    if (user.blocked) return json({ error: "That email and password don't match." }, 401);
+    if (user.blocked) {
+      rec("login_failed", { userId: user.id, email: user.email, meta: { reason: "suspended" } });
+      return json({ error: "That email and password don't match." }, 401);
+    }
     await deps.touchLogin(user.id).catch?.(() => {});
     // They proved who they are, so the failures are forgotten — otherwise a
     // person who fumbles four times a month arrives at the top of the curve
@@ -265,8 +295,13 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     // so the failure counter should be cleared whether or not a second factor is
     // still to come. Otherwise a 2FA account could never forget its failures.
     if (secondFactorRequired(user)) {
+      // Recorded as its OWN thing rather than as a sign-in: no session was
+      // minted, and putting "signed in" on the owner's page for somebody who
+      // never got in would be a lie in the direction that matters.
+      rec("2fa_required", { userId: user.id, email: user.email, meta: { method: "password" } });
       return json({ pending: await signPending(key, user.id, { nowMs: now }), need: "totp", user: { id: user.id, email: user.email } });
     }
+    rec("login", { userId: user.id, email: user.email, meta: { method: "password" } });
     return json({ token: await mk(user), user: { id: user.id, email: user.email } });
   }
 
@@ -304,6 +339,7 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     if (breached) return breached;
 
     const epoch = await deps.setPassword(user.id, await hashPassword(body.next));
+    rec("password_change", { userId: user.id, email: user.email });
     await sweepSessions(user.id);
     // A fresh token, or the caller is signed out by the change they just made.
     return json({ ok: true, token: await mk(user, epoch) });
@@ -316,6 +352,7 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     const user = await signedIn();
     if (!user) return json({ error: "not signed in" }, 401);
     const epoch = await deps.bumpEpoch(user.id);
+    rec("signout_all", { userId: user.id, email: user.email });
     await sweepSessions(user.id);
     // AFTER the sweep, because `mk` records a row for the token it mints and a
     // sweep run afterwards would revoke the session the caller is being handed.
@@ -342,6 +379,9 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     if (next === user.email) return json({ ok: true, user: { id: user.id, email: user.email } });
     const changed = await deps.setEmail(user.id, next);
     if (changed && changed.conflict) return json({ error: "That email already has an account.", code: "exists" }, 409);
+    // Recorded against the OLD address: an owner reading the log has to be
+    // able to see which account moved, and the new one is on the row after.
+    rec("email_change", { userId: user.id, email: user.email, meta: { target: next } });
     // `setEmail` cleared `verified`, so ask them to prove the new one. Same
     // fire-and-forget path as signup: the change already succeeded, and a site
     // with no mailer simply never asks.
@@ -364,6 +404,7 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     const ok = await verifyPassword(typeof body.current === "string" ? body.current : "", (full && full.password_hash) || DUMMY);
     if (!ok) return json({ error: "That password doesn't match.", code: "current" }, 401);
 
+    rec("member_delete", { userId: user.id, email: user.email, meta: { reason: "self" } });
     await deps.deleteUser(user.id);
     // Their rows are left behind, exactly as when an owner deletes a member:
     // `owner_id` stops matching anyone, so nothing is readable as them, but a
@@ -388,6 +429,7 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
       // they lost control of the account; leaving the thief signed in would
       // defeat the entire point of the reset.
       await deps.setPassword(user.id, await hashPassword(body.password));
+      rec("reset_done", { userId: user.id, email: user.email });
       // Nothing is minted here — a reset ends at the sign-in page — so every
       // device really is signed out, and the list has to say so.
       await sweepSessions(user.id);
@@ -403,6 +445,11 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     if (email) {
       const user = await deps.findUser(slug, email);
       if (user) {
+        // Only for a real account. Recording a request for an address with no
+        // account would fill the log with every typo, and the response is
+        // identical either way — so the row would be the one place the
+        // enumeration answer leaked, to whoever can read the log.
+        rec("reset_request", { userId: user.id, email });
         try { await deps.sendReset(email, await signReset(key, String(user.id), { nowMs: now })); }
         catch { /* a mail failure must not become an existence oracle either */ }
       }

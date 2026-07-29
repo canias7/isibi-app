@@ -42,8 +42,15 @@ export { PENDING_TTL_SEC } from "./site-auth.mjs";
  * `signPending`, so the shape of the half-finished sign-in has one definition
  * even though the two paths still have their own storage deps.
  */
-export async function finishSignIn(deps, user, { key, nowMs }) {
+export async function finishSignIn(deps, user, { key, nowMs, method, record = true } = {}) {
   if (secondFactorRequired(user)) {
+    // The same row the password path writes, for the same reason: a primary
+    // method succeeded and no session came of it, which is the one thing an
+    // owner investigating a break-in most needs to see.
+    try {
+      const p = deps.audit?.({ kind: "2fa_required", userId: user.id, email: user.email, meta: { method: method || undefined } });
+      if (p && p.catch) p.catch(() => {});
+    } catch (e) { console.error("audit failed:", (e && e.message) || e); }
     return json({ pending: await signPending(key, user.id, { nowMs }), need: "totp", user: { id: user.id, email: user.email } });
   }
   await deps.touchLogin?.(user.id).catch?.(() => {});
@@ -54,6 +61,18 @@ export async function finishSignIn(deps, user, { key, nowMs }) {
   const sid = newSessionId();
   try { await deps.startSession?.(user.id, sid); }
   catch (e) { console.error("session record failed:", (e && e.message) || e); }
+  // The audit row is written HERE, next to the token, for the same reason the
+  // second-factor check is: this is the one place a registry method turns into a
+  // session, so a method cannot be added later that signs somebody in without
+  // leaving a trace. `record:false` is for the OAuth callback alone, which knows
+  // something this function cannot — whether the account was just CREATED — and
+  // writes the better row itself.
+  if (record) {
+    try {
+      const p = deps.audit?.({ kind: "login", userId: user.id, email: user.email, sid, meta: { method: method || undefined } });
+      if (p && p.catch) p.catch(() => {});
+    } catch (e) { console.error("audit failed:", (e && e.message) || e); }
+  }
   return json({
     token: await signToken(key, { sub: String(user.id), email: user.email, ep: Number(user.token_epoch || 0), sid }, { nowMs }),
     user: { id: user.id, email: user.email },
@@ -78,6 +97,15 @@ export async function finishSignIn(deps, user, { key, nowMs }) {
 export async function handleAuthFlow(deps, { slug, route, body = {}, query = {}, token, key, nowMs, origin } = {}) {
   const now = nowMs == null ? Date.now() : nowMs;
   const site = await deps.siteConfig();
+  // Write it down. Same contract as the one in site-auth-routes.mjs — never
+  // awaited into the response, never able to fail it — and deliberately the
+  // same shape, because these two files are the two halves of one auth surface
+  // and a log that covers only one of them answers half the question.
+  const rec = (kind, event) => {
+    if (!deps.audit) return;
+    try { const p = deps.audit({ kind, ...event }); if (p && p.catch) p.catch(() => {}); }
+    catch (e) { console.error("audit failed:", slug, (e && e.message) || e); }
+  };
   const expiresAt = (sec) => new Date(now + sec * 1000).toISOString();
 
   // Who is asking, when the route needs a live session. Same four checks the
@@ -133,6 +161,7 @@ export async function handleAuthFlow(deps, { slug, route, body = {}, query = {},
       expectedOrigin: origin, expectedRpId: deps.rpId,
     });
     if (!r.ok) return json({ error: r.error, code: r.reason }, 400);
+    rec("passkey_add", { userId: user.id, email: user.email, meta: { label: String(body.label || "").slice(0, 60) || undefined } });
     await deps.addCredential(user.id, {
       cred_id: r.credentialId,
       public_key: JSON.stringify(r.publicKeyJwk),
@@ -160,7 +189,7 @@ export async function handleAuthFlow(deps, { slug, route, body = {}, query = {},
     }
     await deps.spendCode(stored.id);
     const cred = await deps.credentialById(String(body.credentialId || ""));
-    if (!cred) return json({ error: "That passkey isn't registered here.", code: "unknown" }, 401);
+    if (!cred) { rec("login_failed", { meta: { method: "passkey", reason: "unknown" } }); return json({ error: "That passkey isn't registered here.", code: "unknown" }, 401); }
     const user = await deps.findUserById(cred.user_id);
     if (!user || user.blocked) return json({ error: "That passkey didn't work.", code: "unknown" }, 401);
 
@@ -173,9 +202,14 @@ export async function handleAuthFlow(deps, { slug, route, body = {}, query = {},
     // A counter going backwards means the private key was copied off the
     // authenticator. Refuse and say so — this is the one case where a vague
     // message would leave somebody signed in on a cloned key.
-    if (r.cloned) return json({ error: "That passkey looks cloned — remove it and register a new one.", code: "cloned" }, 401);
+    if (r.cloned) {
+      // The one passkey failure that is never a mistake: a counter going
+      // backwards means the private key was copied off the authenticator.
+      rec("login_failed", { userId: user.id, email: user.email, meta: { method: "passkey", reason: "cloned" } });
+      return json({ error: "That passkey looks cloned — remove it and register a new one.", code: "cloned" }, 401);
+    }
     await deps.touchCredential(cred.id, r.signCount);
-    return finishSignIn(deps, user, { key, nowMs: now });
+    return finishSignIn(deps, user, { key, nowMs: now, method: "passkey" });
   }
 
   // ------------------------------------------------------------- emailed codes
@@ -212,7 +246,7 @@ export async function handleAuthFlow(deps, { slug, route, body = {}, query = {},
     const user = await deps.findUserByEmail(email);
     if (!user || user.blocked) return json({ error: "That code didn't work." }, 401);
     await deps.spendCode(stored.id);
-    return finishSignIn(deps, user, { key, nowMs: now });
+    return finishSignIn(deps, user, { key, nowMs: now, method: "email-code" });
   }
 
   // ------------------------------------------------------------- OAuth
@@ -254,9 +288,23 @@ export async function handleAuthFlow(deps, { slug, route, body = {}, query = {},
     }, { provider, profile: r.profile, allowSignup: await deps.signupAllowed() });
     if (outcome.error) return json({ error: outcome.error, code: outcome.reason }, outcome.status);
 
-    const done = await finishSignIn(deps, outcome.user, { key, nowMs: now });
+    // `record:false` — the callback below writes signup-or-login itself.
+    const done = await finishSignIn(deps, outcome.user, { key, nowMs: now, record: false });
     done.body.next = r.next;
     done.body.action = outcome.action;
+    // `action` is "created" or "linked" from resolveIdentity — a first sign-in
+    // through a provider IS a signup, and recording it as a login would leave
+    // the account with no origin in the log.
+    // Three outcomes, three different things to have happened: a new account,
+    // a provider attached to an account that already existed, or an ordinary
+    // sign-in. Collapsing them would hide the middle one, which is the only
+    // one that changes how an account can be entered.
+    const linked = outcome.action === "linked";
+    rec(outcome.action === "created" ? "signup" : (linked ? "oauth_link" : "login"),
+      { userId: outcome.user && outcome.user.id, email: outcome.user && outcome.user.email, meta: { method: provider, provider } });
+    // A link is also a sign-in — the session was minted either way, and an
+    // owner asking "when did they last get in" must not miss it.
+    if (linked) rec("login", { userId: outcome.user && outcome.user.id, email: outcome.user && outcome.user.email, meta: { method: provider, provider } });
     return done;
   }
 
@@ -279,6 +327,7 @@ export async function handleAuthFlow(deps, { slug, route, body = {}, query = {},
     if (step == null) return json({ error: "That code didn't match.", code: "totp" }, 401);
     const recovery = newRecoveryCodes();
     const hashes = await Promise.all(recovery.map((c) => hashPassword(normalizeRecovery(c))));
+    rec("totp_on", { userId: user.id, email: user.email });
     await deps.setTotp(user.id, { secret: user.totp_secret, enabled: 1, lastStep: step, recovery: JSON.stringify(hashes) });
     // Shown exactly once. They are passwords, so they are stored hashed and
     // cannot be shown again.
@@ -297,6 +346,7 @@ export async function handleAuthFlow(deps, { slug, route, body = {}, query = {},
     const step = await verifyTotp(user.totp_secret, body.code, { nowMs: now, lastStep: user.totp_last_step });
     if (step != null) {
       await deps.setTotp(user.id, { secret: user.totp_secret, enabled: 1, lastStep: step });
+      rec("2fa_ok", { userId: user.id, email: user.email, meta: { method: "totp" } });
       await deps.touchLogin?.(user.id).catch?.(() => {});
       return json({
         token: await signToken(key, { sub: String(user.id), email: user.email, ep: Number(user.token_epoch || 0) }, { nowMs: now }),
@@ -314,6 +364,9 @@ export async function handleAuthFlow(deps, { slug, route, body = {}, query = {},
         if (await verifyPassword(given, hashes[i])) {
           hashes.splice(i, 1);
           await deps.setTotp(user.id, { secret: user.totp_secret, enabled: 1, lastStep: user.totp_last_step, recovery: JSON.stringify(hashes) });
+          // How many are LEFT is the useful half: an owner seeing this drop
+          // toward zero is watching somebody lose access to their phone.
+          rec("recovery_used", { userId: user.id, email: user.email, meta: { left: hashes.length } });
           await deps.touchLogin?.(user.id).catch?.(() => {});
           return json({
             token: await signToken(key, { sub: String(user.id), email: user.email, ep: Number(user.token_epoch || 0) }, { nowMs: now }),
@@ -323,6 +376,9 @@ export async function handleAuthFlow(deps, { slug, route, body = {}, query = {},
         }
       }
     }
+    // Reached only when neither the app nor a recovery code matched — which,
+    // on an account whose password was already accepted, is the alarming one.
+    rec("2fa_failed", { userId: user.id, email: user.email, meta: { method: "totp" } });
     return json({ error: "That code didn't match.", code: "totp" }, 401);
   }
 
@@ -334,6 +390,7 @@ export async function handleAuthFlow(deps, { slug, route, body = {}, query = {},
     const full = await deps.findUserByEmail(user.email);
     const ok = await verifyPassword(typeof body.current === "string" ? body.current : "", (full && full.password_hash) || "pbkdf2$1000$AA$AA");
     if (!ok) return json({ error: "That password doesn't match.", code: "current" }, 401);
+    rec("totp_off", { userId: user.id, email: user.email });
     await deps.setTotp(user.id, { secret: null, enabled: 0, lastStep: null, recovery: null });
     return json({ ok: true });
   }
@@ -376,7 +433,10 @@ export async function handleAuthFlow(deps, { slug, route, body = {}, query = {},
     if (!user || user.blocked) return json({ error: "This link is invalid or has expired.", code: "token" }, 400);
     // Idempotent: a link opened twice, prefetched by a mail client, or clicked
     // again to check it worked must not read as a failure.
-    if (!user.verified) await deps.setVerified(user.id);
+    // Only on the transition. A link opened twice is idempotent by design, and
+    // logging both opens would put two "confirmed their address" rows on the
+    // owner's page for one confirmation.
+    if (!user.verified) { await deps.setVerified(user.id); rec("verified", { userId: user.id, email: user.email }); }
     return json({ ok: true, email: user.email });
   }
 
@@ -419,6 +479,7 @@ export async function handleAuthFlow(deps, { slug, route, body = {}, query = {},
     }
 
     if (route === "passkey/remove") {
+      rec("passkey_remove", { userId: user.id, email: user.email });
       const r = await deps.deleteCredential(user.id, body.id);
       // Scoped to the caller AND answering 404 for somebody else's, so a member
       // cannot probe which credential ids exist by watching the status.
@@ -426,6 +487,7 @@ export async function handleAuthFlow(deps, { slug, route, body = {}, query = {},
       return json({ ok: true });
     }
 
+    rec("oauth_unlink", { userId: user.id, email: user.email });
     const r = await deps.unlinkIdentity(user.id, body.id);
     if (!r || !r.changes) return json({ error: "no such connection" }, 404);
     return json({ ok: true });
@@ -455,6 +517,7 @@ export async function handleAuthFlow(deps, { slug, route, body = {}, query = {},
     // model, and the same shape here as `passkey/remove` means one reviewer's
     // rule covers both.
     const r = await deps.revokeSession(user.id, sid);
+    if (r && r.changes) rec("session_revoke", { userId: user.id, email: user.email, sid });
     // Somebody else's session answers 404, identically to one that never
     // existed. A 403 would confirm the sid is real, which is the only thing a
     // stranger holding one could learn.

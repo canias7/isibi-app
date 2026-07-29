@@ -326,14 +326,33 @@ export async function handleOwnerMembers(deps, { slug, uid, method = "GET", memb
     const r = await deps.exec(db, "UPDATE _users SET " + sets.join(",") + " WHERE id=?", vals.concat([id]));
     if (!r.changes) return json({ error: "no such member" }, 404);
     const rows = await deps.query(db, "SELECT " + MEMBER_COLUMNS.map(deps.ident).join(",") + " FROM _users WHERE id=?", [id]);
+    // What the OWNER did, which is the half of the log a member can neither
+    // cause nor see, and the half that answers "who gave them that role".
+    // Written AFTER the change lands, so the log never claims something that
+    // did not happen, and best-effort like every other audit write.
+    const changed = rows[0] || null;
+    if (deps.audit && changed) {
+      const ev = (kind, meta) => { try { const p = deps.audit({ kind, userId: id, email: changed.email, meta }); if (p && p.catch) p.catch(() => {}); } catch (e) { console.error("audit failed:", (e && e.message) || e); } };
+      if (body.role !== undefined) ev("role_change", { role: changed.role });
+      if (body.blocked !== undefined) ev(body.blocked ? "suspend" : "unsuspend", {});
+      if (body.team_id !== undefined) ev("team_change", { team: changed.team_id == null ? "none" : String(changed.team_id) });
+    }
     return json({ member: rows[0] || null });
   }
 
   if (method === "DELETE") {
     const id = rowIdOf(memberId);
     if (!id) return json({ error: "no member id" }, 400);
+    // Read BEFORE the delete: afterwards there is no row to name, and a log
+    // line that says only "member 41 was deleted" is the least useful version
+    // of the one event that cannot be undone.
+    const gone = (await deps.query(db, "SELECT id, email FROM _users WHERE id=?", [id]))[0] || null;
     const r = await deps.exec(db, "DELETE FROM _users WHERE id=?", [id]);
     if (!r.changes) return json({ error: "no such member" }, 404);
+    if (deps.audit) {
+      try { const p = deps.audit({ kind: "member_delete", userId: id, email: gone && gone.email, meta: { reason: "owner" } }); if (p && p.catch) p.catch(() => {}); }
+      catch (e) { console.error("audit failed:", (e && e.message) || e); }
+    }
     // Their rows are left alone on purpose. owner_id no longer matches anyone,
     // so nothing is readable as that member — but a deleted customer's bookings
     // should not silently vanish from the owner's list.
