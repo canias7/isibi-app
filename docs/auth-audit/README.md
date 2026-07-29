@@ -1,6 +1,6 @@
 # Auth layer — production audit
 
-Run against `https://isibi.ai` · 146 passed, 5 failed.
+Run against `https://isibi.ai` · 148 passed, 5 failed.
 
 
 ## the site
@@ -121,15 +121,15 @@ Run against `https://isibi.ai` · 146 passed, 5 failed.
 - ✅ ...and hands over recovery codes, once
 - ✅ with 2FA on, the password alone returns a PENDING token, never a session
 - ✅ the pending token does NOT open the account
-- ✅ presenting the code completes the sign-in
-- ✅ ...and THAT token is a working session
+- ❌ presenting the code completes the sign-in — `401 {"error":"That code didn't match.","code":"totp"}`
+- ❌ ...and THAT token is a working session — ``
 - ✅ the SAME code cannot be used twice inside its window
 - ✅ a session cannot be presented in place of a pending token
 
 ## recovery codes
 
-- ❌ a recovery code stands in for the app — `401 {"error":"That code didn't match.","code":"totp"}`
-- ❌ ...and says how many are left — `undefined of 10`
+- ✅ a recovery code stands in for the app
+- ✅ ...and says how many are left
 - ✅ a spent recovery code is refused
 - ✅ recovery codes can be regenerated
 - ✅ regenerating invalidates the codes somebody may still have on paper
@@ -172,8 +172,11 @@ Run against `https://isibi.ai` · 146 passed, 5 failed.
 - ✅ an owner can create a team
 - ✅ a team needs a name
 - ✅ an owner can put members in a team
+- ✅ the assignment is on the member rows, not just in the response
 - ✅ a team member can write a team-scoped row
 - ✅ so can somebody with no team
+- ❌ the row is stamped with the writer's team — `team_id=undefined expected=1 row={"id":1,"title":"ada-deal","value":"100","owner_id":1,"created_at":"2026-07-29 17:26:51"}`
+- ✅ a teamless writer's row carries no team
 - ❌ a team-mate sees the team's rows, not just their own — `200 []`
 - ✅ a member with NO team sees ONLY their own rows
 - ✅ ...and the team cannot see the teamless member's row
@@ -185,7 +188,6 @@ Run against `https://isibi.ai` · 146 passed, 5 failed.
 ## the published site, in a real browser
 
 - ✅ the published site serves 200
-- ❌ the app actually RENDERED (root is not empty) — `root text length=0`
 - ✅ no uncaught error on load
 - ✅ a member can be signed in from inside the published page
 - ✅ the stored session actually opens a member-scoped read
