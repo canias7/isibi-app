@@ -542,3 +542,24 @@ test("the owner's panel never hands a client secret back", () => {
   const access = WORKER.slice(WORKER.indexOf("methods: availableMethods(cfg)"), WORKER.indexOf("methods: availableMethods(cfg)") + 600);
   assert.ok(!/client_secret/.test(access), "the access GET must not return client secrets");
 });
+
+test("the login path can actually read the lockout columns", () => {
+  // They existed only in the dead D1-era CREATE, so on every site the builder
+  // has made they were not there at all. A counter the login lookup cannot
+  // select is a counter that is always undefined and always zero.
+  assert.match(WORKER, /ALTER TABLE _users ADD COLUMN failed INTEGER/);
+  assert.match(WORKER, /ALTER TABLE _users ADD COLUMN locked_until BIGINT/);
+  const find = WORKER.match(/findUser: \(_s, email\)[^\n]*/)[0];
+  for (const col of ["failed", "locked_until", "last_failed_at"]) {
+    assert.ok(find.includes(col), "the login lookup must select " + col);
+  }
+  assert.match(WORKER, /recordLoginAttempt:/, "and something must write them back");
+});
+
+test("the lockout columns are added where the LOGIN path runs", () => {
+  // ensureAuthExtras is only reachable from the dead /verify page, so adding
+  // them only there would leave them missing on every site that never had a
+  // verification link clicked.
+  const ensure = WORKER.slice(WORKER.indexOf("async function ensureSiteUsers"), WORKER.indexOf("async function ensureSiteUsers") + 1600);
+  assert.match(ensure, /ADD COLUMN failed/, "ensureSiteUsers is what login calls");
+});

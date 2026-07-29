@@ -15,6 +15,7 @@ import {
   hashPassword, verifyPassword, sessionKey, signToken, signReset,
   verifySession, verifyReset, normalizeEmail, checkPassword,
 } from "./site-auth.mjs";
+import { lockState, afterFailure, afterSuccess } from "./site-lockout.mjs";
 
 const json = (body, status = 200) => ({ status, body });
 
@@ -130,6 +131,30 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     // Always run a verification, even with no account, so the response time does
     // not answer "does this address have an account here?".
     const ok = await verifyPassword(pw, (user && user.password_hash) || DUMMY);
+
+    // The durable half of the brute-force defence. The throttle above is
+    // per-isolate — Cloudflare runs many per colo and evicts idle ones, so an
+    // attacker spreading attempts gets a fresh allowance each time. This one is
+    // counted on the row, so it is the same number everywhere and survives.
+    //
+    // Checked AFTER the hash, deliberately: answering early would make a delayed
+    // account measurably faster to refuse than a wrong password, which is a
+    // timing oracle for whether the address is a member here at all. The cost is
+    // one PBKDF2 run per attempt, which the two throttles above already bound.
+    if (user && deps.recordLoginAttempt) {
+      const state = lockState(user, now);
+      if (state.locked) {
+        // Byte-identical to a wrong password. "Try again in 10 minutes" would
+        // confirm the account exists, and confirming that is the leak this whole
+        // endpoint is shaped around avoiding.
+        return json({ error: "That email and password don't match." }, 401);
+      }
+      if (!ok) {
+        const next = afterFailure(user, now);
+        if (next) { try { await deps.recordLoginAttempt(user.id, next); } catch (e) { console.error("lockout write failed:", slug, (e && e.message) || e); } }
+      }
+    }
+
     if (!user || !ok) return json({ error: "That email and password don't match." }, 401);
     // A suspended member gets the SAME answer as a wrong password, byte for
     // byte. Saying "your account is suspended" would tell a stranger guessing
@@ -139,6 +164,12 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     // the login form does not.
     if (user.blocked) return json({ error: "That email and password don't match." }, 401);
     await deps.touchLogin(user.id).catch?.(() => {});
+    // They proved who they are, so the failures are forgotten — otherwise a
+    // person who fumbles four times a month arrives at the top of the curve
+    // eventually without ever having been attacked.
+    if (deps.recordLoginAttempt && (user.failed || user.locked_until)) {
+      try { await deps.recordLoginAttempt(user.id, afterSuccess()); } catch { /* never fail a good login over bookkeeping */ }
+    }
     return json({ token: await mk(user), user: { id: user.id, email: user.email } });
   }
 

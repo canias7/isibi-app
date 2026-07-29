@@ -567,3 +567,107 @@ test("a suspended member cannot use the self-service routes either", async () =>
     assert.equal(r.status, 401, action);
   }
 });
+
+// --------------------------------------------------- durable brute-force delay
+//
+// The throttle above this is per-isolate, so an attacker spreading attempts gets
+// a fresh allowance each time. These assert the row-level counter that does not.
+
+import { LOCKOUT_THRESHOLD, lockState } from "../site-lockout.mjs";
+
+async function lockHarness(over = {}) {
+  const h = await harness(over);
+  const writes = [];
+  const row = h.users.get("cafe|member@example.com");
+  Object.assign(row, { failed: 0, locked_until: 0, last_failed_at: 0 }, over.lock || {});
+  h.deps.recordLoginAttempt = async (id, v) => { writes.push({ id, ...v }); Object.assign(row, v); };
+  h.writes = writes; h.row = row;
+  return h;
+}
+
+const badLogin = (deps) => call(deps, "login", { body: { email: "member@example.com", password: "wrong" } });
+const goodLogin = (deps) => call(deps, "login", { body: { email: "member@example.com", password: PW } });
+
+test("a wrong password is counted on the row", async () => {
+  const h = await lockHarness();
+  await badLogin(h.deps);
+  assert.equal(h.writes.length, 1);
+  assert.equal(h.writes[0].failed, 1);
+});
+
+test("enough wrong passwords earn a delay", async () => {
+  const h = await lockHarness();
+  for (let i = 0; i < LOCKOUT_THRESHOLD + 1; i++) await badLogin(h.deps);
+  assert.ok(lockState(h.row, NOW).locked, "should be delayed after " + (LOCKOUT_THRESHOLD + 1));
+});
+
+test("a delayed account refuses the CORRECT password", async () => {
+  // The delay is worth nothing if the right guess still gets through it.
+  const h = await lockHarness({ lock: { failed: 9, locked_until: Math.floor(NOW / 1000) + 600 } });
+  const r = await goodLogin(h.deps);
+  assert.equal(r.status, 401);
+});
+
+test("a delayed account says exactly what a wrong password says", async () => {
+  // "Try again in 10 minutes" would confirm the address is a member here.
+  const locked = await lockHarness({ lock: { failed: 9, locked_until: Math.floor(NOW / 1000) + 600 } });
+  const normal = await lockHarness();
+  const a = await goodLogin(locked.deps);
+  const b = await badLogin(normal.deps);
+  assert.equal(a.status, b.status);
+  assert.deepEqual(a.body, b.body);
+});
+
+test("failing while delayed does not extend the delay", async () => {
+  const until = Math.floor(NOW / 1000) + 600;
+  const h = await lockHarness({ lock: { failed: 9, locked_until: until } });
+  await badLogin(h.deps);
+  await badLogin(h.deps);
+  assert.equal(h.writes.length, 0, "no write at all while a delay is running");
+  assert.equal(h.row.locked_until, until);
+});
+
+test("the delay heals with no intervention", async () => {
+  const h = await lockHarness({ lock: { failed: 9, locked_until: Math.floor(NOW / 1000) - 1 } });
+  const r = await goodLogin(h.deps);
+  assert.equal(r.status, 200, "an expired delay must let the real person back in");
+});
+
+test("a successful login clears the counter", async () => {
+  const h = await lockHarness({ lock: { failed: 4, locked_until: 0, last_failed_at: Math.floor(NOW / 1000) } });
+  const r = await goodLogin(h.deps);
+  assert.equal(r.status, 200);
+  assert.equal(h.row.failed, 0);
+});
+
+test("a clean login writes nothing — no counter update per sign-in", async () => {
+  const h = await lockHarness();
+  await goodLogin(h.deps);
+  assert.equal(h.writes.length, 0, "an untouched account must not be written on every login");
+});
+
+test("the counter is read AFTER the password is verified", async () => {
+  // Answering early would make a delayed account measurably faster to refuse
+  // than a wrong password, which is a timing oracle for membership.
+  const order = [];
+  const h = await lockHarness({ lock: { failed: 9, locked_until: Math.floor(NOW / 1000) + 600 } });
+  const realFind = h.deps.findUser;
+  h.deps.findUser = async (...a) => { order.push("find"); return realFind(...a); };
+  h.deps.recordLoginAttempt = async () => { order.push("write"); };
+  await goodLogin(h.deps);
+  // The hash always runs; nothing short-circuits before it.
+  assert.deepEqual(order, ["find"], "a locked account still pays the hash and writes nothing");
+});
+
+test("an unknown address is not tripped up by the lockout path", async () => {
+  const h = await lockHarness();
+  const r = await call(h.deps, "login", { body: { email: "nobody@example.com", password: "x" } });
+  assert.equal(r.status, 401);
+  assert.equal(h.writes.length, 0, "there is no row to count against");
+});
+
+test("a site with no lockout wiring behaves exactly as before", async () => {
+  const h = await harness();
+  const r = await goodLogin(h.deps);
+  assert.equal(r.status, 200);
+});

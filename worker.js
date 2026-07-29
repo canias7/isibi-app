@@ -2501,6 +2501,14 @@ async function ensureAuthExtras(env, uuid) {
     "ALTER TABLE _users ADD COLUMN totp_enabled INTEGER DEFAULT 0",
     "ALTER TABLE _users ADD COLUMN token_epoch INTEGER DEFAULT 0",
     "ALTER TABLE _users ADD COLUMN manager_id INTEGER", // team/hierarchy: this member reports to <manager_id> (for teamRead visibility)
+    // Durable brute-force counters. `failed` and `locked_until` were in the
+    // D1-era CREATE and in NOTHING the live path runs, so on every site the
+    // builder has made they did not exist at all. Epoch SECONDS, not the TEXT
+    // timestamps the rest of the schema uses — this one only ever gets compared
+    // to a number.
+    "ALTER TABLE _users ADD COLUMN failed INTEGER DEFAULT 0",
+    "ALTER TABLE _users ADD COLUMN locked_until BIGINT DEFAULT 0",
+    "ALTER TABLE _users ADD COLUMN last_failed_at BIGINT DEFAULT 0"
   ]) { try { await siteQuery(env, uuid, sql); } catch {} }
   _authExtrasDone.add(uuid);
 }
@@ -2914,6 +2922,15 @@ async function ensureSiteUsers(db) {
     last_login_at TEXT)`);
   // NB: the D1-era initSiteAuth used `DEFAULT (now())` on a TEXT column, which
   // Postgres refuses to implicitly cast — see the dialect notes in CLAUDE.md.
+  //
+  // The lockout counters are added HERE rather than in ensureAuthExtras, which
+  // is only reachable from the dead /verify page: this is the function the login
+  // path calls, and a counter the login path cannot read is not a counter.
+  for (const sql of [
+    "ALTER TABLE _users ADD COLUMN failed INTEGER DEFAULT 0",
+    "ALTER TABLE _users ADD COLUMN locked_until BIGINT DEFAULT 0",
+    "ALTER TABLE _users ADD COLUMN last_failed_at BIGINT DEFAULT 0",
+  ]) { try { await sqlQuery(db, sql); } catch {} }
   _usersReady.add(db);
 }
 
@@ -3201,7 +3218,7 @@ function siteAuthDeps(env, db, slug) {
   const one = async (sql, params) => { await ensureSiteUsers(db); const r = await sqlQuery(db, sql, params); return r[0] || null; };
   return {
     secret: () => siteAuthSecret(db),
-    findUser: (_s, email) => one("SELECT id, email, pass_hash AS password_hash, token_epoch, blocked FROM _users WHERE email=?", [email]),
+    findUser: (_s, email) => one("SELECT id, email, pass_hash AS password_hash, token_epoch, blocked, failed, locked_until, last_failed_at FROM _users WHERE email=?", [email]),
     findUserById: (_s, id) => (/^\d+$/.test(String(id)) ? one("SELECT id, email, token_epoch, blocked FROM _users WHERE id=?", [Number(id)]) : null),
     createUser: async (_s, email, hash) => {
       await ensureSiteUsers(db);
@@ -3237,6 +3254,14 @@ function siteAuthDeps(env, db, slug) {
     deleteUser: async (id) => { await sqlQuery(db, "DELETE FROM _users WHERE id=?", [Number(id)]); },
     sendReset: async (email, token) => sendSiteResetEmail(env, slug, email, token),
     throttle: async (k) => authThrottle(k),
+    // One statement, so two failures racing cannot read-then-write over each
+    // other. The values are computed from the row the caller already read, which
+    // means a race writes near-identical numbers — benign, unlike a lost count.
+    recordLoginAttempt: (id, v) => sqlQuery(
+      db,
+      "UPDATE _users SET failed=?, locked_until=?, last_failed_at=? WHERE id=?",
+      [Number(v.failed) || 0, Number(v.locked_until) || 0, Number(v.last_failed_at) || 0, Number(id)],
+    ),
     signupGate: (opts) => checkSignup({ mode: () => siteSignupMode(db), burn: (c) => burnInvite(db, c) }, opts),
     refundInvite: (code) => refundInvite(db, code),
   };
