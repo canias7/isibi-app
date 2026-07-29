@@ -265,3 +265,38 @@ test("teamRead survives parsing, and the designer can now ask for it", () => {
   const tool = src.slice(i, i + 12000);
   assert.match(tool, /teamRead: \{/, "the designer must be able to declare teamRead or no site can ever have it");
 });
+
+// ------------- every flag the DDL acts on must survive the normaliser
+//
+// `normalizeSchema` is an ALLOW-LIST: `coerceTable` builds its output field by
+// field, so a table property nobody added to that literal is dropped, silently,
+// on every build. `teamScope` was exactly that until 2026-07-29 — declarable by
+// the designer, given a `team_id INTEGER` column by `applySiteSchema`, stored in
+// `_meta`, read by the data path, and **stripped by the one function every
+// schema passes through** before any of that could see it. It made the fifth
+// layer that feature has been dead at, and the production audit is what found
+// it: a generated row came back with no `team_id` column at all.
+//
+// Derived at both ends. The read side is scanned out of `applySiteSchema`, so a
+// flag added to the DDL and forgotten here fails immediately; the write side is
+// the real function's real output, so this cannot pass on a literal that only
+// LOOKS right.
+test("every table flag applySiteSchema reads survives normalizeSchema", () => {
+  const src = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  const apply = src.slice(src.indexOf("export async function applySiteSchema"));
+  assert.ok(apply.length > 1000, "applySiteSchema was not found to scan");
+
+  // What the DDL reads off a table definition.
+  const reads = [...new Set([...apply.matchAll(/\bt\.([a-zA-Z_][a-zA-Z0-9_]*)/g)].map((m) => m[1]))].sort();
+  assert.ok(reads.includes("teamScope"), "applySiteSchema must read teamScope, or this test is watching nothing");
+
+  // What the normaliser actually produces. Key PRESENCE is the invariant, not
+  // the value: every entry in the literal assigns its key even when the
+  // coercion returns null, so a missing key means the field was never carried.
+  const out = normalizeSchema({ tables: [{ name: "t", access: "user", columns: ["a"] }] }).tables[0];
+  const missing = reads.filter((f) => !(f in out));
+  assert.deepEqual(missing, [],
+    "applySiteSchema reads " + missing.join(", ") + " and normalizeSchema does not emit it — " +
+    "the declaration is dropped on every build, the build succeeds, and the guarantee simply is not there");
+});

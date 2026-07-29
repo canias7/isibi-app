@@ -117,18 +117,28 @@ const totpAt = (secret, counter) => {
   const n = ((h[off] & 0x7f) << 24) | (h[off + 1] << 16) | (h[off + 2] << 8) | h[off + 3];
   return String(n % 1e6).padStart(6, "0");
 };
+const stepNow = () => Math.floor(Date.now() / 30000);
 /**
- * A code with most of its 30-second step still ahead of it.
+ * A code from a step LATER than `afterStep`, with most of its window ahead of it.
  *
- * The replay check needs the SAME code presented twice inside one window. Taken
- * at an arbitrary moment the step can roll between the two calls, and a rolled
- * code is refused for being stale rather than for being a replay — the
- * assertion still passes, for the wrong reason, which is worse than failing.
+ * Two waits, and both are the product working rather than the test being slow.
+ *
+ * Past `afterStep`, because `totp/enable` records the step it matched so a code
+ * cannot be presented twice — so the very next sign-in must use a different one.
+ * Without this the audit refuses its own code as a replay and reports it as
+ * "the second factor didn't work", which is what it did on 2026-07-29.
+ *
+ * And with time left, because the replay check needs the SAME code presented
+ * twice inside one window: taken at an arbitrary moment the step can roll
+ * between the two calls, and a rolled code is refused for being stale rather
+ * than for being a replay — passing for the wrong reason, which is worse than
+ * failing.
  */
-const freshTotp = async (secret) => {
+const freshTotp = async (secret, afterStep = -1) => {
+  if (stepNow() <= afterStep) await sleep((afterStep + 1) * 30000 - Date.now() + 400);
   const into = Date.now() % 30000;
   if (into > 12000) await sleep(30000 - into + 400);
-  return totpAt(secret, Math.floor(Date.now() / 30000));
+  return totpAt(secret, stepNow());
 };
 
 try {
@@ -503,7 +513,8 @@ try {
     preEnable.status + " " + JSON.stringify(preEnable.body).slice(0, 160));
   tfTok = preEnable.body.token || tfTok;
 
-  const enable = await auth("totp/enable", { code: totpAt(secret, Math.floor(Date.now() / 30000)) }, tfTok);
+  const enableStep = stepNow();
+  const enable = await auth("totp/enable", { code: totpAt(secret, enableStep) }, tfTok);
   const recovery = enable.body.recovery || [];
   ok("a code from a real authenticator turns it on", enable.status === 200 && enable.body.ok === true,
     enable.status + " " + JSON.stringify(enable.body).slice(0, 200));
@@ -519,7 +530,7 @@ try {
     pend.status + " " + JSON.stringify(pend.body).slice(0, 200));
   ok("the pending token does NOT open the account", (await me(pend.body.pending)).status === 401);
 
-  const live = await freshTotp(secret);
+  const live = await freshTotp(secret, enableStep);
   const verified = await auth("totp/verify", { code: live }, pend.body.pending);
   ok("presenting the code completes the sign-in", verified.status === 200 && !!verified.body.token,
     verified.status + " " + JSON.stringify(verified.body).slice(0, 200));
@@ -534,7 +545,7 @@ try {
     replay.status + " " + JSON.stringify(replay.body).slice(0, 160));
 
   ok("a session cannot be presented in place of a pending token",
-    (await auth("totp/verify", { code: totpAt(secret, Math.floor(Date.now() / 30000)) }, tfSession)).status === 401);
+    (await auth("totp/verify", { code: totpAt(secret, stepNow()) }, tfSession)).status === 401);
 
   // ======================================================== recovery codes
   section("recovery codes");
