@@ -118,7 +118,7 @@ Run against `https://isibi.ai` · 86 passed, 1 failed.
 - ✅ the masked phone is NOT rendered in full
 - ✅ a member can be signed in from inside the published page
 - ✅ the stored session actually opens a member-scoped read
-- ❌ the published bundle reads the session key the platform writes — `no bundle references `site_session_` — a stored session would be ignored`
+- ❌ the published bundle reads the session key the platform writes — `no bundle references `site_session_` — a stored session would be ignored: {"found":false,"scripts":1,"fetched":1}`
 
 ## The published site
 
