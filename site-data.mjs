@@ -28,7 +28,7 @@ import { loadSiteSchema, sqlIdent } from "./site-schema.mjs";
 // The permission rules live in their own leaf module because the page generator
 // has to predict them to lint a page before it is published, and restating them
 // in both places is how they drifted.
-import { isManagedColumn, canReadAccess, canWriteAccess, needsMember, teamReadable, needsVerified } from "./site-access.mjs";
+import { isManagedColumn, canReadAccess, canWriteAccess, needsMember, teamReadable, needsVerified, hasPublicView } from "./site-access.mjs";
 import { limitFor, bucketKey, tooMany } from "./rate-limit.mjs";
 import { constraintError } from "./site-errors.mjs";
 import { readJsonBody, clampFields, MAX_JSON_BODY } from "./request-limits.mjs";
@@ -405,7 +405,10 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
  */
 async function publicViewResponse({ sqlQuery, db, def, url, json }) {
   const pv = def.publicView;
-  if (!pv || !Array.isArray(pv.columns) || !pv.columns.length) {
+  // `hasPublicView` rather than a local test: the generator's lint refuses a
+  // page that would hit this 404, and the two must answer identically or a site
+  // ships whose form is dead.
+  if (!hasPublicView(def)) {
     return json({ error: "this table has no public view" }, 404);
   }
   const allowed = new Set(pv.columns.map((c) => String(c).toLowerCase()));
