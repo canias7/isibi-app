@@ -1,6 +1,6 @@
 # Auth layer — production audit
 
-Run against `https://isibi.ai` · 168 passed, 3 failed.
+Run against `https://isibi.ai` · 170 passed, 1 failed.
 
 
 ## the site
@@ -191,12 +191,12 @@ Run against `https://isibi.ai` · 168 passed, 3 failed.
 
 - ✅ the owner can read the log
 - ✅ the log pages without repeating or skipping
-- ❌ it recorded everything this run did — `missing: locked, 2fa_required, role_change, suspend, unsuspend, signup_refused | present: login, signup, totp_off, 2fa_failed, recovery_used, 2fa_ok, totp_on, login_failed, email_change, password_change`
+- ✅ it recorded everything this run did
 - ✅ no password this run used is anywhere in the log
 - ✅ somebody with no account here is a tag, never an address
 - ✅ ...and a MEMBER is named, because the owner already has their address
 - ✅ an IP is a network block, never a full address
-- ❌ the summary counts the failures this run caused — `{"windowSec":86400,"events":26,"failures":2,"sources":2,"membersTargeted":1,"signIns":11,"ownerActions":0}`
+- ✅ the summary counts the failures this run caused
 - ✅ ...and how many separate sources they came from
 - ✅ a pending second factor is not counted as a sign-in
 - ✅ the log can be filtered to one kind
