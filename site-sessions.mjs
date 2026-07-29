@@ -175,7 +175,34 @@ export function describeSessions(rows, currentSid, nowMs) {
       current: !!currentSid && String(r.sid) === String(currentSid),
     }))
     .sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0) || String(a.sid).localeCompare(String(b.sid)))
-    .map((s) => ({ ...s, ageSec: s.lastSeen ? Math.max(0, Math.floor(now / 1000) - s.lastSeen) : null }));
+    .map((s) => {
+      const ageSec = s.lastSeen ? Math.max(0, Math.floor(now / 1000) - s.lastSeen) : null;
+      return { ...s, ageSec, lastSeenLabel: agoLabel(ageSec) };
+    });
+}
+
+/**
+ * "2 days ago" — never null, so nothing downstream has to guard it.
+ *
+ * `ageSec` stays nullable because an unknown time is unknown rather than 1970,
+ * but that put a null-check between a page and the one thing it wants to render,
+ * and the generator skipped it in every eval sample. Formatting a relative time
+ * is also the sort of fiddly thing not worth re-deriving on every site.
+ *
+ * Coarse on purpose: this answers "is that still me?", and a device last used
+ * 90 minutes ago and one used 100 minutes ago are the same answer.
+ */
+export function agoLabel(ageSec) {
+  if (ageSec == null || !Number.isFinite(ageSec)) return "unknown";
+  if (ageSec < 90) return "just now";
+  const mins = Math.round(ageSec / 60);
+  if (mins < 60) return mins + " minute" + (mins === 1 ? "" : "s") + " ago";
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return hours + " hour" + (hours === 1 ? "" : "s") + " ago";
+  const days = Math.round(hours / 24);
+  if (days < 30) return days + " day" + (days === 1 ? "" : "s") + " ago";
+  const months = Math.round(days / 30);
+  return months < 12 ? months + " month" + (months === 1 ? "" : "s") + " ago" : "over a year ago";
 }
 
 // ------------------------------------------------------------- writes
