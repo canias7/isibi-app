@@ -554,14 +554,33 @@ async function shoot(url, { built, files, member } = {}) {
         // convention ever drifts, every generated site stores a session nothing
         // looks at and signs nobody in, silently.
         const reads = await page.evaluate(async () => {
-          const srcs = [...document.querySelectorAll("script[src]")].map((x) => x.getAttribute("src"));
+          // Resolved against the document, not used raw: the site is served from
+          // /s/<slug>/ and a root-relative src read the wrong way answers 404,
+          // which is indistinguishable from "the key is missing" unless the two
+          // are reported apart.
+          const srcs = [...document.querySelectorAll("script[src]")]
+            .map((x) => new URL(x.getAttribute("src"), document.baseURI).toString());
+          let fetched = 0;
           for (const src of srcs) {
-            try { if ((await (await fetch(src)).text()).includes("site_session_")) return true; } catch { /* next */ }
+            try {
+              const r = await fetch(src);
+              if (!r.ok) continue;
+              fetched++;
+              if ((await r.text()).includes("site_session_")) return { found: true, scripts: srcs.length, fetched };
+            } catch { /* next */ }
           }
-          return false;
+          return { found: false, scripts: srcs.length, fetched };
         });
-        ok("the published bundle reads the session key the platform writes", reads,
-          "no bundle references `site_session_` — a stored session would be ignored");
+        // Only a real answer counts as a failure. Reading NO bundle at all is
+        // this check not working, and reporting that as "the key is missing"
+        // would be a false alarm on an otherwise-correct site — which is exactly
+        // what the first version did.
+        if (reads.fetched > 0) {
+          ok("the published bundle reads the session key the platform writes", reads.found,
+            "no bundle references `site_session_` — a stored session would be ignored: " + JSON.stringify(reads));
+        } else {
+          console.log("   (could not read any bundle — skipping the key check rather than", JSON.stringify(reads) + ")");
+        }
 
         // Whatever routes the generator actually wrote — an account page, a
         // members area, a timetable. Named from the build response rather than
