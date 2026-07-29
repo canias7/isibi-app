@@ -423,3 +423,38 @@ test("the owner's events route is owner-gated and read-only", () => {
   assert.match(block, /normalizeKind\(url\.searchParams\.get\("kind"\)\)/, "kind must go through the closed set");
   assert.ok(!/\+ *url\.searchParams\.get/.test(block), "a query-string value is concatenated into SQL");
 });
+
+test("a correct password on a 2FA account leaves a trace of its own", () => {
+  // The gap this closed: no session is minted, so it is not a sign-in, and
+  // nothing failed, so it is not a failure — and for want of a name it was
+  // recorded as neither. A thief who had the password and stopped at the second
+  // factor left the log completely empty.
+  //
+  // Asserted at both ends of the surface, because there are two: the password
+  // route and `finishSignIn` for the registry methods, and a row written by one
+  // and not the other is a log that answers this for passkeys and not for
+  // passwords.
+  assert.ok(AUDIT_KINDS.includes("2fa_required"));
+  assert.equal(isFailure("2fa_required"), false, "nothing failed — the password was right");
+  const shown = describeEvents([{ id: 1, at: 1, kind: "2fa_required", ok: 1, user_id: 3 }], NOW)[0];
+  assert.match(shown.what, /right password/, "the owner has to be able to read what it means: " + shown.what);
+  assert.equal(shown.failure, false);
+
+  const login = actionBlock(strip(ROUTES), "login") || "";
+  assert.match(login, /rec\("2fa_required"/, "the password route must record it");
+  const fin = strip(FLOWS).slice(strip(FLOWS).indexOf("export async function finishSignIn"));
+  assert.match(fin.slice(0, 1400), /kind: "2fa_required"/, "the registry methods must record it too");
+});
+
+test("a pending second factor is not counted as a sign-in", () => {
+  // The number on the owner's page has to mean what it says. Counting these as
+  // sign-ins would report somebody who never got in as having got in, which is
+  // the error in the direction that matters.
+  const s = summarize([
+    { at: Math.floor(NOW / 1000) - 5, kind: "2fa_required", user_id: 3 },
+    { at: Math.floor(NOW / 1000) - 4, kind: "login", user_id: 3 },
+  ], { nowMs: NOW });
+  assert.equal(s.signIns, 1);
+  assert.equal(s.failures, 0, "and it is not a failure either");
+  assert.equal(s.events, 2);
+});

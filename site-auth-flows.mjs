@@ -44,6 +44,13 @@ export { PENDING_TTL_SEC } from "./site-auth.mjs";
  */
 export async function finishSignIn(deps, user, { key, nowMs, method, record = true } = {}) {
   if (secondFactorRequired(user)) {
+    // The same row the password path writes, for the same reason: a primary
+    // method succeeded and no session came of it, which is the one thing an
+    // owner investigating a break-in most needs to see.
+    try {
+      const p = deps.audit?.({ kind: "2fa_required", userId: user.id, email: user.email, meta: { method: method || undefined } });
+      if (p && p.catch) p.catch(() => {});
+    } catch (e) { console.error("audit failed:", (e && e.message) || e); }
     return json({ pending: await signPending(key, user.id, { nowMs }), need: "totp", user: { id: user.id, email: user.email } });
   }
   await deps.touchLogin?.(user.id).catch?.(() => {});

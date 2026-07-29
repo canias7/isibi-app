@@ -51,7 +51,12 @@
 export const AUDIT_KINDS = [
   // getting in
   "signup", "signup_refused", "login", "login_failed", "locked",
-  "2fa_ok", "2fa_failed", "recovery_used",
+  // The password was right and the account has a second factor, so no session
+  // was minted. Neither a sign-in nor a failure, and worth its own name: on an
+  // account being attacked this is the row that says somebody HAS the
+  // password, and without it a thief who tries the password and then gives up
+  // leaves no trace at all.
+  "2fa_required", "2fa_ok", "2fa_failed", "recovery_used",
   // the account itself
   "password_change", "reset_request", "reset_done", "email_change", "verified",
   // the ways in
@@ -262,6 +267,9 @@ export function agoLabel(ageSec) {
 const WORDS = {
   signup: "created an account", signup_refused: "was refused an account",
   login: "signed in", login_failed: "failed to sign in", locked: "was slowed down after repeated failures",
+  // Short on purpose: this renders in a table column, and the long version
+  // wrapped to three lines and pushed every other row out of alignment.
+  "2fa_required": "right password, second factor needed",
   "2fa_ok": "passed the second factor", "2fa_failed": "failed the second factor",
   recovery_used: "used a recovery code",
   password_change: "changed their password", reset_request: "asked for a password reset",

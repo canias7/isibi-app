@@ -121,12 +121,10 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
    *
    * Absent on a caller that wires no `audit`, which is every existing test.
    *
-   * KNOWN GAP, stated rather than hidden: a correct password on an account with
-   * a second factor records nothing here — a session was not minted, so it is
-   * not a sign-in, and calling it one would put "signed in" on the owner's page
-   * for somebody who never got in. What that person does NEXT is recorded
-   * (`2fa_ok` or `2fa_failed`); if they simply stop, the fact that somebody had
-   * the password is not kept. Closing that needs a kind of its own.
+   * A correct password on an account with a second factor is recorded as
+   * `2fa_required` — not as a sign-in, because no session was minted, and not
+   * as a failure, because nothing failed. It is the row that says somebody HAS
+   * the password, which is what an owner investigating a break-in needs most.
    */
   const rec = (kind, event) => {
     if (!deps.audit) return;
@@ -297,6 +295,10 @@ export async function handleSiteAuth(deps, { slug, action, body = {}, token, now
     // so the failure counter should be cleared whether or not a second factor is
     // still to come. Otherwise a 2FA account could never forget its failures.
     if (secondFactorRequired(user)) {
+      // Recorded as its OWN thing rather than as a sign-in: no session was
+      // minted, and putting "signed in" on the owner's page for somebody who
+      // never got in would be a lie in the direction that matters.
+      rec("2fa_required", { userId: user.id, email: user.email, meta: { method: "password" } });
       return json({ pending: await signPending(key, user.id, { nowMs: now }), need: "totp", user: { id: user.id, email: user.email } });
     }
     rec("login", { userId: user.id, email: user.email, meta: { method: "password" } });
