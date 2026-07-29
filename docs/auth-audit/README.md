@@ -8,8 +8,12 @@ Run against `https://isibi.ai` · 81 passed, 3 failed.
 - ✅ build returns 200
 - ✅ every declared table was created
 - ✅ the display table was seeded
-- ❌ a real app was published, not the placeholder — `page=placeholder stage=typecheck error=src/routes/account.tsx(109,27): error TS2345: Argument of type '{}' is not assignable to parameter of type 'SetStateAction<string | null>'.
-src/routes/timetable.tsx(69,28): error TS2322: Type 'number' is not assignable to type 'string'. problems=[]`
+- ❌ a real app was published, not the placeholder — `page=placeholder stage=typecheck error=error TS6053: File '/app/src/routes/announcements.tsx' not found.
+  The file is in the program because:
+    Matched by include pattern 'src/**/*.tsx' in '/app/tsconfig.json'
+error TS6053: File '/app/src/routes/members.tsx' not found.
+  The file is in the program because:
+    Matched by include patte problems=[]`
 
 ## signup
 
@@ -115,24 +119,22 @@ src/routes/timetable.tsx(69,28): error TS2322: Type 'number' is not assignable t
 - ✅ the published site serves 200
 - ❌ the app actually RENDERED (root is not empty) — `root text length=0`
 - ✅ no uncaught error on load
-- ❌ seeded content is on the page — `authsmoke-ms5oli69-d1le6
+- ❌ seeded content is on the page — `authsmoke-ms5p7ojn-fkr5s
 
 Database is live. These tables were created for this site.
 
 teachers
 
-shared across visitors
+anyone can read this
 
 name
 bio
 phone
 bookings
 
-shared across visitors
+visitors submit to this; only you can read it
 
-class_name
-customer_name
-custom`
+class_name`
 - ✅ the masked phone is NOT rendered in full
 
 ## The published site
