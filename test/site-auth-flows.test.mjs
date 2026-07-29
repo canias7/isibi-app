@@ -899,9 +899,14 @@ test("no query touches a column its table never creates — every internal table
   // selected on every request and created by nothing reachable. A missing
   // column is a Postgres error, not a null, so this class of bug is total and
   // silent until somebody tries to sign in.
-  const METHODS_SRC = fs.readFileSync(new URL("../site-auth-methods.mjs", import.meta.url), "utf8");
-  const src = METHODS_SRC + "\n" + WORKER;
-  const tables = ["_identities", "_credentials", "_auth_codes", "_invites", "_sessions"];
+  // Every file that can CREATE an internal table. A DDL the scan cannot see
+  // reads as "this table is created by nothing", which is what it just said
+  // about `_teams` when TEAM_DDL moved into its own module — the guard working,
+  // but pointed at the wrong place.
+  const src = ["../site-auth-methods.mjs", "../site-teams.mjs"]
+    .map((f) => fs.readFileSync(new URL(f, import.meta.url), "utf8"))
+    .join("\n") + "\n" + WORKER;
+  const tables = ["_identities", "_credentials", "_auth_codes", "_invites", "_sessions", "_teams"];
 
   for (const t of tables) {
     const created = new Set();

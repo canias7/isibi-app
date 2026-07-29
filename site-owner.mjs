@@ -14,6 +14,7 @@
 // Worker — see test/site-owner.test.mjs.
 
 import { isManagedColumn, normalizeRole, rolesForSchema } from "./site-access.mjs";
+import { normalizeTeamId } from "./site-teams.mjs";
 import { constraintError } from "./site-errors.mjs";
 
 const json = (body, status = 200) => ({ status, body });
@@ -249,7 +250,7 @@ async function runWrite(deps, { db, def, access, tn, method, rowId, body }) {
  * columns explicitly: `pass_hash` must never leave the database, and a
  * `SELECT *` a year from now would ship it the moment someone added a column.
  */
-const MEMBER_COLUMNS = ["id", "email", "role", "verified", "created_at", "last_login_at", "manager_id", "blocked"];
+const MEMBER_COLUMNS = ["id", "email", "role", "verified", "created_at", "last_login_at", "manager_id", "blocked", "team_id"];
 
 export async function handleOwnerMembers(deps, { slug, uid, method = "GET", memberId, body = {}, params = {} } = {}) {
   const open = await openSite(deps, slug, uid);
@@ -299,6 +300,25 @@ export async function handleOwnerMembers(deps, { slug, uid, method = "GET", memb
         const exists = await deps.query(db, "SELECT id FROM _users WHERE id=?", [mid]);
         if (!exists[0]) return json({ error: "no such member" }, 404);
         sets.push(deps.ident("manager_id") + "=?"); vals.push(mid);
+      }
+    }
+    if (body.team_id !== undefined) {
+      // The only way a member is ever put into a team, which is what makes
+      // `teamScope` reachable at all — it has been parsed, and its `team_id`
+      // column stamped onto tables, since the schema engine was written, with
+      // nothing able to populate it.
+      //
+      // `null` CLEARS it and is a real thing an owner does. `normalizeTeamId`
+      // answers `undefined` for anything that is neither, so a typo cannot
+      // silently take somebody out of their team.
+      const tid = normalizeTeamId(body.team_id);
+      if (tid === undefined) return json({ error: "team_id must be a team id, or null to clear it" }, 400);
+      if (tid === null) {
+        sets.push(deps.ident("team_id") + "=NULL");
+      } else {
+        const exists = await deps.query(db, "SELECT id FROM _teams WHERE id=?", [tid]);
+        if (!exists[0]) return json({ error: "no such team" }, 404);
+        sets.push(deps.ident("team_id") + "=?"); vals.push(tid);
       }
     }
     if (!sets.length) return json({ error: "nothing to change" }, 400);

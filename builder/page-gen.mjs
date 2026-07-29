@@ -538,6 +538,12 @@ export function schemaDigest(spec) {
     // Printed for EVERY table, not only the ones that have it. "No public view"
     // is the fact that stops a 404, and an absent line reads as an omission
     // rather than an answer.
+    // `user` normally means private-to-me. `teamScope` changes that to
+    // "ours", and a page that says "your notes" on a shared team table is
+    // describing something the API does not do.
+    if (t.teamScope && access === "user") {
+      lines.push("  SHARED WITH THE TEAM: everyone in this member's team reads and edits the same rows. Say \"our\"/\"the team's\", not \"your\".");
+    }
     if (access !== "display") {
       // `hasPublicView` decides, not a shape test written here — the data path
       // answers 404 on exactly this question, and a second copy of the rule
