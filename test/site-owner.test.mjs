@@ -418,8 +418,13 @@ test("the owner can remove a member", async () => {
   const { deps, seen } = wharness();
   const r = await handleOwnerMembers(deps, { slug: "cafe", uid: "owner-1", method: "DELETE", memberId: "3" });
   assert.equal(r.status, 200);
-  assert.match(seen[0].sql, /DELETE FROM _users WHERE id=\?/);
-  assert.deepEqual(seen[0].args, [3]);
+  // Found among the statements rather than asserted as the first one: the audit
+  // log reads the member's address BEFORE the delete, because afterwards there
+  // is no row to name and "member 3 was deleted" is the least useful version of
+  // the one event that cannot be undone.
+  const del = seen.find((q) => /DELETE FROM _users WHERE id=\?/.test(q.sql));
+  assert.ok(del, JSON.stringify(seen.map((q) => q.sql)));
+  assert.deepEqual(del.args, [3]);
 });
 
 test("removing a member that is not there is 404, and a bad id is 400", async () => {
