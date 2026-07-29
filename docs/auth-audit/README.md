@@ -1,6 +1,6 @@
 # Auth layer — production audit
 
-Run against `https://isibi.ai` · 86 passed, 1 failed.
+Run against `https://isibi.ai` · 85 passed, 2 failed.
 
 
 ## the site
@@ -114,7 +114,33 @@ Run against `https://isibi.ai` · 86 passed, 1 failed.
 - ✅ the published site serves 200
 - ✅ the app actually RENDERED (root is not empty)
 - ✅ no uncaught error on load
-- ✅ seeded content is on the page
+- ❌ seeded content is on the page — `Fade & Co Barbershop
+
+Sharp fades, clean lines. Pick a service, then book your chair.
+
+Services
+
+Couldn't load the services. Refresh and try again.
+
+Book an appointment
+Service
+Choose one
+Your name
+Phone
+Email (optional)
+Date
+Time
+Choose a time
+09:00
+09:30
+10:00
+10:30
+11:00
+11:30
+12:00
+12:30
+13:00
+1`
 - ✅ the masked phone is NOT rendered in full
 - ✅ a member can be signed in from inside the published page
 - ✅ the stored session actually opens a member-scoped read
