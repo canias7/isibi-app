@@ -230,6 +230,176 @@ export function useChangePassword() {
   });
 }
 
+// ---------------------------------------------------------------- sign-in methods
+
+function keepSession(token: string) {
+  try { localStorage.setItem(`site_session_${siteSlug()}`, token); } catch { /* private mode */ }
+}
+
+export type SignInMethod = { name: string; label: string; oauth: boolean };
+
+/**
+ * What this site actually offers. Render the sign-in page from this rather than
+ * hard-coding buttons — a provider the owner has not set up is not a button that
+ * fails, it simply is not there.
+ */
+export function useSignInMethods() {
+  return useQuery({
+    queryKey: ["auth-methods", siteSlug()],
+    queryFn: () => send<{ methods: SignInMethod[] }>(authUrl("methods")).then((r) => r.methods),
+  });
+}
+
+/** Send them to a provider. A full navigation, because the provider redirects back. */
+export function startOAuthSignIn(provider: string, next?: string) {
+  const q = next ? `?next=${encodeURIComponent(next)}` : "";
+  location.href = authUrl(`oauth/${provider}/start`) + q;
+}
+
+/** A response that may not be a session yet: a second factor can be pending. */
+export type SignInResult = { token?: string; pending?: string; need?: string; user?: Member };
+
+function settle(r: SignInResult) {
+  if (r.token) keepSession(r.token);
+  return r;
+}
+
+/** Sign in with a passkey. No password, nothing typed, phishing-proof. */
+export function usePasskeySignIn() {
+  return useMutation({
+    mutationFn: async (): Promise<SignInResult> => {
+      const start = await send<{ challenge: string; rpId: string }>(authUrl("passkey/login/start"), { method: "POST" });
+      const cred = (await navigator.credentials.get({
+        publicKey: { challenge: fromB64u(start.challenge), rpId: start.rpId, userVerification: "preferred" },
+      })) as PublicKeyCredential | null;
+      if (!cred) throw new Error("No passkey was chosen.");
+      const res = cred.response as AuthenticatorAssertionResponse;
+      return settle(await send<SignInResult>(authUrl("passkey/login/finish"), {
+        method: "POST",
+        body: JSON.stringify({
+          challenge: start.challenge,
+          credentialId: toB64u(cred.rawId),
+          response: {
+            clientDataJSON: toB64u(res.clientDataJSON),
+            authenticatorData: toB64u(res.authenticatorData),
+            signature: toB64u(res.signature),
+          },
+        }),
+      }));
+    },
+  });
+}
+
+/** Add a passkey to the account they are already signed into. */
+export function useAddPasskey() {
+  return useMutation({
+    mutationFn: async (vars?: { label?: string }) => {
+      const start = await send<{
+        challenge: string; rp: { id: string; name: string };
+        user: { id: string; name: string; displayName: string };
+        excludeCredentials: { id: string; type: string }[];
+        pubKeyCredParams: { type: string; alg: number }[];
+      }>(authUrl("passkey/register/start"), { method: "POST" });
+      const cred = (await navigator.credentials.create({
+        publicKey: {
+          challenge: fromB64u(start.challenge),
+          rp: start.rp,
+          user: { id: fromB64u(start.user.id), name: start.user.name, displayName: start.user.displayName },
+          pubKeyCredParams: start.pubKeyCredParams as PublicKeyCredentialParameters[],
+          excludeCredentials: start.excludeCredentials.map((c) => ({ id: fromB64u(c.id), type: "public-key" as const })),
+          authenticatorSelection: { residentKey: "preferred", userVerification: "preferred" },
+        },
+      })) as PublicKeyCredential | null;
+      if (!cred) throw new Error("No passkey was created.");
+      const res = cred.response as AuthenticatorAttestationResponse;
+      return send<{ ok: true }>(authUrl("passkey/register/finish"), {
+        method: "POST",
+        body: JSON.stringify({
+          label: vars?.label,
+          response: { clientDataJSON: toB64u(res.clientDataJSON), attestationObject: toB64u(res.attestationObject) },
+        }),
+      });
+    },
+  });
+}
+
+/** Ask for a sign-in code by email. Always succeeds, account or not. */
+export function useRequestSignInCode() {
+  return useMutation({
+    mutationFn: (vars: { email: string }) =>
+      send<{ ok: true }>(authUrl("code/request"), { method: "POST", body: JSON.stringify(vars) }),
+  });
+}
+
+export function useVerifySignInCode() {
+  return useMutation({
+    mutationFn: (vars: { email: string; code: string }) =>
+      send<SignInResult>(authUrl("code/verify"), { method: "POST", body: JSON.stringify(vars) }).then(settle),
+  });
+}
+
+/**
+ * Present the second factor.
+ *
+ * `pending` comes from whichever primary method returned it — a session is not
+ * issued until this succeeds. A recovery code works here too.
+ */
+export function useVerifySecondFactor() {
+  return useMutation({
+    mutationFn: async (vars: { pending: string; code: string }) => {
+      const r = await send<SignInResult>(authUrl("totp/verify"), {
+        method: "POST",
+        body: JSON.stringify({ code: vars.code }),
+        headers: { Authorization: `Bearer ${vars.pending}` },
+      });
+      return settle(r);
+    },
+  });
+}
+
+/** Turn on an authenticator app: scan, then confirm with a code. */
+export function useStartTotp() {
+  return useMutation({ mutationFn: () => send<{ secret: string; uri: string }>(authUrl("totp/start"), { method: "POST" }) });
+}
+export function useEnableTotp() {
+  return useMutation({
+    mutationFn: (vars: { code: string }) =>
+      send<{ ok: true; recovery: string[] }>(authUrl("totp/enable"), { method: "POST", body: JSON.stringify(vars) }),
+  });
+}
+export function useDisableTotp() {
+  return useMutation({
+    mutationFn: (vars: { current: string }) =>
+      send<{ ok: true }>(authUrl("totp/disable"), { method: "POST", body: JSON.stringify(vars) }),
+  });
+}
+
+/** What this member has connected — providers, passkeys, whether 2FA is on. */
+export function useConnectedAccounts() {
+  return useQuery({
+    queryKey: ["identities", siteSlug()],
+    queryFn: () => send<{
+      identities: { id: number; provider: string; email: string | null; created_at: string }[];
+      passkeys: { id: number; label: string | null; created_at: string; last_used_at: string | null }[];
+      hasPassword: boolean; totp: boolean;
+    }>(authUrl("identities")),
+  });
+}
+
+// WebAuthn speaks ArrayBuffers; the API speaks base64url.
+function toB64u(buf: ArrayBuffer) {
+  let s = "";
+  for (const b of new Uint8Array(buf)) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function fromB64u(v: string) {
+  const p = v.replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(p + "=".repeat((4 - (p.length % 4)) % 4));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
 /** Sign out every OTHER device, keeping this one. */
 export function useLogoutOthers() {
   return useMutation({

@@ -485,3 +485,60 @@ test("a passkey whose counter went backwards is refused as cloned", async () => 
   assert.equal(r.status, 401);
   assert.equal(r.body.code, "cloned");
 });
+
+// ------------------------------------------------------- the wiring is real
+//
+// A registry nothing reads is the trap this whole session has been about, so
+// these read worker.js and the template rather than trusting that I wired them.
+
+import fs from "node:fs";
+const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+const ROWS = fs.readFileSync(new URL("../builder/lovable/template/src/lib/rows.ts", import.meta.url), "utf8");
+
+test("the Worker routes by the registry, not by a list of method names", () => {
+  assert.match(WORKER, /routeFor\(action\)/, "the router must consult the registry");
+  assert.match(WORKER, /handleAuthFlow\(/);
+  // Multi-segment, or every method route 404s. Asserted on the character class
+  // itself: a single-segment matcher would send passkey/login/start to a 404.
+  // Only the character class is examined — matching the `auth\/` prefix too
+  // would always contain a slash and assert nothing.
+  const matcher = WORKER.match(/auth\\\/\(\[a-z0-9\]\[([^\]]+)\]/);
+  assert.ok(matcher, "the auth path matcher was not found");
+  assert.ok(matcher[1].includes("/"), "the matcher must allow slashes, or every method route 404s: " + matcher[1]);
+});
+
+test("the Worker creates the tables the registry declares", () => {
+  assert.match(WORKER, /for \(const sql of AUTH_DDL\)/, "the DDL must actually be executed");
+  assert.match(WORKER, /for \(const sql of AUTH_USER_COLUMNS\)/);
+  // And called from the route, not merely defined.
+  assert.match(WORKER, /await ensureAuthTables\(db\)/, "a table nobody creates makes every method route a 500");
+});
+
+test("every dep handleAuthFlow calls is supplied by the Worker", () => {
+  // A missing one is a runtime TypeError on a public endpoint, which is exactly
+  // the class of thing a test should catch instead of a visitor.
+  const flows = fs.readFileSync(new URL("../site-auth-flows.mjs", import.meta.url), "utf8");
+  const used = [...flows.matchAll(/deps\.([a-zA-Z]+)/g)].map((m) => m[1]);
+  const wired = WORKER.slice(WORKER.indexOf("function authFlowDeps"));
+  for (const name of new Set(used)) {
+    assert.ok(wired.includes(name + ":") || wired.includes(name + " ") || wired.includes(name + "("),
+      "authFlowDeps is missing " + name);
+  }
+});
+
+test("the client can reach every method the registry offers", () => {
+  for (const hook of [
+    "useSignInMethods", "startOAuthSignIn", "usePasskeySignIn", "useAddPasskey",
+    "useRequestSignInCode", "useVerifySignInCode", "useVerifySecondFactor",
+    "useStartTotp", "useEnableTotp", "useDisableTotp", "useConnectedAccounts",
+  ]) {
+    assert.ok(new RegExp("export (async )?function " + hook + "|export const " + hook).test(ROWS), hook + " missing from the template");
+  }
+});
+
+test("the owner's panel never hands a client secret back", () => {
+  // A GET that returned them would make every read of that panel a place they
+  // can leak — to a browser extension, a screenshot, a support ticket.
+  const access = WORKER.slice(WORKER.indexOf("methods: availableMethods(cfg)"), WORKER.indexOf("methods: availableMethods(cfg)") + 600);
+  assert.ok(!/client_secret/.test(access), "the access GET must not return client secrets");
+});

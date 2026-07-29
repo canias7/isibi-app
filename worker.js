@@ -15,6 +15,9 @@ import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { injectMeta } from "./site-meta.mjs";
 import { sessionKey, verifySession, signClaim, verifyClaim } from "./site-auth.mjs";
 import { checkSignup, newInviteCode, normalizeCode, normalizeMode, inviteOptions, SIGNUP_MODES } from "./site-invite.mjs";
+import { handleAuthFlow } from "./site-auth-flows.mjs";
+import { AUTH_DDL, AUTH_USER_COLUMNS, routeFor, availableMethods } from "./site-auth-methods.mjs";
+import { providerConfig, decodeIdToken } from "./site-oauth.mjs";
 import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
 import { handleSiteData } from "./site-data.mjs";
@@ -2967,6 +2970,195 @@ const VISITOR_UPLOADS_PER_MIN = 5;
 // mixes the slug in, so one site's claims are meaningless against another for
 // free. The kinds stay separated inside the payload (`use`), which `verifyClaim`
 // and `verifySession` each check as an allow-list.
+
+// ---------------------------------------------------------- sign-in methods
+//
+// Tables for identities, passkeys and short-lived codes, plus the second-factor
+// columns on `_users`. Lazy and idempotent, like ensureSiteUsers — a site that
+// never offers anything but a password never pays for them.
+const _authTablesReady = new Set();
+async function ensureAuthTables(db) {
+  if (_authTablesReady.has(db)) return;
+  await ensureSiteUsers(db);
+  for (const sql of AUTH_DDL) await sqlQuery(db, sql);
+  // Idempotent-by-catch: Postgres has no ADD COLUMN IF NOT EXISTS for every
+  // version we might meet, and re-adding is the only failure worth swallowing.
+  for (const sql of AUTH_USER_COLUMNS) { try { await sqlQuery(db, sql); } catch {} }
+  _authTablesReady.add(db);
+}
+
+/** A site's own sign-in configuration, from its `_meta`. */
+async function siteAuthConfig(env, db, slug) {
+  let oauth = {};
+  try {
+    const rows = await sqlQuery(db, "SELECT v FROM _meta WHERE k='auth_config'");
+    if (rows[0] && rows[0].v) oauth = JSON.parse(rows[0].v).oauth || {};
+  } catch { /* an unreadable config means no providers, not a broken site */ }
+  return {
+    oauth,
+    // Only offer the emailed-code sign-in where mail can actually leave. A
+    // button that silently never arrives is worse than no button.
+    mailer: !!env.GO_FARTHER_API_KEY,
+    passkeys: true,
+    name: slug,
+  };
+}
+
+/** The OAuth token exchange. One shape; providers differ only in what they accept. */
+async function oauthExchange(cfg, { code, verifier, redirectUri }) {
+  const form = new URLSearchParams({
+    client_id: cfg.clientId,
+    client_secret: cfg.clientSecret,
+    code,
+    grant_type: "authorization_code",
+    redirect_uri: redirectUri,
+  });
+  if (verifier) form.set("code_verifier", verifier);
+  const r = await fetch(cfg.token, {
+    method: "POST",
+    // GitHub returns form-encoded unless asked otherwise, and its answer would
+    // then parse as an empty object with no error anywhere.
+    headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+    body: form.toString(),
+    signal: AbortSignal.timeout(12000),
+  });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok || out.error) throw new Error("token exchange " + r.status + " " + (out.error || ""));
+  return out;
+}
+
+async function oauthProfile(cfg, tokens) {
+  // Apple has no userinfo endpoint — the profile is inside the id_token, which
+  // arrived over a TLS connection to the token endpoint we chose, so decoding
+  // without re-verifying its signature is sound here and only here.
+  if (!cfg.userinfo) {
+    const claims = decodeIdToken(tokens.id_token);
+    if (!claims) throw new Error("no profile");
+    return claims;
+  }
+  const r = await fetch(cfg.userinfo, {
+    headers: { authorization: "Bearer " + tokens.access_token, accept: "application/json", "user-agent": "isibi" },
+    signal: AbortSignal.timeout(12000),
+  });
+  if (!r.ok) throw new Error("userinfo " + r.status);
+  return r.json();
+}
+
+function authFlowDeps(env, db, slug, url) {
+  const q = (sql, args) => sqlQuery(db, sql, args);
+  const one = async (sql, args) => (await q(sql, args))[0] || null;
+  const nowSql = "to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')";
+  return {
+    // The relying party is the HOST, never the path — a passkey is bound to a
+    // domain, and every published site shares this one.
+    rpId: url.hostname,
+    siteConfig: () => siteAuthConfig(env, db, slug),
+
+    findUserById: (id) => (/^\d+$/.test(String(id))
+      ? one("SELECT id, email, token_epoch, blocked, totp_secret, totp_enabled, totp_last_step, recovery_hashes, (pass_hash IS NOT NULL) AS has_password FROM _users WHERE id=?", [Number(id)])
+      : null),
+    findUserByEmail: (e) => one("SELECT id, email, pass_hash AS password_hash, token_epoch, blocked, totp_secret, totp_enabled, totp_last_step, recovery_hashes FROM _users WHERE email=?", [e]),
+    createUser: async (email, name) => {
+      // No password: an account made through a provider has none until its owner
+      // sets one, and `pass_hash` is NOT NULL, so a placeholder that can never
+      // be matched stands in for "no password" rather than a nullable column.
+      const r = await q("INSERT INTO _users (email, pass_hash) VALUES (?,?) ON CONFLICT (email) DO NOTHING RETURNING id, email",
+        [email || (name ? null : null), "external$" + crypto.randomUUID()]);
+      return r[0] || null;
+    },
+    touchLogin: async (id) => { try { await q("UPDATE _users SET last_login_at=" + nowSql + " WHERE id=?", [Number(id)]); } catch {} },
+
+    findIdentity: (p, sub) => one("SELECT id, provider, subject, user_id, email FROM _identities WHERE provider=? AND subject=?", [p, sub]),
+    identitiesFor: (uid) => q("SELECT id, provider, email, created_at FROM _identities WHERE user_id=? ORDER BY id", [Number(uid)]),
+    linkIdentity: (p, sub, uid, email) => q("INSERT INTO _identities (provider, subject, user_id, email) VALUES (?,?,?,?) ON CONFLICT (provider, subject) DO NOTHING", [p, sub, Number(uid), email || null]),
+
+    addCredential: (uid, c) => q("INSERT INTO _credentials (user_id, cred_id, public_key, alg, sign_count, label) VALUES (?,?,?,?,?,?)",
+      [Number(uid), c.cred_id, c.public_key, c.alg, c.sign_count || 0, c.label]),
+    credentialById: (cid) => one("SELECT id, user_id, cred_id, public_key, alg, sign_count FROM _credentials WHERE cred_id=?", [cid]),
+    credentialsFor: (uid) => q("SELECT id, cred_id, label, created_at, last_used_at FROM _credentials WHERE user_id=? ORDER BY id", [Number(uid)]),
+    deleteCredential: (uid, id) => sqlExec(db, "DELETE FROM _credentials WHERE id=? AND user_id=?", [Number(id), Number(uid)]),
+    touchCredential: (id, count) => q("UPDATE _credentials SET sign_count=?, last_used_at=" + nowSql + " WHERE id=?", [Number(count) || 0, Number(id)]),
+
+    putCode: (kind, subject, code, expiresAt) => q("INSERT INTO _auth_codes (kind, subject, code, expires_at) VALUES (?,?,?,?)", [kind, String(subject), code, expiresAt]),
+    // Newest first: requesting a second code must not be defeated by the first.
+    takeCode: (kind, subject) => one("SELECT id, code, attempts, expires_at FROM _auth_codes WHERE kind=? AND subject=? ORDER BY id DESC LIMIT 1", [kind, String(subject)]),
+    spendCode: (id) => q("DELETE FROM _auth_codes WHERE id=?", [Number(id)]),
+    bumpAttempt: (id) => q("UPDATE _auth_codes SET attempts=attempts+1 WHERE id=?", [Number(id)]),
+
+    setTotp: (uid, v) => q(
+      "UPDATE _users SET totp_secret=?, totp_enabled=?, totp_last_step=?, recovery_hashes=? WHERE id=?",
+      [v.secret ?? null, v.enabled ? 1 : 0, v.lastStep ?? null, v.recovery ?? null, Number(uid)],
+    ),
+
+    // A provider sign-in is still a signup when nobody here matches, so it obeys
+    // the same open/invite/closed setting as the form.
+    signupAllowed: async () => {
+      try { return normalizeMode(await siteSignupMode(db)) === "open"; }
+      catch { return false; }
+    },
+    sendCode: (email, code) => sendSiteCodeEmail(env, slug, email, code),
+    throttle: (k) => authThrottle(k),
+    exchange: oauthExchange,
+    fetchProfile: oauthProfile,
+  };
+}
+
+/**
+ * Where a browser lands after an OAuth callback.
+ *
+ * A redirect back from a provider is a top-level navigation, so the answer has
+ * to be a PAGE — it cannot read a JSON body. This one hands the session to the
+ * same localStorage key the client library reads, then goes where they were
+ * heading. No token is ever put in the URL, where it would end up in history and
+ * in any referrer the next page sends.
+ */
+function authLandingPage(slug, r) {
+  const ok = r.status === 200 && r.body && (r.body.token || r.body.pending);
+  const payload = JSON.stringify({
+    slug,
+    token: (r.body && r.body.token) || null,
+    pending: (r.body && r.body.pending) || null,
+    next: (r.body && r.body.next) || "/",
+    error: ok ? null : ((r.body && r.body.error) || "That sign-in didn't complete."),
+  });
+  const html = `<!doctype html><meta charset="utf-8"><title>Signing you in…</title>
+<body style="font:15px system-ui;padding:2rem;color:#111">
+<p id="m">Signing you in…</p>
+<script>
+(function(){
+  var d = ${payload};
+  var base = "/s/" + d.slug;
+  if (d.error) { document.getElementById("m").textContent = d.error; return; }
+  try {
+    if (d.token) localStorage.setItem("site_session_" + d.slug, d.token);
+    else if (d.pending) sessionStorage.setItem("site_pending_" + d.slug, d.pending);
+  } catch (e) {}
+  location.replace(base + (d.pending ? "/two-factor" : (d.next || "/")));
+})();
+</script></body>`;
+  return new Response(html, {
+    status: ok ? 200 : 400,
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" },
+  });
+}
+
+/** The emailed sign-in code. Dark until GO_FARTHER_API_KEY reaches the Worker. */
+async function sendSiteCodeEmail(env, slug, email, code) {
+  if (!env.GO_FARTHER_API_KEY) { console.log("site code email skipped (no mailer):", slug); return; }
+  await fetch("https://lkpfeqrelvziltfwpuxi.supabase.co/functions/v1/mailer", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.GO_FARTHER_API_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      action: "send",
+      from: env.EMAIL_FROM || "isibi <login@isibi.ai>",
+      to: email,
+      subject: `Your sign-in code: ${code}`,
+      html: `<p>Your sign-in code is <strong style="font-size:20px;letter-spacing:2px">${code}</strong>.</p><p>It expires in 10 minutes. If you didn't ask for it, ignore this email.</p>`,
+    }),
+    signal: AbortSignal.timeout(10000),
+  });
+}
+
 async function siteClaimKey(env, slug) {
   const db = await siteBackendBySlug(env, slug);
   if (!db) throw new Error("no such site");
@@ -5343,7 +5535,10 @@ async function handleRequest(request, env, ctx) {
     // is the whole point of the routing work. Deleting a site takes its members
     // with it, because they were never anywhere else.
     if (url.pathname.startsWith("/api/db/") && url.pathname.includes("/auth/")) {
-      const am = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/auth\/([a-z-]{1,20})$/i);
+      // Two shapes now. The single-word actions are the original account routes;
+      // anything with a slash belongs to a sign-in METHOD and is matched against
+      // the registry, so adding a method cannot leave a route unrouted.
+      const am = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/auth\/([a-z0-9][a-z0-9/-]{0,59})$/i);
       if (am) {
         const [, aslug, action] = am;
         const slug = aslug.toLowerCase();
@@ -5376,6 +5571,27 @@ async function handleRequest(request, env, ctx) {
         // iteration cap hid for a deploy. Never leak the message to the caller;
         // do put it in the log.
         try {
+          const flow = routeFor(action);
+          if (flow) {
+            await ensureAuthTables(db);
+            const r = await handleAuthFlow(authFlowDeps(env, db, slug, url), {
+              slug, route: flow.route, body,
+              query: Object.fromEntries(url.searchParams),
+              token: bearer, key: await sessionKey(await siteAuthSecret(db), slug),
+              origin: url.origin,
+            });
+            // An OAuth start is a real redirect for a browser, not JSON.
+            if (r.status === 302 && r.body && r.body.redirect) {
+              return Response.redirect(r.body.redirect, 302);
+            }
+            // ...and a callback lands on a page that stores the session and goes
+            // where the person was heading, because a browser arriving here
+            // cannot read a JSON body.
+            if (/^oauth\/[a-z]+\/callback$/.test(flow.route) && request.method === "GET") {
+              return authLandingPage(slug, r);
+            }
+            return Response.json(r.body, { status: r.status });
+          }
           const r = await handleSiteAuth(siteAuthDeps(env, db, slug), { slug, action, body, token: bearer });
           return Response.json(r.body, { status: r.status });
         } catch (e) {
@@ -5774,10 +5990,51 @@ async function handleRequest(request, env, ctx) {
                 if (request.method === "GET") {
                   await ensureInvites(adb);
                   const invites = await sqlQuery(adb, "SELECT code, uses_left, note, expires_at, created_at FROM _invites WHERE uses_left > 0 ORDER BY created_at DESC LIMIT 200");
-                  return Response.json({ mode: normalizeMode(await siteSignupMode(adb)), modes: SIGNUP_MODES, invites });
+                  const cfg = await siteAuthConfig(env, adb, aslug);
+                  return Response.json({
+                    mode: normalizeMode(await siteSignupMode(adb)), modes: SIGNUP_MODES, invites,
+                    // Which providers are set up and what the sign-in page will
+                    // show — never the secrets. A GET that returned them would
+                    // make every future read of this panel a place they can leak.
+                    methods: availableMethods(cfg),
+                    oauth: Object.fromEntries(Object.entries(cfg.oauth || {}).map(([k, v]) => [k, { client_id: v.client_id, label: v.label || null, configured: true }])),
+                    redirectUris: Object.fromEntries(Object.keys(cfg.oauth || {}).map((k) => [k, url.origin + "/api/db/" + aslug + "/auth/oauth/" + k + "/callback"])),
+                  });
                 }
                 if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
                 const ab = await request.json().catch(() => ({}));
+
+                // Setting up a provider. Kept separate from the mode so an owner
+                // can add Google without touching who may sign up.
+                if (ab.oauth && typeof ab.oauth === "object") {
+                  const merged = { ...(await siteAuthConfig(env, adb, aslug)).oauth };
+                  for (const [name, v] of Object.entries(ab.oauth)) {
+                    // Allow-listed against the provider registry: an unknown key
+                    // here would be stored, read back, and never route anywhere.
+                    if (!providerConfig(name, { [name]: { client_id: "x", client_secret: "x" } }) && name !== "oidc") {
+                      return Response.json({ error: "unknown provider: " + name }, { status: 400 });
+                    }
+                    if (v === null) { delete merged[name]; continue; }
+                    if (!v || !v.client_id || !v.client_secret) {
+                      return Response.json({ error: name + " needs a client_id and a client_secret" }, { status: 400 });
+                    }
+                    merged[name] = {
+                      client_id: String(v.client_id).slice(0, 400),
+                      client_secret: String(v.client_secret).slice(0, 600),
+                      label: v.label ? String(v.label).slice(0, 40) : undefined,
+                      authorize: v.authorize ? String(v.authorize).slice(0, 400) : undefined,
+                      token: v.token ? String(v.token).slice(0, 400) : undefined,
+                      userinfo: v.userinfo === null ? null : (v.userinfo ? String(v.userinfo).slice(0, 400) : undefined),
+                    };
+                  }
+                  await sqlQuery(adb, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
+                  await sqlQuery(adb, "INSERT INTO _meta (k,v) VALUES ('auth_config', ?) ON CONFLICT (k) DO UPDATE SET v=excluded.v", [JSON.stringify({ oauth: merged })]);
+                  if (ab.mode === undefined) {
+                    const cfg2 = await siteAuthConfig(env, adb, aslug);
+                    return Response.json({ ok: true, methods: availableMethods(cfg2) });
+                  }
+                }
+
                 // Allow-listed, not stored as sent: an unrecognised mode would
                 // read back as "open" and quietly reopen a site the owner closed.
                 const mode = normalizeMode(ab.mode);
