@@ -11,7 +11,7 @@
 // how a second factor quietly becomes optional.
 
 import { signToken, verifyToken, hashPassword, verifyPassword, normalizeEmail, signVerify, verifyVerification } from "./site-auth.mjs";
-import { resolveIdentity } from "./site-identity.mjs";
+import { resolveIdentity, canUnlink } from "./site-identity.mjs";
 import { startOAuth, completeOAuth, providerConfig } from "./site-oauth.mjs";
 import {
   verifyRegistration, verifyAssertion, newChallenge, b64u,
@@ -379,6 +379,41 @@ export async function handleAuthFlow(deps, { slug, route, body = {}, query = {},
       hasPassword: !!user.has_password,
       totp: !!user.totp_enabled,
     });
+  }
+
+  // ------------------------------------------------------- disconnecting things
+  //
+  // `canUnlink` was written with the last-way-in rule and then called by nothing,
+  // and `deleteCredential` was wired as a dep with no route: a member could add a
+  // passkey and never remove one. A stolen laptop's passkey worked forever.
+  if (route === "identities/unlink" || route === "passkey/remove") {
+    const user = await signedIn();
+    if (!user) return json({ error: "not signed in" }, 401);
+
+    const [identities, credentials] = await Promise.all([
+      deps.identitiesFor(user.id),
+      deps.credentialsFor(user.id),
+    ]);
+    // Every way in counts as one, whichever kind is being removed — otherwise
+    // dropping your only passkey while having no password locks you out of an
+    // account that still exists and still owns rows, with no recovery path,
+    // because the reset flow needs an address you may never have given us.
+    const ways = identities.length + credentials.length;
+    if (!canUnlink({ identities: new Array(ways), hasPassword: !!user.has_password })) {
+      return json({ error: "That's your only way to sign in — add another first.", code: "last_method" }, 409);
+    }
+
+    if (route === "passkey/remove") {
+      const r = await deps.deleteCredential(user.id, body.id);
+      // Scoped to the caller AND answering 404 for somebody else's, so a member
+      // cannot probe which credential ids exist by watching the status.
+      if (!r || !r.changes) return json({ error: "no such passkey" }, 404);
+      return json({ ok: true });
+    }
+
+    const r = await deps.unlinkIdentity(user.id, body.id);
+    if (!r || !r.changes) return json({ error: "no such connection" }, 404);
+    return json({ ok: true });
   }
 
   return json({ error: "not found" }, 404);

@@ -531,6 +531,9 @@ test("the client can reach every method the registry offers", () => {
     "useSignInMethods", "startOAuthSignIn", "usePasskeySignIn", "useAddPasskey",
     "useRequestSignInCode", "useVerifySignInCode", "useVerifySecondFactor",
     "useStartTotp", "useEnableTotp", "useDisableTotp", "useConnectedAccounts",
+    // Adding a way in without a way to take it back out is how a stolen
+    // laptop's passkey keeps working forever.
+    "useRemovePasskey", "useUnlinkIdentity", "useResendVerification",
   ]) {
     assert.ok(new RegExp("export (async )?function " + hook + "|export const " + hook).test(ROWS), hook + " missing from the template");
   }
@@ -556,14 +559,35 @@ test("the login path can actually read the lockout columns", () => {
   assert.match(WORKER, /recordLoginAttempt:/, "and something must write them back");
 });
 
-test("the lockout columns are added where the LOGIN path runs", () => {
-  // ensureAuthExtras is only reachable from the dead /verify page, so adding
-  // them only there would leave them missing on every site that never had a
-  // verification link clicked.
-  const ensure = WORKER.slice(WORKER.indexOf("async function ensureSiteUsers"), WORKER.indexOf("async function ensureSiteUsers") + 1600);
-  assert.match(ensure, /ADD COLUMN failed/, "ensureSiteUsers is what login calls");
-});
+test("every column a query selects from _users is one ensureSiteUsers creates", () => {
+  // The invariant, derived rather than listed — a hand-written list is a list
+  // that goes stale.
+  //
+  // This was NOT true and the consequence was total: `token_epoch` and `blocked`
+  // were selected by login on every request and added by `ensureAuthExtras`,
+  // which is reachable only from `initSiteAuth`, which is reachable only from a
+  // /verify page needing a token nothing ever minted. So they existed on no site
+  // at all, and a missing column is a Postgres error — login answered 500
+  // everywhere the moment the suspension work shipped.
+  const ensure = WORKER.slice(WORKER.indexOf("async function ensureSiteUsers"));
+  const body = ensure.slice(0, ensure.indexOf("_usersReady.add"));
+  const created = new Set();
+  for (const m of body.matchAll(/ADD COLUMN ([a-z_]+)/g)) created.add(m[1]);
+  // ...plus whatever the CREATE TABLE itself declares.
+  const create = body.slice(body.indexOf("CREATE TABLE"), body.indexOf(")`"));
+  for (const m of create.matchAll(/^\s*([a-z_]+) /gm)) created.add(m[1]);
 
+  const selected = new Set();
+  for (const m of WORKER.matchAll(/SELECT ([^"`]+?) FROM _users/g)) {
+    for (const col of m[1].split(",")) {
+      const name = col.trim().replace(/ AS .*/i, "").replace(/\(.*/, "").trim();
+      if (/^[a-z_]+$/.test(name) && name !== "SELECT") selected.add(name);
+    }
+  }
+  assert.ok(selected.size > 5, "the query scan found nothing — the regex has drifted");
+  const missing = [...selected].filter((c) => !created.has(c));
+  assert.deepEqual(missing, [], "selected from _users but never created: " + missing.join(", "));
+});
 // ------------------------------------------------------- confirming an address
 //
 // There WAS a verification flow. `verified`, `verify_token` and `verify_exp` are
@@ -694,4 +718,88 @@ test("the /verify page runs on the LIVE token family", () => {
   assert.match(page, /verifyVerification\(/, "the verify page must use the live token family");
   assert.ok(!/verifySiteUserToken\(/.test(page), "the D1-era verifier must be gone from this path");
   assert.ok(!/initSiteAuth\(/.test(page), "initSiteAuth creates a conflicting _users shape");
+});
+
+// ------------------------------------------------- taking a way in back out
+//
+// `canUnlink` was written with a careful last-way-in rule and called by nothing;
+// `deleteCredential` was a wired dep with no route. So a member could add a
+// passkey and never remove one — a stolen laptop's passkey worked forever.
+
+async function unlinkHarness(over = {}) {
+  const h = await harness(over);
+  h.deleted = [];
+  h.unlinked = [];
+  h.deps.deleteCredential = async (uid, id) => {
+    const i = h.creds.findIndex((c) => c.id === Number(id) && c.user_id === uid);
+    if (i < 0) return { changes: 0 };
+    h.creds.splice(i, 1); h.deleted.push(id); return { changes: 1 };
+  };
+  h.deps.unlinkIdentity = async (uid, id) => {
+    const i = h.identities.findIndex((x) => x.id === Number(id) && x.user_id === uid);
+    if (i < 0) return { changes: 0 };
+    h.identities.splice(i, 1); h.unlinked.push(id); return { changes: 1 };
+  };
+  h.deps.findUserById = async (id) => {
+    const u = h.users.get(String(id));
+    return u ? { ...u, has_password: over.hasPassword !== false } : null;
+  };
+  return h;
+}
+
+test("a passkey can be removed", async () => {
+  const h = await unlinkHarness();
+  h.creds.push({ id: 1, user_id: 1, cred_id: "a" }, { id: 2, user_id: 1, cred_id: "b" });
+  const r = await h.call("passkey/remove", { token: h.session, body: { id: 1 } });
+  assert.equal(r.status, 200);
+  assert.equal(h.creds.length, 1);
+});
+
+test("a connected provider can be unlinked", async () => {
+  const h = await unlinkHarness();
+  h.identities.push({ id: 5, user_id: 1, provider: "google" });
+  const r = await h.call("identities/unlink", { token: h.session, body: { id: 5 } });
+  assert.equal(r.status, 200);
+  assert.deepEqual(h.unlinked, [5]);
+});
+
+test("the LAST way in cannot be removed", async () => {
+  // No password and one passkey: removing it strands an account that still
+  // exists and still owns rows, with no recovery path.
+  const h = await unlinkHarness({ hasPassword: false });
+  h.creds.push({ id: 1, user_id: 1, cred_id: "a" });
+  const r = await h.call("passkey/remove", { token: h.session, body: { id: 1 } });
+  assert.equal(r.status, 409);
+  assert.equal(r.body.code, "last_method");
+  assert.equal(h.creds.length, 1, "nothing may be deleted");
+});
+
+test("the last passkey CAN go when a password remains", async () => {
+  const h = await unlinkHarness({ hasPassword: true });
+  h.creds.push({ id: 1, user_id: 1, cred_id: "a" });
+  assert.equal((await h.call("passkey/remove", { token: h.session, body: { id: 1 } })).status, 200);
+});
+
+test("passkeys and providers count together as ways in", async () => {
+  // One of each and no password: either may go, but not the second.
+  const h = await unlinkHarness({ hasPassword: false });
+  h.creds.push({ id: 1, user_id: 1, cred_id: "a" });
+  h.identities.push({ id: 5, user_id: 1, provider: "google" });
+  assert.equal((await h.call("passkey/remove", { token: h.session, body: { id: 1 } })).status, 200);
+  const r = await h.call("identities/unlink", { token: h.session, body: { id: 5 } });
+  assert.equal(r.status, 409);
+});
+
+test("somebody else's passkey is a 404, not a deletion", async () => {
+  const h = await unlinkHarness();
+  h.creds.push({ id: 1, user_id: 1, cred_id: "a" }, { id: 9, user_id: 42, cred_id: "theirs" });
+  const r = await h.call("passkey/remove", { token: h.session, body: { id: 9 } });
+  assert.equal(r.status, 404);
+  assert.equal(h.creds.length, 2);
+});
+
+test("removing anything needs a session", async () => {
+  const h = await unlinkHarness();
+  assert.equal((await h.call("passkey/remove", { body: { id: 1 } })).status, 401);
+  assert.equal((await h.call("identities/unlink", { body: { id: 1 } })).status, 401);
 });

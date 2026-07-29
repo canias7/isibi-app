@@ -374,6 +374,31 @@ export function useDisableTotp() {
   });
 }
 
+/** Remove a passkey. Refused (409, `last_method`) if it is the only way in. */
+export function useRemovePasskey() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: number }) =>
+      send<{ ok: true }>(authUrl("passkey/remove"), { method: "POST", body: JSON.stringify(vars) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["identities", siteSlug()] }),
+  });
+}
+
+/** Disconnect a provider. Same last-way-in rule. */
+export function useUnlinkIdentity() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: number }) =>
+      send<{ ok: true }>(authUrl("identities/unlink"), { method: "POST", body: JSON.stringify(vars) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["identities", siteSlug()] }),
+  });
+}
+
+/** Ask for a new confirm-your-email link. */
+export function useResendVerification() {
+  return useMutation({ mutationFn: () => send<{ ok: true }>(authUrl("verify/request"), { method: "POST" }) });
+}
+
 /** What this member has connected — providers, passkeys, whether 2FA is on. */
 export function useConnectedAccounts() {
   return useQuery({

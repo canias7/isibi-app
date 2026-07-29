@@ -94,7 +94,7 @@ export const METHODS = [
     label: "Passkey",
     // Needs nothing from anyone — no mailer, no provider, no account elsewhere.
     configured: (site) => site.passkeys !== false,
-    routes: ["passkey/register/start", "passkey/register/finish", "passkey/login/start", "passkey/login/finish"],
+    routes: ["passkey/register/start", "passkey/register/finish", "passkey/login/start", "passkey/login/finish", "passkey/remove"],
   },
   {
     name: "email-code",
@@ -142,7 +142,7 @@ export const METHODS = [
 ];
 
 /** Routes that belong to the surface rather than to any one method. */
-export const SHARED_ROUTES = ["methods", "identities"];
+export const SHARED_ROUTES = ["methods", "identities", "identities/unlink"];
 
 export const METHOD_NAMES = METHODS.map((m) => m.name);
 
