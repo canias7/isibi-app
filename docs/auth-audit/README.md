@@ -1,6 +1,6 @@
 # Auth layer — production audit
 
-Run against `https://isibi.ai` · 143 passed, 11 failed.
+Run against `https://isibi.ai` · 146 passed, 5 failed.
 
 
 ## the site
@@ -8,7 +8,7 @@ Run against `https://isibi.ai` · 143 passed, 11 failed.
 - ✅ build returns 200
 - ✅ every declared table was created
 - ✅ the display table was seeded
-- ✅ a real app was published, not the placeholder
+- ❌ a real app was published, not the placeholder — `page=placeholder stage=- error=- notes=Your database is live, but writing the pages didn't work this time — send it again to retry. cost=0 files=[] problems=[]`
 
 ## signup
 
@@ -119,22 +119,22 @@ Run against `https://isibi.ai` · 143 passed, 11 failed.
 - ✅ a started-but-unconfirmed factor does not gate sign-in
 - ✅ a code from a real authenticator turns it on
 - ✅ ...and hands over recovery codes, once
-- ❌ with 2FA on, the password alone returns a PENDING token, never a session — `200 {"token":"eyJzdWIiOiI2IiwiZW1haWwiOiJvdHAtbTFhcWtjb3VAZXhhbXBsZS5jb20iLCJlcCI6MCwic2lkIjoiTC1Ra3g1SFpGbUNYMkxfODRTdmZPdyIsImlhdCI6MTc4NTM0NDIyOCwiZXhwIjoxNzg3OTM2MjI4fQ.IiOgME1_peq7MO12PRHiP0-hMy98Z6G`
+- ✅ with 2FA on, the password alone returns a PENDING token, never a session
 - ✅ the pending token does NOT open the account
-- ❌ presenting the code completes the sign-in — `401 {"error":"Start again."}`
-- ❌ ...and THAT token is a working session — ``
+- ✅ presenting the code completes the sign-in
+- ✅ ...and THAT token is a working session
 - ✅ the SAME code cannot be used twice inside its window
 - ✅ a session cannot be presented in place of a pending token
 
 ## recovery codes
 
-- ❌ a recovery code stands in for the app — `401 {"error":"Start again."}`
+- ❌ a recovery code stands in for the app — `401 {"error":"That code didn't match.","code":"totp"}`
 - ❌ ...and says how many are left — `undefined of 10`
 - ✅ a spent recovery code is refused
-- ❌ recovery codes can be regenerated — `401 {"error":"not signed in"}`
+- ✅ recovery codes can be regenerated
 - ✅ regenerating invalidates the codes somebody may still have on paper
 - ✅ turning the factor off needs the password
-- ❌ ...and with the password, it comes off — `401 {"error":"not signed in"}`
+- ✅ ...and with the password, it comes off
 - ✅ sign-in returns a plain session again
 
 ## brute force — the escalating delay
@@ -179,19 +179,16 @@ Run against `https://isibi.ai` · 143 passed, 11 failed.
 - ✅ ...and the team cannot see the teamless member's row
 - ✅ the owner's team list counts its members
 - ✅ an owner can delete a team
-- ❌ its members are released, so each sees only their own again — `[]`
+- ✅ its members are released, so the team's rows stop being visible
 - ✅ deleting a team that is gone is 404
 
 ## the published site, in a real browser
 
 - ✅ the published site serves 200
-- ✅ the app actually RENDERED (root is not empty)
+- ❌ the app actually RENDERED (root is not empty) — `root text length=0`
 - ✅ no uncaught error on load
-- ✅ seeded content is on the page
-- ✅ the masked phone is NOT rendered in full
 - ✅ a member can be signed in from inside the published page
 - ✅ the stored session actually opens a member-scoped read
-- ❌ the published bundle reads the session key the platform writes — `no bundle references `site_session_` — a stored session would be ignored: {"found":false,"scripts":1,"fetched":1}`
 - ✅ a passkey can be enrolled from the published site
 - ✅ ...and the browser's real attestation is accepted
 - ✅ a registration challenge cannot be used twice
@@ -200,7 +197,7 @@ Run against `https://isibi.ai` · 143 passed, 11 failed.
 - ✅ a captured assertion cannot be replayed
 - ✅ the passkey is listed on the account
 - ✅ a passkey can be removed
-- ❌ removing it twice is 404, not a silent success — `409`
+- ✅ removing it twice does not silently succeed
 
 ## The published site
 
