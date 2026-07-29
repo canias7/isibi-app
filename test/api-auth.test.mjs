@@ -224,6 +224,16 @@ test("every tool the model is given is a schema the API will accept", () => {
   const tools = [...SRC.matchAll(/name:\s*"([a-z_]+)",\s*\n\s*description:[\s\S]{0,400}?input_schema:\s*\{/g)];
   assert.ok(tools.length >= 1, "no tool definitions found — has worker.js changed shape?");
 
+  // The scan is a regex over source, so it can silently stop finding a tool —
+  // and a check that covers nothing passes exactly like one that covers
+  // everything. Naming the tools that must be reached turns that into a failure.
+  // `design_schema` is the builder's main path and the one that took it down.
+  const found = tools.map((t) => t[1]);
+  for (const must of ["design_schema", "write_prompt", "respond"]) {
+    assert.ok(found.includes(must), `the scan no longer finds ${must} — the regex has drifted`);
+  }
+
+  const skipped = [];
   for (const t of tools) {
     const open = SRC.indexOf("{", t.index + t[0].length - 1);
     let depth = 0, end = open;
@@ -231,11 +241,32 @@ test("every tool the model is given is a schema the API will accept", () => {
       if (SRC[i] === "{") depth++;
       else if (SRC[i] === "}") { depth--; if (!depth) { end = i; break; } }
     }
-    // Only the shape matters, and the literals here are plain JSON-ish objects
-    // with template-free strings, so this parses without executing worker.js.
-    let schema;
-    try { schema = new Function("return (" + SRC.slice(open, end + 1) + ")")(); }
-    catch { continue; } // a computed literal is not something to assert on
+    // Only the shape matters, but a couple of these are not plain literals:
+    // `write_prompt` builds part of itself with a conditional spread
+    // (`...(shotsCapable ? {…} : {})`). Any name the literal reaches for is
+    // bound to `true`, so the branch that ADDS structure is the one checked —
+    // that is the half with something to get wrong. Before this, such a tool
+    // threw a ReferenceError and was silently skipped, so the one tool with a
+    // computed schema was covered by nothing.
+    const literal = SRC.slice(open, end + 1);
+    let schema, names = [];
+    for (let attempt = 0; attempt < 12; attempt++) {
+      try {
+        schema = new Function(...names, "return (" + literal + ")")(...names.map(() => true));
+        break;
+      } catch (e) {
+        const m = /^(\w+) is not defined$/.exec(e.message || "");
+        if (!m || names.includes(m[1])) { skipped.push(`${t[1]}: ${e.message}`); break; }
+        names.push(m[1]);
+      }
+    }
+    if (!schema) { if (!skipped.length || !skipped[skipped.length - 1].startsWith(t[1])) skipped.push(`${t[1]}: unresolved`); continue; }
     walk(schema, t[1]);
   }
+
+  // A skip is a tool nobody checked. It must be visible rather than quiet — the
+  // outage this test exists for was a malformed schema in a tool exactly like
+  // these, and a guard that shrugs is worse than no guard, because it reads as
+  // coverage.
+  assert.deepEqual(skipped, [], "tool schemas that could not be parsed, so were never checked:\n" + skipped.join("\n"));
 });
