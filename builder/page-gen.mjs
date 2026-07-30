@@ -29,6 +29,11 @@ export const UI_COMPONENTS = [
   // offering both would give the model two ways to raise a toast and it would
   // pick inconsistently between pages of the same site.
   "button-group", "item", "kbd",
+  // From the new-york-v4 style, fetched by URL: this template declares style
+  // "new-york" (v3), which is why the CLI could not resolve it by name. A plain
+  // <select> — lighter than the Radix one for a three-option dropdown, which is
+  // most of them.
+  "native-select",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
