@@ -2010,8 +2010,8 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    visible, dimmed, behind the backdrop). Backdrop click / Esc / ✕ close it. */
 .auth-gate {
   position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center;
-  padding: 1.5rem; background: rgba(8, 7, 12, .68);
-  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  padding: 1.5rem; background: rgba(248, 248, 250, .84);
+  backdrop-filter: blur(14px) saturate(120%); -webkit-backdrop-filter: blur(14px) saturate(120%);
 }
 .auth-gate .auth-card { position: relative; z-index: 1; animation: auth-pop .28s cubic-bezier(.2, .7, .3, 1.08); }
 @keyframes auth-pop { from { opacity: 0; transform: translateY(12px) scale(.97); } }
@@ -2019,10 +2019,9 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   .auth-gate .auth-card { animation: none; }
 }
 .auth-card {
-  width: 100%; max-width: 380px; background: var(--panel); border: 1px solid var(--line-2);
+  width: 100%; max-width: 380px; background: #ffffff; border: 1px solid var(--line);
   border-radius: 22px; padding: 2.1rem 1.9rem;
-  box-shadow: 0 30px 80px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.10);
-  backdrop-filter: blur(28px) saturate(150%); -webkit-backdrop-filter: blur(28px) saturate(150%);
+  box-shadow: 0 24px 60px rgba(0,0,0,.13), 0 2px 6px rgba(0,0,0,.05);
 }
 .auth-brand { display: flex; align-items: center; gap: .55rem; font-weight: 800; font-size: 1.15rem; }
 .auth-brand .logo-mark {
@@ -2033,9 +2032,10 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .auth-form { display: flex; flex-direction: column; gap: .7rem; }
 #authCode { letter-spacing: .35em; text-align: center; font-size: 1.15rem; font-weight: 600; }
 .auth-form input {
-  background: rgba(0, 0, 0, .30); border: 1px solid var(--line-2); color: var(--text);
+  background: #ffffff; border: 1px solid var(--line-2); color: var(--text);
   border-radius: 12px; padding: .85rem 1rem; font-size: 1rem; font-family: inherit; outline: none;
 }
+.auth-form input::placeholder { color: var(--muted); }
 .auth-form input:focus { border-color: var(--neon); }
 .auth-form input::placeholder { color: #5c5c66; }
 .auth-error {
@@ -2141,7 +2141,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .auth-card { animation: card-in .45s cubic-bezier(.21, .9, .35, 1) both; }
 @keyframes card-in { from { opacity: 0; transform: translateY(16px) scale(.97); } }
 .auth-form input { transition: border-color .2s ease, box-shadow .2s ease; }
-.auth-form input:focus { box-shadow: 0 0 0 3px rgba(255, 214, 10, .14); }
+.auth-form input:focus { border-color: var(--text); box-shadow: 0 0 0 3px rgba(0, 0, 0, .09); }
 
 /* Voice preview pulses while playing; lightbox fades in. */
 .voice-test.playing { animation: play-pulse 1s ease-in-out infinite; }

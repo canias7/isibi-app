@@ -73,16 +73,27 @@ Deno.serve(async (req) => {
   const token = email_data.token || "";
   const link = `https://isibi.ai/confirm?token_hash=${encodeURIComponent(email_data.token_hash || "")}&type=${encodeURIComponent(kind)}`;
 
+  // The platform's own tokens: white ground, near-black ink, a black accent.
+  // This was the last surface still wearing the retired dark brand (#0a0a0b with a
+  // pink-to-amber gradient), which meant the one email a new customer sees looked
+  // like a different product from the page they had just come from.
+  //
+  // Every colour is inline and literal rather than a variable: mail clients strip
+  // <style> blocks, and several will not read a CSS custom property at all.
   const html = `
-  <div style="font-family:Inter,system-ui,sans-serif;background:#0a0a0b;color:#f4f4f5;padding:36px;border-radius:16px;max-width:480px;margin:0 auto">
-    <div style="font-weight:800;font-size:18px;margin-bottom:18px">
-      <span style="background:linear-gradient(135deg,#ffd60a,#a855f7);border-radius:8px;padding:3px 9px;color:#0a0a0b">i</span>
-      isibi
+  <div style="margin:0;padding:32px 16px;background:#f4f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+    <div style="max-width:440px;margin:0 auto;background:#ffffff;border:1px solid rgba(0,0,0,.11);border-radius:18px;padding:32px 30px">
+      <div style="font-weight:700;font-size:17px;color:#0b0b0e;margin-bottom:26px">
+        <span style="display:inline-block;background:#000000;color:#ffffff;border-radius:7px;padding:2px 9px;margin-right:7px;font-weight:800">i</span>isibi
+      </div>
+      <p style="font-size:15px;color:rgba(11,11,14,.56);margin:0 0 6px">${SUBJECTS[kind] || "Your code"}</p>
+      <div style="font-size:36px;font-weight:800;letter-spacing:9px;color:#0b0b0e;margin:10px 0 22px">${token}</div>
+      <a href="${link}" style="display:inline-block;background:#000000;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 22px;border-radius:11px">Confirm &amp; sign in</a>
+      <p style="font-size:13px;color:rgba(11,11,14,.56);margin:24px 0 0;line-height:1.5">
+        The code expires in 1 hour. If you didn't ask for it, you can ignore this email.
+      </p>
     </div>
-    <p style="font-size:15px;color:#c9c9cf;margin:0 0 10px">${SUBJECTS[kind] || "Your code"}:</p>
-    <div style="font-size:38px;font-weight:800;letter-spacing:10px;margin:14px 0;color:#ffd60a">${token}</div>
-    <p style="font-size:13px;color:#8b8b93;margin:16px 0 0">The code expires in 1 hour. If you didn't request it, you can ignore this email.</p>
-    <p style="font-size:12px;color:#5c5c66;margin-top:18px">Or just click: <a href="${link}" style="color:#a855f7">confirm &amp; sign in</a></p>
+    <p style="max-width:440px;margin:16px auto 0;font-size:12px;color:rgba(11,11,14,.42);text-align:center">isibi.ai</p>
   </div>`;
   const text = `${SUBJECTS[kind] || "Your code"}: ${token}\n\nExpires in 1 hour. Or open: ${link}`;
 
