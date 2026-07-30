@@ -35,25 +35,41 @@
 /**
  * Who the caller is, according to the database.
  *
- * Defined as OUR function rather than reaching for a Neon-provided one, and that
- * is the point: PostgREST's convention is to put the verified JWT claims in the
- * `request.jwt.claims` setting, so this reads the subject from there. If Neon
- * exposes identity differently, ONE function body changes and every policy below
- * keeps working.
+ * **`pg_session_jwt` is NEON'S OWN extension for exactly this**, and it is on the
+ * available list (0.5.0, measured 2026-07-30 by asking
+ * `pg_available_extensions` rather than guessing names). It verifies the session
+ * JWT inside Postgres and exposes `auth.user_id()`. The first version of this file
+ * hand-rolled the same thing out of `current_setting('request.jwt.claims')` —
+ * PostgREST's convention, and a guess I flagged as one.
  *
- * `true` as the second argument to `current_setting` is missing_ok — without it
- * this raises whenever the setting is unset, which is every connection the Worker
- * makes, and that would turn a policy into an error rather than a refusal.
+ * Both forms are emitted, chosen by whether the extension actually installed,
+ * because the fallback is not dead weight: a project where the extension is
+ * unavailable would otherwise get a function that fails to parse, and every policy
+ * built on it would fail with it.
  *
- * Returns UUID, because `neon_auth."user".id` is a uuid and so is `owner_id`. The
- * cast is on the way out of the JSON, where a malformed subject fails as a bad
- * uuid instead of silently comparing as text.
+ * `true` as the second argument to `current_setting` is missing_ok — without it the
+ * fallback RAISES whenever the setting is unset, which is every connection the
+ * Worker makes, turning each policy into an error rather than a refusal.
+ *
+ * Returns UUID either way, because `neon_auth."user".id` is a uuid and so is
+ * `owner_id`.
  */
-export const APP_USER_FN = `
+export const SESSION_JWT_EXT = "CREATE EXTENSION IF NOT EXISTS pg_session_jwt;";
+
+export const APP_USER_FN_NATIVE = `
+CREATE OR REPLACE FUNCTION app_user_id() RETURNS uuid
+LANGUAGE sql STABLE AS $$
+  SELECT NULLIF(auth.user_id(), '')::uuid
+$$;`;
+
+export const APP_USER_FN_FALLBACK = `
 CREATE OR REPLACE FUNCTION app_user_id() RETURNS uuid
 LANGUAGE sql STABLE AS $$
   SELECT NULLIF(current_setting('request.jwt.claims', true)::json->>'sub', '')::uuid
 $$;`;
+
+/** Kept as the default export name so callers do not have to know which won. */
+export const APP_USER_FN = APP_USER_FN_FALLBACK;
 
 /** Every policy this module creates is named with this prefix, so they can be replaced idempotently. */
 export const POLICY_PREFIX = "isibi_";

@@ -12,26 +12,49 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { policiesFor, grantsFor, APP_USER_FN, POLICY_PREFIX } from "../site-rls.mjs";
+import { policiesFor, grantsFor, APP_USER_FN, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK, SESSION_JWT_EXT, POLICY_PREFIX } from "../site-rls.mjs";
 
 const sql = (t) => policiesFor(t).join("\n");
 const T = (over) => ({ name: "things", access: "user", columns: [{ name: "title" }], ...over });
 
 // --------------------------------------------------------------- the identity fn
 
-test("app_user_id reads the JWT subject, tolerates it being unset, and returns uuid", () => {
-  // missing_ok is load bearing: without it `current_setting` RAISES on every
-  // connection that has no claims set, which is every connection the Worker makes
-  // — turning each policy into an error rather than a refusal.
-  assert.match(APP_USER_FN, /current_setting\('request\.jwt\.claims',\s*true\)/);
-  assert.match(APP_USER_FN, /RETURNS uuid/, "owner_id is a uuid, so this must be too");
-  assert.match(APP_USER_FN, /->>\s*'sub'/);
-  // STABLE, not VOLATILE: it is called per row and the planner must be free to
-  // hoist it out of the scan.
-  assert.match(APP_USER_FN, /STABLE/);
-  // CREATE OR REPLACE, because applySiteSchema re-runs on every revise.
-  assert.match(APP_USER_FN, /CREATE OR REPLACE FUNCTION/);
+test("identity uses Neon's own pg_session_jwt, with a fallback that can still parse", () => {
+  // `pg_session_jwt` verifies the session JWT inside Postgres and exposes
+  // `auth.user_id()`. It is on the available list (0.5.0), which I only found by
+  // asking pg_available_extensions instead of guessing four names — the first
+  // version of this file hand-rolled the same thing out of PostgREST's claims
+  // setting, and I had flagged that as a guess.
+  assert.match(SESSION_JWT_EXT, /CREATE EXTENSION IF NOT EXISTS pg_session_jwt/);
+  assert.match(APP_USER_FN_NATIVE, /auth\.user_id\(\)/);
+
+  // Both forms exist because the fallback is not dead weight: a project without the
+  // extension would otherwise define a function referencing one that does not
+  // exist, which fails to PARSE, and every policy built on it fails with it.
+  assert.match(APP_USER_FN_FALLBACK, /current_setting\('request\.jwt\.claims',\s*true\)/,
+    "missing_ok — without it the fallback RAISES on every connection with no claims set");
+
+  for (const fn of [APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK, APP_USER_FN]) {
+    assert.match(fn, /RETURNS uuid/, "owner_id is a uuid, so this must be too");
+    // STABLE, not VOLATILE: called per row, and the planner must be free to hoist
+    // it out of the scan.
+    assert.match(fn, /STABLE/);
+    // OR REPLACE, because applySiteSchema re-runs on every revise.
+    assert.match(fn, /CREATE OR REPLACE FUNCTION app_user_id/);
+  }
 });
+
+test("the engine tries the native form first and falls back rather than giving up", () => {
+  // Without a fallback, one unavailable extension leaves a site with no
+  // app_user_id() at all — and a policy referencing a missing function refuses
+  // everything, so the site's own members can read nothing.
+  const engine = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  assert.match(engine, /SESSION_JWT_EXT/, "the extension must be attempted");
+  assert.match(engine, /jwtExt \? APP_USER_FN_NATIVE : APP_USER_FN_FALLBACK/, "and decide from whether it worked");
+  assert.match(engine, /if \(jwtExt\) \{ try \{ await sqlQuery\(uuid, APP_USER_FN_FALLBACK\)/,
+    "a native form refused for some other reason must still leave a working function");
+});
+
 
 // --------------------------------------------------------------- always true
 

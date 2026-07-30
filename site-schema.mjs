@@ -15,7 +15,7 @@
 //
 // `db` throughout is a Neon connection string (see ./site-db.mjs).
 import { sqlQuery, sqlQuery as realSqlQuery } from "./site-db.mjs";
-import { policiesFor, grantsFor, APP_USER_FN } from "./site-rls.mjs";
+import { policiesFor, grantsFor, SESSION_JWT_EXT, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK } from "./site-rls.mjs";
 import { isManagedColumn } from "./site-access.mjs";
 import { makeCache } from "./ttl-cache.mjs";
 
@@ -145,7 +145,21 @@ export async function applySiteSchema(uuid, spec) {
   // apply, before any policy references it, and `OR REPLACE` so a revise updates
   // the body rather than failing. Non-fatal: a site whose policies could not be
   // created still works through the Worker, which is the only door open today.
-  try { await sqlQuery(uuid, APP_USER_FN); } catch (e) { console.error("app_user_id() failed:", e && (e.detail || e.message)); }
+  // Neon's own pg_session_jwt verifies the session JWT inside Postgres and gives
+  // `auth.user_id()`; the fallback reads PostgREST's claims setting. Which one is
+  // installed decides which body is defined, because a function referencing a
+  // function that does not exist fails to PARSE — and every policy built on it
+  // would fail with it.
+  let jwtExt = false;
+  try { await sqlQuery(uuid, SESSION_JWT_EXT); jwtExt = true; }
+  catch (e) { console.error("pg_session_jwt unavailable, falling back:", e && (e.detail || e.message)); }
+  try { await sqlQuery(uuid, jwtExt ? APP_USER_FN_NATIVE : APP_USER_FN_FALLBACK); }
+  catch (e) {
+    console.error("app_user_id() failed:", e && (e.detail || e.message));
+    // If the native form was refused for any other reason, the fallback is still
+    // better than no function at all — without one, every policy is broken.
+    if (jwtExt) { try { await sqlQuery(uuid, APP_USER_FN_FALLBACK); } catch {} }
+  }
   spec = normalizeSchema(spec);
   const tables = (spec && Array.isArray(spec.tables)) ? spec.tables.slice(0, 24) : [];
   const made = [], norm = [];
