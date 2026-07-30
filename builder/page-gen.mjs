@@ -34,6 +34,16 @@ export const UI_COMPONENTS = [
   // <select> — lighter than the Radix one for a three-option dropdown, which is
   // most of them.
   "native-select",
+  // The rest of the v4-only set, added 2026-07-30 (owner's call: take everything
+  // shadcn publishes). `combobox` had been refused twice — it wants v4's button
+  // sizes and fails TS2322 without them — and it compiles now that button.tsx
+  // carries `xs`/`icon-xs`/`icon-sm`/`icon-lg` alongside its own four.
+  //
+  // The five chat primitives are here because they EXIST, not because a business
+  // site needs them. They are for building a chat UI; nothing in PAGE_RULES points
+  // at them, and the lint only cares that a cited component is real.
+  "combobox", "direction",
+  "attachment", "bubble", "marker", "message", "message-scroller",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

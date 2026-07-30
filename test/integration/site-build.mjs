@@ -262,6 +262,44 @@ try {
   ok("and it is reported as a typecheck failure", broken.stage === "typecheck", broken.stage);
   ok("with the error a repair pass can act on", /is not assignable to type 'number'/.test(broken.error || ""), (broken.error || "").slice(0, 300));
 
+  // tsconfig EXCLUDES src/blocks and src/components/charts, because they are a
+  // catalogue rather than application code and typechecking all 97 on every build
+  // cost 3s a site. That is only acceptable while `exclude` keeps meaning "not in
+  // the initial file list" rather than "never checked" — TypeScript still follows
+  // an import into an excluded file.
+  //
+  // Asserted rather than trusted, because the failure is silent and expensive: if
+  // exclusion ever became real, a generated page could import a broken chart, pass
+  // the build, ship, and break in a visitor's browser — the exact compiles-then-
+  // fails class the lint exists to prevent. A chart is broken in memory here; the
+  // file on disk is never touched.
+  console.log("\nimporting an EXCLUDED file that has a type error…");
+  const chartRel = "src/components/charts/chart-bar-label.tsx";
+  const chartAbs = path.join(sandbox, chartRel);
+  ok("the excluded chart is really there to break", fs.existsSync(chartAbs), chartAbs);
+  const chartWas = fs.readFileSync(chartAbs, "utf8");
+  fs.writeFileSync(chartAbs, chartWas + '\nexport const _typeBomb: number = "not a number";\n');
+  // BOTH routes, exactly like the successful build above. Posting index.tsx alone
+  // leaves its <Link to="/menu"> pointing at a route that does not exist, which is
+  // a second typecheck error — and with that present the "build failed" assertion
+  // passes whether or not the chart was ever checked. Caught by mutation: making
+  // the bomb type-correct still failed the build.
+  const importsExcluded = await post({
+    files: {
+      "index.tsx": INDEX.replace(
+        'export const Route = createFileRoute("/")({ component: Home });',
+        'import { _typeBomb } from "@/components/charts/chart-bar-label";\nvoid _typeBomb;\nexport const Route = createFileRoute("/")({ component: Home });',
+      ),
+      "menu.tsx": MENU,
+    },
+    slug: "fold-coffee",
+  });
+  fs.writeFileSync(chartAbs, chartWas);
+  ok("a type error inside an EXCLUDED but imported file still fails the build",
+    importsExcluded.ok === false, JSON.stringify(importsExcluded).slice(0, 200));
+  ok("and it is blamed on the excluded file, not the page",
+    /chart-bar-label/.test(importsExcluded.error || ""), (importsExcluded.error || "").slice(0, 300));
+
   console.log("\nrejecting what must never be written…");
   const root = await post({ files: { "__root.tsx": "export const x = 1;" } });
   ok("the root layout cannot be overwritten", root.ok === false && /no valid route files/.test(root.error || ""), JSON.stringify(root).slice(0, 200));

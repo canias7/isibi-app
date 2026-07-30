@@ -1,5 +1,16 @@
 {
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
+  // The 97 blocks and charts are a CATALOGUE, not application code: a site uses
+  // one login layout, not five. Left in `include` they were typechecked on every
+  // build whether or not anything imported them, which measured at 4.97s -> 8.02s
+  // per site build. Excluded it is 5.31s.
+  //
+  // This does NOT weaken the check, which is the only reason it is acceptable:
+  // `exclude` drops files from the INITIAL list, and TypeScript still follows an
+  // import into them. Verified by breaking a chart, importing it, and confirming
+  // tsc reports the error inside the excluded file — asserted in
+  // test/integration/site-build.mjs so it cannot rot into a real exclusion.
+  "exclude": ["src/blocks", "src/components/charts"],
   "compilerOptions": {
     "target": "ES2022",
     "jsx": "react-jsx",
