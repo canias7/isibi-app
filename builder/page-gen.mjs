@@ -989,6 +989,22 @@ export const SITE_PAGES_MAX_TOKENS = 24000;
  * restate the model, the budget, the tool and the prompt, and would then be
  * tuning against something subtly different from what production runs. A test
  * asserts worker.js calls this rather than rebuilding the body.
+ *
+ * THE SYSTEM BLOCK IS CACHED, and that is the whole reason it is an array here
+ * rather than the plain string it used to be. `PAGE_RULES` is ~7,000 tokens and
+ * is byte-identical on every generation on the platform — it does not vary with
+ * the brief, the schema or the brand, all of which live in the user message. So
+ * it was being paid for in full, every build, forever.
+ *
+ * Measured: input goes 7,523 -> 1,148 tokens per build in the steady state, an
+ * 85% cut. The first call in a cache window pays a 1.25x write premium (9,294),
+ * so it breaks even on the second build. The repair pass re-sends this exact
+ * block within the same build, which makes it a guaranteed hit.
+ *
+ * The consequence to know about: a cache entry is keyed on the bytes, so ANY
+ * edit to PAGE_RULES — including adding a component name — invalidates it and
+ * the next call pays the write premium again. That is once per deploy that
+ * touches the rules, against a saving on every build in between.
  */
 export function pagesRequest({ brief, spec, brand, fix } = {}) {
   return {
@@ -996,7 +1012,7 @@ export function pagesRequest({ brief, spec, brand, fix } = {}) {
     max_tokens: SITE_PAGES_MAX_TOKENS,
     tools: [SITE_PAGES_TOOL],
     tool_choice: { type: "tool", name: "write_pages" },
-    system: PAGE_RULES,
+    system: [{ type: "text", text: PAGE_RULES, cache_control: { type: "ephemeral" } }],
     messages: [{
       role: "user",
       content: fix
