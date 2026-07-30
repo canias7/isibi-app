@@ -706,3 +706,31 @@ test("the rules forbid annotating a mutation callback's parameter", () => {
 
 
 
+
+// Every hook the rules name must actually exist in the template.
+//
+// The version of this test that was deleted on 2026-07-30 listed eleven hook
+// names by hand, so it only guarded the eleven somebody had remembered — and it
+// had to be deleted rather than fixed when the auth layer went. This one DERIVES
+// the list from the prompt, which means it covers whatever the rules happen to
+// mention today and cannot fall out of date.
+//
+// The failure it prevents: the model is told to import something that is not
+// there, `tsc` refuses the page, the one repair pass fails the same way, and the
+// site publishes as the placeholder. That has happened for exactly this reason
+// more than once.
+test("every hook the rules name is exported by the template", () => {
+  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
+  const exported = new Set(
+    [...rows.matchAll(/export (?:async )?function (\w+)/g)].map((m) => m[1])
+      .concat([...rows.matchAll(/export const (\w+)/g)].map((m) => m[1])),
+  );
+  // Backticked `useThing(` in the prose — how the rules always cite a hook.
+  const named = [...new Set([...PAGE_RULES.matchAll(/`(use[A-Z]\w+)\(/g)].map((m) => m[1]))];
+  assert.ok(named.length >= 4, "expected the rules to cite several hooks, found " + named.length);
+  const missing = named.filter((n) => !exported.has(n));
+  assert.deepEqual(missing, [],
+    "the rules name " + missing.join(", ") + " and @/lib/rows does not export it — " +
+    "the model is being told to import something that is not there, so tsc refuses the page " +
+    "and the site publishes as the placeholder");
+});

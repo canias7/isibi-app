@@ -129,8 +129,17 @@ test("a published site's API gates on a site session, not an isibi one", () => {
   const hits = [...routes()].filter(([p2]) => p2.startsWith("/api/db"));
   assert.ok(hits.length, "no /api/db dispatch found at all");
   for (const [, line] of hits) {
-    assert.match(blockOf(line), /handleSiteData|handleVisitorUpload|resolveSiteVisitor|loadSiteSchema|siteBackendBySlug/,
+    // Each name here is a function that establishes WHAT the request is for
+    // before anything happens: it resolves the slug to a real site, or applies
+    // the schema's access rules, or both. A dispatch that matches none of them is
+    // acting on a caller-supplied slug it never checked.
+    assert.match(blockOf(line), /handleSiteData|handleVisitorUpload|resolveSiteVisitor|loadSiteSchema|siteBackendBySlug|proxySiteAuth/,
       "every public /api/db dispatch must resolve the site and its access rules (worker.js:" + (line + 1) + ")");
+    // And every one is rate limited. These are unauthenticated endpoints; two of
+    // them reach a third party (Neon, and Better Auth through the proxy), so an
+    // unlimited one is a way to spend somebody else's budget from our origin.
+    assert.match(blockOf(line), /_dataLimiter|limitFor|handleSiteData/,
+      "every public /api/db dispatch must be rate limited (worker.js:" + (line + 1) + ")");
   }
 });
 

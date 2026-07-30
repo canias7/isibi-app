@@ -2981,6 +2981,15 @@ async function ensureSiteBackend(env, slug, uid, brief) {
     // Identity is Neon's now. Idempotent, and run on the reuse path too —
     // see site-provision.mjs for why enabling only at creation is a trap.
     enableAuth: (proj, dbName) => enableNeonAuth(env, proj.neon_project, proj.neon_branch, dbName),
+    // Stored in the SITE's own _meta, not in Supabase: it is per-site, it is only
+    // ever read on a request that already holds that connection, and it goes when
+    // the site does.
+    saveAuthInfo: async (dbName, info) => {
+      const conn = connForDatabase((await lookupProject(slug)).conn, dbName);
+      await sqlQuery(conn, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
+      await sqlQuery(conn, "INSERT INTO _meta (k,v) VALUES ('auth_info', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
+        [JSON.stringify(info).slice(0, 20000)]);
+    },
     dropProject: async (id) => {
       console.error("dropping unrecorded neon project:", id);
       return dropUserProject(env, id);
@@ -3026,6 +3035,11 @@ const siteAuthSecret = memoize(_siteAuthSecret, async (db) => {
 const _dataLimiter = makeLimiter({ windowMs: WINDOW_MS, max: 20000 });
 // Tighter than a form post: an upload costs storage, not a row.
 const VISITOR_UPLOADS_PER_MIN = 5;
+// Sign-in attempts per source per site. Higher than the upload cap because a real
+// person legitimately retries a password, and low enough that credential stuffing
+// through our proxy is not free. Better Auth throttles on its own side too; this
+// is about not being the open front door to it.
+const AUTH_PROXY_PER_MIN = 20;
 
 // The signing key for claim tokens, from the site's own per-site secret in
 // `_meta`. It was shared with session tokens until 2026-07-30; sessions are Neon
@@ -3047,6 +3061,92 @@ async function siteClaimKey(env, slug) {
   const db = await siteBackendBySlug(env, slug);
   if (!db) throw new Error("no such site");
   return sessionKey(await siteAuthSecret(db), slug);
+}
+
+/**
+ * Where this site's Neon Auth server lives.
+ *
+ * Recorded at build time from the provisioning response. The field NAME in that
+ * response is the one thing here not measured against a real project, so this
+ * tries the plausible names and then falls back to the first https URL in the
+ * body — a provisioning answer for an auth service contains exactly one, and a
+ * heuristic that finds it is better than a hard-coded key that silently finds
+ * nothing. Tighten it once a real build has logged the shape.
+ */
+const _siteAuthBase = makeCache({ ttlMs: 600_000, max: 500 });
+const siteAuthBase = memoize(_siteAuthBase, async (db) => {
+  const rows = await sqlQuery(db, "SELECT v FROM _meta WHERE k='auth_info'");
+  if (!rows[0] || !rows[0].v) return null;
+  let info; try { info = JSON.parse(rows[0].v); } catch { return null; }
+  const named = info && (info.auth_url || info.url || info.endpoint || info.base_url ||
+    (info.auth && (info.auth.url || info.auth.endpoint)));
+  const pick = (o, depth = 0) => {
+    if (typeof o === "string") return /^https:\/\//.test(o) ? o : null;
+    if (!o || typeof o !== "object" || depth > 3) return null;
+    for (const v of Object.values(o)) { const hit = pick(v, depth + 1); if (hit) return hit; }
+    return null;
+  };
+  const url = typeof named === "string" && /^https:\/\//.test(named) ? named : pick(info);
+  return url ? String(url).replace(/\/+$/, "") : null;
+});
+
+/**
+ * The published site's sign-in, PROXIED through this Worker rather than called
+ * directly from the page.
+ *
+ * Three things fall out of proxying, and each is why it is done this way:
+ *
+ *   - the page never learns the auth endpoint or any key, so nothing has to be
+ *     decided about what is safe to publish into a static bundle;
+ *   - it is SAME-ORIGIN. A published site is served from isibi.ai, so a direct
+ *     call would need CORS on Neon's side and a cross-site cookie in the browser,
+ *     which is the configuration most likely to work in development and fail in
+ *     Safari;
+ *   - the URL the client uses is unchanged (`/api/db/<slug>/auth/...`), so the
+ *     generated pages do not have to know that identity moved at all.
+ *
+ * The response is passed through as-is. Whatever Better Auth answers is what the
+ * client sees, including its errors — a proxy that reinterprets them is a second
+ * place where "wrong password" has to be spelled, and the two drift.
+ */
+async function proxySiteAuth(env, request, url, slug, path) {
+  const db = await siteBackendBySlug(env, slug);
+  if (!db) return Response.json({ error: "no such site" }, { status: 404 });
+  let base;
+  try { base = await siteAuthBase(db); }
+  catch { return Response.json({ error: "couldn't reach sign-in just now" }, { status: 503 }); }
+  // Not configured is 501 and not 500: the site was built before its auth
+  // endpoint was recorded, which a rebuild fixes, and saying so is more use than
+  // a generic failure.
+  if (!base) return Response.json({ error: "sign-in is not set up for this site yet", code: "no_auth" }, { status: 501 });
+
+  const target = base + "/" + path + (url.search || "");
+  const headers = new Headers();
+  // Only what the auth server needs. Forwarding the whole header set would carry
+  // cookies for isibi.ai into a third party.
+  for (const h of ["content-type", "authorization", "accept"]) {
+    const v = request.headers.get(h);
+    if (v) headers.set(h, v);
+  }
+  try {
+    const r = await fetch(target, {
+      method: request.method,
+      headers,
+      body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.text(),
+      // A redirect is followed here rather than handed to the page: the client is
+      // an XHR and cannot act on a 302 from a cross-origin hop.
+      redirect: "follow",
+      signal: AbortSignal.timeout(15000),
+    });
+    const body = await r.text();
+    return new Response(body, {
+      status: r.status,
+      headers: { "content-type": r.headers.get("content-type") || "application/json" },
+    });
+  } catch (e) {
+    console.error("site auth proxy failed:", slug, path, e && e.message);
+    return Response.json({ error: "couldn't reach sign-in just now" }, { status: 503 });
+  }
 }
 
 /**
@@ -5271,6 +5371,30 @@ async function handleRequest(request, env, ctx) {
     // picture. A barber shop whose booking form is six text fields accepts
     // nothing, which is the answer for most sites — and is what keeps this from
     // being open image hosting for anyone who knows a slug.
+    // A published site's sign-in. Public by the same reasoning as the rest of
+    // /api/db — a customer booking a haircut has no isibi account — and gated by
+    // a per-source rate limit, because it is an unauthenticated endpoint that
+    // reaches a third party and costs a password hash on their side.
+    if (url.pathname.startsWith("/api/db/") && url.pathname.includes("/auth/")) {
+      const am = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/auth\/([a-z0-9][a-z0-9/._-]{0,79})$/i);
+      if (am) {
+        const [, aslug, apath] = am;
+        const slug = aslug.toLowerCase();
+        // CF-Connecting-IP only. The X-Forwarded-For fallback the rest of this
+        // file uses is client-settable, so honouring it lets one caller mint a
+        // fresh bucket per request and defeats the limit entirely.
+        const hit = _dataLimiter.hit(
+          bucketKey({ ip: request.headers.get("CF-Connecting-IP") || "", slug, table: "auth", method: "POST" }),
+          AUTH_PROXY_PER_MIN,
+        );
+        if (!hit.ok) {
+          const t = tooMany(hit);
+          return Response.json(t.body, { status: t.status, headers: t.headers });
+        }
+        return proxySiteAuth(env, request, url, slug, apath);
+      }
+    }
+
     if (url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/uploads")) {
       const vm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/uploads$/i);
       if (vm) {

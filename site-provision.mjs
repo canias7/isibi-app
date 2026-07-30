@@ -107,13 +107,23 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
   // Not best-effort. Identity is load-bearing now, and a build that quietly
   // produced a site nobody can sign in to is worse than one that failed and said
   // so — the caller can retry a failure, and cannot retry a success.
+  //
+  // The provisioning answer is KEPT, because it is where the site's auth endpoint
+  // comes from and a published page has no other way to learn it. Recording it is
+  // best-effort while enabling is not: auth being ON is what makes the site
+  // usable, and a missing note of WHERE it is can be re-fetched by a later build
+  // from a call that is idempotent anyway.
+  let authInfo = null;
   if (deps.enableAuth) {
-    try { await deps.enableAuth(proj, dbName); }
+    try { authInfo = (await deps.enableAuth(proj, dbName)) || null; }
     catch (e) {
       throw Object.assign(new Error("could not enable Neon Auth for this site"), {
         detail: String((e && (e.detail || e.message)) || "").slice(0, 300),
         stage: "enable_auth",
       });
+    }
+    if (authInfo && authInfo.info && deps.saveAuthInfo) {
+      try { await deps.saveAuthInfo(dbName, authInfo.info); } catch (e) { /* see above */ }
     }
   }
 

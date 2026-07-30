@@ -390,24 +390,31 @@ Tailwind v4 with semantic tokens: bg-background, text-foreground, bg-card, text-
 border-border, bg-primary, text-destructive. A raw bg-slate-900 breaks dark mode. Also available:
 lucide-react icons, date-fns, recharts. Import nothing that is not already a dependency.
 
-## Visitor accounts — NOT AVAILABLE
+## Visitor accounts
 
-A site cannot have members right now. The whole member layer was deleted on 2026-07-30 when
-identity moved to Neon Auth, and the replacement is not wired yet: \`@/lib/rows\` exports no
-\`useMember\`, no \`useLogin\`, no \`useSignup\`, no sessions and no passkeys. There is nothing to
-import and nothing to call.
+A site can have members — its own customers, nothing to do with isibi accounts.
+Everything comes from \`@/lib/rows\`; there is no other auth API and no \`fetch\`:
 
-So NEVER build a sign-in page, a sign-up form, an account page or anything gated on being signed
-in. A table at access \`user\`, \`feed\` or \`admin\` answers **401 to everyone** — the API has no way
-to tell who is asking — so a page that lists or writes one is broken however carefully it is
-written. The designer will not give you those levels; if a schema somehow carries one, leave that
-table alone entirely rather than rendering an error where a login used to go.
+- \`useMember()\` → \`{ data: member | null, isPending }\`. **Render neither view until it
+  settles**, or the page flashes a sign-in form at somebody already signed in. A member is
+  \`{ id, email, name, role, verified }\` and \`id\` is a UUID string, never a number.
+- \`useSignup()\` → \`{ email, password, name }\`. \`useLogin()\` → \`{ email, password }\`.
+  On success the session is stored and every read re-runs on its own. Passwords need 8+
+  characters. Surface the error's \`message\` on failure — the server distinguishes a wrong
+  password from an address that already has an account, and inventing your own text loses that.
+- \`useLogout()\` → a mutation, no arguments.
+- \`useRequestReset()\` → \`{ email }\`. Always succeeds; say "check your inbox" whether or
+  not the address has an account, because saying which confirms who is a member. The link
+  itself is handled by the platform.
 
-**What to build instead.** \`collect\` and \`display\` cover the sites people actually ask for: a
-form anyone may submit, and content the owner fills in. For the one case a member table would
-genuinely have served — the person who filled in a form coming back to see, move or cancel it —
-use the claim link (\`useClaimedRow\` / \`useCancelClaim\`, rule 10). That needs no account at all,
-which is the entire point of it.
+Gate admin UI on \`member.role\`, which is \`"user"\` unless the owner granted something. An
+\`admin\` table refuses a write from any other role with a 403, so a button that is always
+visible is a button that sometimes fails.
+
+Build sign-in and sign-up ONLY when the schema actually has a \`user\`, \`feed\` or \`admin\`
+table. A site of \`display\` and \`collect\` tables needs no accounts, and adding them is
+friction nobody asked for — for somebody returning to a form they filled in, the claim link
+(rule 10) is the right tool and needs no account at all.
 
 ## What is not possible yet
 

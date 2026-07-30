@@ -186,27 +186,149 @@ export function useDeleteRow(table: string) {
 
 // ── Visitor accounts ────────────────────────────────────────────────────────
 //
-// Not available. The hand-built member layer — signup, login, passkeys, OAuth,
-// TOTP, per-device sessions, invites — was deleted on 2026-07-30 when identity
-// moved to Neon Auth, and the replacement is not wired yet. Every hook that used
-// to live here is gone rather than stubbed, deliberately: a stub that resolves to
-// "signed out" forever would let a page compile, ship, and then show a login form
-// that can never succeed.
+// The site's own members — a barber shop's customers — nothing to do with isibi
+// accounts. Identity is Neon Auth (managed Better Auth) as of 2026-07-30, living
+// in the site's own database, and every call here goes through the platform at
+// `/api/db/<slug>/auth/*` rather than to the auth server directly. That is
+// same-origin, so there is no CORS and no cross-site cookie, and the page never
+// holds an endpoint or a key.
 //
-// So a table at access `user`, `feed` or `admin` cannot be reached from a
-// generated page at all right now — the API answers 401 because it has no way to
-// tell who is asking. Build with `collect` and `display`, and use a claim link
-// (`useClaimedRow` / `useCancelClaim`, below) for the case a member table would
-// otherwise have served: the person who filled in a form coming back to it.
-//
-// `getSessionToken` survives on its own because the localStorage key convention
-// is the one thing Neon Auth's session has to land in, and the audit that checks
-// the published bundle references it reads this name.
+// A session is a bearer token kept in localStorage and sent on every read. Tables
+// at access `user` are private per member; `feed` and `admin` are readable to
+// anyone signed in.
 
 const TOKEN_KEY = () => `site_session_${siteSlug()}`;
 
 export function getSessionToken(): string | null {
   try { return localStorage.getItem(TOKEN_KEY()); } catch { return null; }
+}
+function setSessionToken(token: string | null) {
+  try { token ? localStorage.setItem(TOKEN_KEY(), token) : localStorage.removeItem(TOKEN_KEY()); } catch { /* private mode */ }
+}
+
+export type Member = {
+  id: string;
+  email: string;
+  name: string;
+  /**
+   * "user" or "admin", plus whatever this site's tables named in `writeRoles`.
+   * A member who has never been granted anything is "user". Gate admin UI on
+   * this — an `admin` table refuses a write from any other role with a 403.
+   */
+  role: string;
+  verified: boolean;
+};
+
+const authUrl = (action: string) => `/api/db/${siteSlug()}/auth/${action}`;
+
+/**
+ * Better Auth answers a sign-in with a session object; the token inside it is
+ * what every later request carries. Pulled out in ONE place, because the shape
+ * appears in sign-up and sign-in both and two readers of it drift.
+ */
+function tokenOf(d: unknown): string | null {
+  const o = d as { token?: unknown; session?: { token?: unknown } } | null;
+  const t = o?.token ?? o?.session?.token;
+  return typeof t === "string" && t ? t : null;
+}
+
+function memberOf(d: unknown): Member | null {
+  const o = d as { user?: Record<string, unknown> } | null;
+  const u = o?.user;
+  if (!u || typeof u !== "object") return null;
+  return {
+    id: String(u.id ?? ""),
+    email: String(u.email ?? ""),
+    name: String(u.name ?? ""),
+    role: String(u.role ?? "user").toLowerCase(),
+    verified: !!u.emailVerified,
+  };
+}
+
+/**
+ * The signed-in member, or null. `isPending` while it is being checked — render
+ * NEITHER view until it settles, or the page flashes a sign-in form at somebody
+ * who is already signed in.
+ */
+export function useMember() {
+  const token = getSessionToken();
+  return useQuery({
+    queryKey: ["member", siteSlug(), token],
+    queryFn: async (): Promise<Member | null> => {
+      if (!token) return null;
+      const r = await fetch(authUrl("get-session"), { headers: { Authorization: `Bearer ${token}` } });
+      // A token the server no longer accepts is cleared here rather than left to
+      // fail every subsequent read with a 401 the page cannot explain.
+      if (r.status === 401) { setSessionToken(null); return null; }
+      if (!r.ok) throw new Error("could not check your sign-in");
+      return memberOf(await r.json().catch(() => null));
+    },
+    retry: false,
+    staleTime: 30_000,
+  });
+}
+
+function useAuthAction(action: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (values: Record<string, unknown>) => {
+      const r = await fetch(authUrl(action), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(values),
+      });
+      const d = await r.json().catch(() => null);
+      if (!r.ok) {
+        const msg = (d as { message?: string; error?: string } | null);
+        throw new Error(msg?.message || msg?.error || "that did not work");
+      }
+      const t = tokenOf(d);
+      // Stored only when there IS one. Writing `undefined` would leave the page
+      // believing it is signed in with a session nothing accepts.
+      if (t) setSessionToken(t);
+      return d;
+    },
+    onSuccess: () => { qc.invalidateQueries(); },
+  });
+}
+
+/** `{ email, password, name }`. Passwords need 8+ characters. */
+export function useSignup() { return useAuthAction("sign-up/email"); }
+/** `{ email, password }`. */
+export function useLogin() { return useAuthAction("sign-in/email"); }
+
+export function useLogout() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const token = getSessionToken();
+      // Told to the server as well as forgotten locally, or the session stays
+      // live for anyone who kept a copy of the token.
+      if (token) {
+        await fetch(authUrl("sign-out"), { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+      }
+      setSessionToken(null);
+    },
+    onSuccess: () => { qc.invalidateQueries(); },
+  });
+}
+
+/**
+ * `{ email }`. Always succeeds — tell the visitor to check their inbox whether or
+ * not the address has an account, because saying which would confirm who is a
+ * member here.
+ */
+export function useRequestReset() {
+  return useMutation({
+    mutationFn: async (values: { email: string }) => {
+      await fetch(authUrl("forget-password"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(values),
+      }).catch(() => {});
+      return { ok: true as const };
+    },
+  });
 }
 
 // ── Attaching a picture ──────────────────────────────────────────────────────
