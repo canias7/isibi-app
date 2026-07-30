@@ -759,3 +759,44 @@ test("every hook the rules name is exported by the template", () => {
     "the model is being told to import something that is not there, so tsc refuses the page " +
     "and the site publishes as the placeholder");
 });
+
+// Every ui component the RULES cite must exist — the other direction.
+//
+// The list-vs-disk guard above catches a component added to the template and not
+// offered to the model. It does not catch the reverse: prose in the rules naming
+// `@/components/ui/something` that was never installed. A mutation proved that
+// gap — renaming a cited component in the rules passed the whole suite.
+//
+// Same failure as the hook guard: the model is told to import something absent,
+// `tsc` refuses the page, the one repair pass fails identically, and the site
+// publishes as the placeholder.
+test("every ui component the rules cite is one the template has", () => {
+  const cited = [...new Set(
+    [...PAGE_RULES.matchAll(/@\/components\/ui\/([a-z0-9-]+)/g)].map((m) => m[1]),
+  )];
+  assert.ok(cited.length >= 2, "expected the rules to cite some components by path, found " + cited.length);
+  const missing = cited.filter((c) => !UI_COMPONENTS.includes(c));
+  assert.deepEqual(missing, [],
+    "the rules point the model at " + missing.join(", ") + ", which the template does not have");
+});
+
+// What the registry ships and we deliberately do not take.
+//
+// The template was 12 components behind the registry until 2026-07-30, found by
+// diffing against ui.shadcn.com/r/index.json rather than by reading the docs
+// sidebar — which had already proved unreliable, listing `combobox` and
+// `native-select` as though they were installable when neither has a new-york
+// build at all.
+//
+// This pins the ONE we can install and refuse, because "we forgot it" and "we
+// decided against it" look identical in a list of names a year later.
+test("toast is left out on purpose, because sonner is already here", () => {
+  // Both installed would give the model two ways to raise a toast, and it would
+  // pick inconsistently between pages of the same site. shadcn's own docs treat
+  // toast as superseded.
+  assert.ok(UI_COMPONENTS.includes("sonner"), "sonner is the one we use");
+  assert.ok(!UI_COMPONENTS.includes("toast"),
+    "toast duplicates sonner — if it is ever added, the rules must say which to use");
+  assert.match(PAGE_RULES, /toast\.(success|error)/,
+    "and the rules must actually teach the sonner API, or neither is reachable");
+});
