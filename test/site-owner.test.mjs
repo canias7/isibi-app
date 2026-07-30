@@ -10,7 +10,7 @@
 // staying shut to everyone except the one account that owns the site.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerAnalytics } from "../site-owner.mjs";
+import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers, handleOwnerAnalytics } from "../site-owner.mjs";
 
 const SPEC = {
   tables: [
@@ -538,3 +538,172 @@ const patch = (deps, body, memberId = "5") =>
 
 
 
+
+// ── The site's members, on Neon Auth ────────────────────────────────────────
+//
+// Rebuilt 2026-07-30 against `neon_auth."user"`. Nothing here talks to Neon: the
+// query is captured and asserted, and the decisions — which role may be granted,
+// what counts as suspended, what a member id even looks like now — run against
+// fakes. What IS being pinned is our end of the seam, because that is where every
+// mistake in this migration has been.
+
+const MEM = {
+  id: "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+  email: "ada@example.com", name: "Ada", emailVerified: true,
+  role: "user", banned: false, banReason: null, banExpires: null,
+  createdAt: "2026-07-30 10:00:00",
+};
+
+function memHarness(over = {}) {
+  const seen = [];
+  const deps = {
+    ownerOf: async () => "owner-1",
+    dbFor: async () => "postgres://conn",
+    loadSchema: async () => (over.spec || SPEC),
+    query: async (_db, sql, args) => { seen.push({ sql, args }); return over.rows || [MEM]; },
+    exec: async (_db, sql, args) => { seen.push({ sql, args }); return over.exec || { changes: 1 }; },
+    ident: (n) => '"' + n + '"',
+    ...over.deps,
+  };
+  return { deps, seen };
+}
+const mems = (deps, o = {}) => handleOwnerMembers(deps, { slug: "cafe", uid: "owner-1", ...o });
+
+test("the members list reads neon_auth.user, SCHEMA-QUALIFIED and QUOTED", async () => {
+  // Not style. Postgres resolves a bare `user` to the USER value function and
+  // returns the current ROLE NAME instead of erroring, so an unqualified query
+  // hands the owner a one-row list holding "neondb_owner" and looks exactly like
+  // a site with one member. Measured on a real project 2026-07-30.
+  const { deps, seen } = memHarness();
+  const r = await mems(deps);
+  assert.equal(r.status, 200);
+  assert.match(seen[0].sql, /FROM neon_auth\."user"/);
+  assert.ok(!/FROM neon_auth\.user\b/.test(seen[0].sql), "the table name must be quoted: " + seen[0].sql);
+});
+
+test("the list never selects *", async () => {
+  // Better Auth keeps credentials in neon_auth.account, which this file never
+  // touches — but naming the columns is what stops a column added UPSTREAM from
+  // silently starting to leave the database.
+  const { deps, seen } = memHarness();
+  await mems(deps);
+  assert.ok(!/SELECT \*/.test(seen[0].sql), seen[0].sql);
+  assert.match(seen[0].sql, /u\."emailVerified"/, "camelCase columns must be quoted or Postgres folds them");
+});
+
+test("a member is presented without leaking the raw ban columns as truth", async () => {
+  const { deps } = memHarness();
+  const r = await mems(deps);
+  const m = r.body.members[0];
+  assert.equal(m.id, MEM.id);
+  assert.equal(m.role, "user");
+  assert.equal(m.suspended, false);
+  assert.equal(m.verified, true);
+});
+
+test("members are behind the same gate as everything else", async () => {
+  const { deps } = memHarness({ deps: { ownerOf: async () => "someone-else" } });
+  const r = await mems(deps);
+  assert.equal(r.status, 404, "not 403 — the slug space is guessable");
+});
+
+test("an unreadable ownership record is 503, never a member list", async () => {
+  const { deps } = memHarness({ deps: { ownerOf: async () => { throw new Error("supabase down"); } } });
+  assert.equal((await mems(deps)).status, 503);
+});
+
+test("a member id must be a UUID, and a bad one never reaches SQL", async () => {
+  // Ids were sequential integers and are UUIDs now. A malformed one against a
+  // `uuid` column is a Postgres type error, which would reach the owner as a 500
+  // rather than "no such member".
+  for (const bad of ["7", "abc", "3f2504e0-4f89-11d3-9a0c", "' OR 1=1--", ""]) {
+    const { deps, seen } = memHarness();
+    const r = await mems(deps, { method: "DELETE", memberId: bad });
+    assert.equal(r.status, 404, JSON.stringify(bad));
+    assert.deepEqual(seen, [], "nothing may reach the database for id " + JSON.stringify(bad));
+  }
+});
+
+test("a role is allow-listed against what THIS site's tables actually check", async () => {
+  // An owner inventing a role no table names has granted a permission nothing can
+  // ever test: it reads as "I gave them access" and does nothing.
+  const spec = { tables: [{ name: "posts", access: "admin", writeRoles: ["editor"], columns: [{ name: "t" }] }] };
+  const { deps } = memHarness({ spec });
+  assert.equal((await mems(deps, { method: "PATCH", memberId: MEM.id, body: { role: "editor" } })).status, 200);
+  assert.equal((await mems(deps, { method: "PATCH", memberId: MEM.id, body: { role: "admin" } })).status, 200);
+  const no = await mems(deps, { method: "PATCH", memberId: MEM.id, body: { role: "wizard" } });
+  assert.equal(no.status, 400);
+  assert.ok(no.body.roles.includes("editor"), JSON.stringify(no.body));
+});
+
+test("a role must be a STRING, not anything stringifiable", async () => {
+  // String(7) is "7", which passes a shape test and would make a number a role.
+  const { deps } = memHarness();
+  for (const bad of [7, true, ["admin"], { role: "admin" }, null]) {
+    assert.equal((await mems(deps, { method: "PATCH", memberId: MEM.id, body: { role: bad } })).status, 400, JSON.stringify(bad));
+  }
+});
+
+test("suspension writes Better Auth's own banned column", async () => {
+  // Ours to read, but theirs to enforce: a flag only our read path honoured would
+  // leave the member's existing session working against the auth server.
+  const { deps, seen } = memHarness();
+  const r = await mems(deps, { method: "PATCH", memberId: MEM.id, body: { suspended: true, reason: "spam" } });
+  assert.equal(r.status, 200);
+  const upd = seen.find((c) => /UPDATE neon_auth\."user"/.test(c.sql));
+  assert.ok(upd, JSON.stringify(seen.map((c) => c.sql)));
+  assert.match(upd.sql, /banned=\?/);
+  assert.ok(upd.args.includes(true), JSON.stringify(upd.args));
+  assert.ok(upd.args.includes("spam"), JSON.stringify(upd.args));
+});
+
+test("suspended must be a real boolean", async () => {
+  // `suspended: "false"` would suspend the member the owner was reinstating.
+  const { deps } = memHarness();
+  for (const bad of ["false", "true", 0, 1, "yes"]) {
+    assert.equal((await mems(deps, { method: "PATCH", memberId: MEM.id, body: { suspended: bad } })).status, 400, JSON.stringify(bad));
+  }
+});
+
+test("reinstating clears the reason and the expiry, not just the flag", async () => {
+  // A lapsed ban's text left attached to a live account reads as still-suspended.
+  const { deps, seen } = memHarness();
+  await mems(deps, { method: "PATCH", memberId: MEM.id, body: { suspended: false } });
+  const upd = seen.find((c) => /UPDATE/.test(c.sql));
+  assert.match(upd.sql, /"banReason"=\?/);
+  assert.match(upd.sql, /"banExpires"=\?/);
+  assert.ok(upd.args.includes(false), JSON.stringify(upd.args));
+});
+
+test("a PATCH that changes nothing is a 400, not a silent no-op", async () => {
+  const { deps } = memHarness();
+  assert.equal((await mems(deps, { method: "PATCH", memberId: MEM.id, body: {} })).status, 400);
+});
+
+test("patching or deleting a member that is not there is a 404", async () => {
+  const { deps } = memHarness({ exec: { changes: 0 } });
+  assert.equal((await mems(deps, { method: "DELETE", memberId: MEM.id })).status, 404);
+  assert.equal((await mems(deps, { method: "PATCH", memberId: MEM.id, body: { suspended: true } })).status, 404);
+});
+
+test("deleting a member leaves their rows alone", async () => {
+  // owner_id stops matching anybody, so the rows drop out of every member-scoped
+  // read and stay visible to the owner. A cancelled customer's bookings must not
+  // vanish from the appointment list.
+  const { deps, seen } = memHarness();
+  await mems(deps, { method: "DELETE", memberId: MEM.id });
+  assert.equal(seen.length, 1, JSON.stringify(seen.map((c) => c.sql)));
+  assert.match(seen[0].sql, /DELETE FROM neon_auth\."user" WHERE id=\?/);
+});
+
+test("paging is clamped", async () => {
+  const { deps, seen } = memHarness();
+  await mems(deps, { params: { limit: "99999", offset: "-5" } });
+  assert.ok(seen[0].args[0] <= 200, JSON.stringify(seen[0].args));
+  assert.ok(seen[0].args[1] >= 0, JSON.stringify(seen[0].args));
+});
+
+test("anything but GET/PATCH/DELETE is 405", async () => {
+  const { deps } = memHarness();
+  assert.equal((await mems(deps, { method: "PUT", memberId: MEM.id })).status, 405);
+});

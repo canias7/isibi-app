@@ -291,3 +291,120 @@ export async function handleOwnerAnalytics(deps, { slug, uid } = {}) {
 }
 
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+
+// ── The site's members, on Neon Auth ────────────────────────────────────────
+//
+// Rebuilt 2026-07-30. The old version read a hand-rolled `_users` table that no
+// longer exists; identity is Neon Auth's, and it keeps its people in the SITE's
+// own database, so this is still one query on a connection the route already has.
+//
+// Every reference is SCHEMA-QUALIFIED and `"user"` is quoted, which is load
+// bearing rather than tidy: Postgres resolves a bare `user` to the USER value
+// function and returns the current ROLE NAME instead of erroring, so an
+// unqualified query here would hand the owner a one-row list containing their
+// database role and look like a site with exactly one member.
+const MEMBER_COLUMNS = ["id", "email", "name", "emailVerified", "role", "banned", "banReason", "banExpires", "createdAt"];
+
+// Named explicitly, never `SELECT *`. There is no password on this table —
+// Better Auth keeps credentials in `neon_auth.account`, which this file never
+// touches — but the discipline is what stops a column added upstream from
+// silently starting to leave the database.
+const MEMBER_SELECT = MEMBER_COLUMNS.map((c) => 'u."' + c + '"').join(", ");
+
+const memberView = (r) => ({
+  id: r == null ? null : String(r.id),
+  email: (r && r.email) || "",
+  name: (r && r.name) || "",
+  verified: !!(r && r.emailVerified),
+  role: String((r && r.role) || "user").toLowerCase(),
+  suspended: !!(r && r.banned),
+  reason: (r && r.banReason) || null,
+  until: (r && r.banExpires) || null,
+  created_at: (r && r.createdAt) || null,
+});
+
+/**
+ * A member id is a UUID here, not the sequential integer it used to be. Checked
+ * on the way in because it reaches SQL as a parameter against a `uuid` column —
+ * a malformed one is a Postgres type error, which would surface to the owner as
+ * a 500 rather than "no such member".
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * GET    → the site's members
+ * PATCH  → set a member's `role`, or suspend / reinstate them
+ * DELETE → remove a member
+ *
+ * Suspension is Better Auth's `banned` column rather than a flag of ours, so the
+ * auth server refuses the sign-in as well — a suspension enforced only by our
+ * read path would let the member keep a session it had already been given.
+ *
+ * Deleting a member deliberately LEAVES THEIR ROWS. `owner_id` stops matching
+ * anybody, so the rows drop out of every member-scoped read and stay visible to
+ * the owner — a cancelled customer's bookings should not silently vanish from the
+ * appointment list.
+ */
+export async function handleOwnerMembers(deps, { slug, uid, method = "GET", memberId, body = {}, params = {} } = {}) {
+  const site = await openSite(deps, slug, uid);
+  if (site.error) return site.error;
+  const { db } = site;
+
+  if (method === "GET") {
+    const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(params.limit, 10) || 100));
+    const offset = Math.max(0, parseInt(params.offset, 10) || 0);
+    const rows = await deps.query(db,
+      "SELECT " + MEMBER_SELECT + ' FROM neon_auth."user" u ORDER BY u."createdAt" DESC NULLS LAST LIMIT ? OFFSET ?',
+      [limit, offset]);
+    return json({ members: (rows || []).map(memberView) });
+  }
+
+  if (!memberId || !UUID_RE.test(String(memberId))) return json({ error: "no such member" }, 404);
+  const id = String(memberId);
+
+  if (method === "DELETE") {
+    const r = await deps.exec(db, 'DELETE FROM neon_auth."user" WHERE id=?', [id]);
+    if (!r.changes) return json({ error: "no such member" }, 404);
+    return json({ ok: true, id });
+  }
+
+  if (method === "PATCH") {
+    const cols = [], vals = [];
+    // A role is allow-listed against what THIS site's tables actually check. An
+    // owner inventing a role no table names has granted a permission nothing can
+    // ever test — it reads as "I gave them access" and does nothing at all.
+    if ("role" in body) {
+      const spec = await deps.loadSchema(db);
+      const allowed = new Set(["user", "admin"]);
+      for (const t of declaredTables(spec)) {
+        for (const r of (Array.isArray(t.writeRoles) ? t.writeRoles : [])) allowed.add(String(r).toLowerCase());
+      }
+      // A string, not anything stringifiable: String(7) is "7", which passes a
+      // shape test and would make a number a role.
+      if (typeof body.role !== "string") return json({ error: "that is not a role" }, 400);
+      const role = body.role.toLowerCase();
+      if (!allowed.has(role)) {
+        return json({ error: "no table on this site checks that role", roles: [...allowed].sort() }, 400);
+      }
+      cols.push('role=?'); vals.push(role);
+    }
+    // A real boolean. `suspended: "false"` would suspend the member the owner was
+    // reinstating.
+    if ("suspended" in body) {
+      if (typeof body.suspended !== "boolean") return json({ error: "suspended must be true or false" }, 400);
+      cols.push('banned=?'); vals.push(body.suspended);
+      // Reinstating clears the reason and the expiry as well, or a lapsed ban's
+      // text stays attached to a live account and reads as still-suspended.
+      cols.push('"banReason"=?'); vals.push(body.suspended ? String(body.reason || "").slice(0, 200) || null : null);
+      cols.push('"banExpires"=?'); vals.push(null);
+    }
+    if (!cols.length) return json({ error: "nothing to change" }, 400);
+
+    const r = await deps.exec(db, 'UPDATE neon_auth."user" SET ' + cols.join(", ") + " WHERE id=?", vals.concat([id]));
+    if (!r.changes) return json({ error: "no such member" }, 404);
+    const back = await deps.query(db, "SELECT " + MEMBER_SELECT + ' FROM neon_auth."user" u WHERE u.id=?', [id]);
+    return json({ ok: true, member: memberView(back[0]) });
+  }
+
+  return json({ error: "method not allowed" }, 405);
+}

@@ -7,7 +7,7 @@ import { makeCache, memoize } from "./ttl-cache.mjs";
 import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
 import { ensureSiteBackend as ensureSiteBackendPure } from "./site-provision.mjs";
 import { lookupRoute, saveRoute, dropRoute } from "./site-routing.mjs";
-import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerAnalytics, assertOwner } from "./site-owner.mjs";
+import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers, handleOwnerAnalytics, assertOwner } from "./site-owner.mjs";
 import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_VISITOR_UPLOAD_BYTES } from "./site-uploads.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
@@ -3049,21 +3049,60 @@ async function siteClaimKey(env, slug) {
   return sessionKey(await siteAuthSecret(db), slug);
 }
 
-async function resolveSiteVisitor() {
-  // Nobody, for now — and that is the SAFE direction, not a stub that leaks.
-  //
-  // Identity moved to Neon Auth on 2026-07-30 and the hand-built visitor-account
-  // layer was deleted with it, so there is currently no way to tell who a
-  // visitor is. site-data.mjs refuses a member table when this answers null
-  // (`needsVisitor && !visitor` → 401), which is exactly the behaviour that was
-  // there before visitor accounts existed: a `user`/`feed`/`admin` table is
-  // unreachable rather than readable by strangers. The dangerous shape would be
-  // returning a placeholder visitor, because then every member read would match
-  // whatever that placeholder owns.
-  //
-  // Replaced by a Neon Auth session lookup against `neon_auth."user"` — whose id
-  // is a UUID, not the integer this used to return.
-  return null;
+/**
+ * Who is asking, for a table scoped to a member — resolved from NEON AUTH.
+ *
+ * The whole reason this is one SQL read and not an HTTP call: Neon Auth keeps its
+ * sessions in the SITE'S OWN DATABASE (`neon_auth.session`, `userId` referencing
+ * `neon_auth."user"`), which is the same database this request is already going to
+ * for the rows. So verifying a visitor costs one join on a connection we hold,
+ * with no third party on the visitor path and nothing to keep in sync.
+ *
+ * Returns `{ id, role, verified }` with `id` a **UUID** — measured, not assumed:
+ * `neon_auth."user".id` is `uuid`, which is why `owner_id` is a uuid column.
+ *
+ * Both table names are SCHEMA-QUALIFIED and `"user"` is quoted. That is not
+ * style: Postgres resolves a bare `user` to the USER value function and hands
+ * back the current ROLE NAME rather than erroring, so an unqualified query here
+ * would silently compare rows against `"neondb_owner"` and match nothing.
+ */
+async function resolveSiteVisitor(env, request, slug) {
+  const bearer = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!bearer) return null;
+  try {
+    const db = await siteBackendBySlug(env, slug);
+    if (!db) return null;
+    // Expiry is checked in SQL rather than in JS: `expiresAt` is a timestamptz and
+    // comparing it to a JS clock means trusting two clocks to agree.
+    //
+    // `banned` is Better Auth's suspension flag. Checked HERE and not only on
+    // whatever account screen exists, because this is the half that reads rows —
+    // a suspension that only took effect on a profile page would leave the
+    // suspended member full access to the data.
+    const rows = await sqlQuery(
+      db,
+      'SELECT u.id, u.role, u."emailVerified" AS verified, u.banned, u."banExpires"' +
+      ' FROM neon_auth.session s JOIN neon_auth."user" u ON u.id = s."userId"' +
+      ' WHERE s.token = ? AND s."expiresAt" > now()',
+      [bearer],
+    );
+    const u = rows[0];
+    if (!u) return null;
+    // A ban with an expiry in the past has lapsed and the account is live again;
+    // a ban with no expiry is indefinite. Getting this backwards either strands
+    // somebody permanently or lets a live ban through, so it is spelled out.
+    if (u.banned && !(u.banExpires && new Date(u.banExpires).getTime() <= Date.now())) return null;
+    return {
+      id: String(u.id),
+      role: String(u.role || "user").toLowerCase(),
+      verified: !!u.verified,
+    };
+  } catch (e) {
+    // A lookup failure must never downgrade to "anonymous resolved to somebody".
+    // Null means refused, which for a member table is a 401 — the safe direction.
+    console.error("visitor resolve failed:", slug, e && e.message);
+    return null;
+  }
 }
 
 
@@ -5575,16 +5614,18 @@ async function handleRequest(request, env, ctx) {
     // Ordered BEFORE the site-delete branch below on purpose: that one matches
     // any DELETE under /api/site/, so a row delete would otherwise be read as a
     // request to take the entire site down.
-    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads") || url.pathname.includes("/export") || url.pathname.includes("/notify"))) {
+    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads") || url.pathname.includes("/export") || url.pathname.includes("/notify"))) {
       const om = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rows(?:\/([a-z_][a-z0-9_]{0,40})(?:\/([0-9]{1,18}))?)?$/i);
+      // A member id is a UUID now, not the sequential integer this used to match.
+      const mm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/members(?:\/([0-9a-f-]{36}))?$/i);
       const an = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/analytics$/i);
       const uf = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/uploads(?:\/([A-Za-z0-9._-]{1,80}))?$/i);
       const xp = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/export$/i);
       const nt = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/notify$/i);
-      if (om || an || uf || xp || nt) {
+      if (om || mm || an || uf || xp || nt) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
-        const ownerSlug = (om || an || uf || xp || nt)[1].toLowerCase();
+        const ownerSlug = (om || mm || an || uf || xp || nt)[1].toLowerCase();
         const ownerDeps = {
           ownerOf: async (s2) => {
             const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s2)}&select=uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
@@ -5685,6 +5726,14 @@ async function handleRequest(request, env, ctx) {
           } else if (an) {
             if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
             r = await handleOwnerAnalytics(ownerDeps, { slug: an[1].toLowerCase(), uid: ou.id });
+          } else if (mm) {
+            const [, mslug, mid] = mm;
+            r = await handleOwnerMembers(ownerDeps, {
+              slug: mslug.toLowerCase(), uid: ou.id, method: request.method,
+              memberId: mid, params: Object.fromEntries(url.searchParams),
+              // PATCH is the only way a role or a suspension is ever set.
+              body: request.method === "PATCH" ? await request.json().catch(() => ({})) : {},
+            });
           } else if (request.method === "GET") {
             const [, oslug, otable] = om;
             const params = Object.fromEntries(url.searchParams);
