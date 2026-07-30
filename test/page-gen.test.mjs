@@ -779,3 +779,24 @@ test("every ui component the rules cite is one the template has", () => {
   assert.deepEqual(missing, [],
     "the rules point the model at " + missing.join(", ") + ", which the template does not have");
 });
+
+// What the registry ships and we deliberately do not take.
+//
+// The template was 12 components behind the registry until 2026-07-30, found by
+// diffing against ui.shadcn.com/r/index.json rather than by reading the docs
+// sidebar — which had already proved unreliable, listing `combobox` and
+// `native-select` as though they were installable when neither has a new-york
+// build at all.
+//
+// This pins the ONE we can install and refuse, because "we forgot it" and "we
+// decided against it" look identical in a list of names a year later.
+test("toast is left out on purpose, because sonner is already here", () => {
+  // Both installed would give the model two ways to raise a toast, and it would
+  // pick inconsistently between pages of the same site. shadcn's own docs treat
+  // toast as superseded.
+  assert.ok(UI_COMPONENTS.includes("sonner"), "sonner is the one we use");
+  assert.ok(!UI_COMPONENTS.includes("toast"),
+    "toast duplicates sonner — if it is ever added, the rules must say which to use");
+  assert.match(PAGE_RULES, /toast\.(success|error)/,
+    "and the rules must actually teach the sonner API, or neither is reachable");
+});

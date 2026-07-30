@@ -24,6 +24,11 @@ export const UI_COMPONENTS = [
   // and the model was hand-rolling both every time; `field` and `input-group`
   // because most generated sites are a form.
   "empty", "spinner", "field", "input-group",
+  // The rest of what the registry actually ships for this style. `toast` is
+  // deliberately NOT here: it is superseded by `sonner`, which we have, and
+  // offering both would give the model two ways to raise a toast and it would
+  // pick inconsistently between pages of the same site.
+  "button-group", "item", "kbd",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
