@@ -186,3 +186,32 @@ test("normalizeFontName is total — no input throws", () => {
   assert.equal(matchFontName(""), null);
   assert.equal(nearestFontName("").id, null);
 });
+
+test("the DESIGNER can actually declare a font, and only a real one", () => {
+  // The failure this guards has happened five times in this repo: a feature that
+  // is implemented, tested and enforced, and that nothing can ever declare. The
+  // chain is asserted end to end because any one broken link makes the rest
+  // useless — the tool must offer the field, the enum must be DERIVED from the
+  // shortlist rather than restated, and the route must pass the answer on.
+  const src = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
+  assert.match(src, /const SITE_FONT_IDS = SHORTLIST\.map\(/,
+    "the enum must be derived from site-fonts.mjs, not a second copy that can drift");
+  assert.match(src, /heading:\s*\{ type: "string", enum: SITE_FONT_IDS/);
+  assert.match(src, /body:\s*\{ type: "string", enum: SITE_FONT_IDS/);
+  assert.match(src, /required: \["brand", "slug", "tables", "seed", "description", "fonts"\]/,
+    "an optional font field is one the model will usually skip");
+  assert.match(src, /fonts: \(designed && designed\.fonts\)/,
+    "the designer's answer has to reach the build");
+  assert.match(src, /fonts: \{ heading: fontPair\.heading\.id, body: fontPair\.body\.id \}/,
+    "and the build request has to carry it");
+});
+
+test("an off-shortlist font is FETCHED by the Worker, and fails soft", () => {
+  // The container is not assumed to have network; the Worker certainly does.
+  const src = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
+  const fn = src.slice(src.indexOf("async function fetchSiteFonts"), src.indexOf("// brief + schema"));
+  assert.ok(fn.length > 200, "fetchSiteFonts not found");
+  assert.match(fn, /AbortSignal\.timeout\(/, "a third party on the build path must be bounded");
+  assert.match(fn, /catch \(e\)/, "a font we cannot reach must cost a typeface, not a site");
+  assert.match(fn, /f\.source !== "fetch"/, "an installed font must never be fetched");
+});

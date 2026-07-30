@@ -25,6 +25,7 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 // Game builder (Phase 3): same generate→build→publish pipeline, engine swapped for
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
+import { SHORTLIST, resolvePair, shortlistForPrompt } from "./builder/site-fonts.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)
 // bakes kaplay + a headless Chromium for the smoke test. Runs to zero after idle.
@@ -2571,6 +2572,11 @@ const SITE_BUILD_FEE = 2;
 // A plain-English brief becomes an isibi.schema.json. Uses tool-use rather than
 // asking for JSON in prose: the model must return an object matching the schema
 // below, so there is nothing to parse out of a reply and nothing to repair.
+// The shortlist the model may choose from, derived from site-fonts.mjs rather
+// than restated: a name here that is not installed produces a site whose CSS
+// points at a font that was never bundled, and it renders as the fallback.
+const SITE_FONT_IDS = SHORTLIST.map((f) => f.id);
+
 const SITE_SCHEMA_TOOL = {
   name: "design_schema",
   description: "Design the database tables a site needs, as an isibi.schema.json.",
@@ -2742,8 +2748,26 @@ const SITE_SCHEMA_TOOL = {
           "real service names and real prices, not 'Item 1' / 0.00.",
         additionalProperties: { type: "array", items: { type: "object" } },
       },
+      // The typeface. Declared as an ENUM rather than free text, so an invalid
+      // font is impossible instead of something a lint has to catch afterwards —
+      // and so the whole list costs ~300 characters rather than the ~7,500 tokens
+      // that naming all 2,096 Fontsource families would add to every generation.
+      // Anything outside this list is still reachable later, by name, through the
+      // fetch path in site-fonts.mjs.
+      fonts: {
+        type: "object",
+        description:
+          "The site's typeface, as a heading face and a body face. Pick for the BUSINESS, not for fashion: " +
+          "a law firm or a restaurant can carry a serif, a gym or a studio wants a confident sans, a plain sans is right for most. " +
+          "The two may be the same. A display serif set as the body face is tiring to read at 14px — pair it with a sans instead.",
+        properties: {
+          heading: { type: "string", enum: SITE_FONT_IDS, description: "Face for h1-h4." },
+          body: { type: "string", enum: SITE_FONT_IDS, description: "Face for everything else." },
+        },
+        required: ["heading", "body"],
+      },
     },
-    required: ["brand", "slug", "tables", "seed", "description"],
+    required: ["brand", "slug", "tables", "seed", "description", "fonts"],
   },
 };
 
@@ -3312,6 +3336,50 @@ async function writeSiteDistToR2(env, slug, dist, meta) {
   }
 }
 
+/**
+ * A font the site asked for that is not one of the 24 installed, downloaded here.
+ *
+ * The WORKER does this rather than the container, because the Worker certainly
+ * has network at request time and that is not something to assume of a build
+ * container. The bytes ride to the build as base64 — a woff2 is 13-22 KB
+ * measured, so the request grows by tens of kilobytes, not megabytes.
+ *
+ * Fails SOFT and returns nothing: the pair has already fallen back to a face
+ * that IS installed, so a font we could not reach costs a typeface rather than a
+ * site. Bounded by a timeout, because this is a third party on the build path.
+ */
+async function fetchSiteFonts(pair) {
+  const out = {};
+  for (const slot of ["heading", "body"]) {
+    const f = pair && pair[slot];
+    if (!f || f.source !== "fetch" || out[f.id]) continue;
+    try {
+      const meta = await fetch(f.url, { signal: AbortSignal.timeout(8000) });
+      if (!meta.ok) continue;
+      const j = await meta.json();
+      const variants = j && j.variants;
+      if (!variants) continue;
+      // The heaviest weight a variable face publishes is still one file; for a
+      // static face take the regular. Latin only — the subset a generated site
+      // renders, and the reason a fetch is smaller than the npm package.
+      const weight = variants["400"] ? "400" : Object.keys(variants).sort()[0];
+      const url = weight && variants[weight] && variants[weight].normal
+        && variants[weight].normal.latin && variants[weight].normal.latin.url;
+      if (!url || !url.woff2) continue;
+      const file = await fetch(url.woff2, { signal: AbortSignal.timeout(8000) });
+      if (!file.ok) continue;
+      const buf = new Uint8Array(await file.arrayBuffer());
+      if (buf.length < 4 || buf.length > 2_000_000) continue;
+      let bin = ""; for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
+      out[f.id] = btoa(bin);
+      if (j.category) f.kind = j.category === "monospace" ? "mono" : (j.category === "serif" ? "serif" : "sans");
+    } catch (e) {
+      console.error("font fetch failed:", f.id, String((e && e.message) || e).slice(0, 120));
+    }
+  }
+  return out;
+}
+
 // brief + schema → route files → `tsc --noEmit` + `vite build` in the container →
 // the dist published to sites/<slug>/.
 //
@@ -3319,7 +3387,11 @@ async function writeSiteDistToR2(env, slug, dist, meta) {
 // all? — live in builder/publish-pages.mjs, which takes every side effect as an
 // injected function so they can be driven against fakes in test/publish-pages.test.mjs.
 // This is only the wiring that supplies the real ones.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts }) {
+  // Resolved once, before any model call: the pair always lands on something
+  // installed, so a build never waits on a font it cannot get.
+  const fontPair = resolvePair(fonts || {});
+  const fontFiles = await fetchSiteFonts(fontPair);
   const out = await publishPages({
     // A failed repair is swallowed by publishPages (the first attempt stands), so
     // it is logged here or nowhere. A failed FIRST attempt propagates and is
@@ -3336,7 +3408,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       const r = await c.fetch(new Request("http://build/build", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ files, slug, title: brand }),
+        body: JSON.stringify({ files, slug, title: brand,
+          fonts: { heading: fontPair.heading.id, body: fontPair.body.id },
+          fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined }),
       }));
       return await r.json().catch(() => ({ ok: false, stage: "build", error: "the build service returned no JSON" }));
     },
@@ -5612,6 +5686,7 @@ async function handleRequest(request, env, ctx) {
           pages = await buildAndPublishPages(env, {
             brief: briefForPages({ brief, priorBrief }), spec: pageSpec, slug, brand,
             siteDescription, ogImage,
+            fonts: (designed && designed.fonts) || (body && body.fonts) || null,
             auth: request.headers.get("Authorization") || "",
           });
         } catch (e) {
