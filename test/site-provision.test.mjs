@@ -16,13 +16,14 @@ const PROJ = { neon_project: "p1", neon_branch: "br-1", neon_role: "owner", neon
 // Records every effect so a test can assert on what was NOT done — the project
 // that should have been cleaned up, the database never created.
 function harness(over = {}) {
-  const calls = { createProject: 0, dropProject: [], saveProject: [], createDatabase: [], saveBackend: [], lookupSite: 0 };
+  const calls = { createProject: 0, dropProject: [], saveProject: [], createDatabase: [], saveBackend: [], lookupSite: 0, enableAuth: [] };
   const base = {
     lookupSite: async () => null,
     lookupProject: async () => PROJ,
     createProject: async () => ({ projectId: "p1", branchId: "br-1", roleName: "owner", conn: PROJ.neon_conn }),
     dropProject: async () => {},
     saveProject: async () => ({ ok: true }),
+    enableAuth: async () => ({ enabled: true }),
     createDatabase: async (_p, slug) => "site_" + slug.replace(/-/g, "_"),
     saveBackend: async () => ({ ok: true }),
   };
@@ -33,6 +34,12 @@ function harness(over = {}) {
     createProject: (u) => { calls.createProject++; return pick("createProject")(u); },
     dropProject: (id) => { calls.dropProject.push(id); return pick("dropProject")(id); },
     saveProject: (s2, u, p) => { calls.saveProject.push({ s: s2, u, p }); return pick("saveProject")(s2, u, p); },
+    // BOTH arguments forwarded. This wrapper took only `(p)` when enableAuth
+    // took one argument, and kept dropping the second after it grew a database
+    // name — so the override saw `undefined` and the test could not tell
+    // which database auth was being installed into, which is the entire
+    // thing it exists to check.
+    enableAuth: (p, db) => { calls.enableAuth.push({ project: p && p.neon_project, db }); return pick("enableAuth")(p, db); },
     createDatabase: (p, s) => { calls.createDatabase.push(s); return pick("createDatabase")(p, s); },
     saveBackend: (s, u, db) => { calls.saveBackend.push({ s, u, db }); return pick("saveBackend")(s, u, db); },
     connFor: (conn, db) => conn.replace(/\/[^/]*$/, "/" + db),
@@ -313,4 +320,91 @@ test("nothing provisions a project keyed by the owner any more", () => {
   assert.match(deps, /createProject: \(s2\) => createSiteProject\(env, s2\)/);
   assert.ok(!/createUserProject/.test(deps), "the build path must not create a per-user project");
   assert.ok(!/userSiteProject/.test(deps), "the build path must not resolve a project by owner");
+});
+
+// -------------------------------------------------- Neon Auth is the identity
+//
+// The whole backend is Neon as of 2026-07-30, so a site with auth off is a site
+// whose member pages return nothing. These pin the two things that are easy to
+// get wrong and impossible to notice: enabling it only when the project is NEW,
+// and letting a failure pass as success.
+
+test("auth is enabled on a REUSED project, not only a new one", async () => {
+  // The trap. A project can exist with auth off — the create succeeded and the
+  // enable failed, or it predates the change — and a retried build reuses the
+  // project. Enabled only at creation, that site is permanently without identity
+  // while every retry reports success.
+  const { deps, calls } = harness();               // lookupProject returns an existing PROJ
+  await run(deps);
+  assert.equal(calls.createProject, 0, "this is the reuse path");
+  assert.deepEqual(calls.enableAuth, [{ project: "p1", db: "site_cafe" }], "auth must be ensured on reuse too");
+});
+
+test("auth is enabled on a freshly created project", async () => {
+  const { deps, calls } = harness({ lookupProject: async () => null });
+  await run(deps);
+  assert.equal(calls.createProject, 1);
+  assert.equal(calls.enableAuth.length, 1);
+});
+
+test("a build whose auth could not be enabled FAILS, and says which stage", async () => {
+  // Not best-effort. A caller can retry a failure and cannot retry a success, so
+  // a build that quietly produced a site nobody can sign in to is the worse
+  // outcome.
+  const { deps } = harness({ enableAuth: async () => { throw Object.assign(new Error("nope"), { detail: "neon says no" }); } });
+  await assert.rejects(run(deps), (e) => {
+    assert.equal(e.stage, "enable_auth");
+    assert.match(String(e.message), /Neon Auth/);
+    assert.match(String(e.detail), /neon says no/);
+    return true;
+  });
+});
+
+test("auth is enabled after the database exists, and before this returns", async () => {
+  // The order changed on 2026-07-30 and both halves matter.
+  //
+  // AFTER the database: the enable call has to NAME which database to install
+  // into, because a site's project holds two — Neon's default and the one this
+  // repo creates — and Neon refuses to guess. Measured against a real project.
+  //
+  // BEFORE returning: the caller applies the schema with the connection this
+  // hands back, and a table cannot reference `neon_auth` before it exists.
+  const order = [];
+  const { deps } = harness({
+    lookupProject: async () => null,
+    createDatabase: async () => { order.push("db"); return "site_cafe"; },
+    enableAuth: async (_p, dbName) => { order.push("auth:" + dbName); },
+    saveBackend: async () => { order.push("record"); return { ok: true }; },
+  });
+  await run(deps);
+  assert.deepEqual(order, ["db", "auth:site_cafe", "record"],
+    "auth must be enabled against the site's OWN database, after it exists and before this returns");
+});
+
+test("the database name is passed to the enable call, not left to Neon to guess", async () => {
+  // Omitting it does not default — it errors when the branch has more than one
+  // database, which a site's project always does. And if Neon ever did guess, it
+  // could guess the unused default, which nothing would notice until a member
+  // tried to sign in.
+  let named = "__never__";
+  const { deps } = harness({ enableAuth: async (_p, dbName) => { named = dbName; } });
+  await run(deps);
+  assert.equal(named, "site_cafe");
+  const src = fs.readFileSync(new URL("../site-db.mjs", import.meta.url), "utf8");
+  const fn = src.match(/export async function enableNeonAuth[\s\S]*?\n\}/);
+  assert.match(fn[0], /database_name: dbName/, "the request body must name the database");
+  assert.match(fn[0], /if \(!dbName\) throw/, "…and a missing name must be refused here, not by Neon");
+});
+
+test("enableNeonAuth treats an already-enabled project as done", async () => {
+  // A no-op, not a failure — otherwise every retried build of an existing site
+  // fails on the one call that was always going to conflict.
+  const src = fs.readFileSync(new URL("../site-db.mjs", import.meta.url), "utf8");
+  const fn = src.match(/export async function enableNeonAuth[\s\S]*?\n\}/);
+  assert.ok(fn, "enableNeonAuth was not found");
+  assert.match(fn[0], /e\.status === 409 \|\| \/already\/i\.test/, "a conflict must read as already-enabled");
+  assert.match(fn[0], /if \(!already\) throw e;/, "…and anything else must still throw");
+  assert.match(fn[0], /auth_provider: "better_auth"/);
+  // The wait, for the same reason every other Neon step has one.
+  assert.match(fn[0], /await waitForProject\(env, projectId\)/, "enabling auth is an async project operation");
 });

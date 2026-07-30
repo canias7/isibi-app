@@ -27,6 +27,7 @@
  *   createProject(slug)         → {projectId, branchId, roleName, conn}
  *   dropProject(projectId)      → void             cleanup for a project we failed to record
  *   saveProject(slug, uid, proj)→ {ok}             write the site_project row
+ *   enableAuth(proj, dbName)    → void             turn Neon Auth on; idempotent
  *   createDatabase(proj, slug)  → dbName
  *   saveBackend(slug, uid, db)  → {ok}             write the site_backends row
  *   connFor(projectConn, dbName)→ conn
@@ -88,6 +89,60 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
   } catch (e) {
     if (!/already exists/i.test(String((e && e.detail) || (e && e.message) || ""))) throw e;
     dbName = deps.dbNameFor(slug);
+  }
+
+  // Neon Auth, every time — not only when the project was just created.
+  //
+  // AFTER the database, because the enable call has to NAME it: a site's
+  // project holds two databases and Neon refuses to guess between them. Still
+  // before the caller applies any schema, which is the ordering that matters —
+  // `neon_auth` has to exist before a table can reference it.
+  //
+  // The whole backend is Neon (2026-07-30), so a site without auth enabled is a
+  // site whose member pages return nothing. A project can exist without it: the
+  // create succeeded and this call failed, or the project predates the change.
+  // Since a retried build REUSES the project, enabling only at creation would
+  // leave that site permanently broken while every retry reported success.
+  //
+  // Not best-effort. Identity is load-bearing now, and a build that quietly
+  // produced a site nobody can sign in to is worse than one that failed and said
+  // so — the caller can retry a failure, and cannot retry a success.
+  //
+  // The provisioning answer is KEPT, because it is where the site's auth endpoint
+  // comes from and a published page has no other way to learn it. Recording it is
+  // best-effort while enabling is not: auth being ON is what makes the site
+  // usable, and a missing note of WHERE it is can be re-fetched by a later build
+  // from a call that is idempotent anyway.
+  let authInfo = null;
+  if (deps.enableAuth) {
+    try { authInfo = (await deps.enableAuth(proj, dbName)) || null; }
+    catch (e) {
+      throw Object.assign(new Error("could not enable Neon Auth for this site"), {
+        detail: String((e && (e.detail || e.message)) || "").slice(0, 300),
+        stage: "enable_auth",
+      });
+    }
+    if (authInfo && authInfo.info && deps.saveAuthInfo) {
+      try { await deps.saveAuthInfo(dbName, authInfo.info); } catch (e) { /* see above */ }
+    }
+  }
+
+  // The Data API. Fatal for the same reason auth is: with the Worker's own row
+  // routes gone this IS the site's backend, so a build that could not enable it
+  // produced a site whose every list is empty and whose every form fails — and a
+  // caller can retry a failure, not a success.
+  if (deps.enableData) {
+    let dataInfo = null;
+    try { dataInfo = (await deps.enableData(proj)) || null; }
+    catch (e) {
+      throw Object.assign(new Error("could not enable the Neon Data API for this site"), {
+        detail: String((e && (e.detail || e.message)) || "").slice(0, 400),
+        stage: "enable_data_api",
+      });
+    }
+    if (dataInfo && dataInfo.info && deps.saveDataInfo) {
+      try { await deps.saveDataInfo(dbName, dataInfo.info); } catch (e) { /* best-effort, as above */ }
+    }
   }
 
   // The database exists now, but nothing points at it until this row lands: the

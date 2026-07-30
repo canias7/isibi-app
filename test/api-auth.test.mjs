@@ -24,7 +24,7 @@ const LINES = SRC.split("\n");
 const PUBLIC = {
   "/api/stripe/webhook": "Stripe cannot hold a session; authenticated by HMAC over the raw body instead (stripe-webhook.mjs).",
   "/api/m/*": "Capability URL — the signed, expiring token IN the path is the credential; that is the whole point of a shareable media link.",
-  "/api/db/*": "A published site's own API. Its visitors are not isibi users — a customer booking a haircut has no account here. It gates on the SITE's schema and, for member-scoped tables, on a site session (site-auth.mjs); /auth/login could not require a login.",
+  "/api/db/*": "A published site's own API. Its visitors are not isibi users — a customer booking a haircut has no account here. As of 2026-07-30 it is TRANSPORT ONLY: the row routes were deleted and these paths forward to the site's Neon Data API and Neon Auth, where the site's own RLS policies decide every access question. What is enforced here is a per-source rate limit and that the slug resolves to a real site.",
 };
 
 // Every place the router dispatches on an /api path.
@@ -122,9 +122,25 @@ test("a published site's API gates on a site session, not an isibi one", () => {
   // It is allow-listed as public because its visitors are not isibi users. That
   // is only acceptable while it still checks something: the site's own schema
   // for access level, and a site session for member-scoped tables.
-  const i = routes().get("/api/db/*");
-  assert.match(blockOf(i), /handleSiteAuth|resolveSiteVisitor|handleSiteData/,
-    "the one broad public prefix must still resolve an identity or an access level");
+  // Checked across EVERY /api/db dispatch rather than the first one. It used to
+  // read only the first, which made the assertion depend on route ORDER — and
+  // when the auth block above it was deleted the first dispatch became visitor
+  // uploads and this went red for a reason that had nothing to do with gating.
+  const hits = [...routes()].filter(([p2]) => p2.startsWith("/api/db"));
+  assert.ok(hits.length, "no /api/db dispatch found at all");
+  for (const [, line] of hits) {
+    // Each name here is a function that establishes WHAT the request is for
+    // before anything happens: it resolves the slug to a real site, or applies
+    // the schema's access rules, or both. A dispatch that matches none of them is
+    // acting on a caller-supplied slug it never checked.
+    assert.match(blockOf(line), /handleVisitorUpload|loadSiteSchema|siteBackendBySlug|proxySiteService/,
+      "every public /api/db dispatch must resolve the site and its access rules (worker.js:" + (line + 1) + ")");
+    // And every one is rate limited. These are unauthenticated endpoints; two of
+    // them reach a third party (Neon, and Better Auth through the proxy), so an
+    // unlimited one is a way to spend somebody else's budget from our origin.
+    assert.match(blockOf(line), /_dataLimiter|limitFor/,
+      "every public /api/db dispatch must be rate limited (worker.js:" + (line + 1) + ")");
+  }
 });
 
 test("the window cannot be widened into the next route's gate", () => {

@@ -73,11 +73,43 @@ export function siteSlug(): string {
   return (import.meta as { env?: Record<string, string> }).env?.VITE_SITE_SLUG ?? "preview";
 }
 
-const base = (table: string) => `/api/db/${siteSlug()}/rows/${table}`;
+// ── Talking to the database ─────────────────────────────────────────────────
+//
+// Rows come from the site's own Neon Data API, which is PostgREST — so a filter is
+// `?col=eq.value`, a sort is `?order=col.desc`, and an insert asks for the row back
+// with a `Prefer` header. The platform's own row routes were deleted 2026-07-30;
+// these paths forward to Neon and nothing more, and the site's RLS policies decide
+// every access question.
+//
+// The generator never writes any of this. It calls a hook and names a table.
+
+const base = (table: string) => `/api/db/${siteSlug()}/data/${table}`;
+
+/** PostgREST's equality filter, and the query shape a list read accepts. */
+function pgQuery(params?: RowQuery): string {
+  const sp = new URLSearchParams();
+  sp.set("select", "*");
+  if (!params) return "?" + sp.toString();
+  const { limit, offset, order, dir, q, ...filters } = params;
+  if (limit !== undefined) sp.set("limit", String(limit));
+  if (offset !== undefined) sp.set("offset", String(offset));
+  // Newest first by default: these are usually submissions or posts, and the
+  // useful one is the latest.
+  sp.set("order", `${order ?? "id"}.${dir === "asc" ? "asc" : "desc"}`);
+  // Full-text search, when the table declared it. `fts` is the generated tsvector
+  // column the schema engine creates.
+  if (q) sp.set("_fts", `fts.${q}`);
+  for (const [k, v] of Object.entries(filters)) {
+    if (v !== undefined && v !== null && v !== "") sp.set(k, `eq.${v}`);
+  }
+  return "?" + sp.toString();
+}
+
+const idFilter = (id: RowId) => `?id=eq.${encodeURIComponent(String(id))}`;
 
 async function send<T>(url: string, init?: RequestInit): Promise<T> {
-  // The member's session, when there is one. Sent on every call: a `user` table
-  // answers 401 without it and that member's own rows with it.
+  // The member's session, when there is one. Sent on every call: a `user` table's
+  // RLS policy answers with no rows without it, and that member's own rows with it.
   const token = (() => { try { return localStorage.getItem(`site_session_${siteSlug()}`); } catch { return null; } })();
   const res = await fetch(url, {
     ...init,
@@ -87,109 +119,139 @@ async function send<T>(url: string, init?: RequestInit): Promise<T> {
       ...init?.headers,
     },
   });
-  const body = await res.json().catch(() => ({}));
+  if (res.status === 204) return undefined as T;
+  const body = await res.json().catch(() => null);
   if (!res.ok) {
-    // The API distinguishes the caller's fault from a server fault, so surface
-    // its message and code rather than a generic failure.
-    const err = new Error((body as { error?: string }).error || `request failed (${res.status})`);
-    (err as Error & { code?: string; status: number }).code = (body as { code?: string }).code;
+    // PostgREST reports the caller's fault in `message`, with `code` carrying the
+    // Postgres SQLSTATE — 23505 is a duplicate, 23514 a failed check. Surfaced
+    // rather than replaced, so a form can say which field was wrong.
+    const b = body as { message?: string; details?: string; code?: string } | null;
+    const err = new Error(b?.message || b?.details || `request failed (${res.status})`);
+    (err as Error & { code?: string; status: number }).code = b?.code;
     (err as Error & { status: number }).status = res.status;
     throw err;
   }
   return body as T;
 }
 
-function qs(params?: RowQuery): string {
-  if (!params) return "";
-  const sp = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== null && v !== "") sp.set(k, String(v));
-  }
-  const s = sp.toString();
-  return s ? `?${s}` : "";
-}
-
-/** Rows from one table. Re-runs whenever `params` changes. */
+/**
+ * A table's rows. `data` IS the array — PostgREST answers a list with the array
+ * itself, and every list hook here unwraps the same way so none is the odd one out.
+ */
 export function useRows<T extends Row = Row>(
   table: string,
   params?: RowQuery,
-  options?: Omit<UseQueryOptions<{ rows: T[] }, Error, T[]>, "queryKey" | "queryFn">,
+  options?: Omit<UseQueryOptions<T[]>, "queryKey" | "queryFn">,
 ) {
-  return useQuery({
-    queryKey: ["rows", table, params ?? {}],
-    queryFn: () => send<{ rows: T[] }>(base(table) + qs(params)),
-    select: (d) => d.rows,
+  return useQuery<T[]>({
+    queryKey: ["rows", siteSlug(), table, params ?? {}],
+    queryFn: () => send<T[]>(base(table) + pgQuery(params)),
     ...options,
   });
 }
 
-/** One row by id, read from the list endpoint so it obeys the same rules. */
+/** One row by id, or null. `undefined` id disables the query. */
 export function useRow<T extends Row = Row>(table: string, id: RowId | undefined) {
-  return useQuery({
-    queryKey: ["row", table, id],
-    enabled: id !== undefined,
-    queryFn: () => send<{ rows: T[] }>(base(table) + qs({ id })),
-    select: (d) => d.rows[0],
+  return useQuery<T | null>({
+    queryKey: ["row", siteSlug(), table, id],
+    enabled: id !== undefined && id !== null && id !== "",
+    queryFn: () => send<T[]>(base(table) + idFilter(id as RowId) + "&select=*").then((r) => r[0] ?? null),
   });
 }
 
-/** Invalidate every cached read of a table after it changes. */
-function useInvalidate(table: string) {
-  const qc = useQueryClient();
-  return () => {
-    qc.invalidateQueries({ queryKey: ["rows", table] });
-    qc.invalidateQueries({ queryKey: ["row", table] });
-  };
-}
-
+/**
+ * Submit a row. Resolves to the created row.
+ *
+ * `Prefer: return=representation` is what makes it come back at all — without it
+ * PostgREST answers 201 with an empty body, and a page that shows "thanks, here is
+ * your booking" has nothing to show.
+ *
+ * Never annotate the mutation callback's parameter. TanStack's callback takes four
+ * arguments and its types are contravariant, so a hand-written annotation is
+ * refused even when it looks right.
+ */
 export function useCreateRow<T extends Row = Row>(table: string) {
-  const invalidate = useInvalidate(table);
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: (values: Partial<T>) =>
-      // `claim` comes back only for a `collect` table: a signed token for THIS
-      // row, and the only time it is ever issued. Keep it (a link, an email, the
-      // thank-you page) and the person who submitted can come back to their own
-      // submission — see useClaimedRow. Optional because no other access level
-      // mints one.
-      send<{ row: T; claim?: string }>(base(table), { method: "POST", body: JSON.stringify(values) }),
-    onSuccess: invalidate,
+    mutationFn: (values: Record<string, unknown>) =>
+      send<T[]>(base(table), {
+        method: "POST",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify(values),
+      }).then((r) => r[0]),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["rows", siteSlug(), table] }); },
   });
 }
 
+/** Edit a row. Only reaches rows the site's policies let this member reach. */
 export function useUpdateRow<T extends Row = Row>(table: string) {
-  const invalidate = useInvalidate(table);
+  const qc = useQueryClient();
   return useMutation({
-    // `Omit<…, "id">` is load-bearing: `Partial<T>` already carries `id?: number`
-    // from `Row`, and intersecting narrows RowId straight back to `number` — so
-    // a string id was still refused, which is the TS2322 production hit on the
-    // members page even after the other signatures were widened.
-    mutationFn: ({ id, ...values }: Omit<Partial<T>, "id"> & { id: RowId }) =>
-      send<{ row: T }>(`${base(table)}/${id}`, { method: "PATCH", body: JSON.stringify(values) }),
-    onSuccess: invalidate,
+    // Omit<Partial<T>, "id"> is required: Partial<T> already carries `id?: number`
+    // from Row, and intersecting narrows RowId straight back to number.
+    mutationFn: ({ id, ...values }: { id: RowId } & Omit<Partial<T>, "id">) =>
+      send<T[]>(base(table) + idFilter(id), {
+        method: "PATCH",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify(values),
+      }).then((r) => r[0]),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["rows", siteSlug(), table] }); },
   });
 }
 
+/** Delete a row. Accepts a bare id or `{ id }`, because its sibling takes an object. */
 export function useDeleteRow(table: string) {
-  const invalidate = useInvalidate(table);
+  const qc = useQueryClient();
   return useMutation({
-    // Accepts a bare id OR `{ id }`. `useUpdateRow` takes an object, so a caller
-    // reasonably assumes its sibling does too — the generator passed `{ id }`
-    // here and it was a type error, in a sample that was otherwise correct.
-    // Cheaper to accept both than to be the exception nobody expects.
     mutationFn: (arg: RowId | { id: RowId }) => {
       const id = typeof arg === "object" && arg !== null ? arg.id : arg;
-      return send<{ ok: true }>(`${base(table)}/${id}`, { method: "DELETE" });
+      return send<void>(base(table) + idFilter(id), { method: "DELETE" });
     },
-    onSuccess: invalidate,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["rows", siteSlug(), table] }); },
+  });
+}
+
+/**
+ * A function the site's own schema defines, called by name.
+ *
+ * This is the interesting half of moving to the Data API. Anything the database
+ * can express and a policy cannot — reaching into a write-only table for exactly
+ * one row, a report across several tables, a booking's remaining slots — is a
+ * Postgres function, exposed here. It replaces a list of hand-built verbs with
+ * "whatever the schema declared".
+ */
+export function useRpc<T = unknown>(fn: string, args?: Record<string, unknown>) {
+  return useQuery<T>({
+    queryKey: ["rpc", siteSlug(), fn, args ?? {}],
+    queryFn: () => send<T>(`/api/db/${siteSlug()}/data/rpc/${fn}`, {
+      method: "POST",
+      body: JSON.stringify(args ?? {}),
+    }),
+  });
+}
+
+/** The same, as an action rather than a read. */
+export function useRpcAction<T = unknown>(fn: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args?: Record<string, unknown>) =>
+      send<T>(`/api/db/${siteSlug()}/data/rpc/${fn}`, { method: "POST", body: JSON.stringify(args ?? {}) }),
+    onSuccess: () => { qc.invalidateQueries(); },
   });
 }
 
 // ── Visitor accounts ────────────────────────────────────────────────────────
 //
-// The site's own members — a barber shop's customers — not isibi accounts. A
-// session is a signed token from /api/db/<slug>/auth/*, kept in localStorage and
-// sent as a Bearer header on every call. Tables at access `user` are private per
-// member; `feed` and `admin` are readable to anyone signed in.
+// The site's own members — a barber shop's customers — nothing to do with isibi
+// accounts. Identity is Neon Auth (managed Better Auth) as of 2026-07-30, living
+// in the site's own database, and every call here goes through the platform at
+// `/api/db/<slug>/auth/*` rather than to the auth server directly. That is
+// same-origin, so there is no CORS and no cross-site cookie, and the page never
+// holds an endpoint or a key.
+//
+// A session is a bearer token kept in localStorage and sent on every read. Tables
+// at access `user` are private per member; `feed` and `admin` are readable to
+// anyone signed in.
 
 const TOKEN_KEY = () => `site_session_${siteSlug()}`;
 
@@ -201,397 +263,127 @@ function setSessionToken(token: string | null) {
 }
 
 export type Member = {
-  id: number;
+  id: string;
   email: string;
+  name: string;
   /**
    * "user" or "admin", plus whatever this site's tables named in `writeRoles`.
-   *
-   * The owner grants it and `admin` tables check it, but `/auth/me` did not
-   * return it — so a page could not gate admin UI on the member's own role, and
-   * the generator reached for `member.role` anyway in an eval sample. A member
-   * who has never been granted anything is "user".
+   * A member who has never been granted anything is "user". Gate admin UI on
+   * this — an `admin` table refuses a write from any other role with a 403.
    */
   role: string;
+  verified: boolean;
 };
 
 const authUrl = (action: string) => `/api/db/${siteSlug()}/auth/${action}`;
 
 /**
+ * Better Auth answers a sign-in with a session object; the token inside it is
+ * what every later request carries. Pulled out in ONE place, because the shape
+ * appears in sign-up and sign-in both and two readers of it drift.
+ */
+function tokenOf(d: unknown): string | null {
+  const o = d as { token?: unknown; session?: { token?: unknown } } | null;
+  const t = o?.token ?? o?.session?.token;
+  return typeof t === "string" && t ? t : null;
+}
+
+function memberOf(d: unknown): Member | null {
+  const o = d as { user?: Record<string, unknown> } | null;
+  const u = o?.user;
+  if (!u || typeof u !== "object") return null;
+  return {
+    id: String(u.id ?? ""),
+    email: String(u.email ?? ""),
+    name: String(u.name ?? ""),
+    role: String(u.role ?? "user").toLowerCase(),
+    verified: !!u.emailVerified,
+  };
+}
+
+/**
  * The signed-in member, or null. `isPending` while it is being checked — render
- * neither the signed-in nor the signed-out view until it settles, or the page
- * flashes a login form at somebody who is already logged in.
+ * NEITHER view until it settles, or the page flashes a sign-in form at somebody
+ * who is already signed in.
  */
 export function useMember() {
   const token = getSessionToken();
   return useQuery({
-    queryKey: ["member", token],
-    // Nothing to ask about when there is no token; resolve to null immediately.
+    queryKey: ["member", siteSlug(), token],
     queryFn: async (): Promise<Member | null> => {
       if (!token) return null;
-      try {
-        const r = await send<{ user: Member }>(authUrl("me"), { headers: { Authorization: `Bearer ${token}` } });
-        return r.user;
-      } catch {
-        // A rejected token is spent — a month-old session, or an account since
-        // removed. Clear it so the page offers a fresh login instead of looping.
-        setSessionToken(null);
-        return null;
-      }
+      const r = await fetch(authUrl("get-session"), { headers: { Authorization: `Bearer ${token}` } });
+      // A token the server no longer accepts is cleared here rather than left to
+      // fail every subsequent read with a 401 the page cannot explain.
+      if (r.status === 401) { setSessionToken(null); return null; }
+      if (!r.ok) throw new Error("could not check your sign-in");
+      return memberOf(await r.json().catch(() => null));
     },
-    staleTime: 60_000,
+    retry: false,
+    staleTime: 30_000,
   });
 }
 
-function useAuthAction(action: "signup" | "login") {
+function useAuthAction(action: string) {
   const qc = useQueryClient();
   return useMutation({
-    // `SignInResult`, not `{ token, user }`.
-    //
-    // The server answers a 2FA account with `{ pending, need }` and NO token —
-    // that is the whole point of the second factor. Typed as always returning a
-    // token, this stored `undefined` as the session and handed the caller no way
-    // to learn a code was wanted, so password login was quietly broken for every
-    // member with 2FA on. Every OTHER sign-in method already goes through
-    // `settle`; this was the one that did not.
-    mutationFn: (values: { email: string; password: string }) =>
-      send<SignInResult>(authUrl(action), { method: "POST", body: JSON.stringify(values) }),
-    onSuccess: (d) => {
-      // Only when there is one. `settle` is the shared rule.
-      settle(d);
-      // Every read changes meaning once there is a session — a `user` table goes
-      // from 401 to that member's own rows.
-      qc.invalidateQueries();
+    mutationFn: async (values: Record<string, unknown>) => {
+      const r = await fetch(authUrl(action), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(values),
+      });
+      const d = await r.json().catch(() => null);
+      if (!r.ok) {
+        const msg = (d as { message?: string; error?: string } | null);
+        throw new Error(msg?.message || msg?.error || "that did not work");
+      }
+      const t = tokenOf(d);
+      // Stored only when there IS one. Writing `undefined` would leave the page
+      // believing it is signed in with a session nothing accepts.
+      if (t) setSessionToken(t);
+      return d;
     },
+    onSuccess: () => { qc.invalidateQueries(); },
   });
 }
 
-export const useSignup = () => useAuthAction("signup");
-export const useLogin = () => useAuthAction("login");
+/** `{ email, password, name }`. Passwords need 8+ characters. */
+export function useSignup() { return useAuthAction("sign-up/email"); }
+/** `{ email, password }`. */
+export function useLogin() { return useAuthAction("sign-in/email"); }
 
 export function useLogout() {
   const qc = useQueryClient();
-  return () => { setSessionToken(null); qc.invalidateQueries(); };
-}
-
-/** Ask for a reset link. Always succeeds, whether or not the address has an account. */
-/**
- * Change the password while signed in.
- *
- * The current one is required even though there is already a session: without
- * it, a stolen token is a permanent takeover. Succeeding signs out every OTHER
- * session and hands back a fresh token for this one, which is stored here so the
- * member stays logged in through their own change.
- */
-export function useChangePassword() {
-  return useMutation({
-    mutationFn: async (vars: { current: string; next: string }) => {
-      const r = await send<{ ok: true; token: string }>(`/api/db/${siteSlug()}/auth/password`, {
-        method: "POST",
-        body: JSON.stringify(vars),
-      });
-      try { localStorage.setItem(`site_session_${siteSlug()}`, r.token); } catch { /* private mode */ }
-      return r;
-    },
-  });
-}
-
-// ---------------------------------------------------------------- sign-in methods
-
-function keepSession(token: string) {
-  try { localStorage.setItem(`site_session_${siteSlug()}`, token); } catch { /* private mode */ }
-}
-
-export type SignInMethod = { name: string; label: string; oauth: boolean };
-
-/**
- * What this site actually offers. Render the sign-in page from this rather than
- * hard-coding buttons — a provider the owner has not set up is not a button that
- * fails, it simply is not there.
- */
-export function useSignInMethods() {
-  return useQuery({
-    queryKey: ["auth-methods", siteSlug()],
-    queryFn: () => send<{ methods: SignInMethod[] }>(authUrl("methods")).then((r) => r.methods),
-  });
-}
-
-/** Send them to a provider. A full navigation, because the provider redirects back. */
-export function startOAuthSignIn(provider: string, next?: string) {
-  const q = next ? `?next=${encodeURIComponent(next)}` : "";
-  location.href = authUrl(`oauth/${provider}/start`) + q;
-}
-
-/** A response that may not be a session yet: a second factor can be pending. */
-export type SignInResult =
-  | { token: string; user: Member; pending?: undefined; need?: undefined }
-  | { pending: string; need: string; token?: undefined; user?: undefined };
-
-function settle(r: SignInResult) {
-  if (r.token) keepSession(r.token);
-  return r;
-}
-
-/** Sign in with a passkey. No password, nothing typed, phishing-proof. */
-export function usePasskeySignIn() {
-  return useMutation({
-    mutationFn: async (): Promise<SignInResult> => {
-      const start = await send<{ challenge: string; rpId: string }>(authUrl("passkey/login/start"), { method: "POST" });
-      const cred = (await navigator.credentials.get({
-        publicKey: { challenge: fromB64u(start.challenge), rpId: start.rpId, userVerification: "preferred" },
-      })) as PublicKeyCredential | null;
-      if (!cred) throw new Error("No passkey was chosen.");
-      const res = cred.response as AuthenticatorAssertionResponse;
-      return settle(await send<SignInResult>(authUrl("passkey/login/finish"), {
-        method: "POST",
-        body: JSON.stringify({
-          challenge: start.challenge,
-          credentialId: toB64u(cred.rawId),
-          response: {
-            clientDataJSON: toB64u(res.clientDataJSON),
-            authenticatorData: toB64u(res.authenticatorData),
-            signature: toB64u(res.signature),
-          },
-        }),
-      }));
-    },
-  });
-}
-
-/** Add a passkey to the account they are already signed into. */
-export function useAddPasskey() {
-  return useMutation({
-    mutationFn: async (vars?: { label?: string }) => {
-      const start = await send<{
-        challenge: string; rp: { id: string; name: string };
-        user: { id: string; name: string; displayName: string };
-        excludeCredentials: { id: string; type: string }[];
-        pubKeyCredParams: { type: string; alg: number }[];
-      }>(authUrl("passkey/register/start"), { method: "POST" });
-      const cred = (await navigator.credentials.create({
-        publicKey: {
-          challenge: fromB64u(start.challenge),
-          rp: start.rp,
-          user: { id: fromB64u(start.user.id), name: start.user.name, displayName: start.user.displayName },
-          pubKeyCredParams: start.pubKeyCredParams as PublicKeyCredentialParameters[],
-          excludeCredentials: start.excludeCredentials.map((c) => ({ id: fromB64u(c.id), type: "public-key" as const })),
-          authenticatorSelection: { residentKey: "preferred", userVerification: "preferred" },
-        },
-      })) as PublicKeyCredential | null;
-      if (!cred) throw new Error("No passkey was created.");
-      const res = cred.response as AuthenticatorAttestationResponse;
-      return send<{ ok: true }>(authUrl("passkey/register/finish"), {
-        method: "POST",
-        body: JSON.stringify({
-          label: vars?.label,
-          response: { clientDataJSON: toB64u(res.clientDataJSON), attestationObject: toB64u(res.attestationObject) },
-        }),
-      });
-    },
-  });
-}
-
-/** Ask for a sign-in code by email. Always succeeds, account or not. */
-export function useRequestSignInCode() {
-  return useMutation({
-    mutationFn: (vars: { email: string }) =>
-      send<{ ok: true }>(authUrl("code/request"), { method: "POST", body: JSON.stringify(vars) }),
-  });
-}
-
-export function useVerifySignInCode() {
-  return useMutation({
-    mutationFn: (vars: { email: string; code: string }) =>
-      send<SignInResult>(authUrl("code/verify"), { method: "POST", body: JSON.stringify(vars) }).then(settle),
-  });
-}
-
-/**
- * Present the second factor.
- *
- * `pending` comes from whichever primary method returned it — a session is not
- * issued until this succeeds. A recovery code works here too.
- */
-export function useVerifySecondFactor() {
-  return useMutation({
-    mutationFn: async (vars: { pending: string; code: string }) => {
-      const r = await send<SignInResult>(authUrl("totp/verify"), {
-        method: "POST",
-        body: JSON.stringify({ code: vars.code }),
-        headers: { Authorization: `Bearer ${vars.pending}` },
-      });
-      return settle(r);
-    },
-  });
-}
-
-/** Turn on an authenticator app: scan, then confirm with a code. */
-export function useStartTotp() {
-  return useMutation({ mutationFn: () => send<{ secret: string; uri: string }>(authUrl("totp/start"), { method: "POST" }) });
-}
-export function useEnableTotp() {
-  return useMutation({
-    mutationFn: (vars: { code: string }) =>
-      send<{ ok: true; recovery: string[] }>(authUrl("totp/enable"), { method: "POST", body: JSON.stringify(vars) }),
-  });
-}
-export function useDisableTotp() {
-  return useMutation({
-    mutationFn: (vars: { current: string }) =>
-      send<{ ok: true }>(authUrl("totp/disable"), { method: "POST", body: JSON.stringify(vars) }),
-  });
-}
-
-/** Remove a passkey. Refused (409, `last_method`) if it is the only way in. */
-export function useRemovePasskey() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (vars: { id: number }) =>
-      send<{ ok: true }>(authUrl("passkey/remove"), { method: "POST", body: JSON.stringify(vars) }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["identities", siteSlug()] }),
-  });
-}
-
-/** Disconnect a provider. Same last-way-in rule. */
-export function useUnlinkIdentity() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (vars: { id: number }) =>
-      send<{ ok: true }>(authUrl("identities/unlink"), { method: "POST", body: JSON.stringify(vars) }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["identities", siteSlug()] }),
-  });
-}
-
-/** Ask for a new confirm-your-email link. */
-export function useResendVerification() {
-  return useMutation({ mutationFn: () => send<{ ok: true }>(authUrl("verify/request"), { method: "POST" }) });
-}
-
-/** Where this account is signed in. `current` marks the device you are reading from. */
-export type SiteSession = {
-  sid: string;
-  device: string;
-  country: string | null;
-  createdAt: number | null;
-  lastSeen: number | null;
-  ageSec: number | null;
-  /**
-   * "2 days ago" — always a string, never null.
-   *
-   * `ageSec` is nullable on purpose (an unknown time is unknown, not 1970), but
-   * that put a null-guard between the generator and the one thing it wants to
-   * render, and it skipped the guard in every eval sample. Formatting a relative
-   * time is also exactly the fiddly thing not worth re-deriving per site.
-   */
-  lastSeenLabel: string;
-  current: boolean;
-};
-
-export function useSessions() {
-  return useQuery({
-    queryKey: ["sessions", siteSlug()],
-    queryFn: () => send<{ sessions: SiteSession[] }>(authUrl("sessions")),
-    // Unwrapped, like `useRows` and every other list hook. Returning the
-    // `{ sessions }` envelope made this the ONE list that had to be reached
-    // through a property, and the generator called `.map` straight onto it in
-    // all three eval samples — reasonably, because nothing else here behaves
-    // that way. Consistency is the feature.
-    select: (d) => d.sessions,
-  });
-}
-
-/**
- * Sign out ONE device.
- *
- * `logout-all` is the other primitive and it is all-or-nothing — dropping an old
- * tablet with it means signing back in on every machine you still have.
- *
- * Revoking the device you are reading from is allowed, because that is just
- * logging out; the response says `self: true` so the page can send them to the
- * sign-in screen rather than 401 on its next request with no explanation.
- */
-export function useRevokeSession() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (vars: { sid: string }) =>
-      send<{ ok: true; self: boolean }>(authUrl("sessions/revoke"), { method: "POST", body: JSON.stringify(vars) }),
-    onSuccess: (r) => {
-      if (r.self) {
-        try { localStorage.removeItem(`site_session_${siteSlug()}`); } catch { /* private mode */ }
-      }
-      qc.invalidateQueries({ queryKey: ["sessions", siteSlug()] });
-    },
-  });
-}
-
-/** What this member has connected — providers, passkeys, whether 2FA is on. */
-export function useConnectedAccounts() {
-  return useQuery({
-    queryKey: ["identities", siteSlug()],
-    queryFn: () => send<{
-      identities: { id: number; provider: string; email: string | null; created_at: string }[];
-      passkeys: { id: number; label: string | null; created_at: string; last_used_at: string | null }[];
-      hasPassword: boolean; totp: boolean;
-    }>(authUrl("identities")),
-  });
-}
-
-// WebAuthn speaks ArrayBuffers; the API speaks base64url.
-function toB64u(buf: ArrayBuffer) {
-  let s = "";
-  for (const b of new Uint8Array(buf)) s += String.fromCharCode(b);
-  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-function fromB64u(v: string) {
-  const p = v.replace(/-/g, "+").replace(/_/g, "/");
-  const bin = atob(p + "=".repeat((4 - (p.length % 4)) % 4));
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
-/** Sign out every OTHER device, keeping this one. */
-export function useLogoutOthers() {
   return useMutation({
     mutationFn: async () => {
-      const r = await send<{ ok: true; token: string }>(`/api/db/${siteSlug()}/auth/logout-all`, { method: "POST" });
-      try { localStorage.setItem(`site_session_${siteSlug()}`, r.token); } catch { /* private mode */ }
-      return r;
+      const token = getSessionToken();
+      // Told to the server as well as forgotten locally, or the session stays
+      // live for anyone who kept a copy of the token.
+      if (token) {
+        await fetch(authUrl("sign-out"), { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+      }
+      setSessionToken(null);
     },
+    onSuccess: () => { qc.invalidateQueries(); },
   });
 }
 
-/** Change the account's email. Needs the password, because the address IS the account. */
-export function useChangeEmail() {
-  return useMutation({
-    mutationFn: async (vars: { current: string; next: string }) => {
-      const r = await send<{ ok: true; token: string; user: Member }>(`/api/db/${siteSlug()}/auth/email`, {
-        method: "POST",
-        body: JSON.stringify(vars),
-      });
-      try { localStorage.setItem(`site_session_${siteSlug()}`, r.token); } catch { /* private mode */ }
-      return r;
-    },
-  });
-}
-
-/** Close the account for good. Their existing rows stay with the site owner. */
-export function useCloseAccount() {
-  return useMutation({
-    mutationFn: async (vars: { current: string }) => {
-      const r = await send<{ ok: true }>(`/api/db/${siteSlug()}/auth/close`, {
-        method: "POST",
-        body: JSON.stringify(vars),
-      });
-      try { localStorage.removeItem(`site_session_${siteSlug()}`); } catch { /* private mode */ }
-      return r;
-    },
-  });
-}
-
+/**
+ * `{ email }`. Always succeeds — tell the visitor to check their inbox whether or
+ * not the address has an account, because saying which would confirm who is a
+ * member here.
+ */
 export function useRequestReset() {
   return useMutation({
-    mutationFn: (values: { email: string }) =>
-      send<{ ok: true }>(authUrl("reset"), { method: "POST", body: JSON.stringify(values) }),
+    mutationFn: async (values: { email: string }) => {
+      await fetch(authUrl("forget-password"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(values),
+      }).catch(() => {});
+      return { ok: true as const };
+    },
   });
 }
 
@@ -653,43 +445,51 @@ export function useUploadFile(table: string) {
 // table that does not is a 404, not an error worth surfacing.
 
 /**
- * Read a table's declared public projection.
+ * A publicly-readable view of a table that is not itself readable.
  *
- * `params` may filter, but only on the columns the projection itself publishes;
- * anything else is ignored by the API rather than honoured, so this cannot be
- * used to ask about a column the site chose not to publish.
+ * The case it exists for: a booking form is write-only, and the page still needs
+ * to grey out the slots somebody has already taken. Under RLS there is no "public
+ * projection" setting — the site's schema declares a VIEW or a function that
+ * publishes only the columns it means to (`when`, never `who`), and this reads it
+ * by name. Rows have no `id`: publishing a sequential id from an owner-scoped
+ * table tells a stranger how many bookings exist. Key on a published column.
  */
-export function usePublicRows<T = PublicRow>(table: string, params?: RowQuery) {
-  return useQuery({
-    queryKey: ["public", siteSlug(), table, params],
-    queryFn: () => send<{ rows: T[] }>(`${base(table)}/public${qs(params)}`).then((r) => r.rows),
+export function usePublicRows<T = PublicRow>(view: string, params?: RowQuery) {
+  return useQuery<T[]>({
+    queryKey: ["public", siteSlug(), view, params ?? {}],
+    queryFn: () => send<T[]>(base(view) + pgQuery(params)),
   });
 }
 
 /**
  * One submission, read back by the person who made it.
  *
- * A `collect` table is write-only — nobody can list it — so this is the single
- * exception, and it opens exactly one row: the `claim` handed back by
- * `useCreateRow` when that row was created. Put the token in the link you send
- * ("manage your booking") and read it off the URL here. A missing, wrong, or
- * expired token is a plain 404, the same as a row that isn't there.
+ * A `collect` table is write-only — no policy lets anyone list it — so this is the
+ * single exception, and it opens exactly one row. The site's schema declares a
+ * `SECURITY DEFINER` function that takes the row's claim token and returns the
+ * matching row; that function bypasses RLS deliberately and by name, which is a
+ * far narrower hole than a read policy would be.
+ *
+ * Put the token in the link you send ("manage your booking") and read it off the
+ * URL here. A wrong token returns nothing, exactly like a row that is not there.
  */
-export function useClaimedRow<T extends Row = Row>(table: string, id: RowId | undefined, claim: string | undefined) {
-  return useQuery({
-    enabled: id !== undefined && !!claim,
-    queryKey: ["claim", siteSlug(), table, id],
-    queryFn: () =>
-      send<{ row: T }>(`${base(table)}/${id}?claim=${encodeURIComponent(claim as string)}`).then((r) => r.row),
+export function useClaimedRow<T = Row>(fn: string, claim: string | undefined) {
+  return useQuery<T | null>({
+    enabled: !!claim,
+    queryKey: ["claim", siteSlug(), fn, claim],
+    queryFn: () => send<T[]>(`/api/db/${siteSlug()}/data/rpc/${fn}`, {
+      method: "POST",
+      body: JSON.stringify({ tok: claim }),
+    }).then((r) => (Array.isArray(r) ? r[0] ?? null : (r as unknown as T))),
   });
 }
 
-/** Cancel that same submission. Safe to call twice — the second answers ok too. */
-export function useCancelClaim(table: string) {
-  const invalidate = useInvalidate(table);
+/** Cancel that same submission, through the function the schema declared for it. */
+export function useCancelClaim(fn: string) {
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, claim }: { id: RowId; claim: string }) =>
-      send<{ ok: true; cancelled: true }>(`${base(table)}/${id}?claim=${encodeURIComponent(claim)}`, { method: "DELETE" }),
-    onSuccess: invalidate,
+    mutationFn: ({ claim }: { claim: string }) =>
+      send<unknown>(`/api/db/${siteSlug()}/data/rpc/${fn}`, { method: "POST", body: JSON.stringify({ tok: claim }) }),
+    onSuccess: () => { qc.invalidateQueries(); },
   });
 }

@@ -326,26 +326,30 @@ or an access level — anything not in the schema below does not exist.
    \`id\` is refused outright. Type them as \`PublicRow & { … }\`, never \`Row & { … }\`, and key
    the list on a published column or the index.
 
-10. GIVE THE VISITOR THEIR SUBMISSION BACK. A successful \`useCreateRow\` on a \`collect\`
-    table resolves to \`{ row, claim }\` where **\`claim\` is optional** — only a \`collect\`
-    table mints one, so its type is \`string | undefined\`. Take the whole result and
-    narrow it (\`onSuccess: (data) => { if (!data.claim) return; … }\`); destructuring it
-    as a required \`{ claim: string }\` does not typecheck and the page will be refused.
-    **Never annotate a mutation callback's parameter.** Write \`onSuccess: (data) => …\`,
-    not \`onSuccess: ({ row, claim }: { row: Booking; claim?: string }) => …\`. TanStack's
+10. GIVE THE VISITOR THEIR SUBMISSION BACK. A \`collect\` table is write-only — no policy
+    lets anybody list it — so the person who booked cannot see their appointment again
+    unless the SCHEMA declares a way. When it does, the way is a database function:
+    \`useClaimedRow("get_booking", token)\` reads one row by its claim token and
+    \`useCancelClaim("cancel_booking")\` cancels it. Both take the FUNCTION NAME the schema
+    declared, not a table.
+    **Only build the manage page if the schema actually declares those functions** —
+    check the digest. If it does not, the confirmation screen is the end of the flow, and
+    that is a complete site rather than a broken one.
+    When it does: \`useCreateRow\` resolves to the created ROW, so read the token off the
+    column the schema publishes it in and put it in the link
+    (\`/manage?t=\${row.claim_token}\`). **Never annotate a mutation callback's parameter.**
+    Write \`onSuccess: (data) => …\`, not \`onSuccess: (data: Booking) => …\`. TanStack's
     callback takes four arguments and its types are contravariant, so ANY hand-written
-    annotation is refused even when it looks right — this was three separate build
+    annotation is refused even when it looks right — that was three separate build
     failures. Let it infer.
-    That \`claim\` is a signed token for THAT ONE row and
-    it is issued exactly once — if the page drops it, nobody can ever reach that booking
-    again except the site owner. On the confirmation screen, show a link to a manage page
-    carrying it: \`/manage?id=\${row.id}&claim=\${claim}\`. If you hold that in state, type the id as \`RowId\`, not \`string\` — \`row.id\` comes back as a NUMBER and only becomes a string in the URL. That page reads the two values
-    off the URL and calls \`useClaimedRow(table, id, claim)\` to show the booking and
-    \`useCancelClaim(table)\` to cancel it. Build the manage page whenever you build a
-    form on a \`collect\` table that represents an appointment, an order or a reservation
-    — anything a person would reasonably want to check or call off. Do not build it for a
-    plain contact form, which nobody comes back to. Never try to list a \`collect\` table:
-    the claim opens one row, and only for the person who wrote it.
+    Build this whenever the schema declares the functions AND the form is an appointment,
+    an order or a reservation — anything somebody would want to check or call off. Not for
+    a plain contact form, which nobody comes back to.
+
+11. ANYTHING THE SCHEMA DECLARES AS A FUNCTION, you can call: \`useRpc("fn", args)\` to read
+    and \`useRpcAction("fn")\` to act. This is how a site does what a filter cannot — a
+    total across tables, the slots left on a day, one row out of a write-only table. Only
+    call functions the digest actually lists.
 
 ## Reading rows
 
@@ -392,48 +396,29 @@ lucide-react icons, date-fns, recharts. Import nothing that is not already a dep
 
 ## Visitor accounts
 
-A site can have members — its own customers, nothing to do with isibi accounts. Everything comes
-from \`@/lib/rows\`; there is no other auth API and no fetch:
+A site can have members — its own customers, nothing to do with isibi accounts.
+Everything comes from \`@/lib/rows\`; there is no other auth API and no \`fetch\`:
 
-- \`useMember()\` → \`{ data: member | null, isPending }\`. **Render neither view until it settles**,
-  or the page flashes a sign-in form at somebody already signed in.
-- \`useSignup()\` / \`useLogin()\` → mutations taking \`{ email, password }\`. On success the session is
-  stored and every read re-runs on its own. Passwords need 8+ characters.
-- \`useLogout()\` → a plain function.
-- \`useRequestReset()\` → \`{ email }\`. Always succeeds; tell the visitor to check their inbox
-  whether or not the address has an account. The link itself is handled by the platform.
+- \`useMember()\` → \`{ data: member | null, isPending }\`. **Render neither view until it
+  settles**, or the page flashes a sign-in form at somebody already signed in. A member is
+  \`{ id, email, name, role, verified }\` and \`id\` is a UUID string, never a number.
+- \`useSignup()\` → \`{ email, password, name }\`. \`useLogin()\` → \`{ email, password }\`.
+  On success the session is stored and every read re-runs on its own. Passwords need 8+
+  characters. Surface the error's \`message\` on failure — the server distinguishes a wrong
+  password from an address that already has an account, and inventing your own text loses that.
+- \`useLogout()\` → a mutation, no arguments.
+- \`useRequestReset()\` → \`{ email }\`. Always succeeds; say "check your inbox" whether or
+  not the address has an account, because saying which confirms who is a member. The link
+  itself is handled by the platform.
 
-There is more than one way in, and WHICH ones depends on the site — so never hard-code buttons:
+Gate admin UI on \`member.role\`, which is \`"user"\` unless the owner granted something. An
+\`admin\` table refuses a write from any other role with a 403, so a button that is always
+visible is a button that sometimes fails.
 
-- **Every list hook's \`data\` IS the array** — \`useRows\`, \`useSessions\`, \`usePublicRows\`.
-  Map it directly (\`sessions.data?.map(…)\`); there is no wrapper object to reach through.
-- \`useSignInMethods()\` → the list this site actually offers, each \`{ name, label, oauth }\`.
-  Render the sign-in page FROM THIS. A provider the owner has not set up must not appear.
-- \`startOAuthSignIn(name)\` for any entry with \`oauth: true\` — Google, Microsoft, Apple and the
-  rest. It navigates away and the platform brings them back signed in; there is nothing to await.
-- \`usePasskeySignIn()\` → Face ID, Touch ID, a security key. Offer it whenever \`passkey\` is in
-  the list; it needs no password and no email.
-- \`useRequestSignInCode()\` then \`useVerifySignInCode()\` → \`{ email }\`, then \`{ email, code }\`.
-  Only when \`email-code\` is in the list.
-- \`useAddPasskey()\`, \`useConnectedAccounts()\`, \`useStartTotp()\` / \`useEnableTotp()\` /
-  \`useDisableTotp()\` belong on an ACCOUNT page, never on the sign-in page.
-- \`useSessions()\` → where this account is signed in, each \`{ sid, device, country, lastSeen,
-  ageSec, current }\`; \`useRevokeSession()\` takes \`{ sid }\` and signs out that ONE device.
-  Render \`lastSeenLabel\` (\"2 days ago\", always a string) — \`ageSec\` is a number OR null.
-  Also an ACCOUNT page. \`useLogoutOthers()\` is the blunt version — offer both, because "sign out
-  everywhere" makes somebody log back in on every machine they still have. Revoking the row
-  marked \`current\` is allowed and simply logs them out here; the response says \`self: true\`,
-  so send them to the sign-in page rather than leaving them on one that will 401.
-
-**A sign-in may not finish in one step.** \`useLogin\`, \`usePasskeySignIn\` and
-\`useVerifySignInCode\` all return \`{ token }\` OR \`{ pending, need }\`. When \`pending\` comes back
-the person has two-factor on: show a code field and call \`useVerifySecondFactor({ pending, code })\`.
-Treating \`pending\` as a successful login leaves them stuck on a page that thinks they are signed in.
-
-Build sign-in and sign-up ONLY when the schema actually has a \`user\`, \`feed\` or \`admin\` table.
-A site of \`display\` and \`collect\` tables needs no accounts, and adding them is friction nobody
-asked for. Surface the API's message on failure — it distinguishes a wrong password from an address
-that already has an account (\`code: "exists"\`).
+Build sign-in and sign-up ONLY when the schema actually has a \`user\`, \`feed\` or \`admin\`
+table. A site of \`display\` and \`collect\` tables needs no accounts, and adding them is
+friction nobody asked for — for somebody returning to a form they filled in, the claim link
+(rule 10) is the right tool and needs no account at all.
 
 ## What is not possible yet
 

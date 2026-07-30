@@ -7,28 +7,14 @@ import { makeCache, memoize } from "./ttl-cache.mjs";
 import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
 import { ensureSiteBackend as ensureSiteBackendPure } from "./site-provision.mjs";
 import { lookupRoute, saveRoute, dropRoute } from "./site-routing.mjs";
-import { handleSiteAuth } from "./site-auth-routes.mjs";
 import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers, handleOwnerAnalytics, assertOwner } from "./site-owner.mjs";
 import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_VISITOR_UPLOAD_BYTES } from "./site-uploads.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { injectMeta } from "./site-meta.mjs";
-import { sessionKey, verifySession, signClaim, verifyClaim, signVerify, verifyVerification, SESSION_TTL_SEC } from "./site-auth.mjs";
-import { checkSignup, newInviteCode, normalizeCode, normalizeMode, inviteOptions, normalizeDomains, SIGNUP_MODES } from "./site-invite.mjs";
-import { handleAuthFlow } from "./site-auth-flows.mjs";
-import { AUTH_DDL, AUTH_USER_COLUMNS, SESSION_DDL, routeFor, availableMethods } from "./site-auth-methods.mjs";
-import { SESSION_JOIN, sessionUsable, trimUa, MAX_SESSIONS_LISTED, pruneBefore } from "./site-sessions.mjs";
 import { drainTeardown } from "./site-teardown.mjs";
-import {
-  AUDIT_DDL, AUDIT_PAGE, AUDIT_MAX_ROWS, AUDIT_RETENTION_DAYS,
-  auditRow, describeEvents, summarize, normalizeKind,
-  pruneBefore as auditPruneBefore,
-} from "./site-audit.mjs";
-import { TEAM_DDL, normalizeTeamName, normalizeTeamId, describeTeams } from "./site-teams.mjs";
-import { providerConfig, decodeIdToken } from "./site-oauth.mjs";
-import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
+import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
-import { handleSiteData } from "./site-data.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, repairPrompt, briefForPages, pagesRequest, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
@@ -2577,9 +2563,6 @@ async function _hmac(secret, msg) {
 // is not paid on every auth call); each ALTER is idempotent-by-catch. NEW sites get
 // the columns from the CREATE below, so the ALTERs just no-op for them.
 const _authExtrasDone = new Set();
-// Email a built-site visitor a signed 24h "verify your email" link (→ /verify). Sent
-// through the platform mailer; fire-and-forget so signup/login never block on it. The
-// mailer no-ops until GO_FARTHER_API_KEY is set as a Worker secret (same as reset).
 // What one build costs the caller. The designer is a single Sonnet call with a
 // small output, so this sits alongside the other orchestrator fees rather than
 // being priced like a generation.
@@ -2695,27 +2678,17 @@ const SITE_SCHEMA_TOOL = {
                 required: ["column", "roles"],
               },
             },
-            // "OURS" — the read model a business tool needs, and the one the
-            // engine has never had reachable. Parsed since the schema engine was
-            // written and undeclarable until 2026-07-29, so no site has ever had
-            // one, exactly like `unique` before it.
+            // A team is a Neon Auth ORGANIZATION now, so the owner sets teams up
+            // through Better Auth rather than through any route of ours. Offered
+            // here again because a flag the designer cannot declare is a feature
+            // that does nothing — which this one was, at five separate layers.
             teamScope: {
               type: "boolean",
               description:
                 "Share this table across a TEAM: everyone in the same team reads and edits the same rows, and a write records who made it. " +
                 "USE THIS FOR AN INTERNAL TOOL where colleagues work the same records — a CRM's deals, a shared job list, a client roster. " +
                 "Only meaningful with access 'user'. Do NOT use it for a customer-facing members area, where one customer must never see another's rows. " +
-                "A member the owner has not put in a team sees only their own, so a site is safe before any team exists.",
-            },
-            teamRead: {
-              type: "boolean",
-              description:
-                "On a \"user\" table ONLY: a member also sees rows belonging to the people who report to them, while still writing only their own. " +
-                "This is the middle setting between \"user\" (private to one member) and \"feed\" (every signed-in member sees everything), and it is what an INTERNAL TOOL needs — " +
-                "a sales pipeline where a rep sees their own deals and their manager sees the whole team's, a timesheet, a case list. " +
-                "Use it whenever the brief describes staff, a team, reports, or a manager who oversees other people's records. " +
-                "Do NOT use it for a customer-facing members area, where one customer must never see another's rows. " +
-                "Who reports to whom is set by the site owner afterwards, not here.",
+                "A member who is not in a team sees only their own rows, so a site is safe before any team exists.",
             },
             publicView: {
               type: "object",
@@ -2944,7 +2917,7 @@ const routeDeps = (env) => ({
 
 const _resolveBackend = memoize(_connCache, async (slug, env) => lookupRoute(routeDeps(env), slug));
 
-// Argument order is (env, slug) because that is what handleSiteData passes.
+// Argument order is (env, slug), which is what every caller here uses.
 async function siteBackendBySlug(env, slug) { return _resolveBackend(slug, env); }
 
 // An uncached slug lookup. siteBackendBySlug caches for five minutes, which is
@@ -3012,6 +2985,18 @@ async function ensureSiteBackend(env, slug, uid, brief) {
     lookupSite: (s2) => siteBackendRowFresh(env, s2),
     lookupProject: (s2) => siteNeonProject(env, s2),
     createProject: (s2) => createSiteProject(env, s2),
+    // Identity is Neon's now. Idempotent, and run on the reuse path too —
+    // see site-provision.mjs for why enabling only at creation is a trap.
+    enableAuth: (proj, dbName) => enableNeonAuth(env, proj.neon_project, proj.neon_branch, dbName),
+    // Stored in the SITE's own _meta, not in Supabase: it is per-site, it is only
+    // ever read on a request that already holds that connection, and it goes when
+    // the site does.
+    saveAuthInfo: async (dbName, info) => {
+      const conn = connForDatabase((await lookupProject(slug)).conn, dbName);
+      await sqlQuery(conn, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
+      await sqlQuery(conn, "INSERT INTO _meta (k,v) VALUES ('auth_info', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
+        [JSON.stringify(info).slice(0, 20000)]);
+    },
     dropProject: async (id) => {
       console.error("dropping unrecorded neon project:", id);
       return dropUserProject(env, id);
@@ -3032,107 +3017,8 @@ async function ensureSiteBackend(env, slug, uid, brief) {
   await saveRoute(routeDeps(env), slug, conn);
   return conn;
 }
-// ── Visitor accounts: storage, throttle and the per-site signing secret ──────
-//
-// `_users` lives in the SITE's own Neon database. Its id is an INTEGER because
-// that is what applySiteSchema stamps on every `user`/`feed` table as owner_id —
-// a Supabase uuid could not go there. Created lazily on the first auth call, so
-// a site that never asks for accounts never gets the table.
-const _usersReady = new Set();
-// The D1-era auth tier was deleted 2026-07-29: initSiteAuth, ensureAuthExtras,
-// verifySiteUserToken, ensureNotifications and the notification writer. All of
-// it was unreachable once /verify moved onto the live token family, and
-// initSiteAuth was worse than dead — it created a SECOND `_users` shape with
-// `pass_salt TEXT NOT NULL`, so any site where it ran before the first signup
-// would reject every signup afterwards on a NOT NULL constraint.
-async function ensureSiteUsers(db) {
-  if (_usersReady.has(db)) return;
-  await sqlQuery(db, `CREATE TABLE IF NOT EXISTS _users (
-    id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-    email TEXT UNIQUE NOT NULL,
-    pass_hash TEXT NOT NULL,
-    role TEXT DEFAULT 'user',
-    verified INTEGER DEFAULT 0,
-    created_at TEXT DEFAULT (to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')),
-    last_login_at TEXT)`);
-  // NB: the D1-era initSiteAuth used `DEFAULT (now())` on a TEXT column, which
-  // Postgres refuses to implicitly cast — see the dialect notes in CLAUDE.md.
-  //
-  // The lockout counters are added HERE rather than in ensureAuthExtras, which
-  // is only reachable from the dead /verify page: this is the function the login
-  // path calls, and a counter the login path cannot read is not a counter.
-  // EVERY column any live query selects from `_users`, added here because this is
-  // the function the login path calls.
-  //
-  // They used to be added by `ensureAuthExtras`, which is reachable only from
-  // `initSiteAuth`, which is reachable only from the /verify page — and that page
-  // needs a token nothing ever minted. So `token_epoch` and `blocked` were
-  // selected by login on every request and created on no site at all: a missing
-  // column is a Postgres error, so login was answering 500 everywhere the moment
-  // the suspension work shipped. `test/api-auth.test.mjs` now derives the list
-  // from worker.js and fails if a query ever selects something not added here.
-  for (const sql of [
-    "ALTER TABLE _users ADD COLUMN token_epoch INTEGER DEFAULT 0",
-    "ALTER TABLE _users ADD COLUMN blocked INTEGER DEFAULT 0",
-    "ALTER TABLE _users ADD COLUMN manager_id INTEGER",
-    "ALTER TABLE _users ADD COLUMN failed INTEGER DEFAULT 0",
-    "ALTER TABLE _users ADD COLUMN locked_until BIGINT DEFAULT 0",
-    "ALTER TABLE _users ADD COLUMN last_failed_at BIGINT DEFAULT 0",
-    "ALTER TABLE _users ADD COLUMN totp_secret TEXT",
-    "ALTER TABLE _users ADD COLUMN totp_enabled INTEGER DEFAULT 0",
-    "ALTER TABLE _users ADD COLUMN totp_last_step BIGINT",
-    "ALTER TABLE _users ADD COLUMN recovery_hashes TEXT",
-    "ALTER TABLE _users ADD COLUMN team_id INTEGER",
-  ]) { try { await sqlQuery(db, sql); } catch {} }
-  // The table `team_id` points at. `applySiteSchema` has been stamping that
-  // column onto every table declaring `teamScope` since the schema engine was
-  // written, with no `_teams` anywhere for it to reference.
-  for (const sql of TEAM_DDL) { try { await sqlQuery(db, sql); } catch {} }
-  // The device list, for the same reason the columns above are here: it is
-  // JOINed onto the `_users` read on every authenticated request, and the rest
-  // of `AUTH_DDL` is applied only on the routes the registry owns. A `_sessions`
-  // that existed only where somebody used a passkey would make `me` answer 500
-  // on every ordinary email-and-password site.
-  for (const sql of SESSION_DDL) { try { await sqlQuery(db, sql); } catch {} }
-  // The audit log, here for exactly the same reason: plain email-and-password
-  // login WRITES to it, and the registry's DDL only runs on the routes the
-  // registry owns. A table that existed only where somebody used a passkey
-  // would make every ordinary sign-in throw on its own audit write.
-  for (const sql of AUDIT_DDL) { try { await sqlQuery(db, sql); } catch {} }
-  _usersReady.add(db);
-}
 
-// A random secret per site, kept in the site's own _meta. Per-site rather than
-// derived from one platform key: rotating it signs out that site's members and
-// nobody else's, and a leak is contained to one site. Cached because it never
-// changes and `me` runs on every page load a signed-in visitor makes.
-const _siteAuthSecret = makeCache({ ttlMs: 600_000, max: 500 });
-const siteAuthSecret = memoize(_siteAuthSecret, async (db) => {
-  await sqlQuery(db, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
-  const rows = await sqlQuery(db, "SELECT v FROM _meta WHERE k='auth_secret'");
-  if (rows[0] && rows[0].v) return rows[0].v;
-  const secret = [...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, "0")).join("");
-  // DO NOTHING, then read back: two isolates racing the first signup must end up
-  // with the SAME secret, or one of them mints tokens the other cannot verify.
-  await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('auth_secret', ?) ON CONFLICT (k) DO NOTHING", [secret]);
-  const again = await sqlQuery(db, "SELECT v FROM _meta WHERE k='auth_secret'");
-  return (again[0] && again[0].v) || secret;
-});
 
-// Per-isolate, which is weak against a distributed attacker and still worth
-// having: it stops the trivial single-source brute force, and every attempt
-// costs a full PBKDF2 run of real Worker CPU.
-//
-// Was counted with ttl-cache, whose `set` re-stamps the expiry — so the window
-// was EXTENDED by every blocked attempt and a locked-out address never got a
-// fresh one as long as anyone kept trying. makeLimiter fixes the window at the
-// first hit instead.
-const _authLimiter = makeLimiter({ windowMs: 60_000, max: 5000 });
-const AUTH_MAX_PER_MIN = 10;   // per site+email — one account under attack
-const AUTH_IP_PER_MIN = 30;    // per source — one attacker rotating addresses
-function authThrottle(key) {
-  return _authLimiter.hit(key, AUTH_MAX_PER_MIN);
-}
 
 // The public data API's throttle. Separate table from the auth one so a site
 // being hammered with reads cannot evict the counters holding a brute force
@@ -3140,604 +3026,138 @@ function authThrottle(key) {
 const _dataLimiter = makeLimiter({ windowMs: WINDOW_MS, max: 20000 });
 // Tighter than a form post: an upload costs storage, not a row.
 const VISITOR_UPLOADS_PER_MIN = 5;
+// Sign-in attempts per source per site. Higher than the upload cap because a real
+// person legitimately retries a password, and low enough that credential stuffing
+// through our proxy is not free. Better Auth throttles on its own side too; this
+// is about not being the open front door to it.
+const AUTH_PROXY_PER_MIN = 20;
+// Data reads per source per site. A page legitimately renders several lists, so
+// this is generous — the budget it protects is Neon compute, and RLS is what
+// protects the rows.
+const DATA_PROXY_PER_MIN = 300;
 
-// Who is asking, for a table that is scoped to a member. Returns {id, role} or
-// null. The id is an INTEGER from the site's own `_users`, which is what
-// applySiteSchema stamps as owner_id.
-//
-// Read through to the row rather than trusting the token: a session is good for
-// thirty days, so a member whose account was deleted — or whose role was taken
-// away — would otherwise keep the access their token was minted with.
-// The signing key for claim tokens — the SAME per-site secret sessions use.
-//
-// Shared on purpose. A separate secret would be a second thing to provision, a
-// second thing to rotate, and a second thing to get wrong; `sessionKey` already
-// mixes the slug in, so one site's claims are meaningless against another for
-// free. The kinds stay separated inside the payload (`use`), which `verifyClaim`
-// and `verifySession` each check as an allow-list.
+// The signing key for claim tokens, from the site's own per-site secret in
+// `_meta`. It was shared with session tokens until 2026-07-30; sessions are Neon
+// Auth's now, so a claim is the only kind left and this is its only reader. The
+// derivation is deliberately unchanged — claim links sit in confirmation emails
+// for ninety days and altering it would silently void every one already sent.
 
-// ---------------------------------------------------------- sign-in methods
-//
-// Tables for identities, passkeys and short-lived codes, plus the second-factor
-// columns on `_users`. Lazy and idempotent, like ensureSiteUsers — a site that
-// never offers anything but a password never pays for them.
-const _authTablesReady = new Set();
-async function ensureAuthTables(db) {
-  if (_authTablesReady.has(db)) return;
-  await ensureSiteUsers(db);
-  for (const sql of AUTH_DDL) await sqlQuery(db, sql);
-  // Idempotent-by-catch: Postgres has no ADD COLUMN IF NOT EXISTS for every
-  // version we might meet, and re-adding is the only failure worth swallowing.
-  for (const sql of AUTH_USER_COLUMNS) { try { await sqlQuery(db, sql); } catch {} }
-  _authTablesReady.add(db);
-}
 
-/** A site's own sign-in configuration, from its `_meta`. */
-async function siteAuthConfig(env, db, slug) {
-  let oauth = {};
-  try {
-    const rows = await sqlQuery(db, "SELECT v FROM _meta WHERE k='auth_config'");
-    if (rows[0] && rows[0].v) oauth = JSON.parse(rows[0].v).oauth || {};
-  } catch { /* an unreadable config means no providers, not a broken site */ }
-  return {
-    oauth,
-    // Only offer the emailed-code sign-in where mail can actually leave. A
-    // button that silently never arrives is worse than no button.
-    mailer: !!env.GO_FARTHER_API_KEY,
-    passkeys: true,
-    name: slug,
-  };
-}
 
-/** The OAuth token exchange. One shape; providers differ only in what they accept. */
-async function oauthExchange(cfg, { code, verifier, redirectUri }) {
-  const form = new URLSearchParams({
-    client_id: cfg.clientId,
-    client_secret: cfg.clientSecret,
-    code,
-    grant_type: "authorization_code",
-    redirect_uri: redirectUri,
-  });
-  if (verifier) form.set("code_verifier", verifier);
-  const r = await fetch(cfg.token, {
-    method: "POST",
-    // GitHub returns form-encoded unless asked otherwise, and its answer would
-    // then parse as an empty object with no error anywhere.
-    headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
-    body: form.toString(),
-    signal: AbortSignal.timeout(12000),
-  });
-  const out = await r.json().catch(() => ({}));
-  if (!r.ok || out.error) throw new Error("token exchange " + r.status + " " + (out.error || ""));
-  return out;
-}
 
-async function oauthProfile(cfg, tokens) {
-  // Apple has no userinfo endpoint — the profile is inside the id_token, which
-  // arrived over a TLS connection to the token endpoint we chose, so decoding
-  // without re-verifying its signature is sound here and only here.
-  if (!cfg.userinfo) {
-    const claims = decodeIdToken(tokens.id_token);
-    if (!claims) throw new Error("no profile");
-    return claims;
-  }
-  const r = await fetch(cfg.userinfo, {
-    headers: { authorization: "Bearer " + tokens.access_token, accept: "application/json", "user-agent": "isibi" },
-    signal: AbortSignal.timeout(12000),
-  });
-  if (!r.ok) throw new Error("userinfo " + r.status);
-  return r.json();
-}
+
+
+
+
+
+
+
 
 /**
- * The device-list half of a session, shared by both auth surfaces.
+ * Where this site's Neon Auth server lives.
  *
- * Split out because `handleSiteAuth` and `handleAuthFlow` both mint sessions and
- * both have to record them the same way — a method that signed somebody in
- * without a row would leave a device that cannot be listed and cannot be
- * revoked, which is the failure nobody notices until they go looking.
- *
- * `request` is here only for the two things stamped on the row: the user agent,
- * which is what makes the list readable, and the country Cloudflare already
- * knows. **The IP is deliberately not stored**, hashed or otherwise — it is PII
- * in the site owner's database bought for a feature ("was this login from
- * somewhere odd?") that needs geolocation we do not have. `request.cf.country`
- * gives the useful part for free and carries nothing identifying.
+ * Recorded at build time from the provisioning response. The field NAME in that
+ * response is the one thing here not measured against a real project, so this
+ * tries the plausible names and then falls back to the first https URL in the
+ * body — a provisioning answer for an auth service contains exactly one, and a
+ * heuristic that finds it is better than a hard-coded key that silently finds
+ * nothing. Tighten it once a real build has logged the shape.
  */
-/**
- * Writing to the audit log, wired once for BOTH auth surfaces.
- *
- * Defined here rather than in each dep factory because there are two of them —
- * `siteAuthDeps` for the password routes and `authFlowDeps` for the registry
- * methods — and a second copy of "how an event is recorded" is precisely how the
- * second factor came to be enforced on three sign-in methods and not the fourth.
- *
- * BEST-EFFORT, always. An audit write that fails must never fail the sign-in it
- * is describing: the log exists to explain what happened to an account, and
- * taking the account down to protect the record of it gets the priority exactly
- * backwards. Errors are logged and swallowed, the same contract `startSession`
- * has.
- *
- * The prune rides on the WRITE rather than on the owner's read: the read is
- * rare, and a table that is only trimmed when somebody happens to open the page
- * grows without bound on every site nobody looks at — which is all of them,
- * until the day something goes wrong.
- */
-function auditDeps(db, slug, request, ctx) {
-  const ip = (request && request.headers.get("CF-Connecting-IP")) || "";
-  const ua = trimUa((request && request.headers.get("user-agent")) || "");
-  const country = (request && request.cf && request.cf.country) || null;
-  let writes = 0;
-  return {
-    audit: (event) => {
-      // HANDED TO waitUntil, not fired and forgotten.
-      //
-      // The first production run of this log recorded 26 events where the audit
-      // had caused well over a hundred, and non-deterministically which: a
-      // Worker tears the request context down once the response is returned,
-      // and a promise nobody is holding is cancelled mid-flight. A log that
-      // keeps a random subset is worse than none, because the gaps look like
-      // "nothing happened". Nothing in the unit suite can see this — there is
-      // no request lifecycle in it.
-      //
-      // The response is still never blocked on the write: waitUntil extends the
-      // context, it does not delay the reply.
-      const p = (async () => {
-      try {
-        if (!normalizeKind(event && event.kind)) return;   // never a row nobody can find
-        // `db` may be a thunk. The owner routes wire this BEFORE they know the
-        // caller owns the site, so resolving the connection eagerly would do a
-        // lookup on behalf of somebody who is about to be refused.
-        const conn = typeof db === "function" ? await db() : db;
-        if (!conn) return;
-        const key = await sessionKey(await siteAuthSecret(conn), slug);
-        const row = await auditRow({ ip, ua, country, ...event }, { key });
-        if (!row) return;
-        await sqlQuery(conn,
-          "INSERT INTO _auth_events (at, kind, ok, user_id, email, who, ip, country, ua, sid, meta)" +
-          " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-          [row.at, row.kind, row.ok, row.user_id, row.email, row.who, row.ip, row.country, row.ua, row.sid,
-           row.meta ? JSON.stringify(row.meta) : null]);
-        // Roughly one sweep in fifty writes. Cheap enough to ride along, rare
-        // enough not to be a second statement on every sign-in.
-        if ((++writes % 50) !== 1) return;
-        const cut = auditPruneBefore(AUDIT_RETENTION_DAYS);
-        if (cut > 0) await sqlQuery(conn, "DELETE FROM _auth_events WHERE at < ?", [cut]);
-        // …and a hard ceiling, because retention alone does not bound a site
-        // being hammered: ninety days of a brute force is still ninety days.
-        await sqlQuery(conn,
-          "DELETE FROM _auth_events WHERE id NOT IN (SELECT id FROM _auth_events ORDER BY at DESC LIMIT ?)",
-          [AUDIT_MAX_ROWS]);
-      } catch (e) { console.error("audit write failed:", slug, (e && (e.detail || e.message)) || e); }
-      })();
-      if (ctx && ctx.waitUntil) ctx.waitUntil(p); else p.catch(() => {});
-      return p;
-    },
-  };
-}
+const _siteAuthBase = makeCache({ ttlMs: 600_000, max: 500 });
+const siteAuthBase = memoize(_siteAuthBase, async (db) => siteServiceBase(db, "auth_info"));
+const _siteDataBase = makeCache({ ttlMs: 600_000, max: 500 });
+const siteDataBase = memoize(_siteDataBase, async (db) => siteServiceBase(db, "data_api"));
 
-function sessionDeps(db, request) {
-  const q = (sql, args) => sqlQuery(db, sql, args);
-  const ua = trimUa((request && request.headers.get("user-agent")) || "");
-  const country = (request && request.cf && request.cf.country) || null;
-  return {
-    startSession: (uid, sid) => q(
-      "INSERT INTO _sessions (sid, user_id, ua, country, created_at, last_seen, revoked)" +
-      " VALUES (?,?,?,?,?,?,0) ON CONFLICT (sid) DO NOTHING",
-      [String(sid), Number(uid), ua || null, country ? String(country).slice(0, 2) : null,
-       Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
-    ),
-    // Revoked rows are read back too — `describeSessions` drops them, and a
-    // caller that filtered here would have to be trusted to keep doing so.
-    //
-    // The prune rides here rather than on sign-in: this is the rare route, it is
-    // scoped to one member's rows, and it is the moment the list is about to be
-    // shown. `pruneBefore` is twice a token's life, so a row can only go once
-    // the signature layer has been refusing its token for a month — deleting one
-    // sooner would read as "no row", which reads as LIVE.
-    sessionsFor: async (uid, limit) => {
-      // `created_at IS NOT NULL`, not COALESCE to 0 — a row whose stamp is
-      // missing would compare as 1970 and be deleted on the first list, which
-      // reads as "no row", which reads as LIVE. Keeping an oddity is cheaper
-      // than deleting a session that then cannot be seen or revoked.
-      try { await q("DELETE FROM _sessions WHERE user_id=? AND created_at IS NOT NULL AND created_at < ?", [Number(uid), pruneBefore(SESSION_TTL_SEC)]); }
-      catch (e) { console.error("session prune failed:", (e && e.message) || e); }
-      return q(
-        "SELECT sid, ua, country, created_at, last_seen, revoked FROM _sessions WHERE user_id=? ORDER BY last_seen DESC NULLS LAST LIMIT ?",
-        [Number(uid), Math.min(Number(limit) || MAX_SESSIONS_LISTED, MAX_SESSIONS_LISTED)],
-      );
-    },
-    // Scoped to the owner in the STATEMENT. A flag, never a DELETE: a missing
-    // row reads as LIVE (see `sessionUsable`), so deleting would un-revoke.
-    revokeSession: (uid, sid) => sqlExec(db, "UPDATE _sessions SET revoked=1 WHERE sid=? AND user_id=? AND revoked=0", [String(sid), Number(uid)]),
-    revokeAllSessions: (uid) => q("UPDATE _sessions SET revoked=1 WHERE user_id=? AND revoked=0", [Number(uid)]),
-    touchSession: (sid, at) => q("UPDATE _sessions SET last_seen=? WHERE sid=?", [Number(at) || 0, String(sid)]),
-  };
-}
-
-function authFlowDeps(env, db, slug, url, request, ctx) {
-  const q = (sql, args) => sqlQuery(db, sql, args);
-  const one = async (sql, args) => (await q(sql, args))[0] || null;
-  const nowSql = "to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')";
-  return {
-    // The relying party is the HOST, never the path — a passkey is bound to a
-    // domain, and every published site shares this one.
-    rpId: url.hostname,
-    siteConfig: () => siteAuthConfig(env, db, slug),
-
-    // The session row rides along on the user lookup — see SESSION_JOIN. Two
-    // statements here would double the round trips on the path the routing and
-    // cache work spent itself getting down to one.
-    findUserById: (id, sid) => (/^\d+$/.test(String(id))
-      ? one(
-          "SELECT u.id, u.email, u.token_epoch, u.blocked, u.totp_secret, u.totp_enabled, u.totp_last_step, u.recovery_hashes," +
-          " (u.pass_hash IS NOT NULL) AS has_password, s.revoked AS session_revoked, s.last_seen AS session_last_seen" +
-          " FROM _users u " + SESSION_JOIN + " WHERE u.id=?",
-          [sid ? String(sid) : "", Number(id)],
-        )
-      : null),
-    ...sessionDeps(db, request),
-    ...auditDeps(db, slug, request, ctx),
-    findUserByEmail: (e) => one("SELECT id, email, pass_hash AS password_hash, token_epoch, blocked, totp_secret, totp_enabled, totp_last_step, recovery_hashes FROM _users WHERE email=?", [e]),
-    createUser: async (email, name) => {
-      // No password: an account made through a provider has none until its owner
-      // sets one, and `pass_hash` is NOT NULL, so a placeholder that can never
-      // be matched stands in for "no password" rather than a nullable column.
-      const r = await q("INSERT INTO _users (email, pass_hash) VALUES (?,?) ON CONFLICT (email) DO NOTHING RETURNING id, email",
-        [email || (name ? null : null), "external$" + crypto.randomUUID()]);
-      return r[0] || null;
-    },
-    touchLogin: async (id) => { try { await q("UPDATE _users SET last_login_at=" + nowSql + " WHERE id=?", [Number(id)]); } catch {} },
-
-    findIdentity: (p, sub) => one("SELECT id, provider, subject, user_id, email FROM _identities WHERE provider=? AND subject=?", [p, sub]),
-    identitiesFor: (uid) => q("SELECT id, provider, email, created_at FROM _identities WHERE user_id=? ORDER BY id", [Number(uid)]),
-    linkIdentity: (p, sub, uid, email) => q("INSERT INTO _identities (provider, subject, user_id, email) VALUES (?,?,?,?) ON CONFLICT (provider, subject) DO NOTHING", [p, sub, Number(uid), email || null]),
-
-    addCredential: (uid, c) => q("INSERT INTO _credentials (user_id, cred_id, public_key, alg, sign_count, label) VALUES (?,?,?,?,?,?)",
-      [Number(uid), c.cred_id, c.public_key, c.alg, c.sign_count || 0, c.label]),
-    credentialById: (cid) => one("SELECT id, user_id, cred_id, public_key, alg, sign_count FROM _credentials WHERE cred_id=?", [cid]),
-    credentialsFor: (uid) => q("SELECT id, cred_id, label, created_at, last_used_at FROM _credentials WHERE user_id=? ORDER BY id", [Number(uid)]),
-    deleteCredential: (uid, id) => sqlExec(db, "DELETE FROM _credentials WHERE id=? AND user_id=?", [Number(id), Number(uid)]),
-    touchCredential: (id, count) => q("UPDATE _credentials SET sign_count=?, last_used_at=" + nowSql + " WHERE id=?", [Number(count) || 0, Number(id)]),
-
-    putCode: (kind, subject, code, expiresAt) => q("INSERT INTO _auth_codes (kind, subject, code, expires_at) VALUES (?,?,?,?)", [kind, String(subject), code, expiresAt]),
-    // Newest first: requesting a second code must not be defeated by the first.
-    takeCode: (kind, subject) => one("SELECT id, code, attempts, expires_at FROM _auth_codes WHERE kind=? AND subject=? ORDER BY id DESC LIMIT 1", [kind, String(subject)]),
-    spendCode: (id) => q("DELETE FROM _auth_codes WHERE id=?", [Number(id)]),
-    bumpAttempt: (id) => q("UPDATE _auth_codes SET attempts=attempts+1 WHERE id=?", [Number(id)]),
-
-    unlinkIdentity: (uid, id) => sqlExec(db, "DELETE FROM _identities WHERE id=? AND user_id=?", [Number(id), Number(uid)]),
-    setVerified: (uid) => q("UPDATE _users SET verified=1 WHERE id=?", [Number(uid)]),
-    sendVerify: (email, token) => sendSiteVerifyEmail(env, slug, email, token),
-    // ONLY the fields it was given. This wrote all four columns unconditionally
-    // until 2026-07-29, and `totp/verify` does not pass `recovery` — so the
-    // FIRST successful sign-in with the authenticator app set `recovery_hashes`
-    // to NULL and destroyed every recovery code. Silent, and it only bites at
-    // the one moment those codes exist for: the phone is gone and there is now
-    // no way back into the account at all.
-    //
-    // The unit suite could not see it because its fake already behaved this way
-    // — a fake more capable than the thing it stands in for. Found by the
-    // production audit; the fake is now the contract, and a test holds the real
-    // one to it.
-    setTotp: (uid, v) => {
-      const sets = [], vals = [];
-      const put = (col, key, map) => { if (Object.hasOwn(v, key)) { sets.push(col + "=?"); vals.push(map(v[key])); } };
-      put("totp_secret", "secret", (x) => x ?? null);
-      put("totp_enabled", "enabled", (x) => (x ? 1 : 0));
-      put("totp_last_step", "lastStep", (x) => x ?? null);
-      // Passed explicitly as null by `totp/disable`, which is how turning the
-      // factor off still clears them.
-      put("recovery_hashes", "recovery", (x) => x ?? null);
-      if (!sets.length) return Promise.resolve([]);
-      return q("UPDATE _users SET " + sets.join(",") + " WHERE id=?", vals.concat([Number(uid)]));
-    },
-
-    // A provider sign-in is still a signup when nobody here matches, so it obeys
-    // the same open/invite/closed setting as the form.
-    signupAllowed: async () => {
-      try { return normalizeMode(await siteSignupMode(db)) === "open"; }
-      catch { return false; }
-    },
-    sendCode: (email, code) => sendSiteCodeEmail(env, slug, email, code),
-    throttle: (k) => authThrottle(k),
-    exchange: oauthExchange,
-    fetchProfile: oauthProfile,
-  };
-}
-
-/**
- * Where a browser lands after an OAuth callback.
- *
- * A redirect back from a provider is a top-level navigation, so the answer has
- * to be a PAGE — it cannot read a JSON body. This one hands the session to the
- * same localStorage key the client library reads, then goes where they were
- * heading. No token is ever put in the URL, where it would end up in history and
- * in any referrer the next page sends.
- */
-function authLandingPage(slug, r) {
-  const ok = r.status === 200 && r.body && (r.body.token || r.body.pending);
-  const payload = JSON.stringify({
-    slug,
-    token: (r.body && r.body.token) || null,
-    pending: (r.body && r.body.pending) || null,
-    next: (r.body && r.body.next) || "/",
-    error: ok ? null : ((r.body && r.body.error) || "That sign-in didn't complete."),
-  });
-  const html = `<!doctype html><meta charset="utf-8"><title>Signing you in…</title>
-<body style="font:15px system-ui;padding:2rem;color:#111">
-<p id="m">Signing you in…</p>
-<script>
-(function(){
-  var d = ${payload};
-  var base = "/s/" + d.slug;
-  if (d.error) { document.getElementById("m").textContent = d.error; return; }
-  try {
-    if (d.token) localStorage.setItem("site_session_" + d.slug, d.token);
-    else if (d.pending) sessionStorage.setItem("site_pending_" + d.slug, d.pending);
-  } catch (e) {}
-  location.replace(base + (d.pending ? "/two-factor" : (d.next || "/")));
-})();
-</script></body>`;
-  return new Response(html, {
-    status: ok ? 200 : 400,
-    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" },
-  });
-}
-
-/** The confirm-your-address link. Dark until GO_FARTHER_API_KEY reaches the Worker. */
-async function sendSiteVerifyEmail(env, slug, email, token) {
-  if (!env.GO_FARTHER_API_KEY) { console.log("site verify email skipped (no mailer):", slug); return; }
-  const link = `https://isibi.ai/verify?slug=${encodeURIComponent(slug)}&token=${encodeURIComponent(token)}`;
-  await fetch("https://lkpfeqrelvziltfwpuxi.supabase.co/functions/v1/mailer", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${env.GO_FARTHER_API_KEY}`, "content-type": "application/json" },
-    body: JSON.stringify({
-      action: "send",
-      from: env.EMAIL_FROM || "isibi <login@isibi.ai>",
-      to: email,
-      subject: "Confirm your email address",
-      html: `<p>Confirm your address to finish setting up your account.</p><p><a href="${link}">Confirm my email</a></p><p>The link works for two days. If you didn't sign up, ignore this.</p>`,
-    }),
-    signal: AbortSignal.timeout(10000),
-  });
-}
-
-/** The emailed sign-in code. Dark until GO_FARTHER_API_KEY reaches the Worker. */
-async function sendSiteCodeEmail(env, slug, email, code) {
-  if (!env.GO_FARTHER_API_KEY) { console.log("site code email skipped (no mailer):", slug); return; }
-  await fetch("https://lkpfeqrelvziltfwpuxi.supabase.co/functions/v1/mailer", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${env.GO_FARTHER_API_KEY}`, "content-type": "application/json" },
-    body: JSON.stringify({
-      action: "send",
-      from: env.EMAIL_FROM || "isibi <login@isibi.ai>",
-      to: email,
-      subject: `Your sign-in code: ${code}`,
-      html: `<p>Your sign-in code is <strong style="font-size:20px;letter-spacing:2px">${code}</strong>.</p><p>It expires in 10 minutes. If you didn't ask for it, ignore this email.</p>`,
-    }),
-    signal: AbortSignal.timeout(10000),
-  });
-}
-
-async function siteClaimKey(env, slug) {
-  const db = await siteBackendBySlug(env, slug);
-  if (!db) throw new Error("no such site");
-  return sessionKey(await siteAuthSecret(db), slug);
-}
-
-async function resolveSiteVisitor(env, request, slug) {
-  const bearer = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
-  if (!bearer) return null;
-  try {
-    const db = await siteBackendBySlug(env, slug);
-    if (!db) return null;
-    const claims = await verifySiteSession(await siteAuthSecret(db), bearer, slug);
-    if (!claims) return null;
-    if (!/^\d+$/.test(String(claims.sub))) return null;
-    await ensureSiteUsers(db);
-    const rows = await sqlQuery(
-      db,
-      "SELECT u.id, u.role, u.team_id, u.token_epoch, u.blocked, u.verified, s.revoked AS session_revoked" +
-      " FROM _users u " + SESSION_JOIN + " WHERE u.id=?",
-      [claims.sid ? String(claims.sid) : "", Number(claims.sub)],
-    );
-    const u = rows[0];
-    if (!u) return null;
-    // A device signed out from another one. Checked HERE as well as in `me` for
-    // the same reason the epoch is: this is the half that reads rows, and a
-    // revocation that only took effect at /auth/me would leave the revoked
-    // device with full access to the data for thirty days.
-    if (!sessionUsable(claims, claims.sid ? { revoked: u.session_revoked } : null)) return null;
-    // A suspended member is nobody, everywhere. Checked here as well as in `me`
-    // because this is the one on the data path — the half that reads rows.
-    if (u.blocked) return null;
-    // Same epoch check as `me`. Without it here, a token invalidated by a
-    // password change would still be refused at /auth/me and quietly ACCEPTED on
-    // every data read — which is the half that actually matters.
-    if (Number(claims.ep || 0) !== Number(u.token_epoch || 0)) return null;
-    // `team_id` is what `teamOf` reads, and it was SELECTed above and then left
-    // out of this object until 2026-07-29 — so every member on every site
-    // resolved as teamless and `teamScope` was dead for the fifth time, one
-    // layer further along than the four it had already been dead at. The
-    // wiring test asserted the query selects it, which was true and not the
-    // thing that was broken.
-    //
-    // Passed through as the raw column: `teamOf` is the one place that decides
-    // what counts as a team, and normalising here would be a second opinion.
-    return { id: u.id, role: String(u.role || "user").toLowerCase(), team_id: u.team_id, verified: !!u.verified };
-  } catch (e) {
-    // A lookup failure must not silently downgrade to "anonymous", because for a
-    // `user` table anonymous is refused — which is the safe direction — but it
-    // must also never resolve to somebody.
-    console.error("visitor resolve failed:", slug, e && e.message);
+async function siteServiceBase(db, key) {
+  const rows = await sqlQuery(db, "SELECT v FROM _meta WHERE k=?", [key]);
+  if (!rows[0] || !rows[0].v) return null;
+  let info; try { info = JSON.parse(rows[0].v); } catch { return null; }
+  const named = info && (info.auth_url || info.url || info.endpoint || info.base_url ||
+    (info.auth && (info.auth.url || info.auth.endpoint)));
+  const pick = (o, depth = 0) => {
+    if (typeof o === "string") return /^https:\/\//.test(o) ? o : null;
+    if (!o || typeof o !== "object" || depth > 3) return null;
+    for (const v of Object.values(o)) { const hit = pick(v, depth + 1); if (hit) return hit; }
     return null;
-  }
-}
-
-const verifySiteSession = async (secret, token, slug) =>
-  verifySession(await sessionKey(secret, slug), token);
-
-function siteAuthDeps(env, db, slug, request, ctx) {
-  const one = async (sql, params) => { await ensureSiteUsers(db); const r = await sqlQuery(db, sql, params); return r[0] || null; };
-  return {
-    ...sessionDeps(db, request),
-    ...auditDeps(db, slug, request, ctx),
-    secret: () => siteAuthSecret(db),
-    // `totp_enabled` is load-bearing here and was missing until 2026-07-29: the
-    // login handler asks `secondFactorRequired(user)`, and a column this query
-    // does not select reads as undefined, which is falsy, which is "no second
-    // factor". Same shape as the token_epoch failure — the value exists on the
-    // row and never reaches the code that decides with it.
-    findUser: (_s, email) => one("SELECT id, email, pass_hash AS password_hash, token_epoch, blocked, failed, locked_until, last_failed_at, totp_enabled FROM _users WHERE email=?", [email]),
-    // The session row joins onto the read that already happens; see SESSION_JOIN.
-    findUserById: (_s, id, sid) => (/^\d+$/.test(String(id))
-      ? one(
-          "SELECT u.id, u.email, u.role, u.token_epoch, u.blocked, s.revoked AS session_revoked, s.last_seen AS session_last_seen" +
-          " FROM _users u " + SESSION_JOIN + " WHERE u.id=?",
-          [sid ? String(sid) : "", Number(id)],
-        )
-      : null),
-    createUser: async (_s, email, hash) => {
-      await ensureSiteUsers(db);
-      try {
-        // ON CONFLICT DO NOTHING then check: the UNIQUE index is what actually
-        // decides, so two simultaneous signups cannot both create the account.
-        const r = await sqlQuery(db, "INSERT INTO _users (email, pass_hash) VALUES (?,?) ON CONFLICT (email) DO NOTHING RETURNING id", [email, hash]);
-        return r[0] ? { id: r[0].id } : { conflict: true };
-      } catch (e) { console.error("site signup failed:", slug, e && (e.detail || e.message)); return {}; }
-    },
-    // Bumping the epoch is part of setting a password, not a separate step a
-    // caller might forget: every session minted before this moment stops working.
-    setPassword: async (id, hash) => {
-      const r = await sqlQuery(db, "UPDATE _users SET pass_hash=?, token_epoch=COALESCE(token_epoch,0)+1 WHERE id=? RETURNING token_epoch", [hash, Number(id)]);
-      return (r[0] && r[0].token_epoch) || 0;
-    },
-    touchLogin: async (id) => { try { await sqlQuery(db, "UPDATE _users SET last_login_at=to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') WHERE id=?", [Number(id)]); } catch {} },
-    bumpEpoch: async (id) => {
-      const r = await sqlQuery(db, "UPDATE _users SET token_epoch=COALESCE(token_epoch,0)+1 WHERE id=? RETURNING token_epoch", [Number(id)]);
-      return (r[0] && r[0].token_epoch) || 0;
-    },
-    setEmail: async (id, email) => {
-      try {
-        // `verified=0` in the SAME statement, so it is not possible to change an
-        // address without un-proving it — the discipline `setPassword` follows
-        // with the epoch. Without it: verify a real address, change to somebody
-        // else's, and the account stays "verified" on an address it never
-        // proved. Inert only while `requireVerified` fails open for want of a
-        // mailer; it becomes a live gate bypass the day that key ships.
-        const r = await sqlQuery(db, "UPDATE _users SET email=?, verified=0 WHERE id=? RETURNING id", [email, Number(id)]);
-        return r[0] ? { ok: true } : { conflict: true };
-      } catch (e) {
-        // The UNIQUE index on email is what decides, so a race between two
-        // members claiming the same address surfaces here rather than winning.
-        if (/duplicate|unique/i.test(String((e && (e.detail || e.message)) || ""))) return { conflict: true };
-        throw e;
-      }
-    },
-    deleteUser: async (id) => { await sqlQuery(db, "DELETE FROM _users WHERE id=?", [Number(id)]); },
-    sendReset: async (email, token) => sendSiteResetEmail(env, slug, email, token),
-    throttle: async (k) => authThrottle(k),
-    // The breach corpus. Injected as a fetch so the check itself stays pure and
-    // the tests never touch the network. K-anonymity means the password and its
-    // full hash never leave this Worker — only the first five hex characters of
-    // a SHA-1 go out, matching roughly one in a million hashes.
-    checkPwned: (url, init) => fetch(url, init),
-    // One statement, so two failures racing cannot read-then-write over each
-    // other. The values are computed from the row the caller already read, which
-    // means a race writes near-identical numbers — benign, unlike a lost count.
-    recordLoginAttempt: (id, v) => sqlQuery(
-      db,
-      "UPDATE _users SET failed=?, locked_until=?, last_failed_at=? WHERE id=?",
-      [Number(v.failed) || 0, Number(v.locked_until) || 0, Number(v.last_failed_at) || 0, Number(id)],
-    ),
-    // Fire-and-forget: a signup that worked must not report failure because a
-    // mailer was slow, and a site with no mailer must still create accounts.
-    onSignedUp: (id, email) => {
-      (async () => {
-        try {
-          const key = await sessionKey(await siteAuthSecret(db), slug);
-          await sendSiteVerifyEmail(env, slug, email, await signVerify(key, String(id)));
-        } catch (e) { console.error("verify send failed:", slug, (e && e.message) || e); }
-      })();
-    },
-    signupGate: (opts) => checkSignup({
-      mode: () => siteSignupMode(db),
-      domains: () => siteSignupDomains(db),
-      burn: (c) => burnInvite(db, c),
-    }, opts),
-    refundInvite: (code) => refundInvite(db, code),
   };
-}
-
-// ---------------------------------------------------------- invite codes
-//
-// The site's own database, next to `_users`, for the same reasons: it keeps
-// Supabase off the visitor path, and deleting a site takes its invites with it.
-async function ensureInvites(db) {
-  await sqlQuery(db, "CREATE TABLE IF NOT EXISTS _invites (code TEXT PRIMARY KEY, uses_left INTEGER NOT NULL DEFAULT 1, note TEXT, expires_at TEXT, created_at TEXT DEFAULT (to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')))");
-}
-
-/** The stored mode, or "open" when nothing has ever been set. Throws if unreadable. */
-async function siteSignupMode(db) {
-  await sqlQuery(db, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
-  const rows = await sqlQuery(db, "SELECT v FROM _meta WHERE k='signup_mode'");
-  return (rows[0] && rows[0].v) || "open";
-}
-
-/** The allow-listed email domains, or [] when the owner never set any. */
-async function siteSignupDomains(db) {
-  await sqlQuery(db, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
-  const rows = await sqlQuery(db, "SELECT v FROM _meta WHERE k='signup_domains'");
-  if (!rows[0] || !rows[0].v) return [];
-  try { const v = JSON.parse(rows[0].v); return Array.isArray(v) ? v : []; } catch { return []; }
+  const url = typeof named === "string" && /^https:\/\//.test(named) ? named : pick(info);
+  return url ? String(url).replace(/\/+$/, "") : null;
 }
 
 /**
- * Spend one use, atomically.
+ * The published site's sign-in, PROXIED through this Worker rather than called
+ * directly from the page.
  *
- * The condition is IN the UPDATE and the result is what decides — never a SELECT
- * then an UPDATE. Two people redeeming the last use of a code arrive as two
- * statements at one Postgres, and only one of them can see `uses_left > 0` and
- * write; a check-then-write would let both through. The same shape as the
- * notify cooldown claim, and for the same reason.
+ * Three things fall out of proxying, and each is why it is done this way:
+ *
+ *   - the page never learns the auth endpoint or any key, so nothing has to be
+ *     decided about what is safe to publish into a static bundle;
+ *   - it is SAME-ORIGIN. A published site is served from isibi.ai, so a direct
+ *     call would need CORS on Neon's side and a cross-site cookie in the browser,
+ *     which is the configuration most likely to work in development and fail in
+ *     Safari;
+ *   - the URL the client uses is unchanged (`/api/db/<slug>/auth/...`), so the
+ *     generated pages do not have to know that identity moved at all.
+ *
+ * The response is passed through as-is. Whatever Better Auth answers is what the
+ * client sees, including its errors — a proxy that reinterprets them is a second
+ * place where "wrong password" has to be spelled, and the two drift.
  */
-async function burnInvite(db, code) {
-  await ensureInvites(db);
-  const rows = await sqlQuery(
-    db,
-    "UPDATE _invites SET uses_left = uses_left - 1 WHERE code=? AND uses_left > 0 " +
-      "AND (expires_at IS NULL OR expires_at > to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')) RETURNING code",
-    [code],
-  );
-  return !!rows[0];
+async function proxySiteService(env, request, url, slug, path, which) {
+  const db = await siteBackendBySlug(env, slug);
+  if (!db) return Response.json({ error: "no such site" }, { status: 404 });
+  let base;
+  try { base = which === "data" ? await siteDataBase(db) : await siteAuthBase(db); }
+  catch { return Response.json({ error: "couldn't reach that just now" }, { status: 503 }); }
+  // Not configured is 501 and not 500: the site was built before its auth
+  // endpoint was recorded, which a rebuild fixes, and saying so is more use than
+  // a generic failure.
+  if (!base) return Response.json({ error: "this site's backend is not set up yet", code: "no_backend" }, { status: 501 });
+
+  const target = base + "/" + path + (url.search || "");
+  const headers = new Headers();
+  // Only what the auth server needs. Forwarding the whole header set would carry
+  // cookies for isibi.ai into a third party.
+  // `prefer` carries PostgREST's return=representation, which is how an insert
+  // answers with the row it created rather than an empty body.
+  for (const h of ["content-type", "authorization", "accept", "prefer"]) {
+    const v = request.headers.get(h);
+    if (v) headers.set(h, v);
+  }
+  try {
+    const r = await fetch(target, {
+      method: request.method,
+      headers,
+      body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.text(),
+      // A redirect is followed here rather than handed to the page: the client is
+      // an XHR and cannot act on a 302 from a cross-origin hop.
+      redirect: "follow",
+      signal: AbortSignal.timeout(15000),
+    });
+    const body = await r.text();
+    return new Response(body, {
+      status: r.status,
+      headers: {
+        "content-type": r.headers.get("content-type") || "application/json",
+        // PostgREST reports the total row count here when asked for it, and a
+        // paginated list is useless without it.
+        ...(r.headers.get("content-range") ? { "content-range": r.headers.get("content-range") } : {}),
+      },
+    });
+  } catch (e) {
+    console.error("site " + which + " proxy failed:", slug, path, e && e.message);
+    return Response.json({ error: "couldn't reach that just now" }, { status: 503 });
+  }
 }
 
-/** Put a use back when the signup it was spent on did not produce an account. */
-async function refundInvite(db, code) {
-  await ensureInvites(db);
-  await sqlQuery(db, "UPDATE _invites SET uses_left = uses_left + 1 WHERE code=?", [code]);
-}
 
-// The /reset page already exists and posts to /api/db/<slug>/auth/reset with
-// {token, password} — this is the link that gets someone there. No-ops without a
-// mailer configured, and the caller must not be told either way.
-async function sendSiteResetEmail(env, slug, email, token) {
-  if (!env.GO_FARTHER_API_KEY) { console.log("site reset email skipped (no mailer):", slug); return; }
-  const link = `https://isibi.ai/reset?slug=${encodeURIComponent(slug)}&token=${encodeURIComponent(token)}`;
-  await fetch("https://lkpfeqrelvziltfwpuxi.supabase.co/functions/v1/mailer", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${env.GO_FARTHER_API_KEY}`, "content-type": "application/json" },
-    body: JSON.stringify({
-      action: "send",
-      from: env.EMAIL_FROM || "isibi <login@isibi.ai>",
-      to: email,
-      subject: "Reset your password",
-      html: `<p>Someone asked to reset the password for this address.</p><p><a href="${link}">Choose a new password</a></p><p>The link works for one hour. If this wasn't you, nothing has changed and you can ignore this.</p>`,
-    }),
-    signal: AbortSignal.timeout(10000),
-  });
-}
+
+
+
+
+
+
+
 
 // Everything stored under a site's upload prefix, with WHO put it there.
 //
@@ -3795,21 +3215,35 @@ async function ownerEmail(env, uid) {
   return (u && u.email) || null;
 }
 
+/**
+ * Send one email from the Worker, through Cloudflare Email Service.
+ *
+ * The BINDING, not the REST API — so there is no token to mint, keep in GitHub
+ * Actions, upload each deploy, or rotate. `env.EMAIL` is undefined until Email
+ * Sending is enabled on the account and isibi.ai is a verified sending domain, so
+ * this reports that rather than throwing an unhelpful TypeError at a call site
+ * that only wanted to send a notification.
+ *
+ * `text` is sent alongside `html` deliberately: a message with no plain-text part
+ * scores worse with spam filters, and a booking notification landing in junk is
+ * the same as not sending it.
+ */
+async function sendMail(env, { to, subject, html, text }) {
+  if (!env.EMAIL) throw new Error("mail not configured: no EMAIL binding");
+  return env.EMAIL.send({
+    from: env.EMAIL_FROM || "isibi <login@isibi.ai>",
+    to, subject, html,
+    text: text || String(html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 4000),
+  });
+}
+
 function notifyOwnerOfSubmission(env, ctx, payload) {
-  if (!env.GO_FARTHER_API_KEY || !env.SUPABASE_SERVICE_KEY) return;
+  if (!env.EMAIL || !env.SUPABASE_SERVICE_KEY) return;
   const p = (async () => {
     const out = await notifyOwner({
       claim: (s2) => claimNotify(env, s2),
       emailOf: (uid) => ownerEmail(env, uid),
-      send: async ({ to, subject, html }) => {
-        const r = await fetch("https://lkpfeqrelvziltfwpuxi.supabase.co/functions/v1/mailer", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${env.GO_FARTHER_API_KEY}`, "content-type": "application/json" },
-          body: JSON.stringify({ action: "send", from: env.EMAIL_FROM || "isibi <login@isibi.ai>", to, subject, html }),
-          signal: AbortSignal.timeout(10000),
-        });
-        if (!r.ok) throw new Error("mailer " + r.status);
-      },
+      send: ({ to, subject, html }) => sendMail(env, { to, subject, html }),
     }, payload);
     // It runs detached, so nothing else would ever see why it did not send.
     if (!out.sent && out.error) console.error("submission notify:", payload.slug, out.reason, out.error);
@@ -3934,98 +3368,6 @@ async function handleRequest(request, env, ctx) {
       return new Response("Not found", { status: 404 });
     }
 
-    // Platform-hosted password-reset page for built-site visitors. The reset email
-    // links here (?slug=&token=); the built React app never needs its own /reset
-    // route. Self-contained, no external resources; posts to the reset endpoint.
-    if (url.pathname === "/reset" && request.method === "GET") {
-      const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Reset your password</title><style>
-        :root{--bg:#08070c;--panel:rgba(255,255,255,.04);--line:rgba(255,255,255,.12);--text:#edeaf3;--muted:rgba(237,234,243,.55);--split:linear-gradient(120deg,#ff79c6,#ffb84d)}
-        *{box-sizing:border-box;margin:0}body{background:var(--bg);color:var(--text);font-family:'Space Grotesk',system-ui,-apple-system,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1.5rem}
-        .card{width:min(420px,96vw);background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:2rem 1.8rem;box-shadow:0 30px 70px -20px rgba(0,0,0,.7)}
-        h1{font-size:1.35rem;margin-bottom:.4rem}p.sub{color:var(--muted);font-size:.9rem;margin-bottom:1.4rem;line-height:1.5}
-        label{display:block;font-size:.78rem;color:var(--muted);margin:.9rem 0 .35rem}
-        input{width:100%;background:#0a0910;border:1px solid var(--line);border-radius:10px;padding:.7rem .8rem;color:var(--text);font-size:.95rem}
-        input:focus{outline:none;border-color:#ff79c6}
-        button{width:100%;margin-top:1.3rem;padding:.8rem;border:0;border-radius:10px;background:var(--split);color:#0b0a10;font-weight:700;font-size:.95rem;cursor:pointer}
-        button:disabled{opacity:.6;cursor:default}
-        .msg{margin-top:1rem;font-size:.86rem;line-height:1.5;display:none}.msg.err{color:#ff8a8a;display:block}.msg.ok{color:#8fe6b0;display:block}
-        a.back{color:#ffb84d;text-decoration:none}
-      </style></head><body><div class="card">
-        <h1>Reset your password</h1>
-        <p class="sub" id="sub">Choose a new password for your account.</p>
-        <form id="f" autocomplete="off">
-          <label for="p1">New password</label><input id="p1" type="password" minlength="8" required autocomplete="new-password" placeholder="At least 8 characters">
-          <label for="p2">Confirm password</label><input id="p2" type="password" minlength="8" required autocomplete="new-password" placeholder="Type it again">
-          <button id="btn" type="submit">Set new password</button>
-        </form>
-        <div class="msg" id="msg"></div>
-      </div><script>
-        (function(){
-          var q=new URLSearchParams(location.search), slug=(q.get('slug')||'').replace(/[^a-z0-9-]/gi,''), token=q.get('token')||'';
-          var f=document.getElementById('f'), msg=document.getElementById('msg'), btn=document.getElementById('btn'), sub=document.getElementById('sub');
-          function show(t,cls){msg.textContent=t;msg.className='msg '+cls;}
-          if(!slug||!token){f.style.display='none';sub.style.display='none';show('This reset link is invalid. Please request a new one from the app.','err');return;}
-          f.addEventListener('submit',function(e){
-            e.preventDefault();
-            var p1=document.getElementById('p1').value, p2=document.getElementById('p2').value;
-            if(p1.length<8){show('Password must be at least 8 characters.','err');return;}
-            if(p1!==p2){show('Those passwords don\\u2019t match.','err');return;}
-            btn.disabled=true;show('','');
-            fetch('/api/db/'+slug+'/auth/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:token,password:p1})})
-              .then(function(r){return r.json().catch(function(){return {ok:false,error:'Something went wrong.'};});})
-              .then(function(d){
-                if(d&&d.ok){
-                  try{localStorage.setItem('zephyr_site_auth_'+slug,d.token);}catch(_){}
-                  f.style.display='none';
-                  show('Your password has been reset. You can now sign in.  ','ok');
-                  var a=document.createElement('a');a.className='back';a.href='/s/'+slug+'/';a.textContent='Go to the app \\u2192';msg.appendChild(a);
-                }else{btn.disabled=false;show((d&&d.error)||'This reset link is invalid or has expired.','err');}
-              }).catch(function(){btn.disabled=false;show('Couldn\\u2019t reach the server. Try again.','err');});
-          });
-        })();
-      </script></body></html>`;
-      return new Response(page, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
-    }
-    // Email-verification landing: a built-site visitor clicks the link we emailed on
-    // signup → we verify the signed token and flip their `verified` flag, then show a
-    // small on-brand confirmation. Idempotent (clicking twice is fine).
-    if (url.pathname === "/verify" && request.method === "GET") {
-      const slug = (url.searchParams.get("slug") || "").replace(/[^a-z0-9-]/gi, "").slice(0, 60);
-      const token = url.searchParams.get("token") || "";
-      const card = (heading, body, ok, back) =>
-        `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${heading}</title><style>
-        :root{--bg:#08070c;--panel:rgba(255,255,255,.04);--line:rgba(255,255,255,.12);--text:#edeaf3;--muted:rgba(237,234,243,.55);--split:linear-gradient(120deg,#ff79c6,#ffb84d)}
-        *{box-sizing:border-box;margin:0}body{background:var(--bg);color:var(--text);font-family:'Space Grotesk',system-ui,-apple-system,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1.5rem;text-align:center}
-        .card{width:min(420px,96vw);background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:2.4rem 1.8rem;box-shadow:0 30px 70px -20px rgba(0,0,0,.7)}
-        .badge{width:54px;height:54px;border-radius:50%;margin:0 auto 1.1rem;display:flex;align-items:center;justify-content:center;font-size:1.6rem;background:var(--split);color:#0b0a10}
-        .badge.bad{background:rgba(255,138,138,.16);color:#ff8a8a}
-        h1{font-size:1.35rem;margin-bottom:.5rem}p{color:var(--muted);font-size:.92rem;line-height:1.55}
-        a.back{display:inline-block;margin-top:1.3rem;color:#ffb84d;text-decoration:none;font-weight:600}
-      </style></head><body><div class="card"><div class="badge${ok ? "" : " bad"}">${ok ? "&#10003;" : "!"}</div><h1>${heading}</h1><p>${body}</p>${back ? `<a class="back" href="${back}">Go to the app &#8594;</a>` : ""}</div></body></html>`;
-      const page = (h, b, ok, back) => new Response(card(h, b, ok, back), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
-      if (!slug || !token || !env.SUPABASE_SERVICE_KEY || !siteDbConfigured(env)) return page("Invalid link", "This verification link is invalid. Try requesting a new one from the app.", false);
-      try {
-        const uuid = await siteBackendBySlug(env, slug);
-        if (!uuid) return page("Invalid link", "This verification link is invalid or has expired.", false);
-        // The LIVE token family. This ran on verifySiteUserToken — the D1-era
-        // scheme, whose signing key is derived differently — so it could not
-        // have validated a token minted by the current system even if anything
-        // had minted one, and nothing did. It also called initSiteAuth, which
-        // creates a SECOND `_users` shape with `pass_salt NOT NULL`: on a site
-        // where this page ran before anyone signed up, that shape won and every
-        // later signup failed a NOT NULL constraint.
-        await ensureSiteUsers(uuid);
-        const key = await sessionKey(await siteAuthSecret(uuid), slug);
-        const p = await verifyVerification(key, token);
-        if (!p || !p.sub) return page("Link expired", "This verification link is invalid or has expired. Request a new one from the app.", false);
-        // Idempotent — a link gets prefetched by mail clients and clicked twice.
-        await siteQuery(env, uuid, "UPDATE _users SET verified=1 WHERE id=?", [Number(p.sub)]);
-        return page("Email verified", "Your email is confirmed — you're all set. You can close this tab and head back to the app.", true, "/s/" + slug + "/");
-      } catch (e) {
-        console.error("verify failed:", e && e.message, e && e.detail);
-        return page("Something went wrong", "We couldn't verify your email just now. Try the link again in a moment.", false);
-      }
-    }
 
     // Serve a PUBLISHED Website-Builder site from R2: isibi.ai/s/<slug>/<page>.
     // STATIC sites: each page is one HTML object (rest with no extension → .html).
@@ -5979,72 +5321,6 @@ async function handleRequest(request, env, ctx) {
     // same database — and it keeps Supabase off the visitor path entirely, which
     // is the whole point of the routing work. Deleting a site takes its members
     // with it, because they were never anywhere else.
-    if (url.pathname.startsWith("/api/db/") && url.pathname.includes("/auth/")) {
-      // Two shapes now. The single-word actions are the original account routes;
-      // anything with a slash belongs to a sign-in METHOD and is matched against
-      // the registry, so adding a method cannot leave a route unrouted.
-      const am = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/auth\/([a-z0-9][a-z0-9/-]{0,59})$/i);
-      if (am) {
-        const [, aslug, action] = am;
-        const slug = aslug.toLowerCase();
-        // Per SOURCE, on top of the per-address throttle inside handleSiteAuth.
-        // That one keys on site+email, so an attacker who rotates the address
-        // walks straight through it — and every attempt they make costs a full
-        // PBKDF2 run of Worker CPU whether the account exists or not.
-        //
-        // `me` is exempt: it is a token verify plus one row read, and a signed-in
-        // visitor's page legitimately calls it on every load.
-        if (action !== "me") {
-          const ipHit = _authLimiter.hit(
-            // CF-Connecting-IP only — see site-data.mjs. X-Forwarded-For is
-            // client-settable, so honouring it would let one attacker mint a
-            // fresh bucket per request.
-            bucketKey({ ip: request.headers.get("CF-Connecting-IP") || "", slug, table: "auth", method: "POST" }),
-            AUTH_IP_PER_MIN,
-          );
-          if (!ipHit.ok) {
-            const t = tooMany(ipHit);
-            return Response.json(t.body, { status: t.status, headers: t.headers });
-          }
-        }
-        const db = await siteBackendBySlug(env, slug);
-        if (!db) return Response.json({ error: "no such site" }, { status: 404 });
-        const body = request.method === "POST" ? await request.json().catch(() => ({})) : {};
-        const bearer = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
-        // Anything thrown here would otherwise reach the visitor as a bare
-        // Cloudflare 1101 with no body — which is exactly how the PBKDF2
-        // iteration cap hid for a deploy. Never leak the message to the caller;
-        // do put it in the log.
-        try {
-          const flow = routeFor(action);
-          if (flow) {
-            await ensureAuthTables(db);
-            const r = await handleAuthFlow(authFlowDeps(env, db, slug, url, request, ctx), {
-              slug, route: flow.route, body,
-              query: Object.fromEntries(url.searchParams),
-              token: bearer, key: await sessionKey(await siteAuthSecret(db), slug),
-              origin: url.origin,
-            });
-            // An OAuth start is a real redirect for a browser, not JSON.
-            if (r.status === 302 && r.body && r.body.redirect) {
-              return Response.redirect(r.body.redirect, 302);
-            }
-            // ...and a callback lands on a page that stores the session and goes
-            // where the person was heading, because a browser arriving here
-            // cannot read a JSON body.
-            if (/^oauth\/[a-z]+\/callback$/.test(flow.route) && request.method === "GET") {
-              return authLandingPage(slug, r);
-            }
-            return Response.json(r.body, { status: r.status });
-          }
-          const r = await handleSiteAuth(siteAuthDeps(env, db, slug, request, ctx), { slug, action, body, token: bearer });
-          return Response.json(r.body, { status: r.status });
-        } catch (e) {
-          console.error("site auth failed:", slug, action, (e && (e.stack || e.message)) || e);
-          return Response.json({ error: "Something went wrong signing you in.", code: "server" }, { status: 500 });
-        }
-      }
-    }
 
     // A visitor attaching a photo to a form. Unauthenticated for the same reason
     // the rest of /api/db is: a customer booking a haircut has no account.
@@ -6055,6 +5331,57 @@ async function handleRequest(request, env, ctx) {
     // picture. A barber shop whose booking form is six text fields accepts
     // nothing, which is the answer for most sites — and is what keeps this from
     // being open image hosting for anyone who knows a slug.
+    // A published site's DATA, forwarded to its Neon Data API.
+    //
+    // Our own row routes were deleted 2026-07-30 (owner's call: Neon only, not
+    // both). What is left is transport — this forwards and nothing else. There is
+    // no access logic here, no schema allow-list and no scoping: the site's RLS
+    // policies decide every one of those, which is the whole point of the move.
+    //
+    // Proxied rather than called from the page for the same three reasons the auth
+    // proxy is: the bundle holds no URL and no key, it is same-origin so there is
+    // no CORS and no cross-site cookie, and a generated page's URLs do not change.
+    if (url.pathname.startsWith("/api/db/") && url.pathname.includes("/data/")) {
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/data\/([a-z0-9_][a-z0-9/._-]{0,79})$/i);
+      if (dm) {
+        const [, dslug2, dpath] = dm;
+        const slug = dslug2.toLowerCase();
+        const hit = _dataLimiter.hit(
+          bucketKey({ ip: request.headers.get("CF-Connecting-IP") || "", slug, table: "data", method: request.method }),
+          DATA_PROXY_PER_MIN,
+        );
+        if (!hit.ok) {
+          const t = tooMany(hit);
+          return Response.json(t.body, { status: t.status, headers: t.headers });
+        }
+        return proxySiteService(env, request, url, slug, dpath, "data");
+      }
+    }
+
+    // A published site's sign-in. Public by the same reasoning as the rest of
+    // /api/db — a customer booking a haircut has no isibi account — and gated by
+    // a per-source rate limit, because it is an unauthenticated endpoint that
+    // reaches a third party and costs a password hash on their side.
+    if (url.pathname.startsWith("/api/db/") && url.pathname.includes("/auth/")) {
+      const am = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/auth\/([a-z0-9][a-z0-9/._-]{0,79})$/i);
+      if (am) {
+        const [, aslug, apath] = am;
+        const slug = aslug.toLowerCase();
+        // CF-Connecting-IP only. The X-Forwarded-For fallback the rest of this
+        // file uses is client-settable, so honouring it lets one caller mint a
+        // fresh bucket per request and defeats the limit entirely.
+        const hit = _dataLimiter.hit(
+          bucketKey({ ip: request.headers.get("CF-Connecting-IP") || "", slug, table: "auth", method: "POST" }),
+          AUTH_PROXY_PER_MIN,
+        );
+        if (!hit.ok) {
+          const t = tooMany(hit);
+          return Response.json(t.body, { status: t.status, headers: t.headers });
+        }
+        return proxySiteService(env, request, url, slug, apath, "auth");
+      }
+    }
+
     if (url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/uploads")) {
       const vm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/uploads$/i);
       if (vm) {
@@ -6097,34 +5424,6 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
-    // Public data API for published sites. Unauthenticated by design — a visitor
-    // filling in a booking form has no account — so it is allow-listed against
-    // the site's own declared schema and refuses anything owner-scoped.
-    {
-      // The visitor, when the table needs one. Resolved lazily — handleSiteData
-      // only asks for `user`/`feed`/`admin` tables, so a public read of a menu
-      // never pays for it.
-      const dataRes = await handleSiteData(env, request, url, siteBackendBySlug, {
-        sqlQuery, sqlExec, loadSiteSchema,
-        resolveVisitor: (req, slug) => resolveSiteVisitor(env, req, slug),
-        // `requireVerified` is enforced only where confirming an address is
-        // actually possible — see needsVerified in site-access.mjs.
-        canVerify: !!env.GO_FARTHER_API_KEY,
-        // Reads the site's own declared limits — a per-table `rateLimit` and a
-        // per-app `rateLimits {read, write}` have been parsed and stored in
-        // _meta since the schema engine was written and never once consulted.
-        rateLimit: (key, limit) => _dataLimiter.hit(key, limit),
-        onSubmit: (payload) => notifyOwnerOfSubmission(env, ctx, payload),
-        // Lets the person who submitted a `collect` row come back to it. Signed
-        // with the SAME per-site secret as sessions, so a claim is contained to
-        // one site for free and rotating that secret invalidates both.
-        claim: {
-          sign: async (slug, table, id) => signClaim(await siteClaimKey(env, slug), table, id),
-          verify: async (slug, token, table, id) => verifyClaim(await siteClaimKey(env, slug), token, table, id),
-        },
-      });
-      if (dataRes) return dataRes;
-    }
 
     // Website builder — provision this site's database and apply its declared
     // schema. Called when a build starts, so the generated site has somewhere to
@@ -6398,27 +5697,19 @@ async function handleRequest(request, env, ctx) {
     // Ordered BEFORE the site-delete branch below on purpose: that one matches
     // any DELETE under /api/site/, so a row delete would otherwise be read as a
     // request to take the entire site down.
-    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads") || url.pathname.includes("/export") || url.pathname.includes("/notify") || url.pathname.includes("/access") || url.pathname.includes("/teams") || url.pathname.includes("/events"))) {
+    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads") || url.pathname.includes("/export") || url.pathname.includes("/notify"))) {
       const om = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rows(?:\/([a-z_][a-z0-9_]{0,40})(?:\/([0-9]{1,18}))?)?$/i);
-      const mm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/members(?:\/([0-9]{1,18}))?$/i);
+      // A member id is a UUID now, not the sequential integer this used to match.
+      const mm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/members(?:\/([0-9a-f-]{36}))?$/i);
       const an = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/analytics$/i);
       const uf = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/uploads(?:\/([A-Za-z0-9._-]{1,80}))?$/i);
       const xp = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/export$/i);
       const nt = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/notify$/i);
-      const ac = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/access(?:\/invite(?:\/([A-Za-z0-9-]{1,32}))?)?$/i);
-      const tm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/teams(?:\/([0-9]{1,18}))?$/i);
-      const ev = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/events$/i);
-      if (om || mm || an || uf || xp || nt || ac || tm || ev) {
+      if (om || mm || an || uf || xp || nt) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
-        const ownerSlug = (om || mm || an || uf || xp || nt || ac || tm || ev)[1].toLowerCase();
+        const ownerSlug = (om || mm || an || uf || xp || nt)[1].toLowerCase();
         const ownerDeps = {
-          // What the OWNER did. Missing entirely until the first production run
-          // of the log reported `role_change`, `suspend` and `unsuspend` as
-          // never written: site-owner.mjs records them, and this dep object —
-          // which is a different one from the two auth surfaces — never carried
-          // the `audit` they call.
-          ...auditDeps(() => siteBackendBySlug(env, ownerSlug), ownerSlug, request, ctx),
           ownerOf: async (s2) => {
             const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s2)}&select=uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
             if (!g.ok) throw Object.assign(new Error("site lookup failed"), { detail: g.status });
@@ -6472,220 +5763,6 @@ async function handleRequest(request, env, ctx) {
             });
             if (!q.ok) return Response.json({ error: "couldn't save that just now" }, { status: 503 });
             return Response.json({ ok: true, notify: on });
-          } else if (ev) {
-            // The auth audit log, owner-only. There is no member-facing view of
-            // this and there should not be: it names other members, their
-            // addresses and where they signed in from.
-            const eslug = ev[1].toLowerCase();
-            const g = await assertOwner(ownerDeps, eslug, ou.id);
-            if (g.error) return Response.json(g.error.body, { status: g.error.status });
-            if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
-            const edb = await siteBackendBySlug(env, eslug);
-            if (!edb) return Response.json({ error: "no such site" }, { status: 404 });
-            try {
-              await ensureSiteUsers(edb);
-              const limit = Math.min(AUDIT_PAGE, Math.max(1, parseInt(url.searchParams.get("limit") || String(AUDIT_PAGE), 10) || AUDIT_PAGE));
-              const before = parseInt(url.searchParams.get("before") || "", 10);
-              // Filters are allow-listed, not interpolated: `kind` is checked
-              // against the closed set and `member` has to be an integer, so no
-              // query string reaches the statement as anything but a parameter.
-              const kind = normalizeKind(url.searchParams.get("kind"));
-              const member = parseInt(url.searchParams.get("member") || "", 10);
-              const where = [], args = [];
-              if (Number.isFinite(before) && before > 0) { where.push("at < ?"); args.push(before); }
-              if (kind) { where.push("kind = ?"); args.push(kind); }
-              if (Number.isInteger(member) && member > 0) { where.push("user_id = ?"); args.push(member); }
-              const sql = "SELECT * FROM _auth_events" + (where.length ? " WHERE " + where.join(" AND ") : "") +
-                " ORDER BY at DESC, id DESC LIMIT ?";
-              const rows = await sqlQuery(edb, sql, args.concat([limit]));
-              // The headline is computed over a WIDER, unfiltered window than the
-              // page: "is something happening right now" must not change because
-              // somebody filtered the list to one member.
-              const dayAgo = Math.floor(Date.now() / 1000) - 86400;
-              const recent = await sqlQuery(edb,
-                "SELECT at, kind, ok, user_id, email, who, ip FROM _auth_events WHERE at >= ? ORDER BY at DESC LIMIT 2000", [dayAgo]);
-              return Response.json({
-                events: describeEvents(rows),
-                summary: summarize(recent),
-                // What the NEXT page starts before. Absent when this is the last.
-                nextBefore: rows.length === limit ? Number(rows[rows.length - 1].at) : null,
-              });
-            } catch (e) {
-              console.error("site events failed:", eslug, (e && (e.detail || e.message)) || e);
-              return Response.json({ error: "couldn't do that just now" }, { status: 503 });
-            }
-          } else if (tm) {
-            // Teams — the group a member belongs to, and the only way `teamScope`
-            // becomes reachable. That flag has been parsed, and its `team_id`
-            // column stamped onto tables, since the schema engine was written,
-            // with no table to reference and nothing able to populate it.
-            const tslug = tm[1].toLowerCase();
-            const g = await assertOwner(ownerDeps, tslug, ou.id);
-            if (g.error) return Response.json(g.error.body, { status: g.error.status });
-            const tdb = await siteBackendBySlug(env, tslug);
-            if (!tdb) return Response.json({ error: "no such site" }, { status: 404 });
-            try {
-              await ensureSiteUsers(tdb);
-              if (request.method === "GET") {
-                const rows = await sqlQuery(tdb, "SELECT id, name, created_at FROM _teams ORDER BY id");
-                // One grouped count rather than a query per team.
-                const counts = {};
-                for (const r of await sqlQuery(tdb, "SELECT team_id, COUNT(*) AS n FROM _users WHERE team_id IS NOT NULL GROUP BY team_id")) {
-                  counts[String(r.team_id)] = Number(r.n) || 0;
-                }
-                return Response.json({ teams: describeTeams(rows, counts) });
-              }
-              if (request.method === "POST") {
-                const tb = await request.json().catch(() => ({}));
-                const name = normalizeTeamName(tb.name);
-                if (!name) return Response.json({ error: "a team needs a name" }, { status: 400 });
-                const r = await sqlQuery(tdb, "INSERT INTO _teams (name) VALUES (?) RETURNING id, name, created_at", [name]);
-                return Response.json({ ok: true, team: describeTeams(r, {})[0] }, { status: 201 });
-              }
-              if (request.method === "DELETE") {
-                const tid = Number(tm[2]);
-                if (!Number.isInteger(tid) || tid <= 0) return Response.json({ error: "no such team" }, { status: 404 });
-                // Members are released FIRST. Dropping the team while rows still
-                // point at it would leave `team_id` values referencing nothing —
-                // and a later team reusing that id would inherit the old team's
-                // records, which is a data leak between two unrelated groups.
-                await sqlQuery(tdb, "UPDATE _users SET team_id=NULL WHERE team_id=?", [tid]);
-                const d = await sqlExec(tdb, "DELETE FROM _teams WHERE id=?", [tid]);
-                if (!d.changes) return Response.json({ error: "no such team" }, { status: 404 });
-                return Response.json({ ok: true });
-              }
-              return Response.json({ error: "method not allowed" }, { status: 405 });
-            } catch (e) {
-              console.error("site teams failed:", tslug, (e && (e.detail || e.message)) || e);
-              return Response.json({ error: "couldn't do that just now" }, { status: 503 });
-            }
-          } else if (ac) {
-            // Who may become a member. Open by default — every site built before
-            // this has no setting and must keep behaving exactly as it did.
-            const aslug = ac[1].toLowerCase();
-            const g = await assertOwner(ownerDeps, aslug, ou.id);
-            if (g.error) return Response.json(g.error.body, { status: g.error.status });
-            const adb = await siteBackendBySlug(env, aslug);
-            if (!adb) return Response.json({ error: "no such site" }, { status: 404 });
-            const wantsInvite = url.pathname.includes("/access/invite");
-            try {
-              if (!wantsInvite) {
-                if (request.method === "GET") {
-                  await ensureInvites(adb);
-                  const invites = await sqlQuery(adb, "SELECT code, uses_left, note, expires_at, created_at FROM _invites WHERE uses_left > 0 ORDER BY created_at DESC LIMIT 200");
-                  const cfg = await siteAuthConfig(env, adb, aslug);
-                  return Response.json({
-                    mode: normalizeMode(await siteSignupMode(adb)), modes: SIGNUP_MODES, invites,
-                    domains: await siteSignupDomains(adb),
-                    // Which providers are set up and what the sign-in page will
-                    // show — never the secrets. A GET that returned them would
-                    // make every future read of this panel a place they can leak.
-                    methods: availableMethods(cfg),
-                    oauth: Object.fromEntries(Object.entries(cfg.oauth || {}).map(([k, v]) => [k, { client_id: v.client_id, label: v.label || null, configured: true }])),
-                    redirectUris: Object.fromEntries(Object.keys(cfg.oauth || {}).map((k) => [k, url.origin + "/api/db/" + aslug + "/auth/oauth/" + k + "/callback"])),
-                  });
-                }
-                if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
-                const ab = await request.json().catch(() => ({}));
-
-                // Setting up a provider. Kept separate from the mode so an owner
-                // can add Google without touching who may sign up.
-                if (ab.oauth && typeof ab.oauth === "object") {
-                  const merged = { ...(await siteAuthConfig(env, adb, aslug)).oauth };
-                  for (const [name, v] of Object.entries(ab.oauth)) {
-                    // Allow-listed against the provider registry: an unknown key
-                    // here would be stored, read back, and never route anywhere.
-                    if (!providerConfig(name, { [name]: { client_id: "x", client_secret: "x" } }) && name !== "oidc") {
-                      return Response.json({ error: "unknown provider: " + name }, { status: 400 });
-                    }
-                    if (v === null) { delete merged[name]; continue; }
-                    if (!v || !v.client_id || !v.client_secret) {
-                      return Response.json({ error: name + " needs a client_id and a client_secret" }, { status: 400 });
-                    }
-                    merged[name] = {
-                      client_id: String(v.client_id).slice(0, 400),
-                      client_secret: String(v.client_secret).slice(0, 600),
-                      label: v.label ? String(v.label).slice(0, 40) : undefined,
-                      authorize: v.authorize ? String(v.authorize).slice(0, 400) : undefined,
-                      token: v.token ? String(v.token).slice(0, 400) : undefined,
-                      userinfo: v.userinfo === null ? null : (v.userinfo ? String(v.userinfo).slice(0, 400) : undefined),
-                    };
-                  }
-                  await sqlQuery(adb, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
-                  await sqlQuery(adb, "INSERT INTO _meta (k,v) VALUES ('auth_config', ?) ON CONFLICT (k) DO UPDATE SET v=excluded.v", [JSON.stringify({ oauth: merged })]);
-                  if (ab.mode === undefined) {
-                    const cfg2 = await siteAuthConfig(env, adb, aslug);
-                    return Response.json({ ok: true, methods: availableMethods(cfg2) });
-                  }
-                }
-
-                // Orthogonal to the mode, and settable on its own: an owner may
-                // want an open site limited to their company, or an invite-only
-                // one ALSO limited, so a leaked code cannot be used from a
-                // personal address. Independent because otherwise a client
-                // toggling the allow-list has to resend the mode, and a client
-                // that forgets gets a 400 for a field it never meant to touch.
-                let domains;
-                if (ab.domains !== undefined) {
-                  domains = normalizeDomains(ab.domains);
-                  await sqlQuery(adb, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
-                  await sqlQuery(adb, "INSERT INTO _meta (k,v) VALUES ('signup_domains', ?) ON CONFLICT (k) DO UPDATE SET v=excluded.v", [JSON.stringify(domains)]);
-                  if (ab.mode === undefined) return Response.json({ ok: true, domains });
-                }
-
-                // Allow-listed, not stored as sent: an unrecognised mode would
-                // read back as "open" and quietly reopen a site the owner closed.
-                const mode = normalizeMode(ab.mode);
-                if (!SIGNUP_MODES.includes(String(ab.mode || "").toLowerCase())) {
-                  return Response.json({ error: "mode must be one of: " + SIGNUP_MODES.join(", ") }, { status: 400 });
-                }
-                await sqlQuery(adb, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
-                await sqlQuery(adb, "INSERT INTO _meta (k,v) VALUES ('signup_mode', ?) ON CONFLICT (k) DO UPDATE SET v=excluded.v", [mode]);
-                return Response.json(domains === undefined ? { ok: true, mode } : { ok: true, mode, domains });
-              }
-              // .../access/invite
-              if (request.method === "DELETE") {
-                const revoke = normalizeCode(ac[2]);
-                if (!revoke) return Response.json({ error: "no such code" }, { status: 404 });
-                await ensureInvites(adb);
-                // Zeroed rather than deleted: a used code should stay visible as
-                // spent, and a revoked one must never be re-mintable by chance.
-                const r = await sqlExec(adb, "UPDATE _invites SET uses_left = 0 WHERE code=? AND uses_left > 0", [revoke]);
-                if (!r.changes) return Response.json({ error: "no such code" }, { status: 404 });
-                return Response.json({ ok: true });
-              }
-              if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
-              const ib = await request.json().catch(() => ({}));
-              const opt = inviteOptions(ib);
-              await ensureInvites(adb);
-              const code = newInviteCode();
-              // STORED NORMALIZED, shown grouped. `newInviteCode` returns
-              // `XXXX-XXXX-XXXX` for reading aloud, and every redemption path
-              // runs `normalizeCode` first — which strips the separators. Storing
-              // the pretty form meant the lookup could never match it, so NO
-              // invite code has ever been redeemable, on any site. Measured live
-              // 2026-07-29. The unit tests could not see it: they drive a fake
-              // `burn` over already-normalized codes, and the mismatch is between
-              // two halves of worker.js that no single test spanned. Revoke
-              // normalizes too, so it was broken the same way and this fixes both.
-              const stored = normalizeCode(code);
-              await sqlQuery(
-                adb,
-                "INSERT INTO _invites (code, uses_left, note, expires_at) VALUES (?,?,?," +
-                  (opt.days ? "to_char(now() AT TIME ZONE 'UTC' + (? || ' days')::interval,'YYYY-MM-DD HH24:MI:SS')" : "NULL") + ")",
-                opt.days ? [stored, opt.uses, opt.note, String(opt.days)] : [stored, opt.uses, opt.note],
-              );
-              // The code itself is NEVER logged — it is a credential, and a
-              // log that carries it hands an account to whoever reads it.
-              try {
-                const p = auditDeps(adb, aslug, request).audit({ kind: "invite_mint", meta: { count: opt.uses } });
-                if (p && p.catch) p.catch(() => {});
-              } catch (e) { console.error("audit failed:", aslug, (e && e.message) || e); }
-              return Response.json({ ok: true, code, uses: opt.uses, days: opt.days, note: opt.note }, { status: 201 });
-            } catch (e) {
-              console.error("site access failed:", aslug, (e && (e.detail || e.message)) || e);
-              return Response.json({ error: "couldn't do that just now" }, { status: 503 });
-            }
           } else if (xp) {
             if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
             const xr = await handleOwnerExport({
@@ -6737,7 +5814,7 @@ async function handleRequest(request, env, ctx) {
             r = await handleOwnerMembers(ownerDeps, {
               slug: mslug.toLowerCase(), uid: ou.id, method: request.method,
               memberId: mid, params: Object.fromEntries(url.searchParams),
-              // PATCH is the only way a member's role or manager is ever set.
+              // PATCH is the only way a role or a suspension is ever set.
               body: request.method === "PATCH" ? await request.json().catch(() => ({})) : {},
             });
           } else if (request.method === "GET") {

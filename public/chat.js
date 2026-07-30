@@ -9844,11 +9844,14 @@ async function loadSiteData(site) {
     const d = await r.json().catch(() => ({}));
     if (r.ok && Array.isArray(d.tables)) tables = d.tables;
   } catch (e) {}
-  const tabs = tables.map((t) => ({ name: t.name, access: t.access, columns: t.columns || [], label: t.name })).concat([{ name: '_users', access: 'members', columns: [], label: 'Users' }]);
+  // No synthetic "Users" tab: it read /api/site/<slug>/members, which went with
+  // the auth layer on 2026-07-30. Showing a tab that always errors is worse than
+  // not showing one.
+  const tabs = tables.map((t) => ({ name: t.name, access: t.access, columns: t.columns || [], label: t.name }));
   let sel = (siteDataTable && tabs.some((t) => t.name === siteDataTable)) ? siteDataTable : (tabs[0] && tabs[0].name);
   siteDataTable = sel;
   const selTab = tabs.find((t) => t.name === sel) || { columns: [] };
-  const members = sel === '_users';
+  const members = false;
   // Editing and deleting work on every declared table — it is all the owner's.
   // Adding does not: a `user`/`feed` row belongs to a member of the site, and
   // the owner has no member id to stamp on it, so the API answers 409.
@@ -9865,7 +9868,7 @@ async function loadSiteData(site) {
     } catch (e) { err = true; }
   }
   const accLabel = { collect: 'submissions', display: 'content', user: 'per-user', feed: 'public feed' };
-  const side = '<div class="st-data-side">' + tabs.map((t) => '<button type="button" class="st-data-tab' + (t.name === sel ? ' on' : '') + '" data-dtable="' + esc(t.name) + '"><span class="st-data-tn">' + esc(t.label) + '</span>' + (t.name === '_users' ? '<span class="st-data-acc">accounts</span>' : '<span class="st-data-acc">' + esc(accLabel[t.access] || '') + '</span>') + '</button>').join('') + '</div>';
+  const side = '<div class="st-data-side">' + tabs.map((t) => '<button type="button" class="st-data-tab' + (t.name === sel ? ' on' : '') + '" data-dtable="' + esc(t.name) + '"><span class="st-data-tn">' + esc(t.label) + '</span>' + '<span class="st-data-acc">' + esc(accLabel[t.access] || '') + '</span>' + '</button>').join('') + '</div>';
   // Add / edit form (owner content editor) — a field per declared column.
   let formHtml = '';
   if (editable && siteDataForm) {
@@ -10264,9 +10267,7 @@ function renderSiteWorkspace(view, site) {
   if (isReact && site.backend && siteView === 'data') loadSiteData(site);
   // Cloud cards that are live open their real panels.
   view.querySelectorAll('[data-cloud]').forEach((b) => b.onclick = () => {
-    if (b.dataset.cloud === 'members') siteMembers(site);
-    else if (b.dataset.cloud === 'security') siteSecurity(site);
-    else if (b.dataset.cloud === 'database') siteDatabase(site);
+    if (b.dataset.cloud === 'database') siteDatabase(site);
     else if (b.dataset.cloud === 'insights') siteInsights(site);
     else if (b.dataset.cloud === 'backups') siteBackups(site);
     else if (b.dataset.cloud === 'versions') siteVersions(site);
@@ -10347,7 +10348,6 @@ function renderSiteWorkspace(view, site) {
   const ib = document.getElementById('stInbox');
   if (ib) ib.onclick = () => siteInbox(site);
   const mb = document.getElementById('stMembers');
-  if (mb) mb.onclick = () => siteMembers(site);
   const plusBtn = document.getElementById('stPlus');
   if (plusBtn) plusBtn.onclick = siteAttachOpen;
   paintAttachStrip();
@@ -10804,47 +10804,6 @@ async function siteInbox(site) {
 
 // Site members — the real end-user accounts that signed up on the published site
 // (auth backend). Owner-only, RLS-scoped by their JWT. Mirrors the inbox modal.
-async function siteMembers(site) {
-  const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
-  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then member sign-ups show up here.'); return; }
-  let box = document.getElementById('siteMembersModal');
-  if (box) box.remove();
-  box = document.createElement('div');
-  box.id = 'siteMembersModal';
-  box.className = 'si-modal';
-  box.innerHTML = '<div class="si-card"><div class="si-head"><b>Site members</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body">Loading…</div></div>';
-  document.body.appendChild(box);
-  const close = () => box.remove();
-  box.querySelector('.si-x').onclick = close;
-  box.addEventListener('click', (e) => { if (e.target === box) close(); });
-  const bodyEl = box.querySelector('.si-body');
-  // D1 timestamps come back as "2026-07-20 21:27:35" (UTC, space-separated).
-  const fmt = (t) => { try { if (!t) return '—'; const iso = /^\d{4}-\d\d-\d\d \d\d:/.test(String(t)) ? String(t).replace(' ', 'T') + 'Z' : t; return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) { return '—'; } };
-  try {
-    if (site.react && site.backend) {
-      // React site: members are the visitor accounts in the site's own database
-      // (_users). Its own route, because that table is deliberately not part of
-      // the declared schema and its columns are named explicitly so the password
-      // hash can never come back.
-      const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/members');
-      const d = await r.json().catch(() => ({}));
-      const members = (d && Array.isArray(d.members)) ? d.members : [];
-      bodyEl.innerHTML = members.length
-        ? '<div class="si-count">' + members.length + ' member' + (members.length === 1 ? '' : 's') + '</div>' + members.map((m) =>
-            '<div class="si-item"><div class="si-item-top"><span class="si-form">' + esc(m.email || '') + '</span><span class="si-when">joined ' + esc(fmt(m.created_at)) + '</span></div></div>').join('')
-        : '<div class="si-empty">No members yet. When someone signs up in your app, their account shows up here.</div>';
-      return;
-    }
-    const r = await apiFetch('/api/site/members?slug=' + encodeURIComponent(slug));
-    const d = await r.json().catch(() => ({ members: [] }));
-    const members = Array.isArray(d.members) ? d.members : [];
-    if (!members.length) { bodyEl.innerHTML = '<div class="si-empty">No members yet. When someone signs up on your live site, their account shows up here.</div>'; return; }
-    bodyEl.innerHTML = '<div class="si-count">' + members.length + ' member' + (members.length === 1 ? '' : 's') + '</div>' + members.map((m) =>
-      '<div class="si-item"><div class="si-item-top"><span class="si-form">' + esc(m.email || '') + '</span><span class="si-when">joined ' + esc(fmt(m.created_at)) + '</span></div>' +
-      '<div class="si-row"><span class="si-k">last login</span><span class="si-v">' + esc(fmt(m.last_login_at)) + '</span></div></div>'
-    ).join('');
-  } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load members just now — try again.</div>'; }
-}
 
 // Shared: derive the slug + build a Cloud modal shell; returns {box, bodyEl, close}.
 function stCloudModal(id, title) {
@@ -10865,45 +10824,6 @@ function stFmtTime(t) { try { if (!t) return '—'; const iso = /^\d{4}-\d\d-\d\
 // Reads GET /api/site/<slug>/events, which is owner-only and GET-only; there is
 // deliberately no member-facing view, because the log names other members and
 // where they signed in from.
-async function siteSecurity(site) {
-  const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
-  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — the security log starts then.'); return; }
-  const { bodyEl } = stCloudModal('siteSecurityModal', 'Security log');
-  bodyEl.innerHTML = '<div class="si-empty">Loading…</div>';
-  try {
-    const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/events');
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) { bodyEl.innerHTML = '<div class="si-empty">' + esc(d.error || 'Couldn’t load the log just now.') + '</div>'; return; }
-    const sum = d.summary || {};
-    const events = d.events || [];
-    // The headline first. `sources` is the number that decides whether the
-    // failure count is somebody who forgot their password or somebody working
-    // through a list — a wall of rows answers neither.
-    const head =
-      '<div class="si-stat-row">' +
-      '<div class="si-stat"><b>' + (sum.signIns || 0) + '</b><span>sign-ins · 24h</span></div>' +
-      '<div class="si-stat"><b>' + (sum.failures || 0) + '</b><span>failed attempts</span></div>' +
-      '<div class="si-stat"><b>' + (sum.sources || 0) + '</b><span>separate sources</span></div>' +
-      '<div class="si-stat"><b>' + (sum.membersTargeted || 0) + '</b><span>of your members targeted</span></div>' +
-      '</div>';
-    const row = (e) => {
-      // One or the other, never both: a member is named, a stranger is a tag.
-      const who = e.email ? esc(e.email) : (e.who ? esc(e.who) : 'someone');
-      const where = [e.country ? esc(String(e.country).toUpperCase()) : '', e.ip ? esc(e.ip) : ''].filter(Boolean).join(' · ');
-      return '<div class="sec-row' + (e.failure ? ' sec-bad' : (e.owner ? ' sec-own' : '')) + '">' +
-        '<span class="sec-who">' + who + '</span>' +
-        '<span class="sec-what">' + esc(e.what) + '</span>' +
-        '<span class="sec-when">' + esc(e.ago) + '</span>' +
-        (where ? '<span class="sec-where">' + where + '</span>' : '') +
-        '</div>';
-    };
-    bodyEl.innerHTML = head +
-      (events.length
-        ? '<div class="si-panel-sub">Recent</div>' + events.map(row).join('')
-        : '<div class="si-empty">Nothing yet — this fills up as people use your site.</div>') +
-      '<div class="si-note">Kept for 90 days. Addresses of people with no account here are never stored — they show as a tag, so you can still tell one repeat visitor from many.</div>';
-  } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load the log just now — try again.</div>'; }
-}
 
 async function siteInsights(site) {
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';

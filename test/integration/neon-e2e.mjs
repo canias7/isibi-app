@@ -155,6 +155,7 @@ try {
   ok("schema re-apply is idempotent", again.length === 3);
   const stillOne = await sqlQuery(db, 'SELECT COUNT(*)::int AS n FROM "posts" WHERE "title"=?', ["Hello edited"]);
   ok("re-apply did not destroy existing rows", stillOne[0].n === 1);
+
 } catch (e) {
   failed++;
   console.log("\nUNCAUGHT: " + (e && (e.detail || e.message || e)));
