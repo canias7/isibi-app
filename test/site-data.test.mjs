@@ -725,39 +725,6 @@ test("malformed JSON is a 400 with a reason, not a silent empty write", async ()
   assert.deepEqual(wrote, []);
 });
 
-// ------------------------------------------------------------- teamRead
-//
-// `user` is private-to-me and `feed` is everyone-sees-everything, with nothing
-// in between — and "my team's records" is the read model an internal tool
-// actually needs. `teamRead` has been parsed, validated and stored in `_meta`
-// since the schema engine was written, with nothing ever reading it.
-
-const TEAM_SPEC = {
-  tables: [
-    { name: "deals", access: "user", teamRead: true, columns: [{ name: "value" }] },
-    { name: "private", access: "user", columns: [{ name: "value" }] },
-    { name: "posts", access: "feed", teamRead: true, columns: [{ name: "body" }] },
-  ],
-};
-
-const teamCall = async (method, path, { visitor = { id: 7, role: "user" }, body } = {}) => {
-  const url = new URL("https://isibi.ai" + path);
-  const req = new Request(url, {
-    method,
-    headers: body ? { "content-type": "application/json" } : {},
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const conn = fakeDb(TEAM_SPEC);
-  const deps = {
-    sqlQuery: async (_c, sql, p) => (await conn.query(sql, p)).rows,
-    sqlExec: async (_c, sql, p) => { const r = await conn.query(sql, p); return { results: r.rows, changes: r.rowCount }; },
-    loadSiteSchema: async () => TEAM_SPEC,
-    resolveVisitor: async () => visitor,
-  };
-  return { res: await handleSiteData({}, req, url, async () => conn, deps), seen: conn.__seen };
-};
-
-
 
 
 
@@ -1009,3 +976,148 @@ const scopeCall = async (method, path, { body, visitor } = {}) => {
 
 
 
+
+// ------------------------------------ team-shared rows, on Neon Auth's organizations
+//
+// The unit tests in site-teams.test.mjs prove the scope FUNCTIONS are right. These
+// prove the data path actually calls them — which is a separate thing, and the
+// one that has failed before: `teamScope` has been dead five times, twice because
+// a correct helper had no caller.
+//
+// A mutation that made the read path ignore teams survived the whole suite until
+// these existed.
+
+const TEAM_SPEC = {
+  tables: [
+    { name: "deals", access: "user", teamScope: true, columns: [{ name: "title" }] },
+    { name: "notes", access: "user", columns: [{ name: "body" }] },
+  ],
+};
+const ORG = "9f8b1c2d-3e4a-4b5c-8d9e-0f1a2b3c4d5e";
+const MEMBER = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
+
+const teamCall = async (method, table, visitor, { body, rowId } = {}) => {
+  const db = fakeDb(TEAM_SPEC);
+  const url = new URL("https://isibi.ai/api/db/shop/rows/" + table + (rowId ? "/" + rowId : ""));
+  const req = new Request(url, {
+    method,
+    headers: body ? { "content-type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const deps = {
+    sqlQuery: async (_c, sql, p) => (await db.query(sql, p)).rows,
+    // Routed through the fake so it is RECORDED. A stub that just answers
+    // `{changes:1}` makes every write invisible to these assertions, and a delete
+    // whose scope had been dropped would look exactly like a passing test.
+    sqlExec: async (_c, sql, p) => { const r = await db.query(sql, p); return { results: r.rows, changes: r.rowCount == null ? 1 : r.rowCount }; },
+    loadSiteSchema: async () => TEAM_SPEC,
+    resolveVisitor: async () => visitor,
+  };
+  const res = await handleSiteData({}, req, url, async () => db, deps);
+  return { res, seen: db.__seen };
+};
+
+test("a member in an organization reads their own rows AND the team's", async () => {
+  const { res, seen } = await teamCall("GET", "deals", { id: MEMBER, role: "user", team_id: ORG });
+  assert.equal(res.status, 200);
+  const q = seen.find((x) => /SELECT \* FROM "deals"/.test(x.sql));
+  assert.match(q.sql, /"team_id"=\?/, "the read must widen to the team: " + q.sql);
+  assert.ok(q.params.includes(ORG), JSON.stringify(q.params));
+  assert.ok(q.params.includes(MEMBER), "and still include their own rows");
+});
+
+test("a member in NO organization reads only their own — the one that matters", async () => {
+  // Every site starts here, so getting this wrong shows every member every other
+  // member's records by default rather than in some edge case.
+  const { res, seen } = await teamCall("GET", "deals", { id: MEMBER, role: "user", team_id: null });
+  assert.equal(res.status, 200);
+  const q = seen.find((x) => /SELECT \* FROM "deals"/.test(x.sql));
+  assert.match(q.sql, /"owner_id"=\?/);
+  assert.ok(!/team_id/.test(q.sql), "a teamless read must not mention team_id: " + q.sql);
+});
+
+test("a `user` table that does NOT declare teamScope is untouched by any of this", async () => {
+  const { seen } = await teamCall("GET", "notes", { id: MEMBER, role: "user", team_id: ORG });
+  const q = seen.find((x) => /SELECT \* FROM "notes"/.test(x.sql));
+  assert.match(q.sql, /"owner_id"=\?/);
+  assert.ok(!/team_id/.test(q.sql), "teamScope is opt-in per table: " + q.sql);
+});
+
+test("a write stamps the team from the SESSION, never the body", async () => {
+  const { res, seen } = await teamCall("POST", "deals", { id: MEMBER, role: "user", team_id: ORG },
+    { body: { title: "big one", team_id: "11111111-2222-4333-8444-555555555555", owner_id: "forged" } });
+  assert.equal(res.status, 201);
+  const ins = seen.find((x) => /INSERT INTO "deals"/.test(x.sql));
+  assert.match(ins.sql, /"team_id"/);
+  assert.ok(ins.params.includes(ORG), "the team must come from the session: " + JSON.stringify(ins.params));
+  assert.ok(!ins.params.includes("11111111-2222-4333-8444-555555555555"), "a body-supplied team must be dropped");
+  assert.ok(!ins.params.includes("forged"), "a body-supplied owner must be dropped");
+});
+
+test("a teamless write stamps an owner and no team at all", async () => {
+  const { seen } = await teamCall("POST", "deals", { id: MEMBER, role: "user", team_id: null }, { body: { title: "mine" } });
+  const ins = seen.find((x) => /INSERT INTO "deals"/.test(x.sql));
+  assert.ok(!/team_id/.test(ins.sql), "not even a NULL team_id: the row is theirs alone — " + ins.sql);
+  assert.ok(ins.params.includes(MEMBER));
+});
+
+test("a team may EDIT the team's rows — the difference from the old teamRead", async () => {
+  // `teamRead` was a hierarchy that widened READS only. A team shares its rows for
+  // writing too: a tool where a colleague cannot correct a record is not the tool
+  // anybody asked for. This is the `teamEdit` scope, a SECOND call site from the
+  // list read — a mutation that nulled it survived the whole suite until this test
+  // existed.
+  //
+  // Asserted on the SCOPED STATEMENT rather than on the UPDATE: a write first
+  // checks the row is in scope, and that check is the guard. The UPDATE never runs
+  // when it finds nothing, so asserting on the UPDATE would test the fake's data
+  // instead of the scope.
+  const { seen } = await teamCall("PATCH", "deals", { id: MEMBER, role: "user", team_id: ORG },
+    { rowId: 4, body: { title: "corrected" } });
+  const scoped = seen.find((x) => /"deals"/.test(x.sql) && /id=\?/.test(x.sql));
+  assert.ok(scoped, JSON.stringify(seen.map((x) => x.sql)));
+  assert.match(scoped.sql, /"team_id"=\?/, "the edit must reach the team's rows: " + scoped.sql);
+  assert.ok(scoped.params.includes(ORG), JSON.stringify(scoped.params));
+});
+
+test("a teamless member still edits only their own", async () => {
+  const { seen } = await teamCall("PATCH", "deals", { id: MEMBER, role: "user", team_id: null },
+    { rowId: 4, body: { title: "mine" } });
+  const scoped = seen.find((x) => /"deals"/.test(x.sql) && /id=\?/.test(x.sql));
+  assert.ok(scoped, JSON.stringify(seen.map((x) => x.sql)));
+  assert.match(scoped.sql, /"owner_id"=\?/);
+  assert.ok(!/team_id/.test(scoped.sql), "no team means no widening, on writes as well as reads: " + scoped.sql);
+});
+
+test("deleting is scoped the same way, or a member could delete a stranger's row", async () => {
+  const { seen } = await teamCall("DELETE", "deals", { id: MEMBER, role: "user", team_id: null }, { rowId: 4 });
+  const scoped = seen.find((x) => /"deals"/.test(x.sql) && /id=\?/.test(x.sql));
+  assert.ok(scoped, JSON.stringify(seen.map((x) => x.sql)));
+  assert.match(scoped.sql, /"owner_id"=\?/,
+    "an unscoped delete lets any member remove any row by guessing an id: " + scoped.sql);
+});
+
+test("editing a plain `user` table never mentions team_id", async () => {
+  // Two failures in one. A table that did not declare teamScope has no `team_id`
+  // COLUMN, so widening its edit scope is a query against a column that does not
+  // exist — every edit on every private table fails. And if the column did exist,
+  // it would let a member edit a colleague's private row.
+  const { seen } = await teamCall("PATCH", "notes", { id: MEMBER, role: "user", team_id: ORG },
+    { rowId: 4, body: { body: "mine" } });
+  const scoped = seen.find((x) => /"notes"/.test(x.sql) && /id=\?/.test(x.sql));
+  assert.ok(scoped, JSON.stringify(seen.map((x) => x.sql)));
+  assert.match(scoped.sql, /"owner_id"=\?/);
+  assert.ok(!/team_id/.test(scoped.sql), "teamScope is per-table, on the edit path too: " + scoped.sql);
+  assert.ok(!scoped.params.includes(ORG), JSON.stringify(scoped.params));
+});
+
+test("the row read back after an edit is scoped too", async () => {
+  // Lower stakes than the UPDATE above — the update already refused a row that is
+  // not in scope, so a row that reaches here is the caller's. Pinned anyway,
+  // because "the guard upstream makes this one unnecessary" is exactly the
+  // reasoning that leaves a scope clause easy to drop later.
+  const { seen } = await teamCall("PATCH", "deals", { id: MEMBER, role: "user", team_id: null },
+    { rowId: 4, body: { title: "x" } });
+  const reads = seen.filter((x) => /^SELECT \* FROM "deals"/.test(x.sql));
+  for (const r of reads) assert.match(r.sql, /"owner_id"=\?/, "unscoped read-back: " + r.sql);
+});

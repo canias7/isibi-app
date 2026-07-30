@@ -235,10 +235,11 @@ export async function applySiteSchema(uuid, spec) {
     // owner_id reads as "belongs to nobody" and the row is still the owner's to
     // see, which is what site-owner.mjs already decided when a member was deleted.
     if (access === "user" || access === "feed") { cols.push('"owner_id" UUID'); } // stamps the author / scopes rows
-    // `team_id` is not created any more: `teamScope` is no longer declarable (it
-    // went with the auth layer, having been dead at five separate layers), and
-    // teams get rebuilt on Neon Auth's `organization` / `member` — which are uuid
-    // keyed, so an INTEGER column would have been the wrong shape to keep.
+    // A team is a Neon Auth ORGANIZATION now, so this holds
+    // `neon_auth.organization.id` — a uuid, not the sequential integer the deleted
+    // `_teams` table used. No foreign key into `neon_auth`, for the same reason
+    // owner_id has none.
+    if (t.teamScope && access === "user") cols.push('"team_id" UUID');
     if (t.trash) cols.push('"deleted_at" TEXT'); // soft-delete: NULL = live, timestamp = trashed
     if (t.version) cols.push('"_version" INTEGER NOT NULL DEFAULT 1'); // optimistic-concurrency row version
     if (t.timestamps || t.sync) cols.push('"updated_at" TEXT DEFAULT (to_char(now() AT TIME ZONE \'UTC\',\'YYYY-MM-DD HH24:MI:SS\'))'); // auto edit-tracking (also required by sync): set on insert, bumped on every UPDATE
@@ -264,6 +265,7 @@ export async function applySiteSchema(uuid, spec) {
     // (a "duplicate column" error on a fresh table is swallowed), so re-declaring safely
     // backfills owner_id / deleted_at onto a pre-existing table.
     if (access === "user" || access === "feed") { try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "owner_id" UUID'); } catch {} }
+    if (t.teamScope && access === "user") { try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "team_id" UUID'); } catch {} }
     if (t.trash) { try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "deleted_at" TEXT'); } catch {} }
     if (t.version) { try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "_version" INTEGER NOT NULL DEFAULT 1'); } catch {} }
     // Auto updated_at backfill on a pre-existing table (ALTER ADD COLUMN can't carry a

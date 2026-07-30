@@ -2683,6 +2683,18 @@ const SITE_SCHEMA_TOOL = {
                 required: ["column", "roles"],
               },
             },
+            // A team is a Neon Auth ORGANIZATION now, so the owner sets teams up
+            // through Better Auth rather than through any route of ours. Offered
+            // here again because a flag the designer cannot declare is a feature
+            // that does nothing — which this one was, at five separate layers.
+            teamScope: {
+              type: "boolean",
+              description:
+                "Share this table across a TEAM: everyone in the same team reads and edits the same rows, and a write records who made it. " +
+                "USE THIS FOR AN INTERNAL TOOL where colleagues work the same records — a CRM's deals, a shared job list, a client roster. " +
+                "Only meaningful with access 'user'. Do NOT use it for a customer-facing members area, where one customer must never see another's rows. " +
+                "A member who is not in a team sees only their own rows, so a site is safe before any team exists.",
+            },
             publicView: {
               type: "object",
               description:
@@ -3179,9 +3191,20 @@ async function resolveSiteVisitor(env, request, slug) {
     // whatever account screen exists, because this is the half that reads rows —
     // a suspension that only took effect on a profile page would leave the
     // suspended member full access to the data.
+    // The team comes off Better Auth's organization plugin — `neon_auth.member`
+    // — rather than a column of ours. LEFT JOIN, because being in no organization
+    // is the normal state and an INNER one would refuse every teamless member,
+    // which is every member on a site whose owner has not set teams up.
+    //
+    // LIMIT 1 with a stable order: Better Auth allows more than one membership,
+    // and "which team am I acting in" is a question a small business tool does not
+    // have. Oldest wins, so the answer does not change when somebody is added to a
+    // second organization.
     const rows = await sqlQuery(
       db,
-      'SELECT u.id, u.role, u."emailVerified" AS verified, u.banned, u."banExpires"' +
+      'SELECT u.id, u.role, u."emailVerified" AS verified, u.banned, u."banExpires",' +
+      ' (SELECT m."organizationId" FROM neon_auth.member m WHERE m."userId" = u.id' +
+      '  ORDER BY m."createdAt" ASC NULLS LAST LIMIT 1) AS team_id' +
       ' FROM neon_auth.session s JOIN neon_auth."user" u ON u.id = s."userId"' +
       ' WHERE s.token = ? AND s."expiresAt" > now()',
       [bearer],
@@ -3192,10 +3215,15 @@ async function resolveSiteVisitor(env, request, slug) {
     // a ban with no expiry is indefinite. Getting this backwards either strands
     // somebody permanently or lets a live ban through, so it is spelled out.
     if (u.banned && !(u.banExpires && new Date(u.banExpires).getTime() <= Date.now())) return null;
+    // `team_id` is passed through as the raw column: `teamOf` is the one place
+    // that decides what counts as a team, and normalising here would be a second
+    // opinion. It was SELECTed and then dropped from this object once before,
+    // which made teamScope dead for the fifth time.
     return {
       id: String(u.id),
       role: String(u.role || "user").toLowerCase(),
       verified: !!u.verified,
+      team_id: u.team_id == null ? null : String(u.team_id),
     };
   } catch (e) {
     // A lookup failure must never downgrade to "anonymous resolved to somebody".
