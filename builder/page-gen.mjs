@@ -44,6 +44,35 @@ export const UI_COMPONENTS = [
   // at them, and the lint only cares that a cited component is real.
   "combobox", "direction",
   "attachment", "bubble", "marker", "message", "message-scroller",
+
+  // ── OURS, not shadcn's (2026-07-30) ────────────────────────────────────────
+  // The 61 above are PRIMITIVES — button, input, dialog. A business site is made
+  // of COMPOSITIONS, and every generated page was rebuilding them inline from
+  // card and div: a hero, a price list, an opening-hours table, the four states
+  // of a list. That is what every paid component registry sells, and writing them
+  // ourselves costs no licence, no token and no npm dependency.
+  //
+  // Written rather than bought for a second reason that turned out to matter
+  // more: the expensive part of a bigger kit was never storing it, it was
+  // DESCRIBING it to the model. We own these APIs, so the usage notes are
+  // accurate by construction — where 400 foreign components would be 400
+  // unfamiliar APIs the model half-understands.
+  //
+  // Page sections.
+  "hero", "hero-split", "section-header", "feature-grid", "stats-band",
+  "pricing-table", "price-list", "menu-section", "testimonial", "cta-band",
+  "faq", "steps", "team-grid", "gallery", "logo-cloud", "announcement-bar",
+  "site-header", "site-footer", "before-after",
+  // The business itself.
+  "opening-hours", "contact-card", "location-card", "availability-grid",
+  "review-stars", "social-links",
+  // Data and state. `data-list` is the important one: all four list states in
+  // one place, which the rules otherwise ask the model to hand-write on every
+  // list of every page.
+  "data-list", "stat-card", "timeline", "tag-list", "countdown", "marquee",
+  "safe-image", "copy-button", "share-buttons",
+  // Forms.
+  "date-time-picker", "phone-input", "quantity-input", "file-drop", "success-panel",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
