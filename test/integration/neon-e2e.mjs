@@ -156,6 +156,27 @@ try {
   const stillOne = await sqlQuery(db, 'SELECT COUNT(*)::int AS n FROM "posts" WHERE "title"=?', ["Hello edited"]);
   ok("re-apply did not destroy existing rows", stillOne[0].n === 1);
 
+  // ---- ONE-OFF: what can this database actually install? -------------------
+  // Asking pg_available_extensions instead of guessing four names, which is what
+  // the earlier probe did — and it swallowed the reason each refusal happened, so
+  // "http is not available" was an inference, not a measurement. Removed once the
+  // answer is recorded.
+  const exts = await sqlQuery(db,
+    "SELECT name, default_version, installed_version FROM pg_available_extensions ORDER BY name");
+  console.log("\nAVAILABLE EXTENSIONS (" + exts.length + "):");
+  console.log(exts.map((e) => e.name + "@" + e.default_version).join(", "));
+  for (const want of ["http", "pg_net", "pg_cron", "pgsql-http", "plv8", "pg_background", "pgvector", "vector", "postgis"]) {
+    const hit = exts.find((e) => e.name === want);
+    console.log("  " + (hit ? "AVAILABLE" : "absent   ") + "  " + want + (hit ? " @" + hit.default_version : ""));
+  }
+  // And for the ones that ARE listed, whether this role may actually create them —
+  // available and permitted are different questions.
+  for (const want of ["http", "pg_net", "pg_cron", "vector", "postgis"]) {
+    if (!exts.find((e) => e.name === want)) continue;
+    try { await sqlQuery(db, 'CREATE EXTENSION IF NOT EXISTS "' + want + '"'); console.log("  CREATED   " + want); }
+    catch (e) { console.log("  REFUSED   " + want + " -> " + String((e && (e.detail || e.message)) || e).slice(0, 140)); }
+  }
+
 } catch (e) {
   failed++;
   console.log("\nUNCAUGHT: " + (e && (e.detail || e.message || e)));
