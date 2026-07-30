@@ -61,6 +61,21 @@ Push to `main` → GitHub Actions → Wrangler → Cloudflare Workers → isibi.
 - **`font` (52) and `theme` (5) are NOT installed, and unlike the examples this is not a judgement call — they are mutually exclusive by construction.** A font item is a declaration (`{family, provider, variable: "--font-sans", dependency: "@fontsource-variable/geist"}`) and all 52 set the same variable, so installing them all means 52 npm packages of which one takes effect. A theme item is a full `cssVars` palette that REPLACES `background`/`primary`/`destructive`/`chart-1..5` in both modes — installing five means the last one wins, and any of them overwrites the black-and-white brand. **These are a pick-one, and picking is the owner's call.** Worth raising: every generated site is on the system font stack today, and `@fontsource-variable/*` is self-hosted, so there is no CDN and no CSP problem.
 - **The five chat primitives are in because they EXIST, not because a business site needs one.** Nothing in `PAGE_RULES` points at them; the lint only cares that a cited component is real.
 
+## The third hundred (2026-07-30)
+
+**The kit is 300: shadcn's 61, plus 239 we wrote.** Whole flows rather than more parts — a basket, a booking, an account, an admin table.
+
+- **Commerce and booking are the two that were genuinely missing.** A platform that makes barber shops and cafés had no `cart-line`, no `order-summary`, no `calendar-month`, no `day-schedule` — the model rebuilt each inline every time. `week-strip` is the date picker a booking page actually wants, and `calendar-month` DISPLAYS a schedule rather than picking a date, which shadcn's `calendar` does not do.
+- **Ten formatters, all `Intl`-based, adding no dependency.** `money` gets the symbol on the correct side and the right separators (€1.234,56 vs £1,234.56 is one call); `plural` uses `Intl.PluralRules` because languages with more than two plural forms exist and appending an `s` silently produces nonsense in them; `ordinal`, `list-format` and `date-format` likewise. `date-format` always puts the ISO value in a real `<time>`, so a crawler can read a date it cannot parse from "Tue 3 Aug".
+- **`highlight-match` escapes the query before it becomes a regex.** Unescaped, a bracket throws — a crash triggered by somebody typing `(` into a search box.
+- **Refusals worth keeping.** `code-block` has no syntax highlighting: shiki is ~1 MB for something a business site uses once. `payment-methods` uses names, not brand logos, which need licensed artwork and ship a remote image into every page. `date-range-picker` is presets rather than two calendars, because "last 30 days" is what people pick.
+- **Auth forms give ONE error for the whole form**, never per-field — saying which of the address and the password was wrong tells an attacker whether the address has an account here. `reset-form` answers identically whether or not the address exists, for the same reason.
+- **`feedback-widget` only asks for words after a NO.** Asking everyone for a comment gets very few; asking the person who just said it did not help gets the useful ones.
+- **`split-view` shows ONE side on a phone**, chosen by whether anything is selected: two panes squeezed into 375px is two unusable panes. `sticky-cta` appears only after the reader has passed the real one, and only below `md`.
+- **`bulk-actions` states the count**, because acting on "all" when you meant the visible page is the expensive mistake that pattern causes. **`filter-bar` shows applied filters as removable chips** — filters hidden inside a dropdown are how somebody concludes their data has vanished.
+- **`priority-badge` carries an arrow as well as a colour**: three levels of red is exactly where colour alone fails. Same discipline as the second hundred.
+- Prompt cost ~587 → **~929 tokens** for 300 components. `tsc` 6.6s. 574 unit tests, site-build 33/33, no new npm dependencies.
+
 ## The second hundred (2026-07-30)
 
 **The kit is 200: shadcn's 61, plus 139 we wrote.** Utility-first — the shapes a page needs over and over, rather than more ways to decorate one — and every one rendered before it was committed.

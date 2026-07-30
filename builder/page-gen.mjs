@@ -111,6 +111,46 @@ export const UI_COMPONENTS = [
   // Utility.
   "theme-toggle", "print-button", "cookie-banner", "scroll-progress",
   "reveal", "time-ago", "duration", "visually-hidden", "avatar-name",
+
+  // ── The third hundred (2026-07-30) ────────────────────────────────────────
+  // Whole flows rather than more parts: a basket, a booking, an account, an
+  // admin table. Same rules as the rest — prop-driven, monochrome unless the
+  // meaning is genuinely semantic, and colour never the only signal.
+  // Commerce.
+  "product-card", "price-tag", "cart-line", "cart-summary", "order-summary",
+  "coupon-input", "stock-badge", "variant-picker", "delivery-estimate",
+  "payment-methods", "trust-strip", "order-tracker", "wishlist-button",
+  "add-to-cart",
+  // Booking and scheduling — the shapes this platform's sites are mostly made of.
+  "calendar-month", "day-schedule", "week-strip", "duration-picker",
+  "party-size", "booking-summary", "cancel-policy", "waitlist-form",
+  "recurring-picker", "timezone-note",
+  // Accounts and members.
+  "login-form", "signup-form", "reset-form", "otp-form", "profile-card",
+  "account-menu", "plan-card", "usage-meter", "invite-form",
+  "permission-row", "danger-zone", "session-row",
+  // Dashboard and admin.
+  "metric-row", "filter-bar", "date-range-picker", "bulk-actions",
+  "export-button", "column-toggle", "saved-views", "activity-feed",
+  "audit-row", "inbox-list", "assignee-picker", "priority-badge",
+  // Content and publishing.
+  "article-card", "article-header", "author-byline", "reading-time",
+  "post-meta", "related-list", "category-nav", "figure", "code-block",
+  "changelog-entry", "glossary-item", "faq-search",
+  // Social proof.
+  "rating-summary", "review-card", "rating-input", "review-form",
+  "verified-badge", "award-badge", "press-quote", "case-study-card",
+  // Interaction.
+  "like-button", "vote-buttons", "emoji-reaction", "nps-scale",
+  "feedback-widget", "labeled-progress", "sticky-cta", "tour-step",
+  "hotkey-list", "toggle-chip",
+  // Formatting. All Intl-based, so they localise for free and add no dependency.
+  "money", "number-format", "date-format", "list-format", "plural",
+  "truncate-middle", "highlight-match", "file-size", "ordinal", "initials",
+  // More layout.
+  "split-view", "panel", "well", "card-grid", "list-row", "media-object",
+  "empty-illustration", "sidebar-layout", "sticky-aside", "centered-form",
+  "section-divider", "grid-item",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
