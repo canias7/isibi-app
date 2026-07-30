@@ -271,9 +271,20 @@ try {
         try { await sqlQuery(authConn, "SELECT 1 FROM neon_auth.user LIMIT 1"); } catch { qualifiedWorks = false; }
         ok("neon_auth.user parses unquoted — a schema qualifier admits a reserved word", qualifiedWorks);
 
-        let bareFails = false;
-        try { await sqlQuery(authConn, "SELECT 1 FROM user LIMIT 1"); } catch { bareFails = true; }
-        ok("bare unqualified `user` is a syntax error — so identity is ALWAYS written schema-qualified", bareFails);
+        // And bare `user` does NOT error either — measured, twice, after I twice
+        // claimed it would. Postgres resolves it to the USER value function, so a
+        // query that forgets the schema qualifier quietly returns the current role
+        // instead of the identity table. That is WORSE than a syntax error and is
+        // the real reason identity must always be schema-qualified: the failure is
+        // a wrong answer, not a loud one. Asserted on what comes back rather than
+        // on my model of the grammar, which is what got this wrong both times.
+        let bareRow = null;
+        try { const r = await sqlQuery(authConn, "SELECT * FROM user LIMIT 1"); bareRow = (r && r[0]) || null; }
+        catch (e) { bareRow = { __errored: String((e && e.message) || e).slice(0, 80) }; }
+        console.log("      bare `FROM user` yielded:", JSON.stringify(bareRow));
+        const looksLikeIdentity = !!(bareRow && "email" in bareRow && "emailVerified" in bareRow);
+        ok("bare unqualified `user` does NOT reach the identity table — identity is ALWAYS schema-qualified",
+          !looksLikeIdentity, JSON.stringify(bareRow));
       }
     }
 
