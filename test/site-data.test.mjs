@@ -757,43 +757,10 @@ const teamCall = async (method, path, { visitor = { id: 7, role: "user" }, body 
   return { res: await handleSiteData({}, req, url, async () => conn, deps), seen: conn.__seen };
 };
 
-test("a teamRead table shows a manager their reports' rows as well as their own", async () => {
-  const { res, seen } = await teamCall("GET", "/api/db/shop/rows/deals");
-  assert.equal(res.status, 200);
-  const q = seen.find((s) => /FROM "deals"/.test(s.sql));
-  assert.match(q.sql, /"owner_id"=\? OR "owner_id" IN \(SELECT id FROM _users WHERE manager_id=\?\)/);
-  // Both parameters are the CALLER — never anything off the query string.
-  assert.deepEqual(q.params.slice(0, 2), [7, 7]);
-});
 
-test("a plain user table is still private, teamRead or not", async () => {
-  const { seen } = await teamCall("GET", "/api/db/shop/rows/private");
-  const q = seen.find((s) => /FROM "private"/.test(s.sql));
-  assert.match(q.sql, /"owner_id"=\?/);
-  assert.ok(!/manager_id/.test(q.sql), "a table that did not declare teamRead must not widen");
-});
 
-test("teamRead on a feed table changes nothing — feed is already shared", async () => {
-  const { seen } = await teamCall("GET", "/api/db/shop/rows/posts");
-  const q = seen.find((s) => /FROM "posts"/.test(s.sql));
-  assert.ok(!/manager_id/.test(q.sql));
-  assert.ok(!/owner_id/.test(q.sql), "feed is readable by any signed-in member");
-});
 
-test("teamRead widens READS only — a write still stamps the caller", async () => {
-  // A manager sees their team's rows. They do not get to write as their team.
-  const { seen } = await teamCall("POST", "/api/db/shop/rows/deals", { body: { value: "10" } });
-  const ins = seen.find((s) => /INSERT INTO "deals"/.test(s.sql));
-  assert.match(ins.sql, /owner_id/);
-  assert.ok(ins.params.includes(7));
-});
 
-test("teamRead does not let a query string reach the subquery", async () => {
-  const { seen } = await teamCall("GET", "/api/db/shop/rows/deals?owner_id=999&manager_id=999");
-  const q = seen.find((s) => /FROM "deals"/.test(s.sql));
-  assert.deepEqual(q.params.slice(0, 2), [7, 7]);
-  assert.ok(!q.params.includes("999"), "no caller value may reach the ownership clause");
-});
 
 // ------------------------------------------------------------- requireVerified
 //
@@ -1036,75 +1003,9 @@ const scopeCall = async (method, path, { body, visitor } = {}) => {
   return { res, seen };
 };
 
-test("a member WITH a team reads their own rows and the team's", async () => {
-  const { seen } = await scopeCall("GET", "/api/db/shop/rows/deals", { visitor: { id: 7, role: "user", team_id: 3 } });
-  const [sql, p] = seen.find(([s]) => /SELECT \* FROM/.test(s));
-  assert.match(sql, /\("owner_id"=\? OR "team_id"=\?\)/, sql);
-  assert.ok(p.includes(7) && p.includes(3), JSON.stringify(p));
-});
 
-test("a member with NO team never sees another teamless member's rows", async () => {
-  // Before an owner sets any team up, EVERY member is teamless — so getting this
-  // wrong shows the whole site each other's records.
-  const { seen } = await scopeCall("GET", "/api/db/shop/rows/deals", { visitor: { id: 7, role: "user", team_id: null } });
-  const [sql, p] = seen.find(([s]) => /SELECT \* FROM/.test(s));
-  assert.ok(!/team_id/.test(sql), "a teamless read must not mention team_id: " + sql);
-  assert.match(sql, /"owner_id"=\?/);
-  assert.deepEqual(p.slice(0, 1), [7]);
-});
 
-test("a write stamps the team from the session, never the body", async () => {
-  const { seen } = await scopeCall("POST", "/api/db/shop/rows/deals", {
-    visitor: { id: 7, role: "user", team_id: 3 },
-    body: { title: "x", team_id: 999, owner_id: 999 },
-  });
-  const [sql, p] = seen.find(([s]) => /INSERT INTO/.test(s));
-  assert.match(sql, /"team_id"/, sql);
-  assert.ok(p.includes(3), "the session's team: " + JSON.stringify(p));
-  assert.ok(!p.includes(999), "a body must not be able to claim a team or an owner: " + JSON.stringify(p));
-});
 
-test("a teamless write stamps an owner and no team at all", async () => {
-  // Not `team_id = null` explicitly — the column defaults to null, and writing
-  // it would be indistinguishable from a bug that cleared somebody's team.
-  const { seen } = await scopeCall("POST", "/api/db/shop/rows/deals", {
-    visitor: { id: 7, role: "user", team_id: null }, body: { title: "x" },
-  });
-  const [sql] = seen.find(([s]) => /INSERT INTO/.test(s));
-  assert.ok(!/team_id/.test(sql), sql);
-});
 
-test("the team may EDIT the team's rows — the difference from teamRead", async () => {
-  const { seen } = await scopeCall("PATCH", "/api/db/shop/rows/deals/5", {
-    visitor: { id: 7, role: "user", team_id: 3 }, body: { title: "corrected" },
-  });
-  const [sql, p] = seen.find(([s]) => /UPDATE/.test(s));
-  assert.match(sql, /\("owner_id"=\? OR "team_id"=\?\)/, sql);
-  assert.ok(p.includes(3), JSON.stringify(p));
-});
 
-test("a teamless member still edits only their own", async () => {
-  const { seen } = await scopeCall("PATCH", "/api/db/shop/rows/deals/5", {
-    visitor: { id: 7, role: "user", team_id: null }, body: { title: "x" },
-  });
-  const [sql] = seen.find(([s]) => /UPDATE/.test(s));
-  assert.ok(!/team_id/.test(sql), sql);
-  assert.match(sql, /"owner_id"=\?/);
-});
 
-test("a table that does NOT declare teamScope is untouched", async () => {
-  // The whole feature is opt-in; a customer-facing members area must keep
-  // behaving exactly as it did.
-  const url = new URL("https://isibi.ai/api/db/shop/rows/mine");
-  const seen = [];
-  const conn = { query: async (sql, p) => { seen.push([sql, p]); return { rows: [], rowCount: 0 }; } };
-  const deps = {
-    sqlQuery: async (_c, sql, p) => (await conn.query(sql, p)).rows,
-    sqlExec: async () => ({ results: [], changes: 0 }),
-    loadSiteSchema: async () => SPEC,
-    resolveVisitor: async () => ({ id: 7, role: "user", team_id: 3 }),
-  };
-  await handleSiteData({}, new Request(url, { headers: { Authorization: "Bearer t" } }), url, async () => conn, deps);
-  const [sql] = seen.find(([s]) => /SELECT \* FROM/.test(s));
-  assert.ok(!/team_id/.test(sql), "a table without teamScope must not gain a team clause: " + sql);
-});

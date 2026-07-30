@@ -11,10 +11,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  sessionKey, signClaim, verifyClaim, signToken, signReset,
-  verifySession, verifyReset, CLAIM_TTL_SEC,
-} from "../site-auth.mjs";
-import { handleClaim, claimable, claimView, CLAIM_PARAM } from "../site-claim.mjs";
+  sessionKey, signClaim, verifyClaim, signToken, CLAIM_TTL_SEC,
+  handleClaim, claimable, claimView, CLAIM_PARAM,
+} from "../site-claim.mjs";
 
 const SECRET = "service-key-stand-in";
 const NOW = 1_780_000_000_000;
@@ -104,62 +103,45 @@ test("the table name is matched case-insensitively, both ways", async () => {
 
 // ------------------------------------------------- the kinds stay separate
 
-test("a claim token is NOT a session", async () => {
-  const key = await sessionKey(SECRET, "barber");
-  const tok = await signClaim(key, "bookings", 7, at(NOW));
-  // This is the one that would have shipped: verifySession used to accept any
-  // token whose `use` was not "reset", so every booking receipt was a login.
-  assert.equal(await verifySession(key, tok, at(NOW)), null);
-});
+// A claim is the ONLY kind now — `site-auth.mjs` and its session, reset, pending
+// and verify tokens went to Neon Auth on 2026-07-30. So the half of this section
+// that asked "is a claim accepted as a session?" has nothing left to ask, and
+// what remains is the direction that still matters: nothing that is not a claim
+// may pass as one.
+//
+// Worth keeping the history in view. `verifySession` was a DENY-list (`use !==
+// "reset"`), which was correct for exactly as long as `reset` was the only other
+// kind — adding claim would have made every booking receipt a valid login. With
+// one kind left there is nothing to confuse a claim WITH, so that whole class of
+// bug goes away along with the kinds; it comes back the moment a second kind does.
 
-test("a claim token is NOT a reset", async () => {
-  const key = await sessionKey(SECRET, "barber");
-  const tok = await signClaim(key, "bookings", 7, at(NOW));
-  assert.equal(await verifyReset(key, tok, at(NOW)), null);
-});
-
-test("a session token is NOT a claim", async () => {
+test("a token with no kind at all is NOT a claim", async () => {
   const key = await sessionKey(SECRET, "barber");
   const tok = await signToken(key, { sub: "3", email: "a@b.co" }, at(NOW));
-  assert.equal(await verifyClaim(key, tok, "bookings", 3, at(NOW)), null);
-});
-
-test("a reset token is NOT a claim", async () => {
-  const key = await sessionKey(SECRET, "barber");
-  const tok = await signReset(key, "3", at(NOW));
   assert.equal(await verifyClaim(key, tok, "bookings", 3, at(NOW)), null);
 });
 
 test("the kind check stands on its own, not on the table check", async () => {
-  // The tokens above all fail for a second reason as well — they carry no `tbl`
-  // — so they cannot show that `use` is load bearing. This one matches the table
-  // and the row exactly and differs ONLY in its kind.
+  // A token carrying no `tbl` fails for two reasons at once, so it cannot show
+  // that `use` is load bearing. These match the table and the row exactly and
+  // differ ONLY in their kind.
   const key = await sessionKey(SECRET, "barber");
-  const wrongKind = await signToken(key, { sub: "7", use: "reset", tbl: "bookings" }, at(NOW));
-  assert.equal(await verifyClaim(key, wrongKind, "bookings", 7, at(NOW)), null);
+  for (const use of ["reset", "session", "verify", "2fa", "invite", ""]) {
+    const tok = await signToken(key, { sub: "7", use, tbl: "bookings" }, at(NOW));
+    assert.equal(await verifyClaim(key, tok, "bookings", 7, at(NOW)), null, "use=" + JSON.stringify(use));
+  }
   const noKind = await signToken(key, { sub: "7", tbl: "bookings" }, at(NOW));
   assert.equal(await verifyClaim(key, noKind, "bookings", 7, at(NOW)), null);
 });
 
-test("a session minted before `use` existed still logs in", async () => {
-  // The allow-list must not sign out every member who already holds a token.
+test("a real claim still verifies — the checks above are not refusing everything", async () => {
+  // Without this, every assertion in this section would pass on a verifyClaim
+  // that returned null unconditionally.
   const key = await sessionKey(SECRET, "barber");
-  const tok = await signToken(key, { sub: "3", email: "a@b.co" }, at(NOW));
-  const body = await verifySession(key, tok, at(NOW));
-  assert.equal(body && body.sub, "3");
-});
-
-test("an explicit session token logs in too", async () => {
-  const key = await sessionKey(SECRET, "barber");
-  const tok = await signToken(key, { sub: "3", use: "session" }, at(NOW));
-  assert.ok(await verifySession(key, tok, at(NOW)));
-});
-
-test("an unknown future kind is refused as a session", async () => {
-  // The whole reason the deny-list had to become an allow-list.
-  const key = await sessionKey(SECRET, "barber");
-  const tok = await signToken(key, { sub: "3", use: "invite" }, at(NOW));
-  assert.equal(await verifySession(key, tok, at(NOW)), null);
+  const tok = await signClaim(key, "bookings", 7, at(NOW));
+  const body = await verifyClaim(key, tok, "bookings", 7, at(NOW));
+  assert.equal(body && body.use, "claim");
+  assert.equal(body && String(body.sub), "7");
 });
 
 // ------------------------------------------------------------- which tables

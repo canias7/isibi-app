@@ -10,7 +10,7 @@
 // staying shut to everyone except the one account that owns the site.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers, handleOwnerAnalytics } from "../site-owner.mjs";
+import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerAnalytics } from "../site-owner.mjs";
 
 const SPEC = {
   tables: [
@@ -395,64 +395,11 @@ test("no session is 401", async () => {
 
 // ═══════════════════════════════════════════════════════════════════ members
 
-test("the members list never selects the password hash", async () => {
-  // `SELECT *` here would ship pass_hash the moment anyone adds a column.
-  const { deps, seen } = wharness({ rows: [{ id: 1, email: "a@b.c", role: "user" }] });
-  const r = await handleOwnerMembers(deps, { slug: "cafe", uid: "owner-1" });
-  assert.equal(r.status, 200);
-  assert.ok(!/\*/.test(seen[0].sql), seen[0].sql);
-  assert.ok(!/pass_hash/.test(seen[0].sql), seen[0].sql);
-  assert.match(seen[0].sql, /"email"/);
-  assert.deepEqual(r.body.members, [{ id: 1, email: "a@b.c", role: "user" }]);
-});
 
-test("a site that never had members lists none rather than erroring", async () => {
-  // A site of display and collect tables never had `_users` created.
-  const { deps } = wharness({ deps: { query: async () => { throw new Error('relation "_users" does not exist'); } } });
-  const r = await handleOwnerMembers(deps, { slug: "cafe", uid: "owner-1" });
-  assert.equal(r.status, 200);
-  assert.deepEqual(r.body.members, []);
-});
 
-test("the owner can remove a member", async () => {
-  const { deps, seen } = wharness();
-  const r = await handleOwnerMembers(deps, { slug: "cafe", uid: "owner-1", method: "DELETE", memberId: "3" });
-  assert.equal(r.status, 200);
-  // Found among the statements rather than asserted as the first one: the audit
-  // log reads the member's address BEFORE the delete, because afterwards there
-  // is no row to name and "member 3 was deleted" is the least useful version of
-  // the one event that cannot be undone.
-  const del = seen.find((q) => /DELETE FROM _users WHERE id=\?/.test(q.sql));
-  assert.ok(del, JSON.stringify(seen.map((q) => q.sql)));
-  assert.deepEqual(del.args, [3]);
-});
 
-test("removing a member that is not there is 404, and a bad id is 400", async () => {
-  const { deps: gone } = wharness({ changes: 0 });
-  assert.equal((await handleOwnerMembers(gone, { slug: "cafe", uid: "owner-1", method: "DELETE", memberId: "3" })).status, 404);
-  const { deps, seen } = wharness();
-  for (const memberId of ["abc", "", null, "-1", "0"]) {
-    assert.equal((await handleOwnerMembers(deps, { slug: "cafe", uid: "owner-1", method: "DELETE", memberId })).status, 400, JSON.stringify(memberId));
-  }
-  assert.deepEqual(seen, []);
-});
 
-test("members are behind the same gate as everything else", async () => {
-  const { deps: theirs, seen } = wharness({ deps: { ownerOf: async () => "someone-else" } });
-  assert.equal((await handleOwnerMembers(theirs, { slug: "cafe", uid: "owner-1" })).status, 404);
-  assert.equal((await handleOwnerMembers(theirs, { slug: "cafe", uid: "owner-1", method: "DELETE", memberId: "3" })).status, 404);
-  assert.deepEqual(seen, [], "a stranger cannot enumerate or delete a site's customers");
-  const { deps: down } = wharness({ deps: { ownerOf: async () => { throw new Error("down"); } } });
-  assert.equal((await handleOwnerMembers(down, { slug: "cafe", uid: "owner-1" })).status, 503);
-  const { deps } = wharness();
-  assert.equal((await handleOwnerMembers(deps, { slug: "cafe", uid: null })).status, 401);
-});
 
-test("members paging is clamped", async () => {
-  const { deps, seen } = wharness();
-  await handleOwnerMembers(deps, { slug: "cafe", uid: "owner-1", params: { limit: "99999", offset: "-4" } });
-  assert.deepEqual(seen[0].args, [200, 0]);
-});
 
 // ═══════════════════════════════════════════════════════════════ analytics
 //
@@ -578,121 +525,16 @@ function members(over = {}) {
 const patch = (deps, body, memberId = "5") =>
   handleOwnerMembers(deps, { slug: "cafe", uid: "owner-1", method: "PATCH", memberId, body });
 
-test("the owner can grant a role the schema actually names", async () => {
-  const { deps, exec } = members();
-  const r = await patch(deps, { role: "editor" });
-  assert.equal(r.status, 200);
-  assert.match(exec[0].sql, /UPDATE _users SET "role"=\?/);
-  assert.equal(exec[0].args[0], "editor");
-});
 
-test("user and admin are always grantable", async () => {
-  for (const role of ["user", "admin"]) {
-    const { deps } = members();
-    assert.equal((await patch(deps, { role })).status, 200, role);
-  }
-});
 
-test("a role no table names is refused", async () => {
-  // Granting it would read as "I gave them access" and check against nothing.
-  const { deps, exec } = members();
-  const r = await patch(deps, { role: "wizard" });
-  assert.equal(r.status, 400);
-  assert.equal(r.body.code, "role");
-  assert.match(r.body.error, /editor/);
-  assert.equal(exec.length, 0);
-});
 
-test("a role that is not a role at all is refused", async () => {
-  for (const role of ["", "  ", "a b", "x".repeat(40), "DROP TABLE", null, 7]) {
-    const { deps, exec } = members();
-    const r = await patch(deps, { role });
-    assert.equal(r.status, 400, JSON.stringify(role));
-    assert.equal(exec.length, 0);
-  }
-});
 
-test("the owner can say who a member reports to", async () => {
-  const { deps, exec } = members();
-  const r = await patch(deps, { manager_id: 9 });
-  assert.equal(r.status, 200);
-  assert.match(exec[0].sql, /"manager_id"=\?/);
-});
 
-test("a manager must be a real member of this site", async () => {
-  const { deps, exec } = members({ managerMissing: true });
-  const r = await patch(deps, { manager_id: 999 });
-  assert.equal(r.status, 404);
-  assert.equal(exec.length, 0);
-});
 
-test("a member cannot manage themselves", async () => {
-  // It reads as a hierarchy and is not one, and it makes teamRead return the
-  // member's own rows twice.
-  const { deps, exec } = members();
-  const r = await patch(deps, { manager_id: 5 }, "5");
-  assert.equal(r.status, 400);
-  assert.equal(r.body.code, "self");
-  assert.equal(exec.length, 0);
-});
 
-test("manager_id can be cleared", async () => {
-  const { deps, exec } = members();
-  const r = await patch(deps, { manager_id: null });
-  assert.equal(r.status, 200);
-  assert.match(exec[0].sql, /"manager_id"=NULL/);
-});
 
-test("a PATCH that changes nothing is a 400, not a silent no-op", async () => {
-  const { deps, exec } = members();
-  const r = await patch(deps, {});
-  assert.equal(r.status, 400);
-  assert.equal(exec.length, 0);
-});
 
-test("a bad member id never reaches the database", async () => {
-  const { deps, exec } = members();
-  for (const id of ["abc", "-1", "", "1.5"]) {
-    assert.equal((await patch(deps, { role: "user" }, id)).status, 400, id);
-  }
-  assert.equal(exec.length, 0);
-});
 
-test("patching a member that is not there is a 404", async () => {
-  const { deps } = members({ changes: 0 });
-  assert.equal((await patch(deps, { role: "user" })).status, 404);
-});
 
-test("the member list never ships a password hash", async () => {
-  // It names its columns; a SELECT * would ship pass_hash the day someone adds
-  // a column. manager_id joined that list and must not have widened it.
-  const { deps } = members();
-  const r = await handleOwnerMembers(deps, { slug: "cafe", uid: "owner-1", method: "GET" });
-  assert.equal(r.status, 200);
-  for (const m of r.body.members) {
-    assert.ok(!("pass_hash" in m), JSON.stringify(m));
-    assert.ok(!("password_hash" in m), JSON.stringify(m));
-  }
-});
 
-test("blocked must be a real boolean, not anything truthy", async () => {
-  // `blocked: "false"` is a non-empty string. Coercing it would suspend the
-  // member the owner was trying to reinstate — the failure is silent and the
-  // member simply stays locked out.
-  for (const v of ["false", "true", 1, 0, "yes", null]) {
-    const { deps, exec } = members();
-    const r = await patch(deps, { blocked: v });
-    assert.equal(r.status, 400, JSON.stringify(v));
-    assert.equal(exec.length, 0);
-  }
-});
 
-test("suspending and reinstating both write the column", async () => {
-  for (const [v, want] of [[true, 1], [false, 0]]) {
-    const { deps, exec } = members();
-    const r = await patch(deps, { blocked: v });
-    assert.equal(r.status, 200);
-    assert.match(exec[0].sql, /"blocked"=\?/);
-    assert.equal(exec[0].args[0], want);
-  }
-});

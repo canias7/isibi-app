@@ -24,7 +24,7 @@ const LINES = SRC.split("\n");
 const PUBLIC = {
   "/api/stripe/webhook": "Stripe cannot hold a session; authenticated by HMAC over the raw body instead (stripe-webhook.mjs).",
   "/api/m/*": "Capability URL — the signed, expiring token IN the path is the credential; that is the whole point of a shareable media link.",
-  "/api/db/*": "A published site's own API. Its visitors are not isibi users — a customer booking a haircut has no account here. It gates on the SITE's schema and, for member-scoped tables, on a site session (site-auth.mjs); /auth/login could not require a login.",
+  "/api/db/*": "A published site's own API. Its visitors are not isibi users — a customer booking a haircut has no account here. It gates on the SITE's declared schema: which tables a visitor may read or write, and a per-IP rate limit. Identity moved to Neon Auth on 2026-07-30, so member-scoped tables currently resolve to nobody and answer 401.",
 };
 
 // Every place the router dispatches on an /api path.
@@ -122,9 +122,16 @@ test("a published site's API gates on a site session, not an isibi one", () => {
   // It is allow-listed as public because its visitors are not isibi users. That
   // is only acceptable while it still checks something: the site's own schema
   // for access level, and a site session for member-scoped tables.
-  const i = routes().get("/api/db/*");
-  assert.match(blockOf(i), /handleSiteAuth|resolveSiteVisitor|handleSiteData/,
-    "the one broad public prefix must still resolve an identity or an access level");
+  // Checked across EVERY /api/db dispatch rather than the first one. It used to
+  // read only the first, which made the assertion depend on route ORDER — and
+  // when the auth block above it was deleted the first dispatch became visitor
+  // uploads and this went red for a reason that had nothing to do with gating.
+  const hits = [...routes()].filter(([p2]) => p2.startsWith("/api/db"));
+  assert.ok(hits.length, "no /api/db dispatch found at all");
+  for (const [, line] of hits) {
+    assert.match(blockOf(line), /handleSiteData|handleVisitorUpload|resolveSiteVisitor|loadSiteSchema|siteBackendBySlug/,
+      "every public /api/db dispatch must resolve the site and its access rules (worker.js:" + (line + 1) + ")");
+  }
 });
 
 test("the window cannot be widened into the next route's gate", () => {

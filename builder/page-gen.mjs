@@ -390,50 +390,24 @@ Tailwind v4 with semantic tokens: bg-background, text-foreground, bg-card, text-
 border-border, bg-primary, text-destructive. A raw bg-slate-900 breaks dark mode. Also available:
 lucide-react icons, date-fns, recharts. Import nothing that is not already a dependency.
 
-## Visitor accounts
+## Visitor accounts — NOT AVAILABLE
 
-A site can have members — its own customers, nothing to do with isibi accounts. Everything comes
-from \`@/lib/rows\`; there is no other auth API and no fetch:
+A site cannot have members right now. The whole member layer was deleted on 2026-07-30 when
+identity moved to Neon Auth, and the replacement is not wired yet: \`@/lib/rows\` exports no
+\`useMember\`, no \`useLogin\`, no \`useSignup\`, no sessions and no passkeys. There is nothing to
+import and nothing to call.
 
-- \`useMember()\` → \`{ data: member | null, isPending }\`. **Render neither view until it settles**,
-  or the page flashes a sign-in form at somebody already signed in.
-- \`useSignup()\` / \`useLogin()\` → mutations taking \`{ email, password }\`. On success the session is
-  stored and every read re-runs on its own. Passwords need 8+ characters.
-- \`useLogout()\` → a plain function.
-- \`useRequestReset()\` → \`{ email }\`. Always succeeds; tell the visitor to check their inbox
-  whether or not the address has an account. The link itself is handled by the platform.
+So NEVER build a sign-in page, a sign-up form, an account page or anything gated on being signed
+in. A table at access \`user\`, \`feed\` or \`admin\` answers **401 to everyone** — the API has no way
+to tell who is asking — so a page that lists or writes one is broken however carefully it is
+written. The designer will not give you those levels; if a schema somehow carries one, leave that
+table alone entirely rather than rendering an error where a login used to go.
 
-There is more than one way in, and WHICH ones depends on the site — so never hard-code buttons:
-
-- **Every list hook's \`data\` IS the array** — \`useRows\`, \`useSessions\`, \`usePublicRows\`.
-  Map it directly (\`sessions.data?.map(…)\`); there is no wrapper object to reach through.
-- \`useSignInMethods()\` → the list this site actually offers, each \`{ name, label, oauth }\`.
-  Render the sign-in page FROM THIS. A provider the owner has not set up must not appear.
-- \`startOAuthSignIn(name)\` for any entry with \`oauth: true\` — Google, Microsoft, Apple and the
-  rest. It navigates away and the platform brings them back signed in; there is nothing to await.
-- \`usePasskeySignIn()\` → Face ID, Touch ID, a security key. Offer it whenever \`passkey\` is in
-  the list; it needs no password and no email.
-- \`useRequestSignInCode()\` then \`useVerifySignInCode()\` → \`{ email }\`, then \`{ email, code }\`.
-  Only when \`email-code\` is in the list.
-- \`useAddPasskey()\`, \`useConnectedAccounts()\`, \`useStartTotp()\` / \`useEnableTotp()\` /
-  \`useDisableTotp()\` belong on an ACCOUNT page, never on the sign-in page.
-- \`useSessions()\` → where this account is signed in, each \`{ sid, device, country, lastSeen,
-  ageSec, current }\`; \`useRevokeSession()\` takes \`{ sid }\` and signs out that ONE device.
-  Render \`lastSeenLabel\` (\"2 days ago\", always a string) — \`ageSec\` is a number OR null.
-  Also an ACCOUNT page. \`useLogoutOthers()\` is the blunt version — offer both, because "sign out
-  everywhere" makes somebody log back in on every machine they still have. Revoking the row
-  marked \`current\` is allowed and simply logs them out here; the response says \`self: true\`,
-  so send them to the sign-in page rather than leaving them on one that will 401.
-
-**A sign-in may not finish in one step.** \`useLogin\`, \`usePasskeySignIn\` and
-\`useVerifySignInCode\` all return \`{ token }\` OR \`{ pending, need }\`. When \`pending\` comes back
-the person has two-factor on: show a code field and call \`useVerifySecondFactor({ pending, code })\`.
-Treating \`pending\` as a successful login leaves them stuck on a page that thinks they are signed in.
-
-Build sign-in and sign-up ONLY when the schema actually has a \`user\`, \`feed\` or \`admin\` table.
-A site of \`display\` and \`collect\` tables needs no accounts, and adding them is friction nobody
-asked for. Surface the API's message on failure — it distinguishes a wrong password from an address
-that already has an account (\`code: "exists"\`).
+**What to build instead.** \`collect\` and \`display\` cover the sites people actually ask for: a
+form anyone may submit, and content the owner fills in. For the one case a member table would
+genuinely have served — the person who filled in a form coming back to see, move or cancel it —
+use the claim link (\`useClaimedRow\` / \`useCancelClaim\`, rule 10). That needs no account at all,
+which is the entire point of it.
 
 ## What is not possible yet
 

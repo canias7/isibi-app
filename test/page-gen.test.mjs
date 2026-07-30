@@ -512,28 +512,7 @@ test("the rules and ACCESS_NOTE agree about every access level", () => {
   }
 });
 
-test("the rules tell the model how to render sign-in, and every hook exists", () => {
-  // Which methods a site offers is per-site, so a hard-coded Google button is a
-  // button that 404s on most sites.
-  assert.match(PAGE_RULES, /useSignInMethods/);
-  assert.match(PAGE_RULES, /never hard-code buttons/i);
-  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
-  for (const fn of [
-    "useSignInMethods", "startOAuthSignIn", "usePasskeySignIn", "useRequestSignInCode",
-    "useVerifySignInCode", "useVerifySecondFactor", "useAddPasskey", "useConnectedAccounts",
-    "useStartTotp", "useEnableTotp", "useDisableTotp",
-  ]) {
-    assert.ok(PAGE_RULES.includes(fn), "the rules must name " + fn);
-    assert.match(rows, new RegExp("export (async )?function " + fn), fn + " named by the rules but missing from the template");
-  }
-});
 
-test("the rules warn that a sign-in may not finish in one step", () => {
-  // Treating a pending 2FA response as a session leaves the person on a page
-  // that thinks they are signed in and cannot read anything.
-  assert.match(PAGE_RULES, /pending/);
-  assert.match(PAGE_RULES, /useVerifySecondFactor/);
-});
 
 test("the rules no longer claim uploads are impossible", () => {
   // Rule 8 tells the model a form MAY accept an image; this section used to say
@@ -699,20 +678,22 @@ test("pagesRequest carries the budget, the tool and the repair prompt", () => {
   assert.match(fix.messages[0].content, /boom/);
 });
 
-test("every list hook unwraps, and the rules say so", () => {
+test("every list hook unwraps", () => {
   // `useSessions` returned the `{ sessions }` envelope while every other list
   // hook unwrapped via `select`. The generator called `.map` straight onto it in
   // ALL THREE eval samples — reasonably, since nothing else behaves that way.
+  // That hook went with the auth layer on 2026-07-30; the invariant is kept
+  // because it is about every list hook, not about that one.
   const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
   const src = rows.replace(/^\s*\/\/.*$/gm, "");
-  for (const hook of ["useRows", "useSessions", "usePublicRows"]) {
+  const hooks = [...src.matchAll(/export function (use\w*Rows)\b/g)].map((m) => m[1]);
+  assert.ok(hooks.length >= 2, "expected at least useRows and usePublicRows, got " + hooks.join(","));
+  for (const hook of hooks) {
     const i = src.indexOf("export function " + hook);
-    assert.ok(i > 0, hook + " moved");
     const block = src.slice(i, src.indexOf("\n}", i));
     assert.match(block, /select:\s*\(d\)\s*=>\s*d\.\w+|=>\s*r\.rows\)/,
       hook + " must hand back the array itself, not an envelope");
   }
-  assert.match(PAGE_RULES, /Every list hook's .{0,8}data.{0,8} IS the array/);
 });
 
 test("the rules forbid annotating a mutation callback's parameter", () => {
@@ -722,65 +703,6 @@ test("the rules forbid annotating a mutation callback's parameter", () => {
   assert.match(PAGE_RULES, /Never annotate a mutation callback's parameter/);
 });
 
-test("password sign-in handles a 2FA challenge like every other method", () => {
-  // The server answers a 2FA account with `{ pending, need }` and NO token.
-  // `useAuthAction` was typed `{ token, user }`, so it stored `undefined` as the
-  // session and gave the caller no way to learn a code was wanted — password
-  // login was quietly broken for every member with a second factor. Every other
-  // sign-in method already went through `settle`. Found by the eval, because the
-  // generator kept writing `"pending" in data` against a type that denied it.
-  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
-  const i = rows.indexOf("function useAuthAction");
-  assert.ok(i > 0, "useAuthAction moved");
-  const block = rows.slice(i, rows.indexOf("\n}", i));
-  assert.match(block, /send<SignInResult>/, "it must accept the pending shape the server can return");
-  assert.match(block, /settle\(d\)/, "and store a token only when there is one");
-  assert.ok(!/setSessionToken\(d\.token\)/.test(block),
-    "storing d.token unconditionally writes `undefined` as the session on a 2FA account");
-  // A discriminated union, so `if (data.pending)` narrows instead of yielding {}.
-  assert.match(rows, /export type SignInResult =\s*\n\s*\|/, "SignInResult must be a union, not all-optional");
-});
 
-test("a member knows its own role", () => {
-  // An owner can grant one and `admin` tables check it, but `/auth/me` never
-  // returned it — so no page could gate admin UI on it, and the generator
-  // reached for `member.role` anyway.
-  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
-  assert.match(rows, /export type Member = \{[\s\S]*?role: string;/, "Member must carry a role");
-  const routes = fs.readFileSync(path.join(ROOT, "site-auth-routes.mjs"), "utf8");
-  assert.match(routes, /role: String\(user\.role \|\| "user"\)/, "and `me` must send it");
-  // ...against a query that actually selects it, or every member reads as "user".
-  const worker = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
-  assert.match(worker, /SELECT u\.id, u\.email, u\.role,/, "findUserById must select role");
-});
 
-test("the digest says when a `user` table is actually shared with a team", () => {
-  // `user` normally means private-to-me. `teamScope` changes it to "ours", and
-  // a page captioned "your notes" over a shared team table describes something
-  // the API does not do.
-  const d = schemaDigest({ tables: [
-    { name: "deals", access: "user", teamScope: true, columns: [{ name: "title" }] },
-    { name: "notes", access: "user", columns: [{ name: "body" }] },
-  ] });
-  assert.match(d, /deals[\s\S]*?SHARED WITH THE TEAM/);
-  assert.ok(!/notes[\s\S]*?SHARED WITH THE TEAM/.test(d.split("TABLE notes")[1] || ""), "a plain user table must not claim to be shared");
-});
 
-test("teamScope is reachable end to end", () => {
-  // It was parsed since the schema engine was written, stamped a `team_id`
-  // column onto every table declaring it, and was read by nothing, populated by
-  // nothing, and undeclarable by the designer — dead at four layers at once.
-  // Each link asserted, because any one of them missing makes the rest useless.
-  const worker = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
-  const data = fs.readFileSync(path.join(ROOT, "site-data.mjs"), "utf8");
-  const owner = fs.readFileSync(path.join(ROOT, "site-owner.mjs"), "utf8");
-
-  assert.match(worker, /teamScope: \{\s*\n\s*type: "boolean"/, "the designer must be able to declare it");
-  assert.match(worker, /ALTER TABLE _users ADD COLUMN team_id INTEGER/, "a member needs somewhere to hold their team");
-  assert.match(worker, /SELECT u\.id, u\.role, u\.team_id,/, "the visitor must carry it, or everyone reads as teamless");
-  assert.match(worker, /for \(const sql of TEAM_DDL\)/, "the table team_id points at must exist");
-  assert.match(worker, /INSERT INTO _teams \(name\)/, "an owner must be able to create one");
-  assert.match(owner, /normalizeTeamId\(body\.team_id\)/, "...and put a member in it");
-  assert.match(data, /teamScoped\(def\)/, "the read path must act on it");
-  assert.match(data, /teamStamp\(visitor\)/, "and a write must stamp it");
-});

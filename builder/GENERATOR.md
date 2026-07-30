@@ -42,12 +42,14 @@ schema declares, because those are the only things that exist in the database.
    | `feed` | read every row, write its own — signed in | 401 signed out |
    | `admin` | read signed in; write only with the role | 401 signed out, 403 wrong role |
 
-   **Visitor accounts exist as of 2026-07-28.** The three member levels are no
-   longer half-usable — they answer 401 to a signed-out visitor and work properly
-   once someone signs in. A page that touches one must call `useMember()` and
-   offer a sign-in, or every first-time visitor sees an error instead of a login.
-   These rules live in `site-access.mjs` and are imported by both the API that
-   enforces them and the lint that predicts them, so the two cannot disagree.
+   **Visitor accounts were DELETED on 2026-07-30** when identity moved to Neon
+   Auth, and the replacement is not wired yet. So the three member levels answer
+   **401 to everybody** — the API has no way to tell who is asking — and there is
+   no hook to sign anyone in with. Never build a login, a sign-up or an account
+   page; if a schema somehow carries a member table, leave it alone rather than
+   rendering an error where a sign-in used to go. The access rules still live in
+   `site-access.mjs` and are still imported by both the API that enforces them and
+   the lint that predicts them, so the two cannot disagree.
 
    So a menu comes from a `display` table, and a booking form writes to a
    `collect` table. **Never render a list from a `collect` table** — those rows
@@ -114,16 +116,15 @@ something was imported that should not have been.
   because its required Service select read that empty table.) Still generate the
   empty state: seeding is best-effort, and a table can legitimately end up with
   no rows.
-- ~~Visitor accounts~~ — **built 2026-07-28.** `useMember`, `useSignup`,
-  `useLogin`, `useLogout` and `useRequestReset` all come from `@/lib/rows`.
-  Accounts live in the site's own database, so one site's members are not
-  another's. Only build sign-in when the schema actually declares a member
-  table — a site of `display` and `collect` tables needs no accounts.
-- ~~Editing or deleting rows~~ — **built 2026-07-28**, but only a member's OWN
-  rows in a `user` or `feed` table, via `useUpdateRow`/`useDeleteRow` with a
-  signed-in member. `collect` and `display` rows have no owner and can never be
-  changed from a page. Another member's row answers **404**, not 403 — ids are
-  sequential, and 403 would confirm the row exists.
+- **Visitor accounts** — built 2026-07-28, **deleted 2026-07-30**. Identity moved
+  to Neon Auth and the hand-built layer went with it: `@/lib/rows` exports no
+  `useMember`, no `useLogin`, no `useSignup`, no sessions, no passkeys. A member
+  table is unreachable until it is rewired. Build with `collect` and `display`.
+- **Editing or deleting rows** — `useUpdateRow`/`useDeleteRow` exist and needed a
+  signed-in member, so they are unusable for now too: `collect` and `display` rows
+  have no owner and never could be changed from a page. For the one case this
+  actually served — somebody returning to the form they filled in — use the claim
+  link (`useClaimedRow` / `useCancelClaim`), which needs no account at all.
 - ~~File upload~~ — **built 2026-07-28, both halves.** The OWNER uploads from the
   builder's Data panel; a VISITOR can attach one to a form via `useUploadFile`, but
   **only when that table declares an image column** — a form of six text fields

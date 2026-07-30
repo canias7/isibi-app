@@ -13,8 +13,7 @@
 // Injected like the rest, so the decisions run without Supabase, Neon or a
 // Worker — see test/site-owner.test.mjs.
 
-import { isManagedColumn, normalizeRole, rolesForSchema } from "./site-access.mjs";
-import { normalizeTeamId } from "./site-teams.mjs";
+import { isManagedColumn } from "./site-access.mjs";
 import { constraintError } from "./site-errors.mjs";
 
 const json = (body, status = 200) => ({ status, body });
@@ -242,136 +241,6 @@ async function runWrite(deps, { db, def, access, tn, method, rowId, body }) {
   return json({ error: "method not allowed" }, 405);
 }
 
-/**
- * The site's members, for the owner.
- *
- * `_users` is deliberately NOT a declared table, so it is unreachable through
- * every other route here. This is the one place that names it, and it names its
- * columns explicitly: `pass_hash` must never leave the database, and a
- * `SELECT *` a year from now would ship it the moment someone added a column.
- */
-const MEMBER_COLUMNS = ["id", "email", "role", "verified", "created_at", "last_login_at", "manager_id", "blocked", "team_id"];
-
-export async function handleOwnerMembers(deps, { slug, uid, method = "GET", memberId, body = {}, params = {} } = {}) {
-  const open = await openSite(deps, slug, uid);
-  if (open.error) return open.error;
-  const db = open.db;
-
-  // Promoting a member, and saying who they report to.
-  //
-  // The only way a role is ever granted. Before this, `_users.role` existed,
-  // `admin` tables compared against it and `writeRoles` named values for it —
-  // and nothing could write it, so every member on every site was `user`
-  // forever and an `admin` table was writable by nobody.
-  if (method === "PATCH") {
-    const id = rowIdOf(memberId);
-    if (!id) return json({ error: "no member id" }, 400);
-
-    const sets = [], vals = [];
-    if (body.role !== undefined) {
-      const role = normalizeRole(body.role);
-      // Allow-listed against the site's OWN schema: a role no table names is a
-      // permission that can never be checked, which reads as "I granted access"
-      // and does precisely nothing.
-      const allowed = rolesForSchema(await deps.loadSchema(db));
-      if (!role || !allowed.includes(role)) {
-        return json({ error: "role must be one of: " + allowed.join(", "), code: "role" }, 400);
-      }
-      sets.push(deps.ident("role") + "=?"); vals.push(role);
-    }
-    if (body.blocked !== undefined) {
-      // Suspension, which is what an owner actually wants when a member behaves
-      // badly. Before this the only option was DELETE — irreversible, and it
-      // leaves their rows behind pointing at nobody. A boolean, not anything
-      // truthy: `blocked: "false"` is a string and would suspend them.
-      if (typeof body.blocked !== "boolean") return json({ error: "blocked must be true or false" }, 400);
-      sets.push(deps.ident("blocked") + "=?"); vals.push(body.blocked ? 1 : 0);
-    }
-    if (body.manager_id !== undefined) {
-      // null clears it. Anything else must be a real member of THIS site.
-      if (body.manager_id === null || body.manager_id === "") {
-        sets.push(deps.ident("manager_id") + "=NULL");
-      } else {
-        const mid = rowIdOf(body.manager_id);
-        if (!mid) return json({ error: "manager_id must be a member id" }, 400);
-        // Self-management would make `teamRead` return the member's own rows
-        // twice and, worse, reads as a hierarchy that isn't one.
-        if (mid === id) return json({ error: "a member cannot manage themselves", code: "self" }, 400);
-        const exists = await deps.query(db, "SELECT id FROM _users WHERE id=?", [mid]);
-        if (!exists[0]) return json({ error: "no such member" }, 404);
-        sets.push(deps.ident("manager_id") + "=?"); vals.push(mid);
-      }
-    }
-    if (body.team_id !== undefined) {
-      // The only way a member is ever put into a team, which is what makes
-      // `teamScope` reachable at all — it has been parsed, and its `team_id`
-      // column stamped onto tables, since the schema engine was written, with
-      // nothing able to populate it.
-      //
-      // `null` CLEARS it and is a real thing an owner does. `normalizeTeamId`
-      // answers `undefined` for anything that is neither, so a typo cannot
-      // silently take somebody out of their team.
-      const tid = normalizeTeamId(body.team_id);
-      if (tid === undefined) return json({ error: "team_id must be a team id, or null to clear it" }, 400);
-      if (tid === null) {
-        sets.push(deps.ident("team_id") + "=NULL");
-      } else {
-        const exists = await deps.query(db, "SELECT id FROM _teams WHERE id=?", [tid]);
-        if (!exists[0]) return json({ error: "no such team" }, 404);
-        sets.push(deps.ident("team_id") + "=?"); vals.push(tid);
-      }
-    }
-    if (!sets.length) return json({ error: "nothing to change" }, 400);
-
-    const r = await deps.exec(db, "UPDATE _users SET " + sets.join(",") + " WHERE id=?", vals.concat([id]));
-    if (!r.changes) return json({ error: "no such member" }, 404);
-    const rows = await deps.query(db, "SELECT " + MEMBER_COLUMNS.map(deps.ident).join(",") + " FROM _users WHERE id=?", [id]);
-    // What the OWNER did, which is the half of the log a member can neither
-    // cause nor see, and the half that answers "who gave them that role".
-    // Written AFTER the change lands, so the log never claims something that
-    // did not happen, and best-effort like every other audit write.
-    const changed = rows[0] || null;
-    if (deps.audit && changed) {
-      const ev = (kind, meta) => { try { const p = deps.audit({ kind, userId: id, email: changed.email, meta }); if (p && p.catch) p.catch(() => {}); } catch (e) { console.error("audit failed:", (e && e.message) || e); } };
-      if (body.role !== undefined) ev("role_change", { role: changed.role });
-      if (body.blocked !== undefined) ev(body.blocked ? "suspend" : "unsuspend", {});
-      if (body.team_id !== undefined) ev("team_change", { team: changed.team_id == null ? "none" : String(changed.team_id) });
-    }
-    return json({ member: rows[0] || null });
-  }
-
-  if (method === "DELETE") {
-    const id = rowIdOf(memberId);
-    if (!id) return json({ error: "no member id" }, 400);
-    // Read BEFORE the delete: afterwards there is no row to name, and a log
-    // line that says only "member 41 was deleted" is the least useful version
-    // of the one event that cannot be undone.
-    const gone = (await deps.query(db, "SELECT id, email FROM _users WHERE id=?", [id]))[0] || null;
-    const r = await deps.exec(db, "DELETE FROM _users WHERE id=?", [id]);
-    if (!r.changes) return json({ error: "no such member" }, 404);
-    if (deps.audit) {
-      try { const p = deps.audit({ kind: "member_delete", userId: id, email: gone && gone.email, meta: { reason: "owner" } }); if (p && p.catch) p.catch(() => {}); }
-      catch (e) { console.error("audit failed:", (e && e.message) || e); }
-    }
-    // Their rows are left alone on purpose. owner_id no longer matches anyone,
-    // so nothing is readable as that member — but a deleted customer's bookings
-    // should not silently vanish from the owner's list.
-    return json({ ok: true, id });
-  }
-  if (method !== "GET") return json({ error: "method not allowed" }, 405);
-
-  const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(params.limit, 10) || 50));
-  const offset = Math.max(0, parseInt(params.offset, 10) || 0);
-  let members = [];
-  try {
-    members = await deps.query(db, "SELECT " + MEMBER_COLUMNS.map(deps.ident).join(",") + " FROM _users ORDER BY id DESC LIMIT ? OFFSET ?", [limit, offset]);
-  } catch {
-    // A site with no member tables never had `_users` created — that is not an
-    // error, it is a site with no members.
-    return json({ members: [], limit, offset });
-  }
-  return json({ members, limit, offset });
-}
 
 function stripFts(row) {
   if (row && row._fts !== undefined) delete row._fts;

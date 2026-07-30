@@ -28,9 +28,8 @@ import { loadSiteSchema, sqlIdent } from "./site-schema.mjs";
 // The permission rules live in their own leaf module because the page generator
 // has to predict them to lint a page before it is published, and restating them
 // in both places is how they drifted.
-import { isManagedColumn, canReadAccess, canWriteAccess, needsMember, teamReadable, needsVerified, hasPublicView } from "./site-access.mjs";
+import { isManagedColumn, canReadAccess, canWriteAccess, needsMember, needsVerified, hasPublicView } from "./site-access.mjs";
 import { maskFields } from "./site-schema.mjs";
-import { teamScoped, teamReadScope, teamStamp } from "./site-teams.mjs";
 import { limitFor, bucketKey, tooMany } from "./rate-limit.mjs";
 import { constraintError } from "./site-errors.mjs";
 import { readJsonBody, clampFields, MAX_JSON_BODY } from "./request-limits.mjs";
@@ -236,9 +235,15 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
   // tool anybody asked for. Deliberately unlike `teamRead`, which is a hierarchy
   // and widens reads only. Opt-in either way — a customer-facing members area
   // simply does not declare `teamScope`.
-  const teamEdit = scoped && teamScoped(def) ? teamReadScope(visitor) : null;
-  const ownScoped = scoped ? (teamEdit ? " AND " + teamEdit.sql : ' AND "owner_id"=?') : "";
-  const ownParam = scoped ? (teamEdit ? teamEdit.vals : [visitor.id]) : [];
+  // `teamScope` and `teamRead` both widened this to a member's colleagues or to
+  // their direct reports, and both resolved the group through the site's own
+  // `_users` table — which went with the auth layer on 2026-07-30. Until they are
+  // rebuilt on Neon Auth's `member` / `organization`, a member sees exactly their
+  // OWN rows. That is the narrow direction on purpose: too little is a member who
+  // cannot see a colleague's record, too much is one site's customers reading each
+  // other's.
+  const ownScoped = scoped ? ' AND "owner_id"=?' : "";
+  const ownParam = scoped ? [visitor.id] : [];
 
   const tn = sqlIdent(def.name);
   const cols = columnNames(def);
@@ -258,35 +263,10 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
       // The `user` level means private-per-member. Appended to the caller's
       // filters rather than replacing them, so no query string can widen it.
       if (access === "user") {
-        if (teamScoped(def)) {
-          // "OURS" — the read model a business tool needs and the schema engine
-          // has never had. `teamScope` has been parsed, and `team_id` stamped
-          // onto the table by the DDL, since the engine was written; nothing has
-          // ever read either. A member with no team falls back to their own rows
-          // only, which is what `teamReadScope` guarantees.
-          const t = teamReadScope(visitor);
-          sql += (f.sql ? " AND " : " WHERE ") + t.sql;
-          vals.push(...t.vals);
-        } else if (teamReadable(def)) {
-          // ...unless the table declared `teamRead`, which is the middle the
-          // schema engine has always described and never enforced: `user` is
-          // private-to-me and `feed` is everyone-sees-everything, with nothing
-          // in between, and "my team's records" is the read model an internal
-          // tool actually needs.
-          //
-          // DIRECT reports only, deliberately. A recursive walk up an arbitrary
-          // hierarchy is a WITH RECURSIVE on every read of every row, and an
-          // accidental cycle in `manager_id` makes it non-terminating; one level
-          // is what an owner can reason about and is enough for the case this
-          // exists for. It is a READ widening only — a manager sees their team's
-          // rows and still writes only their own.
-          sql += (f.sql ? " AND " : " WHERE ") +
-            '("owner_id"=? OR "owner_id" IN (SELECT id FROM _users WHERE manager_id=?))';
-          vals.push(visitor.id, visitor.id);
-        } else {
-          sql += (f.sql ? " AND " : " WHERE ") + '"owner_id"=?';
-          vals.push(visitor.id);
-        }
+        // Private-per-member. Appended to the caller's filters rather than
+        // replacing them, so no query string can widen it.
+        sql += (f.sql ? " AND " : " WHERE ") + '"owner_id"=?';
+        vals.push(visitor.id);
       }
       // Full-text search, when the table declared it.
       const q = (url.searchParams.get("q") || "").trim();
@@ -331,11 +311,7 @@ export async function handleSiteData(env, request, url, resolveDb, deps) {
       // — pickWritable already drops it as a managed column, so a sender cannot
       // claim to be someone else. Added after that, so the order matters.
       if (scoped) {
-        // The team as well, when the table declares one. `teamStamp` reads the
-        // VERIFIED visitor and nothing else — `team_id` is a managed column so a
-        // body cannot claim one, and this is the only thing that ever sets it.
-        const st = teamScoped(def) ? teamStamp(visitor) : { cols: ["owner_id"], vals: [visitor.id] };
-        wc.push(...st.cols); vals.push(...st.vals);
+        wc.push("owner_id"); vals.push(visitor.id);
       }
       if (!wc.length) return json({ error: "nothing to write" }, 400);
       const rows = await sqlQuery(
