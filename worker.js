@@ -2563,9 +2563,6 @@ async function _hmac(secret, msg) {
 // is not paid on every auth call); each ALTER is idempotent-by-catch. NEW sites get
 // the columns from the CREATE below, so the ALTERs just no-op for them.
 const _authExtrasDone = new Set();
-// Email a built-site visitor a signed 24h "verify your email" link (→ /verify). Sent
-// through the platform mailer; fire-and-forget so signup/login never block on it. The
-// mailer no-ops until GO_FARTHER_API_KEY is set as a Worker secret (same as reset).
 // What one build costs the caller. The designer is a single Sonnet call with a
 // small output, so this sits alongside the other orchestrator fees rather than
 // being priced like a generation.
@@ -3218,21 +3215,35 @@ async function ownerEmail(env, uid) {
   return (u && u.email) || null;
 }
 
+/**
+ * Send one email from the Worker, through Cloudflare Email Service.
+ *
+ * The BINDING, not the REST API — so there is no token to mint, keep in GitHub
+ * Actions, upload each deploy, or rotate. `env.EMAIL` is undefined until Email
+ * Sending is enabled on the account and isibi.ai is a verified sending domain, so
+ * this reports that rather than throwing an unhelpful TypeError at a call site
+ * that only wanted to send a notification.
+ *
+ * `text` is sent alongside `html` deliberately: a message with no plain-text part
+ * scores worse with spam filters, and a booking notification landing in junk is
+ * the same as not sending it.
+ */
+async function sendMail(env, { to, subject, html, text }) {
+  if (!env.EMAIL) throw new Error("mail not configured: no EMAIL binding");
+  return env.EMAIL.send({
+    from: env.EMAIL_FROM || "isibi <login@isibi.ai>",
+    to, subject, html,
+    text: text || String(html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 4000),
+  });
+}
+
 function notifyOwnerOfSubmission(env, ctx, payload) {
-  if (!env.GO_FARTHER_API_KEY || !env.SUPABASE_SERVICE_KEY) return;
+  if (!env.EMAIL || !env.SUPABASE_SERVICE_KEY) return;
   const p = (async () => {
     const out = await notifyOwner({
       claim: (s2) => claimNotify(env, s2),
       emailOf: (uid) => ownerEmail(env, uid),
-      send: async ({ to, subject, html }) => {
-        const r = await fetch("https://lkpfeqrelvziltfwpuxi.supabase.co/functions/v1/mailer", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${env.GO_FARTHER_API_KEY}`, "content-type": "application/json" },
-          body: JSON.stringify({ action: "send", from: env.EMAIL_FROM || "isibi <login@isibi.ai>", to, subject, html }),
-          signal: AbortSignal.timeout(10000),
-        });
-        if (!r.ok) throw new Error("mailer " + r.status);
-      },
+      send: ({ to, subject, html }) => sendMail(env, { to, subject, html }),
     }, payload);
     // It runs detached, so nothing else would ever see why it did not send.
     if (!out.sent && out.error) console.error("submission notify:", payload.slug, out.reason, out.error);

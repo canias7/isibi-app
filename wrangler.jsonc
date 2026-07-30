@@ -19,6 +19,21 @@
   "r2_buckets": [
     { "binding": "SITES_BUCKET", "bucket_name": "isibi-sites" }
   ],
+  // Outbound mail. Cloudflare Email Service, from 2026-07-30 — the previous
+  // provider was stopped.
+  //
+  // A BINDING rather than the REST API, which is the reason to prefer Cloudflare
+  // here at all: there is no token to mint, store in GitHub Actions, upload on
+  // every deploy, or rotate. The Supabase Edge Function that sends auth email
+  // cannot use this (it runs on Deno, not on Cloudflare) and goes through the REST
+  // API with a token instead — the only place one is needed.
+  //
+  // `env.EMAIL` is undefined until Email Sending is enabled on the account and
+  // isibi.ai is verified as a sending domain, so every caller checks for it and
+  // no-ops rather than throwing.
+  "send_email": [
+    { "name": "EMAIL" }
+  ],
   // Game build-service (Phase 3): runs `vite build` on AI-generated kaplay games
   // AND a headless-Chromium runtime smoke test. Image ./builder-game/Dockerfile;
   // the Worker talks to it via the GAME_BUILD_CONTAINER Durable Object binding.

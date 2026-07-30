@@ -58,9 +58,9 @@ jobs:
           # lazily on their first publish), one DATABASE inside it per site.
           # Replaced Cloudflare D1 on 2026-07-27 — see the shim in worker.js.
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-          # PENDING: built-app visitor password-reset emails send through Go Farther.
-          # To enable, add a GitHub Actions secret GO_FARTHER_API_KEY (the same
-          # gf_live_… key used by the Supabase send-email function), then add
-          # `GO_FARTHER_API_KEY` back to the `secrets:` list above AND uncomment the
-          # env line below. Until then the reset endpoints work but no email is sent.
-          # GO_FARTHER_API_KEY: ${{ secrets.GO_FARTHER_API_KEY }}
+          # Mail needs NO secret here. The Worker sends through Cloudflare Email
+          # Service via the `send_email` binding in wrangler.jsonc (2026-07-30,
+          # replacing Go Farther) — nothing to mint, upload each deploy, or rotate.
+          # A token IS needed by the Supabase send-email Edge Function, which runs
+          # on Deno and cannot use a binding; that lives in Supabase's secrets as
+          # CF_ACCOUNT_ID + CF_EMAIL_TOKEN, not here.

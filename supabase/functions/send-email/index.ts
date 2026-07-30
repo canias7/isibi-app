@@ -1,15 +1,22 @@
-// Supabase Auth "Send Email" hook → Go Farther mailer.
+// Supabase Auth "Send Email" hook → Cloudflare Email Service.
 // Auth: standard-webhooks signature (SEND_EMAIL_HOOK_SECRET), not JWT.
 // Links point at isibi.ai/confirm (verifies token_hash directly), so
 // they work regardless of the project's Site URL setting.
 //
-// The Go Farther round-trip is ~3.5-4s and GoTrue aborts this hook after 5s,
-// so we send in the BACKGROUND (EdgeRuntime.waitUntil) and return 200 right
-// away. Otherwise a cold start or a slow moment tips past 5s and the whole
-// signup/sign-in fails with "Failed to reach hook within maximum time".
+// Moved off Go Farther 2026-07-30 (owner stopped the account). This runs on
+// Supabase's Deno, not on Cloudflare, so it CANNOT use the Workers `send_email`
+// binding and goes through the REST API with a token instead. The Worker's own
+// mail path uses the binding and needs no token at all.
+//
+// The send still happens in the BACKGROUND. GoTrue aborts this hook after 5s and
+// a signup that trips that limit fails outright with "Failed to reach hook within
+// maximum time" — so returning 200 immediately is not an optimisation, it is what
+// stops a slow moment from breaking sign-in. Cloudflare should be faster than the
+// ~3.5-4s Go Farther took, but the hook must not depend on that being true.
 import { Webhook } from "https://esm.sh/standardwebhooks@1.0.0";
 
-const GF_ENDPOINT = "https://lkpfeqrelvziltfwpuxi.supabase.co/functions/v1/mailer";
+const cfEndpoint = (accountId: string) =>
+  `https://api.cloudflare.com/client/v4/accounts/${accountId}/email/sending/send`;
 
 const SUBJECTS: Record<string, string> = {
   signup: "Confirm your isibi account",
@@ -21,9 +28,12 @@ const SUBJECTS: Record<string, string> = {
 };
 
 Deno.serve(async (req) => {
-  const apiKey = Deno.env.get("GO_FARTHER_API_KEY");
+  const accountId = Deno.env.get("CF_ACCOUNT_ID");
+  const apiToken = Deno.env.get("CF_EMAIL_TOKEN");
   const hookSecret = Deno.env.get("SEND_EMAIL_HOOK_SECRET");
-  if (!apiKey) return json({ error: "GO_FARTHER_API_KEY not set" }, 500);
+  // Named separately so a half-configured deploy says WHICH half is missing.
+  if (!accountId) return json({ error: "CF_ACCOUNT_ID not set" }, 500);
+  if (!apiToken) return json({ error: "CF_EMAIL_TOKEN not set" }, 500);
   if (!hookSecret) return json({ error: "SEND_EMAIL_HOOK_SECRET not set" }, 500);
 
   const payload = await req.text();
@@ -53,23 +63,31 @@ Deno.serve(async (req) => {
   const text = `${SUBJECTS[kind] || "Your code"}: ${token}\n\nExpires in 1 hour. Or open: ${link}`;
 
   // Fire the email in the background so this hook returns immediately.
-  const send = fetch(GF_ENDPOINT, {
+  //
+  // No idempotency key: Cloudflare's send body takes to/from/subject/html/text and
+  // nothing was found in its API reference for one, and sending a field the API
+  // does not know risks the whole request being refused. Go Farther had one, so
+  // this is a real if small regression — a GoTrue hook retry can now deliver the
+  // same code twice. Two identical codes is a far smaller problem than a rejected
+  // body, and the codes themselves stay single-use.
+  const send = fetch(cfEndpoint(accountId), {
     method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      action: "send",
       from: Deno.env.get("EMAIL_FROM") || "isibi <login@isibi.ai>",
       to: user.email,
       subject: SUBJECTS[kind] || "Your isibi code",
       html,
       text,
-      idempotency_key: email_data.token_hash || undefined,
     }),
   })
     .then(async (r) => {
-      if (!r.ok) console.error("Go Farther send failed:", r.status, (await r.text().catch(() => "")).slice(0, 300));
+      // The body is logged on failure because this runs detached — without it a
+      // dead mailer is indistinguishable from a working one from out here, which
+      // is how the previous provider's outage would have looked.
+      if (!r.ok) console.error("Cloudflare send failed:", r.status, (await r.text().catch(() => "")).slice(0, 300));
     })
-    .catch((e) => console.error("Go Farther send threw:", String(e)));
+    .catch((e) => console.error("Cloudflare send threw:", String(e)));
 
   // Keep the worker alive to finish the background send after we respond.
   const rt = (globalThis as any).EdgeRuntime;

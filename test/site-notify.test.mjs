@@ -200,3 +200,52 @@ test("the email names the site and the form in words a person reads", () => {
   assert.equal(subject, "New table bookings on sharp-fade", "underscores are not shown to a person");
   assert.match(html, /sharp-fade/);
 });
+
+// ---------------------------------------------------- the mailer is a binding now
+//
+// Cloudflare Email Service replaced Go Farther on 2026-07-30. The reason it is
+// worth a test rather than just an edit: the Worker sends through a BINDING, and a
+// binding that has not been provisioned is `undefined` rather than an error — so
+// the failure mode of getting this wrong is a TypeError on a public endpoint, not
+// a clear "mail is not configured".
+test("the Worker sends through the EMAIL binding, with no API token anywhere", async () => {
+  const fs = await import("node:fs");
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+
+  assert.match(worker, /env\.EMAIL\.send\(/, "mail must go through the binding");
+  // No token, and that is the point of using Cloudflare here: nothing to mint,
+  // upload on every deploy, or rotate.
+  assert.ok(!/GO_FARTHER/.test(worker), "the retired provider must be gone");
+  assert.ok(!/api\.cloudflare\.com[^"']*email/.test(worker),
+    "the Worker must not reach the REST API — that is only for the Edge Function, which cannot use a binding");
+
+  // Guarded, or an unprovisioned binding is a TypeError rather than a refusal.
+  assert.match(worker, /if \(!env\.EMAIL\) throw new Error\("mail not configured/,
+    "sendMail must say so when the binding is absent");
+  assert.match(worker, /if \(!env\.EMAIL \|\| !env\.SUPABASE_SERVICE_KEY\) return;/,
+    "the notify path must no-op before the binding exists, not throw");
+});
+
+test("wrangler declares the binding the Worker calls", async () => {
+  // Derived at both ends: the code above asserts the Worker uses `env.EMAIL`, and
+  // this asserts something actually binds that name. Either half alone passes on a
+  // Worker that calls a binding nobody declared.
+  const fs = await import("node:fs");
+  const wr = fs.readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+  assert.match(wr, /"send_email":\s*\[\s*\{\s*"name":\s*"EMAIL"\s*\}/,
+    "wrangler.jsonc must declare send_email with the name the Worker uses");
+});
+
+test("every message carries a plain-text part", async () => {
+  // A message with no text/plain alternative scores worse with spam filters, and a
+  // booking notification in somebody's junk folder is the same as one never sent.
+  const fs = await import("node:fs");
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const i = worker.indexOf("async function sendMail(");
+  assert.ok(i > 0, "sendMail moved");
+  const body = worker.slice(i, worker.indexOf("\n}", i));
+  // \btext: not /text:/ — the first draft matched `_text:` as well, so renaming the
+  // field to something the API ignores passed the test.
+  assert.match(body, /\btext:/, "sendMail must always send a text part: " + body);
+  assert.match(body, /replace\(\/<\[\^>\]\+>\/g/, "and derive one from the html when the caller gave none");
+});
