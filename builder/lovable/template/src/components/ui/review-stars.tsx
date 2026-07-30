@@ -13,10 +13,20 @@ export function ReviewStars({ value, count, max = 5, className }: {
   return (
     <div className={cn("flex items-center gap-2", className)}
       role="img" aria-label={`${v} out of ${max}${count != null ? `, ${count} reviews` : ""}`}>
-      <span className="flex" aria-hidden="true">
+      {/* Partial fill by CLIPPING a filled row over an empty one.
+          It used to round: `i < Math.round(v)`, so 4.5 drew five solid stars —
+          a four-and-a-half-star business advertised as a five-star one, and
+          every real aggregate rating is a fraction. */}
+      <span className="relative flex" aria-hidden="true">
         {Array.from({ length: max }, (_, i) => (
-          <Star key={i} className={cn("size-4", i < Math.round(v) ? "fill-foreground text-foreground" : "text-muted-foreground/40")} />
+          <Star key={i} className="size-4 text-muted-foreground/40" />
         ))}
+        <span className="absolute inset-y-0 left-0 flex overflow-hidden"
+          style={{ width: `${(v / max) * 100}%` }}>
+          {Array.from({ length: max }, (_, i) => (
+            <Star key={i} className="size-4 shrink-0 fill-foreground text-foreground" />
+          ))}
+        </span>
       </span>
       <span className="text-sm tabular-nums text-muted-foreground">
         {v.toFixed(1)}{count != null ? ` (${count})` : ""}

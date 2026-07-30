@@ -151,6 +151,53 @@ export const UI_COMPONENTS = [
   "split-view", "panel", "well", "card-grid", "list-row", "media-object",
   "empty-illustration", "sidebar-layout", "sticky-aside", "centered-form",
   "section-divider", "grid-item",
+
+  // ── The fourth hundred (2026-07-30) ───────────────────────────────────────
+  // Files, tables at scale, charts without a charting library, onboarding,
+  // search, settings, status, events, and the cards for the trades this
+  // platform actually builds sites for.
+  // Files and attachments.
+  "file-type-icon", "file-row", "file-list", "upload-progress", "download-card",
+  "attachment-list", "storage-bar",
+  // Notifications and discussion.
+  "notification-item", "notification-list", "notification-bell", "unread-divider",
+  "comment", "comment-thread", "reply-box", "mention-chip", "moderation-note",
+  // Tables at scale. The four that matter are `select-all-banner` (page vs all),
+  // `expandable-row`, `totals-row` and `grouped-rows` — the parts a table grows
+  // once it has more rows than fit.
+  "page-size-select", "row-select", "select-all-banner", "expandable-row",
+  "totals-row", "grouped-rows", "table-skeleton", "sticky-table",
+  "density-toggle", "inline-edit",
+  // Charts, hand-drawn in SVG and CSS. Deliberately NOT recharts: these are the
+  // small ones — a trend beside a number, a share of a total — where a charting
+  // library is 90 KB to draw eight rectangles. `chart` and src/components/charts
+  // are still there for a real one.
+  "sparkline", "mini-bars", "bar-list", "donut-mini", "gauge", "heat-strip",
+  "ratio-bar", "dot-plot", "progress-stack", "trend-arrow",
+  // Onboarding and first run.
+  "welcome-card", "setup-checklist", "spotlight", "whats-new",
+  "sample-data-banner", "getting-started", "connect-card", "first-run",
+  // Search.
+  "search-header", "search-results", "recent-searches", "search-suggestions",
+  "no-results", "search-facets", "sort-select", "applied-filters",
+  // Settings and account admin.
+  "settings-nav", "setting-item", "notification-prefs", "api-key-row",
+  "webhook-row", "connected-account", "billing-summary", "invoice-row",
+  "seat-usage", "two-factor-setup", "email-verify-banner",
+  // System status.
+  "uptime-bar", "incident-item", "status-list", "maintenance-notice",
+  "latency-badge", "sync-status", "queue-depth",
+  // Events and calendars.
+  "event-card", "agenda-list", "time-slot", "rsvp-buttons", "event-meta",
+  "all-day-row", "date-nav", "now-line", "ics-button",
+  // The trades. A generated site is usually one of these, and each card is the
+  // shape that trade's listings actually take.
+  "job-card", "property-card", "course-card", "recipe-card", "dish-card",
+  "service-card", "room-card", "vehicle-card", "ticket-card", "donation-card",
+  "membership-card",
+  // More inputs and utility.
+  "tag-input", "slug-input", "unit-input", "weekday-picker", "color-swatch",
+  "id-badge", "json-view", "diff-text", "word-count", "map-embed",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
