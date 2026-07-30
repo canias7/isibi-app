@@ -1,502 +1,502 @@
 # Components (500)
 
-accordion
-account-menu
-activity-feed
-add-to-cart
-address-fields
-address-summary
-agenda-list
-alert
-alert-dialog
-all-day-row
-anchor-nav
-announcement-bar
-api-key-row
-applied-filters
-approval-chain
-article-card
-article-header
-aspect-ratio
-assignee-picker
-attachment
-attachment-list
-audio-player
-audit-row
-author-byline
-auto-grid
-availability-grid
-availability-legend
-avatar
-avatar-group
-avatar-name
-avatar-upload
-award-badge
-back-link
-badge
-banner
-bar-list
-batch-progress
-before-after
-bento-grid
-billing-summary
-blackout-dates
-booking-summary
-breadcrumb
-bubble
-bulk-actions
-bullet-list
-busy-button
-button
-button-group
-calendar
-calendar-month
-callout
-cancel-policy
-canned-reply
-capacity-bar
-card
-card-grid
-carousel
-cart-line
-cart-summary
-case-study-card
-category-nav
-center-box
-centered-form
-changelog-entry
-chart
-chat-composer
-chat-message
-chat-thread
-checkbox
-checkbox-group
-clamp-text
-code-block
-collapsible
-color-swatch
-column-mapper
-column-toggle
-combobox
-command
-comment
-comment-thread
-comparison-table
-conditional-field
-confirm-dialog
-conflict-note
-connect-card
-connected-account
-consent-checkbox
-contact-card
-contact-form
-container
-context-menu
-conversation-row
-cookie-banner
-copy-button
-count-badge
-countdown
-country-select
-coupon-input
-course-card
-cover-image
-csv-import
-cta-band
-currency-input
-danger-zone
-data-list
-data-table
-date-badge
-date-format
-date-nav
-date-of-birth
-date-range-picker
-date-time-picker
-day-schedule
-dedupe-list
-delivery-estimate
-delivery-slot
-density-toggle
-description-list
-detail-panel
-dialog
-diff-text
-direction
-directory-list
-dish-card
-distance-badge
-divider-text
-document-meta
-donation-card
-donut-mini
-dot-plot
-download-card
-drawer
-dropdown-menu
-dry-run-note
-duration
-duration-bar
-duration-picker
-email-input
-email-verify-banner
-emoji-reaction
-empty
-empty-illustration
-error-boundary
-error-state
-escalation-note
-event-card
-event-meta
-expandable-row
-expandable-text
-export-button
-external-link
-faq
-faq-search
-feature-grid
-feedback-widget
-field
-field-hint
-figure
-file-drop
-file-list
-file-row
-file-size
-file-type-icon
-filter-bar
-first-run
-focus-trap
-forbidden
-form
-form-actions
-form-error-summary
-form-progress
-form-row
-form-section
-gallery
-gauge
-getting-started
-glossary-item
-grid-item
-grouped-rows
-handoff-note
-heading
-heading-level
-heat-strip
-help-launcher
-hero
-hero-split
-highlight-match
-holiday-notice
-honeypot
-hotkey-list
-hover-card
-icon-badge
-ics-button
-id-badge
-image-strip
-import-preview
-import-summary
-inbox-list
-incident-item
-initials
-inline
-inline-alert
-inline-edit
-input
-input-group
-input-otp
-invite-form
-invoice-header
-invoice-lines
-invoice-row
-invoice-totals
-item
-job-card
-json-view
-kbd
-key-value
-label
-labeled-progress
-landmark
-lang-switch
-latency-badge
-lead
-lead-time
-legend
-letterhead
-like-button
-link-card
-list-format
-list-row
-live-region
-loading-overlay
-location-card
-login-form
-logo
-logo-cloud
-maintenance-notice
-maintenance-page
-map-embed
-marker
-marquee
-masonry
-matrix-question
-media-grid
-media-object
-membership-card
-mention-chip
-mention-picker
-menu-section
-menubar
-message
-message-scroller
-message-status
-metric-delta
-metric-row
-mini-bars
-mobile-nav
-moderation-note
-money
-multi-select
-multi-step-form
-name-fields
-native-select
-nav-footer
-nav-list
-navigation-menu
-no-results
-not-found
-notification-bell
-notification-item
-notification-list
-notification-prefs
-now-line
-nps-scale
-number-format
-number-input
-offline-banner
-on-call
-open-now
-opening-hours
-order-summary
-order-tracker
-ordinal
-org-chart
-otp-form
-overflow-scroller
-page-break
-page-header
-page-size-select
-page-title
-pagination
-panel
-partial-failure
-party-size
-password-input
-paste-table
-payment-methods
-percent-input
-permission-row
-person-row
-phone-input
-pickup-point
-plan-card
-plural
-popover
-post-meta
-postcode-input
-presence-dot
-press-quote
-prev-next
-price-list
-price-tag
-pricing-table
-print-button
-print-only
-priority-badge
-product-card
-profile-card
-progress
-progress-ring
-progress-stack
-property-card
-prose
-quantity-input
-queue-depth
-quote
-radio-cards
-radio-group
-range-input
-rate-limited
-rating-input
-rating-summary
-ratio-bar
-reading-time
-receipt
-recent-searches
-recipe-card
-record-header
-recurrence-summary
-recurring-picker
-related-list
-repeatable-field
-reply-box
-required-mark
-reset-form
-resizable
-result-count
-retry-panel
-reveal
-review-card
-review-form
-review-stars
-role-badge
-room-card
-row-actions
-row-errors
-row-select
-rsvp-buttons
-safe-image
-sample-data-banner
-save-draft
-saved-views
-scale-input
-screen-only
-scroll-area
-scroll-progress
-scroll-top
-search-facets
-search-header
-search-input
-search-results
-search-suggestions
-seat-usage
-section
-section-divider
-section-header
-select
-select-all-banner
-seo-jsonld
-separator
-service-area
-service-card
-session-row
-setting-item
-settings-nav
-setup-checklist
-share-buttons
-share-preview
-sheet
-shift-badge
-shipping-options
-side-nav
-sidebar
-sidebar-layout
-signature-block
-signature-pad
-signup-form
-site-footer
-site-header
-skeleton
-skeleton-card
-skeleton-text
-skill-tags
-skip-link
-sla-badge
-slider
-slot-hold
-slow-note
-slug-input
-social-links
-sonner
-sort-select
-sortable-header
-spacer
-sparkline
-spinner
-split-view
-spotlight
-stack
-stale-data-note
-stat-card
-stats-band
-status-badge
-status-dot
-status-list
-step-nav
-stepper
-steps
-sticky-aside
-sticky-bar
-sticky-cta
-sticky-table
-stock-badge
-storage-bar
-store-locator
-success-panel
-switch
-switch-row
-sync-status
-tab-nav
-table
-table-skeleton
-tabs
-tag-input
-tag-list
-team-grid
-template-download
-terms-block
-testimonial
-text
-text-size
-textarea
-textarea-count
-theme-toggle
-ticket-card
-ticket-row
-time-ago
-time-input
-time-slot
-time-until
-timeline
-timezone-note
-timezone-picker
-toggle
-toggle-chip
-toggle-group
-toolbar
-tooltip
-totals-row
-tour-step
-travel-time
-trend-arrow
-truncate-middle
-trust-strip
-two-col
-two-factor-setup
-typing-indicator
-undo-toast
-unit-input
-unread-divider
-upload-progress
-uptime-bar
-url-input
-usage-meter
-variant-picker
-vehicle-card
-verified-badge
-video-embed
-visually-hidden
-vote-buttons
-waitlist-form
-watermark
-webhook-row
-week-strip
-weekday-picker
-welcome-card
-well
-whats-new
-wishlist-button
-word-count
+✓ accordion
+✓ account-menu
+✓ activity-feed
+✓ add-to-cart
+✓ address-fields
+✓ address-summary
+✓ agenda-list
+✓ alert
+✓ alert-dialog
+✓ all-day-row
+✓ anchor-nav
+✓ announcement-bar
+✓ api-key-row
+✓ applied-filters
+✓ approval-chain
+✓ article-card
+✓ article-header
+✓ aspect-ratio
+✓ assignee-picker
+✓ attachment
+✓ attachment-list
+✓ audio-player
+✓ audit-row
+✓ author-byline
+✓ auto-grid
+✓ availability-grid
+✓ availability-legend
+✓ avatar
+✓ avatar-group
+✓ avatar-name
+✓ avatar-upload
+✓ award-badge
+✓ back-link
+✓ badge
+✓ banner
+✓ bar-list
+✓ batch-progress
+✓ before-after
+✓ bento-grid
+✓ billing-summary
+✓ blackout-dates
+✓ booking-summary
+✓ breadcrumb
+✓ bubble
+✓ bulk-actions
+✓ bullet-list
+✓ busy-button
+✓ button
+✓ button-group
+✓ calendar
+✓ calendar-month
+✓ callout
+✓ cancel-policy
+✓ canned-reply
+✓ capacity-bar
+✓ card
+✓ card-grid
+✓ carousel
+✓ cart-line
+✓ cart-summary
+✓ case-study-card
+✓ category-nav
+✓ center-box
+✓ centered-form
+✓ changelog-entry
+✓ chart
+✓ chat-composer
+✓ chat-message
+✓ chat-thread
+✓ checkbox
+✓ checkbox-group
+✓ clamp-text
+✓ code-block
+✓ collapsible
+✓ color-swatch
+✓ column-mapper
+✓ column-toggle
+✓ combobox
+✓ command
+✓ comment
+✓ comment-thread
+✓ comparison-table
+✓ conditional-field
+✓ confirm-dialog
+✓ conflict-note
+✓ connect-card
+✓ connected-account
+✓ consent-checkbox
+✓ contact-card
+✓ contact-form
+✓ container
+✓ context-menu
+✓ conversation-row
+✓ cookie-banner
+✓ copy-button
+✓ count-badge
+✓ countdown
+✓ country-select
+✓ coupon-input
+✓ course-card
+✓ cover-image
+✓ csv-import
+✓ cta-band
+✓ currency-input
+✓ danger-zone
+✓ data-list
+✓ data-table
+✓ date-badge
+✓ date-format
+✓ date-nav
+✓ date-of-birth
+✓ date-range-picker
+✓ date-time-picker
+✓ day-schedule
+✓ dedupe-list
+✓ delivery-estimate
+✓ delivery-slot
+✓ density-toggle
+✓ description-list
+✓ detail-panel
+✓ dialog
+✓ diff-text
+✓ direction
+✓ directory-list
+✓ dish-card
+✓ distance-badge
+✓ divider-text
+✓ document-meta
+✓ donation-card
+✓ donut-mini
+✓ dot-plot
+✓ download-card
+✓ drawer
+✓ dropdown-menu
+✓ dry-run-note
+✓ duration
+✓ duration-bar
+✓ duration-picker
+✓ email-input
+✓ email-verify-banner
+✓ emoji-reaction
+✓ empty
+✓ empty-illustration
+✓ error-boundary
+✓ error-state
+✓ escalation-note
+✓ event-card
+✓ event-meta
+✓ expandable-row
+✓ expandable-text
+✓ export-button
+✓ external-link
+✓ faq
+✓ faq-search
+✓ feature-grid
+✓ feedback-widget
+✓ field
+✓ field-hint
+✓ figure
+✓ file-drop
+✓ file-list
+✓ file-row
+✓ file-size
+✓ file-type-icon
+✓ filter-bar
+✓ first-run
+✓ focus-trap
+✓ forbidden
+✓ form
+✓ form-actions
+✓ form-error-summary
+✓ form-progress
+✓ form-row
+✓ form-section
+✓ gallery
+✓ gauge
+✓ getting-started
+✓ glossary-item
+✓ grid-item
+✓ grouped-rows
+✓ handoff-note
+✓ heading
+✓ heading-level
+✓ heat-strip
+✓ help-launcher
+✓ hero
+✓ hero-split
+✓ highlight-match
+✓ holiday-notice
+✓ honeypot
+✓ hotkey-list
+✓ hover-card
+✓ icon-badge
+✓ ics-button
+✓ id-badge
+✓ image-strip
+✓ import-preview
+✓ import-summary
+✓ inbox-list
+✓ incident-item
+✓ initials
+✓ inline
+✓ inline-alert
+✓ inline-edit
+✓ input
+✓ input-group
+✓ input-otp
+✓ invite-form
+✓ invoice-header
+✓ invoice-lines
+✓ invoice-row
+✓ invoice-totals
+✓ item
+✓ job-card
+✓ json-view
+✓ kbd
+✓ key-value
+✓ label
+✓ labeled-progress
+✓ landmark
+✓ lang-switch
+✓ latency-badge
+✓ lead
+✓ lead-time
+✓ legend
+✓ letterhead
+✓ like-button
+✓ link-card
+✓ list-format
+✓ list-row
+✓ live-region
+✓ loading-overlay
+✓ location-card
+✓ login-form
+✓ logo
+✓ logo-cloud
+✓ maintenance-notice
+✓ maintenance-page
+✓ map-embed
+✓ marker
+✓ marquee
+✓ masonry
+✓ matrix-question
+✓ media-grid
+✓ media-object
+✓ membership-card
+✓ mention-chip
+✓ mention-picker
+✓ menu-section
+✓ menubar
+✓ message
+✓ message-scroller
+✓ message-status
+✓ metric-delta
+✓ metric-row
+✓ mini-bars
+✓ mobile-nav
+✓ moderation-note
+✓ money
+✓ multi-select
+✓ multi-step-form
+✓ name-fields
+✓ native-select
+✓ nav-footer
+✓ nav-list
+✓ navigation-menu
+✓ no-results
+✓ not-found
+✓ notification-bell
+✓ notification-item
+✓ notification-list
+✓ notification-prefs
+✓ now-line
+✓ nps-scale
+✓ number-format
+✓ number-input
+✓ offline-banner
+✓ on-call
+✓ open-now
+✓ opening-hours
+✓ order-summary
+✓ order-tracker
+✓ ordinal
+✓ org-chart
+✓ otp-form
+✓ overflow-scroller
+✓ page-break
+✓ page-header
+✓ page-size-select
+✓ page-title
+✓ pagination
+✓ panel
+✓ partial-failure
+✓ party-size
+✓ password-input
+✓ paste-table
+✓ payment-methods
+✓ percent-input
+✓ permission-row
+✓ person-row
+✓ phone-input
+✓ pickup-point
+✓ plan-card
+✓ plural
+✓ popover
+✓ post-meta
+✓ postcode-input
+✓ presence-dot
+✓ press-quote
+✓ prev-next
+✓ price-list
+✓ price-tag
+✓ pricing-table
+✓ print-button
+✓ print-only
+✓ priority-badge
+✓ product-card
+✓ profile-card
+✓ progress
+✓ progress-ring
+✓ progress-stack
+✓ property-card
+✓ prose
+✓ quantity-input
+✓ queue-depth
+✓ quote
+✓ radio-cards
+✓ radio-group
+✓ range-input
+✓ rate-limited
+✓ rating-input
+✓ rating-summary
+✓ ratio-bar
+✓ reading-time
+✓ receipt
+✓ recent-searches
+✓ recipe-card
+✓ record-header
+✓ recurrence-summary
+✓ recurring-picker
+✓ related-list
+✓ repeatable-field
+✓ reply-box
+✓ required-mark
+✓ reset-form
+✓ resizable
+✓ result-count
+✓ retry-panel
+✓ reveal
+✓ review-card
+✓ review-form
+✓ review-stars
+✓ role-badge
+✓ room-card
+✓ row-actions
+✓ row-errors
+✓ row-select
+✓ rsvp-buttons
+✓ safe-image
+✓ sample-data-banner
+✓ save-draft
+✓ saved-views
+✓ scale-input
+✓ screen-only
+✓ scroll-area
+✓ scroll-progress
+✓ scroll-top
+✓ search-facets
+✓ search-header
+✓ search-input
+✓ search-results
+✓ search-suggestions
+✓ seat-usage
+✓ section
+✓ section-divider
+✓ section-header
+✓ select
+✓ select-all-banner
+✓ seo-jsonld
+✓ separator
+✓ service-area
+✓ service-card
+✓ session-row
+✓ setting-item
+✓ settings-nav
+✓ setup-checklist
+✓ share-buttons
+✓ share-preview
+✓ sheet
+✓ shift-badge
+✓ shipping-options
+✓ side-nav
+✓ sidebar
+✓ sidebar-layout
+✓ signature-block
+✓ signature-pad
+✓ signup-form
+✓ site-footer
+✓ site-header
+✓ skeleton
+✓ skeleton-card
+✓ skeleton-text
+✓ skill-tags
+✓ skip-link
+✓ sla-badge
+✓ slider
+✓ slot-hold
+✓ slow-note
+✓ slug-input
+✓ social-links
+✓ sonner
+✓ sort-select
+✓ sortable-header
+✓ spacer
+✓ sparkline
+✓ spinner
+✓ split-view
+✓ spotlight
+✓ stack
+✓ stale-data-note
+✓ stat-card
+✓ stats-band
+✓ status-badge
+✓ status-dot
+✓ status-list
+✓ step-nav
+✓ stepper
+✓ steps
+✓ sticky-aside
+✓ sticky-bar
+✓ sticky-cta
+✓ sticky-table
+✓ stock-badge
+✓ storage-bar
+✓ store-locator
+✓ success-panel
+✓ switch
+✓ switch-row
+✓ sync-status
+✓ tab-nav
+✓ table
+✓ table-skeleton
+✓ tabs
+✓ tag-input
+✓ tag-list
+✓ team-grid
+✓ template-download
+✓ terms-block
+✓ testimonial
+✓ text
+✓ text-size
+✓ textarea
+✓ textarea-count
+✓ theme-toggle
+✓ ticket-card
+✓ ticket-row
+✓ time-ago
+✓ time-input
+✓ time-slot
+✓ time-until
+✓ timeline
+✓ timezone-note
+✓ timezone-picker
+✓ toggle
+✓ toggle-chip
+✓ toggle-group
+✓ toolbar
+✓ tooltip
+✓ totals-row
+✓ tour-step
+✓ travel-time
+✓ trend-arrow
+✓ truncate-middle
+✓ trust-strip
+✓ two-col
+✓ two-factor-setup
+✓ typing-indicator
+✓ undo-toast
+✓ unit-input
+✓ unread-divider
+✓ upload-progress
+✓ uptime-bar
+✓ url-input
+✓ usage-meter
+✓ variant-picker
+✓ vehicle-card
+✓ verified-badge
+✓ video-embed
+✓ visually-hidden
+✓ vote-buttons
+✓ waitlist-form
+✓ watermark
+✓ webhook-row
+✓ week-strip
+✓ weekday-picker
+✓ welcome-card
+✓ well
+✓ whats-new
+✓ wishlist-button
+✓ word-count

@@ -14,7 +14,7 @@ export function render() {
     .filter((f) => f.endsWith(".tsx"))
     .map((f) => f.replace(/\.tsx$/, ""))
     .sort();
-  return `# Components (${names.length})\n\n${names.join("\n")}\n`;
+  return `# Components (${names.length})\n\n${names.map((n) => "✓ " + n).join("\n")}\n`;
 }
 
 if (process.argv[1] && process.argv[1].endsWith("gen-components-doc.mjs")) {
