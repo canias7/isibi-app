@@ -886,7 +886,7 @@ body.in-sites .st-home { display: inline-flex; }
   transition: border-color .12s ease;
 }
 .st-in:focus { border-color: rgba(0, 0, 0, .5); }
-.st-in::placeholder { color: rgba(237, 234, 243, .35); }
+.st-in::placeholder { color: var(--muted); }
 .st-save {
   flex-shrink: 0; background: var(--split); color: var(--on-accent); border: none;
   border-radius: 11px; padding: .62rem 1.05rem; font-weight: 700; font-size: .86rem; cursor: pointer;
@@ -1419,8 +1419,8 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-pi-name { font-weight: 600; font-size: .85rem; }
 .st-pi-path { font-size: .72rem; color: var(--muted); font-family: ui-monospace, monospace; }
 /* Form-submissions inbox modal */
-.si-modal { position: fixed; inset: 0; z-index: 200; background: rgba(6, 5, 10, .66); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
-.si-card { width: min(560px, 96vw); max-height: 82vh; display: flex; flex-direction: column; background: var(--panel, #131019); border: 1px solid var(--line-2); border-radius: 16px; overflow: hidden; box-shadow: 0 30px 70px -20px rgba(0, 0, 0, .8); }
+.si-modal { position: fixed; inset: 0; z-index: 200; background: rgba(248, 248, 250, .84); backdrop-filter: blur(14px) saturate(120%); -webkit-backdrop-filter: blur(14px) saturate(120%); display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
+.si-card { width: min(560px, 96vw); max-height: 82vh; display: flex; flex-direction: column; background: #ffffff; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; box-shadow: 0 24px 60px rgba(0, 0, 0, .13), 0 2px 6px rgba(0, 0, 0, .05); }
 .si-head { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.1rem; border-bottom: 1px solid var(--line); }
 .si-head b { font-size: 1rem; }
 .si-x { background: transparent; border: 0; color: var(--muted); font-size: 1.5rem; line-height: 1; cursor: pointer; }
@@ -2024,7 +2024,6 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   background: #ffffff; border: 1px solid var(--line-2); color: var(--text);
   border-radius: 12px; padding: .85rem 1rem; font-size: 1rem; font-family: inherit; outline: none;
 }
-.auth-form input::placeholder { color: var(--muted); }
 .auth-form input:focus { border-color: var(--neon); }
 .auth-form input::placeholder { color: #5c5c66; }
 .auth-error {
