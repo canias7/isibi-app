@@ -485,8 +485,13 @@ test("the rules tell the model to hand back the claim, and the hooks exist", () 
   for (const fn of ["useClaimedRow", "useCancelClaim"]) {
     assert.match(rows, new RegExp("export function " + fn), fn + " is named by the rules but missing from the template");
   }
-  // And the type has to admit the field exists, or reading it fails `tsc`.
-  assert.match(rows, /claim\?: string/, "useCreateRow must type the claim it returns");
+  // The token is no longer a field our API mints and types. As of 2026-07-30 it is a
+  // column the SCHEMA declares and a `SECURITY DEFINER` function opens, so what has
+  // to hold is that both hooks take a FUNCTION NAME — a page calling them with a
+  // table name reaches an endpoint that does not exist.
+  assert.match(rows, /useClaimedRow<T = Row>\(fn: string/, "useClaimedRow must take the function name");
+  assert.match(rows, /useCancelClaim\(fn: string\)/, "useCancelClaim must take the function name");
+  assert.match(PAGE_RULES, /FUNCTION NAME the schema/, "the rules must say so, or the model passes a table");
 });
 
 test("the rules describe member tables as they actually behave", () => {
@@ -583,15 +588,24 @@ test("the lint still catches a public read of a table that does not exist", () =
   assert.match(p[0], /does not declare/);
 });
 
-test("the lint and the data path ask ONE question about public views", () => {
-  // Two copies of this rule is a copy that drifts, and the drift ships as a
-  // site whose form is dead: the lint passes the page, the API answers 404.
+test("the lint and everything that enforces access ask ONE question about public views", () => {
+  // Two copies of this rule is a copy that drifts, and the drift ships as a site
+  // whose form is dead: the lint passes the page, the API answers 404.
+  //
+  // The enforcing side was site-data.mjs, deleted 2026-07-30 when the data routes
+  // moved to Neon's Data API. So the list is DERIVED — every file that mentions a
+  // public view must reach for the shared helper rather than restate it — instead
+  // of naming files, which is what made this test go red on a deletion that had
+  // nothing to do with the invariant.
   const access = fs.readFileSync(path.join(ROOT, "site-access.mjs"), "utf8");
-  const data = fs.readFileSync(path.join(ROOT, "site-data.mjs"), "utf8");
-  const gen = fs.readFileSync(path.join(ROOT, "builder", "page-gen.mjs"), "utf8");
   assert.match(access, /export function hasPublicView/, "the shared rule lives in the leaf module");
-  for (const [name, src] of [["site-data.mjs", data], ["page-gen.mjs", gen]]) {
-    assert.match(src, /hasPublicView/, name + " must use the shared helper");
+
+  const candidates = fs.readdirSync(ROOT).filter((f) => /^site-.*\.mjs$/.test(f) && f !== "site-access.mjs")
+    .map((f) => [f, fs.readFileSync(path.join(ROOT, f), "utf8")])
+    .concat([["builder/page-gen.mjs", fs.readFileSync(path.join(ROOT, "builder", "page-gen.mjs"), "utf8")]]);
+  const users = candidates.filter(([, src]) => /publicView/.test(src));
+  assert.ok(users.length, "nothing mentions publicView — this test is watching nothing");
+  for (const [name, src] of users) {
     assert.ok(!/Array\.isArray\(pv\.columns\)/.test(src), name + " keeps its own copy of the rule");
   }
 });
@@ -632,23 +646,27 @@ test("no hook demands a bare `number` for a row id", () => {
   // `Partial<T>` carries `id?: number` from Row, so intersecting narrows RowId
   // straight back to number unless the id is omitted first. That was the third
   // production error, still failing after the other signatures were widened.
-  assert.match(rows, /Omit<Partial<T>, "id"> & \{ id: RowId \}/,
-    "useUpdateRow must omit `id` from Partial<T> before widening it");
+  // Either order — an intersection is commutative, and the first version of this
+  // check demanded one spelling, so a correct signature written the other way round
+  // failed a test about type semantics on a question of word order.
+  assert.ok(/Omit<Partial<T>, "id"> & \{ id: RowId \}/.test(rows) ||
+            /\{ id: RowId \} & Omit<Partial<T>, "id">/.test(rows),
+    "useUpdateRow must omit `id` from Partial<T> before widening it — Partial<T> carries " +
+    "`id?: number` from Row, so intersecting narrows RowId straight back to number");
 });
 
-test("the rules say `claim` is optional, because the type says so", () => {
-  // The generator wrote `onSuccess: ({ row, claim }: { row: Row; claim: string })`
-  // because rule 10 said the call "returns { row, claim }". `claim` is typed
-  // `string | undefined` (only a `collect` table mints one), and under
-  // strictFunctionTypes a callback demanding a required `claim` is not
-  // assignable — TS2322, the page refused, the site published as the
-  // placeholder. Measured live 2026-07-29.
-  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
-  assert.match(rows, /claim\?: string/, "the hook still types claim as optional");
-  assert.match(PAGE_RULES, /\*\*.?claim.? is optional\*\*|claim\\` is optional/,
-    "the rules must say so, or the model writes a callback that cannot compile");
-  assert.match(PAGE_RULES, /string \| undefined/);
+test("the rules make the manage page conditional on the schema declaring it", () => {
+  // This used to assert that the rules taught the guarded shape of an optional
+  // `claim` field, because destructuring it as required failed `tsc` and published
+  // the placeholder. The field is gone: a claim is a column the schema declares and
+  // a function opens, so the failure mode moved. Now the page is only buildable when
+  // those functions exist, and a model that builds it regardless writes calls to
+  // endpoints that are not there.
+  assert.match(PAGE_RULES, /Only build the manage page if the schema actually declares/);
+  assert.match(PAGE_RULES, /Never annotate a mutation callback's parameter/,
+    "the contravariance rule still applies and cost three builds");
 });
+
 
 test("the Worker and the eval issue the SAME generation request", () => {
   // The eval exists to tune the generator. If it built its own request body, it
@@ -678,23 +696,30 @@ test("pagesRequest carries the budget, the tool and the repair prompt", () => {
   assert.match(fix.messages[0].content, /boom/);
 });
 
-test("every list hook unwraps", () => {
-  // `useSessions` returned the `{ sessions }` envelope while every other list
-  // hook unwrapped via `select`. The generator called `.map` straight onto it in
-  // ALL THREE eval samples — reasonably, since nothing else behaves that way.
-  // That hook went with the auth layer on 2026-07-30; the invariant is kept
-  // because it is about every list hook, not about that one.
+test("no list hook hands back an envelope", () => {
+  // `useSessions` returned `{ sessions }` while every other list hook unwrapped via
+  // `select`, and the generator called `.map` straight onto it in ALL THREE eval
+  // samples — reasonably, since nothing else behaved that way.
+  //
+  // The direction reversed on 2026-07-30: Neon's Data API answers a list with the
+  // ARRAY itself, so there is no envelope to unwrap and the invariant is that
+  // nobody re-introduces one. Same failure, opposite implementation, so the test is
+  // rewritten rather than deleted.
   const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
   const src = rows.replace(/^\s*\/\/.*$/gm, "");
   const hooks = [...src.matchAll(/export function (use\w*Rows)\b/g)].map((m) => m[1]);
   assert.ok(hooks.length >= 2, "expected at least useRows and usePublicRows, got " + hooks.join(","));
   for (const hook of hooks) {
-    const i = src.indexOf("export function " + hook);
-    const block = src.slice(i, src.indexOf("\n}", i));
-    assert.match(block, /select:\s*\(d\)\s*=>\s*d\.\w+|=>\s*r\.rows\)/,
-      hook + " must hand back the array itself, not an envelope");
+    const i2 = src.indexOf("export function " + hook);
+    const block = src.slice(i2, src.indexOf("\n}", i2));
+    // A typed array in, a typed array out. `send<{ rows: T[] }>` or a `.then(r =>
+    // r.something)` is the shape that bit us.
+    assert.match(block, /send<T\[\]>/, hook + " must ask for an array, not an envelope: " + block);
+    assert.ok(!/\.then\(\(r\) => r\.\w+\)/.test(block), hook + " unwraps an envelope it should not have: " + block);
+    assert.match(block, /useQuery<T\[\]>/, hook + " must be typed as returning the array");
   }
 });
+
 
 test("the rules forbid annotating a mutation callback's parameter", () => {
   // TanStack's callback takes four arguments and its types are contravariant, so

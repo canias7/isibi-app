@@ -326,26 +326,30 @@ or an access level — anything not in the schema below does not exist.
    \`id\` is refused outright. Type them as \`PublicRow & { … }\`, never \`Row & { … }\`, and key
    the list on a published column or the index.
 
-10. GIVE THE VISITOR THEIR SUBMISSION BACK. A successful \`useCreateRow\` on a \`collect\`
-    table resolves to \`{ row, claim }\` where **\`claim\` is optional** — only a \`collect\`
-    table mints one, so its type is \`string | undefined\`. Take the whole result and
-    narrow it (\`onSuccess: (data) => { if (!data.claim) return; … }\`); destructuring it
-    as a required \`{ claim: string }\` does not typecheck and the page will be refused.
-    **Never annotate a mutation callback's parameter.** Write \`onSuccess: (data) => …\`,
-    not \`onSuccess: ({ row, claim }: { row: Booking; claim?: string }) => …\`. TanStack's
+10. GIVE THE VISITOR THEIR SUBMISSION BACK. A \`collect\` table is write-only — no policy
+    lets anybody list it — so the person who booked cannot see their appointment again
+    unless the SCHEMA declares a way. When it does, the way is a database function:
+    \`useClaimedRow("get_booking", token)\` reads one row by its claim token and
+    \`useCancelClaim("cancel_booking")\` cancels it. Both take the FUNCTION NAME the schema
+    declared, not a table.
+    **Only build the manage page if the schema actually declares those functions** —
+    check the digest. If it does not, the confirmation screen is the end of the flow, and
+    that is a complete site rather than a broken one.
+    When it does: \`useCreateRow\` resolves to the created ROW, so read the token off the
+    column the schema publishes it in and put it in the link
+    (\`/manage?t=\${row.claim_token}\`). **Never annotate a mutation callback's parameter.**
+    Write \`onSuccess: (data) => …\`, not \`onSuccess: (data: Booking) => …\`. TanStack's
     callback takes four arguments and its types are contravariant, so ANY hand-written
-    annotation is refused even when it looks right — this was three separate build
+    annotation is refused even when it looks right — that was three separate build
     failures. Let it infer.
-    That \`claim\` is a signed token for THAT ONE row and
-    it is issued exactly once — if the page drops it, nobody can ever reach that booking
-    again except the site owner. On the confirmation screen, show a link to a manage page
-    carrying it: \`/manage?id=\${row.id}&claim=\${claim}\`. If you hold that in state, type the id as \`RowId\`, not \`string\` — \`row.id\` comes back as a NUMBER and only becomes a string in the URL. That page reads the two values
-    off the URL and calls \`useClaimedRow(table, id, claim)\` to show the booking and
-    \`useCancelClaim(table)\` to cancel it. Build the manage page whenever you build a
-    form on a \`collect\` table that represents an appointment, an order or a reservation
-    — anything a person would reasonably want to check or call off. Do not build it for a
-    plain contact form, which nobody comes back to. Never try to list a \`collect\` table:
-    the claim opens one row, and only for the person who wrote it.
+    Build this whenever the schema declares the functions AND the form is an appointment,
+    an order or a reservation — anything somebody would want to check or call off. Not for
+    a plain contact form, which nobody comes back to.
+
+11. ANYTHING THE SCHEMA DECLARES AS A FUNCTION, you can call: \`useRpc("fn", args)\` to read
+    and \`useRpcAction("fn")\` to act. This is how a site does what a filter cannot — a
+    total across tables, the slots left on a day, one row out of a write-only table. Only
+    call functions the digest actually lists.
 
 ## Reading rows
 

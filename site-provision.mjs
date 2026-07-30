@@ -127,6 +127,24 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
     }
   }
 
+  // The Data API. Fatal for the same reason auth is: with the Worker's own row
+  // routes gone this IS the site's backend, so a build that could not enable it
+  // produced a site whose every list is empty and whose every form fails — and a
+  // caller can retry a failure, not a success.
+  if (deps.enableData) {
+    let dataInfo = null;
+    try { dataInfo = (await deps.enableData(proj)) || null; }
+    catch (e) {
+      throw Object.assign(new Error("could not enable the Neon Data API for this site"), {
+        detail: String((e && (e.detail || e.message)) || "").slice(0, 400),
+        stage: "enable_data_api",
+      });
+    }
+    if (dataInfo && dataInfo.info && deps.saveDataInfo) {
+      try { await deps.saveDataInfo(dbName, dataInfo.info); } catch (e) { /* best-effort, as above */ }
+    }
+  }
+
   // The database exists now, but nothing points at it until this row lands: the
   // slug stays unclaimed and every read 404s. Reporting a successful build for a
   // site nobody can reach is worse than failing.

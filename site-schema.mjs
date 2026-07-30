@@ -15,7 +15,7 @@
 //
 // `db` throughout is a Neon connection string (see ./site-db.mjs).
 import { sqlQuery, sqlQuery as realSqlQuery } from "./site-db.mjs";
-import { policiesFor, APP_USER_FN } from "./site-rls.mjs";
+import { policiesFor, grantsFor, APP_USER_FN } from "./site-rls.mjs";
 import { isManagedColumn } from "./site-access.mjs";
 import { makeCache } from "./ttl-cache.mjs";
 
@@ -517,7 +517,10 @@ export async function applySiteSchema(uuid, spec) {
     // Statement by statement rather than as one block, and non-fatal: a policy
     // that fails to apply must not lose a build whose tables and data are already
     // in place. The failure is logged with the table so it is findable.
-    for (const stmt of policiesFor({ ...t, access })) {
+    // Policies first, then the grants that make the table reachable at all. In the
+    // other order there is a window — however short — where a role can ask and no
+    // policy has decided what it may see.
+    for (const stmt of policiesFor({ ...t, access }).concat(grantsFor({ ...t, access }))) {
       try { await sqlQuery(uuid, stmt); }
       catch (e) { console.error("rls failed:", t.name, stmt.slice(0, 80), e && (e.detail || e.message)); }
     }

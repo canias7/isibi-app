@@ -68,14 +68,34 @@ test("it reads `detail` too, which is where the driver puts it", () => {
   assert.equal(constraintError({ detail: "duplicate key value violates unique constraint" }).body.code, "duplicate");
 });
 
-test("both write paths use it, so they cannot disagree", async () => {
-  // There are two doors onto the same tables — the visitor's and the owner's —
-  // and the owner's was written without this mapping. Asserted on the source so
-  // a third door cannot quietly restate it.
+test("nobody keeps their own copy of the mapping", async () => {
+  // There were two doors onto the same tables — the visitor's and the owner's —
+  // and the owner's was written without this mapping, so a missing required field
+  // answered 500 and the owner had no idea which field they had missed.
+  //
+  // Derived, and derived as an EXCLUSION rather than a list of files: the visitor's
+  // door (site-data.mjs) was deleted 2026-07-30 when the data routes moved to
+  // Neon's Data API, and a named list went red on a deletion that had nothing to do
+  // with this invariant. What matters is that the raw Postgres strings appear in
+  // exactly ONE place, whatever the callers happen to be called.
   const fs = await import("node:fs");
-  for (const f of ["site-data.mjs", "site-owner.mjs"]) {
+  const all = fs.readdirSync(new URL("../", import.meta.url)).filter((f) => /^site-.*\.mjs$/.test(f));
+  assert.ok(all.length > 5, "no site modules found — this test is watching nothing");
+  for (const f of all) {
+    if (f === "site-errors.mjs") continue; // this IS the mapping
     const src = fs.readFileSync(new URL("../" + f, import.meta.url), "utf8");
-    assert.match(src, /constraintError/, `${f} must map constraints through the shared rule`);
-    assert.ok(!/null value in column/.test(src), `${f} has its own copy of the mapping`);
+    assert.ok(!/null value in column/.test(src), f + " keeps its own copy of the constraint mapping");
+    assert.ok(!/duplicate key value violates/.test(src), f + " keeps its own copy of the constraint mapping");
   }
 });
+
+test("the mapping is not orphaned — something still routes through it", async () => {
+  // The other half. The exclusion above passes perfectly on a codebase where
+  // NOTHING calls constraintError and every write answers 500.
+  const fs = await import("node:fs");
+  const all = fs.readdirSync(new URL("../", import.meta.url)).filter((f) => /^site-.*\.mjs$/.test(f) && f !== "site-errors.mjs");
+  const users = all.filter((f) => /constraintError/.test(fs.readFileSync(new URL("../" + f, import.meta.url), "utf8")));
+  assert.ok(users.length >= 1,
+    "nothing maps constraints through the shared rule any more, so a missing required field is a 500 again");
+});
+

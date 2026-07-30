@@ -12,11 +12,9 @@ import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { injectMeta } from "./site-meta.mjs";
-import { sessionKey, signClaim, verifyClaim } from "./site-claim.mjs";
 import { drainTeardown } from "./site-teardown.mjs";
 import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
-import { handleSiteData } from "./site-data.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, repairPrompt, briefForPages, pagesRequest, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
@@ -2922,7 +2920,7 @@ const routeDeps = (env) => ({
 
 const _resolveBackend = memoize(_connCache, async (slug, env) => lookupRoute(routeDeps(env), slug));
 
-// Argument order is (env, slug) because that is what handleSiteData passes.
+// Argument order is (env, slug), which is what every caller here uses.
 async function siteBackendBySlug(env, slug) { return _resolveBackend(slug, env); }
 
 // An uncached slug lookup. siteBackendBySlug caches for five minutes, which is
@@ -3023,22 +3021,6 @@ async function ensureSiteBackend(env, slug, uid, brief) {
   return conn;
 }
 
-// A random secret per site, kept in the site's own _meta. Per-site rather than
-// derived from one platform key: rotating it signs out that site's members and
-// nobody else's, and a leak is contained to one site. Cached because it never
-// changes and `me` runs on every page load a signed-in visitor makes.
-const _siteAuthSecret = makeCache({ ttlMs: 600_000, max: 500 });
-const siteAuthSecret = memoize(_siteAuthSecret, async (db) => {
-  await sqlQuery(db, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
-  const rows = await sqlQuery(db, "SELECT v FROM _meta WHERE k='auth_secret'");
-  if (rows[0] && rows[0].v) return rows[0].v;
-  const secret = [...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, "0")).join("");
-  // DO NOTHING, then read back: two isolates racing the first signup must end up
-  // with the SAME secret, or one of them mints tokens the other cannot verify.
-  await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('auth_secret', ?) ON CONFLICT (k) DO NOTHING", [secret]);
-  const again = await sqlQuery(db, "SELECT v FROM _meta WHERE k='auth_secret'");
-  return (again[0] && again[0].v) || secret;
-});
 
 
 // The public data API's throttle. Separate table from the auth one so a site
@@ -3052,6 +3034,10 @@ const VISITOR_UPLOADS_PER_MIN = 5;
 // through our proxy is not free. Better Auth throttles on its own side too; this
 // is about not being the open front door to it.
 const AUTH_PROXY_PER_MIN = 20;
+// Data reads per source per site. A page legitimately renders several lists, so
+// this is generous — the budget it protects is Neon compute, and RLS is what
+// protects the rows.
+const DATA_PROXY_PER_MIN = 300;
 
 // The signing key for claim tokens, from the site's own per-site secret in
 // `_meta`. It was shared with session tokens until 2026-07-30; sessions are Neon
@@ -3069,11 +3055,6 @@ const AUTH_PROXY_PER_MIN = 20;
 
 
 
-async function siteClaimKey(env, slug) {
-  const db = await siteBackendBySlug(env, slug);
-  if (!db) throw new Error("no such site");
-  return sessionKey(await siteAuthSecret(db), slug);
-}
 
 /**
  * Where this site's Neon Auth server lives.
@@ -3086,8 +3067,12 @@ async function siteClaimKey(env, slug) {
  * nothing. Tighten it once a real build has logged the shape.
  */
 const _siteAuthBase = makeCache({ ttlMs: 600_000, max: 500 });
-const siteAuthBase = memoize(_siteAuthBase, async (db) => {
-  const rows = await sqlQuery(db, "SELECT v FROM _meta WHERE k='auth_info'");
+const siteAuthBase = memoize(_siteAuthBase, async (db) => siteServiceBase(db, "auth_info"));
+const _siteDataBase = makeCache({ ttlMs: 600_000, max: 500 });
+const siteDataBase = memoize(_siteDataBase, async (db) => siteServiceBase(db, "data_api"));
+
+async function siteServiceBase(db, key) {
+  const rows = await sqlQuery(db, "SELECT v FROM _meta WHERE k=?", [key]);
   if (!rows[0] || !rows[0].v) return null;
   let info; try { info = JSON.parse(rows[0].v); } catch { return null; }
   const named = info && (info.auth_url || info.url || info.endpoint || info.base_url ||
@@ -3100,7 +3085,7 @@ const siteAuthBase = memoize(_siteAuthBase, async (db) => {
   };
   const url = typeof named === "string" && /^https:\/\//.test(named) ? named : pick(info);
   return url ? String(url).replace(/\/+$/, "") : null;
-});
+}
 
 /**
  * The published site's sign-in, PROXIED through this Worker rather than called
@@ -3121,22 +3106,24 @@ const siteAuthBase = memoize(_siteAuthBase, async (db) => {
  * client sees, including its errors — a proxy that reinterprets them is a second
  * place where "wrong password" has to be spelled, and the two drift.
  */
-async function proxySiteAuth(env, request, url, slug, path) {
+async function proxySiteService(env, request, url, slug, path, which) {
   const db = await siteBackendBySlug(env, slug);
   if (!db) return Response.json({ error: "no such site" }, { status: 404 });
   let base;
-  try { base = await siteAuthBase(db); }
-  catch { return Response.json({ error: "couldn't reach sign-in just now" }, { status: 503 }); }
+  try { base = which === "data" ? await siteDataBase(db) : await siteAuthBase(db); }
+  catch { return Response.json({ error: "couldn't reach that just now" }, { status: 503 }); }
   // Not configured is 501 and not 500: the site was built before its auth
   // endpoint was recorded, which a rebuild fixes, and saying so is more use than
   // a generic failure.
-  if (!base) return Response.json({ error: "sign-in is not set up for this site yet", code: "no_auth" }, { status: 501 });
+  if (!base) return Response.json({ error: "this site's backend is not set up yet", code: "no_backend" }, { status: 501 });
 
   const target = base + "/" + path + (url.search || "");
   const headers = new Headers();
   // Only what the auth server needs. Forwarding the whole header set would carry
   // cookies for isibi.ai into a third party.
-  for (const h of ["content-type", "authorization", "accept"]) {
+  // `prefer` carries PostgREST's return=representation, which is how an insert
+  // answers with the row it created rather than an empty body.
+  for (const h of ["content-type", "authorization", "accept", "prefer"]) {
     const v = request.headers.get(h);
     if (v) headers.set(h, v);
   }
@@ -3153,85 +3140,19 @@ async function proxySiteAuth(env, request, url, slug, path) {
     const body = await r.text();
     return new Response(body, {
       status: r.status,
-      headers: { "content-type": r.headers.get("content-type") || "application/json" },
+      headers: {
+        "content-type": r.headers.get("content-type") || "application/json",
+        // PostgREST reports the total row count here when asked for it, and a
+        // paginated list is useless without it.
+        ...(r.headers.get("content-range") ? { "content-range": r.headers.get("content-range") } : {}),
+      },
     });
   } catch (e) {
-    console.error("site auth proxy failed:", slug, path, e && e.message);
-    return Response.json({ error: "couldn't reach sign-in just now" }, { status: 503 });
+    console.error("site " + which + " proxy failed:", slug, path, e && e.message);
+    return Response.json({ error: "couldn't reach that just now" }, { status: 503 });
   }
 }
 
-/**
- * Who is asking, for a table scoped to a member — resolved from NEON AUTH.
- *
- * The whole reason this is one SQL read and not an HTTP call: Neon Auth keeps its
- * sessions in the SITE'S OWN DATABASE (`neon_auth.session`, `userId` referencing
- * `neon_auth."user"`), which is the same database this request is already going to
- * for the rows. So verifying a visitor costs one join on a connection we hold,
- * with no third party on the visitor path and nothing to keep in sync.
- *
- * Returns `{ id, role, verified }` with `id` a **UUID** — measured, not assumed:
- * `neon_auth."user".id` is `uuid`, which is why `owner_id` is a uuid column.
- *
- * Both table names are SCHEMA-QUALIFIED and `"user"` is quoted. That is not
- * style: Postgres resolves a bare `user` to the USER value function and hands
- * back the current ROLE NAME rather than erroring, so an unqualified query here
- * would silently compare rows against `"neondb_owner"` and match nothing.
- */
-async function resolveSiteVisitor(env, request, slug) {
-  const bearer = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
-  if (!bearer) return null;
-  try {
-    const db = await siteBackendBySlug(env, slug);
-    if (!db) return null;
-    // Expiry is checked in SQL rather than in JS: `expiresAt` is a timestamptz and
-    // comparing it to a JS clock means trusting two clocks to agree.
-    //
-    // `banned` is Better Auth's suspension flag. Checked HERE and not only on
-    // whatever account screen exists, because this is the half that reads rows —
-    // a suspension that only took effect on a profile page would leave the
-    // suspended member full access to the data.
-    // The team comes off Better Auth's organization plugin — `neon_auth.member`
-    // — rather than a column of ours. LEFT JOIN, because being in no organization
-    // is the normal state and an INNER one would refuse every teamless member,
-    // which is every member on a site whose owner has not set teams up.
-    //
-    // LIMIT 1 with a stable order: Better Auth allows more than one membership,
-    // and "which team am I acting in" is a question a small business tool does not
-    // have. Oldest wins, so the answer does not change when somebody is added to a
-    // second organization.
-    const rows = await sqlQuery(
-      db,
-      'SELECT u.id, u.role, u."emailVerified" AS verified, u.banned, u."banExpires",' +
-      ' (SELECT m."organizationId" FROM neon_auth.member m WHERE m."userId" = u.id' +
-      '  ORDER BY m."createdAt" ASC NULLS LAST LIMIT 1) AS team_id' +
-      ' FROM neon_auth.session s JOIN neon_auth."user" u ON u.id = s."userId"' +
-      ' WHERE s.token = ? AND s."expiresAt" > now()',
-      [bearer],
-    );
-    const u = rows[0];
-    if (!u) return null;
-    // A ban with an expiry in the past has lapsed and the account is live again;
-    // a ban with no expiry is indefinite. Getting this backwards either strands
-    // somebody permanently or lets a live ban through, so it is spelled out.
-    if (u.banned && !(u.banExpires && new Date(u.banExpires).getTime() <= Date.now())) return null;
-    // `team_id` is passed through as the raw column: `teamOf` is the one place
-    // that decides what counts as a team, and normalising here would be a second
-    // opinion. It was SELECTed and then dropped from this object once before,
-    // which made teamScope dead for the fifth time.
-    return {
-      id: String(u.id),
-      role: String(u.role || "user").toLowerCase(),
-      verified: !!u.verified,
-      team_id: u.team_id == null ? null : String(u.team_id),
-    };
-  } catch (e) {
-    // A lookup failure must never downgrade to "anonymous resolved to somebody".
-    // Null means refused, which for a member table is a 401 — the safe direction.
-    console.error("visitor resolve failed:", slug, e && e.message);
-    return null;
-  }
-}
 
 
 
@@ -5399,6 +5320,33 @@ async function handleRequest(request, env, ctx) {
     // picture. A barber shop whose booking form is six text fields accepts
     // nothing, which is the answer for most sites — and is what keeps this from
     // being open image hosting for anyone who knows a slug.
+    // A published site's DATA, forwarded to its Neon Data API.
+    //
+    // Our own row routes were deleted 2026-07-30 (owner's call: Neon only, not
+    // both). What is left is transport — this forwards and nothing else. There is
+    // no access logic here, no schema allow-list and no scoping: the site's RLS
+    // policies decide every one of those, which is the whole point of the move.
+    //
+    // Proxied rather than called from the page for the same three reasons the auth
+    // proxy is: the bundle holds no URL and no key, it is same-origin so there is
+    // no CORS and no cross-site cookie, and a generated page's URLs do not change.
+    if (url.pathname.startsWith("/api/db/") && url.pathname.includes("/data/")) {
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/data\/([a-z0-9_][a-z0-9/._-]{0,79})$/i);
+      if (dm) {
+        const [, dslug2, dpath] = dm;
+        const slug = dslug2.toLowerCase();
+        const hit = _dataLimiter.hit(
+          bucketKey({ ip: request.headers.get("CF-Connecting-IP") || "", slug, table: "data", method: request.method }),
+          DATA_PROXY_PER_MIN,
+        );
+        if (!hit.ok) {
+          const t = tooMany(hit);
+          return Response.json(t.body, { status: t.status, headers: t.headers });
+        }
+        return proxySiteService(env, request, url, slug, dpath, "data");
+      }
+    }
+
     // A published site's sign-in. Public by the same reasoning as the rest of
     // /api/db — a customer booking a haircut has no isibi account — and gated by
     // a per-source rate limit, because it is an unauthenticated endpoint that
@@ -5419,7 +5367,7 @@ async function handleRequest(request, env, ctx) {
           const t = tooMany(hit);
           return Response.json(t.body, { status: t.status, headers: t.headers });
         }
-        return proxySiteAuth(env, request, url, slug, apath);
+        return proxySiteService(env, request, url, slug, apath, "auth");
       }
     }
 
@@ -5465,34 +5413,6 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
-    // Public data API for published sites. Unauthenticated by design — a visitor
-    // filling in a booking form has no account — so it is allow-listed against
-    // the site's own declared schema and refuses anything owner-scoped.
-    {
-      // The visitor, when the table needs one. Resolved lazily — handleSiteData
-      // only asks for `user`/`feed`/`admin` tables, so a public read of a menu
-      // never pays for it.
-      const dataRes = await handleSiteData(env, request, url, siteBackendBySlug, {
-        sqlQuery, sqlExec, loadSiteSchema,
-        resolveVisitor: (req, slug) => resolveSiteVisitor(env, req, slug),
-        // `requireVerified` is enforced only where confirming an address is
-        // actually possible — see needsVerified in site-access.mjs.
-        canVerify: !!env.GO_FARTHER_API_KEY,
-        // Reads the site's own declared limits — a per-table `rateLimit` and a
-        // per-app `rateLimits {read, write}` have been parsed and stored in
-        // _meta since the schema engine was written and never once consulted.
-        rateLimit: (key, limit) => _dataLimiter.hit(key, limit),
-        onSubmit: (payload) => notifyOwnerOfSubmission(env, ctx, payload),
-        // Lets the person who submitted a `collect` row come back to it. Signed
-        // with the SAME per-site secret as sessions, so a claim is contained to
-        // one site for free and rotating that secret invalidates both.
-        claim: {
-          sign: async (slug, table, id) => signClaim(await siteClaimKey(env, slug), table, id),
-          verify: async (slug, token, table, id) => verifyClaim(await siteClaimKey(env, slug), token, table, id),
-        },
-      });
-      if (dataRes) return dataRes;
-    }
 
     // Website builder — provision this site's database and apply its declared
     // schema. Called when a build starts, so the generated site has somewhere to

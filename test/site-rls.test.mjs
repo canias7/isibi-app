@@ -178,17 +178,18 @@ test("a table name is quoted, and a quote in it cannot break out", () => {
 
 // --------------------------------------------------------------- grants
 
-test("granting comes with the Data API, not before it", () => {
+test("policies are applied BEFORE the grants that make a table reachable", () => {
   // Policies decide what a role MAY see; a GRANT decides whether it can ask at
-  // all. The ORDER is the safety property: applying policies changes nothing for
-  // anyone, because a table's owner bypasses them and the Worker connects as the
-  // owner. Granting is the step that actually puts a table on Neon's Data API, so
-  // it lands in the same change that enables it — and this test is what will have
-  // to be updated then, deliberately, rather than a grant slipping in early.
+  // all. Both are applied now that the Data API is on — and the ORDER is the
+  // property worth pinning: granting first leaves a window, however short, where a
+  // role can ask and no policy has decided what it may see.
+  //
+  // This test previously asserted the OPPOSITE (that no grant was applied yet), and
+  // it fired the moment grants arrived. That is the intended lifecycle: the guard
+  // made the exposing change impossible to slip in quietly.
   const engine = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
-  assert.match(engine, /policiesFor/, "the engine must apply the policies");
-  assert.ok(!/grantsFor/.test(engine),
-    "granting must not ride along with applying policies — that is the change that exposes a table");
+  const call = engine.match(/policiesFor\([^)]*\)[\s\S]{0,60}?grantsFor/);
+  assert.ok(call, "the engine must apply policies then grants, in that order, in one list");
 });
 
 test("a grant never gives more than the level allows", () => {

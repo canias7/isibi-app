@@ -248,6 +248,43 @@ export async function enableNeonAuth(env, projectId, branchId, dbName) {
   return { enabled: true, already: false, info };
 }
 
+/**
+ * Turn on Neon's Data API for a site's branch.
+ *
+ * This is what serves the site's tables to its own pages once the Worker's
+ * `/api/db/<slug>/rows` routes are gone, so a site without it has no backend at
+ * all — every list is empty and every form fails.
+ *
+ * **FATAL, like `enableNeonAuth` and for the same reason.** A caller can retry a
+ * failure and cannot retry a success, so reporting a successful build for a site
+ * whose data layer was never enabled is the worse outcome. The full error is
+ * attached rather than summarised, because the ONE thing not verified against a
+ * real project here is this endpoint's path — and a wrong path has to be
+ * correctable from the first failed build rather than the third.
+ *
+ * Idempotent on "already": it runs on EVERY build, not only at creation, because a
+ * retried build reuses the project and enabling only once would leave a site
+ * permanently without a data layer while every retry reported success.
+ */
+export async function enableDataApi(env, projectId, branchId) {
+  if (!projectId || !branchId) throw Object.assign(new Error("data api: need a project and a branch"), { bad: true });
+  let info = null;
+  try {
+    info = await neonApi(env, `/projects/${projectId}/branches/${branchId}/data_api`, { method: "POST", body: "{}" });
+  } catch (e) {
+    const already = e && (e.status === 409 || /already/i.test(String(e.detail || e.message || "")));
+    if (!already) {
+      throw Object.assign(new Error("could not enable the Neon Data API"), {
+        detail: String((e && (e.detail || e.message)) || "").slice(0, 400),
+        status: e && e.status,
+      });
+    }
+    return { enabled: true, already: true, info: null };
+  }
+  await waitForProject(env, projectId);
+  return { enabled: true, already: false, info };
+}
+
 // Add one site's database to an existing project.
 export async function createSiteDatabase(env, projectId, branchId, roleName, slug) {
   const name = dbNameForSite(slug);

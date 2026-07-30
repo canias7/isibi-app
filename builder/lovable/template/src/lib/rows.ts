@@ -73,11 +73,43 @@ export function siteSlug(): string {
   return (import.meta as { env?: Record<string, string> }).env?.VITE_SITE_SLUG ?? "preview";
 }
 
-const base = (table: string) => `/api/db/${siteSlug()}/rows/${table}`;
+// ── Talking to the database ─────────────────────────────────────────────────
+//
+// Rows come from the site's own Neon Data API, which is PostgREST — so a filter is
+// `?col=eq.value`, a sort is `?order=col.desc`, and an insert asks for the row back
+// with a `Prefer` header. The platform's own row routes were deleted 2026-07-30;
+// these paths forward to Neon and nothing more, and the site's RLS policies decide
+// every access question.
+//
+// The generator never writes any of this. It calls a hook and names a table.
+
+const base = (table: string) => `/api/db/${siteSlug()}/data/${table}`;
+
+/** PostgREST's equality filter, and the query shape a list read accepts. */
+function pgQuery(params?: RowQuery): string {
+  const sp = new URLSearchParams();
+  sp.set("select", "*");
+  if (!params) return "?" + sp.toString();
+  const { limit, offset, order, dir, q, ...filters } = params;
+  if (limit !== undefined) sp.set("limit", String(limit));
+  if (offset !== undefined) sp.set("offset", String(offset));
+  // Newest first by default: these are usually submissions or posts, and the
+  // useful one is the latest.
+  sp.set("order", `${order ?? "id"}.${dir === "asc" ? "asc" : "desc"}`);
+  // Full-text search, when the table declared it. `fts` is the generated tsvector
+  // column the schema engine creates.
+  if (q) sp.set("_fts", `fts.${q}`);
+  for (const [k, v] of Object.entries(filters)) {
+    if (v !== undefined && v !== null && v !== "") sp.set(k, `eq.${v}`);
+  }
+  return "?" + sp.toString();
+}
+
+const idFilter = (id: RowId) => `?id=eq.${encodeURIComponent(String(id))}`;
 
 async function send<T>(url: string, init?: RequestInit): Promise<T> {
-  // The member's session, when there is one. Sent on every call: a `user` table
-  // answers 401 without it and that member's own rows with it.
+  // The member's session, when there is one. Sent on every call: a `user` table's
+  // RLS policy answers with no rows without it, and that member's own rows with it.
   const token = (() => { try { return localStorage.getItem(`site_session_${siteSlug()}`); } catch { return null; } })();
   const res = await fetch(url, {
     ...init,
@@ -87,100 +119,124 @@ async function send<T>(url: string, init?: RequestInit): Promise<T> {
       ...init?.headers,
     },
   });
-  const body = await res.json().catch(() => ({}));
+  if (res.status === 204) return undefined as T;
+  const body = await res.json().catch(() => null);
   if (!res.ok) {
-    // The API distinguishes the caller's fault from a server fault, so surface
-    // its message and code rather than a generic failure.
-    const err = new Error((body as { error?: string }).error || `request failed (${res.status})`);
-    (err as Error & { code?: string; status: number }).code = (body as { code?: string }).code;
+    // PostgREST reports the caller's fault in `message`, with `code` carrying the
+    // Postgres SQLSTATE — 23505 is a duplicate, 23514 a failed check. Surfaced
+    // rather than replaced, so a form can say which field was wrong.
+    const b = body as { message?: string; details?: string; code?: string } | null;
+    const err = new Error(b?.message || b?.details || `request failed (${res.status})`);
+    (err as Error & { code?: string; status: number }).code = b?.code;
     (err as Error & { status: number }).status = res.status;
     throw err;
   }
   return body as T;
 }
 
-function qs(params?: RowQuery): string {
-  if (!params) return "";
-  const sp = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== null && v !== "") sp.set(k, String(v));
-  }
-  const s = sp.toString();
-  return s ? `?${s}` : "";
-}
-
-/** Rows from one table. Re-runs whenever `params` changes. */
+/**
+ * A table's rows. `data` IS the array — PostgREST answers a list with the array
+ * itself, and every list hook here unwraps the same way so none is the odd one out.
+ */
 export function useRows<T extends Row = Row>(
   table: string,
   params?: RowQuery,
-  options?: Omit<UseQueryOptions<{ rows: T[] }, Error, T[]>, "queryKey" | "queryFn">,
+  options?: Omit<UseQueryOptions<T[]>, "queryKey" | "queryFn">,
 ) {
-  return useQuery({
-    queryKey: ["rows", table, params ?? {}],
-    queryFn: () => send<{ rows: T[] }>(base(table) + qs(params)),
-    select: (d) => d.rows,
+  return useQuery<T[]>({
+    queryKey: ["rows", siteSlug(), table, params ?? {}],
+    queryFn: () => send<T[]>(base(table) + pgQuery(params)),
     ...options,
   });
 }
 
-/** One row by id, read from the list endpoint so it obeys the same rules. */
+/** One row by id, or null. `undefined` id disables the query. */
 export function useRow<T extends Row = Row>(table: string, id: RowId | undefined) {
-  return useQuery({
-    queryKey: ["row", table, id],
-    enabled: id !== undefined,
-    queryFn: () => send<{ rows: T[] }>(base(table) + qs({ id })),
-    select: (d) => d.rows[0],
+  return useQuery<T | null>({
+    queryKey: ["row", siteSlug(), table, id],
+    enabled: id !== undefined && id !== null && id !== "",
+    queryFn: () => send<T[]>(base(table) + idFilter(id as RowId) + "&select=*").then((r) => r[0] ?? null),
   });
 }
 
-/** Invalidate every cached read of a table after it changes. */
-function useInvalidate(table: string) {
-  const qc = useQueryClient();
-  return () => {
-    qc.invalidateQueries({ queryKey: ["rows", table] });
-    qc.invalidateQueries({ queryKey: ["row", table] });
-  };
-}
-
+/**
+ * Submit a row. Resolves to the created row.
+ *
+ * `Prefer: return=representation` is what makes it come back at all — without it
+ * PostgREST answers 201 with an empty body, and a page that shows "thanks, here is
+ * your booking" has nothing to show.
+ *
+ * Never annotate the mutation callback's parameter. TanStack's callback takes four
+ * arguments and its types are contravariant, so a hand-written annotation is
+ * refused even when it looks right.
+ */
 export function useCreateRow<T extends Row = Row>(table: string) {
-  const invalidate = useInvalidate(table);
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: (values: Partial<T>) =>
-      // `claim` comes back only for a `collect` table: a signed token for THIS
-      // row, and the only time it is ever issued. Keep it (a link, an email, the
-      // thank-you page) and the person who submitted can come back to their own
-      // submission — see useClaimedRow. Optional because no other access level
-      // mints one.
-      send<{ row: T; claim?: string }>(base(table), { method: "POST", body: JSON.stringify(values) }),
-    onSuccess: invalidate,
+    mutationFn: (values: Record<string, unknown>) =>
+      send<T[]>(base(table), {
+        method: "POST",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify(values),
+      }).then((r) => r[0]),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["rows", siteSlug(), table] }); },
   });
 }
 
+/** Edit a row. Only reaches rows the site's policies let this member reach. */
 export function useUpdateRow<T extends Row = Row>(table: string) {
-  const invalidate = useInvalidate(table);
+  const qc = useQueryClient();
   return useMutation({
-    // `Omit<…, "id">` is load-bearing: `Partial<T>` already carries `id?: number`
-    // from `Row`, and intersecting narrows RowId straight back to `number` — so
-    // a string id was still refused, which is the TS2322 production hit on the
-    // members page even after the other signatures were widened.
-    mutationFn: ({ id, ...values }: Omit<Partial<T>, "id"> & { id: RowId }) =>
-      send<{ row: T }>(`${base(table)}/${id}`, { method: "PATCH", body: JSON.stringify(values) }),
-    onSuccess: invalidate,
+    // Omit<Partial<T>, "id"> is required: Partial<T> already carries `id?: number`
+    // from Row, and intersecting narrows RowId straight back to number.
+    mutationFn: ({ id, ...values }: { id: RowId } & Omit<Partial<T>, "id">) =>
+      send<T[]>(base(table) + idFilter(id), {
+        method: "PATCH",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify(values),
+      }).then((r) => r[0]),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["rows", siteSlug(), table] }); },
   });
 }
 
+/** Delete a row. Accepts a bare id or `{ id }`, because its sibling takes an object. */
 export function useDeleteRow(table: string) {
-  const invalidate = useInvalidate(table);
+  const qc = useQueryClient();
   return useMutation({
-    // Accepts a bare id OR `{ id }`. `useUpdateRow` takes an object, so a caller
-    // reasonably assumes its sibling does too — the generator passed `{ id }`
-    // here and it was a type error, in a sample that was otherwise correct.
-    // Cheaper to accept both than to be the exception nobody expects.
     mutationFn: (arg: RowId | { id: RowId }) => {
       const id = typeof arg === "object" && arg !== null ? arg.id : arg;
-      return send<{ ok: true }>(`${base(table)}/${id}`, { method: "DELETE" });
+      return send<void>(base(table) + idFilter(id), { method: "DELETE" });
     },
-    onSuccess: invalidate,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["rows", siteSlug(), table] }); },
+  });
+}
+
+/**
+ * A function the site's own schema defines, called by name.
+ *
+ * This is the interesting half of moving to the Data API. Anything the database
+ * can express and a policy cannot — reaching into a write-only table for exactly
+ * one row, a report across several tables, a booking's remaining slots — is a
+ * Postgres function, exposed here. It replaces a list of hand-built verbs with
+ * "whatever the schema declared".
+ */
+export function useRpc<T = unknown>(fn: string, args?: Record<string, unknown>) {
+  return useQuery<T>({
+    queryKey: ["rpc", siteSlug(), fn, args ?? {}],
+    queryFn: () => send<T>(`/api/db/${siteSlug()}/data/rpc/${fn}`, {
+      method: "POST",
+      body: JSON.stringify(args ?? {}),
+    }),
+  });
+}
+
+/** The same, as an action rather than a read. */
+export function useRpcAction<T = unknown>(fn: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args?: Record<string, unknown>) =>
+      send<T>(`/api/db/${siteSlug()}/data/rpc/${fn}`, { method: "POST", body: JSON.stringify(args ?? {}) }),
+    onSuccess: () => { qc.invalidateQueries(); },
   });
 }
 
@@ -389,43 +445,51 @@ export function useUploadFile(table: string) {
 // table that does not is a 404, not an error worth surfacing.
 
 /**
- * Read a table's declared public projection.
+ * A publicly-readable view of a table that is not itself readable.
  *
- * `params` may filter, but only on the columns the projection itself publishes;
- * anything else is ignored by the API rather than honoured, so this cannot be
- * used to ask about a column the site chose not to publish.
+ * The case it exists for: a booking form is write-only, and the page still needs
+ * to grey out the slots somebody has already taken. Under RLS there is no "public
+ * projection" setting — the site's schema declares a VIEW or a function that
+ * publishes only the columns it means to (`when`, never `who`), and this reads it
+ * by name. Rows have no `id`: publishing a sequential id from an owner-scoped
+ * table tells a stranger how many bookings exist. Key on a published column.
  */
-export function usePublicRows<T = PublicRow>(table: string, params?: RowQuery) {
-  return useQuery({
-    queryKey: ["public", siteSlug(), table, params],
-    queryFn: () => send<{ rows: T[] }>(`${base(table)}/public${qs(params)}`).then((r) => r.rows),
+export function usePublicRows<T = PublicRow>(view: string, params?: RowQuery) {
+  return useQuery<T[]>({
+    queryKey: ["public", siteSlug(), view, params ?? {}],
+    queryFn: () => send<T[]>(base(view) + pgQuery(params)),
   });
 }
 
 /**
  * One submission, read back by the person who made it.
  *
- * A `collect` table is write-only — nobody can list it — so this is the single
- * exception, and it opens exactly one row: the `claim` handed back by
- * `useCreateRow` when that row was created. Put the token in the link you send
- * ("manage your booking") and read it off the URL here. A missing, wrong, or
- * expired token is a plain 404, the same as a row that isn't there.
+ * A `collect` table is write-only — no policy lets anyone list it — so this is the
+ * single exception, and it opens exactly one row. The site's schema declares a
+ * `SECURITY DEFINER` function that takes the row's claim token and returns the
+ * matching row; that function bypasses RLS deliberately and by name, which is a
+ * far narrower hole than a read policy would be.
+ *
+ * Put the token in the link you send ("manage your booking") and read it off the
+ * URL here. A wrong token returns nothing, exactly like a row that is not there.
  */
-export function useClaimedRow<T extends Row = Row>(table: string, id: RowId | undefined, claim: string | undefined) {
-  return useQuery({
-    enabled: id !== undefined && !!claim,
-    queryKey: ["claim", siteSlug(), table, id],
-    queryFn: () =>
-      send<{ row: T }>(`${base(table)}/${id}?claim=${encodeURIComponent(claim as string)}`).then((r) => r.row),
+export function useClaimedRow<T = Row>(fn: string, claim: string | undefined) {
+  return useQuery<T | null>({
+    enabled: !!claim,
+    queryKey: ["claim", siteSlug(), fn, claim],
+    queryFn: () => send<T[]>(`/api/db/${siteSlug()}/data/rpc/${fn}`, {
+      method: "POST",
+      body: JSON.stringify({ tok: claim }),
+    }).then((r) => (Array.isArray(r) ? r[0] ?? null : (r as unknown as T))),
   });
 }
 
-/** Cancel that same submission. Safe to call twice — the second answers ok too. */
-export function useCancelClaim(table: string) {
-  const invalidate = useInvalidate(table);
+/** Cancel that same submission, through the function the schema declared for it. */
+export function useCancelClaim(fn: string) {
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, claim }: { id: RowId; claim: string }) =>
-      send<{ ok: true; cancelled: true }>(`${base(table)}/${id}?claim=${encodeURIComponent(claim)}`, { method: "DELETE" }),
-    onSuccess: invalidate,
+    mutationFn: ({ claim }: { claim: string }) =>
+      send<unknown>(`/api/db/${siteSlug()}/data/rpc/${fn}`, { method: "POST", body: JSON.stringify({ tok: claim }) }),
+    onSuccess: () => { qc.invalidateQueries(); },
   });
 }
