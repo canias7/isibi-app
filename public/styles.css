@@ -1361,17 +1361,6 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 /* Start screen: a centered hero (Lovable-style home) — big ask, input below. */
 .st-hero { max-width: 720px; margin: 8.5vh auto 0; text-align: center; }
 /* Glowing orb (mirrors the video-generator hero), with two drifting sparks. */
-.st-orb {
-  width: 62px; height: 62px; margin: 0 auto 1.5rem; border-radius: 50%;
-  background: var(--split); position: relative;
-  box-shadow: 0 0 60px 8px rgba(0,0,0, .34), 0 0 34px rgba(0,0,0, .4);
-  animation: stOrbFloat 5.5s ease-in-out infinite;
-}
-@keyframes stOrbFloat { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-5px) scale(1.045); } }
-.st-spark { position: absolute; font-style: normal; color: #000000; opacity: .92; }
-.st-spark.s1 { top: -12px; right: -7px; font-size: .82rem; }
-.st-spark.s2 { bottom: -9px; left: -11px; font-size: .6rem; color: #1e1e22; }
-@media (prefers-reduced-motion: reduce) { .st-orb { animation: none; } }
 .st-hero h1 { font-size: clamp(2rem, 3.7vw, 3rem); font-weight: 800; letter-spacing: -.025em; line-height: 1.04; }
 .st-grad { background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .st-hero p { color: var(--muted); font-size: 1rem; margin-top: .7rem; line-height: 1.5; display: flex; align-items: center; justify-content: center; gap: .6rem; flex-wrap: wrap; }

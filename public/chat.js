@@ -9655,7 +9655,6 @@ function renderSites() {
   view.innerHTML =
     '<div class="st-page">' +
       '<div class="st-hero">' +
-        '<div class="st-orb" aria-hidden="true"><i class="st-spark s1">✦</i><i class="st-spark s2">✦</i></div>' +
         '<h1>What are we <span class="st-grad">building</span>?</h1>' +
         '<p>Describe a site and isibi builds it — then refine it by chatting. <span class="sch-flag">Beta</span></p>' +
       '<div class="st-new">' +
