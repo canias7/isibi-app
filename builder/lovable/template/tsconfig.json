@@ -10,7 +10,7 @@
   // import into them. Verified by breaking a chart, importing it, and confirming
   // tsc reports the error inside the excluded file — asserted in
   // test/integration/site-build.mjs so it cannot rot into a real exclusion.
-  "exclude": ["src/blocks", "src/components/charts"],
+  "exclude": ["src/blocks", "src/components/charts", "src/examples"],
   "compilerOptions": {
     "target": "ES2022",
     "jsx": "react-jsx",

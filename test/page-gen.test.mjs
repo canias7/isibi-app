@@ -204,6 +204,20 @@ test("reading a member table without useMember is reported", () => {
   assert.match(p[0], /without useMember/);
 });
 
+test("importing a documentation example is refused", () => {
+  // src/examples/ is shadcn's own docs, kept as reference. Every file in it
+  // COMPILES, which is what makes it dangerous: nothing else in the pipeline can
+  // tell the difference between a real page and one that ships "Our flagship
+  // product combines cutting-edge technology" to a barber shop's customers.
+  const spec = { tables: [{ name: "posts", access: "display", columns: [{ name: "body" }] }] };
+  const p = lintPages(page('import Demo from "@/examples/accordion-demo";\nuseRows("posts");'), spec);
+  assert.equal(p.length, 1, JSON.stringify(p));
+  assert.match(p[0], /placeholder copy/);
+  // Reading one to learn the pattern is the intended use, so a page that merely
+  // mentions the path in prose is not flagged — only a real import is.
+  assert.deepEqual(lintPages(page('useRows("posts"); // see @/examples/accordion-demo'), spec), []);
+});
+
 test("reading a member table WITH useMember is fine", () => {
   const spec = { tables: [{ name: "posts", access: "feed", columns: [{ name: "body" }] }] };
   assert.deepEqual(lintPages(page('const { data: me } = useMember(); useRows("posts");'), spec), []);

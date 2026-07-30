@@ -689,6 +689,17 @@ export function lintPages(pages, spec) {
       if (!ui.has(m[1].toLowerCase())) say(path, 'imports "@/components/ui/' + m[1] + '", which does not exist. Available: ' + UI_COMPONENTS.join(", ") + ".");
     }
 
+    // `src/examples/` is shadcn's own documentation, installed 2026-07-30 as
+    // reference material. Every file in it COMPILES — which is exactly what makes
+    // it dangerous, because the failure is invisible to `tsc`, to `vite` and to
+    // every other check here: the page builds, publishes, and shows a real
+    // customer "Our flagship product combines cutting-edge technology with sleek
+    // design." Demo copy is the whole point of a demo and has no business on a
+    // barber shop. Copy the pattern, never import the file.
+    for (const m of code.matchAll(/from\s+"@\/examples\/([a-z0-9-]+)"/gi)) {
+      say(path, 'imports "@/examples/' + m[1] + '". Those are shadcn\'s documentation demos and contain placeholder copy — read one to see how a component is used, then write the real thing against this site\'s own schema.');
+    }
+
     // Read and write are asked separately because the API answers them
     // separately: `feed` and `admin` serve reads and refuse writes, so flagging
     // a read of one would be reporting a defect that does not exist — and every
