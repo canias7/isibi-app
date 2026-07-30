@@ -1,0 +1,204 @@
+// Row-level security for a site's tables.
+//
+// These policies are ADDITIONAL to the Worker's enforcement, not a replacement,
+// and every test here is written on that basis: the question is never "does this
+// stop a stranger" — `site-data.mjs` already does — it is "would this be right if
+// it were the only thing standing there", because when Neon's Data API is turned
+// on it will be.
+//
+// The failures that matter all run in the same direction: a policy that permits
+// more than the Worker does. A policy that permits less is a broken feature; one
+// that permits more is somebody's bookings on the open internet.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import { policiesFor, grantsFor, APP_USER_FN, POLICY_PREFIX } from "../site-rls.mjs";
+
+const sql = (t) => policiesFor(t).join("\n");
+const T = (over) => ({ name: "things", access: "user", columns: [{ name: "title" }], ...over });
+
+// --------------------------------------------------------------- the identity fn
+
+test("app_user_id reads the JWT subject, tolerates it being unset, and returns uuid", () => {
+  // missing_ok is load bearing: without it `current_setting` RAISES on every
+  // connection that has no claims set, which is every connection the Worker makes
+  // — turning each policy into an error rather than a refusal.
+  assert.match(APP_USER_FN, /current_setting\('request\.jwt\.claims',\s*true\)/);
+  assert.match(APP_USER_FN, /RETURNS uuid/, "owner_id is a uuid, so this must be too");
+  assert.match(APP_USER_FN, /->>\s*'sub'/);
+  // STABLE, not VOLATILE: it is called per row and the planner must be free to
+  // hoist it out of the scan.
+  assert.match(APP_USER_FN, /STABLE/);
+  // CREATE OR REPLACE, because applySiteSchema re-runs on every revise.
+  assert.match(APP_USER_FN, /CREATE OR REPLACE FUNCTION/);
+});
+
+// --------------------------------------------------------------- always true
+
+test("RLS is enabled on every table, whatever its access level", () => {
+  for (const access of ["display", "collect", "user", "feed", "admin"]) {
+    assert.match(sql(T({ access })), /ENABLE ROW LEVEL SECURITY/, access);
+  }
+});
+
+test("policies are dropped before they are created, so a revise is idempotent", () => {
+  // CREATE POLICY has no IF NOT EXISTS and applySiteSchema re-runs in full, so
+  // without the drops every revise would log four failures and change nothing.
+  const s = sql(T({ access: "user" }));
+  const dropAt = s.indexOf("DROP POLICY");
+  const createAt = s.indexOf("CREATE POLICY");
+  assert.ok(dropAt >= 0 && createAt > dropAt, "drops must come first:\n" + s);
+  assert.match(s, /DROP POLICY IF EXISTS/, "the first run has nothing to drop");
+});
+
+test("EVERY policy shape is dropped, not only the ones this level creates", () => {
+  // The case this exists for is a revise that CHANGES a table's access level. A
+  // `display` table that becomes `user` would otherwise keep its old
+  // "USING (true)" read policy and stay readable by everyone — the new policy is
+  // added alongside, and Postgres ORs permissive policies together.
+  const s = sql(T({ access: "user" }));
+  for (const shape of ["read", "insert", "update", "delete"]) {
+    assert.ok(s.includes('DROP POLICY IF EXISTS "' + POLICY_PREFIX + 'things_' + shape + '"'), shape + " is not dropped:\n" + s);
+  }
+});
+
+// --------------------------------------------------------------- per level
+
+test("display: anyone reads, and there is NO write policy", () => {
+  const s = sql(T({ access: "display" }));
+  assert.match(s, /FOR SELECT USING \(true\)/);
+  assert.ok(!/FOR INSERT|FOR UPDATE|FOR DELETE/.test(s), "content is the owner's, changed through their own door:\n" + s);
+});
+
+test("collect: anyone writes and NOBODY reads — enforced by omission", () => {
+  // The absence of a SELECT policy is what makes it write-only. With RLS on, no
+  // policy means no rows, so this cannot be weakened by putting a filter in the
+  // wrong clause. A booking form must submit and must never list other people's
+  // bookings.
+  const s = sql(T({ access: "collect" }));
+  assert.match(s, /FOR INSERT WITH CHECK \(true\)/);
+  assert.ok(!/FOR SELECT/.test(s), "a collect table must have no read policy at all:\n" + s);
+});
+
+test("user: own rows only, on reads AND writes", () => {
+  const s = sql(T({ access: "user" }));
+  assert.match(s, /FOR SELECT USING \(\("things"\."owner_id" = app_user_id\(\)\)\)/);
+  assert.match(s, /FOR UPDATE USING/);
+  assert.match(s, /FOR DELETE USING/);
+  // WITH CHECK on the new row for an insert, or a member could create a row owned
+  // by somebody else.
+  assert.match(s, /FOR INSERT WITH CHECK \("things"\."owner_id" = app_user_id\(\)\)/);
+  // An UPDATE needs both: USING to reach the existing row, WITH CHECK so it cannot
+  // be reassigned to another owner on the way out.
+  const upd = s.split("\n").find((l) => /FOR UPDATE/.test(l));
+  assert.match(upd, /USING .*WITH CHECK/, upd);
+});
+
+test("feed: any signed-in member reads, each writes only their own", () => {
+  const s = sql(T({ access: "feed" }));
+  assert.match(s, /FOR SELECT USING \(app_user_id\(\) IS NOT NULL\)/);
+  assert.match(s, /FOR INSERT WITH CHECK \("things"\."owner_id" = app_user_id\(\)\)/);
+  // The read is shared and the write is not. If the write policy ever read the
+  // same clause as the read, any member could edit anybody's post.
+  const ins = s.split("\n").find((l) => /FOR INSERT/.test(l));
+  assert.ok(!/IS NOT NULL/.test(ins), "a feed WRITE must be scoped to the author: " + ins);
+});
+
+test("feed and user are NOT readable to somebody signed out", () => {
+  // app_user_id() is NULL with no claims, so both clauses are false. Asserted
+  // because "signed out" is the state every uninvited visitor is in.
+  for (const access of ["feed", "user"]) {
+    const s = sql(T({ access }));
+    const read = s.split("\n").find((l) => /FOR SELECT/.test(l));
+    assert.ok(/app_user_id\(\)/.test(read), access + " read must depend on identity: " + read);
+    assert.ok(!/USING \(true/.test(read), access + " must not be world-readable: " + read);
+  }
+});
+
+test("admin: reads for anyone signed in, and writing is REFUSED at the database", () => {
+  // `writeRoles` names roles that mean something to this application and nothing
+  // to Postgres, so the write stays the Worker's decision. Omitting the policy
+  // refuses it here, which is the safe direction — the Worker's own door still
+  // allows it.
+  const s = sql(T({ access: "admin", writeRoles: ["editor"] }));
+  assert.match(s, /FOR SELECT USING \(app_user_id\(\) IS NOT NULL\)/);
+  assert.ok(!/FOR INSERT|FOR UPDATE|FOR DELETE/.test(s), "no write policy:\n" + s);
+});
+
+// --------------------------------------------------------------- teams
+
+test("a team-shared table widens to the caller's organization", () => {
+  const s = sql(T({ access: "user", teamScope: true }));
+  assert.match(s, /neon_auth\.member/, "membership comes from Neon Auth, not a table of ours");
+  assert.match(s, /"organizationId"/);
+});
+
+test("a member in NO organization still sees only their own rows", () => {
+  // The assertion that matters, restated at the database. The subquery returns
+  // NULL for a member in no organization, and `team_id = NULL` is NULL rather than
+  // true — correct by accident, so the IS NOT NULL is written explicitly.
+  const s = sql(T({ access: "user", teamScope: true }));
+  assert.match(s, /"team_id" IS NOT NULL AND/,
+    "without this the null case rests on NULL comparison semantics rather than on intent:\n" + s);
+});
+
+test("teamScope on a non-user table is ignored, as it is everywhere else", () => {
+  for (const access of ["feed", "admin", "display", "collect"]) {
+    assert.ok(!/neon_auth\.member/.test(sql(T({ access, teamScope: true }))), access);
+  }
+});
+
+// --------------------------------------------------------------- trash
+
+test("a soft-deleted row is invisible to a reader, not just to the Worker", () => {
+  // Without this the Data API would serve rows the site itself treats as deleted.
+  for (const access of ["display", "user", "feed", "admin"]) {
+    const s = sql(T({ access, trash: true }));
+    const read = s.split("\n").find((l) => /FOR SELECT/.test(l));
+    assert.match(read, /"deleted_at" IS NULL/, access + ": " + read);
+  }
+});
+
+test("the trash clause is ANDed, never ORed", () => {
+  // ORed, it would make every row visible whenever it is not deleted — which is
+  // most rows — and silently drop the owner scope.
+  const read = sql(T({ access: "user", trash: true })).split("\n").find((l) => /FOR SELECT/.test(l));
+  assert.match(read, /AND "things"\."deleted_at" IS NULL/, read);
+  // \bOR\b, not /OR /: the first draft of this matched the "OR" inside "FOR
+  // SELECT" and failed on a correct policy.
+  assert.ok(!/\bOR\b[^)]*deleted_at/.test(read), read);
+});
+
+// --------------------------------------------------------------- identifiers
+
+test("a table name is quoted, and a quote in it cannot break out", () => {
+  const s = sql(T({ name: 'we"ird' }));
+  assert.match(s, /"we""ird"/, "a double quote must be doubled, not passed through:\n" + s);
+});
+
+// --------------------------------------------------------------- grants
+
+test("granting comes with the Data API, not before it", () => {
+  // Policies decide what a role MAY see; a GRANT decides whether it can ask at
+  // all. The ORDER is the safety property: applying policies changes nothing for
+  // anyone, because a table's owner bypasses them and the Worker connects as the
+  // owner. Granting is the step that actually puts a table on Neon's Data API, so
+  // it lands in the same change that enables it — and this test is what will have
+  // to be updated then, deliberately, rather than a grant slipping in early.
+  const engine = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  assert.match(engine, /policiesFor/, "the engine must apply the policies");
+  assert.ok(!/grantsFor/.test(engine),
+    "granting must not ride along with applying policies — that is the change that exposes a table");
+});
+
+test("a grant never gives more than the level allows", () => {
+  assert.deepEqual(grantsFor(T({ access: "display" })), ['GRANT SELECT ON "things" TO anon, authenticated;']);
+  // The important one: a collect table must never be granted SELECT.
+  const collect = grantsFor(T({ access: "collect" })).join("");
+  assert.match(collect, /GRANT INSERT/);
+  assert.ok(!/SELECT/.test(collect), "a booking form must not be readable: " + collect);
+  // And a member table is never granted to anon.
+  for (const access of ["user", "feed", "admin"]) {
+    assert.ok(!/anon/.test(grantsFor(T({ access })).join("")), access + " must not be granted to anon");
+  }
+});

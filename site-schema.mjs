@@ -15,6 +15,7 @@
 //
 // `db` throughout is a Neon connection string (see ./site-db.mjs).
 import { sqlQuery, sqlQuery as realSqlQuery } from "./site-db.mjs";
+import { policiesFor, APP_USER_FN } from "./site-rls.mjs";
 import { isManagedColumn } from "./site-access.mjs";
 import { makeCache } from "./ttl-cache.mjs";
 
@@ -140,6 +141,11 @@ async function pgTrigger(db, name, { timing, event, table, when, body, returns }
 // a single batch via `extraTaken`). Diacritics are folded; empty → "item".
 
 export async function applySiteSchema(uuid, spec) {
+  // The identity function every policy below is written against. Created once per
+  // apply, before any policy references it, and `OR REPLACE` so a revise updates
+  // the body rather than failing. Non-fatal: a site whose policies could not be
+  // created still works through the Worker, which is the only door open today.
+  try { await sqlQuery(uuid, APP_USER_FN); } catch (e) { console.error("app_user_id() failed:", e && (e.detail || e.message)); }
   spec = normalizeSchema(spec);
   const tables = (spec && Array.isArray(spec.tables)) ? spec.tables.slice(0, 24) : [];
   const made = [], norm = [];
@@ -503,6 +509,19 @@ export async function applySiteSchema(uuid, spec) {
       } catch (e) { console.error("fts setup failed:", t.name, e && e.detail); }
     }
     made.push(t.name);
+    // Row-level security. The Worker's own enforcement stays — these are
+    // additional, so a mistake in either is caught by the other — and applying
+    // them changes nothing for the current data path, because a table's owner
+    // bypasses its policies and the Worker connects as the owner.
+    //
+    // Statement by statement rather than as one block, and non-fatal: a policy
+    // that fails to apply must not lose a build whose tables and data are already
+    // in place. The failure is logged with the table so it is findable.
+    for (const stmt of policiesFor({ ...t, access })) {
+      try { await sqlQuery(uuid, stmt); }
+      catch (e) { console.error("rls failed:", t.name, stmt.slice(0, 80), e && (e.detail || e.message)); }
+    }
+
     norm.push({ name: t.name, access, columns: colNames, refs, refModes: Object.keys(refModes).length ? refModes : null, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified, audit: !!t.audit, history: !!t.history, archivable: !!t.archivable, sync: !!t.sync, searchWeights: t.searchWeights || null, rateLimit: t.rateLimit || 0, geo: t.geo || null, transitions: t.transitions || null, formulas: t.formulas || null, fieldRoles: t.fieldRoles || null, teamRead: !!t.teamRead, currency: t.currency || null, approval: t.approval || null, sequence: t.sequence || null, roundRobin: t.roundRobin || null, assignBy: t.assignBy || null, sla: t.sla || null, mask: t.mask || null, jsonShapes: t.jsonShapes || null, fts: t.fts || null, webhooks: t.webhooks || null, teamScope: !!t.teamScope, publicView: t.publicView || null, noOverlap: t.noOverlap || null });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
