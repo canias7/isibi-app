@@ -259,15 +259,22 @@ try {
         ok("an app table can FOREIGN KEY to " + ref, false, String((e && (e.detail || e.message)) || e).slice(0, 200));
       }
 
-      // The table is called "user", which is RESERVED in Postgres. Every
-      // reference to it must be quoted, in the schema engine and in anything the
-      // model writes. Proving the unquoted form fails is what makes that a tested
-      // requirement rather than a note somebody will forget.
-      let unquotedFailed = false;
-      try { await sqlQuery(authConn, "SELECT 1 FROM neon_auth.user LIMIT 1"); }
-      catch { unquotedFailed = true; }
-      ok('neon_auth."' + userTable + '" MUST be quoted — the unquoted form is a syntax error',
-        userTable !== "user" || unquotedFailed);
+      // The table is called "user", which Postgres RESERVES — but only in
+      // unqualified position. After a schema qualifier the parser takes reserved
+      // words as names, so `neon_auth.user` is fine and `FROM user` is a syntax
+      // error. Worth pinning both ways round: the first assertion below is the
+      // one I got wrong writing this (I claimed the qualified form failed), and
+      // the second is why the schema engine and the model must always keep the
+      // schema on the front of it.
+      if (userTable === "user") {
+        let qualifiedWorks = true;
+        try { await sqlQuery(authConn, "SELECT 1 FROM neon_auth.user LIMIT 1"); } catch { qualifiedWorks = false; }
+        ok("neon_auth.user parses unquoted — a schema qualifier admits a reserved word", qualifiedWorks);
+
+        let bareFails = false;
+        try { await sqlQuery(authConn, "SELECT 1 FROM user LIMIT 1"); } catch { bareFails = true; }
+        ok("bare unqualified `user` is a syntax error — so identity is ALWAYS written schema-qualified", bareFails);
+      }
     }
 
     // What the site's own role may do. The direction rests on the database being
