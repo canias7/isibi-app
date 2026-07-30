@@ -155,10 +155,6 @@ try {
   ok("schema re-apply is idempotent", again.length === 3);
   const stillOne = await sqlQuery(db, 'SELECT COUNT(*)::int AS n FROM "posts" WHERE "title"=?', ["Hello edited"]);
   ok("re-apply did not destroy existing rows", stillOne[0].n === 1);
-} catch (e) {
-  failed++;
-  console.log("\nUNCAUGHT: " + (e && (e.detail || e.message || e)));
-  if (e && e.stack) console.log(e.stack.split("\n").slice(0, 4).join("\n"));
   // ================================================= Neon Auth, against Neon
   //
   // The whole backend is Neon as of 2026-07-30, and every claim below was taken
@@ -232,6 +228,10 @@ try {
     }
   }
 
+} catch (e) {
+  failed++;
+  console.log("\nUNCAUGHT: " + (e && (e.detail || e.message || e)));
+  if (e && e.stack) console.log(e.stack.split("\n").slice(0, 4).join("\n"));
 } finally {
   if (project && project.projectId) {
     try { await dropUserProject(env, project.projectId); console.log("\ntore down the throwaway project"); }
