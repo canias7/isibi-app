@@ -73,6 +73,44 @@ export const UI_COMPONENTS = [
   "safe-image", "copy-button", "share-buttons",
   // Forms.
   "date-time-picker", "phone-input", "quantity-input", "file-drop", "success-panel",
+
+  // ── The second hundred (2026-07-30) ───────────────────────────────────────
+  // Utility-first: the shapes a page needs over and over, rather than more ways
+  // to decorate one. Monochrome throughout — state is carried by fill, weight and
+  // a written label, never by colour alone, which does not survive greyscale or
+  // reach anyone who cannot see it.
+  // Layout — structure a page without hand-rolling flex and grid every time.
+  "container", "section", "stack", "inline", "auto-grid", "two-col",
+  "center-box", "bento-grid", "masonry", "sticky-bar", "page-header",
+  "scroll-top", "divider-text", "spacer", "toolbar", "overflow-scroller",
+  // Typography.
+  "prose", "heading", "text", "lead", "quote", "bullet-list", "clamp-text",
+  "expandable-text",
+  // Data display.
+  "description-list", "key-value", "data-table", "sortable-header",
+  "row-actions", "avatar-group", "status-dot", "status-badge",
+  "progress-ring", "metric-delta", "count-badge", "comparison-table",
+  "detail-panel", "record-header", "legend",
+  // Feedback and state.
+  "banner", "callout", "inline-alert", "loading-overlay", "stepper",
+  "skeleton-text", "skeleton-card", "error-state", "confirm-dialog",
+  "offline-banner", "busy-button", "retry-panel",
+  // Navigation.
+  "tab-nav", "nav-list", "anchor-nav", "back-link", "prev-next", "link-card",
+  "mobile-nav", "side-nav", "step-nav", "nav-footer", "result-count",
+  "external-link",
+  // Forms. Every one carries the right autoComplete and inputMode, which is most of what makes a form fillable on a phone.
+  "form-row", "form-section", "form-actions", "form-error-summary",
+  "field-hint", "required-mark", "search-input", "password-input",
+  "email-input", "url-input", "number-input", "currency-input",
+  "percent-input", "textarea-count", "checkbox-group", "radio-cards",
+  "switch-row", "multi-select", "address-fields", "name-fields",
+  // Media.
+  "video-embed", "audio-player", "cover-image", "media-grid", "image-strip",
+  "avatar-upload", "icon-badge", "logo",
+  // Utility.
+  "theme-toggle", "print-button", "cookie-banner", "scroll-progress",
+  "reveal", "time-ago", "duration", "visually-hidden", "avatar-name",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
