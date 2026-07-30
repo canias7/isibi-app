@@ -282,3 +282,47 @@ test("every table flag applySiteSchema reads survives normalizeSchema", () => {
     "applySiteSchema reads " + missing.join(", ") + " and normalizeSchema does not emit it — " +
     "the declaration is dropped on every build, the build succeeds, and the guarantee simply is not there");
 });
+
+// ------------------------------------------------- owner_id is a uuid, in BOTH places
+//
+// `owner_id` was INTEGER because it referenced a hand-rolled `_users` whose ids
+// were sequential integers. Identity is Neon Auth's as of 2026-07-30 and
+// `neon_auth."user".id` is a `uuid` — measured against a real project, and not
+// what this repo's own notes predicted (they said text, and named a table that
+// does not exist).
+//
+// The reason this is a test and not just an edit: the type appears TWICE, in the
+// CREATE and in the schema-evolution ALTER, and `ADD COLUMN IF NOT EXISTS` does
+// not change the type of a column that is already there. So a CREATE saying uuid
+// and an ALTER saying integer is not a compile error, not a runtime error on a
+// fresh site, and a silent wrong type on every revised one. Derived from the
+// source at both ends rather than asserting the string twice.
+test("owner_id is declared uuid in the CREATE and the ALTER, and they agree", () => {
+  const src = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+
+  // Every type this file ever gives owner_id, wherever it says it. Anchored to
+  // real type tokens rather than \w+, because `"owner_id" IS NOT DISTINCT FROM`
+  // appears in two trigger predicates and a loose pattern reads "IS" as a type.
+  const TYPE = "UUID|INTEGER|BIGINT|TEXT|REAL|NUMERIC|BYTEA|BOOLEAN|SERIAL";
+  const decls = [...src.matchAll(new RegExp('"owner_id"\\s+(' + TYPE + ')\\b', "g"))].map((m) => m[1]);
+  // At least two: the CREATE and the schema-evolution ALTER. This is the half
+  // that makes it a two-ended guard — with one site found, "they agree" is
+  // vacuous and the ALTER could say anything.
+  assert.ok(decls.length >= 2,
+    "expected owner_id declared in both the CREATE and the ALTER; found " + decls.length);
+  assert.deepEqual([...new Set(decls)], ["UUID"],
+    "owner_id must be UUID in every declaration; found " + [...new Set(decls)].join(", ") +
+    " — a CREATE and an ALTER that disagree leave every REVISED site with the old type, silently");
+
+  // The audit log's actor IS an owner_id, so it moves with it or a trigger
+  // writing NEW."owner_id" into it fails on type at insert time.
+  const actor = [...new Set([...src.matchAll(/actor_id\s+([A-Z]+)/g)].map((m) => m[1]))];
+  assert.deepEqual(actor, ["UUID"], "_audit.actor_id stores an owner_id, so it must be the same type");
+
+  // And nothing may still be stamping the old integer team column: `teamScope`
+  // is undeclarable now, and Neon Auth's teams are uuid-keyed, so an INTEGER
+  // team_id would be the wrong shape to leave lying around.
+  assert.ok(!/"team_id"\s+INTEGER/.test(src),
+    "team_id INTEGER is the pre-Neon-Auth shape; teams get rebuilt on organization/member, which are uuid keyed");
+});

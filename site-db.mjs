@@ -225,24 +225,30 @@ export async function enableNeonAuth(env, projectId, branchId, dbName) {
   // difference between auth landing in the site's database and landing in an
   // unused one, which nothing would have noticed until a member tried to sign in.
   if (!dbName) throw Object.assign(new Error("neon auth: need the database name"), { bad: true });
+  // The response body is KEPT. It is how a client learns where to sign in — the
+  // auth endpoint and whatever public identifier goes with it — and discarding it
+  // meant the one call that provisions identity told us nothing about how to
+  // reach it. The caller decides what is safe to store; nothing here logs it,
+  // because a provisioning response is exactly the shape that carries a secret.
+  let info = null;
   try {
-    await neonApi(env, `/projects/${projectId}/branches/${branchId}/auth`, {
+    info = await neonApi(env, `/projects/${projectId}/branches/${branchId}/auth`, {
       method: "POST",
       body: JSON.stringify({ auth_provider: "better_auth", database_name: dbName }),
     });
   } catch (e) {
     const already = e && (e.status === 409 || /already/i.test(String(e.detail || e.message || "")));
     if (!already) throw e;
-    return { enabled: true, already: true };
+    return { enabled: true, already: true, info: null };
   }
   // Enabling auth is an async project operation like every other one — the
   // schema is still being created when the call returns, and a schema apply
   // racing it would not see `neon_auth`.
   await waitForProject(env, projectId);
-  return { enabled: true, already: false };
+  return { enabled: true, already: false, info };
 }
 
-// Add one site's database to an existing project.// Add one site's database to an existing project.
+// Add one site's database to an existing project.
 export async function createSiteDatabase(env, projectId, branchId, roleName, slug) {
   const name = dbNameForSite(slug);
   await neonApi(env, `/projects/${projectId}/branches/${branchId}/databases`, {
