@@ -52,8 +52,8 @@ export default function Component() {
                   key={item.month}
                   fill={
                     item.visitors > 0
-                      ? "hsl(var(--chart-1))"
-                      : "hsl(var(--chart-2))"
+                      ? "var(--chart-1)"
+                      : "var(--chart-2)"
                   }
                 />
               ))}
