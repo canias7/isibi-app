@@ -10,6 +10,10 @@
 // the Worker has no filesystem; a test asserts this copy has not drifted from the
 // file, and GENERATOR.md's rule stands — when the two disagree, the file wins.
 
+
+// Generated from the component files by builder/gen-component-api.mjs. Kept in
+// step by test/component-api.test.mjs, which regenerates and compares.
+import { COMPONENT_API } from "./component-api.mjs";
 /** Every component in src/components/ui. An import of anything else does not resolve. */
 export const UI_COMPONENTS = [
   "accordion", "alert-dialog", "alert", "aspect-ratio", "avatar", "badge", "breadcrumb",
@@ -959,11 +963,45 @@ export function lintPages(pages, spec) {
 }
 
 /** The repair turn: here is what you wrote, here is what is wrong, write it again. */
+/**
+ * The exact props of the components a page imported.
+ *
+ * The rules name 500 components and describe NONE of them, because a usage line
+ * each is ~12,600 tokens on every build. So the model picks by name and guesses
+ * the props — and the guess is wrong often enough to matter: `<ReviewStars
+ * rating={4.5} />` is the obvious spelling and the prop is `value`, which is
+ * TS2322, the one repair pass spent, and a site published as the placeholder.
+ *
+ * Handing them over on the REPAIR pass costs nothing on a build that worked and
+ * ~500 tokens on one that did not — and a repair is exactly where a wrong prop
+ * name has to be corrected. The imports are read off the code the model just
+ * wrote, so it only ever gets the twenty or so it actually reached for.
+ */
+export function importedComponentApi(pages) {
+  const want = new Set();
+  for (const p of pages || []) {
+    for (const m of String(p.source || "").matchAll(/from\s+["']@\/components\/ui\/([a-z0-9-]+)["']/gi)) {
+      want.add(m[1].toLowerCase());
+    }
+  }
+  const lines = [...want].sort()
+    .filter((n) => COMPONENT_API[n])          // shadcn primitives are absent on purpose
+    .map((n) => `${n} — ${COMPONENT_API[n]}`);
+  return lines.length ? lines.join("\n") : null;
+}
+
 export function repairPrompt(brief, spec, pages, problems, brand) {
   const files = pages.map((p) => "=== src/routes/" + p.path + " ===\n" + p.source).join("\n\n");
+  const api = importedComponentApi(pages);
   return "The pages you wrote did not work. Fix them and return the COMPLETE set of route files again — " +
     "every file, not a patch.\n\nWHAT IS WRONG\n" +
     problems.map((p) => "- " + p).join("\n") +
+    (api
+      ? "\n\nTHE EXACT PROPS OF WHAT YOU IMPORTED\n" +
+        "These are the real signatures, taken from the components themselves. Where what you\n" +
+        "wrote disagrees with one of these, the signature is right. Every one also takes\n" +
+        "className. A `?` means optional; `= x` is the default.\n" + api
+      : "") +
     "\n\nWHAT YOU WROTE\n" + files.slice(0, 60000) +
     "\n\n" + pagesPrompt(brief, spec, brand);
 }
