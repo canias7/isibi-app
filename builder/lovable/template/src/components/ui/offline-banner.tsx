@@ -3,7 +3,8 @@ import { WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 /**
  * Says the connection went, so a failed submit reads as the network rather than
- * as the site being broken. Appears only while actually offline.
+ * as the site being broken. Warning-toned: it is not an error the visitor caused,
+ * and it clears itself when they reconnect.
  */
 export function OfflineBanner({ message = "You're offline. Some things won't work until you reconnect.", className }: {
   message?: string; className?: string;
@@ -17,7 +18,7 @@ export function OfflineBanner({ message = "You're offline. Some things won't wor
   }, []);
   if (!off) return null;
   return (
-    <div role="status" className={cn("flex items-center justify-center gap-2 bg-foreground px-4 py-2 text-sm text-background", className)}>
+    <div role="status" className={cn("flex items-center justify-center gap-2 bg-warning px-4 py-2 text-sm text-warning-foreground", className)}>
       <WifiOff className="size-4" /> {message}
     </div>
   );

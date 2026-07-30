@@ -1,12 +1,12 @@
 import { cn } from "@/lib/utils";
-/** One line under a field or a button. The smallest unit of "something is wrong". */
+/** One line under a field or a button. The smallest unit of "something happened". */
 export function InlineAlert({ tone = "muted", className, children }: {
-  tone?: "muted" | "error"; className?: string; children?: React.ReactNode;
+  tone?: "muted" | "success" | "warning" | "error"; className?: string; children?: React.ReactNode;
 }) {
+  const c = { muted: "text-muted-foreground", success: "text-success",
+              warning: "text-warning", error: "text-destructive" }[tone];
   return (
-    <p role={tone === "error" ? "alert" : undefined}
-      className={cn("text-sm", tone === "error" ? "text-destructive" : "text-muted-foreground", className)}>
-      {children}
-    </p>
+    <p role={tone === "error" ? "alert" : tone === "muted" ? undefined : "status"}
+      className={cn("text-sm", c, className)}>{children}</p>
   );
 }
