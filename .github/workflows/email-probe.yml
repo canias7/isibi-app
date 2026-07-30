@@ -1,0 +1,123 @@
+# One-shot: is Cloudflare Email Service actually ready to send isibi's login codes?
+#
+# Three things have to be true before the send-email hook can be switched off the
+# retired provider, and none of them can be checked from a dev container — the
+# Cloudflare credentials live here in Actions, not there:
+#
+#   1. the token has Email Sending permission
+#   2. Email Sending is enabled on the account (it is beta, Workers Paid)
+#   3. isibi.ai is a verified sending domain
+#
+# There is no documented API for listing or verifying domains, so this does not try
+# to guess one. It sends ONE message and reads the answer, because the failure codes
+# are diagnostic and each maps to exactly one of the three above:
+#
+#   403 / 10000            → the token cannot send. Mint one with Email Sending.
+#   E_SENDER_NOT_VERIFIED  → the domain is not verified. Do that in the dashboard.
+#   E_RECIPIENT_SUPPRESSED → that address bounced or reported spam before.
+#   200                    → all three are true. The hook can be switched.
+#
+# Send it to an address on your own Cloudflare account: those are FREE and do not
+# consume the monthly quota, so this probe costs nothing however often it runs.
+#
+# Safe by construction: the recipient is a required input, so it cannot quietly
+# mail a real customer, and the token is never echoed.
+name: email probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      to:
+        description: "Where to send the test (use a verified address on your own account — free, no quota)"
+        required: true
+      from:
+        description: "Sender. Must be on the verified domain."
+        required: false
+        default: "isibi <login@isibi.ai>"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: send one message and explain the answer
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TO: ${{ inputs.to }}
+          FROM: ${{ inputs.from }}
+        run: |
+          set -uo pipefail
+          # Named separately so a half-configured repo says which half is missing.
+          if [ -z "${CF_TOKEN:-}" ]; then echo "::error::CLOUDFLARE_API_TOKEN is not set in Actions secrets"; exit 1; fi
+          if [ -z "${CF_ACCOUNT:-}" ]; then echo "::error::CLOUDFLARE_ACCOUNT_ID is not set in Actions secrets"; exit 1; fi
+
+          echo "account: ${CF_ACCOUNT:0:6}…  (id truncated; token never printed)"
+          echo "sending one message to $TO"
+          echo
+
+          # -w writes the status on its own last line so the body stays parseable.
+          out=$(curl -sS -o /tmp/body.json -w '%{http_code}' \
+            -X POST "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT}/email/sending/send" \
+            -H "Authorization: Bearer ${CF_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data @- <<JSON
+          {
+            "from": "${FROM}",
+            "to": "${TO}",
+            "subject": "isibi mail probe",
+            "html": "<p>If you are reading this, Cloudflare Email Service can send as this domain and the login-code hook can be switched over.</p>",
+            "text": "If you are reading this, Cloudflare Email Service can send as this domain and the login-code hook can be switched over."
+          }
+          JSON
+          ) || { echo "::error::curl itself failed — network or endpoint problem, not a config one"; exit 1; }
+
+          echo "HTTP $out"
+          echo "--- response ---"
+          cat /tmp/body.json; echo
+          echo "----------------"
+          echo
+
+          body=$(cat /tmp/body.json)
+          case "$out" in
+            200|202)
+              echo "✅ SENT. All three prerequisites are true: the token may send, sending is"
+              echo "   enabled on the account, and the sender domain is verified."
+              echo "   Next: add CF_ACCOUNT_ID + CF_EMAIL_TOKEN to Supabase's Edge Function"
+              echo "   secrets and deploy send-email. Login codes then come from Cloudflare."
+              ;;
+            403)
+              echo "::error::The token cannot send email. Mint a Cloudflare API token with the"
+              echo "Email Sending permission — the existing one was made for Workers deploys."
+              exit 1
+              ;;
+            404)
+              echo "::error::The endpoint answered 404. Email Sending is most likely not enabled"
+              echo "on this account yet — it is beta and needs turning on under Email Service."
+              exit 1
+              ;;
+            *)
+              case "$body" in
+                *E_SENDER_NOT_VERIFIED*)
+                  echo "::error::The sender domain is not verified. Add and verify the domain in"
+                  echo "Cloudflare → Email Service → Domains. isibi.ai is already on Cloudflare,"
+                  echo "so the DKIM/SPF records should be one click rather than manual DNS."
+                  ;;
+                *E_RECIPIENT_SUPPRESSED*)
+                  echo "::error::That recipient is on the suppression list — it hard-bounced or"
+                  echo "reported spam before. Try a different address; this is not a config fault."
+                  ;;
+                *E_RECIPIENT_NOT_ALLOWED*)
+                  echo "::error::That recipient is not on the binding's allowed list. Either verify"
+                  echo "the address on the account or widen allowed_destination_addresses."
+                  ;;
+                *)
+                  echo "::error::Unrecognised failure — the body above is the whole answer."
+                  ;;
+              esac
+              exit 1
+              ;;
+          esac
