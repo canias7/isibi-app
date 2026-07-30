@@ -759,3 +759,23 @@ test("every hook the rules name is exported by the template", () => {
     "the model is being told to import something that is not there, so tsc refuses the page " +
     "and the site publishes as the placeholder");
 });
+
+// Every ui component the RULES cite must exist — the other direction.
+//
+// The list-vs-disk guard above catches a component added to the template and not
+// offered to the model. It does not catch the reverse: prose in the rules naming
+// `@/components/ui/something` that was never installed. A mutation proved that
+// gap — renaming a cited component in the rules passed the whole suite.
+//
+// Same failure as the hook guard: the model is told to import something absent,
+// `tsc` refuses the page, the one repair pass fails identically, and the site
+// publishes as the placeholder.
+test("every ui component the rules cite is one the template has", () => {
+  const cited = [...new Set(
+    [...PAGE_RULES.matchAll(/@\/components\/ui\/([a-z0-9-]+)/g)].map((m) => m[1]),
+  )];
+  assert.ok(cited.length >= 2, "expected the rules to cite some components by path, found " + cited.length);
+  const missing = cited.filter((c) => !UI_COMPONENTS.includes(c));
+  assert.deepEqual(missing, [],
+    "the rules point the model at " + missing.join(", ") + ", which the template does not have");
+});

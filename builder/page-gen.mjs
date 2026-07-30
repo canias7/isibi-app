@@ -19,6 +19,11 @@ export const UI_COMPONENTS = [
   "radio-group", "resizable", "scroll-area", "select", "separator", "sheet", "sidebar",
   "skeleton", "slider", "sonner", "switch", "table", "tabs", "textarea", "toggle-group",
   "toggle", "tooltip",
+  // Added 2026-07-30. `empty` and `spinner` because the rules already require
+  // every list to handle "nothing yet" and every submit to show it is working,
+  // and the model was hand-rolling both every time; `field` and `input-group`
+  // because most generated sites are a form.
+  "empty", "spinner", "field", "input-group",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
@@ -369,12 +374,14 @@ or an access level — anything not in the schema below does not exist.
 Omit one and the page looks fine in a screenshot and broken in use:
 - \`isPending\` → \`<Skeleton />\` placeholders, not a spinner and not nothing
 - \`isError\` → one sentence a visitor can act on
-- \`data?.length === 0\` → say the list is empty; do not render an empty grid
+- \`data?.length === 0\` → \`<Empty />\` from \`@/components/ui/empty\`, not a bare paragraph and
+  never an empty grid. Give it a heading and a sentence saying what would put something there.
 - loaded → the rows
 
 ## Every form must
 
-- disable its submit button while \`mutation.isPending\`, and say so on the button
+- disable its submit button while \`mutation.isPending\`, and say so on the button — a
+  \`<Spinner />\` inside it reads better than swapping the label, and keeps the width steady
 - \`toast.success(...)\` and \`form.reset()\` on success
 - \`toast.error(e.message)\` on failure — THE API'S OWN MESSAGE. It distinguishes the caller's
   fault from a server fault and returns a \`code\` for duplicate / overlap / bad_ref / required /
