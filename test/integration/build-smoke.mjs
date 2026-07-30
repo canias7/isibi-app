@@ -129,16 +129,22 @@ try {
   ok("the designer chose a readable table for content", !!display, JSON.stringify(levels));
   ok("the designer chose a write-only table for submissions", !!collect, JSON.stringify(levels));
 
+  // Against the site's own Neon Data API, through the platform's proxy. These
+  // statuses are no longer produced by a rule in the Worker — the row routes were
+  // deleted 2026-07-30 — they come from the GRANTs the schema engine issues, so
+  // this is now a live check that `grantsFor` says what we think it says. A
+  // `display` table is granted SELECT only and a `collect` table INSERT only, and
+  // Postgres refuses the other direction with 42501, which PostgREST answers 403.
   if (display) {
-    const r2 = await fetch(`${BASE}/api/db/${slug}/rows/${display.name}`);
+    const r2 = await fetch(`${BASE}/api/db/${slug}/data/${display.name}?select=*`);
     ok(`GET ${display.name} (display) is allowed`, r2.status === 200, String(r2.status));
-    const w = await fetch(`${BASE}/api/db/${slug}/rows/${display.name}`, {
+    const w = await fetch(`${BASE}/api/db/${slug}/data/${display.name}`, {
       method: "POST", headers: { "content-type": "application/json" }, body: "{}",
     });
     ok(`POST ${display.name} (display) is refused`, w.status === 403, String(w.status));
   }
   if (collect) {
-    const r3 = await fetch(`${BASE}/api/db/${slug}/rows/${collect.name}`);
+    const r3 = await fetch(`${BASE}/api/db/${slug}/data/${collect.name}?select=*`);
     ok(`GET ${collect.name} (collect) is refused — submissions are not public`,
       r3.status === 403, String(r3.status));
   }
@@ -234,7 +240,7 @@ try {
       pg.on("console", (m) => { if (m.type() === "error") consoleErrors.push(m.text().slice(0, 200)); });
       pg.on("response", (res) => {
         const u = res.url();
-        if (u.includes(`/api/db/${slug}/rows/`)) apiCalls.push({ method: res.request().method(), url: u, status: res.status() });
+        if (u.includes(`/api/db/${slug}/data/`)) apiCalls.push({ method: res.request().method(), url: u, status: res.status() });
       });
 
       await pg.goto(`${BASE}/s/${slug}/`, { waitUntil: "networkidle", timeout: 60000 });

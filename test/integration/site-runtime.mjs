@@ -92,6 +92,14 @@ const send = (res, code, obj) => {
   res.end(JSON.stringify(obj));
 };
 
+// PostgREST reports a refusal as the Postgres error itself: the SQLSTATE in
+// `code`, the server's own sentence in `message`. It is NOT the platform's old
+// `{error}` shape, and the difference is the whole point of stubbing it — a
+// visitor-facing message now has to be derived from a SQLSTATE rather than read
+// out of a field we wrote.
+const pgError = (res, code, sqlstate, message, details) =>
+  send(res, code, { code: sqlstate, details: details ?? null, hint: null, message });
+
 try {
   // ── build the reference page into a real dist ──────────────────────────────
   fs.cpSync(TEMPLATE, sandbox, { recursive: true, filter: (src) => !/(^|[\\/])(node_modules|dist)$/.test(src) });
@@ -123,21 +131,31 @@ try {
   if (!built.ok) throw new Error("cannot drive a site that did not build");
 
   // ── serve it exactly as production does: /s/<slug>/ + the data API ─────────
+  //
+  // The data API is Neon's, which is PostgREST, and the Worker only forwards to
+  // it — so this stub answers the way PostgREST does, not the way the platform's
+  // own deleted `/rows/` routes did. Three differences all matter to the page:
+  // the path is `/data/<table>`, a list is the ARRAY ITSELF rather than
+  // `{rows:[…]}`, and a refusal carries a Postgres SQLSTATE instead of a sentence
+  // we chose. Stubbing the old shape is how this test went green while the real
+  // page fetched a URL nothing served.
   siteSrv = http.createServer((req, res) => {
     const url = new URL(req.url, "http://127.0.0.1");
-    const m = url.pathname.match(/^\/api\/db\/([^/]+)\/rows\/([^/]+)$/);
+    const m = url.pathname.match(/^\/api\/db\/([^/]+)\/data\/([^/]+)$/);
     if (m) {
       const table = m[2];
       if (req.method === "GET") {
-        // `collect` is write-only in the real API; if the page ever lists it the
-        // visitor gets nothing, so mirror that rather than being generous.
-        if (table === "appointments") return send(res, 403, { error: "that table is not readable", access: "collect" });
-        if (table !== "services") return send(res, 404, { error: "no such table" });
+        // A `collect` table is granted INSERT and nothing else, so a read is
+        // refused by the GRANT before any policy is consulted: Postgres raises
+        // 42501, which PostgREST answers as 403. Mirrored rather than softened —
+        // a page that lists a collect table must break here, not in production.
+        if (table === "appointments") return pgError(res, 403, "42501", `permission denied for table ${table}`);
+        if (table !== "services") return pgError(res, 404, "42P01", `relation "public.${table}" does not exist`);
         reads++;
-        if (mode === "error") return send(res, 500, { error: "that didn't work" });
-        // What the real API returns for a table the page should never list.
-        if (mode === "denied") return send(res, 403, { error: "that table is not readable", access: "collect" });
-        return send(res, 200, { rows: mode === "empty" ? [] : SERVICES, limit: 50, offset: 0 });
+        if (mode === "error") return send(res, 500, { code: "XX000", message: "server error" });
+        if (mode === "denied") return pgError(res, 403, "42501", `permission denied for table ${table}`);
+        // PostgREST answers a list with the bare array.
+        return send(res, 200, mode === "empty" ? [] : SERVICES);
       }
       if (req.method === "POST") {
         let body = "";
@@ -146,15 +164,24 @@ try {
           let parsed = null; try { parsed = JSON.parse(body); } catch {}
           posted.push({ table, body: parsed });
           if (mode === "overlap") {
-            // The real API's 409 for a double booking. The page is supposed to
-            // show THIS message, not a generic failure.
-            return send(res, 409, { error: "That time is already taken", code: "overlap" });
+            // A double booking is now refused by the DATABASE — `noOverlap` is an
+            // `EXCLUDE USING gist` constraint, so the failure is SQLSTATE 23P01 and
+            // the message is Postgres's own. Nobody writes "That time is already
+            // taken" any more; if the visitor is to see a sentence, something has
+            // to translate this.
+            return pgError(res, 409, "23P01",
+              `conflicting key value violates exclusion constraint "ex_${table}_nooverlap"`,
+              "Key (date, tstzrange(...))=(2026-08-03, [...)) conflicts with existing key.");
           }
-          return send(res, 201, { row: { id: 99, ...parsed } });
+          // `Prefer: return=representation` is what makes the row come back, and
+          // it comes back wrapped in an array even for a single insert.
+          const wants = String(req.headers["prefer"] || "").includes("return=representation");
+          if (!wants) { res.writeHead(201, { "access-control-allow-origin": "*" }); return res.end(); }
+          return send(res, 201, [{ id: 99, ...parsed }]);
         });
         return;
       }
-      return send(res, 405, { error: "method not allowed" });
+      return pgError(res, 405, "42501", "method not allowed");
     }
     // Static dist under /s/<slug>/…
     const sm = url.pathname.match(/^\/s\/[^/]+\/?(.*)$/);
@@ -294,10 +321,16 @@ try {
     await page.waitForTimeout(1200);
 
     const body = await page.locator("body").innerText();
-    // The whole point of onError: (e) => toast.error(e.message) — "That time is
-    // already taken" is useful, "something went wrong" is not.
-    ok("a 409 surfaces the API's own message, not a generic failure",
-      /That time is already taken/i.test(body), body.slice(-400));
+    // The refusal has to reach the visitor as a SENTENCE. PostgREST hands back
+    // the raw Postgres text — 'conflicting key value violates exclusion
+    // constraint "ex_appointments_nooverlap"' — which is what this page showed
+    // its customers until `humanPgError` translated the SQLSTATE. Both halves are
+    // asserted: the sentence appears AND the jargon does not, because a passing
+    // substring check would survive the constraint name being appended to it.
+    ok("a 409 tells the visitor what happened, in a sentence",
+      /just been taken/i.test(body), body.slice(-400));
+    ok("the raw Postgres error is not shown to a customer",
+      !/exclusion constraint|SQLSTATE|23P01|violates/i.test(body), body.slice(-400));
     ok("the form keeps the visitor's input after a failure",
       (await page.getByLabel("Your name").inputValue()) === "Grace Hopper", "input was cleared on failure");
     await page.context().close();

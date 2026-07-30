@@ -4,9 +4,10 @@
 // a table. Everything else (where the site lives, how rows are shaped, how the
 // cache is invalidated after a write) is handled here once.
 //
-// The API is the platform's: /api/db/<slug>/rows/<table>. Only tables declared
-// `access: "public"` in isibi.schema.json are reachable; an owner-scoped table
-// returns 403 until visitor accounts exist.
+// Reads and writes go to the site's own Neon Data API through /api/db/<slug>/data/,
+// and the site's RLS policies decide every access question — a `display` table is
+// readable by anyone, a `collect` table is write-only, and `user`/`feed`/`admin`
+// tables answer according to the member session sent with the request.
 import {
   useQuery,
   useMutation,
@@ -107,6 +108,49 @@ function pgQuery(params?: RowQuery): string {
 
 const idFilter = (id: RowId) => `?id=eq.${encodeURIComponent(String(id))}`;
 
+/**
+ * A refusal the database raised, said in a sentence a visitor can act on.
+ *
+ * This exists because of what changed when reads moved to the Data API. The
+ * platform's own routes used to write the message — a double booking answered
+ * "That time is already taken" — and PostgREST instead returns the Postgres error
+ * verbatim, so the same refusal now reads:
+ *
+ *   conflicting key value violates exclusion constraint "ex_appointments_nooverlap"
+ *
+ * That is what a barber shop's customer saw, measured in the runtime test rather
+ * than reasoned about. So the SQLSTATE is translated here, in the one place every
+ * read and write already passes through — the generator never writes error
+ * handling, and a page that did would get this wrong per-form.
+ *
+ * Only codes a VISITOR can actually provoke are listed. Anything else keeps the
+ * server's own text, which matters for `P0001`: that is what our schema triggers
+ * raise, and their messages ("row limit reached", "missing parent", the
+ * transition and SLA rules) are ours already and are worth showing as written.
+ */
+function humanPgError(code: string | undefined, details?: string): string | null {
+  // `Key (email)=(a@b.com) already exists.` — naming the field turns "that's
+  // taken" into something the visitor can fix. Guarded, and it simply does not
+  // fire when the shape is anything else.
+  const col = (details || "").match(/^Key \(([a-z0-9_]{1,40})\)=/i)?.[1]?.replace(/_/g, " ");
+  switch (code) {
+    // An `EXCLUDE` constraint — what `noOverlap` compiles to. Always a booking
+    // colliding with one already in the book.
+    case "23P01": return "That time has just been taken. Please pick another.";
+    case "23505": return col ? `That ${col} is already taken.` : "That has already been submitted.";
+    case "23503": return "That option isn't available any more — please pick another.";
+    case "23514": return "Some of those details aren't valid. Please check and try again.";
+    case "23502": return "Something required was left out. Please check the form.";
+    case "22P02": case "22007": case "22003":
+      return "Some of those details aren't in the right format.";
+    // Postgres names the table it refused; a stranger has no business learning
+    // that, and it tells the visitor nothing either way.
+    case "42501": case "42P01": case "42703":
+      return "That isn't available.";
+    default: return null;
+  }
+}
+
 async function send<T>(url: string, init?: RequestInit): Promise<T> {
   // The member's session, when there is one. Sent on every call: a `user` table's
   // RLS policy answers with no rows without it, and that member's own rows with it.
@@ -123,10 +167,14 @@ async function send<T>(url: string, init?: RequestInit): Promise<T> {
   const body = await res.json().catch(() => null);
   if (!res.ok) {
     // PostgREST reports the caller's fault in `message`, with `code` carrying the
-    // Postgres SQLSTATE — 23505 is a duplicate, 23514 a failed check. Surfaced
-    // rather than replaced, so a form can say which field was wrong.
+    // Postgres SQLSTATE — 23505 is a duplicate, 23514 a failed check. The SQLSTATE
+    // is the useful part: the message beside it is written for a DBA, so the ones
+    // a visitor can trigger get a sentence instead. `code` is still attached, so a
+    // form that wants to handle a specific failure itself still can.
     const b = body as { message?: string; details?: string; code?: string } | null;
-    const err = new Error(b?.message || b?.details || `request failed (${res.status})`);
+    const err = new Error(
+      humanPgError(b?.code, b?.details) || b?.message || b?.details || `request failed (${res.status})`,
+    );
     (err as Error & { code?: string; status: number }).code = b?.code;
     (err as Error & { status: number }).status = res.status;
     throw err;
