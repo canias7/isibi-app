@@ -31,10 +31,34 @@ Deno.serve(async (req) => {
   const accountId = Deno.env.get("CF_ACCOUNT_ID");
   const apiToken = Deno.env.get("CF_EMAIL_TOKEN");
   const hookSecret = Deno.env.get("SEND_EMAIL_HOOK_SECRET");
-  // Named separately so a half-configured deploy says WHICH half is missing.
-  if (!accountId) return json({ error: "CF_ACCOUNT_ID not set" }, 500);
-  if (!apiToken) return json({ error: "CF_EMAIL_TOKEN not set" }, 500);
-  if (!hookSecret) return json({ error: "SEND_EMAIL_HOOK_SECRET not set" }, 500);
+
+  // A MISSING MAILER MUST NOT BREAK SIGNING UP.
+  //
+  // GoTrue treats a non-2xx from this hook as a failure of the whole auth
+  // operation, so returning 500 here means one wrong character in a secret stops
+  // people creating accounts at all — strictly worse than the mail simply not
+  // arriving, which is the situation this is replacing. So: log it loudly, answer
+  // 200, and let the account be created. The person can ask for another code once
+  // the config is fixed; they cannot un-fail a signup that was refused.
+  //
+  // Named separately so the log says WHICH half is missing rather than "not
+  // configured", because that is the whole question when this fires.
+  const missing = [
+    !accountId && "CF_ACCOUNT_ID",
+    !apiToken && "CF_EMAIL_TOKEN",
+  ].filter(Boolean);
+  if (missing.length) {
+    console.error("MAIL NOT CONFIGURED — no email sent. Missing:", missing.join(", "));
+    return json({}, 200);
+  }
+
+  // The signature is different in kind and still refuses: it is the only thing
+  // proving this request came from GoTrue and not from a stranger, so failing it
+  // open would let anyone trigger mail to any address.
+  if (!hookSecret) {
+    console.error("SEND_EMAIL_HOOK_SECRET not set — refusing, since the caller cannot be verified");
+    return json({ error: "hook secret not set" }, 500);
+  }
 
   const payload = await req.text();
   let user: any, email_data: any;
