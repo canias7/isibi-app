@@ -198,6 +198,53 @@ export const UI_COMPONENTS = [
   // More inputs and utility.
   "tag-input", "slug-input", "unit-input", "weekday-picker", "color-swatch",
   "id-badge", "json-view", "diff-text", "word-count", "map-embed",
+
+  // ── The fifth hundred (2026-07-30) ────────────────────────────────────────
+  // Messaging (12) · printed documents and invoices (12) · the forms that are
+  // actually hard (13) · what a page does when something breaks (10) ·
+  // accessibility and page structure (10) · location and delivery (10) ·
+  // bulk import (10) · time and availability (11) · people and org (12).
+  // Messaging and support.
+  "chat-message", "chat-thread", "chat-composer", "typing-indicator",
+  "message-status", "conversation-row", "help-launcher", "canned-reply",
+  "contact-form", "ticket-row", "sla-badge", "escalation-note",
+  // Documents, invoices and print. `print-only`/`screen-only`/`page-break`
+  // exist because the commonest printing bug is not layout — it is eight
+  // pages of navigation printed because nothing said not to.
+  "invoice-header", "invoice-lines", "invoice-totals", "receipt", "letterhead",
+  "signature-block", "terms-block", "document-meta", "page-break",
+  "print-only", "screen-only", "watermark",
+  // Forms, the cases the first four hundred did not cover.
+  "multi-step-form", "form-progress", "repeatable-field", "conditional-field",
+  "signature-pad", "consent-checkbox", "date-of-birth", "time-input",
+  "range-input", "scale-input", "matrix-question", "honeypot", "save-draft",
+  // What the page does when something goes wrong.
+  "error-boundary", "not-found", "forbidden", "rate-limited",
+  "maintenance-page", "stale-data-note", "slow-note", "undo-toast",
+  "conflict-note", "partial-failure",
+  // Accessibility and page structure. `skip-link` + `landmark` are a PAIR —
+  // the link needs the main region's id and tabindex to do anything.
+  "skip-link", "live-region", "focus-trap", "heading-level", "lang-switch",
+  "text-size", "landmark", "seo-jsonld", "share-preview", "page-title",
+  // Location and delivery.
+  "store-locator", "distance-badge", "service-area", "travel-time",
+  "postcode-input", "pickup-point", "delivery-slot", "shipping-options",
+  "address-summary", "country-select",
+  // Getting existing data in.
+  "csv-import", "column-mapper", "import-preview", "paste-table",
+  "import-summary", "batch-progress", "row-errors", "dry-run-note",
+  "dedupe-list", "template-download",
+  // Time and availability. `open-now` answers the question a visitor has;
+  // `opening-hours` shows the week.
+  "open-now", "holiday-notice", "lead-time", "blackout-dates", "shift-badge",
+  "time-until", "slot-hold", "timezone-picker", "recurrence-summary",
+  "duration-bar", "date-badge",
+  // People and org. `presence-dot` is about a PERSON and `status-dot` about a
+  // system — they look alike and one component covering both ends up with a
+  // colleague who is "Failed".
+  "person-row", "presence-dot", "role-badge", "org-chart", "skill-tags",
+  "on-call", "handoff-note", "availability-legend", "capacity-bar",
+  "mention-picker", "directory-list", "approval-chain",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
