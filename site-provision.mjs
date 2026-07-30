@@ -27,6 +27,7 @@
  *   createProject(slug)         → {projectId, branchId, roleName, conn}
  *   dropProject(projectId)      → void             cleanup for a project we failed to record
  *   saveProject(slug, uid, proj)→ {ok}             write the site_project row
+ *   enableAuth(proj)            → void             turn Neon Auth on; idempotent
  *   createDatabase(proj, slug)  → dbName
  *   saveBackend(slug, uid, db)  → {ok}             write the site_backends row
  *   connFor(projectConn, dbName)→ conn
@@ -76,6 +77,27 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
       throw Object.assign(new Error("could not record the Neon project"), {
         detail: String((saved && saved.detail) || (saved && saved.error && saved.error.message) || "").slice(0, 300),
         stage: "save_project",
+      });
+    }
+  }
+
+  // Neon Auth, every time — not only when the project was just created.
+  //
+  // The whole backend is Neon (2026-07-30), so a site without auth enabled is a
+  // site whose member pages return nothing. A project can exist without it: the
+  // create succeeded and this call failed, or the project predates the change.
+  // Since a retried build REUSES the project, enabling only at creation would
+  // leave that site permanently broken while every retry reported success.
+  //
+  // Not best-effort. Identity is load-bearing now, and a build that quietly
+  // produced a site nobody can sign in to is worse than one that failed and said
+  // so — the caller can retry a failure, and cannot retry a success.
+  if (deps.enableAuth) {
+    try { await deps.enableAuth(proj); }
+    catch (e) {
+      throw Object.assign(new Error("could not enable Neon Auth for this site"), {
+        detail: String((e && (e.detail || e.message)) || "").slice(0, 300),
+        stage: "enable_auth",
       });
     }
   }

@@ -26,7 +26,7 @@ import {
 } from "./site-audit.mjs";
 import { TEAM_DDL, normalizeTeamName, normalizeTeamId, describeTeams } from "./site-teams.mjs";
 import { providerConfig, decodeIdToken } from "./site-oauth.mjs";
-import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
+import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
 import { handleSiteData } from "./site-data.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
@@ -3012,6 +3012,9 @@ async function ensureSiteBackend(env, slug, uid, brief) {
     lookupSite: (s2) => siteBackendRowFresh(env, s2),
     lookupProject: (s2) => siteNeonProject(env, s2),
     createProject: (s2) => createSiteProject(env, s2),
+    // Identity is Neon's now. Idempotent, and run on the reuse path too —
+    // see site-provision.mjs for why enabling only at creation is a trap.
+    enableAuth: (proj) => enableNeonAuth(env, proj.neon_project, proj.neon_branch),
     dropProject: async (id) => {
       console.error("dropping unrecorded neon project:", id);
       return dropUserProject(env, id);

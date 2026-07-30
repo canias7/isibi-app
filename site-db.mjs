@@ -193,7 +193,47 @@ export async function createSiteProject(env, slug) {
   };
 }
 
-// Add one site's database to an existing project.
+/**
+ * Turn Neon Auth on for a site's project.
+ *
+ * The whole backend is Neon as of 2026-07-30, and that includes identity: a
+ * site's members live in `neon_auth.users_sync` inside the site's own database
+ * rather than in a `_users` table this repo hand-rolled. `users_sync.id` is
+ * **TEXT**, which is why every `owner_id` in the schema engine had to stop being
+ * an integer.
+ *
+ * CALLED ON EVERY BUILD, not only at creation, and that is the point. A project
+ * can exist without auth enabled — the create succeeded and this call failed, or
+ * it predates the change — and a retried build reuses the project, so enabling
+ * only at creation would leave that site permanently without identity while
+ * every retry reported success. The same reasoning that made `"already exists"`
+ * the one recoverable database error.
+ *
+ * So an already-enabled project must be a NO-OP rather than a failure. Neon
+ * answers a conflict for that, and anything with "already" in it is treated as
+ * done; everything else throws, because a site whose auth is off is a site whose
+ * member pages return nothing.
+ */
+export async function enableNeonAuth(env, projectId, branchId) {
+  if (!projectId || !branchId) throw Object.assign(new Error("neon auth: need a project and a branch"), { bad: true });
+  try {
+    await neonApi(env, `/projects/${projectId}/branches/${branchId}/auth`, {
+      method: "POST",
+      body: JSON.stringify({ auth_provider: "better_auth" }),
+    });
+  } catch (e) {
+    const already = e && (e.status === 409 || /already/i.test(String(e.detail || e.message || "")));
+    if (!already) throw e;
+    return { enabled: true, already: true };
+  }
+  // Enabling auth is an async project operation like every other one — the
+  // schema is still being created when the call returns, and a schema apply
+  // racing it would not see `neon_auth`.
+  await waitForProject(env, projectId);
+  return { enabled: true, already: false };
+}
+
+// Add one site's database to an existing project.// Add one site's database to an existing project.
 export async function createSiteDatabase(env, projectId, branchId, roleName, slug) {
   const name = dbNameForSite(slug);
   await neonApi(env, `/projects/${projectId}/branches/${branchId}/databases`, {
