@@ -8,6 +8,17 @@
   /* PER-APP TOKENS. The generator adds this app's own fonts and semantic colours here,
      e.g. --font-display, --color-tier-premium. Everything below this block is the
      shared shadcn base and should not be edited. */
+
+  /* Typography. These are the DEFAULTS and the shape of the contract; the build
+     writes the site's actual choice into fonts.css, which loads after this and
+     redefines both on :root.
+
+     Until 2026-07-30 neither of these existed, so every generated site rendered
+     in whatever the visitor's machine happened to default to — Helvetica on a
+     Mac, Segoe on Windows. Declaring them here is what makes `font-sans` and
+     `font-heading` real Tailwind utilities as well. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: var(--font-sans);
 }
 
 /*
@@ -146,5 +157,14 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    font-family: var(--font-sans);
+  }
+
+  /* The heading font is applied HERE rather than left to the generator putting a
+     class on every heading of every page. A token nothing references is the
+     state this template was already in: --font-heading could be set perfectly
+     and change nothing on screen. */
+  h1, h2, h3, h4 {
+    font-family: var(--font-heading);
   }
 }

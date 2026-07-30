@@ -210,6 +210,7 @@ try {
   fs.mkdirSync(path.join(sandbox, ".routes-base"), { recursive: true });
   fs.copyFileSync(path.join(sandbox, "src/routes/__root.tsx"), path.join(sandbox, ".routes-base/__root.tsx"));
   fs.copyFileSync(path.join(sandbox, "index.html"), path.join(sandbox, ".index-base.html"));
+  fs.copyFileSync(path.join(sandbox, "src/styles.css"), path.join(sandbox, ".styles-base.css"));
   fs.rmSync(path.join(sandbox, "src/routes/index.tsx"), { force: true });
 
   server = spawn("node", [path.join(ROOT, "builder", "build-server.mjs")], {
@@ -299,6 +300,55 @@ try {
     importsExcluded.ok === false, JSON.stringify(importsExcluded).slice(0, 200));
   ok("and it is blamed on the excluded file, not the page",
     /chart-bar-label/.test(importsExcluded.error || ""), (importsExcluded.error || "").slice(0, 300));
+
+  // The typeface, which until 2026-07-30 no generated site had at all: the
+  // template declared neither --font-sans nor --font-heading, so every site
+  // rendered in whatever the visitor's machine defaulted to.
+  //
+  // Asserted on the BUNDLE rather than on the response, because the response
+  // saying "lora" and the CSS shipping Geist are indistinguishable from out here
+  // — and that gap is exactly where a token nothing references hides.
+  console.log("\nbuilding with a chosen typeface…");
+  const withFont = await post({
+    files: { "index.tsx": INDEX, "menu.tsx": MENU },
+    slug: "fold-coffee", fonts: { heading: "Playfair Display", body: "source sans 3" },
+  });
+  ok("a build with fonts succeeds", withFont.ok === true, JSON.stringify(withFont).slice(0, 200));
+  ok("the response says which fonts were used",
+    withFont.fonts && withFont.fonts.heading === "playfair-display" && withFont.fonts.body === "source-sans-3",
+    JSON.stringify(withFont.fonts));
+  {
+    const css = Object.entries(withFont.files || {})
+      .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
+    ok("the bundled CSS sets --font-heading to the chosen face",
+      /--font-heading:\s*"Playfair Display Variable"/.test(css), css.slice(0, 300));
+    ok("and --font-sans to the chosen body face",
+      /--font-sans:\s*"Source Sans 3 Variable"/.test(css), css.slice(0, 300));
+    ok("the font FILES are actually in the bundle, not just named",
+      Object.keys(withFont.files || {}).some((k) => /\.woff2?$/i.test(k)),
+      Object.keys(withFont.files || {}).slice(0, 12).join(", "));
+    // The whole reason fonts are written per build: importing all 24 statically
+    // would ship every one of them to every site.
+    const faces = Object.keys(withFont.files || {}).filter((k) => /\.woff2?$/i.test(k));
+    // Two typefaces, but more than two files: a fontsource package ships one per
+    // SUBSET (latin, latin-ext, cyrillic, vietnamese...) and the browser fetches
+    // only what it needs. The number that matters is that it is nowhere near the
+    // whole shortlist — importing all 24 statically would be hundreds.
+    ok(`only the chosen faces are bundled (${faces.length} files, not all 24)`,
+      faces.length > 0 && faces.length <= 40, faces.join(", "));
+  }
+
+  // A font nobody can supply must not fail the build — a site in the wrong
+  // typeface is a far smaller problem than a site that did not publish.
+  const badFont = await post({
+    files: { "index.tsx": INDEX, "menu.tsx": MENU },
+    slug: "fold-coffee", fonts: { heading: "Helvetica", body: "Helvetica" },
+  });
+  ok("an impossible font falls back instead of failing the build", badFont.ok === true,
+    JSON.stringify(badFont).slice(0, 200));
+  ok("and it says so rather than silently substituting",
+    !!(badFont.fonts && badFont.fonts.notes && badFont.fonts.notes.length),
+    JSON.stringify(badFont.fonts));
 
   console.log("\nrejecting what must never be written…");
   const root = await post({ files: { "__root.tsx": "export const x = 1;" } });

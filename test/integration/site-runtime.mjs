@@ -107,6 +107,7 @@ try {
   fs.mkdirSync(path.join(sandbox, ".routes-base"), { recursive: true });
   fs.copyFileSync(path.join(sandbox, "src/routes/__root.tsx"), path.join(sandbox, ".routes-base/__root.tsx"));
   fs.copyFileSync(path.join(sandbox, "index.html"), path.join(sandbox, ".index-base.html"));
+  fs.copyFileSync(path.join(sandbox, "src/styles.css"), path.join(sandbox, ".styles-base.css"));
   fs.rmSync(path.join(sandbox, "src/routes/index.tsx"), { force: true });
 
   buildSrv = spawn("node", [path.join(ROOT, "builder", "build-server.mjs")], {

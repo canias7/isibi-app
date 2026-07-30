@@ -20,11 +20,14 @@ import http from "node:http";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { resolvePair, fontCss, fontImports } from "./site-fonts.mjs";
 
 const APP = process.env.APP_DIR || "/app";
 const ROUTES = path.join(APP, "src", "routes");
 const ROUTES_BASE = path.join(APP, ".routes-base");
 const INDEX_BASE = path.join(APP, ".index-base.html");
+const STYLES_BASE = path.join(APP, ".styles-base.css");
+const STYLES = path.join(APP, "src", "styles.css");
 const DIST = path.join(APP, "dist");
 const GEN = path.join(APP, "src", "routeTree.gen.ts");
 const MAX_BODY = 4 * 1024 * 1024;
@@ -62,6 +65,80 @@ function writeIndexHtml(title) {
     html = html.replace(/<title>[\s\S]*?<\/title>/i, "<title>" + esc + "</title>");
   }
   fs.writeFileSync(path.join(APP, "index.html"), html);
+}
+
+// The site's typeface, written per build.
+//
+// It cannot be a static import in the template: the 24 shortlist packages would
+// then be bundled into EVERY site, so a barber shop would ship 21 MB of fonts it
+// never renders. So the two the site actually chose are written here, and Vite
+// bundles exactly those.
+//
+// Written by the build service rather than by the model, deliberately. Model
+// output is allow-listed to .tsx under src/routes (see `safeRoute`), and that
+// boundary is the reason a generated page cannot reach the rest of the app. The
+// model names two fonts; it never names a path.
+//
+// `fontFiles` carries any font that had to be FETCHED, already downloaded by the
+// Worker and passed as base64. The Worker does the fetching because it certainly
+// has network at request time, which is not something to assume of a container.
+function writeFonts(fonts, fontFiles) {
+  const pair = resolvePair(fonts || {});
+  const written = {};
+  const dir = path.join(APP, "public", "fonts");
+  fs.rmSync(dir, { recursive: true, force: true });
+  for (const [id, b64] of Object.entries(fontFiles || {})) {
+    if (!/^[a-z0-9-]{1,60}$/.test(id) || typeof b64 !== "string") continue;
+    let bytes; try { bytes = Buffer.from(b64, "base64"); } catch { continue; }
+    // woff2 or nothing. This is bytes from off the platform being written into a
+    // customer's site; the magic number is the one cheap check that it is a font.
+    if (bytes.length < 4 || bytes.length > 2_000_000 || bytes.subarray(0, 4).toString() !== "wOF2") continue;
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, id + ".woff2"), bytes);
+    written[id] = `/fonts/${id}.woff2`;
+  }
+
+  // The values go into styles.css's own @theme block, restored from a pristine
+  // copy each build the way index.html is.
+  //
+  // The obvious approach — a separate fonts.css imported after styles.css —
+  // silently produced NOTHING. Measured: the chosen family appeared nowhere in
+  // the dist. Tailwind's @theme emits its own `:root` that lands last, so the
+  // minifier proved the earlier declarations dead and removed them. The build
+  // reported the right fonts and shipped the defaults, which is the exact shape
+  // of failure this feature exists to end.
+  //
+  // Writing into @theme is not a workaround: that block is documented in the
+  // template as "the generator adds this app's own fonts here", and being the
+  // theme means there is no ordering to lose.
+  // Restored from the pristine copy, and FAILS SOFT if there isn't one. An older
+  // image, or a sandbox that did not make the copy, would otherwise throw here
+  // and take the whole build with it — trading every site for a typeface, which
+  // is backwards from every other decision in this file. Found by a probe that
+  // forgot the copy: the build returned ENOENT instead of a site.
+  let base = null;
+  try { base = fs.readFileSync(STYLES_BASE, "utf8"); }
+  catch { try { base = fs.readFileSync(STYLES, "utf8"); } catch { base = null; } }
+  const decls = fontCss(pair, written);
+  // Appended at the END of the block, not the start. Within one @theme the later
+  // declaration wins, and the template declares its own --font-sans default
+  // further down — so inserting at the top wrote the site's choice and then had
+  // it overridden three lines later. The build reported the right fonts and the
+  // bundle carried the defaults: measured, and invisible from the response.
+  const applied = base != null && /@theme\s*\{[^}]*\}/.test(base);
+  if (applied) {
+    const themed = base.replace(/(@theme\s*\{[^}]*?)(\n?\})/, (_m, body, close) => body + "\n" + decls.vars + "\n" + close);
+    fs.writeFileSync(STYLES, (decls.faces ? decls.faces + "\n" : "") + themed);
+  }
+
+  const imports = fontImports(pair).map((p) => `import "${p}";`).join("\n");
+  fs.writeFileSync(
+    path.join(APP, "src", "fonts.ts"),
+    `// Generated per build by build-server.mjs. Do not edit.\n${imports}\n`,
+  );
+  const notes = pair.notes.slice();
+  if (!applied) notes.push("The stylesheet could not be read, so the site kept the default typeface.");
+  return { heading: pair.heading.id, body: pair.body.id, applied, fetched: Object.keys(written), notes };
 }
 
 function run(cmd, args, env) {
@@ -135,6 +212,7 @@ const server = http.createServer((req, res) => {
     try {
       resetRoutes();
       writeIndexHtml(payload.title);
+      const fontsUsed = writeFonts(payload.fonts, payload.fontFiles);
       let wrote = 0;
       for (const [rel, content] of Object.entries(files)) {
         const safe = safeRoute(rel);
@@ -171,7 +249,7 @@ const server = http.createServer((req, res) => {
 
       const dist = collectDist();
       if (!dist["index.html"]) return send(res, 200, { ok: false, stage: "build", error: "build produced no index.html", ms: Date.now() - t0 });
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0 });
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0 , fonts: fontsUsed });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0 });
     }
