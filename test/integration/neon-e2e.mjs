@@ -165,7 +165,7 @@ try {
   const authConn = connForDatabase(project.conn, dbName);
   let enabled = null;
   try {
-    enabled = await enableNeonAuth(env, project.projectId, project.branchId);
+    enabled = await enableNeonAuth(env, project.projectId, project.branchId, dbName);
     ok("Neon Auth can be enabled through the API", !!(enabled && enabled.enabled), JSON.stringify(enabled));
   } catch (e) {
     ok("Neon Auth can be enabled through the API", false, String((e && (e.detail || e.message)) || e));
@@ -176,7 +176,7 @@ try {
     // second call on an already-enabled project must be a no-op and not a
     // failure, or every retried build of an existing site breaks on it.
     try {
-      const again = await enableNeonAuth(env, project.projectId, project.branchId);
+      const again = await enableNeonAuth(env, project.projectId, project.branchId, dbName);
       ok("enabling it twice is a no-op, not a failure", !!(again && again.enabled), JSON.stringify(again));
     } catch (e) {
       ok("enabling it twice is a no-op, not a failure", false, String((e && (e.detail || e.message)) || e));

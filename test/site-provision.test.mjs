@@ -34,7 +34,12 @@ function harness(over = {}) {
     createProject: (u) => { calls.createProject++; return pick("createProject")(u); },
     dropProject: (id) => { calls.dropProject.push(id); return pick("dropProject")(id); },
     saveProject: (s2, u, p) => { calls.saveProject.push({ s: s2, u, p }); return pick("saveProject")(s2, u, p); },
-    enableAuth: (p) => { calls.enableAuth.push(p && p.neon_project); return pick("enableAuth")(p); },
+    // BOTH arguments forwarded. This wrapper took only `(p)` when enableAuth
+    // took one argument, and kept dropping the second after it grew a database
+    // name — so the override saw `undefined` and the test could not tell
+    // which database auth was being installed into, which is the entire
+    // thing it exists to check.
+    enableAuth: (p, db) => { calls.enableAuth.push({ project: p && p.neon_project, db }); return pick("enableAuth")(p, db); },
     createDatabase: (p, s) => { calls.createDatabase.push(s); return pick("createDatabase")(p, s); },
     saveBackend: (s, u, db) => { calls.saveBackend.push({ s, u, db }); return pick("saveBackend")(s, u, db); },
     connFor: (conn, db) => conn.replace(/\/[^/]*$/, "/" + db),
@@ -332,7 +337,7 @@ test("auth is enabled on a REUSED project, not only a new one", async () => {
   const { deps, calls } = harness();               // lookupProject returns an existing PROJ
   await run(deps);
   assert.equal(calls.createProject, 0, "this is the reuse path");
-  assert.deepEqual(calls.enableAuth, ["p1"], "auth must be ensured on reuse too");
+  assert.deepEqual(calls.enableAuth, [{ project: "p1", db: "site_cafe" }], "auth must be ensured on reuse too");
 });
 
 test("auth is enabled on a freshly created project", async () => {
@@ -355,22 +360,40 @@ test("a build whose auth could not be enabled FAILS, and says which stage", asyn
   });
 });
 
-test("enabling auth happens BEFORE the schema is applied", async () => {
-  // Ordering, not decoration: `neon_auth` is still being created when the enable
-  // call returns, and a schema apply racing it would not see the schema it is
-  // supposed to reference. The wait lives in enableNeonAuth; this asserts the
-  // call comes first at all.
+test("auth is enabled after the database exists, and before this returns", async () => {
+  // The order changed on 2026-07-30 and both halves matter.
+  //
+  // AFTER the database: the enable call has to NAME which database to install
+  // into, because a site's project holds two — Neon's default and the one this
+  // repo creates — and Neon refuses to guess. Measured against a real project.
+  //
+  // BEFORE returning: the caller applies the schema with the connection this
+  // hands back, and a table cannot reference `neon_auth` before it exists.
   const order = [];
-  // Overrides go at the top level here — this harness has no nested `deps` key,
-  // and passing one silently does nothing, which is how the first version of
-  // this test ran green against the default fake.
   const { deps } = harness({
     lookupProject: async () => null,
-    enableAuth: async () => { order.push("auth"); },
     createDatabase: async () => { order.push("db"); return "site_cafe"; },
+    enableAuth: async (_p, dbName) => { order.push("auth:" + dbName); },
+    saveBackend: async () => { order.push("record"); return { ok: true }; },
   });
   await run(deps);
-  assert.deepEqual(order, ["auth", "db"], "auth must be on before anything touches the database");
+  assert.deepEqual(order, ["db", "auth:site_cafe", "record"],
+    "auth must be enabled against the site's OWN database, after it exists and before this returns");
+});
+
+test("the database name is passed to the enable call, not left to Neon to guess", async () => {
+  // Omitting it does not default — it errors when the branch has more than one
+  // database, which a site's project always does. And if Neon ever did guess, it
+  // could guess the unused default, which nothing would notice until a member
+  // tried to sign in.
+  let named = "__never__";
+  const { deps } = harness({ enableAuth: async (_p, dbName) => { named = dbName; } });
+  await run(deps);
+  assert.equal(named, "site_cafe");
+  const src = fs.readFileSync(new URL("../site-db.mjs", import.meta.url), "utf8");
+  const fn = src.match(/export async function enableNeonAuth[\s\S]*?\n\}/);
+  assert.match(fn[0], /database_name: dbName/, "the request body must name the database");
+  assert.match(fn[0], /if \(!dbName\) throw/, "…and a missing name must be refused here, not by Neon");
 });
 
 test("enableNeonAuth treats an already-enabled project as done", async () => {

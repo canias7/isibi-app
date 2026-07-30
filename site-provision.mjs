@@ -27,7 +27,7 @@
  *   createProject(slug)         → {projectId, branchId, roleName, conn}
  *   dropProject(projectId)      → void             cleanup for a project we failed to record
  *   saveProject(slug, uid, proj)→ {ok}             write the site_project row
- *   enableAuth(proj)            → void             turn Neon Auth on; idempotent
+ *   enableAuth(proj, dbName)    → void             turn Neon Auth on; idempotent
  *   createDatabase(proj, slug)  → dbName
  *   saveBackend(slug, uid, db)  → {ok}             write the site_backends row
  *   connFor(projectConn, dbName)→ conn
@@ -81,7 +81,22 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
     }
   }
 
+  // A retried build can hit an already-created database; that is success, not
+  // failure — the schema apply below is additive and idempotent.
+  let dbName;
+  try {
+    dbName = await deps.createDatabase(proj, slug);
+  } catch (e) {
+    if (!/already exists/i.test(String((e && e.detail) || (e && e.message) || ""))) throw e;
+    dbName = deps.dbNameFor(slug);
+  }
+
   // Neon Auth, every time — not only when the project was just created.
+  //
+  // AFTER the database, because the enable call has to NAME it: a site's
+  // project holds two databases and Neon refuses to guess between them. Still
+  // before the caller applies any schema, which is the ordering that matters —
+  // `neon_auth` has to exist before a table can reference it.
   //
   // The whole backend is Neon (2026-07-30), so a site without auth enabled is a
   // site whose member pages return nothing. A project can exist without it: the
@@ -93,23 +108,13 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
   // produced a site nobody can sign in to is worse than one that failed and said
   // so — the caller can retry a failure, and cannot retry a success.
   if (deps.enableAuth) {
-    try { await deps.enableAuth(proj); }
+    try { await deps.enableAuth(proj, dbName); }
     catch (e) {
       throw Object.assign(new Error("could not enable Neon Auth for this site"), {
         detail: String((e && (e.detail || e.message)) || "").slice(0, 300),
         stage: "enable_auth",
       });
     }
-  }
-
-  // A retried build can hit an already-created database; that is success, not
-  // failure — the schema apply below is additive and idempotent.
-  let dbName;
-  try {
-    dbName = await deps.createDatabase(proj, slug);
-  } catch (e) {
-    if (!/already exists/i.test(String((e && e.detail) || (e && e.message) || ""))) throw e;
-    dbName = deps.dbNameFor(slug);
   }
 
   // The database exists now, but nothing points at it until this row lands: the

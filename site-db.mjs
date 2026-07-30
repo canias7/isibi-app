@@ -214,12 +214,21 @@ export async function createSiteProject(env, slug) {
  * done; everything else throws, because a site whose auth is off is a site whose
  * member pages return nothing.
  */
-export async function enableNeonAuth(env, projectId, branchId) {
+export async function enableNeonAuth(env, projectId, branchId, dbName) {
   if (!projectId || !branchId) throw Object.assign(new Error("neon auth: need a project and a branch"), { bad: true });
+  // `database_name` is REQUIRED in practice even though the API calls it
+  // optional: it defaults to the branch's database only when there is exactly
+  // one, and a site's project has two — Neon's default `neondb` plus the
+  // `site_<slug>` this repo creates. Measured against a real project
+  // 2026-07-30: omitting it answers `expecting exactly one database when
+  // database name is not set; got:"2"`. Naming it explicitly is also the
+  // difference between auth landing in the site's database and landing in an
+  // unused one, which nothing would have noticed until a member tried to sign in.
+  if (!dbName) throw Object.assign(new Error("neon auth: need the database name"), { bad: true });
   try {
     await neonApi(env, `/projects/${projectId}/branches/${branchId}/auth`, {
       method: "POST",
-      body: JSON.stringify({ auth_provider: "better_auth" }),
+      body: JSON.stringify({ auth_provider: "better_auth", database_name: dbName }),
     });
   } catch (e) {
     const already = e && (e.status === 409 || /already/i.test(String(e.detail || e.message || "")));

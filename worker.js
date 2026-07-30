@@ -3014,7 +3014,7 @@ async function ensureSiteBackend(env, slug, uid, brief) {
     createProject: (s2) => createSiteProject(env, s2),
     // Identity is Neon's now. Idempotent, and run on the reuse path too —
     // see site-provision.mjs for why enabling only at creation is a trap.
-    enableAuth: (proj) => enableNeonAuth(env, proj.neon_project, proj.neon_branch),
+    enableAuth: (proj, dbName) => enableNeonAuth(env, proj.neon_project, proj.neon_branch, dbName),
     dropProject: async (id) => {
       console.error("dropping unrecorded neon project:", id);
       return dropUserProject(env, id);
