@@ -189,48 +189,69 @@ try {
     const schemas = await sqlQuery(authConn, "SELECT schema_name FROM information_schema.schemata WHERE schema_name = 'neon_auth'");
     ok("the neon_auth schema is there once the call returns", schemas.length === 1, JSON.stringify(schemas));
 
-    // `users_sync` is NOT there when the enable call returns, even though the
-    // schema is (measured 2026-07-30: schema yes, table no, 50ms later). So the
-    // question is whether it is merely late or whether it does not exist until
-    // Better Auth first syncs a user — which decides whether a build can
-    // reference it at all. Poll rather than guess.
-    const colsFor = () => sqlQuery(authConn,
-      "SELECT column_name, data_type, is_nullable FROM information_schema.columns" +
-      " WHERE table_schema='neon_auth' AND table_name='users_sync' ORDER BY ordinal_position");
-    let cols = await colsFor();
+    // ENUMERATE the schema rather than looking for one name. `users_sync` is the
+    // name from Neon Auth's Stack Auth era; managed Better Auth may create its
+    // own tables (`user`, `session`, `account`, …) instead — and a probe that
+    // asks for a single hardcoded name cannot tell "auth was not provisioned"
+    // from "provisioned under a different name". Measured 2026-07-30: the
+    // neon_auth SCHEMA appears at once and `users_sync` was still absent after
+    // 90s of polling, so the name was the thing in doubt, not the wait.
+    const tablesIn = () => sqlQuery(authConn,
+      "SELECT table_name FROM information_schema.tables WHERE table_schema='neon_auth' ORDER BY table_name");
+    let authTables = await tablesIn();
     const waitedFrom = Date.now();
-    for (let i = 0; cols.length === 0 && i < 30; i++) {
+    for (let i = 0; authTables.length === 0 && i < 10; i++) {
       await new Promise((r) => setTimeout(r, 3000));
-      cols = await colsFor();
+      authTables = await tablesIn();
     }
-    const waitedMs = Date.now() - waitedFrom;
-    ok("users_sync exists (polled)", cols.length > 0,
-      "still absent after " + Math.round(waitedMs / 1000) + "s — the table is created by Better Auth, not by enabling auth");
-    if (cols.length) console.log("   users_sync appeared after " + Math.round(waitedMs / 1000) + "s:",
-      cols.map((c) => c.column_name + ":" + c.data_type).join(", "));
+    const waitedMs = Math.round((Date.now() - waitedFrom) / 1000);
+    const names = authTables.map((t) => t.table_name);
+    console.log("   neon_auth tables after " + waitedMs + "s:", names.length ? names.join(", ") : "(none)");
+    ok("enabling auth creates tables in neon_auth", names.length > 0,
+      "the schema exists but is EMPTY after " + waitedMs + "s — identity tables are created by Better Auth at first use, " +
+      "so a build cannot reference them");
+
+    // Every column of every one of them, because the next decision (what
+    // `owner_id` becomes) is made from these types and nothing else.
+    const allCols = names.length ? await sqlQuery(authConn,
+      "SELECT table_name, column_name, data_type FROM information_schema.columns" +
+      " WHERE table_schema='neon_auth' ORDER BY table_name, ordinal_position") : [];
+    for (const t of names) {
+      console.log("     " + t + ": " + allCols.filter((c) => c.table_name === t)
+        .map((c) => c.column_name + ":" + c.data_type).join(", "));
+    }
+
+    // Whichever of them holds people. Named by what it IS rather than by one
+    // guessed name, so this keeps answering if Neon renames the table again.
+    const userTable = names.find((n) => /^users_sync$/.test(n)) || names.find((n) => /^users?$/.test(n)) ||
+      names.find((n) => /user/.test(n));
+    const cols = userTable ? allCols.filter((c) => c.table_name === userTable) : [];
+    if (userTable) console.log("   treating neon_auth." + userTable + " as the identity table");
 
     // Both of the next two are only ANSWERABLE if the table is there. Reporting
     // them as failures when it is absent would turn one finding into three and
     // hide which thing actually broke.
     if (!cols.length) {
-      console.log("   skipped: id type + foreign key are unknowable while users_sync is absent");
+      console.log("   skipped: id type + foreign key are unknowable with no identity table");
     } else {
-      // THE fact the migration rests on.
+      // THE fact the migration rests on: owner_id stops being an integer because
+      // this column is text. If it is not, the migration is wrong.
       const idCol = cols.find((c) => c.column_name === "id");
-      ok("users_sync.id is TEXT, so owner_id must be text and not integer",
+      ok(userTable + ".id is TEXT, so owner_id must be text and not integer",
         !!idCol && /character|text/i.test(String(idCol.data_type)),
         JSON.stringify(idCol));
 
-      // Can an application table actually reference it? If a foreign key to
-      // users_sync is refused, row ownership has to be an unenforced text column
-      // rather than a real reference, and that is worth knowing before the schema
-      // engine is rewritten around it.
+      // Can an application table actually reference it? If a foreign key is
+      // refused, row ownership has to be an unenforced text column rather than a
+      // real reference, and that is worth knowing before the schema engine is
+      // rewritten around it.
+      const ref = 'neon_auth."' + userTable + '"(id)';
       try {
-        await sqlExec(authConn, "CREATE TABLE fk_probe (id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, owner_id TEXT REFERENCES neon_auth.users_sync(id))");
-        ok("an app table can FOREIGN KEY to neon_auth.users_sync(id)", true);
+        await sqlExec(authConn, "CREATE TABLE fk_probe (id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, owner_id TEXT REFERENCES " + ref + ")");
+        ok("an app table can FOREIGN KEY to " + ref, true);
         await sqlExec(authConn, "DROP TABLE fk_probe");
       } catch (e) {
-        ok("an app table can FOREIGN KEY to neon_auth.users_sync(id)", false, String((e && (e.detail || e.message)) || e).slice(0, 200));
+        ok("an app table can FOREIGN KEY to " + ref, false, String((e && (e.detail || e.message)) || e).slice(0, 200));
       }
     }
 
