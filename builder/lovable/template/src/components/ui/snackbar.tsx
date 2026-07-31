@@ -45,7 +45,7 @@ export function Snackbar({ message, action, onDismiss, duration = 5000, classNam
       onFocus={() => setPaused(true)}
       onBlur={() => setPaused(false)}
       style={{ bottom: "max(1rem, env(safe-area-inset-bottom))" }}
-      className={cn("fixed left-1/2 z-50 flex w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 items-center gap-3 rounded-lg bg-foreground px-4 py-2.5 text-background shadow-lg", className)}
+      className={cn("motion-fade fixed left-1/2 z-50 flex w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 items-center gap-3 rounded-lg bg-foreground px-4 py-2.5 text-background shadow-lg", className)}
     >
       <p className="min-w-0 flex-1 text-sm">{message}</p>
       {action ? (

@@ -131,14 +131,21 @@ test("an entrance is on a root that actually appears, not on a sub-element", () 
   //
   // So each one is checked to sit on a root guarded by an early `return null`,
   // which is what makes it a component that genuinely arrives and departs.
-  const wearing = files.filter((f) => read(f).includes("motion-enter"));
+  // TWO SHAPES COUNT AS ARRIVING, and the first version of this test only knew
+  // one. An early `return null` is the obvious case. The other is an element
+  // rendered from a `.map()` over state — a toast in a stack mounts when it is
+  // pushed and unmounts when it is dismissed, which is the most canonical
+  // arrival in the kit, and the test flagged it as a mistake. Asserting a proxy
+  // for the property you care about is fine right up until the proxy is wrong.
+  const wearing = files.filter((f) => /motion-(enter|fade)/.test(read(f)));
   assert.ok(wearing.length > 0, "nothing has an entrance");
   for (const f of wearing) {
     const src = read(f);
-    assert.match(src, /if \([^)]*\)\s*return null;/,
-      `${f} has motion-enter but nothing that unmounts it — the class is on a sub-element`);
-    const at = src.indexOf("motion-enter");
+    const at = src.search(/motion-(enter|fade)/);
     const guard = src.search(/if \([^)]*\)\s*return null;/);
-    assert.ok(guard < at, `${f}: motion-enter appears before the unmount guard`);
+    const mapped = /\.map\(\([^)]*\)\s*=>\s*</.test(src);
+    assert.ok((guard >= 0 && guard < at) || mapped,
+      `${f}: the entrance is on an element that never mounts or unmounts — ` +
+      `no early return null before it, and nothing rendered from a list`);
   }
 });

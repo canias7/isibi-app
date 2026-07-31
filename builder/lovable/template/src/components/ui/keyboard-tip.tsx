@@ -30,7 +30,7 @@ export function KeyboardTip({ tipKey = "keyboard-tip", keys = ["?"], children, c
   }, []);
   if (seen || touchOnly) return null;
   return (
-    <p className={cn("flex items-center gap-1.5 text-xs text-muted-foreground", className)}>
+    <p className={cn("motion-enter flex items-center gap-1.5 text-xs text-muted-foreground", className)}>
       <span>Tip:</span>
       <span className="inline-flex items-center gap-1">
         press <ShortcutKeys keys={keys} />

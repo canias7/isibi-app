@@ -322,6 +322,14 @@
     .motion-enter { opacity: 0; translate: 0 -0.25rem; }
   }
 
+  /* FADE ONLY, for anything already using `translate` to position itself.
+     motion-enter animates the translate property, so on an element centred with
+     `-translate-x-1/2` the starting style overwrites the centering and the thing
+     slides in from the wrong place before snapping across. Two components in the
+     kit position that way. */
+  .motion-fade { transition: opacity var(--dur-2) var(--ease-emphasis); }
+  @starting-style { .motion-fade { opacity: 0; } }
+
   /* For something that must animate OUT as well, so it needs to stay in the
      tree and be driven by an attribute rather than unmounted. */
   .motion-inout {

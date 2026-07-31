@@ -74,7 +74,7 @@ export function CoachMark({
         role="dialog"
         aria-label={typeof title === "string" ? title : `Step ${step} of ${total}`}
         style={{ top: box.bottom + 14, left: Math.max(12, Math.min(box.left, window.innerWidth - 312)) }}
-        className={cn("fixed z-50 flex w-72 flex-col gap-2 rounded-lg border border-border bg-background p-3 shadow-xl", className)}
+        className={cn("motion-enter fixed z-50 flex w-72 flex-col gap-2 rounded-lg border border-border bg-background p-3 shadow-xl", className)}
       >
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
