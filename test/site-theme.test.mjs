@@ -14,6 +14,7 @@ import {
   distance, hueGap, separateFromAccent, MIN_STATE_SEPARATION, SAME_LANE_DEGREES,
   CORNERS, cornerCss, fitState, temperState, STATE_CHROMA_RATIO, MIN_STATE_CHROMA,
   TYPE_SCALES, typeCss, DENSITIES, densityCss, BORDERS, borderCss, SHADOWS, shadowCss,
+  ICON_STROKES, iconCss, TRACKINGS, trackingCss, LEADINGS, leadingCss, WEIGHTS, weightCss,
 } from "../builder/site-theme.mjs";
 import { SHORTLIST } from "../builder/site-fonts.mjs";
 
@@ -35,6 +36,7 @@ const FIXTURE = {
   label: "Fixture — the engine's test subject, not a shipped theme",
   radius: "0.25rem", corner: "round",
   scale: "standard", density: "standard", border: "hairline", shadow: "crisp",
+  tracking: "neutral", leading: "standard", weight: "standard", icon: "regular",
   fonts: { heading: "geist", body: "geist" },
   light: { paper: [0.93, 0.008, 90], ink: [0.2, 0.014, 60], accent: [0.45, 0.13, 30] },
   dark: { paper: [0.18, 0.012, 60], ink: [0.95, 0.006, 90], accent: [0.45, 0.12, 30] },
@@ -422,6 +424,95 @@ test("a shadow is darker than the surface it falls on, in BOTH modes", () => {
   assert.ok(!shadowCss("crisp").includes(".dark"), "a themeless call invented a dark-mode shadow");
 });
 
+test("the icon rule is scoped to lucide, never to every svg", () => {
+  // A bare `svg` selector would re-weight every axis, gridline and series across
+  // the 882 chart primitives — silently, because a chart with slightly thicker
+  // lines looks like a chart. Every lucide icon carries `.lucide`; nothing in
+  // the chart lib does.
+  for (const stroke of Object.keys(ICON_STROKES)) {
+    const css = iconCss(stroke);
+    assert.match(css, /^\.lucide \{/, `${stroke} is not scoped to .lucide`);
+    assert.ok(!/(^|[\s,{])svg([\s,{]|$)/.test(css), `${stroke} selects raw svg elements`);
+    assert.match(css, /stroke-width: [\d.]+;/, `${stroke} sets no stroke width`);
+  }
+  // The three must actually differ, and span a range wide enough to see.
+  const w = (k) => Number(ICON_STROKES[k].width);
+  assert.ok(w("fine") < w("regular") && w("regular") < w("heavy"), "the strokes are out of order");
+  assert.ok(w("heavy") / w("fine") >= 1.75, "the range is too narrow to read as a decision");
+  // It is a CSS property, not the prop lucide takes: a rule beats the presentation
+  // attribute, which is the only reason this works without touching 297 call sites.
+  assert.ok(!/strokeWidth/.test(iconCss("fine")), "this must be CSS, not a React prop");
+});
+
+test("tracking moves display and caps in OPPOSITE directions", () => {
+  // The whole point of a per-role ramp. A headline set tight ABOVE letterspaced
+  // small caps is the move; a ramp that slid everything one way would just be a
+  // global letter-spacing with extra steps.
+  for (const name of Object.keys(TRACKINGS)) {
+    const css = trackingCss(name);
+    const at = (step) => Number(css.match(new RegExp(`--tracking-${step}: (-?[\\d.]+)em`))[1]);
+    for (const s of ["tighter", "tight", "normal", "wide", "wider", "widest"]) {
+      assert.ok(Number.isFinite(at(s)), `${name} is missing --tracking-${s}`);
+    }
+    // Monotonic, or the names stop meaning anything.
+    const ramp = ["tighter", "tight", "normal", "wide", "wider", "widest"].map(at);
+    assert.deepEqual(ramp, [...ramp].sort((a, b) => a - b), `${name} ramp is out of order`);
+    assert.ok(at("tighter") < 0 && at("widest") > 0, `${name} does not straddle zero`);
+  }
+  // `editorial` must be MORE extreme at both ends than neutral, or it is a name
+  // with nothing behind it.
+  const e = trackingCss("editorial"), n = trackingCss("neutral");
+  const pull = (css, step) => Number(css.match(new RegExp(`--tracking-${step}: (-?[\\d.]+)em`))[1]);
+  assert.ok(pull(e, "tight") < pull(n, "tight"), "editorial display is not tighter");
+  assert.ok(pull(e, "widest") > pull(n, "widest"), "editorial caps are not wider");
+});
+
+test("leading is BODY leading, and does not restate the size scale", () => {
+  // `typeCss` writes `--text-4xl--line-height`, the default that comes WITH a
+  // size. These are `--leading-*`, what an explicit `leading-relaxed` applies and
+  // what wins over that default. They look like duplicates and are not, so the
+  // two are asserted to stay in their own namespaces.
+  for (const name of Object.keys(LEADINGS)) {
+    const css = leadingCss(name);
+    assert.ok(!css.includes("--text-"), `${name} is writing size-scale tokens`);
+    const ramp = ["tight", "snug", "normal", "relaxed"]
+      .map((s) => Number(css.match(new RegExp(`--leading-${s}: ([\\d.]+)`))[1]));
+    assert.equal(ramp.length, 4);
+    assert.deepEqual(ramp, [...ramp].sort((a, b) => a - b), `${name} ramp is out of order`);
+    assert.ok(ramp[0] >= 1, `${name} sets a line height under 1, which clips ascenders`);
+    assert.ok(ramp.at(-1) <= 2, `${name} sets a line height over 2, which reads as double-spaced`);
+  }
+  // And `typeCss` must not write these either — the other half of the same claim.
+  assert.ok(!typeCss("standard").includes("--leading-"), "typeCss is writing body leading");
+  // 1.25 against 1.8 at the same size is the range that matters.
+  const at = (n, s) => Number(leadingCss(n).match(new RegExp(`--leading-${s}: ([\\d.]+)`))[1]);
+  assert.ok(at("open", "relaxed") - at("tight", "tight") >= 0.5, "the presets barely differ");
+});
+
+test("a weight ramp is a distance between body and emphasis", () => {
+  const steps = ["light", "normal", "medium", "semibold", "bold", "extrabold", "black"];
+  for (const name of Object.keys(WEIGHTS)) {
+    const css = weightCss(name);
+    const ramp = steps.map((s) => Number(css.match(new RegExp(`--font-weight-${s}: (\\d+)`))[1]));
+    assert.deepEqual(ramp, [...ramp].sort((a, b) => a - b), `${name} ramp is out of order`);
+    for (const v of ramp) {
+      // CSS caps font-weight at 1-1000, and every face here is variable, but a
+      // value outside its own range is clamped by the browser rather than
+      // refused — which reads as the ramp simply not working.
+      assert.ok(v >= 100 && v <= 900, `${name} has a weight of ${v}`);
+    }
+  }
+  // The DISTANCE is the theme, not the absolute numbers: body against emphasis.
+  const gap = (n) => {
+    const css = weightCss(n);
+    const g = (s) => Number(css.match(new RegExp(`--font-weight-${s}: (\\d+)`))[1]);
+    return g("bold") - g("normal");
+  };
+  assert.ok(gap("contrast") > gap("standard"), "contrast is not more dramatic than standard");
+  assert.ok(gap("uniform") < gap("standard"), "uniform is not flatter than standard");
+  assert.ok(gap("uniform") <= 200, `uniform spans ${gap("uniform")}, which is not uniform`);
+});
+
 test("a border weight is a whole pixel, or it is the weight below it", () => {
   // MEASURED, not assumed: Chrome floors the USED border-width to a whole CSS
   // pixel at EVERY device pixel ratio, so 1px, 1.25px, 1.5px and 1.75px all
@@ -488,7 +579,8 @@ test("density is one token, and the range stays inside what a layout survives", 
 test("every theme declares every axis, with a value the axis offers", () => {
   // A theme missing an axis silently gets the fallback, which reads in a diff as
   // a deliberate choice of the ordinary value and is not one.
-  const AXES = [["scale", TYPE_SCALES], ["density", DENSITIES], ["border", BORDERS], ["shadow", SHADOWS], ["corner", CORNERS]];
+  const AXES = [["scale", TYPE_SCALES], ["density", DENSITIES], ["border", BORDERS], ["shadow", SHADOWS],
+    ["corner", CORNERS], ["tracking", TRACKINGS], ["leading", LEADINGS], ["weight", WEIGHTS], ["icon", ICON_STROKES]];
   for (const name of NAMES_UNDER_TEST) {
     const t = THEMES_UNDER_TEST[name];
     for (const [key, table] of AXES) {

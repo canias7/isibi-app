@@ -5,7 +5,7 @@
 // blue cast. A barber shop and a wine bar come out identical. Typography already
 // varies per site (site-fonts.mjs); this is the other half.
 //
-// A THEME IS SEVEN DECISIONS, NOT THIRTY-SEVEN. The template declares 37 tokens
+// A THEME IS ELEVEN DECISIONS, NOT THIRTY-SEVEN. The template declares 37 tokens
 // in `:root` and 36 of them are colours, but they are not 36 free choices — they
 // are role PAIRS, every surface carrying a `-foreground` that has to be legible
 // on it. So the palette here is a ground, an ink and an accent, and the other 32
@@ -17,17 +17,19 @@
 //   2. There is very little to get wrong. A palette written out by hand has 36
 //      chances to produce unreadable text; this has four inputs and a function.
 //
-// THE OTHER SIX ARE NOT COLOURS, and a theme that only moved the palette was the
+// THE OTHER TEN ARE NOT COLOURS, and a theme that only moved the palette was the
 // gap this file had until they landed: radius · corner shape · type scale ·
-// density · border weight · shadow. Plus a recommended FONT PAIR, which is the
-// one axis that already existed — `site-fonts.mjs` is wired into `worker.js` and
-// `build-server.mjs` — but was chosen independently of the theme, so a bone-paper
-// private-bank palette could arrive set in a rounded, friendly geometric.
+// tracking · leading · font weight · density · border weight · icon stroke ·
+// shadow. Plus a recommended FONT PAIR, the one axis that already existed —
+// `site-fonts.mjs` is wired into `worker.js` and `build-server.mjs` — but was
+// chosen independently of the theme, so a bone-paper private-bank palette could
+// arrive set in a rounded, friendly geometric.
 //
 // Which of them are reachable at all was MEASURED against a compiled bundle, not
-// assumed; see the note above `TYPE_SCALES`. Three are plain tokens, two need a
-// class override because Tailwind inlines their value at build time, and every
-// value in the tables below was read back out of a browser before it shipped.
+// assumed; see the note above `TYPE_SCALES`. Six are plain tokens the bundle
+// reads at runtime, three need a class override because Tailwind inlines their
+// value at build time, and every value in the tables below was read back out of
+// a browser before it shipped.
 //
 // WHAT IS DELIBERATELY NOT THEMED. `destructive` / `success` / `warning` keep
 // their conventional hues: red-means-bad is a convention you inherit, not one
@@ -293,6 +295,105 @@ const SEMANTIC = {
  *     on `:root` styles the root and nothing else — the same trap `corner-shape`
  *     sets. So the tint is baked into the class overrides rather than inherited.
  */
+
+/**
+ * How heavy a lucide icon's line is.
+ *
+ * THE HIGHEST VISIBILITY PER LINE OF CSS IN THE WHOLE FILE. The kit imports
+ * lucide in 297 places, so one rule reaches every icon on every page — and a
+ * 1.25 icon beside a 2.5 icon is the difference between a jeweller and a
+ * hardware shop, on identical markup.
+ *
+ * Lucide renders `stroke-width` as a PRESENTATION ATTRIBUTE, which a CSS rule
+ * outranks — measured, because if it did not the only alternative was passing a
+ * prop at all 297 call sites. So the theme wins without the components knowing.
+ *
+ * SCOPED TO `.lucide`, NOT TO `svg`. Every lucide icon carries that class, and
+ * the 882 chart primitives draw their lines with `stroke-width` too — a bare
+ * `svg` selector would quietly re-weight every axis, gridline and series on
+ * every chart in the kit.
+ */
+export const ICON_STROKES = {
+  fine: { width: "1.25", label: "drawn thin — jeweller, gallery, tailoring" },
+  regular: { width: "2", label: "lucide's own weight" },
+  heavy: { width: "2.5", label: "bold — trades, workshops, anything hard-wearing" },
+};
+
+export function iconCss(stroke) {
+  const w = (ICON_STROKES[stroke] ?? ICON_STROKES.regular).width;
+  return `.lucide { stroke-width: ${w}; }\n`;
+}
+
+/**
+ * Letter spacing, per ROLE rather than globally.
+ *
+ * It is already per-role without any work here, because the kit uses different
+ * utilities for different jobs — `tracking-tight` on headings (113 uses) and
+ * `tracking-wide`/`wider` on caps and labels. So retuning the ramp moves display
+ * type and small caps in OPPOSITE directions from one decision, which is exactly
+ * the classic move: a headline set tight above letterspaced small caps.
+ */
+export const TRACKINGS = {
+  neutral: { label: "the ordinary ramp", steps: [-0.05, -0.025, 0, 0.025, 0.05, 0.1] },
+  editorial: { label: "display tight, caps wide — the magazine move", steps: [-0.06, -0.032, 0, 0.06, 0.1, 0.16] },
+  open: { label: "nothing is tight; everything has air", steps: [-0.02, -0.008, 0.005, 0.04, 0.07, 0.12] },
+};
+
+const TRACKING_STEPS = ["tighter", "tight", "normal", "wide", "wider", "widest"];
+
+export function trackingCss(tracking) {
+  const { steps } = TRACKINGS[tracking] ?? TRACKINGS.neutral;
+  return `:root {\n` + TRACKING_STEPS.map((s, i) => `  --tracking-${s}: ${steps[i]}em;`).join("\n") + `\n}\n`;
+}
+
+/**
+ * Line height for BODY text — which is not what `typeCss` sets.
+ *
+ * They look like duplicates and are not. `typeCss` writes
+ * `--text-4xl--line-height`, the DEFAULT leading that comes with a size; these
+ * are `--leading-*`, what `leading-relaxed` and friends apply, and an explicit
+ * one wins over the size's default. The kit uses those 63 times.
+ *
+ * 1.25 against 1.8 at the same size is two different documents.
+ */
+export const LEADINGS = {
+  tight: { label: "set close — dense, a lot on a screen", steps: [1.15, 1.28, 1.4, 1.5] },
+  standard: { label: "the ordinary leading", steps: [1.25, 1.375, 1.5, 1.625] },
+  open: { label: "generous — long copy, room to read", steps: [1.35, 1.5, 1.65, 1.8] },
+};
+
+const LEADING_STEPS = ["tight", "snug", "normal", "relaxed"];
+
+export function leadingCss(leading) {
+  const { steps } = LEADINGS[leading] ?? LEADINGS.standard;
+  return `:root {\n` + LEADING_STEPS.map((s, i) => `  --leading-${s}: ${steps[i]};`).join("\n") + `\n}\n`;
+}
+
+/**
+ * The weight ramp — 925 uses in the kit, the most-consumed axis of the four.
+ *
+ * A "weight pair" is really the distance between body and emphasis: 300 against
+ * 700 is dramatic and editorial, 500 against 500 is uniform and technical, and
+ * they are different themes on the SAME family. Which is what makes this cheap —
+ * no second font is downloaded.
+ *
+ * Every face in the shortlist is variable except Instrument Serif, so arbitrary
+ * weights are real rather than snapped to the nearest cut. On that one face the
+ * ramp collapses toward what it actually ships, which degrades quietly rather
+ * than breaking.
+ */
+export const WEIGHTS = {
+  contrast: { label: "thin body, heavy headings — editorial", steps: [200, 300, 400, 600, 800, 850, 900] },
+  standard: { label: "the ordinary ramp", steps: [300, 400, 500, 600, 700, 800, 900] },
+  uniform: { label: "one weight, near enough — technical, Swiss", steps: [400, 450, 500, 550, 600, 650, 700] },
+};
+
+const WEIGHT_STEPS = ["light", "normal", "medium", "semibold", "bold", "extrabold", "black"];
+
+export function weightCss(weight) {
+  const { steps } = WEIGHTS[weight] ?? WEIGHTS.standard;
+  return `:root {\n` + WEIGHT_STEPS.map((s, i) => `  --font-weight-${s}: ${steps[i]};`).join("\n") + `\n}\n`;
+}
 
 /**
  * How much bigger each step of the type scale is than the last.
@@ -562,9 +663,13 @@ export const THEMES = {
   //     radius: "0.25rem",            // any length; `--radius` is the one token
   //     corner: "round",              // round | squircle | bevel
   //     scale: "standard",            // compact | standard | grand
+  //     tracking: "neutral",          // neutral | editorial | open
+  //     leading: "standard",          // tight | standard | open
+  //     weight: "standard",           // contrast | standard | uniform
   //     density: "standard",          // tight | standard | airy
   //     border: "hairline",           // hairline | drawn | bold  (whole px only)
   //     shadow: "crisp",              // flat | crisp | soft
+  //     icon: "regular",              // fine | regular | heavy
   //     fonts: { heading: "<id>", body: "<id>" },   // ids from site-fonts.mjs
   //     light: { paper: [L, C, H], ink: [L, C, H], accent: [L, C, H] },
   //     dark:  { paper: [L, C, H], ink: [L, C, H], accent: [L, C, H] },
@@ -682,8 +787,12 @@ export function themeCss(nameOrTheme) {
     block(":root", "light") + "\n\n" + block(".dark", "dark") + "\n\n" +
     cornerCss(theme) + "\n" +
     typeCss(theme.scale) + "\n" +
+    trackingCss(theme.tracking) + "\n" +
+    leadingCss(theme.leading) + "\n" +
+    weightCss(theme.weight) + "\n" +
     densityCss(theme.density) + "\n" +
     borderCss(theme.border) + "\n" +
+    iconCss(theme.icon) + "\n" +
     shadowCss(theme.shadow, theme);
 }
 
