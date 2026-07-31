@@ -145,11 +145,14 @@ export function NestedArea({
   return (
     <div className="flex items-end gap-4" role="img" aria-label={label ?? sorted.map((i) => `${i.label} ${format(i.value)}`).join(", ")}>
       <div className="relative" style={{ width: size, height: size }}>
+        {/* Ramp REVERSED: the largest square is the lightest. Drawn
+            darkest-first every square came out near-black and the nesting —
+            the entire point of the chart — was invisible. */}
         {sorted.map((it, i) => {
           const s = Math.sqrt(it.value / hi) * size;
           return (
             <div key={it.label} className="absolute bottom-0 left-1/2 -translate-x-1/2 rounded-[2px] border"
-              style={{ width: s, height: s, borderColor: TONE, background: SHADE(i, sorted.length), zIndex: i }}
+              style={{ width: s, height: s, borderColor: TONE, background: SHADE(sorted.length - 1 - i, sorted.length), zIndex: i }}
               title={`${it.label}: ${format(it.value)}`} />
           );
         })}
@@ -157,7 +160,7 @@ export function NestedArea({
       <div className="space-y-1">
         {sorted.map((it, i) => (
           <div key={it.label} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <span className="h-2.5 w-2.5 rounded-[2px]" style={{ background: SHADE(i, sorted.length) }} />
+            <span className="h-2.5 w-2.5 rounded-[2px] border" style={{ background: SHADE(sorted.length - 1 - i, sorted.length), borderColor: TONE }} />
             {it.label} <span className="tabular-nums">{format(it.value)}</span>
           </div>
         ))}

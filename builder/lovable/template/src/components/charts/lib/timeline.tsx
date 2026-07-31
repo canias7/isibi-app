@@ -139,7 +139,10 @@ export function CohortGrid({
                       style={{
                         width: cell, height: cell * 0.62,
                         background: RAMP(pct * 4, 4),
-                        color: pct > 0.55 ? "var(--background)" : "var(--muted-foreground)",
+                        // Flips at 0.35, not 0.55. RAMP is already ~40% ink at
+                        // that point, and muted-foreground on a mid grey is
+                        // unreadable — measured: the 45% cells came out blank.
+                        color: pct > 0.35 ? "var(--background)" : "var(--foreground)",
                       }}
                       title={`${c.label} · M${i}: ${Math.round(pct * 100)}%`}>
                       {Math.round(pct * 100)}%
