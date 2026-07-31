@@ -1,198 +1,234 @@
 // The next 500 — reusable components the kit does NOT have yet.
 //
 // Names only. These appear in docs/components.md WITHOUT a checkmark, so one
-// list shows what exists and what is proposed.
+// list shows what exists and what is proposed. A name that gets built moves to
+// the ticked half on its own: the generator reads the folder for what is done
+// and subtracts it, so an entry cannot sit here claiming to be missing once it
+// is not.
 //
-// A name that gets built moves to the ticked half on its own: the generator
-// reads the folder for what is done and subtracts it from this list, so an
-// entry cannot sit here claiming to be missing once it is not.
+// THE BAR, and the first draft of this list failed it. Every entry has to be:
+//   1. wanted by three UNRELATED trades — not a barber shop thing
+//   2. a distinct SHAPE, not the same shape under a different noun
+//   3. a component, not a feature with a data model behind it
+//   4. free of any one country's rules
 //
-// Grouped by the trade or the job it serves rather than by shape — which is how
-// the built five hundreds are organised, and how a site actually needs them.
+// The draft this replaces had 51 entries ending in `-row` that were ONE
+// labelled record row renamed 51 times, 33 `-note` entries that were a sentence
+// in a box, 11 that only mean anything in the UK (MOT, DBS, EPC, council tax),
+// and a dozen that were whole applications wearing a component's coat — a
+// mortgage calculator, a floor plan, a segment builder. Grouped by SHAPE here
+// rather than by trade, which is the difference.
 export const PLANNED = [
-  // Charts, the real ones. The kit has ten hand-drawn in SVG for the small cases;
-  // these are the recharts-backed set for a page that is genuinely a dashboard.
+  // Charts, the real ones. The kit has ten hand-drawn in SVG for the small
+  // cases; these are the library-backed set for a page that is a dashboard.
   "line-chart", "area-chart", "bar-chart", "stacked-bar", "grouped-bar",
   "pie-chart", "scatter-plot", "bubble-chart", "radar-chart", "funnel-chart",
-  "waterfall-chart", "treemap", "sankey", "histogram", "box-plot",
-  "candlestick", "bullet-chart", "gantt-chart", "heatmap-grid",
-  "pareto-chart", "step-chart", "range-chart", "combo-chart", "chart-legend",
-  "chart-export",
+  "waterfall-chart", "treemap-chart", "histogram", "box-plot", "bullet-chart",
+  "step-chart", "range-chart", "combo-chart", "chart-legend", "chart-export",
+  "trend-card", "distribution-bar", "quantile-bar", "sparkline-grid",
+  "comparison-chart",
 
-  // AI products, which is most of what gets built now.
-  "prompt-box", "model-picker", "streaming-text", "thinking-indicator",
-  "tool-call-card", "citation-list", "source-card", "token-meter",
-  "regenerate-button", "response-rating", "prompt-library",
-  "system-prompt-editor", "temperature-slider", "context-meter",
-  "attachment-tray", "voice-input", "transcript-view", "suggestion-chips",
-  "guardrail-note", "hallucination-warning", "model-compare",
-  "conversation-branch",
+  // Rich text and editing. Every product that lets somebody write anything
+  // needs these, and not one of them exists yet.
+  "rich-text", "markdown-editor", "markdown-preview", "mention-textarea",
+  "emoji-picker", "link-editor", "code-editor", "format-toolbar", "block-menu",
+  "slash-menu", "drag-handle", "selection-toolbar", "suggestion-mode",
+  "version-history", "comment-anchor", "table-editor", "paste-clean",
+  "focus-mode", "dirty-indicator", "revert-button", "draft-badge",
+  "lock-indicator", "find-replace", "char-limit-ring", "undo-redo",
 
-  // Developer and API surfaces.
-  "code-diff", "log-viewer", "terminal-output", "stack-trace", "env-var-row",
-  "api-endpoint", "request-builder", "response-viewer", "status-code-badge",
-  "curl-example", "sdk-tabs", "webhook-payload", "rate-limit-meter",
-  "sandbox-toggle", "deprecation-note", "schema-viewer", "cron-expression",
-  "feature-flag-row", "deploy-row", "build-log", "health-check-row",
-  "release-notes",
+  // Pickers. A picker is the same problem every time and is got wrong every
+  // time, which is exactly what a kit is for.
+  "color-picker", "icon-picker", "month-picker", "year-picker", "week-picker",
+  "quarter-picker", "time-range", "cron-builder", "number-scrubber",
+  "unit-toggle", "aspect-picker", "font-picker", "size-picker",
+  "spacing-picker", "radius-picker", "async-select", "cascading-select",
+  "dependent-select", "tree-select", "transfer-list", "dual-list",
+  "search-select", "tag-select", "slider-input", "stepper-input",
 
-  // Project and task management.
-  "kanban-board", "kanban-column", "task-card", "subtask-list",
-  "sprint-header", "burndown-chart", "milestone-row", "dependency-note",
-  "blocker-badge", "effort-badge", "due-badge", "label-picker",
-  "board-filter", "swimlane", "backlog-row", "epic-card", "story-points",
-  "velocity-bar", "retro-column", "standup-note", "timeline-gantt",
-  "workload-grid",
+  // Lists and collections, past the plain one.
+  "virtual-list", "grouped-list", "nested-list", "tree-view", "tree-item",
+  "checkbox-tree", "reorderable-grid", "list-toolbar", "list-density",
+  "two-line-row", "three-line-row", "swipeable-row", "selectable-list",
+  "multi-column-list", "chip-list", "timeline-vertical", "timeline-horizontal",
+  "shelf", "cluster", "rail",
 
-  // CRM and sales.
-  "deal-card", "pipeline-board", "pipeline-stage", "lead-score",
-  "quote-builder", "proposal-preview", "contact-merge", "forecast-bar",
-  "win-loss-bar", "next-step-note", "call-log-row", "email-thread",
-  "meeting-note", "territory-badge", "commission-row", "target-progress",
-  "churn-risk", "upsell-hint", "account-health",
+  // Tables, past the ones the fourth hundred added.
+  "pivot-table", "frozen-columns", "column-resize", "column-reorder",
+  "cell-editor", "cell-badge", "cell-sparkline", "row-detail", "row-group",
+  "footer-summary", "table-export", "table-search", "column-filter",
+  "multi-sort", "table-settings", "comparison-columns", "matrix-table",
+  "spreadsheet-grid", "compare-table", "feature-matrix",
 
-  // Money, properly. Beyond a price and a basket.
-  "ledger-row", "balance-summary", "tax-breakdown", "currency-converter",
-  "exchange-rate", "payment-schedule", "dunning-notice", "refund-row",
-  "payout-summary", "reconciliation-row", "budget-bar", "expense-row",
-  "mileage-log", "receipt-scan", "vat-note", "credit-note", "statement-row",
-  "aging-report", "cashflow-bar", "profit-summary", "journal-entry",
-  "bank-feed-row", "split-transaction", "recurring-charge", "fee-breakdown",
-  "invoice-status",
+  // Forms, the parts still missing.
+  "field-array", "masked-input", "card-input", "cvc-input", "expiry-input",
+  "iban-input", "password-strength", "confirm-field", "field-lock",
+  "inline-form", "quick-add", "bulk-edit-panel", "template-fill",
+  "autofill-note", "otp-resend", "form-lock", "field-group", "field-error",
+  "field-success", "form-diff",
 
-  // Subscription businesses.
-  "trial-banner", "upgrade-nudge", "feature-gate", "usage-alert",
-  "cancel-flow", "downgrade-warning", "proration-note", "plan-switcher",
-  "addon-row", "seat-buyer", "referral-card", "credit-balance",
-  "overage-notice", "renewal-reminder", "win-back-offer",
-  "pause-subscription", "gift-subscription", "annual-toggle",
-  "price-lock-note", "grandfathered-badge",
+  // Signing in, and the screens around it.
+  "passkey-prompt", "device-list", "login-history", "suspicious-login",
+  "recovery-codes", "backup-email", "security-score", "permission-matrix",
+  "role-picker", "scope-list", "sso-button", "magic-link-sent",
+  "verify-pending", "lockout-note", "session-expiry", "step-up-prompt",
 
-  // Email and campaigns.
-  "email-preview", "subject-tester", "send-schedule", "segment-builder",
-  "ab-test-row", "open-rate", "click-map", "unsubscribe-note",
-  "template-picker", "merge-tag", "preheader-input", "spam-score",
-  "list-health", "drip-step", "campaign-card", "utm-builder",
-  "landing-variant", "popup-timing", "suppression-row",
-
-  // Analytics, past the summary numbers.
-  "funnel-steps", "retention-table", "attribution-row", "event-stream",
-  "segment-chip", "goal-card", "session-list", "path-flow", "bounce-note",
-  "source-table", "device-split", "geo-table", "realtime-count",
-  "anomaly-flag", "benchmark-bar", "forecast-line", "custom-report",
-
-  // Stock and the warehouse.
-  "stock-row", "bin-location", "pick-list", "barcode-input", "batch-row",
-  "reorder-alert", "supplier-card", "purchase-order", "goods-in",
-  "stock-count", "variance-row", "serial-lookup", "pallet-label",
-  "shipment-row", "carrier-picker", "packing-list", "return-row",
-  "warranty-row", "asset-tag", "depreciation-row", "transfer-order",
-  "cycle-count",
-
-  // HR and people operations.
-  "leave-request", "holiday-balance", "payslip-row", "review-cycle",
-  "goal-row", "one-to-one-note", "offboarding-checklist", "contract-row",
-  "right-to-work", "absence-calendar", "headcount-bar", "org-search",
-  "salary-band", "bonus-row", "pension-note", "training-record", "dbs-badge",
-  "timesheet-row", "overtime-note", "rota-grid",
-
-  // Field service — the trades, out on a job.
-  "job-sheet", "engineer-route", "part-usage", "sign-off-pad", "defect-row",
-  "checklist-photo", "van-stock", "callout-card", "quote-approval",
-  "before-photo", "risk-assessment", "method-statement", "permit-row",
-  "meter-reading", "warranty-claim", "follow-up-note", "travel-log",
-  "site-access-note",
-
-  // Restaurants and bars, past the menu.
-  "table-map", "cover-count", "allergen-key", "wine-pairing", "tasting-menu",
-  "tip-selector", "split-bill", "kitchen-ticket", "course-timing",
-  "table-status", "waitlist-row", "reservation-note", "happy-hour-badge",
-  "corkage-note", "set-menu", "dietary-filter", "table-turn",
-  "service-charge", "bar-tab", "order-pad",
-
-  // Retail and marketplaces.
-  "seller-card", "bid-history", "escrow-note", "dispute-row",
-  "shipping-label", "tracking-timeline", "buyer-protection", "counter-offer",
-  "watchlist-row", "feedback-score", "listing-form", "bulk-price",
-  "bundle-picker", "gift-message", "gift-wrap", "loyalty-points",
-  "reward-tier", "referral-code", "store-credit", "price-match",
-  "back-in-stock",
-
-  // Travel.
-  "flight-row", "itinerary-day", "baggage-note", "passenger-form",
-  "seat-picker", "layover-badge", "currency-note", "hotel-row",
-  "transfer-row", "excursion-card", "travel-insurance", "boarding-pass",
-  "check-in-status", "fare-rules", "price-alert", "multi-city",
-  "cabin-picker", "loyalty-number", "trip-summary", "trip-packing",
-  "weather-strip", "visa-note",
-
-  // Teaching.
-  "lesson-nav", "quiz-question", "answer-feedback", "certificate",
-  "flashcard", "assignment-card", "grade-badge", "rubric-table",
-  "submission-row", "discussion-prompt", "attendance-grid", "course-outline",
-  "video-lesson", "cohort-card", "office-hours", "peer-review",
-  "plagiarism-note", "credit-hours", "prerequisite-note",
-
-  // Health and care.
-  "appointment-summary", "symptom-list", "medication-row", "dosage-note",
-  "vitals-row", "allergy-badge", "patient-referral", "care-plan",
-  "triage-badge", "consent-form", "prescription-row", "immunisation-row",
-  "pain-scale", "next-of-kin", "gp-details", "test-result", "waiting-time",
-
-  // Legal and compliance.
-  "clause-list", "redline-diff", "version-compare", "signature-request",
-  "retention-note", "dpa-summary", "cookie-table", "data-request",
-  "policy-accept", "disclosure-note", "conflict-check", "matter-row",
-  "time-entry", "engagement-letter", "court-date", "evidence-row",
-  "chain-of-custody", "privilege-badge",
-
-  // Property, past the listing card.
-  "floor-plan", "viewing-slot", "offer-status", "mortgage-calculator",
-  "epc-badge", "tenure-note", "chain-status", "valuation-row", "tenancy-row",
-  "deposit-note", "inventory-check", "maintenance-request", "landlord-card",
-  "lease-summary", "council-tax-band", "rent-schedule",
-
-  // Fitness and wellbeing.
-  "workout-row", "set-tracker", "pb-badge", "class-schedule", "body-metric",
-  "streak-badge", "rest-timer", "exercise-card", "plan-week", "calorie-ring",
-  "water-tracker", "sleep-bar", "mood-check", "habit-grid", "coach-note",
-  "injury-note",
-
-  // Cars.
-  "service-history", "mot-badge", "finance-quote", "part-row", "tyre-spec",
-  "valuation-badge", "test-drive-slot", "px-estimate", "warranty-plan",
-  "fuel-log", "damage-diagram", "reg-lookup", "spec-compare", "dealer-card",
-
-  // Events, past the ticket.
-  "seat-map", "tier-picker", "guest-list", "check-in-scanner", "badge-print",
-  "session-picker", "speaker-card", "sponsor-band", "agenda-track",
-  "room-capacity", "live-poll", "qa-queue", "networking-card",
-  "exhibitor-row", "ticket-transfer", "door-list", "run-sheet",
-
-  // Social and community.
-  "post-composer", "feed-item", "follow-button", "profile-header",
-  "badge-wall", "leaderboard", "karma-score", "report-dialog", "block-list",
-  "thread-sort", "poll-post", "repost-button", "bookmark-button",
-  "story-ring", "group-card", "event-invite", "dm-request", "mute-note",
-  "trending-list", "hashtag-chip",
-
-  // Video and audio, past the embed.
+  // Media, past the embed.
   "video-player", "waveform", "transcript-line", "chapter-list",
   "subtitle-track", "playback-speed", "scrubber", "poster-picker",
-  "clip-trimmer", "volume-slider", "picture-in-picture", "quality-picker",
-  "cast-button", "live-badge", "viewer-count", "playlist-row",
-  "audio-recorder",
+  "volume-slider", "live-badge", "viewer-count", "audio-recorder",
+  "image-crop", "image-zoom", "image-compare", "lightbox", "thumb-strip",
+  "progressive-image", "blur-up", "media-caption",
+
+  // AI surfaces. Not a vertical — every product being built now has these.
+  "prompt-box", "model-picker", "streaming-text", "thinking-indicator",
+  "tool-call-card", "citation-list", "source-card", "token-meter",
+  "regenerate-button", "response-rating", "suggestion-chips",
+  "conversation-branch", "voice-input", "transcript-view", "context-meter",
+  "attachment-tray", "stop-generating", "copy-response", "prompt-history",
+  "system-prompt-editor",
+
+  // Code and technical display. Any product with an API, a log or a config
+  // file — which is most of them.
+  "code-diff", "log-viewer", "terminal-output", "stack-trace",
+  "status-code-badge", "curl-example", "sdk-tabs", "schema-viewer",
+  "json-tree", "syntax-highlight", "request-timing", "header-table",
+  "query-params", "env-badge", "build-status", "commit-row", "branch-badge",
+  "diff-stat",
+
+  // Overlays and interruption.
+  "toast-stack", "snackbar", "progress-toast", "modal-stack", "sheet-stack",
+  "popover-menu", "rich-tooltip", "coach-mark", "hint-dot", "nudge-bubble",
+  "celebration", "blocking-overlay", "timeout-note", "slide-over",
+  "confirm-inline", "dismiss-all",
 
   // Motion and gesture. Each has to earn its bytes — the kit's rule is that an
   // effect needing an animation runtime is usually an effect that does not.
   "parallax", "tilt-card", "count-up", "typewriter", "confetti", "ripple",
   "drag-list", "sortable-list", "swipe-actions", "resize-handle",
   "pull-to-refresh", "infinite-scroll", "snap-carousel", "magnetic-button",
-  "flip-card", "stagger-list",
+  "flip-card", "stagger-list", "shake-error", "pulse-dot", "morph-height",
+  "scroll-reveal",
 
   // App shell and editor furniture.
   "split-pane", "dock", "drawer-stack", "mega-menu", "sidebar-collapse",
-  "sticky-shrink", "breadcrumb-dropdown", "workspace-switcher", "app-shell",
+  "sticky-shrink", "breadcrumb-collapse", "workspace-switcher", "app-shell",
   "panel-group", "floating-toolbar", "context-panel", "zoom-controls",
-  "layer-list", "property-panel",
+  "layer-list", "property-panel", "pane-tabs", "command-bar",
+  "quick-switcher", "shortcut-overlay", "resizable-columns",
+
+  // Navigation, past the second hundred's set.
+  "cursor-pagination", "load-more", "jump-to", "section-nav", "tab-overflow",
+  "nav-badge", "back-to-list", "related-nav", "sitemap-list", "nav-search",
+  "recent-nav", "pinned-nav", "nav-group", "scroll-spy", "snap-sections",
+
+  // Search, past the fourth hundred's set.
+  "search-scope", "search-history", "saved-search", "query-builder",
+  "filter-tree", "facet-range", "multi-sort-picker", "result-preview",
+  "did-you-mean", "search-shortcut", "instant-results", "search-empty",
+
+  // Collaboration. Two people in one document is a shape, not a vertical.
+  "presence-bar", "live-cursor", "typing-dots", "comment-pin",
+  "resolve-thread", "mention-badge", "share-invite", "viewer-list",
+  "edit-lock", "activity-dot", "follow-changes", "co-edit-note",
+  "conflict-merge", "change-request",
+
+  // Sharing and getting things out.
+  "share-sheet", "embed-code", "qr-code", "download-menu", "export-format",
+  "print-preview", "permalink", "short-link", "email-share", "copy-link",
+  "social-preview", "export-progress",
+
+  // Notifications, past the fourth hundred's set.
+  "toast-queue", "notification-group", "digest-row", "snooze-menu",
+  "priority-inbox", "mute-schedule", "channel-toggle", "delivery-status",
+  "notification-empty", "subscribe-toggle",
+
+  // Deciding between things.
+  "pros-cons", "decision-matrix", "weighted-score", "option-card",
+  "trade-off-bar", "recommendation-badge", "side-by-side", "spec-row",
+  "winner-badge", "shortlist-bar",
+
+  // Workflow and state.
+  "state-badge", "transition-arrow", "workflow-map", "phase-bar",
+  "checkpoint-list", "rollback-note", "stage-gate", "progress-donut",
+  "completion-ring", "milestone-dot", "blocked-note", "handover-bar",
+
+  // Numbers and units.
+  "unit-convert", "precision-toggle", "big-number", "delta-pill",
+  "tolerance-bar", "percent-ring", "currency-switch", "rounding-note",
+  "range-summary", "threshold-bar",
+
+  // Loading and absence.
+  "shimmer", "placeholder-grid", "skeleton-list", "skeleton-form",
+  "lazy-boundary", "content-placeholder", "load-error", "partial-list",
+  "stale-badge", "refresh-pill",
+
+  // Accessibility, past the fifth hundred's set.
+  "caption-toggle", "transcript-toggle", "high-contrast", "reduce-motion",
+  "reading-guide", "screen-reader-note", "keyboard-map", "alt-text-field",
+  "contrast-check", "tab-order-note",
+
+  // Trust and safety. Any site that accepts something from a stranger.
+  "report-reason", "moderation-queue", "appeal-form", "strike-badge",
+  "age-gate", "content-warning", "blur-sensitive", "source-label",
+  "spam-note", "trust-score",
+
+  // Asking people things.
+  "survey-card", "question-nav", "likert-row", "ranking-list",
+  "open-question", "csat-face", "effort-score", "exit-survey", "poll-result",
+  "vote-bar", "sentiment-chip", "response-summary",
+
+  // Settings, past the fourth hundred's set.
+  "preference-group", "reset-defaults", "import-settings", "export-settings",
+  "shortcut-row", "theme-picker", "density-preference", "unit-preference",
+  "startup-page", "advanced-toggle",
+
+  // Typography and long-form.
+  "drop-cap", "pull-quote", "footnote", "sidenote", "definition",
+  "table-of-contents", "anchor-heading", "read-progress", "byline-compact",
+  "kicker",
+
+  // Plumbing — headless, no markup of their own, and every app rebuilds them.
+  "portal", "click-outside", "scroll-lock", "drop-zone", "drag-preview",
+  "breakpoint-badge", "safe-area", "offline-queue", "idle-note",
+  "clipboard-history", "hotkey-badge", "media-query-note",
+  // Onboarding and product-led growth, the generic half.
+  "feature-tour", "whats-new-dot", "upgrade-badge", "usage-nudge", "empty-cta",
+  "sample-toggle", "reset-demo", "checklist-dot",
+
+  // Shaping a set of data, whatever the data is.
+  "date-preset", "relative-date", "filter-preset", "group-by-picker",
+  "aggregate-picker", "bucket-picker", "top-n-picker",
+
+  // Keyboard and power users.
+  "command-item", "command-group", "key-sequence", "keyboard-tip",
+  "focus-list",
+
+  // Validation, past the error summary.
+  "error-summary-link", "field-warning", "async-validation",
+  "uniqueness-check", "format-hint",
+
+  // Clocks and elapsed time.
+  "timezone-clock", "world-clock", "working-hours", "availability-toggle",
+  "snooze-until", "deadline-bar", "elapsed-timer", "stopwatch",
+  "countdown-ring",
+
+  // Is this data any good?
+  "completeness-bar", "missing-fields", "data-freshness", "outlier-flag",
+  "duplicate-badge", "quality-score",
+
+  // Getting files in, past the drop zone.
+  "chunked-upload", "upload-queue", "paste-image", "camera-capture",
+  "scan-document", "file-preview", "folder-tree", "folder-path",
+
+  // Location without a map provider.
+  "coordinate-input", "radius-slider", "place-search",
+
+  // Layout, the pieces still missing.
+  "aspect-box", "full-bleed", "edge-fade", "gutter", "sidebar-right",
+  "three-col", "content-width", "sticky-columns", "sticky-footer",
+
+  // Money as a SHAPE, not as accounting.
+  "amount-input", "currency-amount", "tax-toggle", "discount-input",
+  "payment-picker", "split-amount",
 ];
