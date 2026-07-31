@@ -1,4 +1,4 @@
-# Components (793 built, 207 to go)
+# Components (813 built, 187 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -88,6 +88,7 @@
 ✓ centered-form
 ✓ change-request
 ✓ changelog-entry
+✓ channel-toggle
 ✓ chapter-list
 ✓ char-limit-ring
 ✓ chart
@@ -171,9 +172,11 @@
 ✓ date-range-picker
 ✓ date-time-picker
 ✓ day-schedule
+✓ decision-matrix
 ✓ dedupe-list
 ✓ delivery-estimate
 ✓ delivery-slot
+✓ delivery-status
 ✓ density-toggle
 ✓ dependent-select
 ✓ description-list
@@ -183,6 +186,7 @@
 ✓ did-you-mean
 ✓ diff-stat
 ✓ diff-text
+✓ digest-row
 ✓ direction
 ✓ directory-list
 ✓ dirty-indicator
@@ -400,6 +404,7 @@
 ✓ multi-sort
 ✓ multi-sort-picker
 ✓ multi-step-form
+✓ mute-schedule
 ✓ name-fields
 ✓ native-select
 ✓ nav-badge
@@ -412,6 +417,8 @@
 ✓ no-results
 ✓ not-found
 ✓ notification-bell
+✓ notification-empty
+✓ notification-group
 ✓ notification-item
 ✓ notification-list
 ✓ notification-prefs
@@ -425,6 +432,7 @@
 ✓ on-call
 ✓ open-now
 ✓ opening-hours
+✓ option-card
 ✓ order-summary
 ✓ order-tracker
 ✓ ordinal
@@ -477,6 +485,7 @@
 ✓ print-only
 ✓ print-preview
 ✓ priority-badge
+✓ priority-inbox
 ✓ product-card
 ✓ profile-card
 ✓ progress
@@ -488,6 +497,7 @@
 ✓ prompt-history
 ✓ property-card
 ✓ property-panel
+✓ pros-cons
 ✓ prose
 ✓ pull-to-refresh
 ✓ pulse-dot
@@ -514,6 +524,7 @@
 ✓ recent-nav
 ✓ recent-searches
 ✓ recipe-card
+✓ recommendation-badge
 ✓ record-header
 ✓ recovery-codes
 ✓ recurrence-summary
@@ -609,6 +620,8 @@
 ✓ shipping-options
 ✓ short-link
 ✓ shortcut-overlay
+✓ shortlist-bar
+✓ side-by-side
 ✓ side-nav
 ✓ sidebar
 ✓ sidebar-collapse
@@ -636,6 +649,7 @@
 ✓ snackbar
 ✓ snap-carousel
 ✓ snap-sections
+✓ snooze-menu
 ✓ social-links
 ✓ social-preview
 ✓ sonner
@@ -646,6 +660,7 @@
 ✓ spacer
 ✓ spacing-picker
 ✓ sparkline
+✓ spec-row
 ✓ spinner
 ✓ split-pane
 ✓ split-view
@@ -677,6 +692,7 @@
 ✓ storage-bar
 ✓ store-locator
 ✓ streaming-text
+✓ subscribe-toggle
 ✓ subtitle-track
 ✓ success-panel
 ✓ suggestion-chips
@@ -729,6 +745,7 @@
 ✓ timeout-note
 ✓ timezone-note
 ✓ timezone-picker
+✓ toast-queue
 ✓ toast-stack
 ✓ toggle
 ✓ toggle-chip
@@ -739,6 +756,7 @@
 ✓ tooltip
 ✓ totals-row
 ✓ tour-step
+✓ trade-off-bar
 ✓ transcript-line
 ✓ transcript-view
 ✓ transfer-list
@@ -785,9 +803,11 @@
 ✓ week-picker
 ✓ week-strip
 ✓ weekday-picker
+✓ weighted-score
 ✓ welcome-card
 ✓ well
 ✓ whats-new
+✓ winner-badge
 ✓ wishlist-button
 ✓ word-count
 ✓ workspace-switcher
@@ -817,7 +837,6 @@ bullet-chart
 byline-compact
 camera-capture
 caption-toggle
-channel-toggle
 chart-export
 chart-legend
 checklist-dot
@@ -843,12 +862,9 @@ currency-switch
 data-freshness
 date-preset
 deadline-bar
-decision-matrix
 definition
-delivery-status
 delta-pill
 density-preference
-digest-row
 discount-input
 distribution-bar
 drag-preview
@@ -894,12 +910,8 @@ media-query-note
 milestone-dot
 missing-fields
 moderation-queue
-mute-schedule
-notification-empty
-notification-group
 offline-queue
 open-question
-option-card
 outlier-flag
 partial-list
 paste-image
@@ -913,9 +925,7 @@ poll-result
 portal
 precision-toggle
 preference-group
-priority-inbox
 progress-donut
-pros-cons
 pull-quote
 quality-score
 quantile-bar
@@ -927,7 +937,6 @@ range-summary
 ranking-list
 read-progress
 reading-guide
-recommendation-badge
 reduce-motion
 refresh-pill
 relative-date
@@ -946,18 +955,14 @@ scroll-lock
 sentiment-chip
 shimmer
 shortcut-row
-shortlist-bar
-side-by-side
 sidebar-right
 sidenote
 skeleton-form
 skeleton-list
-snooze-menu
 snooze-until
 source-label
 spam-note
 sparkline-grid
-spec-row
 split-amount
 stacked-bar
 stage-gate
@@ -969,7 +974,6 @@ sticky-columns
 sticky-footer
 stopwatch
 strike-badge
-subscribe-toggle
 survey-card
 tab-order-note
 table-of-contents
@@ -978,10 +982,8 @@ theme-picker
 three-col
 threshold-bar
 timezone-clock
-toast-queue
 tolerance-bar
 top-n-picker
-trade-off-bar
 transcript-toggle
 transition-arrow
 treemap-chart
@@ -995,9 +997,7 @@ upload-queue
 usage-nudge
 vote-bar
 waterfall-chart
-weighted-score
 whats-new-dot
-winner-badge
 workflow-map
 working-hours
 world-clock

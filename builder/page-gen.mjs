@@ -344,6 +344,14 @@ export const UI_COMPONENTS = [
   "share-sheet", "embed-code", "qr-code", "download-menu", "export-format",
   "print-preview", "permalink", "short-link", "email-share", "copy-link",
   "social-preview", "export-progress",
+  // Notifications.
+  "toast-queue", "notification-group", "digest-row", "snooze-menu",
+  "priority-inbox", "mute-schedule", "channel-toggle", "delivery-status",
+  "notification-empty", "subscribe-toggle",
+  // Deciding between things.
+  "pros-cons", "decision-matrix", "weighted-score", "option-card",
+  "trade-off-bar", "recommendation-badge", "side-by-side", "spec-row",
+  "winner-badge", "shortlist-bar",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
