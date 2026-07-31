@@ -1,4 +1,4 @@
-# Components (909 built, 91 to go)
+# Components (917 built, 83 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -109,6 +109,7 @@
 ✓ checkbox
 ✓ checkbox-group
 ✓ checkbox-tree
+✓ checklist-dot
 ✓ checkpoint-list
 ✓ chip-list
 ✓ citation-list
@@ -247,6 +248,7 @@
 ✓ emoji-picker
 ✓ emoji-reaction
 ✓ empty
+✓ empty-cta
 ✓ empty-illustration
 ✓ env-badge
 ✓ error-boundary
@@ -268,6 +270,7 @@
 ✓ faq-search
 ✓ feature-grid
 ✓ feature-matrix
+✓ feature-tour
 ✓ feedback-widget
 ✓ field
 ✓ field-array
@@ -601,6 +604,7 @@
 ✓ request-timing
 ✓ required-mark
 ✓ reset-defaults
+✓ reset-demo
 ✓ reset-form
 ✓ resizable
 ✓ resizable-columns
@@ -633,6 +637,7 @@
 ✓ safe-area
 ✓ safe-image
 ✓ sample-data-banner
+✓ sample-toggle
 ✓ save-draft
 ✓ saved-search
 ✓ saved-views
@@ -872,10 +877,12 @@
 ✓ unit-preference
 ✓ unit-toggle
 ✓ unread-divider
+✓ upgrade-badge
 ✓ upload-progress
 ✓ uptime-bar
 ✓ url-input
 ✓ usage-meter
+✓ usage-nudge
 ✓ variant-picker
 ✓ vehicle-card
 ✓ verified-badge
@@ -902,6 +909,7 @@
 ✓ welcome-card
 ✓ well
 ✓ whats-new
+✓ whats-new-dot
 ✓ winner-badge
 ✓ wishlist-button
 ✓ word-count
@@ -924,7 +932,6 @@ bullet-chart
 camera-capture
 chart-export
 chart-legend
-checklist-dot
 chunked-upload
 combo-chart
 command-group
@@ -943,9 +950,7 @@ distribution-bar
 duplicate-badge
 edge-fade
 elapsed-timer
-empty-cta
 error-summary-link
-feature-tour
 field-warning
 file-preview
 filter-preset
@@ -974,8 +979,6 @@ radar-chart
 radius-slider
 range-chart
 relative-date
-reset-demo
-sample-toggle
 scan-document
 scatter-plot
 sidebar-right
@@ -994,10 +997,7 @@ top-n-picker
 treemap-chart
 trend-card
 uniqueness-check
-upgrade-badge
 upload-queue
-usage-nudge
 waterfall-chart
-whats-new-dot
 working-hours
 world-clock

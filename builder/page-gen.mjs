@@ -388,6 +388,9 @@ export const UI_COMPONENTS = [
   "portal", "click-outside", "scroll-lock", "drop-zone", "drag-preview",
   "breakpoint-badge", "safe-area", "offline-queue", "idle-note",
   "clipboard-history", "hotkey-badge", "media-query-note",
+  // Onboarding.
+  "feature-tour", "whats-new-dot", "upgrade-badge", "usage-nudge",
+  "empty-cta", "sample-toggle", "reset-demo", "checklist-dot",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
