@@ -24,7 +24,7 @@ export function Banner({ tone = "info", title, children, icon, action, onDismiss
   const Fallback = { info: Info, success: CheckCircle2, warning: AlertTriangle, error: XCircle }[tone];
   return (
     <div role={tone === "error" ? "alert" : "status"}
-      className={cn("flex items-start gap-3 rounded-lg border px-4 py-3", skin, className)}>
+      className={cn("motion-enter flex items-start gap-3 rounded-lg border px-4 py-3", skin, className)}>
       <span className="mt-0.5 shrink-0 [&_svg]:size-4">{icon ?? <Fallback />}</span>
       <div className="min-w-0 flex-1 text-sm text-foreground">
         {title && <div className="font-medium">{title}</div>}
