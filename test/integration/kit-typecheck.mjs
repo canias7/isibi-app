@@ -36,6 +36,20 @@ else bad("the component kit does not typecheck", kit.out.split("\n").slice(0, 20
 // The per-build config must still be clean, and must still be the FAST one —
 // otherwise the exclusion has silently stopped applying and every site build is
 // paying for the kit again with nobody noticing.
+//
+// `tsr generate` FIRST, because that is what a site build does — build-server
+// runs it before typechecking for the stated reason that main.tsx imports
+// src/routeTree.gen.ts. That file is generated and gitignored, so it exists on
+// any machine that has ever built and never in a fresh checkout: this test
+// passed locally and failed in CI on both errors it produces, which is the
+// definition of "works on my machine". A test whose whole claim is that it
+// checks things "the way a site build does" has to do the step the site build
+// does, or it is testing a configuration nothing ever runs.
+console.log("generating the route tree, as a site build does…");
+const gen = spawnSync("npx", ["tsr", "generate"], { cwd: TEMPLATE, encoding: "utf8" });
+if (gen.status === 0) ok("route tree generated");
+else bad("could not generate the route tree", ((gen.stderr || "") + (gen.stdout || "")).slice(0, 600));
+
 console.log("typechecking a build the way a site build does…");
 const build = tsc(null);
 if (build.code === 0) ok(`the per-build check is clean (${build.ms}ms)`);
@@ -67,5 +81,5 @@ try {
   fs.rmSync(probeR, { force: true });
 }
 
-console.log(`\n${3 - failed} passed, ${failed} failed`);
+console.log(`\n${4 - failed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

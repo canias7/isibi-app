@@ -418,6 +418,28 @@ export const UI_COMPONENTS = [
   // Money as a shape.
   "amount-input", "currency-amount", "tax-toggle", "discount-input",
   "payment-picker", "split-amount",
+  // Shapes with no near neighbour - 2D arrangements, and the pickers,
+  // money and media shapes nothing above can stand in for.
+  "kanban-board", "gantt-bars", "heatmap-grid", "time-lane-grid", "seat-map",
+  "variant-matrix", "funnel-steps", "tree-table", "node-graph", "timesheet-grid",
+  "multi-date-picker", "nl-date-input", "meeting-poll-grid", "rule-builder",
+  "option-priced-list", "split-tender", "split-by-item", "range-trim",
+  "image-annotate", "focal-point", "read-aloud", "rtl-preview", "barcode",
+  "stamp-card", "poll-composer", "minimap-scroll",
+  // Catalogue.
+  "colour-swatch", "stock-level", "unit-price", "bulk-pricing",
+  "preorder-badge", "backorder-note", "personalisation-field", "warranty-badge",
+  "care-icons", "material-badge", "price-history", "min-order-note",
+  "sku-field", "category-tile", "new-in-badge", "last-chance-badge",
+  "quantity-break", "collection-header", "recently-viewed", "shop-the-look",
+  // Cart and checkout.
+  "cart-badge", "cart-empty", "saved-for-later", "promo-field",
+  "click-collect", "delivery-window", "substitution-pref", "price-changed-note",
+  "order-review", "place-order-bar", "gift-toggle", "gift-message",
+  // Orders and fulfilment.
+  "order-timeline", "tracking-input", "delivery-eta", "return-window",
+  "partial-shipment", "pack-checklist", "failed-delivery", "leave-safe-consent",
+  "return-reason", "proof-of-delivery", "collection-code", "address-correct-note",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
