@@ -235,7 +235,7 @@ export function SkillsMatrix({
           <tr>
             <th className="pr-2 text-right text-[9px] font-normal text-muted-foreground">cover</th>
             {gaps.map((g, i) => (
-              <td key={i} className="pt-1 text-center text-[9px] tabular-nums" style={{ color: g < 2 ? "var(--destructive)" : "var(--muted-foreground)" }}>{g}</td>
+              <td key={i} className="pt-1 text-center text-[9px] tabular-nums" style={{ color: "var(--foreground)", opacity: g < 2 ? 1 : 0.55, fontWeight: g < 2 ? 600 : 400 }}>{g}</td>
             ))}
           </tr>
         </tbody>

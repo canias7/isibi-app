@@ -104,6 +104,11 @@ export function RadiocarbonCalibration({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!curve.length) return null
+
   const sorted = [...curve].sort((a, b) => a.calendar - b.calendar)
   // every calendar year whose curve value falls within ±2σ of the measurement
   const hits = sorted.filter((p) => Math.abs(p.bp - bp) <= 2 * sigma)

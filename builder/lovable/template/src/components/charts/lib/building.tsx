@@ -204,6 +204,11 @@ export function UValueBuildup({
   targetU?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!layers.length) return null
+
   const rows = layers.map((l) => ({
     ...l,
     r: l.resistance ?? (l.lambda ? l.mm / 1000 / l.lambda : 0),
@@ -306,6 +311,11 @@ export function AcousticRt60({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!surfaces.length || !bands.length) return null
+
   const rt = bands.map((_, bi) => {
     const A = surfaces.reduce((a, s) => a + s.areaM2 * (s.alpha[bi] ?? 0), 0)
     return { A, seconds: (0.161 * volumeM3) / Math.max(A, 1e-9) }
@@ -479,6 +489,11 @@ export function CirculationFlow({
   corridorCapacityPerMin?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!zones.length || !flows.length) return null
+
   const rows = [...flows].sort((a, b) => b.perMin - a.perMin)
   const max = Math.max(1, ...rows.map((r) => r.perMin))
   const throughput = zones.map((z) => ({

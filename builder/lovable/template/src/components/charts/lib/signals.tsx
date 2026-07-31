@@ -176,7 +176,7 @@ export function Waveform({
         );
       })}
       {playhead !== undefined ? (
-        <div className="absolute top-0 bottom-0 w-px bg-destructive" style={{ left: `${playhead * 100}%` }} />
+        <div className="absolute top-0 bottom-0 border-l border-dashed border-foreground" style={{ left: `${playhead * 100}%` }} />
       ) : null}
     </div>
   );

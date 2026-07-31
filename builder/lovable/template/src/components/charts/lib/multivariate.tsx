@@ -310,7 +310,7 @@ export function Cusum({
           <polyline points={hiS.map((v, i) => `${X(i)},${Y(v)}`).join(" ")} fill="none" stroke={TONE} strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
           <polyline points={loS.map((v, i) => `${X(i)},${Y(v)}`).join(" ")} fill="none" stroke={TONE} strokeWidth={1.6} strokeOpacity={0.55} vectorEffect="non-scaling-stroke" />
         </svg>
-        {trip >= 0 ? <div className="absolute top-0 bottom-0 border-l border-destructive" style={{ left: `${X(trip)}%` }} /> : null}
+        {trip >= 0 ? <div className="absolute top-0 bottom-0 border-l border-dashed border-foreground" style={{ left: `${X(trip)}%` }} /> : null}
       </div>
       <p className="mt-1 text-[10px] text-muted-foreground">
         {trip >= 0 ? `Crossed the +${h}σ limit at point ${trip + 1} — a sustained shift, not one bad day` : `Stayed inside ±${h}σ`}

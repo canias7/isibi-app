@@ -112,6 +112,11 @@ export function MilkYield({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!records.length) return null
+
   const sorted = [...records].sort((a, b) => a.dim - b.dim)
   const peak = sorted.reduce((a, r) => (r.litres > a.litres ? r : a), sorted[0])
   // persistency: the fall per 30 days after peak, which is what decides total
@@ -368,6 +373,11 @@ export function LamenessScore({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!rounds.length) return null
+
   const rows = rounds.map((r) => {
     const total = r.counts.reduce((a, v) => a + v, 0)
     const impaired = r.counts.slice(1).reduce((a, v) => a + v, 0)

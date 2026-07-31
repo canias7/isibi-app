@@ -22,6 +22,11 @@ export function YarnCount({
   yarns: { name: string; tex?: number; ne?: number; nm?: number; denier?: number }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!yarns.length) return null
+
   const rows = yarns.map((y) => {
     const tex = y.tex ?? (y.ne ? 590.5 / y.ne : y.nm ? 1000 / y.nm : y.denier ? y.denier / 9 : 0)
     return {
@@ -224,6 +229,11 @@ export function ColourFastness({
   endUses: { name: string; minimums: Record<string, number> }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!tests.length || !endUses.length) return null
+
   const byTest = new Map(tests.map((t) => [t.name, t.grade]))
   const rows = endUses.map((u) => {
     const failing = Object.entries(u.minimums).filter(([t, m]) => (byTest.get(t) ?? 0) < m)
@@ -291,6 +301,11 @@ export function SeamStrength({
   minimumEfficiency?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!seams.length) return null
+
   const rows = seams
     .map((s) => ({ ...s, efficiency: s.strengthN / Math.max(fabricStrengthN, 1e-9) }))
     .sort((a, b) => b.efficiency - a.efficiency)

@@ -151,6 +151,11 @@ export function FanCurve({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!fan.length || !systems.length) return null
+
   const pts = [...fan].sort((a, b) => a.ls - b.ls)
   const fanAt = (ls: number) => {
     for (let i = 1; i < pts.length; i++) {

@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
  * finished and crashed.
  */
 // eslint-disable-next-line no-control-regex
-const ANSI = /\[[0-9;?]*[A-Za-z]/g;
+const ANSI = /\u001b\[[0-9;?]*[A-Za-z]/g;
 
 export function stripAnsi(text: string) {
   return text.replace(ANSI, "");

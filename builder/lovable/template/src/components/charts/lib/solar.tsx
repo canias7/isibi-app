@@ -29,6 +29,11 @@ export function IvCurve({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!curves.length) return null
+
   const rows = curves.map((c) => {
     const pts = [...c.points].sort((a, b) => a.v - b.v).map((p) => ({ ...p, p: p.v * p.i }))
     const mpp = pts.reduce((a, p) => (p.p > a.p ? p : a), pts[0])
@@ -112,6 +117,11 @@ export function ShadingLoss({
   strings: { name: string; modules: { shaded: number }[]; bypassDiodesPerModule?: number }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!strings.length) return null
+
   const rows = strings.map((s) => {
     const diodes = s.bypassDiodesPerModule ?? 3
     const area = s.modules.reduce((a, m) => a + m.shaded, 0) / Math.max(s.modules.length, 1)
@@ -195,6 +205,11 @@ export function PerformanceRatio({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!months.length) return null
+
   const rows = months.map((m) => {
     const expected = m.irradianceKwhM2 * kwp
     return { ...m, expected, pr: m.kwh / Math.max(expected, 1e-9), yield: m.kwh / Math.max(kwp, 1e-9) }
@@ -282,6 +297,11 @@ export function SoilingDecay({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!readings.length) return null
+
   const pts = [...readings].sort((a, b) => a.day - b.day)
   const last = pts[pts.length - 1]
   const ratePerDay = (1 - last.ratio) / Math.max(last.day, 1e-9)

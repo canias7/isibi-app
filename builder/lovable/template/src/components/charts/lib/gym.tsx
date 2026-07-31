@@ -37,6 +37,11 @@ export function MemberCohort({
   monthlyFee: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!cohorts.length) return null
+
   const span = Math.max(...cohorts.map((c) => c.surviving.length))
   const rows = cohorts.map((c) => {
     const rates = c.surviving.map((s) => s / Math.max(c.joined, 1))
@@ -307,6 +312,11 @@ export function FloorLoad({
   hours: string[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!areas.length || !hours.length) return null
+
   const cells = areas.map((a) => a.usersPerHour.map((u) => ({ u, load: u / Math.max(a.stations, 1), over: Math.max(0, u - a.stations) })))
   const rows = areas.map((a, i) => {
     // annotated, or the accumulator widens to a union with the branch that
@@ -394,6 +404,11 @@ export function ContractWall({
   historicRenewalRate: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!months.length) return null
+
   const rows = months.map((m) => ({
     ...m,
     exposure: m.reachingTerm * monthlyFee,
@@ -481,6 +496,11 @@ export function PtAttach({
   trainerCostShare: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!segments.length) return null
+
   const rows = segments
     .map((s) => {
       const attach = s.withPt / Math.max(s.members, 1)

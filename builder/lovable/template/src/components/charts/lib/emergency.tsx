@@ -32,6 +32,11 @@ export function CallStack({
   meanJobHours?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!hours.length || !calls.length || !crews.length) return null
+
   const rows = hours.map((h, i) => {
     // demand in crew-hours, which is what a rota actually has to cover
     const demand = calls[i] * meanJobHours
@@ -217,6 +222,11 @@ export function HandoverDelay({
   crewCostPerHour?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!hospitals.length) return null
+
   const rows = hospitals
     .map((h) => {
       const lostMin = h.arrivals * Math.max(0, h.meanHandoverMin - targetMin)
@@ -302,6 +312,11 @@ export function TriageOutcome({
   seriousFrom: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!categories.length || !outcomes.length || !counts.length) return null
+
   const rows = categories.map((name, ci) => {
     const total = counts[ci].reduce((a, v) => a + v, 0)
     const serious = counts[ci].slice(0, seriousFrom + 1).reduce((a, v) => a + v, 0)
@@ -457,6 +472,11 @@ export function SurgeCapacity({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!hours.length || !arrivals.length || !surgeCrews.length) return null
+
   let queue = 0
   const rows = hours.map((h, i) => {
     const capacity = (baseCrews + surgeCrews[i]) / Math.max(meanJobHours, 1e-9)
@@ -556,6 +576,11 @@ export function CrewFatigue({
   minRestHours?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!shifts.length) return null
+
   let consecutiveNights = 0
   let load = 0
   const rows = shifts.map((s) => {

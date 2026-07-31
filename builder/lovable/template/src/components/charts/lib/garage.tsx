@@ -35,6 +35,11 @@ export function BayUtilisation({
   labourRate: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!bays.length || !hours.length) return null
+
   const rows = bays.map((b) => {
     // named apart from `booked`/`actual`, which are the per-hour ARRAYS — a
     // spread happily replaces an array with a scalar of the same name and the
@@ -133,6 +138,11 @@ export function MotFailItems({
   testsInPeriod: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!items.length) return null
+
   const rows = items
     .map((i) => ({
       ...i,
@@ -290,6 +300,11 @@ export function PartsMargin({
   bands: { name: string; lines: number; cost: number; listPrice: number; discountGiven: number }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!bands.length) return null
+
   const rows = bands
     .map((b) => {
       const sold = b.listPrice * (1 - b.discountGiven)
@@ -378,6 +393,11 @@ export function ComebackRate({
   labourRate: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!categories.length) return null
+
   const rows = categories
     .map((c) => {
       const rate = c.comebacks / Math.max(c.jobs, 1)

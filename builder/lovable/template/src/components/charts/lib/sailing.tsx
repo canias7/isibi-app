@@ -31,6 +31,11 @@ export function PolarDiagram({
   size?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!windSpeeds.length || !angles.length || !speeds.length) return null
+
   const rows = windSpeeds.map((w, wi) => {
     const vmgUp = angles.map((a, ai) => speeds[wi][ai] * Math.cos((a * Math.PI) / 180))
     const vmgDown = angles.map((a, ai) => -speeds[wi][ai] * Math.cos((a * Math.PI) / 180))
@@ -239,6 +244,11 @@ export function HandicapCorrection({
   courseNm: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!boats.length) return null
+
   const rows = boats
     .map((b) => ({ ...b, corrected: b.elapsedMin * b.tcf, speed: courseNm / (b.elapsedMin / 60) }))
     .sort((a, b) => a.corrected - b.corrected)
@@ -324,6 +334,11 @@ export function LaylineChart({
   size?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!offsets.length) return null
+
   const half = (tackAngle / 2) * (Math.PI / 180)
   const ideal = distanceNm / Math.cos(half)
   const rows = offsets

@@ -345,6 +345,11 @@ export function ConsignmentMix({
   costPerLot: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!sources.length) return null
+
   const rows = sources
     .map((s) => {
       const commission = s.hammerTotal * s.sellerCommission

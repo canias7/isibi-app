@@ -140,6 +140,11 @@ export function BarrelProgram({
   bottlesPerBarrel?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!regimes.length) return null
+
   const rows = regimes
     .map((r) => {
       // a barrel is amortised over its fills, not charged to one vintage
@@ -456,6 +461,11 @@ export function VintageIndex({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!vintages.length) return null
+
   const xs = vintages.map((v) => v.growingDegreeDays)
   const ys = vintages.map((v) => v.score)
   const rs = vintages.map((v) => v.harvestRainMm)

@@ -27,6 +27,11 @@ export function InkCoverage({
   maxTotalArea?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!separations.length) return null
+
   const total = separations.reduce((a, s) => a + s.percent, 0)
   const heaviest = separations.reduce((a, s) => (s.percent > a.percent ? s : a), separations[0])
   const over = total > maxTotalArea
@@ -99,6 +104,11 @@ export function DotGain({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!patches.length) return null
+
   // the aim curve is a parabola through 0 and 100 peaking at the stated gain
   const aim = (t: number) => t + aimAt50 * 4 * (t / 100) * (1 - t / 100)
   const rows = [...patches]

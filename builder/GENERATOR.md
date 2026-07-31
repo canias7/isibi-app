@@ -69,6 +69,18 @@ schema declares, because those are the only things that exist in the database.
    `_version`, `position`, `deleted_at` are set by the engine and are silently
    dropped from any write.
 
+7. **A chart comes from `@/components/charts/lib/<domain>`.** 882 prop-driven
+   primitives across 141 domain modules, listed by name in the prompt. Hand one
+   `useRows(...)` data — never a copied array.
+
+   **The `charts/chart-*.tsx` files are demos and importing one is a defect.**
+   Each wraps a primitive in a Card around invented figures ("Bookings 268 /
+   300 · January - June 2024"), so an import compiles, bundles and publishes a
+   stranger's made-up numbers to this site's visitors. `lintPages` refuses them
+   by name — which the retired `@/examples/*` rule did not need to do, because
+   deleting that folder made its import a missing module. These 1,140 files are
+   not missing, so nothing else in the pipeline can tell one from a real chart.
+
 ## Every list must handle four states
 
 The reference page shows all four. A generated page that omits them looks fine

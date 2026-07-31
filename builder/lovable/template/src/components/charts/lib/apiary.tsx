@@ -26,6 +26,11 @@ export function HiveWeight({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!readings.length) return null
+
   const rows = readings.map((r, i) => {
     const prev = readings[i - 1]
     return { ...r, delta: prev ? r.kg - prev.kg : 0 }
@@ -295,6 +300,11 @@ export function SwarmRisk({
   }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!inspections.length) return null
+
   const rows = inspections.map((i) => {
     const congestion = clamp(1 - i.framesSpare / Math.max(i.framesOfBrood, 1), 0, 1)
     const cells = clamp(i.queenCells / 6, 0, 1)
@@ -457,6 +467,11 @@ export function WinterLoss({
   surveyRate?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!years.length) return null
+
   const rows = years.map((y) => {
     const lost = y.lostStarvation + y.lostQueen + y.lostVarroa + y.lostOther
     return { ...y, lost, survived: y.wentIn - lost, rate: lost / Math.max(y.wentIn, 1) }

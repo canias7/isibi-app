@@ -83,6 +83,11 @@ export function KerningPairs({
   sizePx?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!pairs.length) return null
+
   const rows = pairs.map((p) => ({ ...p, delta: p.kernedEm - p.defaultEm }))
   const worst = rows.reduce((a, r) => (Math.abs(r.delta) > Math.abs(a.delta) ? r : a), rows[0])
   const maxAbs = Math.max(0.001, ...rows.map((r) => Math.abs(r.delta)))
@@ -136,6 +141,11 @@ export function XHeightCompare({
   className?: string
   sizePx?: number
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!families.length) return null
+
   const maxX = Math.max(...families.map((f) => f.xHeight))
   const minX = Math.min(...families.map((f) => f.xHeight))
   const spread = ((maxX - minX) / minX) * 100

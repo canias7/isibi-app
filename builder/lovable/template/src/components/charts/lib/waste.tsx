@@ -91,6 +91,11 @@ export function CaptureRate({
   materials: { name: string; arisingT: number; capturedT: number; valuePerT?: number }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!materials.length) return null
+
   const rows = materials
     .map((m) => ({
       ...m,
@@ -297,6 +302,11 @@ export function RouteDensity({
   className?: string
   height?: number
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!rounds.length) return null
+
   const rows = rounds
     .map((r) => ({
       ...r,
@@ -363,6 +373,11 @@ export function LandfillDiversion({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!years.length) return null
+
   const rows = years.map((y) => {
     const total = y.recycled + y.composted + y.energyRecovery + y.landfill
     const diverted = total - y.landfill

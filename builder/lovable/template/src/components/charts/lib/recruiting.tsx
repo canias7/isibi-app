@@ -33,6 +33,11 @@ export function TimeToFill({
   targetDays?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!roles.length || !stages.length) return null
+
   const rows = roles.map((r) => ({ ...r, total: r.days.reduce((a, v) => a + v, 0) }))
   const max = Math.max(targetDays ?? 0, ...rows.map((r) => r.total))
   const byStage = stages.map((s, i) => {
@@ -129,6 +134,11 @@ export function OfferAcceptance({
   reasons: string[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!teams.length || !reasons.length) return null
+
   const rows = teams
     .map((t) => {
       const declinedTotal = t.declined.reduce((a, v) => a + v, 0)
@@ -209,6 +219,11 @@ export function SourceYield({
   sources: { name: string; applications: number; interviews: number; hires: number; spend: number; retainedAt12m?: number }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!sources.length) return null
+
   const rows = sources
     .map((s) => ({
       ...s,
@@ -378,6 +393,11 @@ export function PipelineDiversity({
   counts: number[][]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!stages.length || !groups.length || !counts.length) return null
+
   const totals = stages.map((_, si) => counts.reduce((a, row) => a + row[si], 0))
   const rows = groups.map((name, gi) => {
     const shares = stages.map((_, si) => counts[gi][si] / Math.max(totals[si], 1))
@@ -452,6 +472,11 @@ export function RequisitionAgeing({
   requisitions: { name: string; openDays: number; team: string; dailyValue?: number; candidatesAtOffer?: number }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!requisitions.length) return null
+
   const rows = [...requisitions]
     .map((r) => ({ ...r, cost: (r.dailyValue ?? 0) * r.openDays }))
     .sort((a, b) => b.cost - a.cost || b.openDays - a.openDays)

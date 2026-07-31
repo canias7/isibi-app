@@ -120,6 +120,11 @@ export function SeatingYield({
   bands: { name: string; seats: number; sold: number; price: number }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!bands.length) return null
+
   const rows = bands.map((b) => ({
     ...b,
     fill: b.sold / Math.max(b.seats, 1),

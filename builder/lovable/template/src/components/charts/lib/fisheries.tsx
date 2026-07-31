@@ -29,6 +29,11 @@ export function StockBiomass({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!years.length) return null
+
   const rows = [...years].sort((a, b) => a.year - b.year).map((y) => ({
     ...y,
     status: y.ssbT < bLim ? "below B_lim" : y.ssbT < bPa ? "below B_pa" : "above B_pa",
@@ -101,6 +106,11 @@ export function CpueTrend({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!years.length) return null
+
   const rows = [...years]
     .sort((a, b) => a.year - b.year)
     .map((y) => ({ ...y, cpue: y.landingsT / Math.max(y.daysAtSea, 1e-9) }))
@@ -191,6 +201,11 @@ export function LengthFrequency({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!bins.length) return null
+
   const rows = [...bins].sort((a, b) => a.cm - b.cm)
   const total = rows.reduce((a, b) => a + b.count, 0)
   const under = rows.filter((b) => b.cm < minSizeCm).reduce((a, b) => a + b.count, 0)
@@ -364,6 +379,11 @@ export function BycatchRatio({
   limit?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!tows.length) return null
+
   const rows = tows
     .map((t) => ({
       ...t,

@@ -347,6 +347,11 @@ export function FreightIndex({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!points.length) return null
+
   const values = points.map((p) => p.value)
   const returns = values.map((v, i) => (i === 0 ? 0 : Math.log(v / values[i - 1]))).slice(1)
   const meanR = returns.reduce((a, r) => a + r, 0) / Math.max(1, returns.length)
@@ -428,6 +433,11 @@ export function RouteDeviation({
   fuelPricePerTonne: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!routes.length) return null
+
   const rows = routes
     .map((r) => {
       const extraNm = r.sailedNm - r.directNm

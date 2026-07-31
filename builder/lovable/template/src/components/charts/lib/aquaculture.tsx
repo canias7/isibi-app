@@ -30,6 +30,11 @@ export function FeedConversion({
   feedCostPerT: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!pens.length) return null
+
   const rows = pens
     .map((p) => {
       const biological = p.feedT / Math.max(p.gainT, 1e-9)
@@ -116,6 +121,11 @@ export function BiomassGrowth({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!weeks.length) return null
+
   const rows = weeks.map((w) => ({ ...w, biomassT: (w.fish * w.meanKg) / 1000 }))
   const maxB = Math.max(consentT ?? 0, ...rows.map((r) => r.biomassT))
   const maxKg = Math.max(...rows.map((r) => r.meanKg))
@@ -209,6 +219,11 @@ export function MortalityEvents({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!days.length) return null
+
   const rates = days.map((d) => d.deaths / Math.max(d.alive, 1))
   const sorted = [...rates].sort((a, b) => a - b)
   // the background is the MEDIAN, not the mean, so a single bad week does
@@ -316,6 +331,11 @@ export function OxygenDip({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!readings.length) return null
+
   const pts = [...readings].sort((a, b) => a.minute - b.minute)
   let belowT = 0
   let belowC = 0
@@ -405,6 +425,11 @@ export function SeaLice({
   trigger: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!pens.length || !weeks.length || !counts.length) return null
+
   const siteAvg = weeks.map((_, wi) => counts.reduce((a, row) => a + row[wi], 0) / Math.max(counts.length, 1))
   const max = Math.max(trigger, ...counts.flat())
   const breachWeeks = siteAvg.filter((v) => v >= trigger).length
@@ -508,6 +533,11 @@ export function HarvestWindow({
   weeklyMortality: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!weeks.length) return null
+
   let cumulativeFeed = 0
   const rows = weeks.map((w, i) => {
     if (i > 0) cumulativeFeed += weeks[i].feedT * feedCostPerT

@@ -334,6 +334,11 @@ export function PhishSimulation({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!departments.length) return null
+
   const rows = departments.map((d) => ({
     ...d,
     clickRate: d.clicked / Math.max(d.sent, 1),
@@ -483,6 +488,11 @@ export function IncidentTimeline({
   }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!events.length) return null
+
   const sorted = [...events].sort((a, b) => a.atMinute - b.atMinute)
   const at = (phase: (typeof events)[number]["phase"]) => sorted.find((e) => e.phase === phase)?.atMinute ?? null
   const compromise = at("compromise") ?? 0

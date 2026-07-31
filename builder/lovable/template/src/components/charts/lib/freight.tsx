@@ -320,6 +320,11 @@ export function FuelSurcharge({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!months.length) return null
+
   const rows = months.map((m) => {
     // the surcharge the formula SHOULD produce at this month's price
     const due = ((m.pencePerLitre - baselinePence) / Math.max(baselinePence, 1e-9)) * fuelShareOfCost * 100
@@ -494,6 +499,11 @@ export function VehicleUtilisation({
   dailyFixedCost?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!days.length) return null
+
   const parts: [keyof (typeof days)[number], string, string][] = [
     ["loaded", "Loaded", "currentColor"],
     ["empty", "Empty", "repeating-linear-gradient(135deg, currentColor 0 2px, transparent 2px 5px)"],

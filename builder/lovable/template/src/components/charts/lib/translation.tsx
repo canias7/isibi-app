@@ -29,6 +29,11 @@ export function StringGrowth({
   budgetFactor?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!locales.length) return null
+
   const rows = locales
     .map((l) => {
       const factors = l.pairs.map((p) => p.translated / Math.max(p.source, 1))
@@ -197,6 +202,11 @@ export function QaTypology({
   threshold?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!locales.length || !categories.length || !findings.length || !wordCounts.length) return null
+
   const rates = findings.map((row, i) => row.map((v) => (v / Math.max(wordCounts[i], 1)) * 1000))
   const totals = rates.map((row) => row.reduce((a, v) => a + v, 0))
   const max = Math.max(...rates.flat())
@@ -463,6 +473,11 @@ export function TermConsistency({
   terms: { source: string; locales: { name: string; variants: number; approvedShare: number; uses: number }[] }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!terms.length) return null
+
   const rows = terms
     .map((t) => {
       const uses = t.locales.reduce((a, l) => a + l.uses, 0)
