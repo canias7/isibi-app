@@ -11,7 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { PLANNED } from "./components-planned.mjs";
-import { NEXT_SHAPES } from "./components-next.mjs";
+import { NEXT_PLANNED, NEXT_SHAPES } from "./components-next.mjs";
 
 const ROOT = path.join(import.meta.dirname, "..");
 const UI_DIR = path.join(ROOT, "builder/lovable/template/src/components/ui");
@@ -34,7 +34,12 @@ export function render() {
         .map(([n, why]) => `- ${done.has(n) ? "✓ " : ""}**${n}** — ${why}`)
         .join("\n"))
     .join("\n\n");
-  const nextCount = Object.values(NEXT_SHAPES).reduce((s, e) => s + Object.keys(e).length, 0);
+  const shapeCount = Object.values(NEXT_SHAPES).reduce((s, e) => s + Object.keys(e).length, 0);
+  const bulk = Object.entries(NEXT_PLANNED)
+    .map(([group, names]) => `### ${group}\n\n`
+      + names.map((n) => (done.has(n) ? "✓ " : "") + n).join("\n"))
+    .join("\n\n");
+  const bulkCount = Object.values(NEXT_PLANNED).flat().length;
 
   return `# Components (${built.length} built, ${todo.length} to go)\n\n`
     + `A ✓ means it exists and a generated site can import it today.\n\n`
@@ -42,11 +47,15 @@ export function render() {
     + built.map((n) => "✓ " + n).join("\n")
     + "\n\n"
     + todo.join("\n")
-    + `\n\n## Shapes the kit still lacks (${nextCount} proposed, none built)\n\n`
-    + `A 1000-name draft was culled to these by asking of each one: would it take\n`
-    + `the same props and render the same structure as something already built?\n`
-    + `If yes it is that component with different words in it, and it is not here.\n\n`
+    + `\n\n## Build these first — ${shapeCount} shapes with no near neighbour\n\n`
+    + `Structurally new: nothing shipped renders anything like them. Each says\n`
+    + `what it is and what it differs from.\n\n`
     + next
+    + `\n\n## Then these — ${bulkCount} proposed, prop-distinct\n\n`
+    + `Same test the shipped kit uses on its own 33 cards and 32 badges: different\n`
+    + `PROPS, so the model hands one its data instead of writing the layout inline.\n`
+    + `142 true prop-clones were dropped (ten countdowns are one countdown-ring).\n\n`
+    + bulk
     + "\n";
 }
 
