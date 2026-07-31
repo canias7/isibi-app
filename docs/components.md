@@ -1,4 +1,4 @@
-# Components (835 built, 165 to go)
+# Components (855 built, 145 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -11,6 +11,7 @@
 ✓ alert
 ✓ alert-dialog
 ✓ all-day-row
+✓ alt-text-field
 ✓ anchor-nav
 ✓ announcement-bar
 ✓ api-key-row
@@ -73,6 +74,7 @@
 ✓ cancel-policy
 ✓ canned-reply
 ✓ capacity-bar
+✓ caption-toggle
 ✓ card
 ✓ card-grid
 ✓ card-input
@@ -143,9 +145,11 @@
 ✓ contact-card
 ✓ contact-form
 ✓ container
+✓ content-placeholder
 ✓ context-menu
 ✓ context-meter
 ✓ context-panel
+✓ contrast-check
 ✓ conversation-branch
 ✓ conversation-row
 ✓ cookie-banner
@@ -297,6 +301,7 @@
 ✓ help-launcher
 ✓ hero
 ✓ hero-split
+✓ high-contrast
 ✓ highlight-match
 ✓ hint-dot
 ✓ holiday-notice
@@ -338,12 +343,14 @@
 ✓ jump-to
 ✓ kbd
 ✓ key-value
+✓ keyboard-map
 ✓ label
 ✓ labeled-progress
 ✓ landmark
 ✓ lang-switch
 ✓ latency-badge
 ✓ layer-list
+✓ lazy-boundary
 ✓ lead
 ✓ lead-time
 ✓ legend
@@ -359,6 +366,7 @@
 ✓ live-badge
 ✓ live-cursor
 ✓ live-region
+✓ load-error
 ✓ load-more
 ✓ loading-overlay
 ✓ location-card
@@ -458,6 +466,7 @@
 ✓ panel-group
 ✓ parallax
 ✓ partial-failure
+✓ partial-list
 ✓ party-size
 ✓ passkey-prompt
 ✓ password-input
@@ -476,6 +485,7 @@
 ✓ pickup-point
 ✓ pinned-nav
 ✓ pivot-table
+✓ placeholder-grid
 ✓ plan-card
 ✓ playback-speed
 ✓ plural
@@ -532,6 +542,7 @@
 ✓ rating-input
 ✓ rating-summary
 ✓ ratio-bar
+✓ reading-guide
 ✓ reading-time
 ✓ receipt
 ✓ recent-nav
@@ -542,6 +553,8 @@
 ✓ recovery-codes
 ✓ recurrence-summary
 ✓ recurring-picker
+✓ reduce-motion
+✓ refresh-pill
 ✓ regenerate-button
 ✓ related-list
 ✓ related-nav
@@ -587,6 +600,7 @@
 ✓ schema-viewer
 ✓ scope-list
 ✓ screen-only
+✓ screen-reader-note
 ✓ scroll-area
 ✓ scroll-progress
 ✓ scroll-reveal
@@ -632,6 +646,7 @@
 ✓ sheet-stack
 ✓ shelf
 ✓ shift-badge
+✓ shimmer
 ✓ shipping-options
 ✓ short-link
 ✓ shortcut-overlay
@@ -650,6 +665,8 @@
 ✓ size-picker
 ✓ skeleton
 ✓ skeleton-card
+✓ skeleton-form
+✓ skeleton-list
 ✓ skeleton-text
 ✓ skill-tags
 ✓ skip-link
@@ -686,6 +703,7 @@
 ✓ stack-trace
 ✓ stage-gate
 ✓ stagger-list
+✓ stale-badge
 ✓ stale-data-note
 ✓ stat-card
 ✓ state-badge
@@ -723,6 +741,7 @@
 ✓ syntax-highlight
 ✓ system-prompt-editor
 ✓ tab-nav
+✓ tab-order-note
 ✓ tab-overflow
 ✓ table
 ✓ table-editor
@@ -777,6 +796,7 @@
 ✓ tour-step
 ✓ trade-off-bar
 ✓ transcript-line
+✓ transcript-toggle
 ✓ transcript-view
 ✓ transfer-list
 ✓ transition-arrow
@@ -839,7 +859,6 @@
 advanced-toggle
 age-gate
 aggregate-picker
-alt-text-field
 amount-input
 anchor-heading
 appeal-form
@@ -856,7 +875,6 @@ bucket-picker
 bullet-chart
 byline-compact
 camera-capture
-caption-toggle
 chart-export
 chart-legend
 checklist-dot
@@ -868,10 +886,8 @@ command-group
 command-item
 comparison-chart
 completeness-bar
-content-placeholder
 content-warning
 content-width
-contrast-check
 coordinate-input
 countdown-ring
 csat-face
@@ -908,31 +924,25 @@ funnel-chart
 group-by-picker
 grouped-bar
 gutter
-high-contrast
 histogram
 hotkey-badge
 idle-note
 import-settings
 key-sequence
-keyboard-map
 keyboard-tip
 kicker
-lazy-boundary
 likert-row
 line-chart
-load-error
 media-query-note
 missing-fields
 moderation-queue
 offline-queue
 open-question
 outlier-flag
-partial-list
 paste-image
 payment-picker
 pie-chart
 place-search
-placeholder-grid
 poll-result
 portal
 preference-group
@@ -945,9 +955,6 @@ radius-slider
 range-chart
 ranking-list
 read-progress
-reading-guide
-reduce-motion
-refresh-pill
 relative-date
 report-reason
 reset-defaults
@@ -957,22 +964,17 @@ safe-area
 sample-toggle
 scan-document
 scatter-plot
-screen-reader-note
 scroll-lock
 sentiment-chip
-shimmer
 shortcut-row
 sidebar-right
 sidenote
-skeleton-form
-skeleton-list
 snooze-until
 source-label
 spam-note
 sparkline-grid
 split-amount
 stacked-bar
-stale-badge
 startup-page
 step-chart
 sticky-columns
@@ -980,14 +982,12 @@ sticky-footer
 stopwatch
 strike-badge
 survey-card
-tab-order-note
 table-of-contents
 tax-toggle
 theme-picker
 three-col
 timezone-clock
 top-n-picker
-transcript-toggle
 treemap-chart
 trend-card
 trust-score

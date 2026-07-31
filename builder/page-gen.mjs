@@ -360,6 +360,14 @@ export const UI_COMPONENTS = [
   "unit-convert", "precision-toggle", "big-number", "delta-pill",
   "tolerance-bar", "percent-ring", "currency-switch", "rounding-note",
   "range-summary", "threshold-bar",
+  // Loading and progressive rendering.
+  "shimmer", "skeleton-list", "skeleton-form", "placeholder-grid",
+  "lazy-boundary", "content-placeholder", "load-error", "partial-list",
+  "stale-badge", "refresh-pill",
+  // Accessibility surfaces.
+  "reduce-motion", "high-contrast", "screen-reader-note", "alt-text-field",
+  "contrast-check", "keyboard-map", "reading-guide", "caption-toggle",
+  "transcript-toggle", "tab-order-note",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
