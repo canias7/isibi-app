@@ -210,6 +210,7 @@ try {
   fs.mkdirSync(path.join(sandbox, ".routes-base"), { recursive: true });
   fs.copyFileSync(path.join(sandbox, "src/routes/__root.tsx"), path.join(sandbox, ".routes-base/__root.tsx"));
   fs.copyFileSync(path.join(sandbox, "index.html"), path.join(sandbox, ".index-base.html"));
+  fs.copyFileSync(path.join(sandbox, "src/styles.css"), path.join(sandbox, ".styles-base.css"));
   fs.rmSync(path.join(sandbox, "src/routes/index.tsx"), { force: true });
 
   server = spawn("node", [path.join(ROOT, "builder", "build-server.mjs")], {
@@ -262,6 +263,94 @@ try {
   ok("and it is reported as a typecheck failure", broken.stage === "typecheck", broken.stage);
   ok("with the error a repair pass can act on", /is not assignable to type 'number'/.test(broken.error || ""), (broken.error || "").slice(0, 300));
 
+  // tsconfig EXCLUDES src/components/charts, because it is a catalogue rather
+  // than application code and typechecking all 70 on every build cost 3s a site.
+  // (src/blocks was excluded for the same reason until it was deleted
+  // 2026-07-31.) That is only acceptable while `exclude` keeps meaning "not in
+  // the initial file list" rather than "never checked" — TypeScript still follows
+  // an import into an excluded file.
+  //
+  // Asserted rather than trusted, because the failure is silent and expensive: if
+  // exclusion ever became real, a generated page could import a broken chart, pass
+  // the build, ship, and break in a visitor's browser — the exact compiles-then-
+  // fails class the lint exists to prevent. A chart is broken in memory here; the
+  // file on disk is never touched.
+  console.log("\nimporting an EXCLUDED file that has a type error…");
+  const chartRel = "src/components/charts/chart-bar-label.tsx";
+  const chartAbs = path.join(sandbox, chartRel);
+  ok("the excluded chart is really there to break", fs.existsSync(chartAbs), chartAbs);
+  const chartWas = fs.readFileSync(chartAbs, "utf8");
+  fs.writeFileSync(chartAbs, chartWas + '\nexport const _typeBomb: number = "not a number";\n');
+  // BOTH routes, exactly like the successful build above. Posting index.tsx alone
+  // leaves its <Link to="/menu"> pointing at a route that does not exist, which is
+  // a second typecheck error — and with that present the "build failed" assertion
+  // passes whether or not the chart was ever checked. Caught by mutation: making
+  // the bomb type-correct still failed the build.
+  const importsExcluded = await post({
+    files: {
+      "index.tsx": INDEX.replace(
+        'export const Route = createFileRoute("/")({ component: Home });',
+        'import { _typeBomb } from "@/components/charts/chart-bar-label";\nvoid _typeBomb;\nexport const Route = createFileRoute("/")({ component: Home });',
+      ),
+      "menu.tsx": MENU,
+    },
+    slug: "fold-coffee",
+  });
+  fs.writeFileSync(chartAbs, chartWas);
+  ok("a type error inside an EXCLUDED but imported file still fails the build",
+    importsExcluded.ok === false, JSON.stringify(importsExcluded).slice(0, 200));
+  ok("and it is blamed on the excluded file, not the page",
+    /chart-bar-label/.test(importsExcluded.error || ""), (importsExcluded.error || "").slice(0, 300));
+
+  // The typeface, which until 2026-07-30 no generated site had at all: the
+  // template declared neither --font-sans nor --font-heading, so every site
+  // rendered in whatever the visitor's machine defaulted to.
+  //
+  // Asserted on the BUNDLE rather than on the response, because the response
+  // saying "lora" and the CSS shipping Geist are indistinguishable from out here
+  // — and that gap is exactly where a token nothing references hides.
+  console.log("\nbuilding with a chosen typeface…");
+  const withFont = await post({
+    files: { "index.tsx": INDEX, "menu.tsx": MENU },
+    slug: "fold-coffee", fonts: { heading: "Playfair Display", body: "source sans 3" },
+  });
+  ok("a build with fonts succeeds", withFont.ok === true, JSON.stringify(withFont).slice(0, 200));
+  ok("the response says which fonts were used",
+    withFont.fonts && withFont.fonts.heading === "playfair-display" && withFont.fonts.body === "source-sans-3",
+    JSON.stringify(withFont.fonts));
+  {
+    const css = Object.entries(withFont.files || {})
+      .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
+    ok("the bundled CSS sets --font-heading to the chosen face",
+      /--font-heading:\s*"Playfair Display Variable"/.test(css), css.slice(0, 300));
+    ok("and --font-sans to the chosen body face",
+      /--font-sans:\s*"Source Sans 3 Variable"/.test(css), css.slice(0, 300));
+    ok("the font FILES are actually in the bundle, not just named",
+      Object.keys(withFont.files || {}).some((k) => /\.woff2?$/i.test(k)),
+      Object.keys(withFont.files || {}).slice(0, 12).join(", "));
+    // The whole reason fonts are written per build: importing all 24 statically
+    // would ship every one of them to every site.
+    const faces = Object.keys(withFont.files || {}).filter((k) => /\.woff2?$/i.test(k));
+    // Two typefaces, but more than two files: a fontsource package ships one per
+    // SUBSET (latin, latin-ext, cyrillic, vietnamese...) and the browser fetches
+    // only what it needs. The number that matters is that it is nowhere near the
+    // whole shortlist — importing all 24 statically would be hundreds.
+    ok(`only the chosen faces are bundled (${faces.length} files, not all 24)`,
+      faces.length > 0 && faces.length <= 40, faces.join(", "));
+  }
+
+  // A font nobody can supply must not fail the build — a site in the wrong
+  // typeface is a far smaller problem than a site that did not publish.
+  const badFont = await post({
+    files: { "index.tsx": INDEX, "menu.tsx": MENU },
+    slug: "fold-coffee", fonts: { heading: "Helvetica", body: "Helvetica" },
+  });
+  ok("an impossible font falls back instead of failing the build", badFont.ok === true,
+    JSON.stringify(badFont).slice(0, 200));
+  ok("and it says so rather than silently substituting",
+    !!(badFont.fonts && badFont.fonts.notes && badFont.fonts.notes.length),
+    JSON.stringify(badFont.fonts));
+
   console.log("\nrejecting what must never be written…");
   const root = await post({ files: { "__root.tsx": "export const x = 1;" } });
   ok("the root layout cannot be overwritten", root.ok === false && /no valid route files/.test(root.error || ""), JSON.stringify(root).slice(0, 200));
@@ -273,6 +362,47 @@ try {
   const solo = await post({ files: { "index.tsx": MENU.replace('createFileRoute("/menu")', 'createFileRoute("/")').replace("function Menu", "function Home").replace("component: Menu", "component: Home") }, slug: "fold-coffee" });
   ok("a rebuild with fewer pages succeeds", solo.ok === true, solo.stage + ": " + solo.error);
   ok("the previous build's extra route is gone", !fs.existsSync(path.join(sandbox, "src/routes/menu.tsx")));
+
+  // ── two builds at once ──────────────────────────────────────────────────────
+  //
+  // The reset above proves builds do not leak SEQUENTIALLY, and says nothing at
+  // all about two arriving together — which is the case that actually happens.
+  // `getContainer(env.SITE_BUILD_CONTAINER)` takes no id, so every build on the
+  // platform lands in ONE container, and the build handler wipes a shared
+  // src/routes before writing. Interleaved, one build deletes the other's pages
+  // and then publishes its own dist to the other's slug.
+  //
+  // Observed live 2026-07-29: the auth audit built a yoga studio and its
+  // published site served the barber shop that the build smoke test was
+  // compiling in the same second.
+  console.log("\nbuilding two sites at once…");
+  const page = (brand) => `import { createFileRoute } from "@tanstack/react-router";
+export const Route = createFileRoute("/")({ component: Home });
+function Home() { return <main><h1>${brand}</h1></main>; }`;
+  const [a, b] = await Promise.all([
+    post({ files: { "index.tsx": page("AURORA YOGA") }, slug: "conc-yoga", title: "Aurora Yoga" }),
+    post({ files: { "index.tsx": page("FADE AND CO") }, slug: "conc-barber", title: "Fade and Co" }),
+  ]);
+  ok("both concurrent builds succeed", a.ok === true && b.ok === true,
+    `a=${a.stage || "ok"}:${a.error || ""} b=${b.stage || "ok"}:${b.error || ""}`);
+  if (a.ok && b.ok) {
+    // collectDist returns {t: "<text>"} or {b: "<base64>"}, not raw strings —
+    // joining the objects gives "[object Object]" and finds nothing, which reads
+    // exactly like a corrupted build. It cost a round to notice.
+    const js = (r) => Object.entries(r.files || {})
+      .filter(([k]) => k.endsWith(".js"))
+      .map(([, v]) => (v && typeof v === "object" ? v.t || "" : String(v)))
+      .join("");
+    const A = js(a), B = js(b);
+    // Each build must get ITS OWN brand and, more importantly, must not carry
+    // the other's. Publishing one customer's copy on another customer's domain
+    // is the failure this is here to stop.
+    ok("the first build carries its own content", A.includes("AURORA YOGA"), "missing its own brand");
+    ok("the second build carries its own content", B.includes("FADE AND CO"), "missing its own brand");
+    ok("neither build carries the OTHER site's content",
+      !A.includes("FADE AND CO") && !B.includes("AURORA YOGA"),
+      "one build was published with the other's pages — a cross-tenant content leak");
+  }
 } catch (e) {
   failed++;
   console.log("\nUNCAUGHT: " + ((e && (e.stack || e.message)) || e));

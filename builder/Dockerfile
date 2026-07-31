@@ -26,9 +26,12 @@ COPY lovable/template/ ./
 RUN mkdir -p /app/.routes-base \
     && cp src/routes/__root.tsx /app/.routes-base/ \
     && cp index.html /app/.index-base.html \
+    && cp src/styles.css /app/.styles-base.css \
     && rm -f src/routes/index.tsx
 
-COPY build-server.mjs ./
+# site-fonts.mjs and its index are imported BY build-server.mjs, so a missing one
+# is not a degraded build — the service fails to start at all.
+COPY build-server.mjs site-fonts.mjs font-index.json ./
 
 ENV NODE_ENV=production
 EXPOSE 8080

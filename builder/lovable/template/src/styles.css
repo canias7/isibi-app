@@ -8,6 +8,45 @@
   /* PER-APP TOKENS. The generator adds this app's own fonts and semantic colours here,
      e.g. --font-display, --color-tier-premium. Everything below this block is the
      shared shadcn base and should not be edited. */
+
+  /* Typography. These are the DEFAULTS and the shape of the contract; the build
+     writes the site's actual choice into fonts.css, which loads after this and
+     redefines both on :root.
+
+     Until 2026-07-30 neither of these existed, so every generated site rendered
+     in whatever the visitor's machine happened to default to — Helvetica on a
+     Mac, Segoe on Windows. Declaring them here is what makes `font-sans` and
+     `font-heading` real Tailwind utilities as well. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: var(--font-sans);
+
+  /* Motion. Named rather than numeric for the same reason the colours are:
+     before this, 24 duration usages across 19 files ran on eight unrelated
+     numbers (75/100/150/200/300/400/500/1000) and four easings applied without
+     a pattern, so nothing on a generated page was timed against anything else.
+
+     THE EASINGS TOKENISE HERE AND THE DURATIONS CANNOT. Tailwind v4 derives an
+     `ease-*` utility from this namespace — verified — but has no namespace for a
+     named duration: `--duration-fast` here generates nothing and the class
+     silently falls back to the 150ms default, which is the worst kind of failure
+     because the markup still looks right. So the durations are plain custom
+     properties below, used as `duration-(--dur-2)`.
+
+     Deliberately NOT called ease-out/ease-in-out: those are Tailwind built-ins,
+     and redefining them would silently re-time everything already using them. */
+  --ease-emphasis: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: linear(0, 0.45 12%, 0.94 24%, 1.07 32%, 1.02 42%, 0.99 52%, 1.005 66%, 1);
+}
+
+/* The four steps every animation in the kit is timed against.
+   The tiers are semantic and they came out of the data rather than being
+   invented: acknowledgement, state change, movement, arrival. */
+:root {
+  --dur-1: 90ms;    /* acknowledgement — a hover, a press, a progress tick */
+  --dur-2: 180ms;   /* state change — a panel opens, a dialog appears */
+  --dur-3: 320ms;   /* movement — something travels across the screen */
+  --dur-4: 500ms;   /* arrival — content that was not there is now there */
 }
 
 /*
@@ -48,6 +87,18 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  /* Semantic state, added 2026-07-30. `destructive` already existed; success and
+     warning did not, so a component that meant "this went well" or "careful" had
+     nothing to reach for and said it in grey.
+
+     These are for MEANING, never for decoration — and never as the only signal.
+     Every component using them also carries a shape, a weight or a written label,
+     because colour alone does not survive greyscale, print, or anyone who cannot
+     see it. */
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -85,6 +136,10 @@
   --accent-foreground: oklch(0.208 0.042 265.755);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.984 0.003 247.858);
+  --success: oklch(0.545 0.132 154.5);
+  --success-foreground: oklch(0.984 0.003 247.858);
+  --warning: oklch(0.665 0.145 72);
+  --warning-foreground: oklch(0.21 0.006 285.885);
   --border: oklch(0.929 0.013 255.508);
   --input: oklch(0.929 0.013 255.508);
   --ring: oklch(0.704 0.04 256.788);
@@ -120,6 +175,10 @@
   --accent-foreground: oklch(0.984 0.003 247.858);
   --destructive: oklch(0.704 0.191 22.216);
   --destructive-foreground: oklch(0.984 0.003 247.858);
+  --success: oklch(0.696 0.146 154.5);
+  --success-foreground: oklch(0.21 0.006 285.885);
+  --warning: oklch(0.78 0.145 76);
+  --warning-foreground: oklch(0.21 0.006 285.885);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.551 0.027 264.364);
@@ -146,5 +205,291 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    font-family: var(--font-sans);
+  }
+
+  /* The heading font is applied HERE rather than left to the generator putting a
+     class on every heading of every page. A token nothing references is the
+     state this template was already in: --font-heading could be set perfectly
+     and change nothing on screen. */
+  h1, h2, h3, h4 {
+    font-family: var(--font-heading);
+  }
+}
+
+/* ---- accessibility root classes -------------------------------------------
+   `reduce-motion.tsx` and `high-contrast.tsx` toggle these classes on <html>.
+   These rules are the other half of that mechanism — without them the toggles
+   are switches wired to nothing (which is exactly how they first shipped: the
+   components rendered, toggled, and changed not a single pixel).
+
+   The system preference and the app class share ONE set of declarations per
+   concern, stated twice because CSS cannot join a media query and a class
+   selector — keep the pairs identical when editing. */
+
+/* Motion: the same global kill-switch for the OS setting and the app toggle.
+   0.01ms rather than 0s so transitionend/animationend still fire — components
+   like morph-height finish on that event and 0s never dispatches it in some
+   engines. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+.app-reduce-motion *, .app-reduce-motion *::before, .app-reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Contrast: muted ink becomes ink, hairlines become rules, focus is full ink.
+   Tokens only — the components never restate colours, so this applies to every
+   component at once, including ones that never heard of the toggle. These
+   selectors sit at the end of the file on purpose: .app-high-contrast ties
+   with :root and .dark on specificity, so source order is what makes the
+   override win. */
+.app-high-contrast {
+  --foreground: oklch(0 0 0);
+  --card-foreground: oklch(0 0 0);
+  --popover-foreground: oklch(0 0 0);
+  --muted-foreground: oklch(0.25 0 0);
+  --border: oklch(0.45 0 0);
+  --input: oklch(0.45 0 0);
+  --ring: oklch(0 0 0);
+}
+.dark.app-high-contrast {
+  --foreground: oklch(1 0 0);
+  --card-foreground: oklch(1 0 0);
+  --popover-foreground: oklch(1 0 0);
+  --muted-foreground: oklch(0.85 0 0);
+  --border: oklch(1 0 0 / 55%);
+  --input: oklch(1 0 0 / 55%);
+  --ring: oklch(1 0 0);
+}
+@media (prefers-contrast: more) {
+  :root {
+    --foreground: oklch(0 0 0);
+    --card-foreground: oklch(0 0 0);
+    --popover-foreground: oklch(0 0 0);
+    --muted-foreground: oklch(0.25 0 0);
+    --border: oklch(0.45 0 0);
+    --input: oklch(0.45 0 0);
+    --ring: oklch(0 0 0);
+  }
+  .dark {
+    --foreground: oklch(1 0 0);
+    --card-foreground: oklch(1 0 0);
+    --popover-foreground: oklch(1 0 0);
+    --muted-foreground: oklch(0.85 0 0);
+    --border: oklch(1 0 0 / 55%);
+    --input: oklch(1 0 0 / 55%);
+    --ring: oklch(1 0 0);
+  }
+}
+
+/* ============================================================================
+   MOTION
+   ----------------------------------------------------------------------------
+   What Tailwind cannot express as a utility. Everything here is timed against
+   the --dur-* scale in :root and uses the --ease-* tokens from @theme, so the
+   whole kit moves as one system rather than 24 unrelated numbers.
+
+   These selectors sit at the END of the file for the same reason the
+   accessibility overrides do: source order is what makes them win, with no
+   !important and no specificity games.
+   ========================================================================== */
+
+/* ENTERING AND LEAVING THE DOM.
+   The gap these fill is the one an animation runtime is usually installed for:
+   an element being inserted has no previous state to transition FROM, and an
+   element being removed is gone before a transition can run. @starting-style
+   supplies the first; `display` with allow-discrete supplies the second.
+
+   49 components in this kit hold a boolean and render something conditionally
+   with no transition at all — a banner or a panel appearing instantly reads as a
+   page glitch rather than as the system telling you something. */
+@media (prefers-reduced-motion: no-preference) {
+  .motion-enter {
+    transition:
+      opacity var(--dur-2) var(--ease-emphasis),
+      translate var(--dur-2) var(--ease-emphasis);
+  }
+  @starting-style {
+    .motion-enter { opacity: 0; translate: 0 -0.25rem; }
+  }
+
+  /* FADE ONLY, for anything already using `translate` to position itself.
+     motion-enter animates the translate property, so on an element centred with
+     `-translate-x-1/2` the starting style overwrites the centering and the thing
+     slides in from the wrong place before snapping across. Two components in the
+     kit position that way. */
+  .motion-fade { transition: opacity var(--dur-2) var(--ease-emphasis); }
+  @starting-style { .motion-fade { opacity: 0; } }
+
+  /* For something that must animate OUT as well, so it needs to stay in the
+     tree and be driven by an attribute rather than unmounted. */
+  .motion-inout {
+    transition:
+      opacity var(--dur-2) var(--ease-emphasis),
+      translate var(--dur-2) var(--ease-emphasis),
+      display var(--dur-2) allow-discrete;
+  }
+  .motion-inout[data-shown="false"] { opacity: 0; translate: 0 -0.25rem; display: none; }
+  @starting-style {
+    .motion-inout[data-shown="true"] { opacity: 0; translate: 0 -0.25rem; }
+  }
+}
+
+/* A panel opening to a height nobody measured. `interpolate-size` is inherited,
+   so declaring it once here reaches every element that wants it — and the
+   open/closed state deliberately works with motion off, because only the
+   travelling should go away, never the behaviour. */
+:root { interpolate-size: allow-keywords; }
+.motion-collapse { height: 0; overflow: hidden; }
+.motion-collapse[data-open="true"] { height: auto; }
+@media (prefers-reduced-motion: no-preference) {
+  .motion-collapse { transition: height var(--dur-2) var(--ease-standard); }
+}
+
+/* PARALLAX, scroll-driven. Replaces a scroll listener, a rAF guard, an
+   IntersectionObserver and a getBoundingClientRect per frame.
+
+   The @supports is load-bearing: without it these keyframes attach to the
+   document timeline in a browser that lacks scroll timelines and play ONCE on
+   load, leaving the layer parked at its end position — visibly off-register on
+   exactly the browsers that could not do the effect. Skipped, it simply does not
+   move, which is what a background is supposed to do anyway. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    @keyframes motion-parallax {
+      from { translate: 0 calc(var(--parallax-shift, 10%) * -1); }
+      to   { translate: 0 var(--parallax-shift, 10%); }
+    }
+    .parallax { view-timeline-name: --parallax-view; }
+    .parallax-layer {
+      animation: motion-parallax linear both;
+      animation-timeline: --parallax-view;
+      animation-range: cover 0% cover 100%;
+      will-change: translate;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   The rest of the house set. Spec: builder/MOTION.md
+   -------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  /* STAGGER — a list arriving together: services, a menu, opening hours.
+     Delay by position rather than by a variable each item has to carry, so the
+     markup stays a plain list. CAPPED AT EIGHT on purpose: past that the last
+     row is waiting most of a second for nothing, which reads as the page being
+     slow rather than as the list arriving. Everything after the eighth shares
+     the eighth's delay. */
+  .motion-stagger > * {
+    transition:
+      opacity var(--dur-2) var(--ease-emphasis),
+      translate var(--dur-2) var(--ease-emphasis);
+    transition-delay: calc(7 * 45ms);
+  }
+  .motion-stagger > *:nth-child(1) { transition-delay: 0ms; }
+  .motion-stagger > *:nth-child(2) { transition-delay: 45ms; }
+  .motion-stagger > *:nth-child(3) { transition-delay: 90ms; }
+  .motion-stagger > *:nth-child(4) { transition-delay: 135ms; }
+  .motion-stagger > *:nth-child(5) { transition-delay: 180ms; }
+  .motion-stagger > *:nth-child(6) { transition-delay: 225ms; }
+  .motion-stagger > *:nth-child(7) { transition-delay: 270ms; }
+  @starting-style {
+    .motion-stagger > * { opacity: 0; translate: 0 -0.25rem; }
+  }
+
+  /* SWAP — one thing became another: skeleton to content, pending to confirmed.
+     No travel, only a fade, because the replacement occupies the same place and
+     moving it would ask the eye to re-find something it is already looking at. */
+  .motion-swap { transition: opacity var(--dur-2) var(--ease-emphasis); }
+  @starting-style { .motion-swap { opacity: 0; } }
+
+  /* PRESS — the shortest thing in the set, and deliberately so. Acknowledgement
+     has to feel instant; anything above about 120ms stops reading as a response
+     and starts reading as lag. */
+  .motion-press { transition: scale var(--dur-1) var(--ease-standard); }
+  .motion-press:active { scale: 0.97; }
+
+  /* LIFT — a card that can be clicked says so. Hover ONLY, and never the sole
+     affordance: a touch device never sees it, so the card must still look
+     clickable at rest. */
+  .motion-lift {
+    transition:
+      translate var(--dur-1) var(--ease-emphasis),
+      border-color var(--dur-1) var(--ease-emphasis),
+      box-shadow var(--dur-1) var(--ease-emphasis);
+  }
+  .motion-lift:hover {
+    translate: 0 -0.25rem;
+    border-color: var(--primary);
+    box-shadow: 0 8px 20px -12px color-mix(in oklch, var(--foreground) 45%, transparent);
+  }
+}
+
+/* SCROLL-DRIVEN. Guarded, because scroll timelines sit at roughly 84% globally —
+   Chromium since 2023, Safari since 26, and FIREFOX STILL BEHIND A FLAG as of
+   June 2026. Without @supports these keyframes bind to the document timeline and
+   play once on load, parking the element at its END state: a reveal would be
+   visible (harmless) but a progress bar would sit permanently full, which is a
+   lie about the page. About one visitor in six. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    /* REVEAL — content arriving as the page is read. Replaces an
+       IntersectionObserver with no JavaScript at all. The range finishes well
+       before the element is centred; a fade that is still running once you are
+       reading it is felt as a lag, not as an arrival. */
+    @keyframes motion-reveal-in {
+      from { opacity: 0; translate: 0 1.25rem; }
+      to   { opacity: 1; translate: 0 0; }
+    }
+    .motion-reveal {
+      animation: motion-reveal-in linear both;
+      animation-timeline: view();
+      animation-range: entry 10% cover 34%;
+    }
+  }
+}
+
+@supports (animation-timeline: scroll()) {
+  @media (prefers-reduced-motion: no-preference) {
+    /* PROGRESS — how far through the page the reader is. One element scaled
+       along its own axis, driven by the root scroller. */
+    @keyframes motion-progress-grow { from { scale: 0 1; } to { scale: 1 1; } }
+    .motion-progress {
+      transform-origin: 0 50%;
+      animation: motion-progress-grow linear both;
+      animation-timeline: scroll(root block);
+    }
+  }
+}
+
+/* STICK — a header that changes once it has actually stuck.
+   `container-type: scroll-state` lets CSS ask the question directly, which
+   replaces the sentinel element and IntersectionObserver this kit used to need.
+   The query styles DESCENDANTS of the container, so the sticky element carries
+   the container and its children carry the change. */
+.motion-stick { position: sticky; top: 0; container-type: scroll-state; }
+@media (prefers-reduced-motion: no-preference) {
+  .motion-stick > * {
+    transition:
+      padding-block var(--dur-2) var(--ease-standard),
+      box-shadow var(--dur-2) var(--ease-standard);
+  }
+}
+@supports (container-type: scroll-state) {
+  @container scroll-state(stuck: top) {
+    .motion-stick > * {
+      padding-block: 0.5rem;
+      box-shadow: 0 1px 0 0 var(--border), 0 6px 16px -14px color-mix(in oklch, var(--foreground) 60%, transparent);
+    }
   }
 }

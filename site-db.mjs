@@ -78,6 +78,24 @@ export function projectNameForUser(uid) {
   return "isibi-user-" + String(uid || "").slice(0, 40);
 }
 
+/**
+ * A project's name, per SITE.
+ *
+ * This is what an operator reads in the Neon console, and it is the only place
+ * they can tell one project from another — so it carries the slug. Named after
+ * the owner instead, a user with seven sites would have seven
+ * identically-named projects and no way to know which to delete.
+ *
+ * Normalised the same way `dbNameForSite` normalises, and bounded: Neon
+ * project names are not Postgres identifiers, but a name assembled from
+ * user input still gets the same treatment as one that is.
+ */
+export function projectNameForSite(slug) {
+  const s = String(slug || "").toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+  if (!s) throw Object.assign(new Error("bad site slug: " + slug), { bad: true });
+  return ("isibi-" + s).slice(0, 60);
+}
+
 // Swap the database name in a Neon connection URI. Every database inside a
 // project shares one endpoint host and role, so a site's connection string is
 // the project's connection string with a different path segment — no extra API
@@ -143,6 +161,128 @@ export async function createUserProject(env, uid) {
     roleName: ((d.roles || [])[0] || {}).name || null,
     conn, // points at the project's default database
   };
+}
+
+/**
+ * One site's own Neon project (2026-07-29 — was one per user).
+ *
+ * Identical to `createUserProject` in everything but the name, and kept as its
+ * own function rather than a flag because the two answer different questions and
+ * the caller should have to say which it means. `createUserProject` stays for the
+ * legacy rows that predate the change.
+ */
+export async function createSiteProject(env, slug) {
+  const project = { name: projectNameForSite(slug), region_id: NEON_REGION };
+  const org = await neonOrgId(env);
+  if (org) project.org_id = org;
+
+  const d = await neonApi(env, "/projects", { method: "POST", body: JSON.stringify({ project }) });
+  const conn = ((d.connection_uris || [])[0] || {}).connection_uri;
+  if (!d.project || !d.project.id || !conn) {
+    throw Object.assign(new Error("neon create project: unexpected response"), {
+      detail: JSON.stringify(d).slice(0, 300),
+    });
+  }
+  // Scheduled, not built. Nothing may touch it until quiet — see waitForProject.
+  await waitForProject(env, d.project.id);
+  return {
+    projectId: d.project.id,
+    branchId: (d.branch && d.branch.id) || null,
+    roleName: ((d.roles || [])[0] || {}).name || null,
+    conn,
+  };
+}
+
+/**
+ * Turn Neon Auth on for a site's project.
+ *
+ * The whole backend is Neon as of 2026-07-30, and that includes identity: a
+ * site's members live in `neon_auth.users_sync` inside the site's own database
+ * rather than in a `_users` table this repo hand-rolled. `users_sync.id` is
+ * **TEXT**, which is why every `owner_id` in the schema engine had to stop being
+ * an integer.
+ *
+ * CALLED ON EVERY BUILD, not only at creation, and that is the point. A project
+ * can exist without auth enabled — the create succeeded and this call failed, or
+ * it predates the change — and a retried build reuses the project, so enabling
+ * only at creation would leave that site permanently without identity while
+ * every retry reported success. The same reasoning that made `"already exists"`
+ * the one recoverable database error.
+ *
+ * So an already-enabled project must be a NO-OP rather than a failure. Neon
+ * answers a conflict for that, and anything with "already" in it is treated as
+ * done; everything else throws, because a site whose auth is off is a site whose
+ * member pages return nothing.
+ */
+export async function enableNeonAuth(env, projectId, branchId, dbName) {
+  if (!projectId || !branchId) throw Object.assign(new Error("neon auth: need a project and a branch"), { bad: true });
+  // `database_name` is REQUIRED in practice even though the API calls it
+  // optional: it defaults to the branch's database only when there is exactly
+  // one, and a site's project has two — Neon's default `neondb` plus the
+  // `site_<slug>` this repo creates. Measured against a real project
+  // 2026-07-30: omitting it answers `expecting exactly one database when
+  // database name is not set; got:"2"`. Naming it explicitly is also the
+  // difference between auth landing in the site's database and landing in an
+  // unused one, which nothing would have noticed until a member tried to sign in.
+  if (!dbName) throw Object.assign(new Error("neon auth: need the database name"), { bad: true });
+  // The response body is KEPT. It is how a client learns where to sign in — the
+  // auth endpoint and whatever public identifier goes with it — and discarding it
+  // meant the one call that provisions identity told us nothing about how to
+  // reach it. The caller decides what is safe to store; nothing here logs it,
+  // because a provisioning response is exactly the shape that carries a secret.
+  let info = null;
+  try {
+    info = await neonApi(env, `/projects/${projectId}/branches/${branchId}/auth`, {
+      method: "POST",
+      body: JSON.stringify({ auth_provider: "better_auth", database_name: dbName }),
+    });
+  } catch (e) {
+    const already = e && (e.status === 409 || /already/i.test(String(e.detail || e.message || "")));
+    if (!already) throw e;
+    return { enabled: true, already: true, info: null };
+  }
+  // Enabling auth is an async project operation like every other one — the
+  // schema is still being created when the call returns, and a schema apply
+  // racing it would not see `neon_auth`.
+  await waitForProject(env, projectId);
+  return { enabled: true, already: false, info };
+}
+
+/**
+ * Turn on Neon's Data API for a site's branch.
+ *
+ * This is what serves the site's tables to its own pages once the Worker's
+ * `/api/db/<slug>/rows` routes are gone, so a site without it has no backend at
+ * all — every list is empty and every form fails.
+ *
+ * **FATAL, like `enableNeonAuth` and for the same reason.** A caller can retry a
+ * failure and cannot retry a success, so reporting a successful build for a site
+ * whose data layer was never enabled is the worse outcome. The full error is
+ * attached rather than summarised, because the ONE thing not verified against a
+ * real project here is this endpoint's path — and a wrong path has to be
+ * correctable from the first failed build rather than the third.
+ *
+ * Idempotent on "already": it runs on EVERY build, not only at creation, because a
+ * retried build reuses the project and enabling only once would leave a site
+ * permanently without a data layer while every retry reported success.
+ */
+export async function enableDataApi(env, projectId, branchId) {
+  if (!projectId || !branchId) throw Object.assign(new Error("data api: need a project and a branch"), { bad: true });
+  let info = null;
+  try {
+    info = await neonApi(env, `/projects/${projectId}/branches/${branchId}/data_api`, { method: "POST", body: "{}" });
+  } catch (e) {
+    const already = e && (e.status === 409 || /already/i.test(String(e.detail || e.message || "")));
+    if (!already) {
+      throw Object.assign(new Error("could not enable the Neon Data API"), {
+        detail: String((e && (e.detail || e.message)) || "").slice(0, 400),
+        status: e && e.status,
+      });
+    }
+    return { enabled: true, already: true, info: null };
+  }
+  await waitForProject(env, projectId);
+  return { enabled: true, already: false, info };
 }
 
 // Add one site's database to an existing project.

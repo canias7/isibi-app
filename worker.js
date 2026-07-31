@@ -3,16 +3,29 @@
 // call. Bundled by wrangler at deploy (see package.json).
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { Container, getContainer } from "@cloudflare/containers";
-import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteDatabase, dropSiteDatabase, connForDatabase, dbNameForSite } from "./site-db.mjs";
-import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent } from "./site-schema.mjs";
-import { handleSiteData } from "./site-data.mjs";
+import { makeCache, memoize } from "./ttl-cache.mjs";
+import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
+import { ensureSiteBackend as ensureSiteBackendPure } from "./site-provision.mjs";
+import { lookupRoute, saveRoute, dropRoute } from "./site-routing.mjs";
+import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers, handleOwnerAnalytics, assertOwner } from "./site-owner.mjs";
+import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_VISITOR_UPLOAD_BYTES } from "./site-uploads.mjs";
+import { handleOwnerExport } from "./site-export.mjs";
+import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
+import { injectMeta } from "./site-meta.mjs";
+import { drainTeardown } from "./site-teardown.mjs";
+import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
+import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
-import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, repairPrompt, validatePages, lintPages } from "./builder/page-gen.mjs";
+import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, repairPrompt, briefForPages, pagesRequest, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
+import { publishPages } from "./builder/publish-pages.mjs";
+import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
+import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
 import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis, eoqCalc, breakevenCalc, demandForecast, installmentPlan, taxCalc, commissionCalc } from "./worker-finance.mjs";
 // Game builder (Phase 3): same generate→build→publish pipeline, engine swapped for
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
+import { SHORTLIST, resolvePair, shortlistForPrompt } from "./builder/site-fonts.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)
 // bakes kaplay + a headless Chromium for the smoke test. Runs to zero after idle.
@@ -822,6 +835,38 @@ function briefErr(d) {
     return s ? scrub(s) : undefined;
   }
   return undefined;
+}
+
+/**
+ * The one part of a model API's error body that is safe to hand back.
+ *
+ * `detail` is deliberately never returned: a 400 can quote the request, and the
+ * request contains the site's brief. But the provider's error *type* is a fixed
+ * token from a small set that contains nothing of ours, and it is the difference
+ * between "they are overloaded" and "the account that pays for this has no
+ * balance" — which are the same "the designer is busy" to a caller today.
+ *
+ * Measured 2026-07-29: both CI suites went red at the same minute on `upstream:
+ * 400` and it took a dig through a job log to learn why, because the reason was
+ * logged in Cloudflare and thrown away in the response. The numeric status was
+ * added for exactly that lesson and did not go far enough.
+ *
+ * `billing` is the one message that is checked rather than passed through. It
+ * is a fixed provider string about OUR account, not about the request, and it
+ * is the failure an operator can actually act on.
+ */
+function upstreamKind(detail) {
+  let body = null;
+  try { body = JSON.parse(String(detail || "")); } catch { return { type: null, billing: false }; }
+  const err = body && body.error;
+  const t = err && err.type;
+  const msg = String((err && err.message) || "");
+  return {
+    // Shape-checked, not trusted: an unrecognised token is dropped rather than
+    // echoed, so this can never become a channel for arbitrary upstream text.
+    type: /^[a-z_]{1,40}$/.test(String(t)) ? String(t) : null,
+    billing: /credit balance is too low|insufficient (?:credit|quota)|billing/i.test(msg),
+  };
 }
 
 function harden(res, request) {
@@ -1952,8 +1997,66 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runAutoReply(env));
     ctx.waitUntil(runScheduledSiteFunctions(env, ctx));
+    // Drain the Neon teardown queue. This side is the ONLY one that can: the
+    // rows are written by a Postgres trigger as a project's record disappears,
+    // and Postgres cannot call the Neon API.
+    ctx.waitUntil(runNeonTeardown(env));
   },
 };
+
+/**
+ * Drain the Neon teardown queue — the cron half.
+ *
+ * The decisions (what counts as done, what must never count as done, how hard to
+ * keep trying) live in site-teardown.mjs where they are tested against fakes.
+ * This is the wiring only.
+ */
+async function runNeonTeardown(env) {
+  if (!env.NEON_API_KEY || !env.SUPABASE_SERVICE_KEY) return;
+  const rest = (path, init) => fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...init, headers: svcHeaders(env, { "content-type": "application/json", ...((init || {}).headers || {}) }),
+    signal: AbortSignal.timeout(12000),
+  });
+  try {
+    const out = await drainTeardown({
+      due: async (limit) => {
+        const g = await rest(`neon_teardown?next_try_at=lte.${encodeURIComponent(new Date().toISOString())}` +
+          `&select=id,project_id,attempts&order=next_try_at.asc&limit=${Number(limit) || 5}`);
+        if (!g.ok) throw new Error("neon_teardown read " + g.status);
+        return await g.json();
+      },
+      // The status is what the verdict turns on, so it is passed through rather
+      // than collapsed into ok/not-ok — 404 and 403 mean opposite things here.
+      drop: async (projectId) => {
+        const r = await fetch(`https://console.neon.tech/api/v2/projects/${encodeURIComponent(projectId)}`, {
+          method: "DELETE",
+          headers: { Authorization: "Bearer " + env.NEON_API_KEY, accept: "application/json" },
+          signal: AbortSignal.timeout(20000),
+        });
+        return { ok: r.ok, status: r.status };
+      },
+      forget: async (id) => {
+        const d = await rest(`neon_teardown?id=eq.${Number(id)}`, { method: "DELETE" });
+        if (!d.ok) throw new Error("neon_teardown delete " + d.status);
+      },
+      defer: async (id, attempts, sec, why) => {
+        const d = await rest(`neon_teardown?id=eq.${Number(id)}`, {
+          method: "PATCH",
+          headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({
+            attempts,
+            last_error: String(why || "").slice(0, 300),
+            next_try_at: new Date(Date.now() + Number(sec) * 1000).toISOString(),
+          }),
+        });
+        if (!d.ok) throw new Error("neon_teardown defer " + d.status);
+      },
+    });
+    // Only worth a line when something happened. A tick over an empty queue runs
+    // every two minutes and would otherwise bury everything else in the log.
+    if (out.attempted || out.errors.length) console.log("neon teardown:", JSON.stringify(out));
+  } catch (e) { console.error("neon teardown failed:", (e && e.message) || e); }
+}
 
 // ── Free-tier media proxy ──
 // Free/over-cap users can't save to the gallery, so their render is delivered
@@ -2146,7 +2249,7 @@ async function runSiteFunction(env, row, input, slug) {
   const getD1 = async () => {
     if (d1uuid === undefined) {
       d1uuid = null;
-      if (siteDbConfigured(env)) { try { const u = await siteBackendBySlug(env, slug); if (u) { d1uuid = u; d1schema = await loadSiteSchema(env, u); } } catch {} }
+      if (siteDbConfigured(env)) { try { const u = await siteBackendBySlug(env, slug); if (u) { d1uuid = u; d1schema = await loadSiteSchema(u); } } catch {} }
     }
     return d1uuid;
   };
@@ -2430,6 +2533,9 @@ async function flushSiteMetrics(env, slug, agg) {
 // visitor never waits. Written per-event (not buffered) so the counts are EXACT even at
 // low traffic — unlike ops `_metrics`, product view-counts need to be trustworthy. The
 // `_analytics` table is ensured once per isolate.
+// In-app notifications for a site's members. Kept: the `notify` step of the
+// D1-era site-functions runner still calls this, and that runner is a separate
+// feature from auth — removing it is a different decision from this one.
 const _notifsReady = new Set();
 async function ensureNotifications(env, uuid) {
   if (_notifsReady.has(uuid)) return;
@@ -2453,54 +2559,11 @@ async function _hmac(secret, msg) {
   const sig = await crypto.subtle.sign("HMAC", key, _sbEnc.encode(msg));
   return _b64(new Uint8Array(sig));
 }
-// TOTP (RFC 6238) for two-factor auth — standard authenticator-app codes (Google
-// Authenticator, Authy, 1Password). Secret is base32; codes are 6 digits over a 30s step.
-async function verifySiteUserToken(secret, token) {
-  if (typeof token !== "string" || token.indexOf(".") < 0) return null;
-  const [body, sig] = token.split(".");
-  if (!body || !sig || sig !== _b64url(await _hmac(secret, body))) return null;
-  let p; try { p = JSON.parse(atob(body.replace(/-/g, "+").replace(/_/g, "/"))); } catch { return null; }
-  if (!p || (p.exp && Math.floor(Date.now() / 1000) > p.exp)) return null;
-  return p;
-}
 // Newer _users columns (roles, email verification) added after some sites were
 // created. ALTER them in once per site per warm isolate (the Set caches it, so this
 // is not paid on every auth call); each ALTER is idempotent-by-catch. NEW sites get
 // the columns from the CREATE below, so the ALTERs just no-op for them.
 const _authExtrasDone = new Set();
-async function ensureAuthExtras(env, uuid) {
-  if (_authExtrasDone.has(uuid)) return;
-  for (const sql of [
-    "ALTER TABLE _users ADD COLUMN role TEXT DEFAULT 'user'",
-    "ALTER TABLE _users ADD COLUMN verified INTEGER DEFAULT 0",
-    "ALTER TABLE _users ADD COLUMN verify_token TEXT",
-    "ALTER TABLE _users ADD COLUMN verify_exp INTEGER",
-    "ALTER TABLE _users ADD COLUMN display_name TEXT",
-    "ALTER TABLE _users ADD COLUMN avatar_url TEXT",
-    "ALTER TABLE _users ADD COLUMN bio TEXT",
-    "ALTER TABLE _users ADD COLUMN blocked INTEGER DEFAULT 0",
-    "ALTER TABLE _users ADD COLUMN totp_secret TEXT",
-    "ALTER TABLE _users ADD COLUMN totp_enabled INTEGER DEFAULT 0",
-    "ALTER TABLE _users ADD COLUMN token_epoch INTEGER DEFAULT 0",
-    "ALTER TABLE _users ADD COLUMN manager_id INTEGER", // team/hierarchy: this member reports to <manager_id> (for teamRead visibility)
-  ]) { try { await siteQuery(env, uuid, sql); } catch {} }
-  _authExtrasDone.add(uuid);
-}
-// Ensure a site's D1 has the _users + _meta tables and a per-site signing secret.
-async function initSiteAuth(env, uuid) {
-  await siteQuery(env, uuid, "CREATE TABLE IF NOT EXISTS _users (id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, email TEXT UNIQUE NOT NULL, pass_salt TEXT NOT NULL, pass_hash TEXT NOT NULL, failed INTEGER DEFAULT 0, locked_until INTEGER, role TEXT DEFAULT 'user', verified INTEGER DEFAULT 0, verify_token TEXT, verify_exp INTEGER, created_at TEXT DEFAULT (now()))");
-  await siteQuery(env, uuid, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
-  await ensureAuthExtras(env, uuid);
-  const rows = await siteQuery(env, uuid, "SELECT v FROM _meta WHERE k='auth_secret'");
-  if (rows[0] && rows[0].v) return rows[0].v;
-  const secret = _b64(crypto.getRandomValues(new Uint8Array(32)));
-  await siteQuery(env, uuid, "INSERT INTO _meta (k,v) VALUES ('auth_secret', ?) ON CONFLICT (k) DO NOTHING", [secret]);
-  const r2 = await siteQuery(env, uuid, "SELECT v FROM _meta WHERE k='auth_secret'");
-  return (r2[0] && r2[0].v) || secret;
-}
-// Email a built-site visitor a signed 24h "verify your email" link (→ /verify). Sent
-// through the platform mailer; fire-and-forget so signup/login never block on it. The
-// mailer no-ops until GO_FARTHER_API_KEY is set as a Worker secret (same as reset).
 // What one build costs the caller. The designer is a single Sonnet call with a
 // small output, so this sits alongside the other orchestrator fees rather than
 // being priced like a generation.
@@ -2509,6 +2572,11 @@ const SITE_BUILD_FEE = 2;
 // A plain-English brief becomes an isibi.schema.json. Uses tool-use rather than
 // asking for JSON in prose: the model must return an object matching the schema
 // below, so there is nothing to parse out of a reply and nothing to repair.
+// The shortlist the model may choose from, derived from site-fonts.mjs rather
+// than restated: a name here that is not installed produces a site whose CSS
+// points at a font that was never bundled, and it renders as the fallback.
+const SITE_FONT_IDS = SHORTLIST.map((f) => f.id);
+
 const SITE_SCHEMA_TOOL = {
   name: "design_schema",
   description: "Design the database tables a site needs, as an isibi.schema.json.",
@@ -2525,11 +2593,27 @@ const SITE_SCHEMA_TOOL = {
             name: { type: "string", description: "snake_case table name." },
             access: {
               type: "string",
-              enum: ["collect", "display"],
-              description: "'display' = anyone can read it, nobody writes (menus, services, posts). 'collect' = anyone can submit, nobody reads it back (bookings, orders, enquiries).",
+              enum: ["collect", "display", "user", "feed", "admin"],
+              description:
+                "'display' = anyone reads it, nobody writes (menus, services, opening hours). " +
+                "'collect' = anyone submits, nobody reads it back (bookings, orders, enquiries). " +
+                "'user' = PRIVATE PER MEMBER: a signed-in visitor reads and writes only their own rows (saved recipes, my orders, a personal journal). " +
+                "'feed' = SHARED, MEMBER-AUTHORED: every signed-in member reads all rows and writes their own (reviews, comments, a community board). " +
+                "'admin' = SHARED, ROLE-WRITABLE: signed-in members read it, only an admin writes it (announcements). " +
+                "The last three require the visitor to have an account on the site — use them ONLY when the brief actually asks for members, sign-in, or 'their own' anything. A shop that just needs a menu and a booking form must not have them.",
             },
             columns: {
               type: "array",
+              // A picture is a `text` column holding a URL, and its NAME is what
+              // decides whether the platform will accept a file for it — a
+              // visitor may only upload to a table that declares one. Measured
+              // 2026-07-28: across seven generated sites the designer put image
+              // columns on `display` tables every time and on a `collect` table
+              // never, so the upload path could not fire on a single one of them.
+              description:
+                "A picture is a 'text' column whose value is a URL — name it photo, image_url, avatar, logo, cover or hero_image. " +
+                "Put one on a 'display' table when the site shows pictures it owns (a menu item, a product, a team member); the owner fills these in after the build. " +
+                "Put one on a 'collect' or member table ONLY when the brief says the VISITOR sends a picture (a photo with their review, a reference image with their enquiry) — that is what lets the form accept a file at all.",
               items: {
                 type: "object",
                 properties: {
@@ -2543,14 +2627,162 @@ const SITE_SCHEMA_TOOL = {
             },
             timestamps: { type: "boolean" },
             fts: { type: "boolean", description: "Enable full-text search over this table's text columns." },
+            // These are enforced by real Postgres constraints and have been since
+            // the schema engine was written — and until 2026-07-28 the designer
+            // could not emit ANY of them, so no generated site had one. Measured
+            // live that day: two customers booked the same 14:00 slot on a
+            // generated barber shop and both were accepted.
+            unique: {
+              type: "array",
+              description:
+                "Groups of columns that must be unique together, enforced by a real index (a violation is a 409, not a duplicate row). " +
+                "USE THIS ON ANY BOOKING OR RESERVATION TABLE — without it two customers can take the same slot, which is the single most damaging bug a booking site can have. " +
+                "A group is an array of column names: [[\"appointment_date\",\"appointment_time\"]] means nobody can book that date+time twice. " +
+                "A group may instead be {\"columns\":[...], \"where\":\"status:eq:confirmed\"} so only rows in that state hold the slot — otherwise a CANCELLED booking occupies it forever.",
+              // One consistent object shape. This was `items: {}` — an empty
+              // schema, meant to allow both [["a","b"]] and [{columns,where}] —
+              // and the API REJECTED the whole tool for it, so every build with
+              // a brief answered "the designer is busy". Live for three merges.
+              // The parser accepts the object form, so one shape is enough.
+              items: {
+                type: "object",
+                properties: {
+                  columns: { type: "array", items: { type: "string" }, description: "The columns that must be unique together." },
+                  where: { type: "string", description: "Optional, as \"column:eq:value\" — only rows matching it hold the slot." },
+                },
+                required: ["columns"],
+              },
+            },
+            uniqueCI: {
+              type: "array",
+              description: "Columns unique ignoring case — use for an email column, so Ada@x.com and ada@x.com cannot both sign up. Array of column names.",
+              items: { type: "string" },
+            },
+            maxRows: {
+              type: "integer",
+              description: "Cap how many rows this table may ever hold. Worth setting on a public form (a giveaway with 500 places, a class with 20 seats); a full table answers 409 rather than growing forever.",
+            },
+            // Field-level redaction. Enforced on the read path since 2026-07-29;
+            // before that `maskFields` was written and called by nothing, so a
+            // table declaring it served the raw value to everyone. An ARRAY,
+            // not a map keyed by column name — a map needs `additionalProperties`
+            // in a tool schema, and an under-specified schema there is what took
+            // the builder down for three merges.
+            mask: {
+              type: "array",
+              description:
+                "Columns whose value is REDACTED for callers who may not see it in full — a phone shown as \"••••1234\" on a public page, a member's email hidden from other members. " +
+                "Use it when a table is readable by people who should not see every field of it; do NOT use it to hide a column from everyone (leave that column off the table instead). " +
+                "An `admin` always sees the full value, and an anonymous visitor counts as the role \"public\".",
+              items: {
+                type: "object",
+                properties: {
+                  column: { type: "string", description: "The column to redact." },
+                  roles: { type: "array", items: { type: "string" }, description: "Roles that DO see the full value, e.g. [\"staff\"]. Everyone else sees it redacted; admin always sees it." },
+                  keep: { type: "integer", description: "How many trailing characters stay visible (default 4), so \"07700900123\" shows as \"•••••••0123\"." },
+                },
+                required: ["column", "roles"],
+              },
+            },
+            // A team is a Neon Auth ORGANIZATION now, so the owner sets teams up
+            // through Better Auth rather than through any route of ours. Offered
+            // here again because a flag the designer cannot declare is a feature
+            // that does nothing — which this one was, at five separate layers.
+            teamScope: {
+              type: "boolean",
+              description:
+                "Share this table across a TEAM: everyone in the same team reads and edits the same rows, and a write records who made it. " +
+                "USE THIS FOR AN INTERNAL TOOL where colleagues work the same records — a CRM's deals, a shared job list, a client roster. " +
+                "Only meaningful with access 'user'. Do NOT use it for a customer-facing members area, where one customer must never see another's rows. " +
+                "A member who is not in a team sees only their own rows, so a site is safe before any team exists.",
+            },
+            publicView: {
+              type: "object",
+              description:
+                "A named, PII-filtered projection of this table that ANYONE may read, even though the table itself is not readable. " +
+                "USE THIS WITH A BOOKING TABLE so the page can grey out slots that are already taken: publicView {\"columns\":[\"appointment_date\",\"appointment_time\"]} publishes WHEN people have booked and nothing about WHO. " +
+                "Name only the columns a stranger may see — never a name, email, phone or note. `id` and `owner_id` are refused outright. " +
+                "Add \"where\":[\"status:eq:confirmed\"] when the table has a status, so a cancelled row stops occupying the slot.",
+              properties: {
+                columns: { type: "array", items: { type: "string" }, description: "The only columns published. No wildcard." },
+                where: { type: "array", items: { type: "string" }, description: "Filters as \"column:eq:value\" or \"column:ne:value\"." },
+                limit: { type: "integer", description: "Most rows returned at once (default 500, max 2000)." },
+              },
+            },
+            noOverlap: {
+              type: "object",
+              description:
+                "Prevents overlapping INTERVALS, for bookings whose length varies (a 60-minute colour at 10:00 must block a 30-minute trim at 10:30 — `unique` would let both in, because they are different times). " +
+                "REQUIRES start and end to be INTEGER columns, e.g. minutes from midnight: declare start_min/end_min as integers alongside whatever text time you display. " +
+                "If either is not an integer column the constraint is SILENTLY SKIPPED, so use plain `unique` unless you have actually declared the integers.",
+              properties: {
+                start: { type: "string", description: "Integer column where the interval starts." },
+                end: { type: "string", description: "Integer column where it ends." },
+                on: { type: "array", items: { type: "string" }, description: "Columns that scope it — e.g. [\"appointment_date\"] or [\"room\"]." },
+              },
+            },
           },
           required: ["name", "access", "columns"],
         },
       },
+      // Starter content, and not a nicety: nothing can write to a `display` table
+      // after the build — not even the owner — so whatever is not seeded here is
+      // an empty list forever, and a form whose required Select reads that table
+      // cannot be submitted by anyone.
+      // Goes in the published page's head. Until 2026-07-28 a generated site had
+      // a <title> and nothing else, so sharing its link on WhatsApp, iMessage or
+      // Slack showed a bare URL — and for a small business that link IS the
+      // marketing.
+      description: {
+        type: "string",
+        description:
+          "One sentence describing the business, as it should appear under the name in a Google result or a shared-link preview. " +
+          "Write it for a customer, not a developer: what it is, where, and what someone can do here — 'Skin fades and hot-towel shaves in Lisbon. Book online.' " +
+          "Under 160 characters. No quotes, no line breaks.",
+      },
+      seed: {
+        type: "object",
+        description: "Starter rows for each 'display' table, keyed by table name: {\"services\": [{...}, {...}]}. " +
+          "REQUIRED for every display table — a table left unseeded shows an empty list forever, because nothing can write to it after the build. " +
+          "Write 3-6 realistic rows per table using only that table's declared columns. Make them plausible for this specific business, not placeholders: " +
+          "real service names and real prices, not 'Item 1' / 0.00.",
+        additionalProperties: { type: "array", items: { type: "object" } },
+      },
+      // The typeface. Declared as an ENUM rather than free text, so an invalid
+      // font is impossible instead of something a lint has to catch afterwards —
+      // and so the whole list costs ~300 characters rather than the ~7,500 tokens
+      // that naming all 2,096 Fontsource families would add to every generation.
+      // Anything outside this list is still reachable later, by name, through the
+      // fetch path in site-fonts.mjs.
+      fonts: {
+        type: "object",
+        description:
+          "The site's typeface, as a heading face and a body face. Pick for the BUSINESS, not for fashion: " +
+          "a law firm or a restaurant can carry a serif, a gym or a studio wants a confident sans, a plain sans is right for most. " +
+          "The two may be the same. A display serif set as the body face is tiring to read at 14px — pair it with a sans instead.",
+        properties: {
+          heading: { type: "string", enum: SITE_FONT_IDS, description: "Face for h1-h4." },
+          body: { type: "string", enum: SITE_FONT_IDS, description: "Face for everything else." },
+        },
+        required: ["heading", "body"],
+      },
     },
-    required: ["brand", "slug", "tables"],
+    required: ["brand", "slug", "tables", "seed", "description", "fonts"],
   },
 };
+
+/**
+ * The schema call's budget.
+ *
+ * Was 2000, chosen when the tool returned a brand, a slug and a few column
+ * names. `seed` became a REQUIRED field on 2026-07-28 — 3-6 realistic rows for
+ * every display table — and `description` with it, so the response is several
+ * times the size it was sized for. Sonnet 5 also runs adaptive thinking when
+ * `thinking` is omitted, and max_tokens caps thinking AND the response together,
+ * so part of that budget is spent before a single row is written. Same reasoning
+ * as SITE_PAGES_MAX_TOKENS below, which was sized for it and this was not.
+ */
+const SITE_SCHEMA_MAX_TOKENS = 8000;
 
 async function designSiteSchema(env, brief) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -2558,45 +2790,48 @@ async function designSiteSchema(env, brief) {
     headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
     body: JSON.stringify({
       model: "claude-sonnet-5",
-      max_tokens: 2000,
+      max_tokens: SITE_SCHEMA_MAX_TOKENS,
       tools: [SITE_SCHEMA_TOOL],
       tool_choice: { type: "tool", name: "design_schema" },
       system: "You design the data model behind a small business website. Keep it to the few tables the site actually needs — usually one to four. " +
               "Use 'display' for content the business publishes and visitors read (services, menu items, posts). " +
               "Use 'collect' for anything a visitor submits — bookings, orders, enquiries, signups. Those are write-only on purpose: the visitor sends one in, " +
               "and only the business reads them, so customer names and phone numbers are never served back to the public. " +
-              "Prefer few columns with obvious names. Turn on fts only where someone would genuinely search free text.",
+              "Prefer few columns with obvious names. Turn on fts only where someone would genuinely search free text. " +
+              "If the brief mentions accounts, signing in, members, or anything a visitor keeps as 'theirs', give that data a 'user' table (or 'feed' when members are meant to see each other's) — visitor accounts are real and the pages can build a sign-in. " +
+              "Do NOT invent a signups/members table to hold accounts: the platform stores those itself, so a table for emails and passwords is both unnecessary and unusable. " +
+              "Then fill every 'display' table with 3-6 realistic starter rows in `seed`. This is not optional and it is not decoration: " +
+              "nothing can write to a display table after the build, so an unseeded table is an empty list forever, and any form field that " +
+              "chooses from it will have nothing to choose. Write content a real business would publish.",
       messages: [{ role: "user", content: brief }],
     }),
     signal: AbortSignal.timeout(60000),
   });
   if (!r.ok) {
     const e = new Error("anthropic " + r.status);
+    // Carried so the caller can say WHICH failure this was. The builder's main
+    // path has now gone down twice behind one unchanging "the designer is busy",
+    // and both times the only way to tell a transient overload from a request we
+    // are getting wrong was to read Cloudflare's logs.
+    e.status = r.status;
     e.detail = (await r.text().catch(() => "")).slice(0, 300);
     throw e;
   }
   const j = await r.json();
+  // A tool_use block cut off at max_tokens carries half-written JSON, so `input`
+  // is a partial schema — usually missing `seed`, sometimes missing `tables`
+  // entirely. Returning it silently made the caller answer "that brief didn't
+  // describe anything to store", which blames the person who wrote a perfectly
+  // good brief for a budget we set. Same check the pages call makes.
+  if (j.stop_reason === "max_tokens") {
+    const e = new Error("schema truncated at max_tokens");
+    e.truncated = true;
+    throw e;
+  }
   const use = (Array.isArray(j.content) ? j.content : []).find((b) => b && b.type === "tool_use");
   return (use && use.input) || null;
 }
 
-// Page generation is a much bigger call than the schema design — whole .tsx files
-// rather than a handful of column names — so it is metered on what it actually
-// used, like the game builder, instead of a flat fee sized for the worst case.
-//
-// Sized above what the pages themselves need: Sonnet 5 runs adaptive thinking
-// when `thinking` is omitted, and max_tokens caps thinking AND the response
-// together — so a budget tight around the files would spend part of itself
-// reasoning and truncate the last one. (Truncation is caught below rather than
-// published, but a truncated generation is a paid call that produced nothing.)
-const SITE_PAGES_MAX_TOKENS = 24000;
-const SITE_PAGES_RATE_IN = 3e-6, SITE_PAGES_RATE_OUT = 15e-6;
-// Don't start a call the caller plainly cannot pay for. Deliberately a floor and
-// not the worst case (~45 credits at the ceiling above): a new account is granted
-// 20, and gating on the maximum would mean nobody ever got a page on their first
-// build. A typical small site spends 10-20.
-const SITE_PAGES_MIN_CREDITS = 8;
-const sitePageCredits = (i, o) => Math.max(1, Math.ceil((i * SITE_PAGES_RATE_IN + o * SITE_PAGES_RATE_OUT) / 0.008));
 
 // The pages themselves. Same tool-use shape as designSiteSchema directly above:
 // the model fills in a tool whose input_schema IS the return type, so there is no
@@ -2612,14 +2847,10 @@ async function generateSitePages(env, brief, spec, brand, fix) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-5",
-      max_tokens: SITE_PAGES_MAX_TOKENS,
-      tools: [SITE_PAGES_TOOL],
-      tool_choice: { type: "tool", name: "write_pages" },
-      system: PAGE_RULES,
-      messages: [{ role: "user", content: fix ? repairPrompt(brief, spec, fix.pages, fix.problems, brand) : pagesPrompt(brief, spec, brand) }],
-    }),
+    // One definition, shared with the eval harness — see pagesRequest. Restating
+    // it here would mean the harness tunes against a different request from the
+    // one production runs.
+    body: JSON.stringify(pagesRequest({ brief, spec, brand, fix })),
     signal: AbortSignal.timeout(240000),
   });
   if (!r.ok) {
@@ -2645,7 +2876,18 @@ function schemaPlaceholderPage(brand, spec) {
   const esc = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const tables = (spec.tables || []).map((t) => {
     const cols = (t.columns || []).map((c) => "<li><code>" + esc(typeof c === "string" ? c : c.name) + "</code></li>").join("");
-    return "<section><h2>" + esc(t.name) + "</h2><p>" + esc(t.access === "user" ? "each visitor sees only their own rows" : "shared across visitors") +
+    // Every access level, not "user vs everything else". A `collect` table is
+    // WRITE-ONLY — calling it "shared across visitors" on the owner's fallback
+    // page says the opposite of what it does, and this page is the only thing a
+    // failed build leaves them.
+    const says = {
+      display: "anyone can read this",
+      collect: "visitors submit to this; only you can read it",
+      user: "each visitor sees only their own rows",
+      feed: "signed-in visitors read all of it, and write their own",
+      admin: "signed-in visitors read it; only an admin writes it",
+    }[String(t.access || "collect").toLowerCase()] || "visitors submit to this; only you can read it";
+    return "<section><h2>" + esc(t.name) + "</h2><p>" + esc(says) +
            "</p><ul>" + cols + "</ul></section>";
   }).join("");
   return "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\">" +
@@ -2673,53 +2915,366 @@ async function userSiteProject(env, uid) {
 
 // slug → that site's Postgres connection string. Two lookups: the site row names
 // a database, the owner's project row supplies the endpoint and credentials.
-async function siteBackendBySlug(env, slug) {
-  const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=neon_db,uid`, { headers: svcHeaders(env) });
-  const rows = await g.json().catch(() => []);
+// slug → connection string, cached. This is TWO Supabase round trips (the
+// backend row, then the owner's project) on the way to every single row a
+// visitor reads, and the answer is immutable for the life of a site: a slug is
+// claimed once and its database never moves. Only a DELETE changes it, and that
+// invalidates explicitly below.
+//
+// Measured before caching: ~0.9s median for a six-row read, of which four
+// sequential round trips were the request and three were this lookup plus the
+// schema read. Cached, a warm isolate pays one.
+const SITE_CONN_TTL_MS = 300_000;
+const _connCache = makeCache({ ttlMs: SITE_CONN_TTL_MS, max: 500 });
+
+// KV first, then the two Supabase calls. Supabase stays the source of truth —
+// a KV miss falls back and backfills, so an unbound or empty namespace is slow,
+// never wrong. Only the connection string is stored: it is fixed at build time,
+// so KV's eventual consistency cannot make it stale. (The schema is NOT stored
+// there — a revise changes it, and a minute of staleness would 404 the site's
+// own new tables.)
+const routeDeps = (env) => ({
+  kv: env.SITE_ROUTES || null,
+  fromSource: (slug) => siteBackendBySlugFresh(env, slug),
+  onBackfillError: (e) => console.error("site route KV:", (e && e.message) || e),
+});
+
+const _resolveBackend = memoize(_connCache, async (slug, env) => lookupRoute(routeDeps(env), slug));
+
+// Argument order is (env, slug), which is what every caller here uses.
+async function siteBackendBySlug(env, slug) { return _resolveBackend(slug, env); }
+
+// An uncached slug lookup. siteBackendBySlug caches for five minutes, which is
+// right on the request path and wrong here — see site-provision.mjs.
+async function siteBackendBySlugFresh(env, slug) {
+  const r = await siteBackendRowFresh(env, slug);
+  return (r && r.conn) || null;
+}
+
+// The same lookup, keeping the OWNER. Everything that writes needs this: a
+// connection string alone cannot answer "is this site mine?". Throws rather
+// than returning null when the lookup itself fails, so a caller cannot mistake
+// "Supabase is down" for "nobody owns this slug".
+async function siteBackendRowFresh(env, slug) {
+  const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=neon_db,uid,brief`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
+  if (!g.ok) throw Object.assign(new Error("site lookup failed"), { detail: g.status + " " + (await g.text().catch(() => "")).slice(0, 200) });
+  const rows = await g.json();
   const row = Array.isArray(rows) && rows[0];
-  if (!row || !row.neon_db) return null;
-  const proj = await userSiteProject(env, row.uid);
-  return proj ? connForDatabase(proj.neon_conn, row.neon_db) : null;
+  if (!row) return null;
+  if (!row.neon_db) return { conn: null, uid: row.uid, brief: row.brief || "" };
+  // By SLUG. One Neon project per SITE since 2026-07-29 — keyed by the owner, a
+  // user's second site would resolve to their FIRST site's project, which is
+  // exactly the isolation the change was made to get.
+  const proj = await siteNeonProject(env, slug);
+  return { conn: proj ? connForDatabase(proj.neon_conn, row.neon_db) : null, uid: row.uid, brief: row.brief || "" };
+}
+
+/**
+ * A site's Neon project, by slug.
+ *
+ * `site_project` rather than a column on `site_backends`, and that separation is
+ * the whole point: `site_backends` has an own-read RLS policy, so a signed-in
+ * user can read their own rows over the REST API — and `neon_conn` carries a
+ * PASSWORD. This table has RLS on with NO policies, so only the service key can
+ * see it, the same protection `user_site_project` has and for the same reason.
+ */
+async function siteNeonProject(env, slug) {
+  const g = await fetch(
+    `${SUPABASE_URL}/rest/v1/site_project?slug=eq.${encodeURIComponent(String(slug || "").toLowerCase())}` +
+    "&select=neon_project,neon_branch,neon_role,neon_conn&limit=1",
+    { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
+  // Throws rather than answering null: "Supabase is down" must not read as
+  // "this site has no project", which on the write path would create another.
+  if (!g.ok) throw Object.assign(new Error("site project lookup failed"), { detail: g.status + " " + (await g.text().catch(() => "")).slice(0, 200) });
+  const rows = await g.json().catch(() => []);
+  return (Array.isArray(rows) && rows[0]) || null;
 }
 
 // Provision (or reuse) one site's database, returning its connection string.
-// Called when a build starts, so a site has somewhere to put data the moment
-// the generator declares a schema.
-//
-// The user's Neon PROJECT is created lazily on their first build rather than at
-// signup: most accounts never build a site, and projects are a capped resource —
-// provisioning per signup would spend the quota on people who never use it.
-async function ensureSiteBackend(env, slug, uid) {
-  const existing = await siteBackendBySlug(env, slug);
-  if (existing) return existing;
-
-  let proj = await userSiteProject(env, uid);
-  if (!proj) {
-    const made = await createUserProject(env, uid);
-    proj = { neon_project: made.projectId, neon_branch: made.branchId, neon_role: made.roleName, neon_conn: made.conn };
-    await fetch(`${SUPABASE_URL}/rest/v1/user_site_project`, {
+// The ordering and the failure paths live in site-provision.mjs, where they are
+// tested; this supplies the real Neon and Supabase calls.
+async function ensureSiteBackend(env, slug, uid, brief) {
+  const write = async (table, body) => {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
       method: "POST",
       headers: svcHeaders(env, { "content-type": "application/json", Prefer: "resolution=merge-duplicates" }),
-      body: JSON.stringify({ uid, ...proj }),
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15000),
     });
-  }
-
-  // A retried build can hit an already-created database; that is success, not failure.
-  let dbName;
-  try {
-    dbName = await createSiteDatabase(env, proj.neon_project, proj.neon_branch, proj.neon_role, slug);
-  } catch (e) {
-    if (!/already exists/i.test(String(e && e.detail))) throw e;
-    dbName = dbNameForSite(slug);
-  }
-
-  await fetch(`${SUPABASE_URL}/rest/v1/site_backends`, {
-    method: "POST",
-    headers: svcHeaders(env, { "content-type": "application/json", Prefer: "resolution=merge-duplicates" }),
-    body: JSON.stringify({ slug, uid, neon_db: dbName }),
-  });
-  return connForDatabase(proj.neon_conn, dbName);
+    // The result was previously not looked at, so a failed write left a Neon
+    // project or database that nothing recorded.
+    return r.ok ? { ok: true } : { ok: false, detail: (await r.text().catch(() => "")).slice(0, 300) };
+  };
+  const conn = await ensureSiteBackendPure({
+    lookupSite: (s2) => siteBackendRowFresh(env, s2),
+    lookupProject: (s2) => siteNeonProject(env, s2),
+    createProject: (s2) => createSiteProject(env, s2),
+    // Identity is Neon's now. Idempotent, and run on the reuse path too —
+    // see site-provision.mjs for why enabling only at creation is a trap.
+    enableAuth: (proj, dbName) => enableNeonAuth(env, proj.neon_project, proj.neon_branch, dbName),
+    // Stored in the SITE's own _meta, not in Supabase: it is per-site, it is only
+    // ever read on a request that already holds that connection, and it goes when
+    // the site does.
+    saveAuthInfo: async (dbName, info) => {
+      const conn = connForDatabase((await lookupProject(slug)).conn, dbName);
+      await sqlQuery(conn, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
+      await sqlQuery(conn, "INSERT INTO _meta (k,v) VALUES ('auth_info', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
+        [JSON.stringify(info).slice(0, 20000)]);
+    },
+    dropProject: async (id) => {
+      console.error("dropping unrecorded neon project:", id);
+      return dropUserProject(env, id);
+    },
+    saveProject: (s2, u, proj) => write("site_project", { slug: s2, uid: u, ...proj }),
+    createDatabase: (proj, s2) => createSiteDatabase(env, proj.neon_project, proj.neon_branch, proj.neon_role, s2),
+    // The brief rides along on the row that claims the slug. ensureSiteBackend
+    // returns early when the slug already has a database, so saveBackend runs
+    // exactly once per site — which is what keeps a revise's one-line
+    // instruction from overwriting the brief the site was built from.
+    saveBackend: (s2, u, db) => write("site_backends", { slug: s2, uid: u, neon_db: db, brief: String(brief || "").slice(0, 4000) || null }),
+    connFor: connForDatabase,
+    dbNameFor: dbNameForSite,
+  }, { slug, uid });
+  // Publish the route so the first visitor read never touches Supabase. Purely
+  // an optimisation — the lookup backfills on a miss anyway — so a failure here
+  // must not fail a build that has otherwise succeeded.
+  await saveRoute(routeDeps(env), slug, conn);
+  return conn;
 }
+
+
+
+// The public data API's throttle. Separate table from the auth one so a site
+// being hammered with reads cannot evict the counters holding a brute force
+// back.
+const _dataLimiter = makeLimiter({ windowMs: WINDOW_MS, max: 20000 });
+// Tighter than a form post: an upload costs storage, not a row.
+const VISITOR_UPLOADS_PER_MIN = 5;
+// Sign-in attempts per source per site. Higher than the upload cap because a real
+// person legitimately retries a password, and low enough that credential stuffing
+// through our proxy is not free. Better Auth throttles on its own side too; this
+// is about not being the open front door to it.
+const AUTH_PROXY_PER_MIN = 20;
+// Data reads per source per site. A page legitimately renders several lists, so
+// this is generous — the budget it protects is Neon compute, and RLS is what
+// protects the rows.
+const DATA_PROXY_PER_MIN = 300;
+
+// The signing key for claim tokens, from the site's own per-site secret in
+// `_meta`. It was shared with session tokens until 2026-07-30; sessions are Neon
+// Auth's now, so a claim is the only kind left and this is its only reader. The
+// derivation is deliberately unchanged — claim links sit in confirmation emails
+// for ninety days and altering it would silently void every one already sent.
+
+
+
+
+
+
+
+
+
+
+
+
+/**
+ * Where this site's Neon Auth server lives.
+ *
+ * Recorded at build time from the provisioning response. The field NAME in that
+ * response is the one thing here not measured against a real project, so this
+ * tries the plausible names and then falls back to the first https URL in the
+ * body — a provisioning answer for an auth service contains exactly one, and a
+ * heuristic that finds it is better than a hard-coded key that silently finds
+ * nothing. Tighten it once a real build has logged the shape.
+ */
+const _siteAuthBase = makeCache({ ttlMs: 600_000, max: 500 });
+const siteAuthBase = memoize(_siteAuthBase, async (db) => siteServiceBase(db, "auth_info"));
+const _siteDataBase = makeCache({ ttlMs: 600_000, max: 500 });
+const siteDataBase = memoize(_siteDataBase, async (db) => siteServiceBase(db, "data_api"));
+
+async function siteServiceBase(db, key) {
+  const rows = await sqlQuery(db, "SELECT v FROM _meta WHERE k=?", [key]);
+  if (!rows[0] || !rows[0].v) return null;
+  let info; try { info = JSON.parse(rows[0].v); } catch { return null; }
+  const named = info && (info.auth_url || info.url || info.endpoint || info.base_url ||
+    (info.auth && (info.auth.url || info.auth.endpoint)));
+  const pick = (o, depth = 0) => {
+    if (typeof o === "string") return /^https:\/\//.test(o) ? o : null;
+    if (!o || typeof o !== "object" || depth > 3) return null;
+    for (const v of Object.values(o)) { const hit = pick(v, depth + 1); if (hit) return hit; }
+    return null;
+  };
+  const url = typeof named === "string" && /^https:\/\//.test(named) ? named : pick(info);
+  return url ? String(url).replace(/\/+$/, "") : null;
+}
+
+/**
+ * The published site's sign-in, PROXIED through this Worker rather than called
+ * directly from the page.
+ *
+ * Three things fall out of proxying, and each is why it is done this way:
+ *
+ *   - the page never learns the auth endpoint or any key, so nothing has to be
+ *     decided about what is safe to publish into a static bundle;
+ *   - it is SAME-ORIGIN. A published site is served from isibi.ai, so a direct
+ *     call would need CORS on Neon's side and a cross-site cookie in the browser,
+ *     which is the configuration most likely to work in development and fail in
+ *     Safari;
+ *   - the URL the client uses is unchanged (`/api/db/<slug>/auth/...`), so the
+ *     generated pages do not have to know that identity moved at all.
+ *
+ * The response is passed through as-is. Whatever Better Auth answers is what the
+ * client sees, including its errors — a proxy that reinterprets them is a second
+ * place where "wrong password" has to be spelled, and the two drift.
+ */
+async function proxySiteService(env, request, url, slug, path, which) {
+  const db = await siteBackendBySlug(env, slug);
+  if (!db) return Response.json({ error: "no such site" }, { status: 404 });
+  let base;
+  try { base = which === "data" ? await siteDataBase(db) : await siteAuthBase(db); }
+  catch { return Response.json({ error: "couldn't reach that just now" }, { status: 503 }); }
+  // Not configured is 501 and not 500: the site was built before its auth
+  // endpoint was recorded, which a rebuild fixes, and saying so is more use than
+  // a generic failure.
+  if (!base) return Response.json({ error: "this site's backend is not set up yet", code: "no_backend" }, { status: 501 });
+
+  const target = base + "/" + path + (url.search || "");
+  const headers = new Headers();
+  // Only what the auth server needs. Forwarding the whole header set would carry
+  // cookies for isibi.ai into a third party.
+  // `prefer` carries PostgREST's return=representation, which is how an insert
+  // answers with the row it created rather than an empty body.
+  for (const h of ["content-type", "authorization", "accept", "prefer"]) {
+    const v = request.headers.get(h);
+    if (v) headers.set(h, v);
+  }
+  try {
+    const r = await fetch(target, {
+      method: request.method,
+      headers,
+      body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.text(),
+      // A redirect is followed here rather than handed to the page: the client is
+      // an XHR and cannot act on a 302 from a cross-origin hop.
+      redirect: "follow",
+      signal: AbortSignal.timeout(15000),
+    });
+    const body = await r.text();
+    return new Response(body, {
+      status: r.status,
+      headers: {
+        "content-type": r.headers.get("content-type") || "application/json",
+        // PostgREST reports the total row count here when asked for it, and a
+        // paginated list is useless without it.
+        ...(r.headers.get("content-range") ? { "content-range": r.headers.get("content-range") } : {}),
+      },
+    });
+  } catch (e) {
+    console.error("site " + which + " proxy failed:", slug, path, e && e.message);
+    return Response.json({ error: "couldn't reach that just now" }, { status: 503 });
+  }
+}
+
+
+
+
+
+
+
+
+
+
+// Everything stored under a site's upload prefix, with WHO put it there.
+//
+// `customMetadata` has to be asked for explicitly on a list — without `include`
+// R2 returns only key and size, and every visitor upload would look like one of
+// the owner's, which is exactly the distinction the visitor allowance is
+// counted on.
+async function siteUploadList(env, slug) {
+  const out = [];
+  let cursor;
+  for (;;) {
+    const page = await env.SITES_BUCKET.list({ prefix: "uploads/" + slug + "/", cursor, include: ["customMetadata"] });
+    for (const o of (page.objects || [])) {
+      out.push({ key: o.key, size: o.size, visitor: !!(o.customMetadata && o.customMetadata.visitor) });
+    }
+    // Same termination rule as deleteSitePrefix: a truncated page with no
+    // cursor would otherwise loop forever.
+    if (!page.truncated || !page.cursor) return out;
+    cursor = page.cursor;
+  }
+}
+
+// Tell the owner a booking arrived. Detached — the submission already succeeded.
+//
+// The cooldown is claimed in the DATABASE, not in an isolate: Cloudflare runs
+// many isolates per colo, and a per-isolate memory would let a hammered form
+// send one email from each of them. This is a single conditional UPDATE, so
+// exactly one caller wins a window and everyone else in it does nothing.
+async function claimNotify(env, slug) {
+  const cutoff = new Date(Date.now() - COOLDOWN_MS).toISOString();
+  const q = `slug=eq.${encodeURIComponent(slug)}&notify=is.true&or=(notified_at.is.null,notified_at.lt.${cutoff})`;
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?${q}&select=uid,notified_at`, {
+    method: "PATCH",
+    headers: svcHeaders(env, { "content-type": "application/json", Prefer: "return=representation" }),
+    body: JSON.stringify({ notified_at: new Date().toISOString() }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!r.ok) throw new Error("claim " + r.status);
+  const rows = await r.json().catch(() => []);
+  const row = Array.isArray(rows) && rows[0];
+  // No row means either notifications are off or another isolate got there
+  // first. Both are "do nothing", and neither is an error.
+  return row ? { ok: true, owner_uid: row.uid } : { ok: false };
+}
+
+// The isibi account that owns the site. auth.users is not reachable through
+// PostgREST, so this is the GoTrue admin endpoint with the service key.
+async function ownerEmail(env, uid) {
+  const r = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${encodeURIComponent(uid)}`, {
+    headers: svcHeaders(env),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!r.ok) throw new Error("owner lookup " + r.status);
+  const u = await r.json().catch(() => ({}));
+  return (u && u.email) || null;
+}
+
+/**
+ * Send one email from the Worker, through Cloudflare Email Service.
+ *
+ * The BINDING, not the REST API — so there is no token to mint, keep in GitHub
+ * Actions, upload each deploy, or rotate. `env.EMAIL` is undefined until Email
+ * Sending is enabled on the account and isibi.ai is a verified sending domain, so
+ * this reports that rather than throwing an unhelpful TypeError at a call site
+ * that only wanted to send a notification.
+ *
+ * `text` is sent alongside `html` deliberately: a message with no plain-text part
+ * scores worse with spam filters, and a booking notification landing in junk is
+ * the same as not sending it.
+ */
+async function sendMail(env, { to, subject, html, text }) {
+  if (!env.EMAIL) throw new Error("mail not configured: no EMAIL binding");
+  return env.EMAIL.send({
+    from: env.EMAIL_FROM || "isibi <login@isibi.ai>",
+    to, subject, html,
+    text: text || String(html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 4000),
+  });
+}
+
+function notifyOwnerOfSubmission(env, ctx, payload) {
+  if (!env.EMAIL || !env.SUPABASE_SERVICE_KEY) return;
+  const p = (async () => {
+    const out = await notifyOwner({
+      claim: (s2) => claimNotify(env, s2),
+      emailOf: (uid) => ownerEmail(env, uid),
+      send: ({ to, subject, html }) => sendMail(env, { to, subject, html }),
+    }, payload);
+    // It runs detached, so nothing else would ever see why it did not send.
+    if (!out.sent && out.error) console.error("submission notify:", payload.slug, out.reason, out.error);
+  })();
+  if (ctx && ctx.waitUntil) ctx.waitUntil(p); else p.catch(() => {});
+}
+
 // Content-type for a served R2 object by its extension (React dist assets + pages).
 const R2_MIME = { js: "text/javascript", mjs: "text/javascript", css: "text/css", svg: "image/svg+xml", json: "application/json", map: "application/json", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", ico: "image/x-icon", woff: "font/woff", woff2: "font/woff2", ttf: "font/ttf", txt: "text/plain", xml: "application/xml", webmanifest: "application/manifest+json", html: "text/html; charset=utf-8" };
 // Keep the last few PUBLISHED builds so a bad deploy can be rolled back: each publish
@@ -2760,9 +3315,16 @@ async function deleteSitePrefix(env, slug) {
 // Publish a compiled site. The prefix is wiped first: vite hashes its asset file
 // names, so without this every rebuild would leave the previous build's JS and CSS
 // behind forever. Same {t}/{b} envelope the build service returns for the games.
-async function writeSiteDistToR2(env, slug, dist) {
+async function writeSiteDistToR2(env, slug, dist, meta) {
   try { await deleteSitePrefix(env, slug); } catch {}
   for (const [rel, v] of Object.entries(dist || {})) {
+    // The head belongs to the built dist, which the model never sees, so the
+    // share tags go in here. Only ever a no-op on anything unexpected — a site
+    // published without a description is a far smaller problem than one
+    // published broken.
+    if (/^index\.html$/i.test(String(rel)) && v && typeof v.t === "string" && meta) {
+      try { v.t = injectMeta(v.t, meta); } catch (e) { console.error("meta inject failed:", slug, e && e.message); }
+    }
     const safeRel = String(rel).replace(/[^a-z0-9/._-]/gi, "-");
     const ext = (safeRel.match(/\.([a-z0-9]{1,8})$/i) || [])[1] || "";
     const ct = R2_MIME[ext.toLowerCase()] || "application/octet-stream";
@@ -2774,97 +3336,91 @@ async function writeSiteDistToR2(env, slug, dist) {
   }
 }
 
-const buildFailureLine = (bd) =>
-  (bd && bd.stage === "typecheck" ? "TypeScript rejected the pages:\n" : "The build failed:\n") +
-  String((bd && bd.error) || "unknown build failure").slice(0, 4000);
+/**
+ * A font the site asked for that is not one of the 24 installed, downloaded here.
+ *
+ * The WORKER does this rather than the container, because the Worker certainly
+ * has network at request time and that is not something to assume of a build
+ * container. The bytes ride to the build as base64 — a woff2 is 13-22 KB
+ * measured, so the request grows by tens of kilobytes, not megabytes.
+ *
+ * Fails SOFT and returns nothing: the pair has already fallen back to a face
+ * that IS installed, so a font we could not reach costs a typeface rather than a
+ * site. Bounded by a timeout, because this is a third party on the build path.
+ */
+async function fetchSiteFonts(pair) {
+  const out = {};
+  for (const slot of ["heading", "body"]) {
+    const f = pair && pair[slot];
+    if (!f || f.source !== "fetch" || out[f.id]) continue;
+    try {
+      const meta = await fetch(f.url, { signal: AbortSignal.timeout(8000) });
+      if (!meta.ok) continue;
+      const j = await meta.json();
+      const variants = j && j.variants;
+      if (!variants) continue;
+      // The heaviest weight a variable face publishes is still one file; for a
+      // static face take the regular. Latin only — the subset a generated site
+      // renders, and the reason a fetch is smaller than the npm package.
+      const weight = variants["400"] ? "400" : Object.keys(variants).sort()[0];
+      const url = weight && variants[weight] && variants[weight].normal
+        && variants[weight].normal.latin && variants[weight].normal.latin.url;
+      if (!url || !url.woff2) continue;
+      const file = await fetch(url.woff2, { signal: AbortSignal.timeout(8000) });
+      if (!file.ok) continue;
+      const buf = new Uint8Array(await file.arrayBuffer());
+      if (buf.length < 4 || buf.length > 2_000_000) continue;
+      let bin = ""; for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
+      out[f.id] = btoa(bin);
+      if (j.category) f.kind = j.category === "monospace" ? "mono" : (j.category === "serif" ? "serif" : "sans");
+    } catch (e) {
+      console.error("font fetch failed:", f.id, String((e && e.message) || e).slice(0, 120));
+    }
+  }
+  return out;
+}
 
 // brief + schema → route files → `tsc --noEmit` + `vite build` in the container →
 // the dist published to sites/<slug>/.
 //
-// Every step here is best-effort by design. It runs AFTER the database has been
-// provisioned and the schema applied, so a generator or compiler failure still
-// leaves the caller with a working backend and the placeholder page — a build
-// that half-worked, not a build that was lost. Returns what actually landed.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth }) {
-  const out = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
-
-  let balance = 0;
-  try { balance = await readCredits(auth); } catch { balance = 0; }
-  if (!(balance >= SITE_PAGES_MIN_CREDITS)) {
-    out.notes = "Your database is live, but there weren't enough credits left to write the pages.";
-    return out;
-  }
-
-  const charge = async (g) => {
-    const c = sitePageCredits(g.usedIn, g.usedOut);
-    out.cost += c;
-    try { await useCredits(auth, c); } catch {}
-  };
-
-  const compile = async (pages) => {
-    const files = {};
-    for (const p of pages) files[p.path] = p.source;
-    const t0 = Date.now();
-    let bd;
-    try {
+// The decisions — pay for a repair pass? was the repair an improvement? publish at
+// all? — live in builder/publish-pages.mjs, which takes every side effect as an
+// injected function so they can be driven against fakes in test/publish-pages.test.mjs.
+// This is only the wiring that supplies the real ones.
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts }) {
+  // Resolved once, before any model call: the pair always lands on something
+  // installed, so a build never waits on a font it cannot get.
+  const fontPair = resolvePair(fonts || {});
+  const fontFiles = await fetchSiteFonts(fontPair);
+  const out = await publishPages({
+    // A failed repair is swallowed by publishPages (the first attempt stands), so
+    // it is logged here or nowhere. A failed FIRST attempt propagates and is
+    // logged by the route, so logging it here too would only duplicate it.
+    generate: async (fix) => {
+      if (!fix) return generateSitePages(env, brief, spec, brand);
+      try { return await generateSitePages(env, brief, spec, brand, fix); }
+      catch (e) { console.error("page repair failed:", slug, (e && (e.detail || e.message))); throw e; }
+    },
+    compile: async (pages) => {
+      const files = {};
+      for (const p of pages) files[p.path] = p.source;
       const c = getContainer(env.SITE_BUILD_CONTAINER);
       const r = await c.fetch(new Request("http://build/build", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ files, slug, title: brand }),
+        body: JSON.stringify({ files, slug, title: brand,
+          fonts: { heading: fontPair.heading.id, body: fontPair.body.id },
+          fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined }),
       }));
-      bd = await r.json().catch(() => ({ ok: false, stage: "build", error: "the build service returned no JSON" }));
-    } catch (e) {
-      bd = { ok: false, stage: "build", error: "the build service is unreachable: " + String((e && e.message) || e).slice(0, 200) };
-    }
-    out.buildMs = Date.now() - t0;
-    return bd;
-  };
-
-  const gen = await generateSitePages(env, brief, spec, brand);
-  await charge(gen);
-  let v = validatePages(gen.input);
-  if (!v.pages.length) {
-    out.notes = gen.truncated
-      ? "The pages came out longer than one pass allows — try a simpler brief."
-      : "The generator didn't produce a usable page.";
-    return out;
-  }
-  let problems = v.problems.concat(lintPages(v.pages, spec));
-  let built = await compile(v.pages);
-
-  // One repair pass, on a compile failure OR on a lint problem. Both matter: a
-  // page that lists a `collect` table typechecks, bundles, and then 403s the
-  // moment a visitor opens it, which is the failure nobody sees before shipping.
-  if (!built.ok || problems.length) {
-    const why = (built.ok ? [] : [buildFailureLine(built)]).concat(problems);
-    let retry = null;
-    try { retry = await generateSitePages(env, brief, spec, brand, { pages: v.pages, problems: why }); }
-    catch (e) { console.error("page repair failed:", slug, (e && (e.detail || e.message))); }
-    if (retry) {
-      await charge(retry);
-      const v2 = validatePages(retry.input);
-      if (v2.pages.length) {
-        const p2 = v2.problems.concat(lintPages(v2.pages, spec));
-        const b2 = await compile(v2.pages);
-        // Only keep the retry when it is actually better — it compiles where the
-        // first did not, or it compiles with fewer problems left in it.
-        if (b2.ok && (!built.ok || p2.length < problems.length)) { v = v2; problems = p2; built = b2; }
-      }
-    }
-  }
-
-  out.files = v.pages.map((p) => "src/routes/" + p.path);
-  out.problems = problems;
-  out.notes = v.notes;
-  if (!built.ok) {
-    console.error("site page build failed:", slug, built.stage, String(built.error || "").slice(0, 400));
-    out.notes = [v.notes, "The pages didn't compile, so the site is showing its data model for now — send it again to retry."].filter(Boolean).join(" ");
-    return out;
-  }
-
-  await writeSiteDistToR2(env, slug, built.files);
-  out.page = "app";
+      return await r.json().catch(() => ({ ok: false, stage: "build", error: "the build service returned no JSON" }));
+    },
+    publish: (dist) => writeSiteDistToR2(env, slug, dist, {
+      brand, description: siteDescription, url: "https://isibi.ai/s/" + slug + "/", image: ogImage,
+    }),
+    readCredits: () => readCredits(auth),
+    useCredits: (n) => useCredits(auth, n),
+  }, { spec, slug });
+  if (out.page !== "app" && out.error) console.error("site page build failed:", slug, out.stage, out.error);
   return out;
 }
 
@@ -2886,89 +3442,6 @@ async function handleRequest(request, env, ctx) {
       return new Response("Not found", { status: 404 });
     }
 
-    // Platform-hosted password-reset page for built-site visitors. The reset email
-    // links here (?slug=&token=); the built React app never needs its own /reset
-    // route. Self-contained, no external resources; posts to the reset endpoint.
-    if (url.pathname === "/reset" && request.method === "GET") {
-      const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Reset your password</title><style>
-        :root{--bg:#08070c;--panel:rgba(255,255,255,.04);--line:rgba(255,255,255,.12);--text:#edeaf3;--muted:rgba(237,234,243,.55);--split:linear-gradient(120deg,#ff79c6,#ffb84d)}
-        *{box-sizing:border-box;margin:0}body{background:var(--bg);color:var(--text);font-family:'Space Grotesk',system-ui,-apple-system,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1.5rem}
-        .card{width:min(420px,96vw);background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:2rem 1.8rem;box-shadow:0 30px 70px -20px rgba(0,0,0,.7)}
-        h1{font-size:1.35rem;margin-bottom:.4rem}p.sub{color:var(--muted);font-size:.9rem;margin-bottom:1.4rem;line-height:1.5}
-        label{display:block;font-size:.78rem;color:var(--muted);margin:.9rem 0 .35rem}
-        input{width:100%;background:#0a0910;border:1px solid var(--line);border-radius:10px;padding:.7rem .8rem;color:var(--text);font-size:.95rem}
-        input:focus{outline:none;border-color:#ff79c6}
-        button{width:100%;margin-top:1.3rem;padding:.8rem;border:0;border-radius:10px;background:var(--split);color:#0b0a10;font-weight:700;font-size:.95rem;cursor:pointer}
-        button:disabled{opacity:.6;cursor:default}
-        .msg{margin-top:1rem;font-size:.86rem;line-height:1.5;display:none}.msg.err{color:#ff8a8a;display:block}.msg.ok{color:#8fe6b0;display:block}
-        a.back{color:#ffb84d;text-decoration:none}
-      </style></head><body><div class="card">
-        <h1>Reset your password</h1>
-        <p class="sub" id="sub">Choose a new password for your account.</p>
-        <form id="f" autocomplete="off">
-          <label for="p1">New password</label><input id="p1" type="password" minlength="8" required autocomplete="new-password" placeholder="At least 8 characters">
-          <label for="p2">Confirm password</label><input id="p2" type="password" minlength="8" required autocomplete="new-password" placeholder="Type it again">
-          <button id="btn" type="submit">Set new password</button>
-        </form>
-        <div class="msg" id="msg"></div>
-      </div><script>
-        (function(){
-          var q=new URLSearchParams(location.search), slug=(q.get('slug')||'').replace(/[^a-z0-9-]/gi,''), token=q.get('token')||'';
-          var f=document.getElementById('f'), msg=document.getElementById('msg'), btn=document.getElementById('btn'), sub=document.getElementById('sub');
-          function show(t,cls){msg.textContent=t;msg.className='msg '+cls;}
-          if(!slug||!token){f.style.display='none';sub.style.display='none';show('This reset link is invalid. Please request a new one from the app.','err');return;}
-          f.addEventListener('submit',function(e){
-            e.preventDefault();
-            var p1=document.getElementById('p1').value, p2=document.getElementById('p2').value;
-            if(p1.length<8){show('Password must be at least 8 characters.','err');return;}
-            if(p1!==p2){show('Those passwords don\\u2019t match.','err');return;}
-            btn.disabled=true;show('','');
-            fetch('/api/db/'+slug+'/auth/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:token,password:p1})})
-              .then(function(r){return r.json().catch(function(){return {ok:false,error:'Something went wrong.'};});})
-              .then(function(d){
-                if(d&&d.ok){
-                  try{localStorage.setItem('zephyr_site_auth_'+slug,d.token);}catch(_){}
-                  f.style.display='none';
-                  show('Your password has been reset. You can now sign in.  ','ok');
-                  var a=document.createElement('a');a.className='back';a.href='/s/'+slug+'/';a.textContent='Go to the app \\u2192';msg.appendChild(a);
-                }else{btn.disabled=false;show((d&&d.error)||'This reset link is invalid or has expired.','err');}
-              }).catch(function(){btn.disabled=false;show('Couldn\\u2019t reach the server. Try again.','err');});
-          });
-        })();
-      </script></body></html>`;
-      return new Response(page, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
-    }
-    // Email-verification landing: a built-site visitor clicks the link we emailed on
-    // signup → we verify the signed token and flip their `verified` flag, then show a
-    // small on-brand confirmation. Idempotent (clicking twice is fine).
-    if (url.pathname === "/verify" && request.method === "GET") {
-      const slug = (url.searchParams.get("slug") || "").replace(/[^a-z0-9-]/gi, "").slice(0, 60);
-      const token = url.searchParams.get("token") || "";
-      const card = (heading, body, ok, back) =>
-        `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${heading}</title><style>
-        :root{--bg:#08070c;--panel:rgba(255,255,255,.04);--line:rgba(255,255,255,.12);--text:#edeaf3;--muted:rgba(237,234,243,.55);--split:linear-gradient(120deg,#ff79c6,#ffb84d)}
-        *{box-sizing:border-box;margin:0}body{background:var(--bg);color:var(--text);font-family:'Space Grotesk',system-ui,-apple-system,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1.5rem;text-align:center}
-        .card{width:min(420px,96vw);background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:2.4rem 1.8rem;box-shadow:0 30px 70px -20px rgba(0,0,0,.7)}
-        .badge{width:54px;height:54px;border-radius:50%;margin:0 auto 1.1rem;display:flex;align-items:center;justify-content:center;font-size:1.6rem;background:var(--split);color:#0b0a10}
-        .badge.bad{background:rgba(255,138,138,.16);color:#ff8a8a}
-        h1{font-size:1.35rem;margin-bottom:.5rem}p{color:var(--muted);font-size:.92rem;line-height:1.55}
-        a.back{display:inline-block;margin-top:1.3rem;color:#ffb84d;text-decoration:none;font-weight:600}
-      </style></head><body><div class="card"><div class="badge${ok ? "" : " bad"}">${ok ? "&#10003;" : "!"}</div><h1>${heading}</h1><p>${body}</p>${back ? `<a class="back" href="${back}">Go to the app &#8594;</a>` : ""}</div></body></html>`;
-      const page = (h, b, ok, back) => new Response(card(h, b, ok, back), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
-      if (!slug || !token || !env.SUPABASE_SERVICE_KEY || !siteDbConfigured(env)) return page("Invalid link", "This verification link is invalid. Try requesting a new one from the app.", false);
-      try {
-        const uuid = await siteBackendBySlug(env, slug);
-        if (!uuid) return page("Invalid link", "This verification link is invalid or has expired.", false);
-        const secret = await initSiteAuth(env, uuid);
-        const p = await verifySiteUserToken(secret, token);
-        if (!p || p.purpose !== "verify" || p.slug !== slug || !p.sub) return page("Link expired", "This verification link is invalid or has expired. Request a new one from the app.", false);
-        await siteQuery(env, uuid, "UPDATE _users SET verified=1, verify_token=NULL, verify_exp=NULL WHERE id=?", [p.sub]);
-        return page("Email verified", "Your email is confirmed — you're all set. You can close this tab and head back to the app.", true, "/s/" + slug + "/");
-      } catch (e) {
-        console.error("verify failed:", e && e.message, e && e.detail);
-        return page("Something went wrong", "We couldn't verify your email just now. Try the link again in a moment.", false);
-      }
-    }
 
     // Serve a PUBLISHED Website-Builder site from R2: isibi.ai/s/<slug>/<page>.
     // STATIC sites: each page is one HTML object (rest with no extension → .html).
@@ -3908,19 +4381,6 @@ async function handleRequest(request, env, ctx) {
     // Checkout creates a Stripe SUBSCRIPTION session; every paid invoice
     // (first charge and each renewal) mints that month's credits via the
     // webhook. Both no-op cleanly until the Stripe secrets are configured.
-    const PLANS = {
-      "25": { cents: 2499, credits: 2000, name: "isibi Plus — 2,000 credits / month" },
-      "50": { cents: 4999, credits: 4000, name: "isibi Pro — 4,000 credits / month" },
-      "100": { cents: 9999, credits: 8000, name: "isibi Max — 8,000 credits / month" },
-    };
-    // One-time top-ups at $0.014/credit — dearer than membership on purpose.
-    const TOPUPS = {
-      "15": { cents: 1500, credits: 1070 },
-      "30": { cents: 3000, credits: 2140 },
-      "50": { cents: 5000, credits: 3570 },
-      "75": { cents: 7500, credits: 5350 },
-      "100": { cents: 10000, credits: 7140 },
-    };
     if (url.pathname === "/api/checkout" && request.method === "POST") {
       const user = await authUser(request);
       if (!user) return UNAUTHED();
@@ -3931,10 +4391,13 @@ async function handleRequest(request, env, ctx) {
       try { body = await request.json(); } catch {
         return Response.json({ error: "invalid JSON" }, { status: 400 });
       }
-      const plan = body.plan != null ? PLANS[String(body.plan)] : null;
-      const topup = !plan && body.topup != null ? TOPUPS[String(body.topup)] : null;
-      if (!plan && !topup) return Response.json({ error: "unknown plan" }, { status: 400 });
-      const sub = plan; // memberships are the only subscription
+      // The price list and the metadata placement live in billing.mjs, where
+      // they are tested — see test/billing.test.mjs. selectPurchase uses hasOwn,
+      // so `{"plan":"__proto__"}` is refused instead of resolving to
+      // Object.prototype and sending Stripe `unit_amount: "undefined"`.
+      const purchase = selectPurchase(body);
+      if (!purchase) return Response.json({ error: "unknown plan" }, { status: 400 });
+      const sub = purchase.kind === "plan"; // memberships are the only subscription
       // Duplicate-membership guard: a second plan checkout would create a SECOND
       // live subscription (double billing). If the caller already has any live
       // subscription, refuse and tell the client to manage the existing one
@@ -3945,7 +4408,7 @@ async function handleRequest(request, env, ctx) {
           const sAuth = { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` };
           const cr = await fetch(`https://api.stripe.com/v1/customers?email=${encodeURIComponent(user.email)}&limit=100`, { headers: sAuth, signal: AbortSignal.timeout(12000) });
           const cd = await cr.json().catch(() => ({}));
-          const LIVE = ["active", "trialing", "past_due", "unpaid", "paused"];
+          const LIVE = LIVE_SUBSCRIPTION_STATUSES;
           for (const c of ((cd && cd.data) || [])) {
             const srr = await fetch(`https://api.stripe.com/v1/subscriptions?customer=${encodeURIComponent(c.id)}&status=all&limit=10`, { headers: sAuth, signal: AbortSignal.timeout(12000) });
             const sdd = await srr.json().catch(() => ({}));
@@ -3955,27 +4418,7 @@ async function handleRequest(request, env, ctx) {
           }
         } catch {} // Stripe unreachable → let the purchase proceed (fail open)
       }
-      const form = new URLSearchParams({
-        mode: sub ? "subscription" : "payment",
-        success_url: "https://isibi.ai/?credits=added",
-        cancel_url: "https://isibi.ai/",
-        "line_items[0][quantity]": "1",
-        "line_items[0][price_data][currency]": "usd",
-        "line_items[0][price_data][unit_amount]": String((plan || topup).cents),
-      });
-      if (sub) {
-        form.set("line_items[0][price_data][recurring][interval]", "month");
-        form.set("line_items[0][price_data][product_data][name]", sub.name);
-        // Subscription metadata rides along on every invoice, so renewals know
-        // who to grant (credits for the plan's monthly refill).
-        form.set("subscription_data[metadata][user_id]", user.id);
-        form.set("subscription_data[metadata][credits]", String(plan.credits));
-      } else {
-        form.set("line_items[0][price_data][product_data][name]", topup.credits.toLocaleString("en-US") + " isibi credits");
-        form.set("metadata[user_id]", user.id);
-        form.set("metadata[credits]", String(topup.credits));
-      }
-      if (user.email) form.set("customer_email", user.email);
+      const form = checkoutForm(purchase, user);
       try {
         const r = await fetch("https://api.stripe.com/v1/checkout/sessions", {
           method: "POST",
@@ -4012,7 +4455,7 @@ async function handleRequest(request, env, ctx) {
       let body = {};
       try { body = await request.json(); } catch {}
       const sAuth = { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` };
-      const LIVE = ["active", "trialing", "past_due", "unpaid", "paused"];
+      const LIVE = LIVE_SUBSCRIPTION_STATUSES;
       // Period end lives on the subscription in classic billing and on the first
       // item in flexible billing — check both, then fall back to cancel_at.
       const subUntil = (s) => {
@@ -4083,34 +4526,18 @@ async function handleRequest(request, env, ctx) {
       const tooBig = tooLargeBody(request, 262_144); // public+unauth endpoint — cap before buffering the body twice for HMAC
       if (tooBig) return tooBig;
       const raw = await request.text();
-      // Stripe-Signature: t=<unix>,v1=<hmac>,v1=<hmac>,... During a webhook-secret
-      // rotation Stripe signs with EVERY active secret, so collect all v1 values and
-      // accept if ANY matches — keeping only the last would 400 a legit paid invoice.
-      let t = 0; const v1s = [];
-      for (const p of (request.headers.get("Stripe-Signature") || "").split(",")) {
-        const i = p.indexOf("=");
-        if (i <= 0) continue;
-        const k = p.slice(0, i).trim(), v = p.slice(i + 1).trim();
-        if (k === "t") t = Number(v);
-        else if (k === "v1") v1s.push(v);
-      }
-      if (!t || Math.abs(Date.now() / 1000 - t) > 300 || !v1s.length) {
-        return Response.json({ error: "bad signature" }, { status: 400 });
-      }
-      const enc = new TextEncoder();
-      const key = await crypto.subtle.importKey(
-        "raw", enc.encode(env.STRIPE_WEBHOOK_SECRET),
-        { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
-      );
-      const mac = await crypto.subtle.sign("HMAC", key, enc.encode(`${t}.${raw}`));
-      const hex = [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
-      // Constant-time compare against each candidate signature (can't be timing-probed).
-      const ctEq = (a, b) => {
-        let mismatch = a.length ^ b.length;
-        for (let i = 0; i < a.length; i++) mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
-        return mismatch === 0;
-      };
-      if (!v1s.some((sig) => ctEq(hex, String(sig)))) {
+      // The signature check is the only thing authenticating this route. It lives
+      // in stripe-webhook.mjs so it can be tested — see test/stripe-webhook.test.mjs.
+      // STRIPE_WEBHOOK_SECRET may hold several comma-separated secrets: during a
+      // rotation Stripe signs with every active one, and accepting only the newest
+      // would 400 legitimately paid invoices for the whole overlap window.
+      const vr = await verifyStripeSignature({
+        header: request.headers.get("Stripe-Signature"),
+        raw,
+        secrets: String(env.STRIPE_WEBHOOK_SECRET).split(",").map((x) => x.trim()).filter(Boolean),
+      });
+      if (!vr.ok) {
+        console.error("stripe webhook rejected:", vr.reason);
         return Response.json({ error: "bad signature" }, { status: 400 });
       }
 
@@ -4118,70 +4545,37 @@ async function handleRequest(request, env, ctx) {
       try { event = JSON.parse(raw); } catch {
         return Response.json({ error: "bad payload" }, { status: 400 });
       }
-      // One-time top-ups mint on session completion (payment mode only —
-      // membership sessions mint via their invoice instead).
-      if (event.type === "checkout.session.completed") {
-        const s = event.data && event.data.object;
-        const uid = s && s.metadata && s.metadata.user_id;
-        const credits = s && s.metadata ? Number(s.metadata.credits) : 0;
-        if (s && s.mode === "payment" && s.payment_status === "paid" && s.id && uid && credits > 0) {
-          const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/add_credits`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
-            body: JSON.stringify({
-              target: uid, amount: credits, cents: s.amount_total || 0,
-              purchase_ref: s.id, mint_key: env.CREDITS_MINT_SECRET,
-            }),
-            signal: AbortSignal.timeout(10000),
-          });
-          if (!r.ok) return Response.json({ error: "credit grant failed" }, { status: 500 });
-        }
-      }
-      // Memberships mint on every PAID INVOICE — the first charge and each
-      // monthly renewal both arrive here. Handle ONLY invoice.paid (Stripe
-      // also emits invoice.payment_succeeded for the same invoice; listening to
-      // both would call add_credits twice — safe via the ref UNIQUE, but wasteful).
-      if (event.type === "invoice.paid") {
-        const inv = event.data && event.data.object;
-        // Subscription metadata's location varies by Stripe API version.
-        const meta =
-          (inv && inv.subscription_details && inv.subscription_details.metadata) ||
-          (inv && inv.parent && inv.parent.subscription_details && inv.parent.subscription_details.metadata) ||
-          (inv && inv.lines && inv.lines.data && inv.lines.data[0] && inv.lines.data[0].metadata) ||
-          {};
-        const uid = meta.user_id;
-        const credits = Number(meta.credits) || 0;
-        const paid = inv && (inv.status === "paid" || inv.paid === true);
-        // Require money to have actually changed hands — a $0/fully-discounted
-        // invoice (coupon, proration, pause) must not mint a full month of credits.
-        const amountPaid = Number(inv && inv.amount_paid) || 0;
-        if (uid && credits > 0 && paid && amountPaid > 0 && inv.id) {
-          const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/add_credits`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
-            body: JSON.stringify({
-              target: uid, amount: credits, cents: inv.amount_paid || 0,
-              purchase_ref: inv.id, mint_key: env.CREDITS_MINT_SECRET,
-            }),
-            signal: AbortSignal.timeout(10000),
-          });
-          // Non-2xx → 500 so Stripe retries the delivery.
-          if (!r.ok) return Response.json({ error: "credit grant failed" }, { status: 500 });
-          // Record the storage tier (from the plan's credit size) on a rolling
-          // 32-day window — a cancellation lapses to free once no invoice renews.
-          const tier = credits >= 8000 ? "max" : credits >= 4000 ? "pro" : "plus";
-          // set_plan MUST succeed — otherwise the paid customer's storage tier
-          // never activates and every save 402s "free" (bug 2026-07-17: this was
-          // swallowed and the webhook returned 200, so Stripe never retried).
-          // add_credits is idempotent on purchase_ref, so a full-webhook retry
-          // re-runs it safely; return 500 on any set_plan failure to trigger it.
+
+      // What this event should mint, if anything — the guards that stop a $0
+      // proration invoice or an unpaid session from buying credits live in
+      // mintFromEvent, where they are tested. `ref` is what makes it idempotent:
+      // add_credits is UNIQUE on it, so a Stripe retry cannot double-credit.
+      const mint = mintFromEvent(event);
+      if (mint) {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/add_credits`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+          body: JSON.stringify({
+            target: mint.uid, amount: mint.credits, cents: mint.cents,
+            purchase_ref: mint.ref, mint_key: env.CREDITS_MINT_SECRET,
+          }),
+          signal: AbortSignal.timeout(10000),
+        });
+        // Non-2xx → 500 so Stripe retries the delivery.
+        if (!r.ok) return Response.json({ error: "credit grant failed" }, { status: 500 });
+
+        // Memberships also carry a storage tier, on a rolling 32-day window — a
+        // cancellation lapses to free once no invoice renews. set_plan MUST
+        // succeed: swallowing it (bug 2026-07-17) returned 200, so Stripe never
+        // retried and the paid customer's every save 402'd "free".
+        if (mint.tier) {
           let planOk = false;
           try {
             const pr = await fetch(`${SUPABASE_URL}/rest/v1/rpc/set_plan`, {
               method: "POST",
               headers: { "Content-Type": "application/json", apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
               body: JSON.stringify({
-                target: uid, p_tier: tier,
+                target: mint.uid, p_tier: mint.tier,
                 p_until: new Date(Date.now() + 32 * 86400000).toISOString(),
                 mint_key: env.CREDITS_MINT_SECRET,
               }),
@@ -4995,13 +5389,115 @@ async function handleRequest(request, env, ctx) {
       return Response.json({ ok: true, slug });
     }
 
-    // Public data API for published sites. Unauthenticated by design — a visitor
-    // filling in a booking form has no account — so it is allow-listed against
-    // the site's own declared schema and refuses anything owner-scoped.
-    {
-      const dataRes = await handleSiteData(env, request, url, siteBackendBySlug);
-      if (dataRes) return dataRes;
+    // Visitor accounts for a published site. These live in the SITE's own Neon
+    // database, not in Supabase: the schema engine stamps `owner_id INTEGER` on
+    // every `user`/`feed` table, so an account id has to be an integer from that
+    // same database — and it keeps Supabase off the visitor path entirely, which
+    // is the whole point of the routing work. Deleting a site takes its members
+    // with it, because they were never anywhere else.
+
+    // A visitor attaching a photo to a form. Unauthenticated for the same reason
+    // the rest of /api/db is: a customer booking a haircut has no account.
+    //
+    // Which makes this a public endpoint that accepts arbitrary bytes and serves
+    // them back from isibi.ai, so the answer to "may I?" is narrow: the table
+    // must be one a visitor can WRITE and must DECLARE somewhere to put a
+    // picture. A barber shop whose booking form is six text fields accepts
+    // nothing, which is the answer for most sites — and is what keeps this from
+    // being open image hosting for anyone who knows a slug.
+    // A published site's DATA, forwarded to its Neon Data API.
+    //
+    // Our own row routes were deleted 2026-07-30 (owner's call: Neon only, not
+    // both). What is left is transport — this forwards and nothing else. There is
+    // no access logic here, no schema allow-list and no scoping: the site's RLS
+    // policies decide every one of those, which is the whole point of the move.
+    //
+    // Proxied rather than called from the page for the same three reasons the auth
+    // proxy is: the bundle holds no URL and no key, it is same-origin so there is
+    // no CORS and no cross-site cookie, and a generated page's URLs do not change.
+    if (url.pathname.startsWith("/api/db/") && url.pathname.includes("/data/")) {
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/data\/([a-z0-9_][a-z0-9/._-]{0,79})$/i);
+      if (dm) {
+        const [, dslug2, dpath] = dm;
+        const slug = dslug2.toLowerCase();
+        const hit = _dataLimiter.hit(
+          bucketKey({ ip: request.headers.get("CF-Connecting-IP") || "", slug, table: "data", method: request.method }),
+          DATA_PROXY_PER_MIN,
+        );
+        if (!hit.ok) {
+          const t = tooMany(hit);
+          return Response.json(t.body, { status: t.status, headers: t.headers });
+        }
+        return proxySiteService(env, request, url, slug, dpath, "data");
+      }
     }
+
+    // A published site's sign-in. Public by the same reasoning as the rest of
+    // /api/db — a customer booking a haircut has no isibi account — and gated by
+    // a per-source rate limit, because it is an unauthenticated endpoint that
+    // reaches a third party and costs a password hash on their side.
+    if (url.pathname.startsWith("/api/db/") && url.pathname.includes("/auth/")) {
+      const am = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/auth\/([a-z0-9][a-z0-9/._-]{0,79})$/i);
+      if (am) {
+        const [, aslug, apath] = am;
+        const slug = aslug.toLowerCase();
+        // CF-Connecting-IP only. The X-Forwarded-For fallback the rest of this
+        // file uses is client-settable, so honouring it lets one caller mint a
+        // fresh bucket per request and defeats the limit entirely.
+        const hit = _dataLimiter.hit(
+          bucketKey({ ip: request.headers.get("CF-Connecting-IP") || "", slug, table: "auth", method: "POST" }),
+          AUTH_PROXY_PER_MIN,
+        );
+        if (!hit.ok) {
+          const t = tooMany(hit);
+          return Response.json(t.body, { status: t.status, headers: t.headers });
+        }
+        return proxySiteService(env, request, url, slug, apath, "auth");
+      }
+    }
+
+    if (url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/uploads")) {
+      const vm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/uploads$/i);
+      if (vm) {
+        if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
+        if (!env.SITES_BUCKET) return Response.json({ error: "storage not configured" }, { status: 501 });
+        const vslug = vm[1].toLowerCase();
+        const conn = await siteBackendBySlug(env, vslug);
+        if (!conn) return Response.json({ error: "no such site" }, { status: 404 });
+        // Checked before the body is read: a flood should not get us to buffer
+        // megabytes before being told no.
+        const cl = Number(request.headers.get("content-length") || 0);
+        if (cl && cl > MAX_VISITOR_UPLOAD_BYTES) return Response.json({ error: "that image is too big — keep it under 2 MB", code: "too_big" }, { status: 413 });
+        try {
+          const vr = await handleVisitorUpload({
+            tableFor: async (s2, t) => {
+              const spec = await loadSiteSchema(conn);
+              return (spec && Array.isArray(spec.tables) ? spec.tables : [])
+                .find((x) => x && String(x.name).toLowerCase() === String(t || "").toLowerCase()) || null;
+            },
+            throttle: async (key) => _dataLimiter.hit(key, VISITOR_UPLOADS_PER_MIN),
+            hash: async (bytes) => {
+              const d = await crypto.subtle.digest("SHA-256", bytes);
+              return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+            },
+            list: (s2) => siteUploadList(env, s2),
+            put: (key, bytes, ct, meta) => env.SITES_BUCKET.put(key, bytes, { httpMetadata: { contentType: ct }, ...(meta ? { customMetadata: meta } : {}) }),
+          }, {
+            slug: vslug,
+            table: url.searchParams.get("table"),
+            // CF-Connecting-IP only — X-Forwarded-For is client-settable, so
+            // honouring it would let one caller mint a fresh bucket per request.
+            ip: request.headers.get("CF-Connecting-IP") || "",
+            bytes: new Uint8Array(await request.arrayBuffer()),
+          });
+          return Response.json(vr.body, { status: vr.status });
+        } catch (e) {
+          console.error("visitor upload failed:", vslug, (e && (e.stack || e.message)) || e);
+          return Response.json({ error: "couldn't store that just now" }, { status: 500 });
+        }
+      }
+    }
+
 
     // Website builder — provision this site's database and apply its declared
     // schema. Called when a build starts, so the generated site has somewhere to
@@ -5050,7 +5546,30 @@ async function handleRequest(request, env, ctx) {
         } catch (e) {
           await creditBack(env, bu.id, SITE_BUILD_FEE);
           console.error("schema design failed:", e && (e.detail || e.message));
-          return Response.json({ ok: false, msg: "The designer is busy — try again in a moment." }, { status: 503 });
+          // `upstream` is the numeric status from the model API and nothing else
+          // — never `detail`, which echoes back parts of the request. It is the
+          // difference between "they are overloaded, retry" (429/529) and "we
+          // are sending something they reject" (400), and without it a total
+          // outage of the builder's main path is indistinguishable from a busy
+          // minute. This one hid for three merges behind exactly that.
+          const kind = upstreamKind(e && e.detail);
+          return Response.json({
+            ok: false,
+            msg: e && e.truncated
+              ? "That brief needs more room than the designer had — try describing fewer things to store."
+              // Named, because it is the one failure here that no amount of
+              // retrying fixes and that somebody can actually go and act on.
+              : kind.billing
+                ? "The site builder is temporarily unavailable — this is on us, not your brief."
+                : "The designer is busy — try again in a moment.",
+            stage: "design",
+            upstream: (e && e.status) || null,
+            // The provider's own error TYPE, shape-checked. Never its message,
+            // which a 400 can fill with the request.
+            upstreamType: kind.type,
+            billing: kind.billing || undefined,
+            truncated: !!(e && e.truncated),
+          }, { status: 503 });
         }
         if (!designed || !Array.isArray(designed.tables) || !designed.tables.length) {
           await creditBack(env, bu.id, SITE_BUILD_FEE);
@@ -5063,21 +5582,32 @@ async function handleRequest(request, env, ctx) {
 
       // A site's slug is claimed by whoever built it first; a second user cannot
       // publish over someone else's site by guessing the name.
+      // Fails CLOSED. This was `catch {}`, so a Supabase timeout turned "I cannot
+      // tell who owns this" into "nobody does" — and the build went on to apply
+      // its schema, seed rows and publish pages over an existing owner's site.
+      // (ensureSiteBackend now enforces this too; belt and braces, because the
+      // consequence is a cross-account write.)
+      let priorBrief = "";
       try {
-        const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=uid`, { headers: svcHeaders(env) });
-        const rows = await g.json().catch(() => []);
-        if (Array.isArray(rows) && rows[0] && rows[0].uid !== bu.id) {
+        const owner = await siteBackendRowFresh(env, slug);
+        if (owner && owner.uid && owner.uid !== bu.id) {
           return Response.json({ ok: false, error: "that name is taken" }, { status: 409 });
         }
-      } catch {}
+        // Free — this lookup already happens for the ownership check.
+        priorBrief = (owner && owner.brief) || "";
+      } catch (e) {
+        console.error("ownership check failed:", slug, e && (e.detail || e.message));
+        return Response.json({ ok: false, msg: "Couldn't check that name just now — try again in a moment." }, { status: 503 });
+      }
 
       const spec = normalizeSchema(body.schema || designed || {});
       if (!spec.tables.length) return Response.json({ ok: false, error: "schema declares no tables" }, { status: 400 });
 
       let db;
       try {
-        db = await ensureSiteBackend(env, slug, bu.id);
+        db = await ensureSiteBackend(env, slug, bu.id, brief);
       } catch (e) {
+        if (e && e.conflict) return Response.json({ ok: false, error: "that name is taken" }, { status: 409 });
         console.error("site provision failed:", slug, e && (e.detail || e.message));
         return Response.json({ ok: false, error: "could not provision the database", detail: String(e && (e.detail || e.message)).slice(0, 300) }, { status: 502 });
       }
@@ -5090,18 +5620,94 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ ok: false, error: "could not apply the schema", detail: String(e && (e.detail || e.message)).slice(0, 300) }, { status: 502 });
       }
 
+      // Starter content for the display tables. Best-effort and non-fatal: a site
+      // with a live database and an empty menu is still a site, but one WITH the
+      // menu is the difference between a demo and something usable — nothing can
+      // write to a display table after this point, not even the owner.
+      let seeded = null;
+      try {
+        seeded = await seedSiteRows(db, spec, (designed && designed.seed) || body.seed);
+        if (seeded && Object.keys(seeded.seeded).length) console.log("seeded:", slug, JSON.stringify(seeded.seeded));
+        if (seeded && seeded.skipped.length) console.log("seed skipped:", slug, JSON.stringify(seeded.skipped.slice(0, 6)));
+      } catch (e) { console.error("seeding failed:", slug, e && (e.detail || e.message)); }
+
       // Write the site's pages against the schema that was just created, compile
       // them, and publish the dist. The database is already live at this point, so
       // this stage cannot fail the build — it either publishes the real app or
       // falls through to the placeholder below.
       const brand = String((designed && designed.brand) || body.brand || slug).slice(0, 60);
+
+      // Pages are generated against every table the site HAS, not just the ones
+      // this request designed.
+      //
+      // A revise sends {slug, instruction}, and the instruction alone is what
+      // the schema designer sees — so `spec` holds only the tables that
+      // instruction mentioned. "Add a gallery" produced a spec of exactly one
+      // table, and the generator then rewrote the whole site knowing only that:
+      // a working barber shop came back as a page listing a gallery and nothing
+      // else. applySiteSchema already MERGES into _meta (a revise cannot drop a
+      // table), so the merged spec is the real picture — read it back and use it.
+      // Merge, do not replace. `spec` is this request's schema and carries the
+      // FULL column objects (type, required, refs); `_meta` carries every table
+      // the site has but stores columns as plain names. Taking _meta wholesale
+      // threw away the type information for the tables just designed, and the
+      // generator was told they had no columns.
+      let pageSpec = spec;
+      try {
+        const stored = await loadSiteSchema(db);
+        if (stored && Array.isArray(stored.tables) && stored.tables.length) {
+          const byName = new Map();
+          for (const t of stored.tables) if (t && t.name) byName.set(String(t.name).toLowerCase(), t);
+          for (const t of (spec.tables || [])) if (t && t.name) byName.set(String(t.name).toLowerCase(), t); // richer wins
+          pageSpec = { ...spec, tables: [...byName.values()] };
+        }
+      } catch (e) { console.error("merged schema read failed:", slug, e && e.message); }
+
       let pages = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
       if (brief && env.SITE_BUILD_CONTAINER && env.SITES_BUCKET) {
         try {
-          pages = await buildAndPublishPages(env, { brief, spec, slug, brand, auth: request.headers.get("Authorization") || "" });
+          // A revise gets the brief the site was BUILT from as well as the
+          // instruction — see briefForPages. The merged schema says what the
+          // site has; this says what it is for.
+          // The one-line description for the head. A revise sends no brief, so
+          // the designer writes none — fall back to the brief the site was built
+          // from rather than publishing a page with nothing under its name.
+          const siteDescription = String((designed && designed.description) || body.description || priorBrief || brief || "").slice(0, 300);
+          // A picture for the link preview: the first thing the owner uploaded,
+          // if anything. Best-effort — a missing one just means a small card.
+          let ogImage = null;
+          try {
+            if (env.SITES_BUCKET) {
+              const objs = await siteUploadList(env, slug);
+              const first = objs.find((o) => o && !o.visitor) || objs[0];
+              if (first) ogImage = "https://isibi.ai/u/" + slug + "/" + first.key.split("/").pop();
+            }
+          } catch (e) { console.error("og image lookup failed:", slug, e && e.message); }
+          pages = await buildAndPublishPages(env, {
+            brief: briefForPages({ brief, priorBrief }), spec: pageSpec, slug, brand,
+            siteDescription, ogImage,
+            fonts: (designed && designed.fonts) || (body && body.fonts) || null,
+            auth: request.headers.get("Authorization") || "",
+          });
         } catch (e) {
           console.error("page generation failed:", slug, (e && (e.detail || e.message)));
-          pages.notes = "Your database is live, but writing the pages didn't work this time — send it again to retry.";
+          // Returned, not only logged — the same lesson `publish-pages.mjs`
+          // learned. Until 2026-07-29 this branch reported `stage:-, error:-`
+          // and a note, so a total outage of the generator was indistinguishable
+          // from the model writing an unusable page, and telling them apart
+          // needed a Cloudflare log. Measured: both CI suites red on an upstream
+          // 400 for forty minutes with nothing in any response to say why.
+          const kind = upstreamKind(e && e.detail);
+          pages.stage = "generate";
+          pages.upstream = (e && e.status) || null;
+          pages.upstreamType = kind.type;
+          if (kind.billing) pages.billing = true;
+          pages.error = kind.billing
+            ? "the model account has no balance"
+            : String((e && e.message) || "page generation threw").slice(0, 200);
+          pages.notes = kind.billing
+            ? "Your database is live. Writing the pages is temporarily unavailable — this is on us, not your brief."
+            : "Your database is live, but writing the pages didn't work this time — send it again to retry.";
         }
       }
 
@@ -5128,13 +5734,185 @@ async function handleRequest(request, env, ctx) {
       // enquiry form `collect`, and getting that wrong silently is exactly the
       // bug that shipped on 2026-07-27. `page` says which of the two things is
       // actually being served, so a fallback is never mistaken for a built site.
-      const levels = (spec.tables || []).map((t) => ({ name: t.name, access: t.access }));
+      const levels = (pageSpec.tables || spec.tables || []).map((t) => ({ name: t.name, access: t.access }));
       return Response.json({
         ok: true, slug, url: "/s/" + slug + "/", backend: true, brand, tables: made, schema: levels,
+        // Rows per display table. An empty object means the site published with
+        // empty lists — which reads as a working build and is not one.
+        seeded: (seeded && seeded.seeded) || {},
         page: pages.page, files: pages.files, notes: pages.notes || undefined,
         problems: pages.problems.length ? pages.problems : undefined,
+        // WHY it fell back, when it did. publish-pages.mjs has returned these
+        // since it was extracted and nothing passed them on, so a build that
+        // published the placeholder said only "placeholder" — the caller (and
+        // the smoke test) could not tell a compile error from a lint refusal
+        // from a credit floor. It is the owner's own build; there is nothing
+        // here they should not see.
+        stage: pages.page === "app" ? undefined : (pages.stage || undefined),
+        error: pages.page === "app" ? undefined : (pages.error ? String(pages.error).slice(0, 300) : undefined),
         cost: (designed ? SITE_BUILD_FEE : 0) + pages.cost, buildMs: pages.buildMs || undefined,
       });
+    }
+
+    // GET /api/site/<slug>/rows[/<table>] — the OWNER reading their own site.
+    //
+    // A different door from /api/db: that one is the published site's public API,
+    // where the caller is a visitor with no isibi account. This one is
+    // authenticated by the owner's isibi session, and it can read anything in
+    // their own site — including `collect` tables, which the public API refuses
+    // by design. That refusal is why, until now, a barber shop took bookings
+    // nobody could ever see.
+    //
+    // Reading is handleOwnerData/handleOwnerTables; writing is handleOwnerWrite,
+    // which is what finally lets a café correct a price without rebuilding the
+    // whole site — nothing could write to a `display` table after the build, not
+    // even the person whose menu it was. `/members` is the one place `_users` is
+    // named, and it names its columns so no password hash can leave.
+    //
+    // Ordered BEFORE the site-delete branch below on purpose: that one matches
+    // any DELETE under /api/site/, so a row delete would otherwise be read as a
+    // request to take the entire site down.
+    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads") || url.pathname.includes("/export") || url.pathname.includes("/notify"))) {
+      const om = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rows(?:\/([a-z_][a-z0-9_]{0,40})(?:\/([0-9]{1,18}))?)?$/i);
+      // A member id is a UUID now, not the sequential integer this used to match.
+      const mm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/members(?:\/([0-9a-f-]{36}))?$/i);
+      const an = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/analytics$/i);
+      const uf = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/uploads(?:\/([A-Za-z0-9._-]{1,80}))?$/i);
+      const xp = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/export$/i);
+      const nt = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/notify$/i);
+      if (om || mm || an || uf || xp || nt) {
+        const ou = await authUser(request);
+        if (!ou) return UNAUTHED();
+        const ownerSlug = (om || mm || an || uf || xp || nt)[1].toLowerCase();
+        const ownerDeps = {
+          ownerOf: async (s2) => {
+            const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s2)}&select=uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
+            if (!g.ok) throw Object.assign(new Error("site lookup failed"), { detail: g.status });
+            const rows = await g.json();
+            return (Array.isArray(rows) && rows[0] && rows[0].uid) || null;
+          },
+          dbFor: (s2) => siteBackendBySlug(env, s2),
+          loadSchema: (conn) => loadSiteSchema(conn),
+          query: (conn, sql, args) => sqlQuery(conn, sql, args),
+          exec: (conn, sql, args) => sqlExec(conn, sql, args),
+          ident: sqlIdent,
+          nowSql: () => "to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')",
+          // Traffic lives in Supabase, not the site's database. The aggregation
+          // is an RPC because count-distinct and a seven-day generate_series are
+          // not things a REST filter can express; it is service_role-only, and
+          // the caller was authorised above.
+          readAnalytics: async (s2) => {
+            const g = await fetch(`${SUPABASE_URL}/rest/v1/rpc/site_analytics`, {
+              method: "POST",
+              headers: svcHeaders(env, { "content-type": "application/json" }),
+              body: JSON.stringify({ p_slug: s2 }),
+              signal: AbortSignal.timeout(12000),
+            });
+            if (!g.ok) throw new Error("analytics rpc " + g.status);
+            return g.json();
+          },
+        };
+        // Anything thrown below reaches the owner as a bare Cloudflare 1101 with
+        // no body otherwise — the same trap the PBKDF2 cap fell into.
+        try {
+          let r;
+          if (nt) {
+            // The off switch. Email the owner did not ask for, with no way to
+            // stop it, is not something to ship.
+            const nslug = nt[1].toLowerCase();
+            const g = await assertOwner(ownerDeps, nslug, ou.id);
+            if (g.error) return Response.json(g.error.body, { status: g.error.status });
+            if (request.method === "GET") {
+              const q = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(nslug)}&select=notify`, { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
+              const rows = await q.json().catch(() => []);
+              return Response.json({ notify: !!(Array.isArray(rows) && rows[0] && rows[0].notify) });
+            }
+            if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
+            const nb = await request.json().catch(() => ({}));
+            const on = !!nb.on;
+            const q = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(nslug)}`, {
+              method: "PATCH",
+              headers: svcHeaders(env, { "content-type": "application/json", Prefer: "return=minimal" }),
+              body: JSON.stringify({ notify: on }),
+              signal: AbortSignal.timeout(10000),
+            });
+            if (!q.ok) return Response.json({ error: "couldn't save that just now" }, { status: 503 });
+            return Response.json({ ok: true, notify: on });
+          } else if (xp) {
+            if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
+            const xr = await handleOwnerExport({
+              gate: (s2, u2) => assertOwner(ownerDeps, s2, u2),
+              dbFor: ownerDeps.dbFor, loadSchema: ownerDeps.loadSchema,
+              query: ownerDeps.query, ident: ownerDeps.ident,
+            }, {
+              slug: xp[1].toLowerCase(), uid: ou.id,
+              table: url.searchParams.get("table"), format: url.searchParams.get("format"),
+            });
+            // A file, not JSON — the body is already the CSV or the JSON text,
+            // and the headers carry the download name.
+            if (xr.raw) return new Response(xr.body, { status: xr.status, headers: xr.headers });
+            return Response.json(xr.body, { status: xr.status });
+          } else if (uf) {
+            const uslug = uf[1].toLowerCase();
+            // The gate is site-owner.mjs's, so a picture is exactly as protected
+            // as a row: fails closed, 404 rather than 403.
+            const udeps = {
+              gate: (s2, u2) => assertOwner(ownerDeps, s2, u2),
+              // NOT sha256hex — that one takes a string and would TextEncode a
+              // 5 MB image into a ~20 MB decimal string before hashing it.
+              // Digest the bytes themselves.
+              hash: async (bytes) => {
+                const d = await crypto.subtle.digest("SHA-256", bytes);
+                return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+              },
+              list: async (s2) => siteUploadList(env, s2),
+              put: (key, bytes, ct, meta) => env.SITES_BUCKET.put(key, bytes, { httpMetadata: { contentType: ct }, ...(meta ? { customMetadata: meta } : {}) }),
+              remove: (key) => env.SITES_BUCKET.delete(key),
+            };
+            if (!env.SITES_BUCKET) return Response.json({ error: "storage not configured" }, { status: 501 });
+            if (request.method === "GET" && !uf[2]) r = await handleUploadList(udeps, { slug: uslug, uid: ou.id });
+            else if (request.method === "DELETE" && uf[2]) r = await handleUploadDelete(udeps, { slug: uslug, uid: ou.id, file: uf[2] });
+            else if (request.method === "POST" && !uf[2]) {
+              // Raw bytes, not base64 and not multipart: base64 inflates a photo
+              // by a third for no benefit, and the declared type is ignored
+              // anyway — only the leading bytes decide what this is.
+              const cl = Number(request.headers.get("content-length") || 0);
+              if (cl && cl > MAX_UPLOAD_BYTES) return Response.json({ error: "that image is too big — keep it under 5 MB", code: "too_big" }, { status: 413 });
+              const buf = await request.arrayBuffer();
+              r = await handleUpload(udeps, { slug: uslug, uid: ou.id, bytes: new Uint8Array(buf) });
+            } else return Response.json({ error: "method not allowed" }, { status: 405 });
+          } else if (an) {
+            if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
+            r = await handleOwnerAnalytics(ownerDeps, { slug: an[1].toLowerCase(), uid: ou.id });
+          } else if (mm) {
+            const [, mslug, mid] = mm;
+            r = await handleOwnerMembers(ownerDeps, {
+              slug: mslug.toLowerCase(), uid: ou.id, method: request.method,
+              memberId: mid, params: Object.fromEntries(url.searchParams),
+              // PATCH is the only way a role or a suspension is ever set.
+              body: request.method === "PATCH" ? await request.json().catch(() => ({})) : {},
+            });
+          } else if (request.method === "GET") {
+            const [, oslug, otable] = om;
+            const params = Object.fromEntries(url.searchParams);
+            r = otable
+              ? await handleOwnerData(ownerDeps, { slug: oslug.toLowerCase(), table: otable, uid: ou.id, params })
+              : await handleOwnerTables(ownerDeps, { slug: oslug.toLowerCase(), uid: ou.id });
+          } else {
+            const [, oslug, otable, orow] = om;
+            if (!otable) return Response.json({ error: "no table" }, { status: 400 });
+            const body = request.method === "DELETE" ? {} : await request.json().catch(() => ({}));
+            r = await handleOwnerWrite(ownerDeps, {
+              slug: oslug.toLowerCase(), table: otable, uid: ou.id,
+              method: request.method, rowId: orow, body,
+            });
+          }
+          return Response.json(r.body, { status: r.status });
+        } catch (e) {
+          console.error("owner data failed:", url.pathname, request.method, (e && (e.stack || e.message)) || e);
+          return Response.json({ error: "Something went wrong reaching your site's data." }, { status: 500 });
+        }
+      }
     }
 
     // DELETE /api/site/<slug> — take a published site down: its files, its
@@ -5145,11 +5923,15 @@ async function handleRequest(request, env, ctx) {
     // row had gone kept serving a React shell whose every data call 404s — a
     // public, half-broken site at a guessable URL. The build smoke test hit that
     // on every run, which is how the gap surfaced.
-    if (url.pathname.startsWith("/api/site/") && request.method === "DELETE") {
+    // Exactly /api/site/<slug>, no deeper. It used to match any DELETE under
+    // /api/site/ and strip the path down to a slug, so /api/site/cafe/rows/x/4
+    // arrived here as the slug "caferowsx4" — harmless only by luck. A row
+    // delete is a different request from taking the whole site down.
+    if (/^\/api\/site\/[a-z0-9][a-z0-9-]{0,80}$/i.test(url.pathname) && request.method === "DELETE") {
       const du = await authUser(request);
       if (!du) return UNAUTHED();
       if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, error: "service key not configured" }, { status: 501 });
-      const dslug = url.pathname.slice("/api/site/".length).toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 80);
+      const dslug = url.pathname.slice("/api/site/".length).toLowerCase();
       if (!dslug) return Response.json({ ok: false, error: "no slug" }, { status: 400 });
 
       // The backend row IS the ownership record. No row means there is nothing to
@@ -5166,14 +5948,45 @@ async function handleRequest(request, env, ctx) {
       if (!srow) return Response.json({ ok: false, error: "no such site" }, { status: 404 });
       if (srow.uid !== du.id) return Response.json({ ok: false, error: "not your site" }, { status: 403 });
 
-      // Drop the site's database first — it is the only step that still needs the
-      // row being deleted below. Best-effort: a database left behind costs money,
-      // but failing the whole call over it would leave the published files up,
-      // which is the thing the caller actually asked to take down.
+      // Forget the cached connection BEFORE anything is torn down. A warm isolate
+      // holding a string that points at a dropped database is worse than a slow
+      // lookup: it answers reads with a connection error instead of a 404.
+      _connCache.delete(dslug);
+      // And the edge route. KV propagates for up to a minute, so this has to go
+      // BEFORE the database is dropped — a route outliving its database answers
+      // reads with a connection error instead of an honest 404.
+      await dropRoute(routeDeps(env), dslug);
+
+      // Drop the site's whole PROJECT, not just its database.
+      //
+      // This is what one-project-per-site buys (2026-07-29): deleting a site
+      // deletes the project, so nothing of it is left sharing a home with its
+      // owner's other sites. Under the old per-user layout the project had to
+      // survive — its siblings lived in it — and a dropped database left an
+      // empty, billed project behind that only an operator could clear. That is
+      // exactly the leftover this session had to leave in place by hand.
+      //
+      // Best-effort on the DROP but NOT on the record: a project left behind
+      // costs money, and failing the whole call over it would leave the
+      // published files up, which is the thing the caller actually asked to take
+      // down. So the drop is tried, and the row is only removed if it worked —
+      // a row with no project is a 404 the owner can retry, while a project with
+      // no row is invisible and bills forever.
+      let projectDropped = false;
       try {
-        const proj = await userSiteProject(env, du.id);
-        if (proj && proj.neon_project) await dropSiteDatabase(env, proj.neon_project, proj.neon_branch, dslug);
-      } catch (e) { console.error("site db drop failed:", dslug, e && (e.detail || e.message)); }
+        const proj = await siteNeonProject(env, dslug);
+        if (proj && proj.neon_project) {
+          await dropUserProject(env, proj.neon_project);
+          projectDropped = true;
+        } else {
+          // Nothing recorded to drop. Legacy sites provisioned under the
+          // per-user layout still have their database inside a shared project,
+          // so fall back to dropping just that.
+          const legacy = await userSiteProject(env, du.id);
+          if (legacy && legacy.neon_project) await dropSiteDatabase(env, legacy.neon_project, legacy.neon_branch, dslug);
+          projectDropped = true;
+        }
+      } catch (e) { console.error("site project drop failed:", dslug, e && (e.detail || e.message)); }
 
       let removed = 0;
       try {
@@ -5190,7 +6003,18 @@ async function handleRequest(request, env, ctx) {
         await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(dslug)}`, { method: "DELETE", headers: svcHeaders(env) });
       } catch (e) { console.error("site row delete failed:", dslug, e && e.message); }
 
-      return Response.json({ ok: true, slug: dslug, removed });
+      // The project record goes unconditionally now, and that is safe because of
+      // the trigger: deleting this row ENQUEUES the project into `neon_teardown`,
+      // so the cron finishes the job whether the inline drop above worked or not.
+      // Keeping the row on failure was the right answer only while there was
+      // nowhere to hand the work to — it left the site half-deleted and needed an
+      // operator. The queue is strictly better: the record is never lost, and the
+      // caller's site really is gone.
+      try {
+        await fetch(`${SUPABASE_URL}/rest/v1/site_project?slug=eq.${encodeURIComponent(dslug)}`, { method: "DELETE", headers: svcHeaders(env) });
+      } catch (e) { console.error("site project row delete failed:", dslug, e && e.message); }
+
+      return Response.json({ ok: true, slug: dslug, removed, projectDropped });
     }
 
     // Sonnet 5 director: chats, reads intent (rerun/revise/new), writes prompts.
@@ -5755,7 +6579,12 @@ Return just the line to be voiced — keep it to what should actually come out o
                           required: ["prompt"],
                         },
                       },
-                      n: { description: "shot number (1-based), or the string 'all' for generate" },
+                      // Typed because a property without one is a schema the API
+                      // can refuse. This tool is unreachable — "studio" is not in
+                      // the step allowlist — so it was never sent and never
+                      // noticed; typed anyway rather than exempted, since a
+                      // guard with an exemption list rots.
+                      n: { type: "string", description: "shot number (1-based) as a string, or 'all' for generate" },
                       title: { type: "string" },
                       prompt: { type: "string" },
                       duration: { type: "number" },
@@ -6040,10 +6869,12 @@ Return just the line to be voiced — keep it to what should actually come out o
       try { body = await request.json(); } catch {
         return Response.json({ error: "invalid JSON" }, { status: 400 });
       }
+      // The Worker fetches this url with the platform's FAL_KEY attached, so it
+      // must be fal's queue and nothing else. Pattern + verdicts live in
+      // billing.mjs — see test/billing.test.mjs.
       const statusUrl = typeof body.statusUrl === "string" ? body.statusUrl : "";
-      const m = statusUrl.match(/^https:\/\/queue\.fal\.run\/[^?#]+\/requests\/([A-Za-z0-9_-]+)\/status\b/);
-      if (!m) return Response.json({ error: "invalid url" }, { status: 400 });
-      const requestId = m[1];
+      const requestId = falRequestId(statusUrl);
+      if (!requestId) return Response.json({ error: "invalid url" }, { status: 400 });
       if (!env.FAL_KEY || !env.SUPABASE_SERVICE_KEY) return Response.json({ refunded: 0 });
       // Confirm with fal that the job terminally failed (fal didn't bill us).
       let status = "";
@@ -6054,23 +6885,15 @@ Return just the line to be voiced — keep it to what should actually come out o
       } catch {
         return Response.json({ error: "verify failed" }, { status: 502 });
       }
-      if (!["FAILED", "ERROR", "CANCELED", "CANCELLED"].includes(status)) {
-        // A job can report COMPLETED yet carry a client-error RESULT (e.g. a 422
-        // input-validation failure): fal doesn't bill those either, but the
-        // status check alone misses them. Only COMPLETED earns this second look
-        // — IN_QUEUE / IN_PROGRESS are genuinely still running.
-        if (status !== "COMPLETED") {
-          return Response.json({ refunded: 0 });
-        }
+      const verdict = refundVerdict(status);
+      if (verdict === "no") return Response.json({ refunded: 0 });
+      if (verdict === "inspect") {
+        // COMPLETED can still carry a client-error RESULT (e.g. a 422 on input
+        // validation); fal doesn't bill those, but the status alone misses them.
         try {
           const resultUrl = statusUrl.replace(/\/status\b.*$/, "");
           const rr = await fetch(resultUrl, { headers: { Authorization: `Key ${env.FAL_KEY}` }, signal: AbortSignal.timeout(10000) });
-          // 2xx = real output (don't refund); 5xx / network = transient (don't
-          // refund, it may still be retrievable); only a 4xx client error means
-          // the render terminally failed validation → fall through and refund.
-          if (rr.status < 400 || rr.status >= 500) {
-            return Response.json({ refunded: 0 });
-          }
+          if (!refundOnResultStatus(rr.status)) return Response.json({ refunded: 0 });
         } catch {
           return Response.json({ refunded: 0 });
         }

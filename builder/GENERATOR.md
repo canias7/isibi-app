@@ -17,8 +17,11 @@ brief ──► designSiteSchema ──► isibi.schema.json ──► real Post
 
 All of it is wired into `POST /api/site/react-build`. The generator's deterministic
 half — the rules, the tool, and the checks below — lives in `builder/page-gen.mjs`
-and is tested by `test/page-gen.test.mjs`; the compile step is proved end to end by
-`test/integration/site-build.mjs`.
+and is tested by `test/page-gen.test.mjs`. What is DONE with those checks — pay for
+a repair pass, keep the retry or not, publish or fall back to the placeholder — is
+`builder/publish-pages.mjs`, tested by `test/publish-pages.test.mjs` against injected
+fakes. The compile step is proved end to end by `test/integration/site-build.mjs`.
+`worker.js` holds only the model call and the wiring.
 
 The schema is designed **first** and is the generator's input. The generator
 never invents a table, a column, or an access level — it can only use what the
@@ -33,9 +36,20 @@ schema declares, because those are the only things that exist in the database.
 
    | level | page may | if you get it wrong |
    |---|---|---|
-   | `display` | list/read it | — |
+   | `display` | list/read it | a write gets 403 |
    | `collect` | submit a form to it | a read gets 403 |
-   | `user` / `feed` / `admin` | nothing yet | 403 |
+   | `user` | read and write its OWN rows, signed in | 401 signed out |
+   | `feed` | read every row, write its own — signed in | 401 signed out |
+   | `admin` | read signed in; write only with the role | 401 signed out, 403 wrong role |
+
+   **Visitor accounts were DELETED on 2026-07-30** when identity moved to Neon
+   Auth, and the replacement is not wired yet. So the three member levels answer
+   **401 to everybody** — the API has no way to tell who is asking — and there is
+   no hook to sign anyone in with. Never build a login, a sign-up or an account
+   page; if a schema somehow carries a member table, leave it alone rather than
+   rendering an error where a sign-in used to go. The access rules still live in
+   `site-access.mjs` and are still imported by both the API that enforces them and
+   the lint that predicts them, so the two cannot disagree.
 
    So a menu comes from a `display` table, and a booking form writes to a
    `collect` table. **Never render a list from a `collect` table** — those rows
@@ -54,6 +68,18 @@ schema declares, because those are the only things that exist in the database.
 6. **Never write a managed column.** `id`, `created_at`, `owner_id`, `_fts`,
    `_version`, `position`, `deleted_at` are set by the engine and are silently
    dropped from any write.
+
+7. **A chart comes from `@/components/charts/lib/<domain>`.** 882 prop-driven
+   primitives across 141 domain modules, listed by name in the prompt. Hand one
+   `useRows(...)` data — never a copied array.
+
+   **The `charts/chart-*.tsx` files are demos and importing one is a defect.**
+   Each wraps a primitive in a Card around invented figures ("Bookings 268 /
+   300 · January - June 2024"), so an import compiles, bundles and publishes a
+   stranger's made-up numbers to this site's visitors. `lintPages` refuses them
+   by name — which the retired `@/examples/*` rule did not need to do, because
+   deleting that folder made its import a missing module. These 1,140 files are
+   not missing, so nothing else in the pipeline can tell one from a real chart.
 
 ## Every list must handle four states
 
@@ -89,11 +115,35 @@ something was imported that should not have been.
 
 ## Not available yet
 
-- **Visitor accounts.** No login, so no `user`/`feed`/`admin` table is
-  reachable. Do not generate a sign-in page.
-- **Editing or deleting rows** from a published site. `PATCH` and `DELETE` are
-  refused at every level. Sites are read-and-submit for now.
-- **File upload.** No route.
+- **Changing a `display` table's content FROM A PAGE.** Writes to `display` are
+  403 for every caller on the public API, and that has not changed — a visitor
+  must never edit the menu. What changed on 2026-07-28 is that the *owner* can,
+  through their own door (`/api/site/<slug>/rows/...`, an isibi session rather
+  than a site one) and its panel in the builder. So a café corrects a price
+  without rebuilding — but **not from a generated page**, and never from a page
+  a visitor can reach. Keep generating `display` tables as read-only.
+  The schema designer also ships starter rows in `seed`, inserted at build time,
+  so a site is populated on arrival. (Before seeding, on 2026-07-28, every
+  generated site launched with an empty list AND a form nobody could submit,
+  because its required Service select read that empty table.) Still generate the
+  empty state: seeding is best-effort, and a table can legitimately end up with
+  no rows.
+- **Visitor accounts** — built 2026-07-28, **deleted 2026-07-30**. Identity moved
+  to Neon Auth and the hand-built layer went with it: `@/lib/rows` exports no
+  `useMember`, no `useLogin`, no `useSignup`, no sessions, no passkeys. A member
+  table is unreachable until it is rewired. Build with `collect` and `display`.
+- **Editing or deleting rows** — `useUpdateRow`/`useDeleteRow` exist and needed a
+  signed-in member, so they are unusable for now too: `collect` and `display` rows
+  have no owner and never could be changed from a page. For the one case this
+  actually served — somebody returning to the form they filled in — use the claim
+  link (`useClaimedRow` / `useCancelClaim`), which needs no account at all.
+- ~~File upload~~ — **built 2026-07-28, both halves.** The OWNER uploads from the
+  builder's Data panel; a VISITOR can attach one to a form via `useUploadFile`, but
+  **only when that table declares an image column** — a form of six text fields
+  cannot upload at all, and asking gets a 403. Either way the value is a URL in a
+  plain text column, so the row write stays plain JSON. PNG/JPEG/WebP/GIF only,
+  SVG refused, 2 MB for a visitor. Guard `display` images: the owner fills those in
+  after the build, so on a fresh site the value is empty.
 
 If a brief needs one of these, generate what is possible and say plainly what
 was left out. Do not generate UI that cannot work.

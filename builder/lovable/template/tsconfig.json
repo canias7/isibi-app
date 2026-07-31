@@ -1,5 +1,28 @@
 {
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
+  // The 97 blocks and charts are a CATALOGUE, not application code: a site uses
+  // one login layout, not five. Left in `include` they were typechecked on every
+  // build whether or not anything imported them, which measured at 4.97s -> 8.02s
+  // per site build. Excluded it is 5.31s.
+  //
+  // This does NOT weaken the check, which is the only reason it is acceptable:
+  // `exclude` drops files from the INITIAL list, and TypeScript still follows an
+  // import into them. Verified by breaking a chart, importing it, and confirming
+  // tsc reports the error inside the excluded file — asserted in
+  // test/integration/site-build.mjs so it cannot rot into a real exclusion.
+  //
+  // `src/components/ui` joined them 2026-07-30, when the kit reached 500. A
+  // generated page imports ten or twenty; checking all 500 to cover those
+  // twenty measured 8.7s against 3.2s, on every build, growing with every
+  // component added.
+  //
+  // THE DIFFERENCE FROM THE CATALOGUE ABOVE, and why this one needed something
+  // extra: the kit is code we write and change, so a component nothing happens
+  // to import would stop being checked at all and the break would surface one
+  // day inside a customer's build, looking like the model's fault. So the check
+  // did not go away, it MOVED — `tsconfig.kit.json` typechecks all 500 and runs
+  // in the test suite, once, instead of on every site build.
+  "exclude": ["src/components/charts", "src/components/ui"],
   "compilerOptions": {
     "target": "ES2022",
     "jsx": "react-jsx",

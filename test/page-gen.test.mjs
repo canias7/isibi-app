@@ -12,9 +12,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  REFERENCE_PAGE, UI_COMPONENTS, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES,
-  schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages,
+  REFERENCE_PAGE, UI_COMPONENTS, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MANAGED_COLUMNS,
+  schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, ACCESS_NOTE,
 } from "../builder/page-gen.mjs";
+import * as api from "../builder/page-gen.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TEMPLATE = path.join(ROOT, "builder", "lovable", "template");
@@ -75,7 +76,7 @@ test("the digest states what each access level permits", () => {
   assert.match(d, /TABLE services — access "display"/);
   assert.match(d, /TABLE appointments — access "collect"/);
   assert.match(d, /never list these rows/);
-  assert.match(d, /Leave it out of the site/, "a user-scoped table must be called out as unreachable");
+  assert.match(d, /PRIVATE PER MEMBER/, "a user-scoped table is now buildable — behind a sign-in");
 });
 
 test("the digest names the columns, their types and what is required", () => {
@@ -184,6 +185,88 @@ test("the reference page is clean against its own schema", () => {
     "the page the generator is told to imitate must pass every check it is judged by");
 });
 
+// ── the lint must predict the API, not a paraphrase of it ─────────────────────
+// These rules used to be written out in both site-data.mjs and page-gen.mjs, and
+// had drifted: the lint claimed a read of a `feed` or `admin` table returns 403,
+// which the API does not do. Reporting a defect the API would not produce is
+// worse than missing one — every problem here costs a paid repair pass.
+
+test("reading a member table without useMember is reported", () => {
+  // Since visitor accounts exist, feed and admin answer 401 to a signed-out
+  // caller. A page that lists one without offering a sign-in renders an error to
+  // every first-time visitor and looks broken rather than locked.
+  const spec = { tables: [
+    { name: "posts", access: "feed", columns: [{ name: "body" }] },
+    { name: "notices", access: "admin", columns: [{ name: "body" }] },
+  ] };
+  const p = lintPages(page('useRows("posts"); useRows("notices");'), spec);
+  assert.equal(p.length, 2, JSON.stringify(p));
+  assert.match(p[0], /without useMember/);
+});
+
+test("the documentation examples are gone, not merely unimported", () => {
+  // The lint used to refuse `@/examples/*` because every file in that folder
+  // COMPILED, so a page importing one published placeholder copy to a real
+  // customer with nothing in the pipeline objecting. The folder was deleted
+  // 2026-07-31 and the rule with it — which is only safe while the files are
+  // actually absent. Restore them without restoring the rule and the silent
+  // failure comes back, so this asserts the premise the deletion rests on
+  // rather than the rule it removed.
+  const dir = path.join(TEMPLATE, "src", "examples");
+  assert.ok(!fs.existsSync(dir),
+    "src/examples is back; it compiles, so nothing else catches an import of it — restore the lint rule in page-gen.mjs or remove the folder again");
+});
+
+test("reading a member table WITH useMember is fine", () => {
+  const spec = { tables: [{ name: "posts", access: "feed", columns: [{ name: "body" }] }] };
+  assert.deepEqual(lintPages(page('const { data: me } = useMember(); useRows("posts");'), spec), []);
+});
+
+test("writing to a member table without a member is reported", () => {
+  // Since accounts exist, a feed write by someone signed IN is exactly what the
+  // level is for. What is wrong is a form with no sign-in behind it.
+  const spec = { tables: [{ name: "posts", access: "feed", columns: [{ name: "body" }] }] };
+  const p = lintPages(page('useCreateRow("posts");'), spec);
+  assert.equal(p.length, 1, JSON.stringify(p));
+  assert.match(p[0], /without useMember/);
+  assert.deepEqual(lintPages(page('const { data: me } = useMember(); useCreateRow("posts");'), spec), []);
+});
+
+test("a user table needs a member, and says so", () => {
+  const p = lintPages(page('useRows("profiles"); useCreateRow("profiles");'), SPEC).join(" ");
+  assert.match(p, /useMember/, "should say what to do, not just that it is refused");
+});
+
+test("the lint's access rules ARE the API's — same module, not a copy", async () => {
+  const api = await import("../site-access.mjs");
+  // If these ever diverge the lint starts reporting defects the API would not
+  // produce, which is exactly the drift this module was extracted to prevent.
+  for (const level of api.ACCESS_LEVELS) {
+    const spec = { tables: [{ name: "t", access: level, columns: [{ name: "c" }] }] };
+    // Anonymous: exactly what canRead/canWriteAccess say.
+    assert.equal(lintPages(page('useRows("t");'), spec).length === 0, api.canReadAccess(level),
+      `anonymous read of a "${level}" table: lint and API must agree`);
+    assert.equal(lintPages(page('useCreateRow("t");'), spec).length === 0, api.canWriteAccess(level),
+      `anonymous write to a "${level}" table: lint and API must agree`);
+    const wroteAsMember = lintPages(page('const { data: me } = useMember(); useCreateRow("t");'), spec);
+    assert.equal(wroteAsMember.length === 0, api.canWriteAccess(level) || api.needsMember(level),
+      `signed-in write to a "${level}" table: ${JSON.stringify(wroteAsMember)}`);
+    // With a member in the page, the three member levels become reachable and
+    // the two anonymous levels are unchanged — the lint must track that too, or
+    // it forbids the pages this whole feature exists to allow.
+    const withMember = lintPages(page('const { data: me } = useMember(); useRows("t");'), spec);
+    assert.equal(withMember.length === 0, api.canReadAccess(level) || api.needsMember(level),
+      `signed-in read of a "${level}" table: ${JSON.stringify(withMember)}`);
+  }
+});
+
+test("the managed-column list is the API's, not a second copy of it", async () => {
+  const api = await import("../site-access.mjs");
+  assert.deepEqual(MANAGED_COLUMNS, api.MANAGED_COLUMNS);
+  // And the rules the model reads name every one of them.
+  for (const col of api.MANAGED_COLUMNS) assert.ok(PAGE_RULES.includes(col), `rules omit ${col}`);
+});
+
 test("listing a collect table is caught — the API returns 403", () => {
   const p = lintPages(page('const a = useRows<Row>("appointments");\n' + 'createFileRoute("/")'), SPEC);
   assert.equal(p.length, 1);
@@ -213,10 +296,22 @@ test("fetch named only in a comment is not reported", () => {
   assert.deepEqual(lintPages(page("// never call fetch( here\n/* nor fetch( here */"), SPEC), []);
 });
 
-test("editing and deleting a row are caught — the API refuses both", () => {
-  const p = lintPages(page("useUpdateRow('x'); useDeleteRow('y');"), SPEC).join(" ");
-  assert.match(p, /refuses PATCH/);
-  assert.match(p, /refuses DELETE/);
+test("editing without a member, or without a member table, is reported", () => {
+  // PATCH and DELETE work as of 2026-07-28, but only on a member's OWN rows. So
+  // an edit UI with no session has nothing to scope by (401), and a schema with
+  // no member table has no editable row at all — `collect` and `display` rows
+  // have no owner.
+  const spec = { tables: [{ name: "mine", access: "user", columns: [{ name: "body" }] }] };
+  const noMember = lintPages(page('useRows("mine"); useUpdateRow("mine");'), spec);
+  assert.ok(noMember.some((x) => /useUpdateRow\/useDeleteRow without useMember/.test(x)), JSON.stringify(noMember));
+
+  assert.deepEqual(
+    lintPages(page('const { data: me } = useMember(); useRows("mine"); useUpdateRow("mine"); useDeleteRow("mine");'), spec),
+    [], "a signed-in member editing their own rows is exactly what the level is for");
+
+  const displayOnly = { tables: [{ name: "menu", access: "display", columns: [{ name: "title" }] }] };
+  const p2 = lintPages(page('const { data: me } = useMember(); useRows("menu"); useDeleteRow("menu");'), displayOnly);
+  assert.ok(p2.some((x) => /no member table/.test(x)), JSON.stringify(p2));
 });
 
 test("a ui component that does not exist is caught", () => {
@@ -250,4 +345,498 @@ test("the repair prompt carries the files, the problems and the schema", () => {
   assert.match(r, /TABLE services/);
   assert.match(r, /a barber shop/);
   assert.match(r, /COMPLETE set of route files/);
+});
+
+test("the digest describes columns whether they are objects or names", () => {
+  // Two shapes are live. normalizeSchema produces rich objects; the schema
+  // persisted in a site's own `_meta` stores plain NAMES. Filtering on `c.name`
+  // dropped every string, so a spec read back from _meta described each table as
+  // having no columns — and the generator wrote pages that said exactly that.
+  // Shipped for one deploy on 2026-07-28; every site built in that window came
+  // out with "declared with no columns" in its notes.
+  const rich = schemaDigest({ tables: [{ name: "menu", access: "display", columns: [{ name: "title", type: "text" }, { name: "price", type: "real" }] }] });
+  assert.match(rich, /title \(text\)/);
+  assert.match(rich, /price \(real\)/);
+
+  const names = schemaDigest({ tables: [{ name: "menu", access: "display", columns: ["title", "price"] }] });
+  assert.match(names, /title/, "a name-only column must still be described: " + names);
+  assert.match(names, /price/);
+  assert.ok(!/columns: \(none\)/.test(names), "this is the exact string the broken build emitted: " + names);
+});
+
+test("a display table's filter list survives the name-only shape too", () => {
+  // The generator is told what it may order and filter by. With strings dropped
+  // that list collapsed to just "id", so pages could not sort or filter at all.
+  const d = schemaDigest({ tables: [{ name: "menu", access: "display", columns: ["title", "price"] }] });
+  assert.match(d, /order \/ filter by: title, price, id/);
+});
+
+test("a genuinely empty table still reads as empty", () => {
+  const d = schemaDigest({ tables: [{ name: "t", access: "display", columns: [] }] });
+  assert.match(d, /columns: \(none\)/);
+});
+
+// ──────────────────────────────────────────────── what a revise tells the model
+//
+// A revise sends {slug, instruction}, so the generator's whole knowledge of the
+// site used to be one line like "add a gallery" — and since it rewrites every
+// page each time, a working barber shop came back as a page listing a gallery
+// and nothing else. The merged schema fixed the tables; this is the intent.
+
+test("a first build sends the brief unchanged", () => {
+  assert.equal(briefForPages({ brief: "a barber shop in Lisbon" }), "a barber shop in Lisbon");
+  assert.equal(briefForPages({ brief: "a barber shop", priorBrief: "" }), "a barber shop");
+});
+
+test("a revise carries the original brief AND the instruction", () => {
+  const out = briefForPages({ brief: "add a gallery", priorBrief: "a barber shop in Lisbon" });
+  assert.match(out, /a barber shop in Lisbon/, "without this the site is rewritten as a gallery");
+  assert.match(out, /add a gallery/);
+  assert.match(out, /WHAT TO CHANGE NOW/, "and the two must be distinguishable");
+  assert.ok(out.indexOf("a barber shop") < out.indexOf("add a gallery"), "original first, change last");
+});
+
+test("it says to keep what the original asked for", () => {
+  // The failure mode is subtraction, not addition: the model has the old brief
+  // and still drops half of it because the instruction only mentions one thing.
+  assert.match(briefForPages({ brief: "add a gallery", priorBrief: "a barber shop" }), /keep everything/i);
+});
+
+test("a repeated brief is not doubled up", () => {
+  // Sending the same brief again is a rebuild, not a change.
+  assert.equal(briefForPages({ brief: "a barber shop", priorBrief: "a barber shop" }), "a barber shop");
+  assert.equal(briefForPages({ brief: " a barber shop ", priorBrief: "a barber shop" }), "a barber shop");
+});
+
+test("a schema-only build with no instruction falls back to the stored brief", () => {
+  assert.equal(briefForPages({ brief: "", priorBrief: "a barber shop" }), "a barber shop");
+  assert.equal(briefForPages({ priorBrief: "a barber shop" }), "a barber shop");
+});
+
+test("nothing at all is an empty string, not a crash or the word undefined", () => {
+  assert.equal(briefForPages(), "");
+  assert.equal(briefForPages({}), "");
+  assert.equal(briefForPages({ brief: null, priorBrief: undefined }), "");
+});
+
+test("the rules tell the model what an image column is, and to guard it", () => {
+  // Uploads land as a URL in a plain text column, so a page renders them with a
+  // bare <img>. The guard is the part that matters: the owner fills these in
+  // AFTER the build, so on a fresh site the value is empty and an unguarded
+  // <img src=""> is a broken image on every card.
+  assert.match(PAGE_RULES, /A COLUMN NAMED FOR A PICTURE HOLDS A URL STRING/);
+  assert.match(PAGE_RULES, /\/u\/<slug>\//, "and where those URLs come from");
+  assert.match(PAGE_RULES, /ALWAYS GUARD IT/);
+  assert.match(PAGE_RULES, /placeholder box,\s+never a broken one/, "an image or a box, never <img src=\"\">");
+});
+
+test("the rules tell the model how a visitor attaches a picture", () => {
+  // Upload first, submit the URL as an ordinary text field. The row write stays
+  // plain JSON — a model reaching for multipart would produce a form that 400s.
+  assert.match(PAGE_RULES, /useUploadFile/);
+  // The rules text wraps, so anything asserted across a line break needs \s+.
+  assert.match(PAGE_RULES, /only when its table declares an image\s+column/i);
+  assert.match(PAGE_RULES, /still plain JSON/);
+  assert.match(PAGE_RULES, /SVG is refused/);
+  assert.match(PAGE_RULES, /2 MB/, "say the cap next to the control, not after the pick");
+});
+
+test("the upload hook the rules name really exists in the template", () => {
+  // A rule that names an export the template does not have is a rule that
+  // produces code which does not compile.
+  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
+  for (const fn of ["useUploadFile", "uploadFile"]) {
+    assert.match(rows, new RegExp("export (async )?function " + fn), fn);
+  }
+});
+
+test("the rules tell the model how a booking page shows a taken slot", () => {
+  // A collect table cannot be read — that is the point of it — so without this
+  // the model has no way to grey out a time somebody already booked, and every
+  // generated booking form lets two people pick the same one.
+  assert.match(PAGE_RULES, /usePublicRows/);
+  assert.match(PAGE_RULES, /WHICH SLOTS ARE TAKEN/);
+  assert.match(PAGE_RULES, /never a name or an email/);
+  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
+  assert.match(rows, /export function usePublicRows/, "a rule naming an export the template lacks produces code that does not compile");
+});
+
+test("a public projection is typed as having no id, because it has none", () => {
+  // `usePublicRows` was `<T extends Row>`, and `Row` requires `id: number` — the
+  // one field a publicView can NEVER carry, since the schema engine refuses
+  // `id` and `owner_id` in a projection. So an honest type was a compile error
+  // and the only type that compiled was a lie that left `row.id` undefined, and
+  // therefore a React key of `undefined` on every row. Measured live
+  // 2026-07-29: TS2344, the page refused, the whole site published as the
+  // placeholder.
+  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
+  assert.match(rows, /export type PublicRow/, "the projection needs a type of its own");
+  assert.ok(!/export function usePublicRows<T extends Row/.test(rows),
+    "usePublicRows must not demand a field the projection cannot contain");
+  assert.match(rows, /export function usePublicRows<T = PublicRow>/);
+  // And the model has to be told, or it writes `Row & {…}` and keys on id.
+  assert.match(PAGE_RULES, /These rows have NO `id`/);
+  assert.match(PAGE_RULES, /PublicRow/);
+});
+
+test("the schema engine really does refuse id in a projection", () => {
+  // The premise the type rests on. If this ever changed, PublicRow would be
+  // wrong in the other direction and nothing else would say so.
+  const schema = fs.readFileSync(path.join(ROOT, "site-schema.mjs"), "utf8");
+  assert.match(schema, /c !== "owner_id" && c !== "id"/,
+    "publicView must still strip id and owner_id — PublicRow is typed on that");
+});
+
+test("the rules tell the model to hand back the claim, and the hooks exist", () => {
+  // The token is issued exactly once, in the response to the insert. A page that
+  // drops it strands that booking forever — nobody but the site owner can ever
+  // reach it again — so the model has to be told, and told what to do with it.
+  assert.match(PAGE_RULES, /claim/);
+  assert.match(PAGE_RULES, /useClaimedRow/);
+  assert.match(PAGE_RULES, /useCancelClaim/);
+  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
+  for (const fn of ["useClaimedRow", "useCancelClaim"]) {
+    assert.match(rows, new RegExp("export function " + fn), fn + " is named by the rules but missing from the template");
+  }
+  // The token is no longer a field our API mints and types. As of 2026-07-30 it is a
+  // column the SCHEMA declares and a `SECURITY DEFINER` function opens, so what has
+  // to hold is that both hooks take a FUNCTION NAME — a page calling them with a
+  // table name reaches an endpoint that does not exist.
+  assert.match(rows, /useClaimedRow<T = Row>\(fn: string/, "useClaimedRow must take the function name");
+  assert.match(rows, /useCancelClaim\(fn: string\)/, "useCancelClaim must take the function name");
+  assert.match(PAGE_RULES, /FUNCTION NAME the schema/, "the rules must say so, or the model passes a table");
+});
+
+test("the rules describe member tables as they actually behave", () => {
+  // They said a `user` table returns 403 and told the model to LEAVE member
+  // tables out — text written before visitor accounts existed, sitting under a
+  // heading that says "this is not a matter of taste". It would have stopped
+  // the generator ever building a sign-in page.
+  assert.ok(!/leave it out rather than build against it/.test(PAGE_RULES),
+    "the rules must not tell the model to skip member tables");
+  assert.match(PAGE_RULES, /PRIVATE PER MEMBER/);
+  assert.match(PAGE_RULES, /signed out, both return 401/i, "signed out is 401, not 403");
+});
+
+test("the rules and ACCESS_NOTE agree about every access level", () => {
+  // Two descriptions of the same rule in one prompt is how they drifted apart
+  // the first time.
+  for (const level of ["user", "feed", "admin"]) {
+    assert.ok(ACCESS_NOTE[level], level);
+  }
+  for (const phrase of ["PRIVATE PER MEMBER", "SHARED, MEMBER-AUTHORED", "SHARED, ROLE-WRITABLE"]) {
+    assert.ok(PAGE_RULES.includes(phrase), "rule 2 must match ACCESS_NOTE: " + phrase);
+    assert.ok(Object.values(ACCESS_NOTE).some((v) => v.includes(phrase)), phrase);
+  }
+});
+
+
+
+test("the rules no longer claim uploads are impossible", () => {
+  // Rule 8 tells the model a form MAY accept an image; this section used to say
+  // there was no route for one. A prompt that contradicts itself gets obeyed
+  // unpredictably.
+  assert.ok(!/No file or image upload/.test(PAGE_RULES));
+  assert.match(PAGE_RULES, /uploadFile|useUploadFile/);
+});
+
+// ------------------------------------------------- publicView, stated not guessed
+//
+// Rule 9 tells the model not to call `usePublicRows` on a table with no public
+// view — a rule it could not follow, because nothing in the digest said which
+// tables have one. Measured live 2026-07-29: the generator worked out that
+// `bookings` had none, could not build the taken-slots hint, and the whole site
+// came out as the PLACEHOLDER over one optional enhancement.
+
+const PV_SPEC = {
+  tables: [
+    {
+      name: "bookings", access: "collect",
+      columns: [{ name: "slot_date", type: "text" }, { name: "customer_name", type: "text" }],
+      publicView: { columns: ["slot_date"], where: [], limit: 500 },
+    },
+    { name: "enquiries", access: "collect", columns: [{ name: "message", type: "text" }] },
+  ],
+};
+
+test("the digest says, per table, whether usePublicRows works", () => {
+  const d = schemaDigest(PV_SPEC);
+  assert.match(d, /bookings[\s\S]*?usePublicRows: YES/, "a table with a public view says so");
+  assert.match(d, /usePublicRows: YES — anyone may read slot_date/, "...and names exactly what it publishes");
+  assert.match(d, /enquiries[\s\S]*?usePublicRows: NO/, "and one without says THAT");
+  // Never the PII column, or the digest itself invites the leak the projection exists to prevent.
+  assert.ok(!/usePublicRows: YES[^\n]*customer_name/.test(d), "the digest must not advertise a column the view excludes");
+});
+
+test("a `display` table is not told about public views at all", () => {
+  // It is readable by anyone already; the line would be noise on every table
+  // that has no use for it.
+  assert.ok(!/usePublicRows/.test(schemaDigest(SPEC).split("TABLE appointments")[0]));
+});
+
+test("an EMPTY publicView reads as none", () => {
+  // The runtime answers 404 for this shape, so the digest must not promise it.
+  for (const pv of [{ columns: [] }, {}, null, { columns: "slot_date" }]) {
+    const spec = { tables: [{ name: "bookings", access: "collect", columns: [{ name: "slot_date" }], publicView: pv }] };
+    assert.match(schemaDigest(spec), /usePublicRows: NO/, JSON.stringify(pv));
+  }
+});
+
+test("the lint refuses a public read of a table with no public view", () => {
+  // The exact 404 the smoke test's site would have served.
+  const p = lintPages(page('usePublicRows("enquiries");'), PV_SPEC);
+  assert.equal(p.length, 1);
+  assert.match(p[0], /enquiries/);
+  assert.match(p[0], /404/);
+  assert.match(p[0], /without the taken-slots hint/, "and says what to do instead, or the repair pass has nothing to act on");
+});
+
+test("the lint allows a public read of a table that declares one", () => {
+  assert.deepEqual(lintPages(page('usePublicRows("bookings");'), PV_SPEC), []);
+});
+
+test("the lint still catches a public read of a table that does not exist", () => {
+  const p = lintPages(page('usePublicRows("nope");'), PV_SPEC);
+  assert.equal(p.length, 1);
+  assert.match(p[0], /does not declare/);
+});
+
+test("the lint and everything that enforces access ask ONE question about public views", () => {
+  // Two copies of this rule is a copy that drifts, and the drift ships as a site
+  // whose form is dead: the lint passes the page, the API answers 404.
+  //
+  // The enforcing side was site-data.mjs, deleted 2026-07-30 when the data routes
+  // moved to Neon's Data API. So the list is DERIVED — every file that mentions a
+  // public view must reach for the shared helper rather than restate it — instead
+  // of naming files, which is what made this test go red on a deletion that had
+  // nothing to do with the invariant.
+  const access = fs.readFileSync(path.join(ROOT, "site-access.mjs"), "utf8");
+  assert.match(access, /export function hasPublicView/, "the shared rule lives in the leaf module");
+
+  const candidates = fs.readdirSync(ROOT).filter((f) => /^site-.*\.mjs$/.test(f) && f !== "site-access.mjs")
+    .map((f) => [f, fs.readFileSync(path.join(ROOT, f), "utf8")])
+    .concat([["builder/page-gen.mjs", fs.readFileSync(path.join(ROOT, "builder", "page-gen.mjs"), "utf8")]]);
+  const users = candidates.filter(([, src]) => /publicView/.test(src));
+  assert.ok(users.length, "nothing mentions publicView — this test is watching nothing");
+  for (const [name, src] of users) {
+    assert.ok(!/Array\.isArray\(pv\.columns\)/.test(src), name + " keeps its own copy of the rule");
+  }
+});
+
+test("no hook demands a bare `number` for a row id", () => {
+  // Every id a page has arrives from the URL, and a router hands those over as
+  // STRINGS. Typing the argument `number` meant no page that edits, deletes or
+  // manages a row could compile — three separate TS errors in one production
+  // build on 2026-07-29, and the whole site published as the placeholder each
+  // time. `number` coming out, `string | number` going in.
+  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
+  assert.match(rows, /export type RowId = string \| number/);
+
+  // Selected by BEHAVIOUR, not by name: any hook that puts an id into a row URL
+  // is one the generator reaches with a route param. Matching on the name is
+  // what let the first version of this guard pass while two hooks were still
+  // wrong — `\bRow\b` never matches inside `useDeleteRow`.
+  // Comments are stripped first: this file EXPLAINS the number/string asymmetry,
+  // and prose about `id?: number` is not a signature. The same trap the
+  // initSiteAuth guard hit.
+  const blocks = rows.replace(/^\s*\/\/.*$/gm, "").split(/\nexport function /).slice(1);
+  const offenders = [];
+  let checked = 0;
+  for (const b of blocks) {
+    const name = b.slice(0, b.indexOf("(")).replace(/<.*/, "");
+    // Any TABLE-scoped hook that accepts an id. Not "id in a path segment":
+    // `useRow` passes it as a query string, and selecting on the path shape
+    // silently skipped it. The passkey and identity hooks take an id too, but
+    // theirs comes from a list response and never from a URL — they use
+    // `authUrl`, not `base(table)`, so this excludes them by construction.
+    if (!/\bbase\(table\)/.test(b) || !/\bid\b/.test(b)) continue;
+    checked++;
+    if (/\bid\??: number\b/.test(b)) offenders.push(name);
+  }
+  assert.ok(checked >= 4, "the scan found only " + checked + " id-in-URL hooks — it has drifted");
+  assert.deepEqual(offenders, [], "these take a row id as a bare number: " + offenders.join(", "));
+
+  // `Partial<T>` carries `id?: number` from Row, so intersecting narrows RowId
+  // straight back to number unless the id is omitted first. That was the third
+  // production error, still failing after the other signatures were widened.
+  // Either order — an intersection is commutative, and the first version of this
+  // check demanded one spelling, so a correct signature written the other way round
+  // failed a test about type semantics on a question of word order.
+  assert.ok(/Omit<Partial<T>, "id"> & \{ id: RowId \}/.test(rows) ||
+            /\{ id: RowId \} & Omit<Partial<T>, "id">/.test(rows),
+    "useUpdateRow must omit `id` from Partial<T> before widening it — Partial<T> carries " +
+    "`id?: number` from Row, so intersecting narrows RowId straight back to number");
+});
+
+test("the rules make the manage page conditional on the schema declaring it", () => {
+  // This used to assert that the rules taught the guarded shape of an optional
+  // `claim` field, because destructuring it as required failed `tsc` and published
+  // the placeholder. The field is gone: a claim is a column the schema declares and
+  // a function opens, so the failure mode moved. Now the page is only buildable when
+  // those functions exist, and a model that builds it regardless writes calls to
+  // endpoints that are not there.
+  assert.match(PAGE_RULES, /Only build the manage page if the schema actually declares/);
+  assert.match(PAGE_RULES, /Never annotate a mutation callback's parameter/,
+    "the contravariance rule still applies and cost three builds");
+});
+
+
+test("the Worker and the eval issue the SAME generation request", () => {
+  // The eval exists to tune the generator. If it built its own request body, it
+  // would be tuning a different prompt from the one production runs and every
+  // conclusion drawn from it would be about nothing.
+  const worker = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
+  const gen = worker.slice(worker.indexOf("async function generateSitePages"), worker.indexOf("function schemaPlaceholderPage"));
+  assert.match(gen, /JSON\.stringify\(pagesRequest\(/, "generateSitePages must use pagesRequest");
+  assert.ok(!/model:\s*"claude-/.test(gen), "the model must come from pagesRequest, not be restated here");
+  assert.ok(!/tool_choice/.test(gen), "the tool choice must come from pagesRequest");
+  const evalSrc = fs.readFileSync(path.join(ROOT, "test", "integration", "page-gen-eval.mjs"), "utf8");
+  assert.match(evalSrc, /JSON\.stringify\(pagesRequest\(/, "the eval must use it too");
+  assert.ok(!/model:\s*"claude-/.test(evalSrc), "the eval must not restate the model");
+});
+
+test("pagesRequest carries the budget, the tool and the repair prompt", () => {
+  const req = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe" });
+  assert.equal(req.model, "claude-sonnet-5");
+  assert.equal(req.max_tokens, api.SITE_PAGES_MAX_TOKENS);
+  assert.equal(req.tool_choice.name, "write_pages");
+  assert.equal(req.tools[0], api.SITE_PAGES_TOOL);
+  assert.equal(req.system[0].text, api.PAGE_RULES);
+  // A repair sends a DIFFERENT user turn, or the retry re-reads the original
+  // brief and rewrites the same broken page.
+  const fix = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe", fix: { pages: [{ path: "index.tsx", source: "x" }], problems: ["boom"] } });
+  assert.notEqual(fix.messages[0].content, req.messages[0].content);
+  assert.match(fix.messages[0].content, /boom/);
+});
+
+test("the system block is cached, and nothing variable is inside it", () => {
+  // PAGE_RULES is ~7,000 tokens that are byte-identical on every generation, so
+  // it is the whole reason a build's input cost is what it is. Dropping the
+  // cache_control is invisible — every build still succeeds, it just silently
+  // costs 7x again — which is exactly the class of regression a test has to hold.
+  const a = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe" });
+  assert.ok(Array.isArray(a.system), "system must be a block array, or cache_control has nowhere to live");
+  assert.deepEqual(a.system[0].cache_control, { type: "ephemeral" });
+
+  // A cache entry is keyed on the BYTES. If anything brief-, schema- or
+  // brand-specific leaked into the system block it would differ per build and
+  // never hit — so this asserts two very different requests produce a
+  // byte-identical cached prefix. Mutation-checked by interpolating the brand
+  // into PAGE_RULES, which fails here and passes every other test in the file.
+  const b = api.pagesRequest({ brief: "a barber in Liverpool", spec: { tables: [] }, brand: "Sharp Fade" });
+  assert.equal(a.system[0].text, b.system[0].text, "the cached block must not vary between builds");
+  assert.notEqual(a.messages[0].content, b.messages[0].content, "the variable half belongs in the user turn");
+
+  // The repair pass re-sends the same block within the same build, which is the
+  // one guaranteed hit — it is also the call that matters most, since a repair
+  // only happens on a build that already went wrong.
+  const fix = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe",
+    fix: { pages: [{ path: "index.tsx", source: "x" }], problems: ["boom"] } });
+  assert.equal(fix.system[0].text, a.system[0].text);
+  assert.deepEqual(fix.system[0].cache_control, { type: "ephemeral" });
+});
+
+test("no list hook hands back an envelope", () => {
+  // `useSessions` returned `{ sessions }` while every other list hook unwrapped via
+  // `select`, and the generator called `.map` straight onto it in ALL THREE eval
+  // samples — reasonably, since nothing else behaved that way.
+  //
+  // The direction reversed on 2026-07-30: Neon's Data API answers a list with the
+  // ARRAY itself, so there is no envelope to unwrap and the invariant is that
+  // nobody re-introduces one. Same failure, opposite implementation, so the test is
+  // rewritten rather than deleted.
+  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
+  const src = rows.replace(/^\s*\/\/.*$/gm, "");
+  const hooks = [...src.matchAll(/export function (use\w*Rows)\b/g)].map((m) => m[1]);
+  assert.ok(hooks.length >= 2, "expected at least useRows and usePublicRows, got " + hooks.join(","));
+  for (const hook of hooks) {
+    const i2 = src.indexOf("export function " + hook);
+    const block = src.slice(i2, src.indexOf("\n}", i2));
+    // A typed array in, a typed array out. `send<{ rows: T[] }>` or a `.then(r =>
+    // r.something)` is the shape that bit us.
+    assert.match(block, /send<T\[\]>/, hook + " must ask for an array, not an envelope: " + block);
+    assert.ok(!/\.then\(\(r\) => r\.\w+\)/.test(block), hook + " unwraps an envelope it should not have: " + block);
+    assert.match(block, /useQuery<T\[\]>/, hook + " must be typed as returning the array");
+  }
+});
+
+
+test("the rules forbid annotating a mutation callback's parameter", () => {
+  // TanStack's callback takes four arguments and its types are contravariant, so
+  // a hand-written annotation is refused even when it looks right. Three build
+  // failures came from exactly this.
+  assert.match(PAGE_RULES, /Never annotate a mutation callback's parameter/);
+});
+
+
+
+
+
+// Every hook the rules name must actually exist in the template.
+//
+// The version of this test that was deleted on 2026-07-30 listed eleven hook
+// names by hand, so it only guarded the eleven somebody had remembered — and it
+// had to be deleted rather than fixed when the auth layer went. This one DERIVES
+// the list from the prompt, which means it covers whatever the rules happen to
+// mention today and cannot fall out of date.
+//
+// The failure it prevents: the model is told to import something that is not
+// there, `tsc` refuses the page, the one repair pass fails the same way, and the
+// site publishes as the placeholder. That has happened for exactly this reason
+// more than once.
+test("every hook the rules name is exported by the template", () => {
+  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
+  const exported = new Set(
+    [...rows.matchAll(/export (?:async )?function (\w+)/g)].map((m) => m[1])
+      .concat([...rows.matchAll(/export const (\w+)/g)].map((m) => m[1])),
+  );
+  // Backticked `useThing(` in the prose — how the rules always cite a hook.
+  const named = [...new Set([...PAGE_RULES.matchAll(/`(use[A-Z]\w+)\(/g)].map((m) => m[1]))];
+  assert.ok(named.length >= 4, "expected the rules to cite several hooks, found " + named.length);
+  const missing = named.filter((n) => !exported.has(n));
+  assert.deepEqual(missing, [],
+    "the rules name " + missing.join(", ") + " and @/lib/rows does not export it — " +
+    "the model is being told to import something that is not there, so tsc refuses the page " +
+    "and the site publishes as the placeholder");
+});
+
+// Every ui component the RULES cite must exist — the other direction.
+//
+// The list-vs-disk guard above catches a component added to the template and not
+// offered to the model. It does not catch the reverse: prose in the rules naming
+// `@/components/ui/something` that was never installed. A mutation proved that
+// gap — renaming a cited component in the rules passed the whole suite.
+//
+// Same failure as the hook guard: the model is told to import something absent,
+// `tsc` refuses the page, the one repair pass fails identically, and the site
+// publishes as the placeholder.
+test("every ui component the rules cite is one the template has", () => {
+  const cited = [...new Set(
+    [...PAGE_RULES.matchAll(/@\/components\/ui\/([a-z0-9-]+)/g)].map((m) => m[1]),
+  )];
+  assert.ok(cited.length >= 2, "expected the rules to cite some components by path, found " + cited.length);
+  const missing = cited.filter((c) => !UI_COMPONENTS.includes(c));
+  assert.deepEqual(missing, [],
+    "the rules point the model at " + missing.join(", ") + ", which the template does not have");
+});
+
+// What the registry ships and we deliberately do not take.
+//
+// The template was 12 components behind the registry until 2026-07-30, found by
+// diffing against ui.shadcn.com/r/index.json rather than by reading the docs
+// sidebar — which had already proved unreliable, listing `combobox` and
+// `native-select` as though they were installable when neither has a new-york
+// build at all.
+//
+// This pins the ONE we can install and refuse, because "we forgot it" and "we
+// decided against it" look identical in a list of names a year later.
+test("toast is left out on purpose, because sonner is already here", () => {
+  // Both installed would give the model two ways to raise a toast, and it would
+  // pick inconsistently between pages of the same site. shadcn's own docs treat
+  // toast as superseded.
+  assert.ok(UI_COMPONENTS.includes("sonner"), "sonner is the one we use");
+  assert.ok(!UI_COMPONENTS.includes("toast"),
+    "toast duplicates sonner — if it is ever added, the rules must say which to use");
+  assert.match(PAGE_RULES, /toast\.(success|error)/,
+    "and the rules must actually teach the sonner API, or neither is reachable");
 });

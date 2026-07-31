@@ -6,6 +6,8 @@ import { routeTree } from "./routeTree.gen";
 import { ErrorPage } from "./lib/error-page";
 import { installErrorReporting } from "./lib/error-reporting";
 import "./styles.css";
+// The site's typeface. Generated per build — see build-server.mjs writeFonts().
+import "./fonts";
 
 // Anything that escapes React — an event handler, a timer, a rejected promise — reaches nothing
 // unless it is hooked here, before the app mounts.

@@ -9247,6 +9247,25 @@ function initCrt() {
     else if ((e.key === 'Enter' || e.key === ' ') && document.activeElement === menu) { e.preventDefault(); crtSelect(); }
   };
   document.addEventListener('keydown', onKey);
+
+  // The two doors above the chatbox. Same three lines the channel list uses, and
+  // deliberately so: the view is stashed under VIEW_KEY *before* the gate opens,
+  // because a signed-out visitor comes back through boot rather than through
+  // this handler, and boot is what reads it. Signed in, there is no gate to
+  // wait for and enterApp() takes them straight there.
+  const door = (id, view) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('click', (e) => {
+      e.preventDefault();
+      try { localStorage.setItem(VIEW_KEY, view); } catch (err) {}
+      if (window.Auth && Auth.isSignedIn()) { enterApp(); return; }
+      if (typeof openAuthFrom === 'function') openAuthFrom('start', 'app');
+    });
+  };
+  door('doorVideo', 'home');   // the media studio — video, image, voice
+  door('doorApp', 'sites');    // the site builder
+
   // Landing chatbox: let the visitor type freely; only funnel into the sign-up
   // popup when they commit (Enter) or hit the send arrow — not on tap/focus.
   const landInput = document.getElementById('crtLandInput');
@@ -9636,7 +9655,6 @@ function renderSites() {
   view.innerHTML =
     '<div class="st-page">' +
       '<div class="st-hero">' +
-        '<div class="st-orb" aria-hidden="true"><i class="st-spark s1">✦</i><i class="st-spark s2">✦</i></div>' +
         '<h1>What are we <span class="st-grad">building</span>?</h1>' +
         '<p>Describe a site and isibi builds it — then refine it by chatting. <span class="sch-flag">Beta</span></p>' +
       '<div class="st-new">' +
@@ -9777,9 +9795,13 @@ function moreAnalytics(site) {
 async function loadSiteAnalytics(site) {
   const vEl = document.getElementById('anVisitors'); if (!vEl) return;
   try {
-    const r = await apiFetch('/api/site/analytics?slug=' + encodeURIComponent(site.slug || ''));
+    // The owner's own door, same gate as the Data panel. site_hits has been
+    // written on every visit since the D1 era with nothing reading it — this
+    // route did not exist, so a published site collected traffic its owner
+    // could never see.
+    const r = await apiFetch('/api/site/' + encodeURIComponent(site.slug || '') + '/analytics');
     const d = await r.json().catch(() => ({}));
-    if (!d || !d.ok) throw 0;
+    if (!r.ok || !d || !d.ok) throw 0;
     const views = d.views || 0, visitors = d.visitors || 0;
     vEl.textContent = visitors;
     const viEl = document.getElementById('anViews'); if (viEl) viEl.textContent = views;
@@ -9799,66 +9821,163 @@ async function loadSiteAnalytics(site) {
     const chart = document.getElementById('anChart'); if (chart) chart.innerHTML = '<div class="st-chart-empty">Couldn’t load analytics just now.</div>';
   }
 }
+// A column that holds a picture. Only a naming guess — the column is plain text
+// either way, and the value is just a URL — so getting it wrong costs a button
+// that is not offered, never a broken save.
+function isImageCol(name) {
+  return /(^|_)(image|images|img|photo|photos|picture|pic|avatar|logo|cover|thumbnail|thumb|banner|hero)(_|$)|_url$/i.test(String(name || ''));
+}
 // Phase E — the Data / Users panel: shows the rows in the site's OWN database
 // (visitor submissions, displayed content, per-user data, and the visitor accounts).
 async function loadSiteData(site) {
   const host = document.getElementById('stData'); if (!host) return;
+  // The owner's door onto their own site: /api/site/<slug>/rows[/<table>[/<id>]]
+  // and /api/site/<slug>/members. A different caller from the published site's
+  // public /api/db — that one is an anonymous visitor, this one is the isibi
+  // account that OWNS the site, so it can read `collect` submissions (which the
+  // public API refuses by design) and correct `display` content.
+  const base = '/api/site/' + encodeURIComponent(site.slug || '');
   let tables = [];
   try {
-    const r = await apiFetch('/api/site/backend/rows?slug=' + encodeURIComponent(site.slug || ''));
+    const r = await apiFetch(base + '/rows');
     const d = await r.json().catch(() => ({}));
-    if (d && d.ok && Array.isArray(d.tables)) tables = d.tables;
+    if (r.ok && Array.isArray(d.tables)) tables = d.tables;
   } catch (e) {}
-  const tabs = tables.map((t) => ({ name: t.name, access: t.access, columns: t.columns || [], label: t.name })).concat([{ name: '_users', access: 'user', columns: [], label: 'Users' }]);
+  // No synthetic "Users" tab: it read /api/site/<slug>/members, which went with
+  // the auth layer on 2026-07-30. Showing a tab that always errors is worse than
+  // not showing one.
+  const tabs = tables.map((t) => ({ name: t.name, access: t.access, columns: t.columns || [], label: t.name }));
   let sel = (siteDataTable && tabs.some((t) => t.name === siteDataTable)) ? siteDataTable : (tabs[0] && tabs[0].name);
   siteDataTable = sel;
   const selTab = tabs.find((t) => t.name === sel) || { columns: [] };
-  const editable = !!sel && sel !== '_users'; // owner can manage declared tables, not visitor accounts
+  const members = false;
+  // Editing and deleting work on every declared table — it is all the owner's.
+  // Adding does not: a `user`/`feed` row belongs to a member of the site, and
+  // the owner has no member id to stamp on it, so the API answers 409.
+  const editable = !!sel && !members;
+  const canAdd = editable && selTab.access !== 'user' && selTab.access !== 'feed';
   const cols = (selTab.columns || []).map((c) => (typeof c === 'string' ? c : c && c.name)).filter(Boolean);
   let rows = [], err = false;
   if (sel) {
     try {
-      const r = await apiFetch('/api/site/backend/rows?slug=' + encodeURIComponent(site.slug || '') + '&table=' + encodeURIComponent(sel));
+      const r = await apiFetch(members ? base + '/members' : base + '/rows/' + encodeURIComponent(sel));
       const d = await r.json().catch(() => ({}));
-      if (d && d.ok && Array.isArray(d.rows)) rows = d.rows; else err = true;
+      const got = members ? d.members : d.rows;
+      if (r.ok && Array.isArray(got)) rows = got; else err = true;
     } catch (e) { err = true; }
   }
   const accLabel = { collect: 'submissions', display: 'content', user: 'per-user', feed: 'public feed' };
-  const side = '<div class="st-data-side">' + tabs.map((t) => '<button type="button" class="st-data-tab' + (t.name === sel ? ' on' : '') + '" data-dtable="' + esc(t.name) + '"><span class="st-data-tn">' + esc(t.label) + '</span>' + (t.name === '_users' ? '<span class="st-data-acc">accounts</span>' : '<span class="st-data-acc">' + esc(accLabel[t.access] || '') + '</span>') + '</button>').join('') + '</div>';
+  const side = '<div class="st-data-side">' + tabs.map((t) => '<button type="button" class="st-data-tab' + (t.name === sel ? ' on' : '') + '" data-dtable="' + esc(t.name) + '"><span class="st-data-tn">' + esc(t.label) + '</span>' + '<span class="st-data-acc">' + esc(accLabel[t.access] || '') + '</span>' + '</button>').join('') + '</div>';
   // Add / edit form (owner content editor) — a field per declared column.
   let formHtml = '';
   if (editable && siteDataForm) {
     const v = siteDataForm.values || {};
-    formHtml = '<div class="st-data-form"><div class="st-data-form-fields">' + cols.map((c) => '<label class="st-data-field"><span>' + esc(c) + '</span><input class="st-data-in" data-col="' + esc(c) + '" value="' + esc(v[c] == null ? '' : String(v[c])) + '"></label>').join('') + '</div>' +
+    formHtml = '<div class="st-data-form"><div class="st-data-form-fields">' + cols.map((c) => {
+      const cur = v[c] == null ? '' : String(v[c]);
+      // A column that holds a picture gets a file button next to its box. The
+      // stored value is still just a URL string — the column is text either way,
+      // so this is a nicety of the editor and not a different kind of field.
+      const pic = isImageCol(c);
+      return '<label class="st-data-field"><span>' + esc(c) + '</span>' +
+        '<input class="st-data-in" data-col="' + esc(c) + '" value="' + esc(cur) + '">' +
+        (pic ? '<span class="st-data-pic">' +
+          (cur ? '<img class="st-data-thumb" src="' + esc(cur) + '" alt="">' : '') +
+          '<button type="button" class="st-data-up" data-up="' + esc(c) + '">Upload image</button>' +
+        '</span>' : '') +
+      '</label>';
+    }).join('') + '</div>' +
       '<div class="st-data-form-actions"><button type="button" class="st-data-save" id="stDataSave">' + (siteDataForm.editId ? 'Save changes' : 'Add row') + '</button><button type="button" class="st-data-cancel" id="stDataCancel">Cancel</button></div></div>';
   }
   let main;
   if (!tabs.length) main = '<div class="st-empty">No data tables yet.</div>';
   else if (err) main = '<div class="st-empty">Couldn’t load this table just now.</div>';
-  else if (!rows.length && !formHtml) main = '<div class="st-empty">Nothing here yet.' + (editable ? ' Use “+ Add” to put in your first row.' : ' When visitors ' + (sel === '_users' ? 'sign up' : 'submit') + ', it shows up here.') + '</div>';
+  else if (!rows.length && !formHtml) main = '<div class="st-empty">Nothing here yet.' + (canAdd ? ' Use “+ Add” to put in your first row.' : ' When visitors ' + (members ? 'sign up' : 'submit') + ', it shows up here.') + '</div>';
   else {
     const displayCols = rows.length ? Object.keys(rows[0]) : cols;
     main = (rows.length ? '<div class="st-data-tablewrap"><table class="st-data-grid"><thead><tr>' + displayCols.map((c) => '<th>' + esc(c) + '</th>').join('') + (editable ? '<th></th>' : '') + '</tr></thead><tbody>' +
       rows.map((row) => '<tr>' + displayCols.map((c) => '<td>' + esc(String(row[c] == null ? '' : row[c])).slice(0, 240) + '</td>').join('') + (editable ? '<td class="st-data-rowact"><button type="button" class="st-data-editbtn" data-edit="' + esc(String(row.id)) + '">Edit</button><button type="button" class="st-data-rmrow" data-rm="' + esc(String(row.id)) + '" title="Delete">×</button></td>' : '') + '</tr>').join('') +
       '</tbody></table></div>' : '');
   }
-  const addBtn = (editable && !siteDataForm) ? '<button type="button" class="st-data-add" id="stDataAdd">+ Add</button>' : '';
-  host.innerHTML = '<div class="st-data-head"><span class="st-data-title">Data</span><span class="st-data-count">' + (rows.length ? rows.length + ' row' + (rows.length > 1 ? 's' : '') : '') + '</span>' + addBtn + '<button type="button" class="st-icon" id="stDataReload" title="Refresh">' + ic('reload', 15) + '</button></div><div class="st-data-body">' + side + '<div class="st-data-main">' + formHtml + main + '</div></div>';
+  const addBtn = (canAdd && !siteDataForm) ? '<button type="button" class="st-data-add" id="stDataAdd">+ Add</button>' : '';
+  // Email-me-when-someone-submits, and the switch to stop it. Only meaningful
+  // on a table visitors write to.
+  const notifyBtn = (selTab.access === 'collect')
+    ? '<button type="button" class="st-data-notify" id="stDataNotify" title="Email me when someone submits">…</button>' : '';
+  host.innerHTML = '<div class="st-data-head"><span class="st-data-title">Data</span><span class="st-data-count">' + (rows.length ? rows.length + ' row' + (rows.length > 1 ? 's' : '') : '') + '</span>' + notifyBtn + addBtn + '<button type="button" class="st-icon" id="stDataReload" title="Refresh">' + ic('reload', 15) + '</button></div><div class="st-data-body">' + side + '<div class="st-data-main">' + formHtml + main + '</div></div>';
+  const nb = document.getElementById('stDataNotify');
+  if (nb) {
+    const paint = (on) => { nb.textContent = on ? '🔔 Emails on' : '🔕 Emails off'; nb.dataset.on = on ? '1' : ''; };
+    apiFetch(base + '/notify').then((r) => r.json()).then((d) => paint(!!d.notify)).catch(() => paint(true));
+    nb.onclick = async () => {
+      const next = nb.dataset.on !== '1';
+      nb.disabled = true;
+      try {
+        const r = await apiFetch(base + '/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: next }) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { sbToast(d.error || 'Couldn’t change that.'); return; }
+        paint(!!d.notify);
+      } catch (e) { sbToast('Couldn’t change that — check your connection.'); }
+      finally { nb.disabled = false; }
+    };
+  }
   host.querySelectorAll('[data-dtable]').forEach((b) => b.onclick = () => { siteDataTable = b.dataset.dtable; siteDataForm = null; loadSiteData(site); });
   const rl = document.getElementById('stDataReload'); if (rl) rl.onclick = () => loadSiteData(site);
   const add = document.getElementById('stDataAdd'); if (add) add.onclick = () => { siteDataForm = { editId: null, values: {} }; loadSiteData(site); };
   const cancel = document.getElementById('stDataCancel'); if (cancel) cancel.onclick = () => { siteDataForm = null; loadSiteData(site); };
+  // Upload a picture and drop its URL into the field. Raw bytes, not base64:
+  // base64 inflates a photo by a third and the server ignores the declared type
+  // anyway — only the leading bytes decide what it is.
+  host.querySelectorAll('[data-up]').forEach((b) => b.onclick = () => {
+    const col = b.dataset.up;
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = 'image/png,image/jpeg,image/webp,image/gif';
+    inp.onchange = async () => {
+      const f = inp.files && inp.files[0]; if (!f) return;
+      const was = b.textContent; b.textContent = 'Uploading…'; b.disabled = true;
+      try {
+        const r = await apiFetch(base + '/uploads', { method: 'POST', headers: { 'Content-Type': f.type || 'application/octet-stream' }, body: f });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.url) { sbToast(d.error || 'Couldn’t upload that image.'); return; }
+        // Keep whatever else was typed — re-rendering from the DOM rather than
+        // from the saved row, so a half-filled form is not thrown away.
+        const vals = {}; host.querySelectorAll('.st-data-in').forEach((i) => vals[i.dataset.col] = i.value);
+        vals[col] = d.url;
+        siteDataForm = { editId: siteDataForm && siteDataForm.editId, values: vals };
+        loadSiteData(site);
+      } catch (e) { sbToast('Couldn’t upload that image — check your connection.'); }
+      finally { b.textContent = was; b.disabled = false; }
+    };
+    inp.click();
+  });
   const save = document.getElementById('stDataSave'); if (save) save.onclick = async () => {
     const values = {}; host.querySelectorAll('.st-data-in').forEach((i) => values[i.dataset.col] = i.value);
-    const body = { slug: site.slug, table: sel, values };
+    const editId = siteDataForm && siteDataForm.editId;
+    // The row IS the body — the API keeps declared columns and drops the rest.
     try {
-      if (siteDataForm && siteDataForm.editId) { body.id = siteDataForm.editId; await apiFetch('/api/site/backend/row', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); }
-      else await apiFetch('/api/site/backend/row', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    } catch (e) {}
+      const r = await apiFetch(base + '/rows/' + encodeURIComponent(sel) + (editId ? '/' + encodeURIComponent(editId) : ''), {
+        method: editId ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+      });
+      // Say what went wrong instead of silently redrawing the same form: the
+      // API's own message separates "that time is taken" from a server fault.
+      if (!r.ok) { const d = await r.json().catch(() => ({})); sbToast(d.error || 'Couldn’t save that.'); return; }
+    } catch (e) { sbToast('Couldn’t save that — check your connection.'); return; }
     siteDataForm = null; loadSiteData(site);
   };
   host.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => { const row = rows.find((r) => String(r.id) === b.dataset.edit); siteDataForm = { editId: b.dataset.edit, values: row ? Object.assign({}, row) : {} }; loadSiteData(site); });
-  host.querySelectorAll('[data-rm]').forEach((b) => b.onclick = async () => { if (!confirm('Delete this row?')) return; try { await apiFetch('/api/site/backend/row?slug=' + encodeURIComponent(site.slug || '') + '&table=' + encodeURIComponent(sel) + '&id=' + encodeURIComponent(b.dataset.rm), { method: 'DELETE' }); } catch (e) {} siteDataForm = null; loadSiteData(site); });
+  host.querySelectorAll('[data-rm]').forEach((b) => b.onclick = async () => {
+    if (!confirm(members ? 'Remove this member? They will no longer be able to sign in.' : 'Delete this row?')) return;
+    const path = members
+      ? base + '/members/' + encodeURIComponent(b.dataset.rm)
+      : base + '/rows/' + encodeURIComponent(sel) + '/' + encodeURIComponent(b.dataset.rm);
+    try {
+      const r = await apiFetch(path, { method: 'DELETE' });
+      if (!r.ok) { const d = await r.json().catch(() => ({})); sbToast(d.error || 'Couldn’t delete that.'); return; }
+    } catch (e) { sbToast('Couldn’t delete that — check your connection.'); return; }
+    siteDataForm = null; loadSiteData(site);
+  });
 }
 function moreCloud(site) {
   const isReact = !!site.react;
@@ -9873,6 +9992,7 @@ function moreCloud(site) {
   const auxLive = isReact ? false : !!site.slug;    // Emails/Payments/Files dedicated panels: static only for now
   const cards = [
     ['users', 'Members', dataLive ? 'Accounts that sign up in your app' : (isReact ? 'Add a login to your app to collect members' : 'Publish to enable member accounts'), dataLive, 'members'],
+    ['key', 'Security log', dataLive ? 'Sign-ins, failures and what you changed' : (isReact ? 'Add a login to your app to see this' : 'Publish to enable the security log'), dataLive, 'security'],
     ['inbox', 'Submissions', dataLive ? 'Form entries from your visitors' : (isReact ? 'Add a form to your app to collect entries' : 'Publish to collect submissions'), dataLive, 'inbox'],
     ['database', 'Database', dataLive ? 'Your app’s tables + rows' : (isReact ? 'Add data to your app to see it here' : 'Publish to enable collections'), dataLive, 'database'],
     ['chart', 'Insights', dataLive ? 'Traffic, top pages + error rate' : (isReact ? 'Add data/traffic to see insights' : 'Publish to see insights'), dataLive, 'insights'],
@@ -10146,8 +10266,7 @@ function renderSiteWorkspace(view, site) {
   if (isReact && site.backend && siteView === 'data') loadSiteData(site);
   // Cloud cards that are live open their real panels.
   view.querySelectorAll('[data-cloud]').forEach((b) => b.onclick = () => {
-    if (b.dataset.cloud === 'members') siteMembers(site);
-    else if (b.dataset.cloud === 'database') siteDatabase(site);
+    if (b.dataset.cloud === 'database') siteDatabase(site);
     else if (b.dataset.cloud === 'insights') siteInsights(site);
     else if (b.dataset.cloud === 'backups') siteBackups(site);
     else if (b.dataset.cloud === 'versions') siteVersions(site);
@@ -10228,7 +10347,6 @@ function renderSiteWorkspace(view, site) {
   const ib = document.getElementById('stInbox');
   if (ib) ib.onclick = () => siteInbox(site);
   const mb = document.getElementById('stMembers');
-  if (mb) mb.onclick = () => siteMembers(site);
   const plusBtn = document.getElementById('stPlus');
   if (plusBtn) plusBtn.onclick = siteAttachOpen;
   paintAttachStrip();
@@ -10648,14 +10766,17 @@ async function siteInbox(site) {
   const fmtT = (t) => { try { if (!t) return ''; const iso = /^\d{4}-\d\d-\d\d \d\d:/.test(String(t)) ? String(t).replace(' ', 'T') + 'Z' : t; return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) { return ''; } };
   try {
     if (site.react && site.backend) {
-      // React site: submissions are rows in the site's own D1 `collect` tables.
-      const tr = await apiFetch('/api/site/backend/rows?slug=' + encodeURIComponent(slug));
+      // React site: submissions are rows in the site's own `collect` tables,
+      // read through the OWNER's door — the public API refuses a collect read
+      // by design, which is why these were invisible to the person they were for.
+      const sbase = '/api/site/' + encodeURIComponent(slug);
+      const tr = await apiFetch(sbase + '/rows');
       const td = await tr.json().catch(() => ({}));
       const collectTables = ((td && td.tables) || []).filter((t) => t.access === 'collect');
       if (!collectTables.length) { bodyEl.innerHTML = '<div class="si-empty">No form yet. When your app has a form that saves entries, they land here.</div>'; return; }
       let html = '';
       for (const t of collectTables) {
-        const rr = await apiFetch('/api/site/backend/rows?slug=' + encodeURIComponent(slug) + '&table=' + encodeURIComponent(t.name));
+        const rr = await apiFetch(sbase + '/rows/' + encodeURIComponent(t.name));
         const rd = await rr.json().catch(() => ({}));
         const rows = (rd && Array.isArray(rd.rows)) ? rd.rows : [];
         html += '<div class="si-count">' + esc(t.name) + ' · ' + rows.length + ' submission' + (rows.length === 1 ? '' : 's') + '</div>' + rows.map((row) => {
@@ -10682,44 +10803,6 @@ async function siteInbox(site) {
 
 // Site members — the real end-user accounts that signed up on the published site
 // (auth backend). Owner-only, RLS-scoped by their JWT. Mirrors the inbox modal.
-async function siteMembers(site) {
-  const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
-  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then member sign-ups show up here.'); return; }
-  let box = document.getElementById('siteMembersModal');
-  if (box) box.remove();
-  box = document.createElement('div');
-  box.id = 'siteMembersModal';
-  box.className = 'si-modal';
-  box.innerHTML = '<div class="si-card"><div class="si-head"><b>Site members</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body">Loading…</div></div>';
-  document.body.appendChild(box);
-  const close = () => box.remove();
-  box.querySelector('.si-x').onclick = close;
-  box.addEventListener('click', (e) => { if (e.target === box) close(); });
-  const bodyEl = box.querySelector('.si-body');
-  // D1 timestamps come back as "2026-07-20 21:27:35" (UTC, space-separated).
-  const fmt = (t) => { try { if (!t) return '—'; const iso = /^\d{4}-\d\d-\d\d \d\d:/.test(String(t)) ? String(t).replace(' ', 'T') + 'Z' : t; return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) { return '—'; } };
-  try {
-    if (site.react && site.backend) {
-      // React site: members are the visitor accounts in the site's own D1 (_users).
-      const r = await apiFetch('/api/site/backend/rows?slug=' + encodeURIComponent(slug) + '&table=_users');
-      const d = await r.json().catch(() => ({}));
-      const members = (d && Array.isArray(d.rows)) ? d.rows : [];
-      bodyEl.innerHTML = members.length
-        ? '<div class="si-count">' + members.length + ' member' + (members.length === 1 ? '' : 's') + '</div>' + members.map((m) =>
-            '<div class="si-item"><div class="si-item-top"><span class="si-form">' + esc(m.email || '') + '</span><span class="si-when">joined ' + esc(fmt(m.created_at)) + '</span></div></div>').join('')
-        : '<div class="si-empty">No members yet. When someone signs up in your app, their account shows up here.</div>';
-      return;
-    }
-    const r = await apiFetch('/api/site/members?slug=' + encodeURIComponent(slug));
-    const d = await r.json().catch(() => ({ members: [] }));
-    const members = Array.isArray(d.members) ? d.members : [];
-    if (!members.length) { bodyEl.innerHTML = '<div class="si-empty">No members yet. When someone signs up on your live site, their account shows up here.</div>'; return; }
-    bodyEl.innerHTML = '<div class="si-count">' + members.length + ' member' + (members.length === 1 ? '' : 's') + '</div>' + members.map((m) =>
-      '<div class="si-item"><div class="si-item-top"><span class="si-form">' + esc(m.email || '') + '</span><span class="si-when">joined ' + esc(fmt(m.created_at)) + '</span></div>' +
-      '<div class="si-row"><span class="si-k">last login</span><span class="si-v">' + esc(fmt(m.last_login_at)) + '</span></div></div>'
-    ).join('');
-  } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load members just now — try again.</div>'; }
-}
 
 // Shared: derive the slug + build a Cloud modal shell; returns {box, bodyEl, close}.
 function stCloudModal(id, title) {
@@ -10736,6 +10819,11 @@ function stFmtTime(t) { try { if (!t) return '—'; const iso = /^\d{4}-\d\d-\d\
 
 // Insights — visitor traffic (page views + key actions) and the app's API request/error
 // counts. Read-only; owner-scoped.
+// The auth audit log — who signed in, who failed, and what the owner changed.
+// Reads GET /api/site/<slug>/events, which is owner-only and GET-only; there is
+// deliberately no member-facing view, because the log names other members and
+// where they signed in from.
+
 async function siteInsights(site) {
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
   if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — insights show up here.'); return; }
@@ -10767,7 +10855,7 @@ async function siteBackups(site) {
   if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then back up your data.'); return; }
   const { bodyEl } = stCloudModal('siteBackupsModal', 'Backups');
   const dl = async (table, fmt) => { // authed download → blob (a plain <a> can't send the Bearer)
-    try { const r = await apiFetch('/api/site/backend/export?slug=' + encodeURIComponent(slug) + '&table=' + encodeURIComponent(table) + '&format=' + fmt); const blob = await r.blob(); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = slug + '-' + table + '.' + fmt; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1500); } catch (e) { if (typeof sbToast === 'function') sbToast('Export failed — try again.'); }
+    try { const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/export?table=' + encodeURIComponent(table) + '&format=' + fmt); if (!r.ok) { if (typeof sbToast === 'function') sbToast('Export failed — try again.'); return; } const blob = await r.blob(); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = slug + '-' + table + '.' + fmt; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1500); } catch (e) { if (typeof sbToast === 'function') sbToast('Export failed — try again.'); }
   };
   const load = async () => {
     try {

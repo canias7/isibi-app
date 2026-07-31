@@ -22,6 +22,19 @@ const buttonVariants = cva(
         sm: "h-8 rounded-md px-3 text-xs",
         lg: "h-10 rounded-md px-8",
         icon: "h-9 w-9",
+        // The v4 sizes, added 2026-07-30 so v4-only components can be used here.
+        // `attachment`, `message-scroller` and `combobox` are all written against
+        // them and fail to typecheck without them (TS2322, measured).
+        //
+        // Deliberately ADDITIVE: the four above are untouched, so nothing that
+        // renders today can change. Taking v4's button wholesale would have
+        // rewritten every existing size AND reverted this file's local edits
+        // (`cursor-pointer`, `disabled:cursor-not-allowed`), which is the exact
+        // damage `--overwrite` did here once already.
+        xs: "h-6 gap-1 rounded-md px-2 text-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
+        "icon-xs": "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3",
+        "icon-sm": "size-8",
+        "icon-lg": "size-10",
       },
     },
     defaultVariants: {

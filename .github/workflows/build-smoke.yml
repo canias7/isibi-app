@@ -34,6 +34,14 @@ jobs:
         with:
           node-version: '22'
       - run: npm ci --no-audit --no-fund
+
+      # The smoke test drives the published site in a real browser — the only
+      # check that fails when a site is published but dead. playwright is not a
+      # Worker dependency, so it is installed here rather than added to the root
+      # package.json that wrangler bundles.
+      - run: npm i --no-save --no-audit --no-fund playwright@^1.49.0
+      - run: npx playwright install --with-deps chromium
+
       - name: build smoke
         env:
           SMOKE_BASE_URL: ${{ inputs.base_url || 'https://isibi.ai' }}
@@ -41,3 +49,13 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
         run: node test/integration/build-smoke.mjs
+
+      # What the site actually looked like to a visitor, kept whether or not the
+      # run passed — a screenshot is the fastest way to tell a real regression
+      # from a flaky assertion.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: published-site
+          path: smoke-site.png
+          if-no-files-found: ignore

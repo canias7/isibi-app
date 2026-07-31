@@ -886,7 +886,7 @@ body.in-sites .st-home { display: inline-flex; }
   transition: border-color .12s ease;
 }
 .st-in:focus { border-color: rgba(0, 0, 0, .5); }
-.st-in::placeholder { color: rgba(237, 234, 243, .35); }
+.st-in::placeholder { color: var(--muted); }
 .st-save {
   flex-shrink: 0; background: var(--split); color: var(--on-accent); border: none;
   border-radius: 11px; padding: .62rem 1.05rem; font-weight: 700; font-size: .86rem; cursor: pointer;
@@ -1361,17 +1361,6 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 /* Start screen: a centered hero (Lovable-style home) — big ask, input below. */
 .st-hero { max-width: 720px; margin: 8.5vh auto 0; text-align: center; }
 /* Glowing orb (mirrors the video-generator hero), with two drifting sparks. */
-.st-orb {
-  width: 62px; height: 62px; margin: 0 auto 1.5rem; border-radius: 50%;
-  background: var(--split); position: relative;
-  box-shadow: 0 0 60px 8px rgba(0,0,0, .34), 0 0 34px rgba(0,0,0, .4);
-  animation: stOrbFloat 5.5s ease-in-out infinite;
-}
-@keyframes stOrbFloat { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-5px) scale(1.045); } }
-.st-spark { position: absolute; font-style: normal; color: #000000; opacity: .92; }
-.st-spark.s1 { top: -12px; right: -7px; font-size: .82rem; }
-.st-spark.s2 { bottom: -9px; left: -11px; font-size: .6rem; color: #1e1e22; }
-@media (prefers-reduced-motion: reduce) { .st-orb { animation: none; } }
 .st-hero h1 { font-size: clamp(2rem, 3.7vw, 3rem); font-weight: 800; letter-spacing: -.025em; line-height: 1.04; }
 .st-grad { background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .st-hero p { color: var(--muted); font-size: 1rem; margin-top: .7rem; line-height: 1.5; display: flex; align-items: center; justify-content: center; gap: .6rem; flex-wrap: wrap; }
@@ -1430,8 +1419,8 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-pi-name { font-weight: 600; font-size: .85rem; }
 .st-pi-path { font-size: .72rem; color: var(--muted); font-family: ui-monospace, monospace; }
 /* Form-submissions inbox modal */
-.si-modal { position: fixed; inset: 0; z-index: 200; background: rgba(6, 5, 10, .66); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
-.si-card { width: min(560px, 96vw); max-height: 82vh; display: flex; flex-direction: column; background: var(--panel, #131019); border: 1px solid var(--line-2); border-radius: 16px; overflow: hidden; box-shadow: 0 30px 70px -20px rgba(0, 0, 0, .8); }
+.si-modal { position: fixed; inset: 0; z-index: 200; background: rgba(248, 248, 250, .84); backdrop-filter: blur(14px) saturate(120%); -webkit-backdrop-filter: blur(14px) saturate(120%); display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
+.si-card { width: min(560px, 96vw); max-height: 82vh; display: flex; flex-direction: column; background: #ffffff; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; box-shadow: 0 24px 60px rgba(0, 0, 0, .13), 0 2px 6px rgba(0, 0, 0, .05); }
 .si-head { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.1rem; border-bottom: 1px solid var(--line); }
 .si-head b { font-size: 1rem; }
 .si-x { background: transparent; border: 0; color: var(--muted); font-size: 1.5rem; line-height: 1; cursor: pointer; }
@@ -1568,6 +1557,18 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-data-in { background: var(--bg); border: 1px solid var(--line, #211d30); border-radius: 8px; padding: 8px 10px; color: var(--text, #ece9f5); font-size: .85rem; }
 .st-data-in:focus { outline: none; border-color: #1e1e22; }
 .st-data-form-actions { display: flex; gap: 8px; margin-top: 12px; }
+/* Email-me-on-submit toggle, in the Data panel header. */
+.st-data-notify { font-size: .72rem; color: var(--muted, #8b849e); background: none; border: 1px solid var(--line, #211d30); border-radius: 7px; padding: 4px 9px; cursor: pointer; margin-left: auto; }
+.st-data-notify[data-on="1"] { color: var(--text, #ece9f5); }
+.st-data-notify:disabled { opacity: .55; cursor: default; }
+/* Picture field: a thumbnail of what is set, and a button to replace it. The
+   value stored is still just a URL string — the column is plain text either
+   way — so this is an editor convenience, not a new kind of field. */
+.st-data-pic { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+.st-data-thumb { width: 34px; height: 34px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line, #211d30); background: var(--bg); }
+.st-data-up { font-size: .74rem; color: var(--muted, #8b849e); background: none; border: 1px solid var(--line, #211d30); border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+.st-data-up:hover:not(:disabled) { color: var(--text, #ece9f5); border-color: #33304a; }
+.st-data-up:disabled { opacity: .55; cursor: default; }
 .st-data-save { font-size: .82rem; font-weight: 600; color: var(--on-accent); background: linear-gradient(90deg, #1e1e22, #000000); border: 0; border-radius: 8px; padding: 8px 15px; cursor: pointer; }
 .st-data-cancel { font-size: .82rem; color: var(--muted, #8b849e); background: none; border: 1px solid var(--line, #211d30); border-radius: 8px; padding: 8px 14px; cursor: pointer; }
 .st-data-rowact { white-space: nowrap; text-align: right; }
@@ -1998,8 +1999,8 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    visible, dimmed, behind the backdrop). Backdrop click / Esc / ✕ close it. */
 .auth-gate {
   position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center;
-  padding: 1.5rem; background: rgba(8, 7, 12, .68);
-  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  padding: 1.5rem; background: rgba(248, 248, 250, .84);
+  backdrop-filter: blur(14px) saturate(120%); -webkit-backdrop-filter: blur(14px) saturate(120%);
 }
 .auth-gate .auth-card { position: relative; z-index: 1; animation: auth-pop .28s cubic-bezier(.2, .7, .3, 1.08); }
 @keyframes auth-pop { from { opacity: 0; transform: translateY(12px) scale(.97); } }
@@ -2007,10 +2008,9 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   .auth-gate .auth-card { animation: none; }
 }
 .auth-card {
-  width: 100%; max-width: 380px; background: var(--panel); border: 1px solid var(--line-2);
+  width: 100%; max-width: 380px; background: #ffffff; border: 1px solid var(--line);
   border-radius: 22px; padding: 2.1rem 1.9rem;
-  box-shadow: 0 30px 80px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.10);
-  backdrop-filter: blur(28px) saturate(150%); -webkit-backdrop-filter: blur(28px) saturate(150%);
+  box-shadow: 0 24px 60px rgba(0,0,0,.13), 0 2px 6px rgba(0,0,0,.05);
 }
 .auth-brand { display: flex; align-items: center; gap: .55rem; font-weight: 800; font-size: 1.15rem; }
 .auth-brand .logo-mark {
@@ -2021,7 +2021,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .auth-form { display: flex; flex-direction: column; gap: .7rem; }
 #authCode { letter-spacing: .35em; text-align: center; font-size: 1.15rem; font-weight: 600; }
 .auth-form input {
-  background: rgba(0, 0, 0, .30); border: 1px solid var(--line-2); color: var(--text);
+  background: #ffffff; border: 1px solid var(--line-2); color: var(--text);
   border-radius: 12px; padding: .85rem 1rem; font-size: 1rem; font-family: inherit; outline: none;
 }
 .auth-form input:focus { border-color: var(--neon); }
@@ -2129,7 +2129,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .auth-card { animation: card-in .45s cubic-bezier(.21, .9, .35, 1) both; }
 @keyframes card-in { from { opacity: 0; transform: translateY(16px) scale(.97); } }
 .auth-form input { transition: border-color .2s ease, box-shadow .2s ease; }
-.auth-form input:focus { box-shadow: 0 0 0 3px rgba(255, 214, 10, .14); }
+.auth-form input:focus { border-color: var(--text); box-shadow: 0 0 0 3px rgba(0, 0, 0, .09); }
 
 /* Voice preview pulses while playing; lightbox fades in. */
 .voice-test.playing { animation: play-pulse 1s ease-in-out infinite; }
@@ -5002,6 +5002,23 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 /* chatbox lives inside the screen, docked bottom-centre */
 .crt-inbox{position:absolute;left:0;right:0;bottom:clamp(1.4rem,4vh,2.8rem);z-index:2;
   display:flex;flex-direction:column;align-items:center;gap:.75rem;padding:0 clamp(1.4rem,4vw,3rem)}
+/* The two doors above the landing chatbox. The container is a plain row —
+   the buttons themselves reuse .mkt-cta / .mkt-ghost, so they stay in step with
+   the rest of the landing rather than being a third button style. */
+/* The security log's rows. Deliberately plain — it is a list somebody scans
+   when they are worried, so the only colour carries meaning: a failure and an
+   action the owner took are the two things worth picking out of a wall of
+   ordinary sign-ins. */
+.sec-row{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1.3fr) auto auto;gap:.6rem;align-items:baseline;
+  padding:.5rem .1rem;border-bottom:1px solid var(--line);font-size:.86rem}
+.sec-row:last-child{border-bottom:none}
+.sec-who{color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sec-what{color:var(--muted)}
+.sec-when,.sec-where{color:var(--muted);opacity:.75;font-size:.8rem;white-space:nowrap}
+.sec-bad .sec-what{color:#ff9b9b}
+.sec-own .sec-what{color:var(--neon)}
+.crt-doors{display:flex;gap:.7rem;flex-wrap:wrap;justify-content:center}
+.crt-doors .mkt-cta,.crt-doors .mkt-ghost{padding:.7rem 1.9rem;font-size:.92rem}
 .crt-chatbox{width:min(560px,88%);display:flex;align-items:stretch;gap:.9rem;cursor:text;
   padding:1.1rem 1rem 1.1rem 1.4rem;border-radius:20px;border:1px solid var(--line-2);background:var(--panel);
   box-shadow:0 28px 70px rgba(0,0,0,.55);transition:border-color .25s}
@@ -5028,7 +5045,10 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    in the DOM (hidden) so the channels/demos can be brought back if wanted. ── */
 .mkt-crt .crt-menu,
 .mkt-crt .crt-stage{display:none}
-.mkt-crt .crt-inbox{top:50%;bottom:auto;transform:translateY(-50%)}
+/* Centred, then nudged down by half the row the doors added. The crest above is
+   positioned independently, so a stack that grows from its middle grows INTO it
+   — measured at 11px of overlap before this. */
+.mkt-crt .crt-inbox{top:50%;bottom:auto;transform:translateY(calc(-50% + 1.6rem))}
 .mkt-crt .crt-crest{top:calc(50% - 7.5rem)}
 
 /* ── Gradient Halo chatbox (owner 2026-07-23): the ONE colored element on the

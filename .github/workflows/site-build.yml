@@ -32,12 +32,20 @@ jobs:
           cache: npm
           cache-dependency-path: builder/lovable/template/package-lock.json
 
-      # The generator's rules, tool schema and output checks — no install needed.
-      - run: node --test "test/page-gen.test.mjs"
+      # The generator's rules, tool schema and output checks, plus the decisions
+      # made around them — which attempt is published, and what it cost. Both
+      # modules are dependency-free, so no install is needed.
+      - run: node --test "test/page-gen.test.mjs" "test/publish-pages.test.mjs"
 
       # The same dependency set the container image bakes, from the same lockfile.
       - run: npm ci --no-audit --no-fund --loglevel=error
         working-directory: builder/lovable/template
+
+      # The whole 500-component kit, in one pass. tsconfig.json excludes it from
+      # the per-build check (8.7s -> 3.0s on every site build), so this is the
+      # only thing that would catch a break in a component no generated page
+      # happens to import yet.
+      - run: node test/integration/kit-typecheck.mjs
 
       - run: node test/integration/site-build.mjs
 

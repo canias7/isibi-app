@@ -1,0 +1,32 @@
+{
+  // The whole component kit, typechecked in one pass.
+  //
+  // tsconfig.json excludes src/components/ui from the per-build check because a
+  // generated page imports twenty of the 500 and TypeScript still follows those
+  // imports — so the build stays honest and 5.5 seconds faster. What that alone
+  // would lose is the component NOBODY imports: break one and nothing says so
+  // until, months later, a generated site reaches for it and that build fails
+  // for reasons that look like the model's fault.
+  //
+  // This config is that missing half. It is not run per build; it runs once, in
+  // the test suite (test/kit-typecheck.test.mjs). Two checks with different
+  // jobs, rather than one doing both badly.
+  //
+  // `charts/lib` joined it 2026-07-31, when the generator was first told those
+  // 882 primitives exist. Until then they were typechecked by NOTHING and it was
+  // luck that they were clean: tsconfig.json excludes all of src/components/charts,
+  // and this file covered only `ui`. The demos next door import them, but the
+  // demos are excluded too, so nothing followed an import into them either.
+  // Wiring them into the prompt is exactly what makes that gap expensive — a
+  // broken primitive would now surface inside a customer's build.
+  //
+  // The DEMOS stay out on purpose. They are a catalogue in the sense the comment
+  // in tsconfig.json means, 1,140 files nothing is meant to import, and the lint
+  // in page-gen.mjs refuses them by name rather than by type error.
+  "extends": "./tsconfig.json",
+  "include": [
+    "src/components/ui/**/*.ts", "src/components/ui/**/*.tsx",
+    "src/components/charts/lib/**/*.ts", "src/components/charts/lib/**/*.tsx"
+  ],
+  "exclude": []
+}
