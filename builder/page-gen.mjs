@@ -397,6 +397,9 @@ export const UI_COMPONENTS = [
   // Keyboard and power users.
   "command-item", "command-group", "key-sequence", "keyboard-tip",
   "focus-list",
+  // Validation.
+  "error-summary-link", "field-warning", "async-validation",
+  "uniqueness-check", "format-hint",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

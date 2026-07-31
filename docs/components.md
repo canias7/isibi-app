@@ -1,4 +1,4 @@
-# Components (929 built, 71 to go)
+# Components (934 built, 66 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -29,6 +29,7 @@
 ✓ aspect-ratio
 ✓ assignee-picker
 ✓ async-select
+✓ async-validation
 ✓ attachment
 ✓ attachment-list
 ✓ attachment-tray
@@ -258,6 +259,7 @@
 ✓ env-badge
 ✓ error-boundary
 ✓ error-state
+✓ error-summary-link
 ✓ escalation-note
 ✓ event-card
 ✓ event-meta
@@ -284,6 +286,7 @@
 ✓ field-hint
 ✓ field-lock
 ✓ field-success
+✓ field-warning
 ✓ figure
 ✓ file-drop
 ✓ file-list
@@ -313,6 +316,7 @@
 ✓ form-progress
 ✓ form-row
 ✓ form-section
+✓ format-hint
 ✓ format-toolbar
 ✓ frozen-columns
 ✓ gallery
@@ -884,6 +888,7 @@
 ✓ typing-indicator
 ✓ undo-redo
 ✓ undo-toast
+✓ uniqueness-check
 ✓ unit-convert
 ✓ unit-input
 ✓ unit-preference
@@ -933,7 +938,6 @@
 amount-input
 area-chart
 aspect-box
-async-validation
 availability-toggle
 bar-chart
 box-plot
@@ -957,12 +961,9 @@ distribution-bar
 duplicate-badge
 edge-fade
 elapsed-timer
-error-summary-link
-field-warning
 file-preview
 folder-path
 folder-tree
-format-hint
 full-bleed
 funnel-chart
 grouped-bar
@@ -996,7 +997,6 @@ three-col
 timezone-clock
 treemap-chart
 trend-card
-uniqueness-check
 upload-queue
 waterfall-chart
 working-hours
