@@ -304,6 +304,12 @@ export const UI_COMPONENTS = [
   "conversation-branch", "voice-input", "transcript-view", "context-meter",
   "attachment-tray", "stop-generating", "copy-response", "prompt-history",
   "system-prompt-editor",
+  // Code and technical display.
+  "code-diff", "log-viewer", "terminal-output", "stack-trace",
+  "status-code-badge", "curl-example", "sdk-tabs", "schema-viewer",
+  "json-tree", "syntax-highlight", "request-timing", "header-table",
+  "query-params", "env-badge", "build-status", "commit-row", "branch-badge",
+  "diff-stat",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

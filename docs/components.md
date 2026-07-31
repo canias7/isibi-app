@@ -1,4 +1,4 @@
-# Components (666 built, 334 to go)
+# Components (684 built, 316 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -50,8 +50,10 @@
 ✓ block-menu
 ✓ blur-up
 ✓ booking-summary
+✓ branch-badge
 ✓ breadcrumb
 ✓ bubble
+✓ build-status
 ✓ bulk-actions
 ✓ bulk-edit-panel
 ✓ bullet-list
@@ -93,6 +95,7 @@
 ✓ clamp-text
 ✓ cluster
 ✓ code-block
+✓ code-diff
 ✓ code-editor
 ✓ collapsible
 ✓ color-picker
@@ -107,6 +110,7 @@
 ✓ comment
 ✓ comment-anchor
 ✓ comment-thread
+✓ commit-row
 ✓ compare-table
 ✓ comparison-columns
 ✓ comparison-table
@@ -136,6 +140,7 @@
 ✓ cron-builder
 ✓ csv-import
 ✓ cta-band
+✓ curl-example
 ✓ currency-input
 ✓ cvc-input
 ✓ danger-zone
@@ -157,6 +162,7 @@
 ✓ detail-panel
 ✓ device-list
 ✓ dialog
+✓ diff-stat
 ✓ diff-text
 ✓ direction
 ✓ directory-list
@@ -184,6 +190,7 @@
 ✓ emoji-reaction
 ✓ empty
 ✓ empty-illustration
+✓ env-badge
 ✓ error-boundary
 ✓ error-state
 ✓ escalation-note
@@ -238,6 +245,7 @@
 ✓ grouped-list
 ✓ grouped-rows
 ✓ handoff-note
+✓ header-table
 ✓ heading
 ✓ heading-level
 ✓ heat-strip
@@ -277,6 +285,7 @@
 ✓ invoice-totals
 ✓ item
 ✓ job-card
+✓ json-tree
 ✓ json-view
 ✓ kbd
 ✓ key-value
@@ -303,6 +312,7 @@
 ✓ location-card
 ✓ lock-indicator
 ✓ lockout-note
+✓ log-viewer
 ✓ login-form
 ✓ login-history
 ✓ logo
@@ -420,6 +430,7 @@
 ✓ prose
 ✓ quantity-input
 ✓ quarter-picker
+✓ query-params
 ✓ queue-depth
 ✓ quick-add
 ✓ quote
@@ -445,6 +456,7 @@
 ✓ reorderable-grid
 ✓ repeatable-field
 ✓ reply-box
+✓ request-timing
 ✓ required-mark
 ✓ reset-form
 ✓ resizable
@@ -471,12 +483,14 @@
 ✓ save-draft
 ✓ saved-views
 ✓ scale-input
+✓ schema-viewer
 ✓ scope-list
 ✓ screen-only
 ✓ scroll-area
 ✓ scroll-progress
 ✓ scroll-top
 ✓ scrubber
+✓ sdk-tabs
 ✓ search-facets
 ✓ search-header
 ✓ search-input
@@ -542,10 +556,12 @@
 ✓ spreadsheet-grid
 ✓ sso-button
 ✓ stack
+✓ stack-trace
 ✓ stale-data-note
 ✓ stat-card
 ✓ stats-band
 ✓ status-badge
+✓ status-code-badge
 ✓ status-dot
 ✓ status-list
 ✓ step-nav
@@ -571,6 +587,7 @@
 ✓ switch
 ✓ switch-row
 ✓ sync-status
+✓ syntax-highlight
 ✓ system-prompt-editor
 ✓ tab-nav
 ✓ table
@@ -586,6 +603,7 @@
 ✓ team-grid
 ✓ template-download
 ✓ template-fill
+✓ terminal-output
 ✓ terms-block
 ✓ testimonial
 ✓ text
@@ -687,12 +705,10 @@ blocked-note
 blocking-overlay
 blur-sensitive
 box-plot
-branch-badge
 breadcrumb-collapse
 breakpoint-badge
 bubble-chart
 bucket-picker
-build-status
 bullet-chart
 byline-compact
 camera-capture
@@ -709,13 +725,11 @@ click-outside
 clipboard-history
 co-edit-note
 coach-mark
-code-diff
 combo-chart
 command-bar
 command-group
 command-item
 comment-pin
-commit-row
 comparison-chart
 completeness-bar
 completion-ring
@@ -732,7 +746,6 @@ copy-link
 count-up
 countdown-ring
 csat-face
-curl-example
 currency-amount
 currency-switch
 cursor-pagination
@@ -745,7 +758,6 @@ delivery-status
 delta-pill
 density-preference
 did-you-mean
-diff-stat
 digest-row
 discount-input
 dismiss-all
@@ -765,7 +777,6 @@ elapsed-timer
 email-share
 embed-code
 empty-cta
-env-badge
 error-summary-link
 exit-survey
 export-format
@@ -791,7 +802,6 @@ group-by-picker
 grouped-bar
 gutter
 handover-bar
-header-table
 high-contrast
 hint-dot
 histogram
@@ -800,7 +810,6 @@ idle-note
 import-settings
 infinite-scroll
 instant-results
-json-tree
 jump-to
 key-sequence
 keyboard-map
@@ -813,7 +822,6 @@ line-chart
 live-cursor
 load-error
 load-more
-log-viewer
 magnetic-button
 media-query-note
 mega-menu
@@ -867,7 +875,6 @@ qr-code
 quality-score
 quantile-bar
 query-builder
-query-params
 question-nav
 quick-switcher
 radar-chart
@@ -884,7 +891,6 @@ refresh-pill
 related-nav
 relative-date
 report-reason
-request-timing
 reset-defaults
 reset-demo
 resizable-columns
@@ -901,12 +907,10 @@ sample-toggle
 saved-search
 scan-document
 scatter-plot
-schema-viewer
 screen-reader-note
 scroll-lock
 scroll-reveal
 scroll-spy
-sdk-tabs
 search-empty
 search-history
 search-scope
@@ -943,14 +947,12 @@ sparkline-grid
 spec-row
 split-amount
 split-pane
-stack-trace
 stacked-bar
 stage-gate
 stagger-list
 stale-badge
 startup-page
 state-badge
-status-code-badge
 step-chart
 sticky-columns
 sticky-footer
@@ -960,12 +962,10 @@ strike-badge
 subscribe-toggle
 survey-card
 swipe-actions
-syntax-highlight
 tab-order-note
 tab-overflow
 table-of-contents
 tax-toggle
-terminal-output
 theme-picker
 three-col
 threshold-bar
