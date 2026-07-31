@@ -1,4 +1,4 @@
-# Components (740 built, 260 to go)
+# Components (767 built, 233 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -39,6 +39,7 @@
 ✓ avatar-upload
 ✓ award-badge
 ✓ back-link
+✓ back-to-list
 ✓ backup-email
 ✓ badge
 ✓ banner
@@ -152,6 +153,7 @@
 ✓ cta-band
 ✓ curl-example
 ✓ currency-input
+✓ cursor-pagination
 ✓ cvc-input
 ✓ danger-zone
 ✓ data-list
@@ -172,6 +174,7 @@
 ✓ detail-panel
 ✓ device-list
 ✓ dialog
+✓ did-you-mean
 ✓ diff-stat
 ✓ diff-text
 ✓ direction
@@ -215,6 +218,7 @@
 ✓ expiry-input
 ✓ export-button
 ✓ external-link
+✓ facet-range
 ✓ faq
 ✓ faq-search
 ✓ feature-grid
@@ -234,6 +238,7 @@
 ✓ file-size
 ✓ file-type-icon
 ✓ filter-bar
+✓ filter-tree
 ✓ find-replace
 ✓ first-run
 ✓ flip-card
@@ -296,6 +301,7 @@
 ✓ input
 ✓ input-group
 ✓ input-otp
+✓ instant-results
 ✓ invite-form
 ✓ invoice-header
 ✓ invoice-lines
@@ -305,6 +311,7 @@
 ✓ job-card
 ✓ json-tree
 ✓ json-view
+✓ jump-to
 ✓ kbd
 ✓ key-value
 ✓ label
@@ -327,6 +334,7 @@
 ✓ list-toolbar
 ✓ live-badge
 ✓ live-region
+✓ load-more
 ✓ loading-overlay
 ✓ location-card
 ✓ lock-indicator
@@ -375,11 +383,15 @@
 ✓ multi-column-list
 ✓ multi-select
 ✓ multi-sort
+✓ multi-sort-picker
 ✓ multi-step-form
 ✓ name-fields
 ✓ native-select
+✓ nav-badge
 ✓ nav-footer
+✓ nav-group
 ✓ nav-list
+✓ nav-search
 ✓ navigation-menu
 ✓ nested-list
 ✓ no-results
@@ -428,6 +440,7 @@
 ✓ person-row
 ✓ phone-input
 ✓ pickup-point
+✓ pinned-nav
 ✓ pivot-table
 ✓ plan-card
 ✓ playback-speed
@@ -462,6 +475,7 @@
 ✓ pulse-dot
 ✓ quantity-input
 ✓ quarter-picker
+✓ query-builder
 ✓ query-params
 ✓ queue-depth
 ✓ quick-add
@@ -478,6 +492,7 @@
 ✓ ratio-bar
 ✓ reading-time
 ✓ receipt
+✓ recent-nav
 ✓ recent-searches
 ✓ recipe-card
 ✓ record-header
@@ -486,6 +501,7 @@
 ✓ recurring-picker
 ✓ regenerate-button
 ✓ related-list
+✓ related-nav
 ✓ reorderable-grid
 ✓ repeatable-field
 ✓ reply-box
@@ -497,6 +513,7 @@
 ✓ resize-handle
 ✓ response-rating
 ✓ result-count
+✓ result-preview
 ✓ retry-panel
 ✓ reveal
 ✓ revert-button
@@ -518,6 +535,7 @@
 ✓ safe-image
 ✓ sample-data-banner
 ✓ save-draft
+✓ saved-search
 ✓ saved-views
 ✓ scale-input
 ✓ schema-viewer
@@ -526,19 +544,25 @@
 ✓ scroll-area
 ✓ scroll-progress
 ✓ scroll-reveal
+✓ scroll-spy
 ✓ scroll-top
 ✓ scrubber
 ✓ sdk-tabs
+✓ search-empty
 ✓ search-facets
 ✓ search-header
+✓ search-history
 ✓ search-input
 ✓ search-results
+✓ search-scope
 ✓ search-select
+✓ search-shortcut
 ✓ search-suggestions
 ✓ seat-usage
 ✓ section
 ✓ section-divider
 ✓ section-header
+✓ section-nav
 ✓ security-score
 ✓ select
 ✓ select-all-banner
@@ -571,6 +595,7 @@
 ✓ signup-form
 ✓ site-footer
 ✓ site-header
+✓ sitemap-list
 ✓ size-picker
 ✓ skeleton
 ✓ skeleton-card
@@ -587,6 +612,7 @@
 ✓ slug-input
 ✓ snackbar
 ✓ snap-carousel
+✓ snap-sections
 ✓ social-links
 ✓ sonner
 ✓ sort-select
@@ -640,6 +666,7 @@
 ✓ syntax-highlight
 ✓ system-prompt-editor
 ✓ tab-nav
+✓ tab-overflow
 ✓ table
 ✓ table-editor
 ✓ table-export
@@ -753,7 +780,6 @@ area-chart
 aspect-box
 async-validation
 availability-toggle
-back-to-list
 bar-chart
 big-number
 blocked-note
@@ -794,7 +820,6 @@ countdown-ring
 csat-face
 currency-amount
 currency-switch
-cursor-pagination
 data-freshness
 date-preset
 deadline-bar
@@ -803,7 +828,6 @@ definition
 delivery-status
 delta-pill
 density-preference
-did-you-mean
 digest-row
 discount-input
 distribution-bar
@@ -824,12 +848,10 @@ exit-survey
 export-format
 export-progress
 export-settings
-facet-range
 feature-tour
 field-warning
 file-preview
 filter-preset
-filter-tree
 focus-list
 folder-path
 folder-tree
@@ -847,8 +869,6 @@ histogram
 hotkey-badge
 idle-note
 import-settings
-instant-results
-jump-to
 key-sequence
 keyboard-map
 keyboard-tip
@@ -858,17 +878,12 @@ likert-row
 line-chart
 live-cursor
 load-error
-load-more
 media-query-note
 mention-badge
 milestone-dot
 missing-fields
 moderation-queue
-multi-sort-picker
 mute-schedule
-nav-badge
-nav-group
-nav-search
 notification-empty
 notification-group
 offline-queue
@@ -882,7 +897,6 @@ percent-ring
 permalink
 phase-bar
 pie-chart
-pinned-nav
 place-search
 placeholder-grid
 poll-result
@@ -898,7 +912,6 @@ pull-quote
 qr-code
 quality-score
 quantile-bar
-query-builder
 question-nav
 radar-chart
 radius-slider
@@ -907,33 +920,23 @@ range-summary
 ranking-list
 read-progress
 reading-guide
-recent-nav
 recommendation-badge
 reduce-motion
 refresh-pill
-related-nav
 relative-date
 report-reason
 reset-defaults
 reset-demo
 resolve-thread
 response-summary
-result-preview
 rollback-note
 rounding-note
 safe-area
 sample-toggle
-saved-search
 scan-document
 scatter-plot
 screen-reader-note
 scroll-lock
-scroll-spy
-search-empty
-search-history
-search-scope
-search-shortcut
-section-nav
 sentiment-chip
 share-invite
 share-sheet
@@ -944,10 +947,8 @@ shortlist-bar
 side-by-side
 sidebar-right
 sidenote
-sitemap-list
 skeleton-form
 skeleton-list
-snap-sections
 snooze-menu
 snooze-until
 social-preview
@@ -969,7 +970,6 @@ strike-badge
 subscribe-toggle
 survey-card
 tab-order-note
-tab-overflow
 table-of-contents
 tax-toggle
 theme-picker

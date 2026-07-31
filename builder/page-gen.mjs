@@ -327,6 +327,14 @@ export const UI_COMPONENTS = [
   "panel-group", "floating-toolbar", "context-panel", "zoom-controls",
   "layer-list", "property-panel", "pane-tabs", "command-bar",
   "quick-switcher", "shortcut-overlay", "resizable-columns",
+  // Navigation.
+  "cursor-pagination", "load-more", "jump-to", "section-nav", "tab-overflow",
+  "nav-badge", "back-to-list", "related-nav", "sitemap-list", "nav-search",
+  "recent-nav", "pinned-nav", "nav-group", "scroll-spy", "snap-sections",
+  // Search.
+  "search-scope", "search-history", "saved-search", "query-builder",
+  "filter-tree", "facet-range", "multi-sort-picker", "result-preview",
+  "did-you-mean", "search-shortcut", "instant-results", "search-empty",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
