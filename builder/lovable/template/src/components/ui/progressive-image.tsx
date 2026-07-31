@@ -57,7 +57,7 @@ export function ProgressiveImage({
       fetchPriority={priority ? "high" : undefined}
       onLoad={() => setLoaded(true)}
       onError={() => setFailed(true)}
-      className={cn("block h-auto w-full bg-muted transition-opacity duration-300 motion-reduce:transition-none",
+      className={cn("block h-auto w-full bg-muted transition-opacity duration-(--dur-3) motion-reduce:transition-none",
         loaded ? "opacity-100" : "opacity-0", className)}
     />
   );

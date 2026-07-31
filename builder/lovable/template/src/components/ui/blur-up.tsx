@@ -55,7 +55,7 @@ export function BlurUp({
         decoding={priority ? "sync" : "async"}
         onLoad={() => setDone(true)}
         onError={() => setDone(true)}
-        className={cn("relative block size-full object-cover transition-opacity duration-500 motion-reduce:transition-none",
+        className={cn("relative block size-full object-cover transition-opacity duration-(--dur-4) motion-reduce:transition-none",
           done ? "opacity-100" : "opacity-0")}
       />
     </div>

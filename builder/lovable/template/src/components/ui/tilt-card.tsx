@@ -46,7 +46,7 @@ export function TiltCard({ max = 8, scale = 1.01, children, className }: {
   const rest = () => {
     const el = ref.current;
     if (!el) return;
-    el.style.transition = "transform 240ms ease-out";
+    el.style.transition = "transform 240ms ease-emphasis";
     el.style.transform = "";
   };
 

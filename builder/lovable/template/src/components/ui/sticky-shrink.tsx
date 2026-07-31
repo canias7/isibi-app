@@ -50,7 +50,7 @@ export function StickyShrink({ children, root, shrunkClassName, className }: {
       <div ref={sentinel} aria-hidden className="h-4" />
       <div
         data-shrunk={shrunk || undefined}
-        className={cn("sticky top-0 z-30 border-b border-border bg-background transition-[padding,box-shadow] duration-200 motion-reduce:transition-none",
+        className={cn("sticky top-0 z-30 border-b border-border bg-background transition-[padding,box-shadow] duration-(--dur-2) motion-reduce:transition-none",
           shrunk ? cn("py-1.5 shadow-sm", shrunkClassName) : "py-3", className)}
       >
         {typeof children === "function" ? children(shrunk) : children}

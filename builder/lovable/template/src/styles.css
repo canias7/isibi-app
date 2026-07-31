@@ -19,6 +19,34 @@
      `font-heading` real Tailwind utilities as well. */
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-heading: var(--font-sans);
+
+  /* Motion. Named rather than numeric for the same reason the colours are:
+     before this, 24 duration usages across 19 files ran on eight unrelated
+     numbers (75/100/150/200/300/400/500/1000) and four easings applied without
+     a pattern, so nothing on a generated page was timed against anything else.
+
+     THE EASINGS TOKENISE HERE AND THE DURATIONS CANNOT. Tailwind v4 derives an
+     `ease-*` utility from this namespace — verified — but has no namespace for a
+     named duration: `--duration-fast` here generates nothing and the class
+     silently falls back to the 150ms default, which is the worst kind of failure
+     because the markup still looks right. So the durations are plain custom
+     properties below, used as `duration-(--dur-2)`.
+
+     Deliberately NOT called ease-out/ease-in-out: those are Tailwind built-ins,
+     and redefining them would silently re-time everything already using them. */
+  --ease-emphasis: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: linear(0, 0.45 12%, 0.94 24%, 1.07 32%, 1.02 42%, 0.99 52%, 1.005 66%, 1);
+}
+
+/* The four steps every animation in the kit is timed against.
+   The tiers are semantic and they came out of the data rather than being
+   invented: acknowledgement, state change, movement, arrival. */
+:root {
+  --dur-1: 90ms;    /* acknowledgement — a hover, a press, a progress tick */
+  --dur-2: 180ms;   /* state change — a panel opens, a dialog appears */
+  --dur-3: 320ms;   /* movement — something travels across the screen */
+  --dur-4: 500ms;   /* arrival — content that was not there is now there */
 }
 
 /*

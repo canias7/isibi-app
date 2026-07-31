@@ -41,7 +41,7 @@ export function LiveCursor({ x, y, name, idleAfter = 15000, lastMove, className 
       aria-hidden
       // A transform is composited; top/left forces a layout on every message.
       style={{ transform: `translate3d(${x}px, ${y}px, 0)` }}
-      className={cn("pointer-events-none absolute top-0 left-0 z-40 transition-opacity duration-500",
+      className={cn("pointer-events-none absolute top-0 left-0 z-40 transition-opacity duration-(--dur-4)",
         faded && "opacity-30", className)}
     >
       <svg width="14" height="18" viewBox="0 0 14 18" className="drop-shadow-sm">

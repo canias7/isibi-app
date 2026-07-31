@@ -64,7 +64,7 @@ export function SwipeActions({ actions, children, className }: {
           setOffset((o) => (o > width / 2 ? width : 0));
         }}
         onPointerCancel={() => { start.current = null; setOffset(0); }}
-        className="relative bg-background transition-transform duration-150 motion-reduce:transition-none"
+        className="relative bg-background transition-transform duration-(--dur-2) motion-reduce:transition-none"
       >
         {children}
       </div>

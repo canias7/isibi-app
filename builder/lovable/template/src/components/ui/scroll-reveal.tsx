@@ -52,7 +52,7 @@ export function ScrollReveal({ children, delay = 0, rootMargin = "0px 0px -10% 0
     <div
       ref={ref}
       style={{ transitionDelay: `${delay}ms` }}
-      className={cn("transition-[opacity,transform] duration-500 motion-reduce:transition-none",
+      className={cn("transition-[opacity,transform] duration-(--dur-4) motion-reduce:transition-none",
         hidden ? "translate-y-2 opacity-0" : "translate-y-0 opacity-100", className)}
     >
       {children}

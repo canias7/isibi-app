@@ -47,7 +47,7 @@ export function FlipCard({ front, back, flipped, onFlipChange, label = "Flip the
       className={cn("relative block w-full cursor-pointer text-left [perspective:1000px]", className)}
     >
       <div
-        className={cn("relative size-full transition-transform duration-500 [transform-style:preserve-3d]",
+        className={cn("relative size-full transition-transform duration-(--dur-4) [transform-style:preserve-3d]",
           "motion-reduce:transition-none motion-reduce:transform-none!",
           on && "[transform:rotateY(180deg)]")}
       >
