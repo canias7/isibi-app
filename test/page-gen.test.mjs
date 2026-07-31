@@ -204,18 +204,17 @@ test("reading a member table without useMember is reported", () => {
   assert.match(p[0], /without useMember/);
 });
 
-test("importing a documentation example is refused", () => {
-  // src/examples/ is shadcn's own docs, kept as reference. Every file in it
-  // COMPILES, which is what makes it dangerous: nothing else in the pipeline can
-  // tell the difference between a real page and one that ships "Our flagship
-  // product combines cutting-edge technology" to a barber shop's customers.
-  const spec = { tables: [{ name: "posts", access: "display", columns: [{ name: "body" }] }] };
-  const p = lintPages(page('import Demo from "@/examples/accordion-demo";\nuseRows("posts");'), spec);
-  assert.equal(p.length, 1, JSON.stringify(p));
-  assert.match(p[0], /placeholder copy/);
-  // Reading one to learn the pattern is the intended use, so a page that merely
-  // mentions the path in prose is not flagged — only a real import is.
-  assert.deepEqual(lintPages(page('useRows("posts"); // see @/examples/accordion-demo'), spec), []);
+test("the documentation examples are gone, not merely unimported", () => {
+  // The lint used to refuse `@/examples/*` because every file in that folder
+  // COMPILED, so a page importing one published placeholder copy to a real
+  // customer with nothing in the pipeline objecting. The folder was deleted
+  // 2026-07-31 and the rule with it — which is only safe while the files are
+  // actually absent. Restore them without restoring the rule and the silent
+  // failure comes back, so this asserts the premise the deletion rests on
+  // rather than the rule it removed.
+  const dir = path.join(TEMPLATE, "src", "examples");
+  assert.ok(!fs.existsSync(dir),
+    "src/examples is back; it compiles, so nothing else catches an import of it — restore the lint rule in page-gen.mjs or remove the folder again");
 });
 
 test("reading a member table WITH useMember is fine", () => {

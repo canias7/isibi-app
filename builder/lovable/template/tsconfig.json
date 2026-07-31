@@ -22,7 +22,7 @@
   // day inside a customer's build, looking like the model's fault. So the check
   // did not go away, it MOVED — `tsconfig.kit.json` typechecks all 500 and runs
   // in the test suite, once, instead of on every site build.
-  "exclude": ["src/blocks", "src/components/charts", "src/examples", "src/components/ui"],
+  "exclude": ["src/components/charts", "src/components/ui"],
   "compilerOptions": {
     "target": "ES2022",
     "jsx": "react-jsx",

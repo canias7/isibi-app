@@ -64,7 +64,7 @@ test("every excluded directory is checked by something", () => {
   // CATALOGUE (never edited by hand, only ever imported) or covered by the kit
   // config. A fifth exclusion added for speed fails here until somebody decides
   // which it is.
-  const CATALOGUE = new Set(["src/blocks", "src/components/charts", "src/examples"]);
+  const CATALOGUE = new Set(["src/components/charts"]);
   const covered = (dir) => kit.include.some((g) => g.replace(/\/\*\*.*$/, "").startsWith(dir));
   for (const dir of base.exclude) {
     assert.ok(CATALOGUE.has(dir) || covered(dir),
