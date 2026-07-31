@@ -274,6 +274,12 @@ export const UI_COMPONENTS = [
   "two-line-row", "three-line-row", "swipeable-row", "selectable-list",
   "multi-column-list", "chip-list", "timeline-vertical", "timeline-horizontal",
   "shelf", "cluster", "rail",
+  // Tables, past the plain one.
+  "pivot-table", "frozen-columns", "column-resize", "column-reorder",
+  "cell-editor", "cell-badge", "cell-sparkline", "row-detail", "row-group",
+  "footer-summary", "table-export", "table-search", "column-filter",
+  "multi-sort", "table-settings", "comparison-columns", "matrix-table",
+  "spreadsheet-grid", "compare-table", "feature-matrix",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

@@ -1,4 +1,4 @@
-# Components (570 built, 430 to go)
+# Components (590 built, 410 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -66,6 +66,9 @@
 ✓ cascading-select
 ✓ case-study-card
 ✓ category-nav
+✓ cell-badge
+✓ cell-editor
+✓ cell-sparkline
 ✓ center-box
 ✓ centered-form
 ✓ changelog-entry
@@ -85,13 +88,18 @@
 ✓ collapsible
 ✓ color-picker
 ✓ color-swatch
+✓ column-filter
 ✓ column-mapper
+✓ column-reorder
+✓ column-resize
 ✓ column-toggle
 ✓ combobox
 ✓ command
 ✓ comment
 ✓ comment-anchor
 ✓ comment-thread
+✓ compare-table
+✓ comparison-columns
 ✓ comparison-table
 ✓ conditional-field
 ✓ confirm-dialog
@@ -173,6 +181,7 @@
 ✓ faq
 ✓ faq-search
 ✓ feature-grid
+✓ feature-matrix
 ✓ feedback-widget
 ✓ field
 ✓ field-hint
@@ -188,6 +197,7 @@
 ✓ focus-mode
 ✓ focus-trap
 ✓ font-picker
+✓ footer-summary
 ✓ forbidden
 ✓ form
 ✓ form-actions
@@ -196,6 +206,7 @@
 ✓ form-row
 ✓ form-section
 ✓ format-toolbar
+✓ frozen-columns
 ✓ gallery
 ✓ gauge
 ✓ getting-started
@@ -273,6 +284,7 @@
 ✓ marquee
 ✓ masonry
 ✓ matrix-question
+✓ matrix-table
 ✓ media-grid
 ✓ media-object
 ✓ membership-card
@@ -293,6 +305,7 @@
 ✓ month-picker
 ✓ multi-column-list
 ✓ multi-select
+✓ multi-sort
 ✓ multi-step-form
 ✓ name-fields
 ✓ native-select
@@ -338,6 +351,7 @@
 ✓ person-row
 ✓ phone-input
 ✓ pickup-point
+✓ pivot-table
 ✓ plan-card
 ✓ plural
 ✓ popover
@@ -397,7 +411,9 @@
 ✓ role-badge
 ✓ room-card
 ✓ row-actions
+✓ row-detail
 ✓ row-errors
+✓ row-group
 ✓ row-select
 ✓ rsvp-buttons
 ✓ safe-image
@@ -468,6 +484,7 @@
 ✓ spinner
 ✓ split-view
 ✓ spotlight
+✓ spreadsheet-grid
 ✓ stack
 ✓ stale-data-note
 ✓ stat-card
@@ -495,6 +512,9 @@
 ✓ tab-nav
 ✓ table
 ✓ table-editor
+✓ table-export
+✓ table-search
+✓ table-settings
 ✓ table-skeleton
 ✓ tabs
 ✓ tag-input
@@ -609,9 +629,6 @@ camera-capture
 caption-toggle
 card-input
 celebration
-cell-badge
-cell-editor
-cell-sparkline
 change-request
 channel-toggle
 chapter-list
@@ -626,18 +643,13 @@ clipboard-history
 co-edit-note
 coach-mark
 code-diff
-column-filter
-column-reorder
-column-resize
 combo-chart
 command-bar
 command-group
 command-item
 comment-pin
 commit-row
-compare-table
 comparison-chart
-comparison-columns
 completeness-bar
 completion-ring
 confetti
@@ -700,7 +712,6 @@ export-format
 export-progress
 export-settings
 facet-range
-feature-matrix
 feature-tour
 field-array
 field-error
@@ -717,12 +728,10 @@ focus-list
 folder-path
 folder-tree
 follow-changes
-footer-summary
 footnote
 form-diff
 form-lock
 format-hint
-frozen-columns
 full-bleed
 funnel-chart
 group-by-picker
@@ -764,7 +773,6 @@ login-history
 magic-link-sent
 magnetic-button
 masked-input
-matrix-table
 media-caption
 media-query-note
 mega-menu
@@ -775,7 +783,6 @@ modal-stack
 model-picker
 moderation-queue
 morph-height
-multi-sort
 multi-sort-picker
 mute-schedule
 nav-badge
@@ -803,7 +810,6 @@ permission-matrix
 phase-bar
 pie-chart
 pinned-nav
-pivot-table
 place-search
 placeholder-grid
 playback-speed
@@ -864,8 +870,6 @@ ripple
 role-picker
 rollback-note
 rounding-note
-row-detail
-row-group
 safe-area
 sample-toggle
 saved-search
@@ -918,7 +922,6 @@ sparkline-grid
 spec-row
 split-amount
 split-pane
-spreadsheet-grid
 sso-button
 stack-trace
 stacked-bar
@@ -947,10 +950,7 @@ syntax-highlight
 system-prompt-editor
 tab-order-note
 tab-overflow
-table-export
 table-of-contents
-table-search
-table-settings
 tax-toggle
 template-fill
 terminal-output
