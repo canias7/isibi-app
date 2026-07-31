@@ -372,6 +372,10 @@ export const UI_COMPONENTS = [
   "report-reason", "moderation-queue", "appeal-form", "strike-badge",
   "age-gate", "content-warning", "blur-sensitive", "source-label",
   "spam-note", "trust-score",
+  // Asking people things.
+  "survey-card", "question-nav", "likert-row", "ranking-list",
+  "open-question", "csat-face", "effort-score", "exit-survey",
+  "poll-result", "vote-bar", "sentiment-chip", "response-summary",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

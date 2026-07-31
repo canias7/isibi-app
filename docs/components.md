@@ -1,4 +1,4 @@
-# Components (865 built, 135 to go)
+# Components (877 built, 123 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -168,6 +168,7 @@
 ✓ course-card
 ✓ cover-image
 ✓ cron-builder
+✓ csat-face
 ✓ csv-import
 ✓ cta-band
 ✓ curl-example
@@ -227,6 +228,7 @@
 ✓ duration-bar
 ✓ duration-picker
 ✓ edit-lock
+✓ effort-score
 ✓ email-input
 ✓ email-share
 ✓ email-verify-banner
@@ -241,6 +243,7 @@
 ✓ escalation-note
 ✓ event-card
 ✓ event-meta
+✓ exit-survey
 ✓ expandable-row
 ✓ expandable-text
 ✓ expiry-input
@@ -361,6 +364,7 @@
 ✓ letterhead
 ✓ lightbox
 ✓ like-button
+✓ likert-row
 ✓ link-card
 ✓ link-editor
 ✓ list-density
@@ -452,6 +456,7 @@
 ✓ offline-banner
 ✓ on-call
 ✓ open-now
+✓ open-question
 ✓ opening-hours
 ✓ option-card
 ✓ order-summary
@@ -494,6 +499,7 @@
 ✓ plan-card
 ✓ playback-speed
 ✓ plural
+✓ poll-result
 ✓ popover
 ✓ popover-menu
 ✓ post-meta
@@ -533,6 +539,7 @@
 ✓ quarter-picker
 ✓ query-builder
 ✓ query-params
+✓ question-nav
 ✓ queue-depth
 ✓ quick-add
 ✓ quick-switcher
@@ -543,6 +550,7 @@
 ✓ rail
 ✓ range-input
 ✓ range-summary
+✓ ranking-list
 ✓ rate-limited
 ✓ rating-input
 ✓ rating-summary
@@ -575,6 +583,7 @@
 ✓ resize-handle
 ✓ resolve-thread
 ✓ response-rating
+✓ response-summary
 ✓ result-count
 ✓ result-preview
 ✓ retry-panel
@@ -634,6 +643,7 @@
 ✓ select-all-banner
 ✓ selectable-list
 ✓ selection-toolbar
+✓ sentiment-chip
 ✓ seo-jsonld
 ✓ separator
 ✓ service-area
@@ -741,6 +751,7 @@
 ✓ success-panel
 ✓ suggestion-chips
 ✓ suggestion-mode
+✓ survey-card
 ✓ suspicious-login
 ✓ swipe-actions
 ✓ swipeable-row
@@ -846,6 +857,7 @@
 ✓ visually-hidden
 ✓ voice-input
 ✓ volume-slider
+✓ vote-bar
 ✓ vote-buttons
 ✓ waitlist-form
 ✓ watermark
@@ -896,7 +908,6 @@ completeness-bar
 content-width
 coordinate-input
 countdown-ring
-csat-face
 currency-amount
 data-freshness
 date-preset
@@ -910,11 +921,9 @@ drop-cap
 drop-zone
 duplicate-badge
 edge-fade
-effort-score
 elapsed-timer
 empty-cta
 error-summary-link
-exit-survey
 export-settings
 feature-tour
 field-warning
@@ -937,39 +946,32 @@ import-settings
 key-sequence
 keyboard-tip
 kicker
-likert-row
 line-chart
 media-query-note
 missing-fields
 offline-queue
-open-question
 outlier-flag
 paste-image
 payment-picker
 pie-chart
 place-search
-poll-result
 portal
 preference-group
 pull-quote
 quality-score
 quantile-bar
-question-nav
 radar-chart
 radius-slider
 range-chart
-ranking-list
 read-progress
 relative-date
 reset-defaults
 reset-demo
-response-summary
 safe-area
 sample-toggle
 scan-document
 scatter-plot
 scroll-lock
-sentiment-chip
 shortcut-row
 sidebar-right
 sidenote
@@ -982,7 +984,6 @@ step-chart
 sticky-columns
 sticky-footer
 stopwatch
-survey-card
 table-of-contents
 tax-toggle
 theme-picker
@@ -996,7 +997,6 @@ unit-preference
 upgrade-badge
 upload-queue
 usage-nudge
-vote-bar
 waterfall-chart
 whats-new-dot
 working-hours
