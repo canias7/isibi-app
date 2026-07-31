@@ -11,7 +11,7 @@ import {
   THEMES, THEME_NAMES, paletteFor, themeCss, contrast, luminance,
   oklchToRgb, foregroundFor, shortlistForPrompt,
   distance, hueGap, separateFromAccent, MIN_STATE_SEPARATION, SAME_LANE_DEGREES,
-  CORNERS, cornerCss,
+  CORNERS, cornerCss, fitState,
 } from "../builder/site-theme.mjs";
 
 const PAIRS = [
@@ -302,3 +302,43 @@ test("nothing imports this yet, and that is deliberate", () => {
 // would suggest this module needs fs.
 import { createRequire } from "node:module";
 const require$ = createRequire(import.meta.url);
+
+test("a state colour is fitted to THIS theme's paper, not to white", () => {
+  // THE BUG THAT APPEARED THE MOMENT THEMES STOPPED USING OFF-WHITE. The
+  // conventional red/green/amber are tuned for a near-white ground. On bone at
+  // L 0.93 the standard red measures 3.98:1 against BOTH the theme's ink and its
+  // paper, because it sits between them — and it failed in seven of eight
+  // light/dark combinations at once. Invisible to any amount of looking: a red
+  // chip with white text looks completely fine right up until somebody reads it.
+  const ink = [0.175, 0.018, 262], paper = [0.932, 0.008, 88];
+  const red = [0.577, 0.245, 27.325];
+  assert.ok(contrast(red, foregroundFor(red, ink, paper)) < 4.5, "the premise: it really does fail");
+  const fitted = fitState(red, ink, paper);
+  assert.ok(contrast(fitted, foregroundFor(fitted, ink, paper)) >= 4.5, "fitting must fix it");
+  assert.equal(fitted[2], red[2], "the HUE must not move — that is what says danger");
+  assert.equal(fitted[1], red[1], "chroma is left alone; only lightness moves");
+  // A colour that already clears is left exactly where it is. Not the red:
+  // it measures 4.57 on Ledger's near-white, which passes the 4.5 bar the suite
+  // asserts but not the 4.6 fitState works to — so fitting nudges it there too,
+  // and using it here asserted a no-op that never happens.
+  const amber = [0.75, 0.16, 78];
+  const ledgerInk = [0.22, 0.014, 60], ledgerPaper = [0.985, 0.006, 95];
+  assert.ok(contrast(amber, foregroundFor(amber, ledgerInk, ledgerPaper)) >= 4.6);
+  assert.deepEqual(fitState(amber, ledgerInk, ledgerPaper), amber);
+});
+
+test("every theme is a deliberate choice, not a default", () => {
+  // The three tells of generated design, asserted rather than trusted to taste.
+  for (const name of THEME_NAMES) {
+    const t = THEMES[name];
+    const px = parseFloat(t.radius) * (t.radius.endsWith("rem") ? 16 : 1);
+    // ~10px is shadcn's default and every SaaS product on earth. A theme landing
+    // there has not chosen a radius, it has failed to choose one.
+    assert.ok(px <= 6 || px >= 14, `${name}: radius ${px}px sits in the unconsidered middle`);
+    // An accent brighter than this reads as a startup, not as a trade.
+    for (const mode of ["light", "dark"]) {
+      assert.ok(t[mode].accent[1] <= 0.15,
+        `${name}/${mode}: accent chroma ${t[mode].accent[1]} is louder than the set allows`);
+    }
+  }
+});

@@ -136,6 +136,34 @@ export function hueGap(a, b) {
   return d > 180 ? 360 - d : d;
 }
 
+/**
+ * Move a state colour to a lightness that is legible on THIS theme's paper.
+ *
+ * The conventional values are tuned for a near-white ground, and they stop
+ * working the moment the ground has a value: on bone at L 0.93 the standard red
+ * measures 3.98:1 against both the theme's ink and its paper, because it sits
+ * between them. That failed in seven of the eight light/dark combinations the
+ * moment themes stopped using off-white — caught by the contrast check, and
+ * invisible to any amount of looking, since a red chip with white text looks
+ * completely fine right up until somebody has to read it.
+ *
+ * The HUE and CHROMA never move here. Only lightness, and by the smallest step
+ * that clears the bar, so the colour still reads as the same red.
+ */
+export function fitState(state, ink, paper) {
+  const [L0, C, H] = state;
+  const ok = (c) => contrast(c, foregroundFor(c, ink, paper)) >= 4.6;
+  if (ok(state)) return state;
+  let best = null;
+  for (let L = 0.2; L <= 0.92; L += 0.005) {
+    const candidate = [L, C, H];
+    if (!ok(candidate)) continue;
+    const cost = Math.abs(L - L0);
+    if (!best || cost < best.cost) best = { candidate, cost };
+  }
+  return best ? best.candidate : state;
+}
+
 export function separateFromAccent(state, accent, ink, paper) {
   // HUE FIRST. OKLab distance alone conflates "different colour" with "different
   // lightness", so a green at the accent's lightness measured 0.290 and got
@@ -289,6 +317,78 @@ export const THEMES = {
     light: { paper: [0.985, 0.004, 230], ink: [0.21, 0.012, 240], accent: [0.48, 0.09, 165] },
     dark: { paper: [0.18, 0.012, 240], ink: [0.96, 0.004, 230], accent: [0.68, 0.1, 168] },
   },
+
+  /* ── the considered end ──────────────────────────────────────────────────
+   *
+   * Four themes for trades where the site is part of what is being sold. They
+   * share three moves, and each one is a deliberate step away from the look
+   * generated design falls into:
+   *
+   *   THE PAPER IS NOT NEAR-WHITE. Every one sits between L 0.92 and L 0.95 —
+   *   bone, oyster, stone. An off-white ground is the single clearest tell of a
+   *   template, because it is what you get by not deciding. A ground with a
+   *   value reads as a choice before a single word is read.
+   *
+   *   THE RADIUS IS AT AN END, NEVER THE MIDDLE. 0px or 2-3px. Around 10px is
+   *   shadcn's default and every SaaS product on earth, which is exactly why it
+   *   reads as unconsidered.
+   *
+   *   THE ACCENT IS DARKER AND LESS SATURATED THAN INSTINCT SUGGESTS. Chroma
+   *   0.06-0.11 against Ledger's 0.14. Restraint is most of what reads as
+   *   expensive; a bright accent reads as a startup.
+   *
+   * And the clichés are avoided by name: no warm cream with terracotta, no
+   * near-black with a lone acid-green pop, no purple-to-blue.
+   */
+
+  // Private bank, tailoring, chambers. High contrast, cold accent, almost no
+  // radius — the palette equivalent of a good suit: nothing decorative, and the
+  // quality is entirely in the cut.
+  bourse: {
+    label: "Bourse — bone paper, deep indigo, near-square corners",
+    radius: "0.125rem",
+    corner: "round",
+    light: { paper: [0.932, 0.008, 88], ink: [0.175, 0.018, 262], accent: [0.34, 0.075, 264] },
+    dark: { paper: [0.165, 0.016, 262], ink: [0.94, 0.006, 88], accent: [0.66, 0.09, 262] },
+  },
+
+  // Gallery, perfumery, jeweller. Square corners and a plum that is nearly
+  // brown — the accent should be noticed on the second look, not the first.
+  vellum: {
+    label: "Vellum — oyster paper, deep plum, square corners",
+    radius: "0rem",
+    corner: "round",
+    light: { paper: [0.945, 0.007, 72], ink: [0.168, 0.014, 35], accent: [0.375, 0.095, 338] },
+    dark: { paper: [0.155, 0.012, 35], ink: [0.945, 0.006, 72], accent: [0.66, 0.1, 340] },
+  },
+
+  // Apothecary, winery, heritage food. Ink is a very dark green rather than
+  // black, which is the whole trick: the page reads warm and old without a
+  // single brown surface.
+  //
+  // Its accent lands at hue 80, two degrees from `warning` at 78 — deep inside
+  // the same lane, so the separation rule has to move the warning colour or a
+  // caution on this site is drawn in the brand colour.
+  coppice: {
+    label: "Coppice — warm stone, brass, softly squared corners",
+    radius: "0.1875rem",
+    corner: "round",
+    light: { paper: [0.928, 0.013, 92], ink: [0.198, 0.028, 152], accent: [0.505, 0.088, 80] },
+    dark: { paper: [0.172, 0.022, 152], ink: [0.938, 0.01, 92], accent: [0.7, 0.095, 82] },
+  },
+
+  // Fashion, design studio, photographer. NEARLY MONOCHROME ON PURPOSE: the
+  // accent is a warm near-black, so emphasis comes from weight and contrast
+  // rather than from hue. This is the hardest register to fake and the one most
+  // opposite to generated design, which reaches for a colour to prove it made a
+  // decision.
+  atelier: {
+    label: "Atelier — chalk paper, near-black accent, square corners",
+    radius: "0rem",
+    corner: "round",
+    light: { paper: [0.955, 0.003, 96], ink: [0.145, 0.005, 92], accent: [0.245, 0.012, 88] },
+    dark: { paper: [0.135, 0.005, 92], ink: [0.955, 0.003, 96], accent: [0.86, 0.008, 94] },
+  },
 };
 
 /** Every token for one mode, derived from that mode's three colours. */
@@ -298,8 +398,11 @@ export function paletteFor(theme, mode) {
   // State colours are separated from the accent BEFORE anything derives from
   // them, so the foreground is picked for the colour that actually ships.
   const raw = SEMANTIC[mode];
+  // FIT FIRST, THEN SEPARATE. Fitting moves the colour to a lightness legible on
+  // this theme's paper; separating moves it away from the accent. Doing them the
+  // other way round lets the separation pick a lightness the fit then overwrites.
   const sem = Object.fromEntries(Object.entries(raw)
-    .map(([k, v]) => [k, separateFromAccent(v, accent, ink, paper)]));
+    .map(([k, v]) => [k, separateFromAccent(fitState(v, ink, paper), accent, ink, paper)]));
 
   // Surfaces step AWAY from the paper toward the ink, by small amounts. A card
   // that is a different hue from the page is the thing that reads as "themed"
