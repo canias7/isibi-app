@@ -10679,3 +10679,43 @@ working. Five of the examples were crashing on exactly this, which is how it sur
 either way, awaiting the owner's call.
 
 Unit suite **589**, site-build 33/33, both template typechecks clean.
+
+---
+
+## 2026-07-31 — the 27 blocks are deleted too
+
+Same session, same call, straight after the examples. Owner saw all 27 rendered in the chat and said
+delete them.
+
+**They were rendered live first, and they all worked** — 27/27 compile and display, no console or
+page errors. So this is not a claim they were broken. What decided it is that every one is inert
+markup: `login-01`'s form has no `onSubmit`, its links are `href="#"`, its "Login with Google" button
+is wired to nothing, and **not one block imports `@/lib/rows`**. Using one means rewriting every line
+that does anything, at which point it is a reference rather than a component — and the 500-component
+kit already covers the parts (that login card is `Card` + `Label` + `Input` + `Button`, APIs we own
+and describe accurately).
+
+**They were reachable by nothing anyway.** Nothing in `PAGE_RULES` or `GENERATOR.md` mentioned the
+folder, and unlike the examples there was no lint rule in either direction — so the model was never
+told they existed and nothing stopped it if it guessed. `tsconfig.json` excluded them and
+`tsconfig.kit.json` did not cover them, so they were typechecked by nothing.
+
+The fit was wrong independently of all that: 16 of the 27 were admin sidebars and 1 an analytics
+dashboard, on a platform that makes barber shops and cafés. The 10 that could have mattered — login
+and signup — were exactly the inert ones.
+
+### Scope, after the owner narrowed it mid-change
+
+I had also deleted `builder/install-blocks.sh` on the reasoning that an installer for deleted files
+is dead. Owner said "just these blocks you showed me", so **the script is restored and kept**. It is
+the record of how they were installed and the only way to get them back, and it does nothing until
+somebody runs it. Worth noting for a future session: it is inert, not live.
+
+### One pin that OUTLIVES the blocks — do not "clean it up"
+
+A block install once silently upgraded `react-day-picker` 9 → 10 and broke `calendar.tsx` (`TS2353`,
+its `ClassNames` type changed), so it is pinned to `^9.14.0`. **`calendar.tsx` is still in the kit
+and still needs v9.** The pin is about that component, not about the blocks that caused it. Deleting
+the blocks is not a reason to unpin.
+
+Unit suite **589**, site-build 33/33, both template typechecks clean.

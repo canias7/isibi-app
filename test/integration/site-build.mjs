@@ -263,9 +263,10 @@ try {
   ok("and it is reported as a typecheck failure", broken.stage === "typecheck", broken.stage);
   ok("with the error a repair pass can act on", /is not assignable to type 'number'/.test(broken.error || ""), (broken.error || "").slice(0, 300));
 
-  // tsconfig EXCLUDES src/blocks and src/components/charts, because they are a
-  // catalogue rather than application code and typechecking all 97 on every build
-  // cost 3s a site. That is only acceptable while `exclude` keeps meaning "not in
+  // tsconfig EXCLUDES src/components/charts, because it is a catalogue rather
+  // than application code and typechecking all 70 on every build cost 3s a site.
+  // (src/blocks was excluded for the same reason until it was deleted
+  // 2026-07-31.) That is only acceptable while `exclude` keeps meaning "not in
   // the initial file list" rather than "never checked" — TypeScript still follows
   // an import into an excluded file.
   //
