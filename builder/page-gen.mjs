@@ -368,6 +368,10 @@ export const UI_COMPONENTS = [
   "reduce-motion", "high-contrast", "screen-reader-note", "alt-text-field",
   "contrast-check", "keyboard-map", "reading-guide", "caption-toggle",
   "transcript-toggle", "tab-order-note",
+  // Trust and safety.
+  "report-reason", "moderation-queue", "appeal-form", "strike-badge",
+  "age-gate", "content-warning", "blur-sensitive", "source-label",
+  "spam-note", "trust-score",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

@@ -1,4 +1,4 @@
-# Components (855 built, 145 to go)
+# Components (865 built, 135 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -7,6 +7,7 @@
 ✓ add-to-cart
 ✓ address-fields
 ✓ address-summary
+✓ age-gate
 ✓ agenda-list
 ✓ alert
 ✓ alert-dialog
@@ -16,6 +17,7 @@
 ✓ announcement-bar
 ✓ api-key-row
 ✓ app-shell
+✓ appeal-form
 ✓ applied-filters
 ✓ approval-chain
 ✓ article-card
@@ -55,6 +57,7 @@
 ✓ block-menu
 ✓ blocked-note
 ✓ blocking-overlay
+✓ blur-sensitive
 ✓ blur-up
 ✓ booking-summary
 ✓ branch-badge
@@ -146,6 +149,7 @@
 ✓ contact-form
 ✓ container
 ✓ content-placeholder
+✓ content-warning
 ✓ context-menu
 ✓ context-meter
 ✓ context-panel
@@ -412,6 +416,7 @@
 ✓ modal-stack
 ✓ model-picker
 ✓ moderation-note
+✓ moderation-queue
 ✓ money
 ✓ month-picker
 ✓ morph-height
@@ -561,6 +566,7 @@
 ✓ reorderable-grid
 ✓ repeatable-field
 ✓ reply-box
+✓ report-reason
 ✓ request-timing
 ✓ required-mark
 ✓ reset-form
@@ -689,8 +695,10 @@
 ✓ sortable-header
 ✓ sortable-list
 ✓ source-card
+✓ source-label
 ✓ spacer
 ✓ spacing-picker
+✓ spam-note
 ✓ sparkline
 ✓ spec-row
 ✓ spinner
@@ -727,6 +735,7 @@
 ✓ storage-bar
 ✓ store-locator
 ✓ streaming-text
+✓ strike-badge
 ✓ subscribe-toggle
 ✓ subtitle-track
 ✓ success-panel
@@ -806,6 +815,7 @@
 ✓ tree-view
 ✓ trend-arrow
 ✓ truncate-middle
+✓ trust-score
 ✓ trust-strip
 ✓ two-col
 ✓ two-factor-setup
@@ -857,17 +867,14 @@
 ✓ zoom-controls
 
 advanced-toggle
-age-gate
 aggregate-picker
 amount-input
 anchor-heading
-appeal-form
 area-chart
 aspect-box
 async-validation
 availability-toggle
 bar-chart
-blur-sensitive
 box-plot
 breakpoint-badge
 bubble-chart
@@ -886,7 +893,6 @@ command-group
 command-item
 comparison-chart
 completeness-bar
-content-warning
 content-width
 coordinate-input
 countdown-ring
@@ -935,7 +941,6 @@ likert-row
 line-chart
 media-query-note
 missing-fields
-moderation-queue
 offline-queue
 open-question
 outlier-flag
@@ -956,7 +961,6 @@ range-chart
 ranking-list
 read-progress
 relative-date
-report-reason
 reset-defaults
 reset-demo
 response-summary
@@ -970,8 +974,6 @@ shortcut-row
 sidebar-right
 sidenote
 snooze-until
-source-label
-spam-note
 sparkline-grid
 split-amount
 stacked-bar
@@ -980,7 +982,6 @@ step-chart
 sticky-columns
 sticky-footer
 stopwatch
-strike-badge
 survey-card
 table-of-contents
 tax-toggle
@@ -990,7 +991,6 @@ timezone-clock
 top-n-picker
 treemap-chart
 trend-card
-trust-score
 uniqueness-check
 unit-preference
 upgrade-badge
