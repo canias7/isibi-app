@@ -1,4 +1,4 @@
-# Components (525 built, 475 to go)
+# Components (550 built, 450 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -17,8 +17,10 @@
 ✓ approval-chain
 ✓ article-card
 ✓ article-header
+✓ aspect-picker
 ✓ aspect-ratio
 ✓ assignee-picker
+✓ async-select
 ✓ attachment
 ✓ attachment-list
 ✓ audio-player
@@ -61,6 +63,7 @@
 ✓ carousel
 ✓ cart-line
 ✓ cart-summary
+✓ cascading-select
 ✓ case-study-card
 ✓ category-nav
 ✓ center-box
@@ -77,6 +80,7 @@
 ✓ code-block
 ✓ code-editor
 ✓ collapsible
+✓ color-picker
 ✓ color-swatch
 ✓ column-mapper
 ✓ column-toggle
@@ -105,6 +109,7 @@
 ✓ coupon-input
 ✓ course-card
 ✓ cover-image
+✓ cron-builder
 ✓ csv-import
 ✓ cta-band
 ✓ currency-input
@@ -122,6 +127,7 @@
 ✓ delivery-estimate
 ✓ delivery-slot
 ✓ density-toggle
+✓ dependent-select
 ✓ description-list
 ✓ detail-panel
 ✓ dialog
@@ -142,6 +148,7 @@
 ✓ drawer
 ✓ dropdown-menu
 ✓ dry-run-note
+✓ dual-list
 ✓ duration
 ✓ duration-bar
 ✓ duration-picker
@@ -177,6 +184,7 @@
 ✓ first-run
 ✓ focus-mode
 ✓ focus-trap
+✓ font-picker
 ✓ forbidden
 ✓ form
 ✓ form-actions
@@ -204,6 +212,7 @@
 ✓ hotkey-list
 ✓ hover-card
 ✓ icon-badge
+✓ icon-picker
 ✓ ics-button
 ✓ id-badge
 ✓ image-strip
@@ -275,6 +284,7 @@
 ✓ mobile-nav
 ✓ moderation-note
 ✓ money
+✓ month-picker
 ✓ multi-select
 ✓ multi-step-form
 ✓ name-fields
@@ -292,6 +302,7 @@
 ✓ nps-scale
 ✓ number-format
 ✓ number-input
+✓ number-scrubber
 ✓ offline-banner
 ✓ on-call
 ✓ open-now
@@ -341,10 +352,12 @@
 ✓ property-card
 ✓ prose
 ✓ quantity-input
+✓ quarter-picker
 ✓ queue-depth
 ✓ quote
 ✓ radio-cards
 ✓ radio-group
+✓ radius-picker
 ✓ range-input
 ✓ rate-limited
 ✓ rating-input
@@ -390,6 +403,7 @@
 ✓ search-header
 ✓ search-input
 ✓ search-results
+✓ search-select
 ✓ search-suggestions
 ✓ seat-usage
 ✓ section
@@ -419,6 +433,7 @@
 ✓ signup-form
 ✓ site-footer
 ✓ site-header
+✓ size-picker
 ✓ skeleton
 ✓ skeleton-card
 ✓ skeleton-text
@@ -427,6 +442,7 @@
 ✓ sla-badge
 ✓ slash-menu
 ✓ slider
+✓ slider-input
 ✓ slot-hold
 ✓ slow-note
 ✓ slug-input
@@ -435,6 +451,7 @@
 ✓ sort-select
 ✓ sortable-header
 ✓ spacer
+✓ spacing-picker
 ✓ sparkline
 ✓ spinner
 ✓ split-view
@@ -448,6 +465,7 @@
 ✓ status-list
 ✓ step-nav
 ✓ stepper
+✓ stepper-input
 ✓ steps
 ✓ sticky-aside
 ✓ sticky-bar
@@ -468,6 +486,7 @@
 ✓ tabs
 ✓ tag-input
 ✓ tag-list
+✓ tag-select
 ✓ team-grid
 ✓ template-download
 ✓ terms-block
@@ -481,6 +500,7 @@
 ✓ ticket-row
 ✓ time-ago
 ✓ time-input
+✓ time-range
 ✓ time-slot
 ✓ time-until
 ✓ timeline
@@ -493,7 +513,9 @@
 ✓ tooltip
 ✓ totals-row
 ✓ tour-step
+✓ transfer-list
 ✓ travel-time
+✓ tree-select
 ✓ trend-arrow
 ✓ truncate-middle
 ✓ trust-strip
@@ -503,6 +525,7 @@
 ✓ undo-redo
 ✓ undo-toast
 ✓ unit-input
+✓ unit-toggle
 ✓ unread-divider
 ✓ upload-progress
 ✓ uptime-bar
@@ -518,6 +541,7 @@
 ✓ waitlist-form
 ✓ watermark
 ✓ webhook-row
+✓ week-picker
 ✓ week-strip
 ✓ weekday-picker
 ✓ welcome-card
@@ -525,6 +549,7 @@
 ✓ whats-new
 ✓ wishlist-button
 ✓ word-count
+✓ year-picker
 
 activity-dot
 advanced-toggle
@@ -537,8 +562,6 @@ app-shell
 appeal-form
 area-chart
 aspect-box
-aspect-picker
-async-select
 async-validation
 attachment-tray
 audio-recorder
@@ -565,7 +588,6 @@ byline-compact
 camera-capture
 caption-toggle
 card-input
-cascading-select
 celebration
 cell-badge
 cell-editor
@@ -587,7 +609,6 @@ cluster
 co-edit-note
 coach-mark
 code-diff
-color-picker
 column-filter
 column-reorder
 column-resize
@@ -618,7 +639,6 @@ copy-link
 copy-response
 count-up
 countdown-ring
-cron-builder
 csat-face
 curl-example
 currency-amount
@@ -633,7 +653,6 @@ definition
 delivery-status
 delta-pill
 density-preference
-dependent-select
 device-list
 did-you-mean
 diff-stat
@@ -648,7 +667,6 @@ drag-preview
 drawer-stack
 drop-cap
 drop-zone
-dual-list
 duplicate-badge
 edge-fade
 edit-lock
@@ -682,7 +700,6 @@ focus-list
 folder-path
 folder-tree
 follow-changes
-font-picker
 footer-summary
 footnote
 form-diff
@@ -702,7 +719,6 @@ hint-dot
 histogram
 hotkey-badge
 iban-input
-icon-picker
 idle-note
 image-compare
 image-crop
@@ -744,7 +760,6 @@ missing-fields
 modal-stack
 model-picker
 moderation-queue
-month-picker
 morph-height
 multi-column-list
 multi-sort
@@ -757,7 +772,6 @@ nested-list
 notification-empty
 notification-group
 nudge-bubble
-number-scrubber
 offline-queue
 open-question
 option-card
@@ -803,14 +817,12 @@ pulse-dot
 qr-code
 quality-score
 quantile-bar
-quarter-picker
 query-builder
 query-params
 question-nav
 quick-add
 quick-switcher
 radar-chart
-radius-picker
 radius-slider
 rail
 range-chart
@@ -860,7 +872,6 @@ sdk-tabs
 search-empty
 search-history
 search-scope
-search-select
 search-shortcut
 section-nav
 security-score
@@ -882,11 +893,9 @@ sidebar-collapse
 sidebar-right
 sidenote
 sitemap-list
-size-picker
 skeleton-form
 skeleton-list
 slide-over
-slider-input
 snackbar
 snap-carousel
 snap-sections
@@ -896,7 +905,6 @@ social-preview
 sortable-list
 source-card
 source-label
-spacing-picker
 spam-note
 sparkline-grid
 spec-row
@@ -914,7 +922,6 @@ state-badge
 status-code-badge
 step-chart
 step-up-prompt
-stepper-input
 sticky-columns
 sticky-footer
 sticky-shrink
@@ -937,7 +944,6 @@ table-export
 table-of-contents
 table-search
 table-settings
-tag-select
 tax-toggle
 template-fill
 terminal-output
@@ -948,7 +954,6 @@ three-line-row
 threshold-bar
 thumb-strip
 tilt-card
-time-range
 timeline-horizontal
 timeline-vertical
 timeout-note
@@ -963,10 +968,8 @@ trade-off-bar
 transcript-line
 transcript-toggle
 transcript-view
-transfer-list
 transition-arrow
 tree-item
-tree-select
 tree-view
 treemap-chart
 trend-card
@@ -977,7 +980,6 @@ typing-dots
 uniqueness-check
 unit-convert
 unit-preference
-unit-toggle
 upgrade-badge
 upload-queue
 usage-nudge
@@ -991,7 +993,6 @@ volume-slider
 vote-bar
 waterfall-chart
 waveform
-week-picker
 weighted-score
 whats-new-dot
 winner-badge
@@ -999,5 +1000,4 @@ workflow-map
 working-hours
 workspace-switcher
 world-clock
-year-picker
 zoom-controls

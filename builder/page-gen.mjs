@@ -259,6 +259,15 @@ export const UI_COMPONENTS = [
   "slash-menu", "block-menu", "drag-handle", "selection-toolbar",
   "table-editor", "find-replace", "focus-mode", "version-history",
   "comment-anchor", "suggestion-mode",
+  // Pickers. A picker is the same problem every time and is got wrong every
+  // time, which is exactly what a kit is for.
+  "search-select", "tag-select", "async-select", "cascading-select",
+  "dependent-select", "transfer-list", "dual-list", "tree-select",
+  "stepper-input", "slider-input", "number-scrubber", "unit-toggle",
+  "color-picker", "icon-picker", "size-picker", "radius-picker",
+  "aspect-picker", "spacing-picker", "font-picker",
+  "month-picker", "year-picker", "quarter-picker", "week-picker",
+  "time-range", "cron-builder",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
