@@ -335,6 +335,15 @@ export const UI_COMPONENTS = [
   "search-scope", "search-history", "saved-search", "query-builder",
   "filter-tree", "facet-range", "multi-sort-picker", "result-preview",
   "did-you-mean", "search-shortcut", "instant-results", "search-empty",
+  // Collaboration.
+  "presence-bar", "live-cursor", "typing-dots", "comment-pin",
+  "resolve-thread", "mention-badge", "share-invite", "viewer-list",
+  "edit-lock", "activity-dot", "follow-changes", "co-edit-note",
+  "conflict-merge", "change-request",
+  // Sharing and getting things out.
+  "share-sheet", "embed-code", "qr-code", "download-menu", "export-format",
+  "print-preview", "permalink", "short-link", "email-share", "copy-link",
+  "social-preview", "export-progress",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

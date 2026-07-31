@@ -1,7 +1,8 @@
-# Components (767 built, 233 to go)
+# Components (793 built, 207 to go)
 
 ✓ accordion
 ✓ account-menu
+✓ activity-dot
 ✓ activity-feed
 ✓ add-to-cart
 ✓ address-fields
@@ -85,6 +86,7 @@
 ✓ cell-sparkline
 ✓ center-box
 ✓ centered-form
+✓ change-request
 ✓ changelog-entry
 ✓ chapter-list
 ✓ char-limit-ring
@@ -99,6 +101,7 @@
 ✓ citation-list
 ✓ clamp-text
 ✓ cluster
+✓ co-edit-note
 ✓ coach-mark
 ✓ code-block
 ✓ code-diff
@@ -116,6 +119,7 @@
 ✓ command-bar
 ✓ comment
 ✓ comment-anchor
+✓ comment-pin
 ✓ comment-thread
 ✓ commit-row
 ✓ compare-table
@@ -126,6 +130,7 @@
 ✓ confirm-dialog
 ✓ confirm-field
 ✓ confirm-inline
+✓ conflict-merge
 ✓ conflict-note
 ✓ connect-card
 ✓ connected-account
@@ -140,6 +145,7 @@
 ✓ conversation-row
 ✓ cookie-banner
 ✓ copy-button
+✓ copy-link
 ✓ copy-response
 ✓ count-badge
 ✓ count-up
@@ -190,6 +196,7 @@
 ✓ donut-mini
 ✓ dot-plot
 ✓ download-card
+✓ download-menu
 ✓ draft-badge
 ✓ drag-handle
 ✓ drag-list
@@ -201,8 +208,11 @@
 ✓ duration
 ✓ duration-bar
 ✓ duration-picker
+✓ edit-lock
 ✓ email-input
+✓ email-share
 ✓ email-verify-banner
+✓ embed-code
 ✓ emoji-picker
 ✓ emoji-reaction
 ✓ empty
@@ -217,6 +227,8 @@
 ✓ expandable-text
 ✓ expiry-input
 ✓ export-button
+✓ export-format
+✓ export-progress
 ✓ external-link
 ✓ facet-range
 ✓ faq
@@ -245,6 +257,7 @@
 ✓ floating-toolbar
 ✓ focus-mode
 ✓ focus-trap
+✓ follow-changes
 ✓ font-picker
 ✓ footer-summary
 ✓ forbidden
@@ -333,6 +346,7 @@
 ✓ list-row
 ✓ list-toolbar
 ✓ live-badge
+✓ live-cursor
 ✓ live-region
 ✓ load-more
 ✓ loading-overlay
@@ -362,6 +376,7 @@
 ✓ media-object
 ✓ mega-menu
 ✓ membership-card
+✓ mention-badge
 ✓ mention-chip
 ✓ mention-picker
 ✓ mention-textarea
@@ -435,6 +450,7 @@
 ✓ paste-table
 ✓ payment-methods
 ✓ percent-input
+✓ permalink
 ✓ permission-matrix
 ✓ permission-row
 ✓ person-row
@@ -450,6 +466,7 @@
 ✓ post-meta
 ✓ postcode-input
 ✓ poster-picker
+✓ presence-bar
 ✓ presence-dot
 ✓ press-quote
 ✓ prev-next
@@ -458,6 +475,7 @@
 ✓ pricing-table
 ✓ print-button
 ✓ print-only
+✓ print-preview
 ✓ priority-badge
 ✓ product-card
 ✓ profile-card
@@ -473,6 +491,7 @@
 ✓ prose
 ✓ pull-to-refresh
 ✓ pulse-dot
+✓ qr-code
 ✓ quantity-input
 ✓ quarter-picker
 ✓ query-builder
@@ -511,6 +530,7 @@
 ✓ resizable
 ✓ resizable-columns
 ✓ resize-handle
+✓ resolve-thread
 ✓ response-rating
 ✓ result-count
 ✓ result-preview
@@ -579,12 +599,15 @@
 ✓ setup-checklist
 ✓ shake-error
 ✓ share-buttons
+✓ share-invite
 ✓ share-preview
+✓ share-sheet
 ✓ sheet
 ✓ sheet-stack
 ✓ shelf
 ✓ shift-badge
 ✓ shipping-options
+✓ short-link
 ✓ shortcut-overlay
 ✓ side-nav
 ✓ sidebar
@@ -614,6 +637,7 @@
 ✓ snap-carousel
 ✓ snap-sections
 ✓ social-links
+✓ social-preview
 ✓ sonner
 ✓ sort-select
 ✓ sortable-header
@@ -729,6 +753,7 @@
 ✓ two-factor-setup
 ✓ two-line-row
 ✓ typewriter
+✓ typing-dots
 ✓ typing-indicator
 ✓ undo-redo
 ✓ undo-toast
@@ -747,6 +772,7 @@
 ✓ video-embed
 ✓ video-player
 ✓ viewer-count
+✓ viewer-list
 ✓ virtual-list
 ✓ visually-hidden
 ✓ voice-input
@@ -768,7 +794,6 @@
 ✓ year-picker
 ✓ zoom-controls
 
-activity-dot
 advanced-toggle
 age-gate
 aggregate-picker
@@ -792,7 +817,6 @@ bullet-chart
 byline-compact
 camera-capture
 caption-toggle
-change-request
 channel-toggle
 chart-export
 chart-legend
@@ -801,21 +825,17 @@ checkpoint-list
 chunked-upload
 click-outside
 clipboard-history
-co-edit-note
 combo-chart
 command-group
 command-item
-comment-pin
 comparison-chart
 completeness-bar
 completion-ring
-conflict-merge
 content-placeholder
 content-warning
 content-width
 contrast-check
 coordinate-input
-copy-link
 countdown-ring
 csat-face
 currency-amount
@@ -831,22 +851,16 @@ density-preference
 digest-row
 discount-input
 distribution-bar
-download-menu
 drag-preview
 drop-cap
 drop-zone
 duplicate-badge
 edge-fade
-edit-lock
 effort-score
 elapsed-timer
-email-share
-embed-code
 empty-cta
 error-summary-link
 exit-survey
-export-format
-export-progress
 export-settings
 feature-tour
 field-warning
@@ -855,7 +869,6 @@ filter-preset
 focus-list
 folder-path
 folder-tree
-follow-changes
 footnote
 format-hint
 full-bleed
@@ -876,10 +889,8 @@ kicker
 lazy-boundary
 likert-row
 line-chart
-live-cursor
 load-error
 media-query-note
-mention-badge
 milestone-dot
 missing-fields
 moderation-queue
@@ -894,7 +905,6 @@ partial-list
 paste-image
 payment-picker
 percent-ring
-permalink
 phase-bar
 pie-chart
 place-search
@@ -903,13 +913,10 @@ poll-result
 portal
 precision-toggle
 preference-group
-presence-bar
-print-preview
 priority-inbox
 progress-donut
 pros-cons
 pull-quote
-qr-code
 quality-score
 quantile-bar
 question-nav
@@ -927,7 +934,6 @@ relative-date
 report-reason
 reset-defaults
 reset-demo
-resolve-thread
 response-summary
 rollback-note
 rounding-note
@@ -938,10 +944,7 @@ scatter-plot
 screen-reader-note
 scroll-lock
 sentiment-chip
-share-invite
-share-sheet
 shimmer
-short-link
 shortcut-row
 shortlist-bar
 side-by-side
@@ -951,7 +954,6 @@ skeleton-form
 skeleton-list
 snooze-menu
 snooze-until
-social-preview
 source-label
 spam-note
 sparkline-grid
@@ -985,14 +987,12 @@ transition-arrow
 treemap-chart
 trend-card
 trust-score
-typing-dots
 uniqueness-check
 unit-convert
 unit-preference
 upgrade-badge
 upload-queue
 usage-nudge
-viewer-list
 vote-bar
 waterfall-chart
 weighted-score
