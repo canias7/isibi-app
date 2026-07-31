@@ -26,6 +26,11 @@ export function PollutionRose({
   size?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!sectors.length) return null
+
   const max = Math.max(...sectors.map((s) => s.meanConcentration))
   const totalHours = sectors.reduce((a, s) => a + s.hours, 0)
   const weighted = sectors.reduce((a, s) => a + s.meanConcentration * s.hours, 0) / Math.max(totalHours, 1)

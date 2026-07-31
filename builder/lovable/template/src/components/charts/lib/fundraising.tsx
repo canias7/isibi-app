@@ -102,6 +102,11 @@ export function GiftRetention({
   cohorts: { name: string; retained: number[] }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!cohorts.length) return null
+
   const rows = cohorts.map((c) => {
     const start = c.retained[0] || 1
     const rates = c.retained.map((v) => v / start)
@@ -192,6 +197,11 @@ export function CostPerPound({
   }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!channels.length) return null
+
   const rows = channels
     .map((c) => {
       const cpp = c.spend / Math.max(c.raisedYearOne, 1e-9)
@@ -354,6 +364,11 @@ export function GrantPipeline({
   targetIncome?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!applications.length || !Object.keys(stageProbability).length) return null
+
   const stages = Object.keys(stageProbability)
   const rows = stages.map((s) => {
     const apps = applications.filter((a) => a.stage === s)

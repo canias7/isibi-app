@@ -124,6 +124,11 @@ export function BookingPace({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!thisYear.length || !lastYear.length) return null
+
   const ty = [...thisYear].sort((a, b) => b.daysOut - a.daysOut)
   const ly = [...lastYear].sort((a, b) => b.daysOut - a.daysOut)
   const lyAt = (d: number) => ly.reduce((a, p) => (Math.abs(p.daysOut - d) < Math.abs(a.daysOut - d) ? p : a), ly[0])?.rooms ?? 0
@@ -205,6 +210,11 @@ export function BookingWindow({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!buckets.length) return null
+
   const sorted = [...buckets].sort((a, b) => b.fromDays - a.fromDays)
   const total = sorted.reduce((a, b) => a + b.bookings, 0)
   let run = 0
@@ -424,6 +434,11 @@ export function GroupDisplacement({
   ancillaryPerRoom?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!nights.length) return null
+
   const rows = nights.map((n) => {
     const free = Math.max(0, n.capacity - n.forecastRooms)
     const displaced = Math.max(0, groupRooms - free)

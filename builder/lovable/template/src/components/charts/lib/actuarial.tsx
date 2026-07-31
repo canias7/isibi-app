@@ -28,6 +28,11 @@ export function MortalityTable({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!rates.length) return null
+
   const sorted = [...rates].sort((a, b) => a.age - b.age)
   // lx from the qx chain, then ex as the summed survivorship
   let l = 1
@@ -100,6 +105,11 @@ export function LapseCurve({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!durations.length) return null
+
   const rows = [...durations]
     .sort((a, b) => a.year - b.year)
     .map((d) => ({ ...d, rate: d.lapses / Math.max(d.inForceStart, 1) }))
@@ -185,6 +195,11 @@ export function ReserveRunoff({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!cohorts.length) return null
+
   const maxDev = Math.max(...cohorts.map((c) => c.paid.length))
   const rows = cohorts.map((c) => {
     let run = 0
@@ -358,6 +373,11 @@ export function AnnuityFactor({
   discountRates: number[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!survivorship.length || !discountRates.length) return null
+
   const factor = (i: number) => survivorship.reduce((a, p, t) => a + p / Math.pow(1 + i, t + 1), 0)
   const rows = discountRates.map((i) => ({ rate: i, factor: factor(i) }))
   // what the factor would be if nobody died, to separate the two effects

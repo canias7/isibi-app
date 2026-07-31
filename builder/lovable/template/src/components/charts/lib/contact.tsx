@@ -55,6 +55,11 @@ export function ErlangStaffing({
   intervalMinutes?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!intervals.length) return null
+
   const rows = intervals.map((iv) => {
     const traffic = (iv.calls * ahtSeconds) / (intervalMinutes * 60)
     let need = Math.max(1, Math.ceil(traffic))
@@ -520,6 +525,11 @@ export function AdherenceStrip({
   shiftEndMinute: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!agents.length) return null
+
   const span = Math.max(shiftEndMinute - shiftStartMinute, 1)
   const px = (m: number) => ((m - shiftStartMinute) / span) * 100
   const clock = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(Math.round(m % 60)).padStart(2, "0")}`

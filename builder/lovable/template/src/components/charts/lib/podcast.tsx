@@ -30,6 +30,11 @@ export function EpisodeRetention({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!episodes.length) return null
+
   const rows = episodes.map((e) => {
     const drops = e.retained.map((v, i) => (i === 0 ? 0 : e.retained[i - 1] - v))
     const worst = drops.indexOf(Math.max(...drops))
@@ -200,6 +205,11 @@ export function DownloadWindow({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!days.length) return null
+
   const pts = [...days].sort((a, b) => a.day - b.day)
   const total = pts[pts.length - 1].cumulative
   const at = (d: number) => {
@@ -375,6 +385,11 @@ export function SubscriberFunnel({
   costPerClick?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!steps.length) return null
+
   const rows = steps.map((s, i) => ({
     ...s,
     step: i === 0 ? 1 : s.people / Math.max(steps[i - 1].people, 1),
@@ -447,6 +462,11 @@ export function AdBreakPlacement({
   listeners: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!retention.length || !breaks.length) return null
+
   const at = (f: number) => {
     const x = clamp(f, 0, 1) * (retention.length - 1)
     const i = Math.floor(x)

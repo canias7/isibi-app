@@ -33,6 +33,11 @@ export function DeadheadRatio({
   costPerMile: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!shifts.length) return null
+
   const rows = shifts
     .map((s) => {
       const total = s.paidMiles + s.deadMiles
@@ -116,6 +121,11 @@ export function ZoneWait({
   hours: string[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!zones.length || !hours.length) return null
+
   const cells = zones.map((z) =>
     hours.map((_, i) => {
       const rider = z.riderWaitMin[i] ?? 0
@@ -205,6 +215,11 @@ export function DriverEarnings({
   hoursPerWeek: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!weeks.length) return null
+
   const keys = ["commission", "fuel", "vehicle", "licensing"] as const
   const labels: Record<(typeof keys)[number], string> = {
     commission: "Platform commission",
@@ -288,6 +303,11 @@ export function CancellationPoint({
   driverCostPerMinute: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!stages.length) return null
+
   const rows = stages.map((s) => ({
     ...s,
     rate: s.cancelled / Math.max(bookings, 1),
@@ -367,6 +387,11 @@ export function VehicleIdle({
   standingCostPerDay: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!vehicles.length) return null
+
   const rows = vehicles
     .map((v) => {
       const off = Math.max(0, dayHours - v.engagedHours - v.availableHours)
@@ -450,6 +475,11 @@ export function SurgeResponse({
   intervals: { label: string; multiplier: number; carsOnline: number; requests: number }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!intervals.length) return null
+
   const base = intervals.find((i) => i.multiplier <= 1) ?? intervals[0]
   const rows = intervals.map((i) => ({
     ...i,

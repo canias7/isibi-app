@@ -202,6 +202,63 @@ test("no chart primitive is a type, which cannot be rendered", () => {
   assert.deepEqual(types, [], "a type is listed as a component");
 });
 
+test("a signature names every required prop, not just the first", () => {
+  // THE BUG THIS EXISTS FOR, and it shipped. The chart lib is written WITHOUT
+  // semicolons, and the first version borrowed the component kit's extractor,
+  // which collapses whitespace and splits the prop block on `;`. With no
+  // semicolons the whole block is one part, `indexOf(":")` finds the first
+  // colon, and all 141 domains came out as one prop typed `object` —
+  // `ServiceMix(services: object)` for something that really takes a five-field
+  // row array. Handed to the model as "the real signatures, taken from the
+  // components themselves".
+  //
+  // Derived from the source at both ends, so it cannot be satisfied by a
+  // hardcoded example.
+  const wrong = [];
+  for (const [domain, sig] of Object.entries(CHART_API)) {
+    const src = fs.readFileSync(path.join(LIB, domain + ".tsx"), "utf8");
+    for (const one of sig.split(" · ")) {
+      const name = one.slice(0, one.indexOf("("));
+      const documented = new Set([...one.matchAll(/(?:\(|, )([a-zA-Z_]\w*)\??:/g)].map((m) => m[1]));
+      // The component's own destructuring is the truth about what it takes.
+      const at = src.search(new RegExp("export function " + name + "\\s*\\("));
+      if (at < 0) continue;
+      const open = src.indexOf("{", at);
+      const close = src.indexOf("}", open);
+      // Comments out FIRST. A doc comment inside the destructuring can contain a
+      // comma — `/** marks[student][assessment], null = not sat */` — and
+      // splitting before stripping made `null` look like a prop the signature
+      // had forgotten. The test reporting a bug in correct code is the same
+      // class of wrong as missing a real one.
+      const taken = src.slice(open + 1, close)
+        .replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ")
+        .split(",").map((s) => s.split("=")[0].trim())
+        .filter((s) => /^[a-zA-Z_]\w*$/.test(s) && s !== "className");
+      for (const prop of taken) {
+        if (!documented.has(prop)) wrong.push(`${domain}.${name} does not document \`${prop}\``);
+      }
+    }
+  }
+  assert.deepEqual(wrong.slice(0, 12), [], `${wrong.length} signatures are missing props`);
+});
+
+test("no signature collapses a row shape to the word object", () => {
+  // The visible symptom of the same bug, asserted separately because it is what
+  // anybody reading the file would notice first. A row's FIELDS are the whole
+  // value of the note — `object` tells the model strictly less than the prop
+  // name already did.
+  const collapsed = [];
+  for (const [domain, sig] of Object.entries(CHART_API)) {
+    for (const one of sig.split(" · ")) {
+      if (/\(\w+\??: object\)$/.test(one)) collapsed.push(domain + "." + one);
+    }
+  }
+  assert.deepEqual(collapsed, []);
+  // And a known row shape survives intact, so this cannot pass by the signatures
+  // being empty.
+  assert.match(CHART_API.salon, /chairs: \{ name: string; bookedHours: number/);
+});
+
 test("every documented signature belongs to a catalogued domain", () => {
   for (const domain of Object.keys(CHART_API)) {
     assert.ok(CHART_COMPONENTS[domain], `${domain} has signatures but is not in the catalogue`);

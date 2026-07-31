@@ -37,6 +37,11 @@ export function GrossToNet({
   levels: { gross: number; incomeTax: number; nationalInsurance: number; pension: number; studentLoan?: number }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!levels.length) return null
+
   const rows = levels
     .map((l) => {
       const deductions = l.incomeTax + l.nationalInsurance + l.pension + (l.studentLoan ?? 0)
@@ -311,6 +316,11 @@ export function PensionOptOut({
   realReturn?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!bands.length) return null
+
   const rows = bands.map((b) => {
     const rate = b.optedOut / Math.max(b.headcount, 1)
     const annual = b.meanSalary * employerRate
@@ -470,6 +480,11 @@ export function CostToEmploy({
   }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!roles.length) return null
+
   const extras: [keyof (typeof roles)[number], string, string][] = [
     ["employerNi", "Employer NI", "currentColor"],
     ["pension", "Pension", "color-mix(in oklch, currentColor 58%, transparent)"],

@@ -192,6 +192,11 @@ export function StrippingRatio({
   benches: { name: string; oreT: number; wasteT: number }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!benches.length) return null
+
   let cumOre = 0
   let cumWaste = 0
   const rows = benches.map((b) => {
@@ -264,6 +269,11 @@ export function RecoveryCurve({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!points.length) return null
+
   const pts = [...points].sort((a, b) => a.grade - b.grade)
   const lo = pts[0].grade
   const hi = pts[pts.length - 1].grade
@@ -347,6 +357,11 @@ export function DrillLog({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!holes.length) return null
+
   const rows = holes.map((h) => {
     const ints = [...h.intervals].sort((a, b) => a.fromM - b.fromM)
     const ore = ints.filter((i) => i.grade >= cutoff)

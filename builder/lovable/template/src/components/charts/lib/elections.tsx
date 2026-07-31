@@ -167,6 +167,11 @@ export function TurnoutByAge({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!cohorts.length) return null
+
   const totalEligible = cohorts.reduce((a, c) => a + c.eligible, 0)
   const totalVoted = cohorts.reduce((a, c) => a + c.voted, 0)
   const overall = totalVoted / Math.max(1, totalEligible)
@@ -365,6 +370,11 @@ export function Malapportionment({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!districts.length) return null
+
   const rows = districts
     .map((d) => ({ ...d, perSeat: d.electors / Math.max(1, d.seats) }))
     .sort((a, b) => a.perSeat - b.perSeat)
@@ -453,6 +463,11 @@ export function DHondtAllocation({
   threshold?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!parties.length) return null
+
   const totalVotes = parties.reduce((a, p) => a + p.votes, 0)
   const eligible = parties.filter((p) => (p.votes / Math.max(1, totalVotes)) * 100 >= threshold)
   const excluded = parties.filter((p) => !eligible.includes(p))

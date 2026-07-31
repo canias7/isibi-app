@@ -32,6 +32,11 @@ export function ConsultMix({
   slotMinutes: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!types.length) return null
+
   const rows = types
     .map((t) => {
       const overrunPerConsult = Math.max(0, t.meanMinutes - slotMinutes)
@@ -214,6 +219,11 @@ export function WeightTrack({
   animal?: string
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!readings.length) return null
+
   const kgs = readings.map((r) => r.kg)
   const lo = Math.min(breedMinKg, ...kgs) * 0.94
   const hi = Math.max(breedMaxKg, ...kgs) * 1.06
@@ -506,6 +516,11 @@ export function DispensingMargin({
   dispensingFee: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!items.length) return null
+
   const rows = items
     .map((i) => {
       const markup = (i.unitPrice - i.unitCost) * i.itemsDispensed

@@ -108,6 +108,11 @@ export function GrowthYield({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!volumes.length) return null
+
   const sorted = [...volumes].sort((a, b) => a.age - b.age)
   const rows = sorted.map((v, i) => ({
     ...v,
@@ -273,6 +278,11 @@ export function CanopyProfile({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!strata.length) return null
+
   const sorted = [...strata].sort((a, b) => b.fromM - a.fromM)
   const totalLai = strata.reduce((a, s) => a + s.lai, 0)
   const maxLai = Math.max(0.01, ...strata.map((s) => s.lai))
@@ -430,6 +440,11 @@ export function CarbonStock({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!years.length) return null
+
   const sorted = [...years].sort((a, b) => a.year - b.year)
   const total = (y: (typeof sorted)[number]) => y.aboveGround + y.belowGround + y.deadwood + y.soil
   const totals = sorted.map(total)

@@ -12,10 +12,10 @@
 //
 // TWO SCANS, NOT ONE, and the difference is load-bearing. Names come from a
 // plain export scan, because everything exported is importable and a name the
-// model is not given is a name it cannot use. Signatures come from the SAME
-// extractor the component kit uses, which only reads props typed inline — so an
-// export whose props live in a named type has a name here and no signature, and
-// that is correct rather than a gap to paper over.
+// model is not given is a name it cannot use. Signatures come from the extractor
+// below, which only reads props typed inline — so an export whose props live in
+// a named type has a name here and no signature, and that is correct rather than
+// a gap to paper over.
 //
 // GENERATED, NOT HAND-WRITTEN, for the reason gen-component-api.mjs states: 875
 // hand-maintained entries would be wrong within a week, and an entry that
@@ -25,7 +25,6 @@
 // Run: node builder/gen-chart-api.mjs
 import fs from "node:fs";
 import path from "node:path";
-import { extract } from "./gen-component-api.mjs";
 
 const LIB_DIR = path.join(import.meta.dirname, "lovable/template/src/components/charts/lib");
 const OUT = path.join(import.meta.dirname, "chart-api.mjs");
@@ -45,6 +44,108 @@ export function exportedNames(source) {
   return names;
 }
 
+// ------------------------------------------------------------- signatures
+//
+// THE CHART LIB IS WRITTEN WITHOUT SEMICOLONS. The component kit's extractor
+// collapses whitespace and then splits the prop block on `;`, which is right
+// there and catastrophically wrong here: with no semicolons the entire block is
+// ONE part, `indexOf(":")` finds the first colon, and every component came out
+// as its first prop typed `object` —
+//
+//   ServiceMix(services: object)
+//
+// where the truth is `services: { name: string; bookings: number; minutes:
+// number; price: number; materialCost?: number }[]`. That shipped, described to
+// the model as "the real signatures, taken from the components themselves". A
+// note that disagrees with the file is worse than no note, because the model
+// follows it and the page is refused — which is the reason these are generated
+// rather than written, and it defeated itself by borrowing the wrong splitter.
+
+/** Everything between `open` and its matching close, brace-aware, quote-aware. */
+function balanced(src, open, pair = "{}") {
+  const [o, c] = pair;
+  let depth = 0, quote = null;
+  for (let i = open; i < src.length; i++) {
+    const ch = src[i];
+    if (quote) { if (ch === quote && src[i - 1] !== "\\") quote = null; continue; }
+    if (ch === '"' || ch === "'" || ch === "`") { quote = ch; continue; }
+    if (ch === o) depth++;
+    else if (ch === c) { depth--; if (!depth) return src.slice(open + 1, i); }
+  }
+  return null;
+}
+
+/** Comments out, NEWLINES KEPT — a newline is the separator in these files. */
+const decomment = (s) => s.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, "\n");
+
+/** Split a props block on whichever separator the file uses: `;` or a newline. */
+export function splitProps(body) {
+  const out = [];
+  let depth = 0, quote = null, start = 0;
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i];
+    if (quote) { if (c === quote && body[i - 1] !== "\\") quote = null; continue; }
+    if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
+    if ("([{".includes(c) || (c === "<" && body[i + 1] !== "=")) depth++;
+    else if (")]}".includes(c) || (c === ">" && body[i - 1] !== "=")) depth--;
+    else if ((c === ";" || c === "\n") && depth === 0) { out.push(body.slice(start, i)); start = i + 1; }
+  }
+  out.push(body.slice(start));
+  // A field looks like `name:` or `name?:`. Anything else is a fragment of a
+  // type that wrapped across lines, and joining it back on would be guesswork.
+  return out.map((s) => s.trim()).filter((s) => /^[A-Za-z_]\w*\??\s*:/.test(s));
+}
+
+/** Shorten a type to something worth its tokens, keeping the shape. */
+function shortType(t) {
+  // A newline INSIDE the type is a field separator too, so it becomes `; ` —
+  // collapsing it to a space produced `{ name: string bookedHours: number }[]`,
+  // which is not TypeScript anyone would write and reads as a typo.
+  const s = t.replace(/[ \t]*\n[ \t]*/g, "; ").replace(/\s+/g, " ")
+    .replace(/;\s*([;}])/g, "$1").replace(/\{\s*;/g, "{").trim().replace(/;$/, "");
+  if (s.length <= 90) return s;                    // the row shape is the point
+  if (/^\{[\s\S]*\}\[\]$/.test(s)) return s.slice(0, 87) + "…]";
+  if (/=>/.test(s)) return "function";
+  return s.slice(0, 87) + "…";
+}
+
+/** One signature per exported component with inline prop types. */
+export function extractSignatures(source) {
+  const out = [];
+  const re = /export function (\w+)\s*(?:<[^>()]*>)?\s*\(\s*\{/g;
+  let m;
+  while ((m = re.exec(source))) {
+    const dOpen = m.index + m[0].length - 1;
+    const destruct = balanced(source, dOpen);
+    if (destruct == null) continue;
+    const after = source.slice(dOpen + destruct.length + 2);
+    const ann = after.match(/^\s*:\s*\{/);
+    if (!ann) continue;                            // props typed elsewhere — skipped on purpose
+    const tOpen = dOpen + destruct.length + 2 + ann[0].length - 1;
+    const types = balanced(source, tOpen);
+    if (types == null) continue;
+
+    const defaults = new Map();
+    for (const part of splitProps(decomment(destruct).replace(/,/g, "\n"))) {
+      const eq = part.indexOf("=");
+      if (eq > 0) defaults.set(part.slice(0, eq).trim(), part.slice(eq + 1).trim());
+    }
+    const props = [];
+    for (const part of splitProps(decomment(types))) {
+      const colon = part.indexOf(":");
+      const raw = part.slice(0, colon).trim();
+      const key = raw.replace(/\?$/, "");
+      // `className` is on every one. Stated once in the rules, not 882 times.
+      if (key === "className") continue;
+      const d = defaults.get(key);
+      props.push(`${key}${raw.endsWith("?") ? "?" : ""}: ${shortType(part.slice(colon + 1))}` +
+        (d ? ` = ${d.replace(/\s+/g, " ")}` : ""));
+    }
+    if (props.length) out.push({ name: m[1], props });
+  }
+  return out;
+}
+
 export function build() {
   const components = {};
   const api = {};
@@ -54,7 +155,7 @@ export function build() {
     const names = exportedNames(source);
     if (!names.length) continue;
     components[domain] = names;
-    const sigs = extract(source);
+    const sigs = extractSignatures(source);
     if (sigs.length) api[domain] = sigs.map((f) => `${f.name}(${f.props.join(", ")})`).join(" · ");
   }
   return { components, api };

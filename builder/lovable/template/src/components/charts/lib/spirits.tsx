@@ -33,6 +33,11 @@ export function CutPoints({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!run.length || !cuts.length) return null
+
   const totalLpa = run.reduce((a, f) => a + (f.litres * f.abv) / 100, 0)
   const rows = cuts.map((c) => {
     const hearts = run.slice(c.from, c.to + 1)
@@ -123,6 +128,11 @@ export function AngelShare({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!warehouses.length) return null
+
   const rows = warehouses.map((w) => {
     const series = Array.from({ length: years + 1 }, (_, y) => {
       const litres = fillLitres * Math.pow(1 - w.volumeLossPerYear, y)
@@ -292,6 +302,11 @@ export function ProofAccounting({
   dutyPerLpa: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!steps.length) return null
+
   const rows = steps.map((s, i) => {
     const lpa = (s.litres * s.abv) / 100
     const prev = i === 0 ? null : (steps[i - 1].litres * steps[i - 1].abv) / 100

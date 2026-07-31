@@ -93,6 +93,11 @@ export function ClaimScope({
   versions: { label: string; limitations: string[]; date?: string }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!versions.length) return null
+
   const rows = versions.map((v, i) => {
     const prev = versions[i - 1]?.limitations ?? []
     const added = v.limitations.filter((l) => !prev.includes(l))

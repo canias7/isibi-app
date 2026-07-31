@@ -25,6 +25,11 @@ export function PrintTimeStack({
   builds: { name: string; layers: number; exposureMin: number; recoatSecPerLayer: number; warmUpMin: number; coolMin: number }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!builds.length) return null
+
   const rows = builds.map((b) => {
     const recoat = (b.layers * b.recoatSecPerLayer) / 60
     const total = b.exposureMin + recoat + b.warmUpMin + b.coolMin
@@ -105,6 +110,11 @@ export function NestingEfficiency({
   platform: { areaMm2: number; maxHeightMm: number }
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!nests.length) return null
+
   const rows = nests
     .map((n) => {
       const area = n.parts.reduce((a, p) => a + p.footprintMm2 * p.count, 0)
@@ -180,6 +190,11 @@ export function LayerAdhesion({
   requiredMpa?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!materials.length) return null
+
   const rows = materials
     .map((m) => ({
       ...m,
@@ -274,6 +289,11 @@ export function PowderReuse({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!lots.length) return null
+
   const rows = lots.map((l) => {
     const pts = [...l.cycles].sort((a, b) => a.cycle - b.cycle)
     const last = pts[pts.length - 1]
@@ -379,6 +399,11 @@ export function SupportRatio({
   finishingCostPerHour: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!orientations.length) return null
+
   const rows = orientations
     .map((o) => {
       const material = (o.partCm3 + o.supportCm3) * materialCostPerCm3
@@ -481,6 +506,11 @@ export function CostPerPart({
   machineRatePerHour: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!scenarios.length) return null
+
   const rows = scenarios
     .map((s) => {
       const machine = s.buildHours * machineRatePerHour

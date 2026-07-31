@@ -37,6 +37,11 @@ export function FirstTimeFix({
   displacedJobValue: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!categories.length) return null
+
   const rows = categories
     .map((c) => {
       const revisits = c.jobs - c.firstTimeFixed
@@ -443,6 +448,11 @@ export function EngineerRoute({
   costPerMile: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!stops.length) return null
+
   const miles = stops.reduce((a, s) => a + s.milesFromPrevious, 0)
   const onSite = stops.reduce((a, s) => a + s.onSiteMinutes, 0)
   // nearest-neighbour on the same legs: the shortest a day of these hops could

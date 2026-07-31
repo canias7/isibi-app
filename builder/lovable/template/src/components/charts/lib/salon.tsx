@@ -43,6 +43,11 @@ export function StationHours({
   employedCostPerHour: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!chairs.length) return null
+
   const rows = chairs
     .map((c) => {
       const rented = c.rentPerWeek !== undefined
@@ -177,6 +182,11 @@ export function ServiceMix({
   services: { name: string; bookings: number; minutes: number; price: number; materialCost?: number }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!services.length) return null
+
   const rows = services
     .map((s) => {
       const chairHours = (s.bookings * s.minutes) / 60
@@ -351,6 +361,11 @@ export function RetailAttach({
   serviceRatePerChairHour: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!lines.length) return null
+
   const rows = lines
     .map((l) => {
       const attach = l.unitsSold / Math.max(l.servicesInPeriod, 1)
@@ -531,6 +546,11 @@ export function NoShowCost({
   depositRate?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!buckets.length) return null
+
   const rows = buckets.map((b) => {
     const hours = (b.count * b.meanMinutes) / 60
     const lost = hours * (1 - b.refilledShare) * chairRatePerHour

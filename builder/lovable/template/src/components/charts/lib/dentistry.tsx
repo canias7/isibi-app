@@ -28,6 +28,11 @@ export function PerioChart({
   threshold?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!teeth.length) return null
+
   const rows = teeth.map((t) => {
     const deep = t.depths.filter((d) => d >= threshold).length
     const bop = t.bleeding.filter(Boolean).length
@@ -117,6 +122,11 @@ export function ChairUtilisation({
   hourlyCost?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!sessions.length) return null
+
   const rows = sessions.map((s) => {
     const idle = Math.max(0, s.minutes - s.treating - s.turnaround - s.admin - s.fta)
     return { ...s, idle, utilisation: s.treating / Math.max(s.minutes, 1) }
@@ -195,6 +205,11 @@ export function RecallCompliance({
   cohorts: { name: string; assignedMonths: number; actualMonths: number[] }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!cohorts.length) return null
+
   const rows = cohorts.map((c) => {
     const sorted = [...c.actualMonths].sort((a, b) => a - b)
     const median = sorted[Math.floor(sorted.length / 2)]
@@ -272,6 +287,11 @@ export function TreatmentPlanValue({
   categories: { name: string; planned: number; accepted: number; completed: number }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!categories.length) return null
+
   const rows = [...categories]
     .map((c) => ({
       ...c,
@@ -497,6 +517,11 @@ export function ProcedureMix({
   chairCostPerHour?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!procedures.length) return null
+
   const rows = procedures
     .map((p) => {
       const revenue = p.count * p.feeEach

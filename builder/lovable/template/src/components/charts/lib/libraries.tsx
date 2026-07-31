@@ -27,6 +27,11 @@ export function LoanTurnover({
   months?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!titles.length) return null
+
   const rows = titles
     .map((t) => ({
       ...t,
@@ -103,6 +108,11 @@ export function ShelfDwell({
   deadAfterDays?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!sections.length) return null
+
   const bandLabels = ["< 30 d", "30–90", "90–180", "180–365", "> 365"]
   const rows = sections
     .map((s) => {
@@ -191,6 +201,11 @@ export function HoldsQueue({
   targetWeeks?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!titles.length) return null
+
   const rows = titles
     .map((t) => {
       const copiesNow = t.copies
@@ -350,6 +365,11 @@ export function EresourceCostPerUse({
   benchmarkPerUse?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!resources.length) return null
+
   const rows = resources
     .map((r) => {
       const uses = r.sessions + r.downloads

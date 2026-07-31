@@ -94,6 +94,11 @@ export function OtpCascade({
   legs: { flight: string; departMin: number; blockMin: number; groundMin: number; ownDelayMin?: number }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!legs.length) return null
+
   let inherited = 0
   const rows = legs.map((l, i) => {
     const own = l.ownDelayMin ?? 0

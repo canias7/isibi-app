@@ -24,6 +24,11 @@ export function PowerCurve({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!efforts.length) return null
+
   // W = CP·t + W′ is linear in t, so a least-squares fit over the efforts
   // between two and twenty minutes gives both without an optimiser
   const fit = efforts.filter((e) => e.seconds >= 120 && e.seconds <= 1200)
@@ -348,6 +353,11 @@ export function GearRatios({
   wheelCircumferenceMm?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!chainrings.length || !sprockets.length) return null
+
   const combos = chainrings.flatMap((c) =>
     sprockets.map((s) => ({ c, s, development: (c / s) * (wheelCircumferenceMm / 1000) })),
   )
@@ -444,6 +454,11 @@ export function ClimbProfile({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!points.length) return null
+
   const sorted = [...points].sort((a, b) => a.km - b.km)
   const segments = sorted.map((p, i) => {
     const prev = sorted[i - 1]

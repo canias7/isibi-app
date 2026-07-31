@@ -178,6 +178,11 @@ export function GerminationCurve({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!lots.length) return null
+
   const days = Math.max(...lots.map((l) => l.counts.length))
   const rows = lots.map((l) => {
     const final = l.counts[l.counts.length - 1] ?? 0

@@ -207,6 +207,11 @@ export function CellHandover({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!cells.length) return null
+
   const n = Math.min(...cells.map((c) => c.rsrp.length))
   const serving: number[] = []
   for (let i = 0; i < n; i++) {
@@ -296,6 +301,11 @@ export function JitterBuffer({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!arrivals.length) return null
+
   const sorted = [...arrivals].sort((a, b) => a - b)
   const at = (p: number) => sorted[clamp(Math.floor(p * (sorted.length - 1)), 0, sorted.length - 1)]
   const min = sorted[0]

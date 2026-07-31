@@ -38,6 +38,11 @@ export function ShowtimeGrid({
   turnaroundMin?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!screens.length) return null
+
   const span = Math.max(closeMinute - openMinute, 1)
   const px = (m: number) => ((m - openMinute) / span) * 100
   const clock = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(Math.round(m % 60)).padStart(2, "0")}`
@@ -134,6 +139,11 @@ export function AdmissionsDecay({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!titles.length) return null
+
   const rows = titles.map((t) => {
     const drops = t.weekly.slice(1).map((v, i) => v / Math.max(t.weekly[i], 1))
     const mean = drops.length ? drops.reduce((a, v) => a + v, 0) / drops.length : 1
@@ -223,6 +233,11 @@ export function ScreenMix({
   openHours: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!screens.length) return null
+
   const rows = screens
     .map((s) => ({
       ...s,
@@ -300,6 +315,11 @@ export function ConcessionSpend({
   concessionMargin: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!showings.length) return null
+
   const rows = showings
     .map((s) => {
       const spendPerHead = s.concessions / Math.max(s.admissions, 1)
@@ -385,6 +405,11 @@ export function FilmHire({
   houseNut?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!weeks.length || !scale.length) return null
+
   const rows = weeks.map((w, i) => {
     const rate = scale[Math.min(i, scale.length - 1)]
     const base = houseNut === undefined ? w.gross : Math.max(0, w.gross - houseNut)

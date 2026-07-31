@@ -28,6 +28,11 @@ export function BakersPercent({
   }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!formulas.length) return null
+
   const rows = formulas.map((f) => {
     const flour = f.ingredients.filter((i) => i.isFlour).reduce((a, i) => a + i.grams, 0) || 1
     const items = f.ingredients.map((i) => ({ ...i, pct: i.grams / flour }))
@@ -276,6 +281,11 @@ export function WastageLadder({
   lines: { name: string; baked: number; sold: number; costEach: number; priceEach: number }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!lines.length) return null
+
   const rows = lines
     .map((l) => {
       const unsold = Math.max(0, l.baked - l.sold)
@@ -361,6 +371,11 @@ export function DoughTemp({
   frictionC: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!days.length) return null
+
   const rows = days.map((d) => {
     const factors = d.prefermentC === undefined ? 3 : 4
     const known = d.roomC + d.flourC + (d.prefermentC ?? 0) + frictionC

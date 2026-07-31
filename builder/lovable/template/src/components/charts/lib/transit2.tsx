@@ -346,6 +346,11 @@ export function FareElasticity({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!points.length) return null
+
   const sorted = [...points].sort((a, b) => a.fare - b.fare)
   const rev = sorted.map((p) => p.fare * p.riders)
   const bestIdx = rev.indexOf(Math.max(...rev))

@@ -34,6 +34,11 @@ export function PrescriptionDrift({
   repeatabilityDpt?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!tests.length) return null
+
   const spheres = tests.map((t) => t.sphere)
   const lo = Math.min(...spheres) - repeatabilityDpt * 3
   const hi = Math.max(...spheres) + repeatabilityDpt * 3
@@ -131,6 +136,11 @@ export function DispenseRate({
   testCost: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!testTypes.length) return null
+
   const rows = testTypes
     .map((t) => {
       const rate = t.dispenses / Math.max(t.tests, 1)
@@ -207,6 +217,11 @@ export function FrameMargin({
   bands: { name: string; framesOnBoard: number; cost: number; retail: number; soldPerYear: number }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!bands.length) return null
+
   const rows = bands
     .map((b) => {
       const unitMargin = b.retail - b.cost
@@ -385,6 +400,11 @@ export function LensAttach({
   baseDispenseValue: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!options.length) return null
+
   const rows = options
     .map((o) => {
       const attach = o.taken / Math.max(dispenses, 1)
@@ -454,6 +474,11 @@ export function MyopiaProgression({
   startedControlAt?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!readings.length) return null
+
   const first = readings[0]
   const last = readings[readings.length - 1]
   const years = last.age - first.age

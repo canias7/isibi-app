@@ -290,6 +290,11 @@ export function DockToStock({
   targetHours?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!receipts.length || !stages.length) return null
+
   const rows = receipts.map((r) => ({ ...r, total: r.hours.reduce((a, v) => a + v, 0) }))
   const max = Math.max(targetHours ?? 0, ...rows.map((r) => r.total))
   const byStage = stages.map((s, i) => {
@@ -389,6 +394,11 @@ export function PutawayCongestion({
   moves: number[][]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!aisles.length || !hours.length || !moves.length) return null
+
   // a move takes a truck for roughly a fifth of an hour, so demand in
   // truck-hours is what has to fit inside the aisle's capacity
   const TRUCK_HOURS_PER_MOVE = 0.2
