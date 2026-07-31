@@ -1,4 +1,4 @@
-# Components (684 built, 316 to go)
+# Components (700 built, 300 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -48,6 +48,7 @@
 ✓ billing-summary
 ✓ blackout-dates
 ✓ block-menu
+✓ blocking-overlay
 ✓ blur-up
 ✓ booking-summary
 ✓ branch-badge
@@ -75,6 +76,7 @@
 ✓ cascading-select
 ✓ case-study-card
 ✓ category-nav
+✓ celebration
 ✓ cell-badge
 ✓ cell-editor
 ✓ cell-sparkline
@@ -94,6 +96,7 @@
 ✓ citation-list
 ✓ clamp-text
 ✓ cluster
+✓ coach-mark
 ✓ code-block
 ✓ code-diff
 ✓ code-editor
@@ -117,6 +120,7 @@
 ✓ conditional-field
 ✓ confirm-dialog
 ✓ confirm-field
+✓ confirm-inline
 ✓ conflict-note
 ✓ connect-card
 ✓ connected-account
@@ -168,6 +172,7 @@
 ✓ directory-list
 ✓ dirty-indicator
 ✓ dish-card
+✓ dismiss-all
 ✓ distance-badge
 ✓ divider-text
 ✓ document-meta
@@ -253,6 +258,7 @@
 ✓ hero
 ✓ hero-split
 ✓ highlight-match
+✓ hint-dot
 ✓ holiday-notice
 ✓ honeypot
 ✓ hotkey-list
@@ -345,6 +351,7 @@
 ✓ metric-row
 ✓ mini-bars
 ✓ mobile-nav
+✓ modal-stack
 ✓ model-picker
 ✓ moderation-note
 ✓ money
@@ -367,6 +374,7 @@
 ✓ notification-prefs
 ✓ now-line
 ✓ nps-scale
+✓ nudge-bubble
 ✓ number-format
 ✓ number-input
 ✓ number-scrubber
@@ -406,6 +414,7 @@
 ✓ playback-speed
 ✓ plural
 ✓ popover
+✓ popover-menu
 ✓ post-meta
 ✓ postcode-input
 ✓ poster-picker
@@ -423,6 +432,7 @@
 ✓ progress
 ✓ progress-ring
 ✓ progress-stack
+✓ progress-toast
 ✓ progressive-image
 ✓ prompt-box
 ✓ prompt-history
@@ -469,6 +479,7 @@
 ✓ review-form
 ✓ review-stars
 ✓ rich-text
+✓ rich-tooltip
 ✓ role-badge
 ✓ role-picker
 ✓ room-card
@@ -518,6 +529,7 @@
 ✓ share-buttons
 ✓ share-preview
 ✓ sheet
+✓ sheet-stack
 ✓ shelf
 ✓ shift-badge
 ✓ shipping-options
@@ -537,11 +549,13 @@
 ✓ skip-link
 ✓ sla-badge
 ✓ slash-menu
+✓ slide-over
 ✓ slider
 ✓ slider-input
 ✓ slot-hold
 ✓ slow-note
 ✓ slug-input
+✓ snackbar
 ✓ social-links
 ✓ sonner
 ✓ sort-select
@@ -624,8 +638,10 @@
 ✓ timeline
 ✓ timeline-horizontal
 ✓ timeline-vertical
+✓ timeout-note
 ✓ timezone-note
 ✓ timezone-picker
+✓ toast-stack
 ✓ toggle
 ✓ toggle-chip
 ✓ toggle-group
@@ -702,7 +718,6 @@ back-to-list
 bar-chart
 big-number
 blocked-note
-blocking-overlay
 blur-sensitive
 box-plot
 breadcrumb-collapse
@@ -713,7 +728,6 @@ bullet-chart
 byline-compact
 camera-capture
 caption-toggle
-celebration
 change-request
 channel-toggle
 chart-export
@@ -724,7 +738,6 @@ chunked-upload
 click-outside
 clipboard-history
 co-edit-note
-coach-mark
 combo-chart
 command-bar
 command-group
@@ -734,7 +747,6 @@ comparison-chart
 completeness-bar
 completion-ring
 confetti
-confirm-inline
 conflict-merge
 content-placeholder
 content-warning
@@ -760,7 +772,6 @@ density-preference
 did-you-mean
 digest-row
 discount-input
-dismiss-all
 distribution-bar
 dock
 download-menu
@@ -803,7 +814,6 @@ grouped-bar
 gutter
 handover-bar
 high-contrast
-hint-dot
 histogram
 hotkey-badge
 idle-note
@@ -828,7 +838,6 @@ mega-menu
 mention-badge
 milestone-dot
 missing-fields
-modal-stack
 moderation-queue
 morph-height
 multi-sort-picker
@@ -838,7 +847,6 @@ nav-group
 nav-search
 notification-empty
 notification-group
-nudge-bubble
 offline-queue
 open-question
 option-card
@@ -857,7 +865,6 @@ pinned-nav
 place-search
 placeholder-grid
 poll-result
-popover-menu
 portal
 precision-toggle
 preference-group
@@ -865,7 +872,6 @@ presence-bar
 print-preview
 priority-inbox
 progress-donut
-progress-toast
 property-panel
 pros-cons
 pull-quote
@@ -898,7 +904,6 @@ resize-handle
 resolve-thread
 response-summary
 result-preview
-rich-tooltip
 ripple
 rollback-note
 rounding-note
@@ -920,7 +925,6 @@ sentiment-chip
 shake-error
 share-invite
 share-sheet
-sheet-stack
 shimmer
 short-link
 shortcut-overlay
@@ -933,8 +937,6 @@ sidenote
 sitemap-list
 skeleton-form
 skeleton-list
-slide-over
-snackbar
 snap-carousel
 snap-sections
 snooze-menu
@@ -970,10 +972,8 @@ theme-picker
 three-col
 threshold-bar
 tilt-card
-timeout-note
 timezone-clock
 toast-queue
-toast-stack
 tolerance-bar
 top-n-picker
 trade-off-bar

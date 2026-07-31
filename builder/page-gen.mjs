@@ -310,6 +310,11 @@ export const UI_COMPONENTS = [
   "json-tree", "syntax-highlight", "request-timing", "header-table",
   "query-params", "env-badge", "build-status", "commit-row", "branch-badge",
   "diff-stat",
+  // Overlays and interruption.
+  "toast-stack", "snackbar", "progress-toast", "modal-stack", "sheet-stack",
+  "popover-menu", "rich-tooltip", "coach-mark", "hint-dot", "nudge-bubble",
+  "celebration", "blocking-overlay", "timeout-note", "slide-over",
+  "confirm-inline", "dismiss-all",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
