@@ -391,6 +391,9 @@ export const UI_COMPONENTS = [
   // Onboarding.
   "feature-tour", "whats-new-dot", "upgrade-badge", "usage-nudge",
   "empty-cta", "sample-toggle", "reset-demo", "checklist-dot",
+  // Shaping a set of data.
+  "date-preset", "relative-date", "filter-preset", "group-by-picker",
+  "aggregate-picker", "bucket-picker", "top-n-picker",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

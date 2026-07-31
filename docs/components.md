@@ -1,4 +1,4 @@
-# Components (917 built, 83 to go)
+# Components (924 built, 76 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -10,6 +10,7 @@
 ✓ advanced-toggle
 ✓ age-gate
 ✓ agenda-list
+✓ aggregate-picker
 ✓ alert
 ✓ alert-dialog
 ✓ all-day-row
@@ -67,6 +68,7 @@
 ✓ breadcrumb-collapse
 ✓ breakpoint-badge
 ✓ bubble
+✓ bucket-picker
 ✓ build-status
 ✓ bulk-actions
 ✓ bulk-edit-panel
@@ -190,6 +192,7 @@
 ✓ date-format
 ✓ date-nav
 ✓ date-of-birth
+✓ date-preset
 ✓ date-range-picker
 ✓ date-time-picker
 ✓ day-schedule
@@ -286,6 +289,7 @@
 ✓ file-size
 ✓ file-type-icon
 ✓ filter-bar
+✓ filter-preset
 ✓ filter-tree
 ✓ find-replace
 ✓ first-run
@@ -313,6 +317,7 @@
 ✓ getting-started
 ✓ glossary-item
 ✓ grid-item
+✓ group-by-picker
 ✓ grouped-list
 ✓ grouped-rows
 ✓ handoff-note
@@ -597,6 +602,7 @@
 ✓ regenerate-button
 ✓ related-list
 ✓ related-nav
+✓ relative-date
 ✓ reorderable-grid
 ✓ repeatable-field
 ✓ reply-box
@@ -848,6 +854,7 @@
 ✓ tool-call-card
 ✓ toolbar
 ✓ tooltip
+✓ top-n-picker
 ✓ totals-row
 ✓ tour-step
 ✓ trade-off-bar
@@ -918,7 +925,6 @@
 ✓ year-picker
 ✓ zoom-controls
 
-aggregate-picker
 amount-input
 area-chart
 aspect-box
@@ -927,7 +933,6 @@ availability-toggle
 bar-chart
 box-plot
 bubble-chart
-bucket-picker
 bullet-chart
 camera-capture
 chart-export
@@ -943,7 +948,6 @@ coordinate-input
 countdown-ring
 currency-amount
 data-freshness
-date-preset
 deadline-bar
 discount-input
 distribution-bar
@@ -953,14 +957,12 @@ elapsed-timer
 error-summary-link
 field-warning
 file-preview
-filter-preset
 focus-list
 folder-path
 folder-tree
 format-hint
 full-bleed
 funnel-chart
-group-by-picker
 grouped-bar
 gutter
 histogram
@@ -978,7 +980,6 @@ quantile-bar
 radar-chart
 radius-slider
 range-chart
-relative-date
 scan-document
 scatter-plot
 sidebar-right
@@ -993,7 +994,6 @@ stopwatch
 tax-toggle
 three-col
 timezone-clock
-top-n-picker
 treemap-chart
 trend-card
 uniqueness-check
