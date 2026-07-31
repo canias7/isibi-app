@@ -124,7 +124,7 @@ export function Gantt({
             );
           })}
           {typeof today === "number" ? (
-            <div className="absolute top-0 bottom-0 w-px bg-destructive" style={{ left: `${x(today)}%` }} title="Now" />
+            <div className="absolute top-0 bottom-0 border-l border-dashed border-foreground" style={{ left: `${x(today)}%` }} title="Now" />
           ) : null}
         </div>
       </div>

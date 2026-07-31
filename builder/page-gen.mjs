@@ -14,6 +14,15 @@
 // Generated from the component files by builder/gen-component-api.mjs. Kept in
 // step by test/component-api.test.mjs, which regenerates and compares.
 import { COMPONENT_API } from "./component-api.mjs";
+// The chart half, generated from src/components/charts/lib by
+// builder/gen-chart-api.mjs and kept in step by test/chart-api.test.mjs.
+import { CHART_COMPONENTS, CHART_API } from "./chart-api.mjs";
+
+/** Domain -> its exports, one line each. What the compose prompt spends its chart budget on. */
+export const CHART_CATALOGUE = Object.entries(CHART_COMPONENTS)
+  .map(([domain, names]) => `${domain}: ${names.join(", ")}`).join("\n");
+const CHART_DOMAIN_COUNT = Object.keys(CHART_COMPONENTS).length;
+const CHART_NAME_COUNT = Object.values(CHART_COMPONENTS).reduce((n, v) => n + v.length, 0);
 /** Every component in src/components/ui. An import of anything else does not resolve. */
 export const UI_COMPONENTS = [
   "accordion", "alert-dialog", "alert", "aspect-ratio", "avatar", "badge", "breadcrumb",
@@ -772,6 +781,13 @@ or an access level — anything not in the schema below does not exist.
     total across tables, the slots left on a day, one row out of a write-only table. Only
     call functions the digest actually lists.
 
+12. A CHART COMES FROM "@/components/charts/lib/<domain>", never from a file named
+    \`chart-something\`. The \`charts/chart-*.tsx\` files are DEMOS — each one wraps a
+    primitive in a Card around invented numbers ("Bookings 268 / 300 · January - June
+    2024"). One imported into a page compiles, bundles and publishes a stranger's made-up
+    figures to this site's visitors. Import the primitive and pass it the site's own rows.
+    The ${CHART_DOMAIN_COUNT} domain modules and everything they export are listed below.
+
 ## Reading rows
 
 \`useRows<T>(table, params)\` → a TanStack Query result whose \`.data\` is the rows.
@@ -816,6 +832,18 @@ Never write routeTree.gen.ts, __root.tsx, src/pages/ or app/layout.tsx.
 Tailwind v4 with semantic tokens: bg-background, text-foreground, bg-card, text-muted-foreground,
 border-border, bg-primary, text-destructive. A raw bg-slate-900 breaks dark mode. Also available:
 lucide-react icons, date-fns, recharts. Import nothing that is not already a dependency.
+
+## Charts
+
+${CHART_DOMAIN_COUNT} modules under "@/components/charts/lib/", ${CHART_NAME_COUNT} components between them, every
+one prop-driven — hand it \`useRows(...)\` data, not a copied array. They are monochrome by
+rule: fill, weight, hatching and a written label carry the reading, never colour alone.
+Import by domain, e.g. \`import { Bullet } from "@/components/charts/lib/bullet"\`.
+
+Six names are exported by two modules each, so take the one under the domain you read it
+under. A module not listed here does not exist.
+
+${CHART_CATALOGUE}
 
 ## Visitor accounts
 
@@ -1085,6 +1113,54 @@ export function lintPages(pages, spec) {
       if (!ui.has(m[1].toLowerCase())) say(path, 'imports "@/components/ui/' + m[1] + '", which does not exist. Available: ' + UI_COMPONENTS.join(", ") + ".");
     }
 
+    // THE CHART DEMOS, refused by name. This is the rule the deleted `@/examples/*`
+    // one used to be, and it is justified here on exactly the reasoning that
+    // retired it there: that rule went when the folder went, because a missing
+    // module is caught by tsc like any other. These 1,140 files are NOT missing.
+    // Each is `export default function Component()` wrapping a primitive in a
+    // Card around invented figures, so an import of one COMPILES, bundles, and
+    // publishes "Bookings 268 / 300 · January - June 2024" to a real business's
+    // customers. Nothing else in the pipeline can tell that from a real chart.
+    // The path class allows `/`, so this catches a nested path as well as a flat
+    // one — and THAT is what makes the `(?!lib\/)` real. Written as `[a-z0-9-]+`
+    // the lookahead was decoration: the class cannot cross a slash, so
+    // `charts/lib/bullet` never matched it in the first place and removing the
+    // lookahead changed nothing. Proved by mutation, which is the only way that
+    // kind of no-op guard ever gets found.
+    for (const m of code.matchAll(/from\s+"@\/components\/charts\/(?!lib\/)([a-z0-9/-]+)"/gi)) {
+      say(path, 'imports "@/components/charts/' + m[1] + '", which is a DEMO — a fixed ' +
+        "layout around invented numbers, not a component. Import the primitive it uses from " +
+        '"@/components/charts/lib/<domain>" and pass it this site\'s rows.');
+    }
+
+    // A chart import is checked down to the NAMED EXPORT, which the ui check
+    // above deliberately is not: a ui module's exports are shadcn's and widely
+    // known, while these are ours, six names live in two domains each, and the
+    // model is picking from 141 modules it is shown once. Getting the module
+    // right and the name wrong is the likely miss, and it costs the single
+    // repair pass if only tsc catches it.
+    for (const m of code.matchAll(/import\s*(\{[^}]*\})\s*from\s+"@\/components\/charts\/lib\/([a-z0-9-]+)"/gi)) {
+      const names = CHART_COMPONENTS[m[2].toLowerCase()];
+      if (!names) {
+        say(path, 'imports "@/components/charts/lib/' + m[2] + '", which is not a chart domain. ' +
+          "The domains are: " + Object.keys(CHART_COMPONENTS).join(", ") + ".");
+        continue;
+      }
+      for (const raw of m[1].replace(/[{}]/g, "").split(",")) {
+        // `Foo as Bar` imports Foo; the local alias is the page's business.
+        const want = raw.trim().split(/\s+as\s+/i)[0].trim();
+        if (!want || want === "type") continue;
+        if (!names.includes(want)) {
+          const elsewhere = Object.entries(CHART_COMPONENTS)
+            .filter(([, ns]) => ns.includes(want)).map(([d]) => d);
+          say(path, '"' + want + '" is not exported by @/components/charts/lib/' + m[2] + ". " +
+            (elsewhere.length
+              ? "It is in " + elsewhere.join(" and ") + " — import it from there."
+              : "That module exports: " + names.join(", ") + "."));
+        }
+      }
+    }
+
     // There was a rule here refusing `@/examples/*`, shadcn's own documentation
     // demos. It existed for one reason, stated in its own comment: every file in
     // that folder COMPILED, so nothing else in the pipeline could tell a real
@@ -1169,14 +1245,26 @@ export function lintPages(pages, spec) {
  */
 export function importedComponentApi(pages) {
   const want = new Set();
+  const wantCharts = new Set();
   for (const p of pages || []) {
-    for (const m of String(p.source || "").matchAll(/from\s+["']@\/components\/ui\/([a-z0-9-]+)["']/gi)) {
+    const src = String(p.source || "");
+    for (const m of src.matchAll(/from\s+["']@\/components\/ui\/([a-z0-9-]+)["']/gi)) {
       want.add(m[1].toLowerCase());
+    }
+    // The chart domains a page reached for get their signatures too. A repair is
+    // where a wrong prop name is fixed, and these are components we invented —
+    // the half the model can only guess at — so leaving them out would hand back
+    // the exact page that failed with nothing new to go on.
+    for (const m of src.matchAll(/from\s+["']@\/components\/charts\/lib\/([a-z0-9-]+)["']/gi)) {
+      wantCharts.add(m[1].toLowerCase());
     }
   }
   const lines = [...want].sort()
     .filter((n) => COMPONENT_API[n])          // shadcn primitives are absent on purpose
-    .map((n) => `${n} — ${COMPONENT_API[n]}`);
+    .map((n) => `${n} — ${COMPONENT_API[n]}`)
+    .concat([...wantCharts].sort()
+      .filter((n) => CHART_API[n])
+      .map((n) => `charts/lib/${n} — ${CHART_API[n]}`));
   return lines.length ? lines.join("\n") : null;
 }
 

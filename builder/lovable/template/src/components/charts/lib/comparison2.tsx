@@ -412,7 +412,7 @@ export function BootstrapCI({
           return <div key={i} className="relative flex-1" style={{ height: `${(c / peak) * 100}%`, background: TONE, opacity: inside ? 0.85 : 0.28 }} />;
         })}
         {observed !== undefined ? (
-          <div className="absolute top-0 bottom-0 w-px bg-destructive" style={{ left: `${X(observed)}%` }} title={`Observed ${format(observed)}`} />
+          <div className="absolute top-0 bottom-0 border-l border-dashed border-foreground" style={{ left: `${X(observed)}%` }} title={`Observed ${format(observed)}`} />
         ) : null}
       </div>
       <p className="mt-1 text-[10px] text-muted-foreground">

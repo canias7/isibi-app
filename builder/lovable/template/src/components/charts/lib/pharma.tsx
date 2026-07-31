@@ -310,7 +310,7 @@ export function DrugInteraction({
   interactions: { a: string; b: string; level: InteractionLevel; note?: string }[]
   className?: string
 }) {
-  const key = (a: string, b: string) => [a, b].sort().join(" ")
+  const key = (a: string, b: string) => [a, b].sort().join("\u0000")
   const map = new Map(interactions.map((i) => [key(i.a, i.b), i]))
   const flagged = interactions.filter((i) => i.level === "major" || i.level === "contraindicated")
 

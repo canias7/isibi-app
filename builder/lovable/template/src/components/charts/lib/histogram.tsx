@@ -70,7 +70,7 @@ export function Histogram({
           </div>
         ))}
         {markMean ? (
-          <div className="absolute top-0 bottom-0 w-px bg-destructive"
+          <div className="absolute top-0 bottom-0 border-l border-dashed border-foreground"
             style={{ left: `${((mean - lo) / span) * 100}%` }} title={`Mean ${format(mean)}`} />
         ) : null}
       </div>

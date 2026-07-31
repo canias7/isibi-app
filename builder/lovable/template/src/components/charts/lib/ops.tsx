@@ -71,7 +71,7 @@ export function ChangePoint({
           <line x1={X(at)} x2={X(values.length - 1)} y1={Y(mB)} y2={Y(mB)} stroke={TONE} strokeOpacity={0.5} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />
           <polyline points={values.map((v, i) => `${X(i)},${Y(v)}`).join(" ")} fill="none" stroke={TONE} strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
         </svg>
-        <div className="absolute top-0 bottom-0 border-l border-destructive" style={{ left: `${X(at)}%` }} />
+        <div className="absolute top-0 bottom-0 border-l border-dashed border-foreground" style={{ left: `${X(at)}%` }} />
       </div>
       <p className="mt-1 text-[10px] text-muted-foreground">Level moved from {format(mA)} to {format(mB)}</p>
     </div>
@@ -176,7 +176,7 @@ export function RunwayChart({
           <polyline points={balance.map((v, i) => `${X(i)},${Y(v)}`).join(" ")} fill="none" stroke={TONE} strokeWidth={2} vectorEffect="non-scaling-stroke" />
           <line x1={0} x2={100} y1={Y(0)} y2={Y(0)} stroke="var(--border)" vectorEffect="non-scaling-stroke" />
         </svg>
-        {zeroAt >= 0 ? <div className="absolute top-0 bottom-0 border-l border-destructive" style={{ left: `${X(zeroAt)}%` }} /> : null}
+        {zeroAt >= 0 ? <div className="absolute top-0 bottom-0 border-l border-dashed border-foreground" style={{ left: `${X(zeroAt)}%` }} /> : null}
       </div>
       <p className="mt-1 text-[10px] text-muted-foreground">
         {format(balance[0])} today · {zeroAt >= 0 ? `runs out at ${labels?.[zeroAt] ?? `period ${zeroAt}`}` : "still positive at the end of the window"}
