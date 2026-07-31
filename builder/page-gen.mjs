@@ -709,10 +709,15 @@ or an access level — anything not in the schema below does not exist.
    - \`admin\` — SHARED, ROLE-WRITABLE. Anyone signed in reads it; only a member whose role
      the table names in \`writeRoles\` may write. Anyone else gets 403 with \`code: "role"\`.
 
-3. SHADCN FOR EVERY CONTROL, imported from "@/components/ui/<name>". Never hand-roll a
-   button, input, select, checkbox or dialog. These exist and nothing else does:
+3. THE KIT FOR EVERY CONTROL, imported from "@/components/ui/<name>". Never hand-roll a
+   button, input, select, checkbox or dialog. Under that path these exist and nothing
+   else does:
    ${UI_COMPONENTS.join(", ")}.
    There is no "toast" or "use-toast" component — toasts come from \`import { toast } from "sonner"\`.
+   The kit does not stop here: ${CHART_NAME_COUNT} chart components live under
+   "@/components/charts/lib/<domain>" and are listed in full below. They are part of the
+   same kit, reached by a different path — so "nothing else exists" above is about that
+   path, not about what you may render.
 
 4. FORMS ARE react-hook-form + zod, through shadcn's \`Form\`/\`FormField\`/\`FormControl\`.
    TanStack Form is installed but shadcn's form components do not speak to it — mixing them
@@ -840,12 +845,19 @@ Tailwind v4 with semantic tokens: bg-background, text-foreground, bg-card, text-
 border-border, bg-primary, text-destructive. A raw bg-slate-900 breaks dark mode. Also available:
 lucide-react icons, date-fns, recharts. Import nothing that is not already a dependency.
 
-## Charts
+## Charts — the other half of the kit
 
-${CHART_DOMAIN_COUNT} modules under "@/components/charts/lib/", ${CHART_NAME_COUNT} components between them, every
-one prop-driven — hand it \`useRows(...)\` data, not a copied array. They are monochrome by
-rule: fill, weight, hatching and a written label carry the reading, never colour alone.
-Import by domain, e.g. \`import { Bullet } from "@/components/charts/lib/bullet"\`.
+${CHART_NAME_COUNT} components across ${CHART_DOMAIN_COUNT} modules under "@/components/charts/lib/". Use them
+exactly as you use the ${UI_COMPONENTS.length} above: import, pass props, done. Every one is
+prop-driven — hand it \`useRows(...)\` data, never a copied array — and monochrome by rule,
+so fill, weight, hatching and a written label carry the reading, never colour alone.
+
+\`import { Bullet } from "@/components/charts/lib/bullet"\`
+
+Most are for a specific trade, and the module name says which: a barber shop's page reaches
+for \`salon\`, a cafe's for \`restaurant\`, a gym's for \`gym\`. Pick the domain that matches the
+brief before reaching for a generic bar chart — \`salon.RebookRate\` says something a bar
+chart cannot.
 
 Six names are exported by two modules each, so take the one under the domain you read it
 under. A module not listed here does not exist.

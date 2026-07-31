@@ -60,6 +60,19 @@ test("the catalogue is in the prompt, or none of this is reachable", () => {
   assert.ok(PAGE_RULES.includes(String(total)), "the stated count disagrees with the catalogue");
 });
 
+test("the rules never tell the model the kit stops at @/components/ui", () => {
+  // Rule 3 said "These exist and nothing else does" about the ui folder — an
+  // absolute sentence, ten rules BEFORE the one that tells the model 882 more
+  // components exist. Nothing was broken and nothing failed; the model just
+  // reads the flat denial first and has no reason to go looking. That is how a
+  // whole tier stays unused while every test passes, which is the failure mode
+  // this file exists for.
+  assert.ok(!/nothing else does:/.test(PAGE_RULES),
+    "an unqualified 'nothing else exists' contradicts the chart catalogue below it");
+  // And the charts must be presented as the same kit, not a separate system.
+  assert.match(PAGE_RULES, /part of the\s+same kit/);
+});
+
 test("a demo import is refused by name, not left to tsc", () => {
   // The examples lint rule was retired when its folder went, on the reasoning
   // that a missing module is caught by tsc like any other. These 1,140 files are
