@@ -436,6 +436,10 @@ export const UI_COMPONENTS = [
   "cart-badge", "cart-empty", "saved-for-later", "promo-field",
   "click-collect", "delivery-window", "substitution-pref", "price-changed-note",
   "order-review", "place-order-bar", "gift-toggle", "gift-message",
+  // Orders and fulfilment.
+  "order-timeline", "tracking-input", "delivery-eta", "return-window",
+  "partial-shipment", "pack-checklist", "failed-delivery", "leave-safe-consent",
+  "return-reason", "proof-of-delivery", "collection-code", "address-correct-note",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

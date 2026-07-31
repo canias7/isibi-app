@@ -1,4 +1,4 @@
-# Components (1033 built, 25 to go)
+# Components (1045 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -9,6 +9,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ activity-dot
 ✓ activity-feed
 ✓ add-to-cart
+✓ address-correct-note
 ✓ address-fields
 ✓ address-summary
 ✓ advanced-toggle
@@ -143,6 +144,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ code-diff
 ✓ code-editor
 ✓ collapsible
+✓ collection-code
 ✓ collection-header
 ✓ color-picker
 ✓ color-swatch
@@ -229,6 +231,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ dedupe-list
 ✓ definition
 ✓ delivery-estimate
+✓ delivery-eta
 ✓ delivery-slot
 ✓ delivery-status
 ✓ delivery-window
@@ -304,6 +307,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ export-settings
 ✓ external-link
 ✓ facet-range
+✓ failed-delivery
 ✓ faq
 ✓ faq-search
 ✓ feature-grid
@@ -439,6 +443,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ lazy-boundary
 ✓ lead
 ✓ lead-time
+✓ leave-safe-consent
 ✓ legend
 ✓ letterhead
 ✓ lightbox
@@ -552,6 +557,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ option-priced-list
 ✓ order-review
 ✓ order-summary
+✓ order-timeline
 ✓ order-tracker
 ✓ ordinal
 ✓ org-chart
@@ -559,6 +565,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ otp-resend
 ✓ outlier-flag
 ✓ overflow-scroller
+✓ pack-checklist
 ✓ page-break
 ✓ page-header
 ✓ page-size-select
@@ -570,6 +577,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ parallax
 ✓ partial-failure
 ✓ partial-list
+✓ partial-shipment
 ✓ party-size
 ✓ passkey-prompt
 ✓ password-input
@@ -633,6 +641,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ promo-field
 ✓ prompt-box
 ✓ prompt-history
+✓ proof-of-delivery
 ✓ property-card
 ✓ property-panel
 ✓ pros-cons
@@ -703,6 +712,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ result-count
 ✓ result-preview
 ✓ retry-panel
+✓ return-reason
+✓ return-window
 ✓ reveal
 ✓ revert-button
 ✓ review-card
@@ -962,6 +973,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ top-n-picker
 ✓ totals-row
 ✓ tour-step
+✓ tracking-input
 ✓ trade-off-bar
 ✓ transcript-line
 ✓ transcript-toggle
@@ -1179,29 +1191,29 @@ out-of-stock-item
 ### Orders and fulfilment
 
 order-card
-order-timeline
-tracking-input
+✓ order-timeline
+✓ tracking-input
 carrier-badge
-delivery-eta
-proof-of-delivery
-return-window
-return-reason
+✓ delivery-eta
+✓ proof-of-delivery
+✓ return-window
+✓ return-reason
 return-label
 exchange-picker
-partial-shipment
+✓ partial-shipment
 pick-list
-pack-checklist
+✓ pack-checklist
 dispatch-doc
 label-print
 manifest-table
-failed-delivery
+✓ failed-delivery
 redelivery-picker
-collection-code
+✓ collection-code
 damage-report
 cancel-window
-address-correct-note
+✓ address-correct-note
 delivery-instructions
-leave-safe-consent
+✓ leave-safe-consent
 
 ### Subscriptions and billing
 
