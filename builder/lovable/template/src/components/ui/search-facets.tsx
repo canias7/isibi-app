@@ -13,7 +13,9 @@ export function SearchFacets({ title, options, selected, onToggle, className }: 
   selected: string[]; onToggle: (value: string) => void; className?: string;
 }) {
   return (
-    <fieldset className={cn("space-y-2", className)}>
+    // `w-full min-w-0` because a <fieldset> sizes to min-content rather than
+    // filling a flex parent, which collapses the count away from the label.
+    <fieldset className={cn("w-full min-w-0 space-y-2", className)}>
       <legend className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</legend>
       {options.map((o) => {
         const id = `${title}-${o.value}`;

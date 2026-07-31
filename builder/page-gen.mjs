@@ -10,6 +10,10 @@
 // the Worker has no filesystem; a test asserts this copy has not drifted from the
 // file, and GENERATOR.md's rule stands — when the two disagree, the file wins.
 
+
+// Generated from the component files by builder/gen-component-api.mjs. Kept in
+// step by test/component-api.test.mjs, which regenerates and compares.
+import { COMPONENT_API } from "./component-api.mjs";
 /** Every component in src/components/ui. An import of anything else does not resolve. */
 export const UI_COMPONENTS = [
   "accordion", "alert-dialog", "alert", "aspect-ratio", "avatar", "badge", "breadcrumb",
@@ -198,6 +202,222 @@ export const UI_COMPONENTS = [
   // More inputs and utility.
   "tag-input", "slug-input", "unit-input", "weekday-picker", "color-swatch",
   "id-badge", "json-view", "diff-text", "word-count", "map-embed",
+
+  // ── The fifth hundred (2026-07-30) ────────────────────────────────────────
+  // Messaging (12) · printed documents and invoices (12) · the forms that are
+  // actually hard (13) · what a page does when something breaks (10) ·
+  // accessibility and page structure (10) · location and delivery (10) ·
+  // bulk import (10) · time and availability (11) · people and org (12).
+  // Messaging and support.
+  "chat-message", "chat-thread", "chat-composer", "typing-indicator",
+  "message-status", "conversation-row", "help-launcher", "canned-reply",
+  "contact-form", "ticket-row", "sla-badge", "escalation-note",
+  // Documents, invoices and print. `print-only`/`screen-only`/`page-break`
+  // exist because the commonest printing bug is not layout — it is eight
+  // pages of navigation printed because nothing said not to.
+  "invoice-header", "invoice-lines", "invoice-totals", "receipt", "letterhead",
+  "signature-block", "terms-block", "document-meta", "page-break",
+  "print-only", "screen-only", "watermark",
+  // Forms, the cases the first four hundred did not cover.
+  "multi-step-form", "form-progress", "repeatable-field", "conditional-field",
+  "signature-pad", "consent-checkbox", "date-of-birth", "time-input",
+  "range-input", "scale-input", "matrix-question", "honeypot", "save-draft",
+  // What the page does when something goes wrong.
+  "error-boundary", "not-found", "forbidden", "rate-limited",
+  "maintenance-page", "stale-data-note", "slow-note", "undo-toast",
+  "conflict-note", "partial-failure",
+  // Accessibility and page structure. `skip-link` + `landmark` are a PAIR —
+  // the link needs the main region's id and tabindex to do anything.
+  "skip-link", "live-region", "focus-trap", "heading-level", "lang-switch",
+  "text-size", "landmark", "seo-jsonld", "share-preview", "page-title",
+  // Location and delivery.
+  "store-locator", "distance-badge", "service-area", "travel-time",
+  "postcode-input", "pickup-point", "delivery-slot", "shipping-options",
+  "address-summary", "country-select",
+  // Getting existing data in.
+  "csv-import", "column-mapper", "import-preview", "paste-table",
+  "import-summary", "batch-progress", "row-errors", "dry-run-note",
+  "dedupe-list", "template-download",
+  // Time and availability. `open-now` answers the question a visitor has;
+  // `opening-hours` shows the week.
+  "open-now", "holiday-notice", "lead-time", "blackout-dates", "shift-badge",
+  "time-until", "slot-hold", "timezone-picker", "recurrence-summary",
+  "duration-bar", "date-badge",
+  // People and org. `presence-dot` is about a PERSON and `status-dot` about a
+  // system — they look alike and one component covering both ends up with a
+  // colleague who is "Failed".
+  "person-row", "presence-dot", "role-badge", "org-chart", "skill-tags",
+  "on-call", "handoff-note", "availability-legend", "capacity-bar",
+  "mention-picker", "directory-list", "approval-chain",
+  // ── The sixth hundred (2026-07-31) ────────────────────────────────────────
+  // Editing and document state. Every product that lets somebody write
+  // anything needs these, and not one of them existed.
+  "markdown-editor", "markdown-preview", "format-toolbar", "paste-clean",
+  "undo-redo", "char-limit-ring", "dirty-indicator", "draft-badge",
+  "lock-indicator", "revert-button",
+  "rich-text", "code-editor", "emoji-picker", "mention-textarea", "link-editor",
+  "slash-menu", "block-menu", "drag-handle", "selection-toolbar",
+  "table-editor", "find-replace", "focus-mode", "version-history",
+  "comment-anchor", "suggestion-mode",
+  // Pickers. A picker is the same problem every time and is got wrong every
+  // time, which is exactly what a kit is for.
+  "search-select", "tag-select", "async-select", "cascading-select",
+  "dependent-select", "transfer-list", "dual-list", "tree-select",
+  "stepper-input", "slider-input", "number-scrubber", "unit-toggle",
+  "color-picker", "icon-picker", "size-picker", "radius-picker",
+  "aspect-picker", "spacing-picker", "font-picker",
+  "month-picker", "year-picker", "quarter-picker", "week-picker",
+  "time-range", "cron-builder",
+  // Lists and collections, past the plain one.
+  "virtual-list", "grouped-list", "nested-list", "tree-view", "tree-item",
+  "checkbox-tree", "reorderable-grid", "list-toolbar", "list-density",
+  "two-line-row", "three-line-row", "swipeable-row", "selectable-list",
+  "multi-column-list", "chip-list", "timeline-vertical", "timeline-horizontal",
+  "shelf", "cluster", "rail",
+  // Tables, past the plain one.
+  "pivot-table", "frozen-columns", "column-resize", "column-reorder",
+  "cell-editor", "cell-badge", "cell-sparkline", "row-detail", "row-group",
+  "footer-summary", "table-export", "table-search", "column-filter",
+  "multi-sort", "table-settings", "comparison-columns", "matrix-table",
+  "spreadsheet-grid", "compare-table", "feature-matrix",
+  // Forms, past the plain fields.
+  "field-array", "masked-input", "card-input", "cvc-input", "expiry-input",
+  "iban-input", "password-strength", "confirm-field", "field-lock",
+  "inline-form", "quick-add", "bulk-edit-panel", "template-fill",
+  "autofill-note", "otp-resend", "form-lock", "field-group", "field-error",
+  "field-success", "form-diff",
+  // Signing in, and the screens around it.
+  "passkey-prompt", "device-list", "login-history", "suspicious-login",
+  "recovery-codes", "backup-email", "security-score", "permission-matrix",
+  "role-picker", "scope-list", "sso-button", "magic-link-sent",
+  "verify-pending", "lockout-note", "session-expiry", "step-up-prompt",
+  // Media, past the embed.
+  "video-player", "waveform", "transcript-line", "chapter-list",
+  "subtitle-track", "playback-speed", "scrubber", "poster-picker",
+  "volume-slider", "live-badge", "viewer-count", "audio-recorder",
+  "image-crop", "image-zoom", "image-compare", "lightbox", "thumb-strip",
+  "progressive-image", "blur-up", "media-caption",
+  // AI surfaces. Not a vertical — every product being built now has these.
+  "prompt-box", "model-picker", "streaming-text", "thinking-indicator",
+  "tool-call-card", "citation-list", "source-card", "token-meter",
+  "regenerate-button", "response-rating", "suggestion-chips",
+  "conversation-branch", "voice-input", "transcript-view", "context-meter",
+  "attachment-tray", "stop-generating", "copy-response", "prompt-history",
+  "system-prompt-editor",
+  // Code and technical display.
+  "code-diff", "log-viewer", "terminal-output", "stack-trace",
+  "status-code-badge", "curl-example", "sdk-tabs", "schema-viewer",
+  "json-tree", "syntax-highlight", "request-timing", "header-table",
+  "query-params", "env-badge", "build-status", "commit-row", "branch-badge",
+  "diff-stat",
+  // Overlays and interruption.
+  "toast-stack", "snackbar", "progress-toast", "modal-stack", "sheet-stack",
+  "popover-menu", "rich-tooltip", "coach-mark", "hint-dot", "nudge-bubble",
+  "celebration", "blocking-overlay", "timeout-note", "slide-over",
+  "confirm-inline", "dismiss-all",
+  // Motion and gesture. No animation runtime anywhere.
+  "parallax", "tilt-card", "count-up", "typewriter", "confetti", "ripple",
+  "drag-list", "sortable-list", "swipe-actions", "resize-handle",
+  "pull-to-refresh", "infinite-scroll", "snap-carousel", "magnetic-button",
+  "flip-card", "stagger-list", "shake-error", "pulse-dot", "morph-height",
+  "scroll-reveal",
+  // App shell and editor furniture.
+  "split-pane", "dock", "drawer-stack", "mega-menu", "sidebar-collapse",
+  "sticky-shrink", "breadcrumb-collapse", "workspace-switcher", "app-shell",
+  "panel-group", "floating-toolbar", "context-panel", "zoom-controls",
+  "layer-list", "property-panel", "pane-tabs", "command-bar",
+  "quick-switcher", "shortcut-overlay", "resizable-columns",
+  // Navigation.
+  "cursor-pagination", "load-more", "jump-to", "section-nav", "tab-overflow",
+  "nav-badge", "back-to-list", "related-nav", "sitemap-list", "nav-search",
+  "recent-nav", "pinned-nav", "nav-group", "scroll-spy", "snap-sections",
+  // Search.
+  "search-scope", "search-history", "saved-search", "query-builder",
+  "filter-tree", "facet-range", "multi-sort-picker", "result-preview",
+  "did-you-mean", "search-shortcut", "instant-results", "search-empty",
+  // Collaboration.
+  "presence-bar", "live-cursor", "typing-dots", "comment-pin",
+  "resolve-thread", "mention-badge", "share-invite", "viewer-list",
+  "edit-lock", "activity-dot", "follow-changes", "co-edit-note",
+  "conflict-merge", "change-request",
+  // Sharing and getting things out.
+  "share-sheet", "embed-code", "qr-code", "download-menu", "export-format",
+  "print-preview", "permalink", "short-link", "email-share", "copy-link",
+  "social-preview", "export-progress",
+  // Notifications.
+  "toast-queue", "notification-group", "digest-row", "snooze-menu",
+  "priority-inbox", "mute-schedule", "channel-toggle", "delivery-status",
+  "notification-empty", "subscribe-toggle",
+  // Deciding between things.
+  "pros-cons", "decision-matrix", "weighted-score", "option-card",
+  "trade-off-bar", "recommendation-badge", "side-by-side", "spec-row",
+  "winner-badge", "shortlist-bar",
+  // Workflow and state.
+  "state-badge", "transition-arrow", "workflow-map", "phase-bar",
+  "checkpoint-list", "rollback-note", "stage-gate", "progress-donut",
+  "completion-ring", "milestone-dot", "blocked-note", "handover-bar",
+  // Numbers and units.
+  "unit-convert", "precision-toggle", "big-number", "delta-pill",
+  "tolerance-bar", "percent-ring", "currency-switch", "rounding-note",
+  "range-summary", "threshold-bar",
+  // Loading and progressive rendering.
+  "shimmer", "skeleton-list", "skeleton-form", "placeholder-grid",
+  "lazy-boundary", "content-placeholder", "load-error", "partial-list",
+  "stale-badge", "refresh-pill",
+  // Accessibility surfaces.
+  "reduce-motion", "high-contrast", "screen-reader-note", "alt-text-field",
+  "contrast-check", "keyboard-map", "reading-guide", "caption-toggle",
+  "transcript-toggle", "tab-order-note",
+  // Trust and safety.
+  "report-reason", "moderation-queue", "appeal-form", "strike-badge",
+  "age-gate", "content-warning", "blur-sensitive", "source-label",
+  "spam-note", "trust-score",
+  // Asking people things.
+  "survey-card", "question-nav", "likert-row", "ranking-list",
+  "open-question", "csat-face", "effort-score", "exit-survey",
+  "poll-result", "vote-bar", "sentiment-chip", "response-summary",
+  // Settings.
+  "preference-group", "reset-defaults", "import-settings", "export-settings",
+  "shortcut-row", "theme-picker", "density-preference", "unit-preference",
+  "startup-page", "advanced-toggle",
+  // Typography and long-form.
+  "drop-cap", "pull-quote", "footnote", "sidenote", "definition",
+  "table-of-contents", "anchor-heading", "read-progress", "byline-compact",
+  "kicker",
+  // Plumbing - headless utilities.
+  "portal", "click-outside", "scroll-lock", "drop-zone", "drag-preview",
+  "breakpoint-badge", "safe-area", "offline-queue", "idle-note",
+  "clipboard-history", "hotkey-badge", "media-query-note",
+  // Onboarding.
+  "feature-tour", "whats-new-dot", "upgrade-badge", "usage-nudge",
+  "empty-cta", "sample-toggle", "reset-demo", "checklist-dot",
+  // Shaping a set of data.
+  "date-preset", "relative-date", "filter-preset", "group-by-picker",
+  "aggregate-picker", "bucket-picker", "top-n-picker",
+  // Keyboard and power users.
+  "command-item", "command-group", "key-sequence", "keyboard-tip",
+  "focus-list",
+  // Validation.
+  "error-summary-link", "field-warning", "async-validation",
+  "uniqueness-check", "format-hint",
+  // Clocks and elapsed time.
+  "timezone-clock", "world-clock", "working-hours", "availability-toggle",
+  "snooze-until", "deadline-bar", "elapsed-timer", "stopwatch",
+  "countdown-ring",
+  // Is this data any good?
+  "completeness-bar", "missing-fields", "data-freshness", "outlier-flag",
+  "duplicate-badge", "quality-score",
+  // Getting files in.
+  "chunked-upload", "upload-queue", "paste-image", "camera-capture",
+  "scan-document", "file-preview", "folder-tree", "folder-path",
+  // Location without a map provider.
+  "coordinate-input", "radius-slider", "place-search",
+  // Layout, the pieces still missing.
+  "aspect-box", "full-bleed", "edge-fade", "gutter", "sidebar-right",
+  "three-col", "content-width", "sticky-columns", "sticky-footer",
+  // Money as a shape.
+  "amount-input", "currency-amount", "tax-toggle", "discount-input",
+  "payment-picker", "split-amount",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
@@ -843,16 +1063,15 @@ export function lintPages(pages, spec) {
       if (!ui.has(m[1].toLowerCase())) say(path, 'imports "@/components/ui/' + m[1] + '", which does not exist. Available: ' + UI_COMPONENTS.join(", ") + ".");
     }
 
-    // `src/examples/` is shadcn's own documentation, installed 2026-07-30 as
-    // reference material. Every file in it COMPILES — which is exactly what makes
-    // it dangerous, because the failure is invisible to `tsc`, to `vite` and to
-    // every other check here: the page builds, publishes, and shows a real
-    // customer "Our flagship product combines cutting-edge technology with sleek
-    // design." Demo copy is the whole point of a demo and has no business on a
-    // barber shop. Copy the pattern, never import the file.
-    for (const m of code.matchAll(/from\s+"@\/examples\/([a-z0-9-]+)"/gi)) {
-      say(path, 'imports "@/examples/' + m[1] + '". Those are shadcn\'s documentation demos and contain placeholder copy — read one to see how a component is used, then write the real thing against this site\'s own schema.');
-    }
+    // There was a rule here refusing `@/examples/*`, shadcn's own documentation
+    // demos. It existed for one reason, stated in its own comment: every file in
+    // that folder COMPILED, so nothing else in the pipeline could tell a real
+    // page from one shipping "Our flagship product combines cutting-edge
+    // technology with sleek design" to a barber shop's customers. The folder was
+    // deleted 2026-07-31, which makes that import a missing module — caught by
+    // `tsc` like any other, and no longer silent. The rule's whole justification
+    // went with the files, so it went too rather than standing guard over a path
+    // that no longer resolves.
 
     // Read and write are asked separately because the API answers them
     // separately: `feed` and `admin` serve reads and refuse writes, so flagging
@@ -912,11 +1131,45 @@ export function lintPages(pages, spec) {
 }
 
 /** The repair turn: here is what you wrote, here is what is wrong, write it again. */
+/**
+ * The exact props of the components a page imported.
+ *
+ * The rules name 500 components and describe NONE of them, because a usage line
+ * each is ~12,600 tokens on every build. So the model picks by name and guesses
+ * the props — and the guess is wrong often enough to matter: `<ReviewStars
+ * rating={4.5} />` is the obvious spelling and the prop is `value`, which is
+ * TS2322, the one repair pass spent, and a site published as the placeholder.
+ *
+ * Handing them over on the REPAIR pass costs nothing on a build that worked and
+ * ~500 tokens on one that did not — and a repair is exactly where a wrong prop
+ * name has to be corrected. The imports are read off the code the model just
+ * wrote, so it only ever gets the twenty or so it actually reached for.
+ */
+export function importedComponentApi(pages) {
+  const want = new Set();
+  for (const p of pages || []) {
+    for (const m of String(p.source || "").matchAll(/from\s+["']@\/components\/ui\/([a-z0-9-]+)["']/gi)) {
+      want.add(m[1].toLowerCase());
+    }
+  }
+  const lines = [...want].sort()
+    .filter((n) => COMPONENT_API[n])          // shadcn primitives are absent on purpose
+    .map((n) => `${n} — ${COMPONENT_API[n]}`);
+  return lines.length ? lines.join("\n") : null;
+}
+
 export function repairPrompt(brief, spec, pages, problems, brand) {
   const files = pages.map((p) => "=== src/routes/" + p.path + " ===\n" + p.source).join("\n\n");
+  const api = importedComponentApi(pages);
   return "The pages you wrote did not work. Fix them and return the COMPLETE set of route files again — " +
     "every file, not a patch.\n\nWHAT IS WRONG\n" +
     problems.map((p) => "- " + p).join("\n") +
+    (api
+      ? "\n\nTHE EXACT PROPS OF WHAT YOU IMPORTED\n" +
+        "These are the real signatures, taken from the components themselves. Where what you\n" +
+        "wrote disagrees with one of these, the signature is right. Every one also takes\n" +
+        "className. A `?` means optional; `= x` is the default.\n" + api
+      : "") +
     "\n\nWHAT YOU WROTE\n" + files.slice(0, 60000) +
     "\n\n" + pagesPrompt(brief, spec, brand);
 }
@@ -942,6 +1195,22 @@ export const SITE_PAGES_MAX_TOKENS = 24000;
  * restate the model, the budget, the tool and the prompt, and would then be
  * tuning against something subtly different from what production runs. A test
  * asserts worker.js calls this rather than rebuilding the body.
+ *
+ * THE SYSTEM BLOCK IS CACHED, and that is the whole reason it is an array here
+ * rather than the plain string it used to be. `PAGE_RULES` is ~7,000 tokens and
+ * is byte-identical on every generation on the platform — it does not vary with
+ * the brief, the schema or the brand, all of which live in the user message. So
+ * it was being paid for in full, every build, forever.
+ *
+ * Measured: input goes 7,523 -> 1,148 tokens per build in the steady state, an
+ * 85% cut. The first call in a cache window pays a 1.25x write premium (9,294),
+ * so it breaks even on the second build. The repair pass re-sends this exact
+ * block within the same build, which makes it a guaranteed hit.
+ *
+ * The consequence to know about: a cache entry is keyed on the bytes, so ANY
+ * edit to PAGE_RULES — including adding a component name — invalidates it and
+ * the next call pays the write premium again. That is once per deploy that
+ * touches the rules, against a saving on every build in between.
  */
 export function pagesRequest({ brief, spec, brand, fix } = {}) {
   return {
@@ -949,7 +1218,7 @@ export function pagesRequest({ brief, spec, brand, fix } = {}) {
     max_tokens: SITE_PAGES_MAX_TOKENS,
     tools: [SITE_PAGES_TOOL],
     tool_choice: { type: "tool", name: "write_pages" },
-    system: PAGE_RULES,
+    system: [{ type: "text", text: PAGE_RULES, cache_control: { type: "ephemeral" } }],
     messages: [{
       role: "user",
       content: fix

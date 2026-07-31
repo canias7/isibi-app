@@ -1,0 +1,17 @@
+{
+  // The whole component kit, typechecked in one pass.
+  //
+  // tsconfig.json excludes src/components/ui from the per-build check because a
+  // generated page imports twenty of the 500 and TypeScript still follows those
+  // imports — so the build stays honest and 5.5 seconds faster. What that alone
+  // would lose is the component NOBODY imports: break one and nothing says so
+  // until, months later, a generated site reaches for it and that build fails
+  // for reasons that look like the model's fault.
+  //
+  // This config is that missing half. It is not run per build; it runs once, in
+  // the test suite (test/kit-typecheck.test.mjs). Two checks with different
+  // jobs, rather than one doing both badly.
+  "extends": "./tsconfig.json",
+  "include": ["src/components/ui/**/*.ts", "src/components/ui/**/*.tsx"],
+  "exclude": []
+}

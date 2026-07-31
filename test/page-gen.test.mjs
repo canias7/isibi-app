@@ -204,18 +204,17 @@ test("reading a member table without useMember is reported", () => {
   assert.match(p[0], /without useMember/);
 });
 
-test("importing a documentation example is refused", () => {
-  // src/examples/ is shadcn's own docs, kept as reference. Every file in it
-  // COMPILES, which is what makes it dangerous: nothing else in the pipeline can
-  // tell the difference between a real page and one that ships "Our flagship
-  // product combines cutting-edge technology" to a barber shop's customers.
-  const spec = { tables: [{ name: "posts", access: "display", columns: [{ name: "body" }] }] };
-  const p = lintPages(page('import Demo from "@/examples/accordion-demo";\nuseRows("posts");'), spec);
-  assert.equal(p.length, 1, JSON.stringify(p));
-  assert.match(p[0], /placeholder copy/);
-  // Reading one to learn the pattern is the intended use, so a page that merely
-  // mentions the path in prose is not flagged — only a real import is.
-  assert.deepEqual(lintPages(page('useRows("posts"); // see @/examples/accordion-demo'), spec), []);
+test("the documentation examples are gone, not merely unimported", () => {
+  // The lint used to refuse `@/examples/*` because every file in that folder
+  // COMPILED, so a page importing one published placeholder copy to a real
+  // customer with nothing in the pipeline objecting. The folder was deleted
+  // 2026-07-31 and the rule with it — which is only safe while the files are
+  // actually absent. Restore them without restoring the rule and the silent
+  // failure comes back, so this asserts the premise the deletion rests on
+  // rather than the rule it removed.
+  const dir = path.join(TEMPLATE, "src", "examples");
+  assert.ok(!fs.existsSync(dir),
+    "src/examples is back; it compiles, so nothing else catches an import of it — restore the lint rule in page-gen.mjs or remove the folder again");
 });
 
 test("reading a member table WITH useMember is fine", () => {
@@ -702,12 +701,39 @@ test("pagesRequest carries the budget, the tool and the repair prompt", () => {
   assert.equal(req.max_tokens, api.SITE_PAGES_MAX_TOKENS);
   assert.equal(req.tool_choice.name, "write_pages");
   assert.equal(req.tools[0], api.SITE_PAGES_TOOL);
-  assert.equal(req.system, api.PAGE_RULES);
+  assert.equal(req.system[0].text, api.PAGE_RULES);
   // A repair sends a DIFFERENT user turn, or the retry re-reads the original
   // brief and rewrites the same broken page.
   const fix = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe", fix: { pages: [{ path: "index.tsx", source: "x" }], problems: ["boom"] } });
   assert.notEqual(fix.messages[0].content, req.messages[0].content);
   assert.match(fix.messages[0].content, /boom/);
+});
+
+test("the system block is cached, and nothing variable is inside it", () => {
+  // PAGE_RULES is ~7,000 tokens that are byte-identical on every generation, so
+  // it is the whole reason a build's input cost is what it is. Dropping the
+  // cache_control is invisible — every build still succeeds, it just silently
+  // costs 7x again — which is exactly the class of regression a test has to hold.
+  const a = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe" });
+  assert.ok(Array.isArray(a.system), "system must be a block array, or cache_control has nowhere to live");
+  assert.deepEqual(a.system[0].cache_control, { type: "ephemeral" });
+
+  // A cache entry is keyed on the BYTES. If anything brief-, schema- or
+  // brand-specific leaked into the system block it would differ per build and
+  // never hit — so this asserts two very different requests produce a
+  // byte-identical cached prefix. Mutation-checked by interpolating the brand
+  // into PAGE_RULES, which fails here and passes every other test in the file.
+  const b = api.pagesRequest({ brief: "a barber in Liverpool", spec: { tables: [] }, brand: "Sharp Fade" });
+  assert.equal(a.system[0].text, b.system[0].text, "the cached block must not vary between builds");
+  assert.notEqual(a.messages[0].content, b.messages[0].content, "the variable half belongs in the user turn");
+
+  // The repair pass re-sends the same block within the same build, which is the
+  // one guaranteed hit — it is also the call that matters most, since a repair
+  // only happens on a build that already went wrong.
+  const fix = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe",
+    fix: { pages: [{ path: "index.tsx", source: "x" }], problems: ["boom"] } });
+  assert.equal(fix.system[0].text, a.system[0].text);
+  assert.deepEqual(fix.system[0].cache_control, { type: "ephemeral" });
 });
 
 test("no list hook hands back an envelope", () => {
