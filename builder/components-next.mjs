@@ -1,4 +1,4 @@
-// The next 877 — proposed components, none of which exist.
+// The next 876 — proposed components, none of which exist.
 //
 // THE BAR IS THE ONE THE SHIPPED KIT ACTUALLY USES, and an earlier pass of this
 // file got it wrong. That pass culled to 26 by asking "is the rendering
@@ -240,7 +240,7 @@ export const NEXT_PLANNED = {
 
   "Weather and environment": [
     "forecast-strip", "hour-strip", "uv-badge", "pollen-badge", "air-quality-badge",
-    "sun-times", "tide-chart-lite", "wind-arrow", "precip-bar", "feels-like-note",
+    "sun-times", "wind-arrow", "precip-bar", "feels-like-note",
     "severe-alert",
   ],
 
