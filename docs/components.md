@@ -1,4 +1,4 @@
-# Components (590 built, 410 to go)
+# Components (610 built, 390 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -27,6 +27,7 @@
 ✓ audit-row
 ✓ author-byline
 ✓ auto-grid
+✓ autofill-note
 ✓ availability-grid
 ✓ availability-legend
 ✓ avatar
@@ -48,6 +49,7 @@
 ✓ breadcrumb
 ✓ bubble
 ✓ bulk-actions
+✓ bulk-edit-panel
 ✓ bullet-list
 ✓ busy-button
 ✓ button
@@ -60,6 +62,7 @@
 ✓ capacity-bar
 ✓ card
 ✓ card-grid
+✓ card-input
 ✓ carousel
 ✓ cart-line
 ✓ cart-summary
@@ -103,6 +106,7 @@
 ✓ comparison-table
 ✓ conditional-field
 ✓ confirm-dialog
+✓ confirm-field
 ✓ conflict-note
 ✓ connect-card
 ✓ connected-account
@@ -124,6 +128,7 @@
 ✓ csv-import
 ✓ cta-band
 ✓ currency-input
+✓ cvc-input
 ✓ danger-zone
 ✓ data-list
 ✓ data-table
@@ -176,6 +181,7 @@
 ✓ event-meta
 ✓ expandable-row
 ✓ expandable-text
+✓ expiry-input
 ✓ export-button
 ✓ external-link
 ✓ faq
@@ -184,7 +190,12 @@
 ✓ feature-matrix
 ✓ feedback-widget
 ✓ field
+✓ field-array
+✓ field-error
+✓ field-group
 ✓ field-hint
+✓ field-lock
+✓ field-success
 ✓ figure
 ✓ file-drop
 ✓ file-list
@@ -201,7 +212,9 @@
 ✓ forbidden
 ✓ form
 ✓ form-actions
+✓ form-diff
 ✓ form-error-summary
+✓ form-lock
 ✓ form-progress
 ✓ form-row
 ✓ form-section
@@ -226,6 +239,7 @@
 ✓ honeypot
 ✓ hotkey-list
 ✓ hover-card
+✓ iban-input
 ✓ icon-badge
 ✓ icon-picker
 ✓ ics-button
@@ -239,6 +253,7 @@
 ✓ inline
 ✓ inline-alert
 ✓ inline-edit
+✓ inline-form
 ✓ input
 ✓ input-group
 ✓ input-otp
@@ -282,6 +297,7 @@
 ✓ markdown-preview
 ✓ marker
 ✓ marquee
+✓ masked-input
 ✓ masonry
 ✓ matrix-question
 ✓ matrix-table
@@ -333,6 +349,7 @@
 ✓ ordinal
 ✓ org-chart
 ✓ otp-form
+✓ otp-resend
 ✓ overflow-scroller
 ✓ page-break
 ✓ page-header
@@ -343,6 +360,7 @@
 ✓ partial-failure
 ✓ party-size
 ✓ password-input
+✓ password-strength
 ✓ paste-clean
 ✓ paste-table
 ✓ payment-methods
@@ -376,6 +394,7 @@
 ✓ quantity-input
 ✓ quarter-picker
 ✓ queue-depth
+✓ quick-add
 ✓ quote
 ✓ radio-cards
 ✓ radio-group
@@ -522,6 +541,7 @@
 ✓ tag-select
 ✓ team-grid
 ✓ template-download
+✓ template-fill
 ✓ terms-block
 ✓ testimonial
 ✓ text
@@ -605,7 +625,6 @@ aspect-box
 async-validation
 attachment-tray
 audio-recorder
-autofill-note
 availability-toggle
 back-to-list
 backup-email
@@ -622,12 +641,10 @@ breakpoint-badge
 bubble-chart
 bucket-picker
 build-status
-bulk-edit-panel
 bullet-chart
 byline-compact
 camera-capture
 caption-toggle
-card-input
 celebration
 change-request
 channel-toggle
@@ -653,7 +670,6 @@ comparison-chart
 completeness-bar
 completion-ring
 confetti
-confirm-field
 confirm-inline
 conflict-merge
 content-placeholder
@@ -673,7 +689,6 @@ curl-example
 currency-amount
 currency-switch
 cursor-pagination
-cvc-input
 data-freshness
 date-preset
 deadline-bar
@@ -707,17 +722,11 @@ empty-cta
 env-badge
 error-summary-link
 exit-survey
-expiry-input
 export-format
 export-progress
 export-settings
 facet-range
 feature-tour
-field-array
-field-error
-field-group
-field-lock
-field-success
 field-warning
 file-preview
 filter-preset
@@ -729,8 +738,6 @@ folder-path
 folder-tree
 follow-changes
 footnote
-form-diff
-form-lock
 format-hint
 full-bleed
 funnel-chart
@@ -743,14 +750,12 @@ high-contrast
 hint-dot
 histogram
 hotkey-badge
-iban-input
 idle-note
 image-compare
 image-crop
 image-zoom
 import-settings
 infinite-scroll
-inline-form
 instant-results
 json-tree
 jump-to
@@ -772,7 +777,6 @@ log-viewer
 login-history
 magic-link-sent
 magnetic-button
-masked-input
 media-caption
 media-query-note
 mega-menu
@@ -794,14 +798,12 @@ nudge-bubble
 offline-queue
 open-question
 option-card
-otp-resend
 outlier-flag
 pane-tabs
 panel-group
 parallax
 partial-list
 passkey-prompt
-password-strength
 paste-image
 payment-picker
 percent-ring
@@ -838,7 +840,6 @@ quantile-bar
 query-builder
 query-params
 question-nav
-quick-add
 quick-switcher
 radar-chart
 radius-slider
@@ -952,7 +953,6 @@ tab-order-note
 tab-overflow
 table-of-contents
 tax-toggle
-template-fill
 terminal-output
 theme-picker
 thinking-indicator

@@ -280,6 +280,12 @@ export const UI_COMPONENTS = [
   "footer-summary", "table-export", "table-search", "column-filter",
   "multi-sort", "table-settings", "comparison-columns", "matrix-table",
   "spreadsheet-grid", "compare-table", "feature-matrix",
+  // Forms, past the plain fields.
+  "field-array", "masked-input", "card-input", "cvc-input", "expiry-input",
+  "iban-input", "password-strength", "confirm-field", "field-lock",
+  "inline-form", "quick-add", "bulk-edit-panel", "template-fill",
+  "autofill-note", "otp-resend", "form-lock", "field-group", "field-error",
+  "field-success", "form-diff",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
