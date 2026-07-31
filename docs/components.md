@@ -1,4 +1,4 @@
-# Components (957 built, 43 to go)
+# Components (969 built, 31 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -25,6 +25,7 @@
 ✓ approval-chain
 ✓ article-card
 ✓ article-header
+✓ aspect-box
 ✓ aspect-picker
 ✓ aspect-ratio
 ✓ assignee-picker
@@ -166,6 +167,7 @@
 ✓ container
 ✓ content-placeholder
 ✓ content-warning
+✓ content-width
 ✓ context-menu
 ✓ context-meter
 ✓ context-panel
@@ -173,6 +175,7 @@
 ✓ conversation-branch
 ✓ conversation-row
 ✓ cookie-banner
+✓ coordinate-input
 ✓ copy-button
 ✓ copy-link
 ✓ copy-response
@@ -253,6 +256,7 @@
 ✓ duration
 ✓ duration-bar
 ✓ duration-picker
+✓ edge-fade
 ✓ edit-lock
 ✓ effort-score
 ✓ elapsed-timer
@@ -331,6 +335,7 @@
 ✓ format-hint
 ✓ format-toolbar
 ✓ frozen-columns
+✓ full-bleed
 ✓ gallery
 ✓ gauge
 ✓ getting-started
@@ -339,6 +344,7 @@
 ✓ group-by-picker
 ✓ grouped-list
 ✓ grouped-rows
+✓ gutter
 ✓ handoff-note
 ✓ handover-bar
 ✓ header-table
@@ -546,6 +552,7 @@
 ✓ pickup-point
 ✓ pinned-nav
 ✓ pivot-table
+✓ place-search
 ✓ placeholder-grid
 ✓ plan-card
 ✓ playback-speed
@@ -602,6 +609,7 @@
 ✓ radio-cards
 ✓ radio-group
 ✓ radius-picker
+✓ radius-slider
 ✓ rail
 ✓ range-input
 ✓ range-summary
@@ -736,6 +744,7 @@
 ✓ sidebar
 ✓ sidebar-collapse
 ✓ sidebar-layout
+✓ sidebar-right
 ✓ sidenote
 ✓ signature-block
 ✓ signature-pad
@@ -804,7 +813,9 @@
 ✓ steps
 ✓ sticky-aside
 ✓ sticky-bar
+✓ sticky-columns
 ✓ sticky-cta
+✓ sticky-footer
 ✓ sticky-shrink
 ✓ sticky-table
 ✓ stock-badge
@@ -855,6 +866,7 @@
 ✓ theme-picker
 ✓ theme-toggle
 ✓ thinking-indicator
+✓ three-col
 ✓ three-line-row
 ✓ threshold-bar
 ✓ thumb-strip
@@ -960,7 +972,6 @@
 
 amount-input
 area-chart
-aspect-box
 bar-chart
 box-plot
 bubble-chart
@@ -969,35 +980,24 @@ chart-export
 chart-legend
 combo-chart
 comparison-chart
-content-width
-coordinate-input
 currency-amount
 discount-input
 distribution-bar
-edge-fade
-full-bleed
 funnel-chart
 grouped-bar
-gutter
 histogram
 line-chart
 payment-picker
 pie-chart
-place-search
 quantile-bar
 radar-chart
-radius-slider
 range-chart
 scatter-plot
-sidebar-right
 sparkline-grid
 split-amount
 stacked-bar
 step-chart
-sticky-columns
-sticky-footer
 tax-toggle
-three-col
 treemap-chart
 trend-card
 waterfall-chart

@@ -410,6 +410,11 @@ export const UI_COMPONENTS = [
   // Getting files in.
   "chunked-upload", "upload-queue", "paste-image", "camera-capture",
   "scan-document", "file-preview", "folder-tree", "folder-path",
+  // Location without a map provider.
+  "coordinate-input", "radius-slider", "place-search",
+  // Layout, the pieces still missing.
+  "aspect-box", "full-bleed", "edge-fade", "gutter", "sidebar-right",
+  "three-col", "content-width", "sticky-columns", "sticky-footer",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
