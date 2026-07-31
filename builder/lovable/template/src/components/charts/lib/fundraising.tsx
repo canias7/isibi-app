@@ -369,6 +369,16 @@ export function GrantPipeline({
   // reduce below seeds undefined and the page dies at the error boundary.
   if (!applications.length || !Object.keys(stageProbability).length) return null
 
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!applications.length || !Object.keys(stageProbability).length) return null
+
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!applications.length || !Object.keys(stageProbability).length) return null
+
   const stages = Object.keys(stageProbability)
   const rows = stages.map((s) => {
     const apps = applications.filter((a) => a.stage === s)

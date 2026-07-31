@@ -120,6 +120,11 @@ export function AdInventory({
   cpm: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!slots.length) return null
+
   const rows = slots.map((s) => {
     const available = s.newEpisodes + s.backCatalogue
     return {
@@ -298,6 +303,11 @@ export function ChartRank({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!shows.length) return null
+
   const len = Math.max(...shows.map((s) => s.ranks.length))
   const rows = shows.map((s) => {
     const seen = s.ranks.filter((r): r is number => r !== null)

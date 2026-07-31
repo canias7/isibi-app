@@ -356,6 +356,11 @@ export function KilnLoad({
   firingCost?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!shelves.length) return null
+
   const rows = shelves.map((s) => {
     const tallest = Math.max(0, ...s.pots.map((p) => p.heightMm))
     const count = s.pots.reduce((a, p) => a + p.count, 0)

@@ -332,6 +332,11 @@ export type Covenant = {
 }
 
 export function CovenantHeadroom({ covenants, className = "" }: { covenants: Covenant[]; className?: string }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!covenants.length) return null
+
   const rows = covenants.map((c) => {
     const headroom = c.direction === "max" ? (c.limit - c.actual) / Math.abs(c.limit || 1) : (c.actual - c.limit) / Math.abs(c.limit || 1)
     return { ...c, headroom, breached: headroom < 0 }

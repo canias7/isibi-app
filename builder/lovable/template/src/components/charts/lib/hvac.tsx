@@ -267,6 +267,11 @@ export function CoilLoadSplit({
   supplyRh: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!cases.length) return null
+
   const CP = 1.006 // kJ/kg·K
   const HFG = 2501 // kJ/kg
   const RHO = 1.2 // kg/m³
@@ -428,6 +433,11 @@ export function PlantSequence({
   plant: { name: string; mode: "heat" | "cool" | "other"; on: boolean[] }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!hours.length || !outsideC.length || !plant.length) return null
+
   const clash = hours.map((_, i) => {
     const heating = plant.some((p) => p.mode === "heat" && p.on[i])
     const cooling = plant.some((p) => p.mode === "cool" && p.on[i])

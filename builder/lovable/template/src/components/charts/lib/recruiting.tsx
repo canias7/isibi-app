@@ -304,6 +304,16 @@ export function InterviewCalibration({
   bar: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!interviewers.length || !candidates.length || !scores.length) return null
+
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!interviewers.length || !candidates.length || !scores.length) return null
+
   // the panel's view of each candidate, then each interviewer's distance from it
   const panel = candidates.map((_, ci) => {
     const seen = scores.map((row) => row[ci]).filter((v): v is number => v !== null)

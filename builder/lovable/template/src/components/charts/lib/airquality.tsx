@@ -293,6 +293,11 @@ export function AqiBand({
   }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!pollutants.length) return null
+
   const BANDS = [
     { to: 50, name: "Good" },
     { to: 100, name: "Moderate" },

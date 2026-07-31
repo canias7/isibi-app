@@ -363,6 +363,11 @@ export function RadiographInterval({
   backgroundUsvPerYear?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!groups.length) return null
+
   const rows = groups.map((g) => {
     const sets = Math.floor((years * 12) / Math.max(g.intervalMonths, 1))
     const dose = sets * g.usvPerSet
@@ -431,6 +436,11 @@ export function CariesRisk({
   factors: { name: string; weight: number; modifiable: boolean }[]
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!patients.length || !factors.length) return null
+
   const totalWeight = factors.reduce((a, f) => a + f.weight, 0)
   const rows = patients
     .map((p) => {

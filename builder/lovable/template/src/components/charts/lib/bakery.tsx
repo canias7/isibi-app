@@ -111,6 +111,11 @@ export function ProofCurve({
   height?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!readings.length) return null
+
   const pts = [...readings].sort((a, b) => a.minutes - b.minutes)
   const rates = pts.map((p, i) => {
     const prev = pts[i - 1]

@@ -483,6 +483,11 @@ export function NosingProfile({
   size?: number
   className?: string
 }) {
+  // Empty data is the ORDINARY case: useRows hands back [] before the query
+  // settles and on a site whose owner has added nothing yet. Without this the
+  // reduce below seeds undefined and the page dies at the error boundary.
+  if (!attributes.length || !panels.length) return null
+
   const stats = attributes.map((_, ai) => {
     const vals = panels.map((p) => p.scores[ai])
     const mean = vals.reduce((a, v) => a + v, 0) / Math.max(vals.length, 1)

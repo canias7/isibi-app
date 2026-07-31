@@ -110,7 +110,13 @@ function shortType(t) {
 }
 
 /** One signature per exported component with inline prop types. */
-export function extractSignatures(source) {
+export function extractSignatures(rawSource) {
+  // A LENGTH-PRESERVING blank of every comment, used for every scan. `balanced`
+  // counts brackets, and a doc comment containing one throws the depth off — the
+  // scan then runs past the end of one component into the next and reports a
+  // merged signature naming props from both. Blanking rather than removing keeps
+  // every index valid against the real text, so the slices below are unaffected.
+  const source = rawSource.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
   const out = [];
   const re = /export function (\w+)\s*(?:<[^>()]*>)?\s*\(\s*\{/g;
   let m;
