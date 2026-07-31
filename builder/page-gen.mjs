@@ -321,6 +321,12 @@ export const UI_COMPONENTS = [
   "pull-to-refresh", "infinite-scroll", "snap-carousel", "magnetic-button",
   "flip-card", "stagger-list", "shake-error", "pulse-dot", "morph-height",
   "scroll-reveal",
+  // App shell and editor furniture.
+  "split-pane", "dock", "drawer-stack", "mega-menu", "sidebar-collapse",
+  "sticky-shrink", "breadcrumb-collapse", "workspace-switcher", "app-shell",
+  "panel-group", "floating-toolbar", "context-panel", "zoom-controls",
+  "layer-list", "property-panel", "pane-tabs", "command-bar",
+  "quick-switcher", "shortcut-overlay", "resizable-columns",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

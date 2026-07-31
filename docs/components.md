@@ -1,4 +1,4 @@
-# Components (720 built, 280 to go)
+# Components (740 built, 260 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -13,6 +13,7 @@
 ✓ anchor-nav
 ✓ announcement-bar
 ✓ api-key-row
+✓ app-shell
 ✓ applied-filters
 ✓ approval-chain
 ✓ article-card
@@ -53,6 +54,7 @@
 ✓ booking-summary
 ✓ branch-badge
 ✓ breadcrumb
+✓ breadcrumb-collapse
 ✓ bubble
 ✓ build-status
 ✓ bulk-actions
@@ -110,6 +112,7 @@
 ✓ column-toggle
 ✓ combobox
 ✓ command
+✓ command-bar
 ✓ comment
 ✓ comment-anchor
 ✓ comment-thread
@@ -131,6 +134,7 @@
 ✓ container
 ✓ context-menu
 ✓ context-meter
+✓ context-panel
 ✓ conversation-branch
 ✓ conversation-row
 ✓ cookie-banner
@@ -177,6 +181,7 @@
 ✓ dismiss-all
 ✓ distance-badge
 ✓ divider-text
+✓ dock
 ✓ document-meta
 ✓ donation-card
 ✓ donut-mini
@@ -186,6 +191,7 @@
 ✓ drag-handle
 ✓ drag-list
 ✓ drawer
+✓ drawer-stack
 ✓ dropdown-menu
 ✓ dry-run-note
 ✓ dual-list
@@ -231,6 +237,7 @@
 ✓ find-replace
 ✓ first-run
 ✓ flip-card
+✓ floating-toolbar
 ✓ focus-mode
 ✓ focus-trap
 ✓ font-picker
@@ -305,6 +312,7 @@
 ✓ landmark
 ✓ lang-switch
 ✓ latency-badge
+✓ layer-list
 ✓ lead
 ✓ lead-time
 ✓ legend
@@ -344,6 +352,7 @@
 ✓ media-caption
 ✓ media-grid
 ✓ media-object
+✓ mega-menu
 ✓ membership-card
 ✓ mention-chip
 ✓ mention-picker
@@ -401,7 +410,9 @@
 ✓ page-size-select
 ✓ page-title
 ✓ pagination
+✓ pane-tabs
 ✓ panel
+✓ panel-group
 ✓ parallax
 ✓ partial-failure
 ✓ party-size
@@ -445,6 +456,7 @@
 ✓ prompt-box
 ✓ prompt-history
 ✓ property-card
+✓ property-panel
 ✓ prose
 ✓ pull-to-refresh
 ✓ pulse-dot
@@ -453,6 +465,7 @@
 ✓ query-params
 ✓ queue-depth
 ✓ quick-add
+✓ quick-switcher
 ✓ quote
 ✓ radio-cards
 ✓ radio-group
@@ -480,6 +493,7 @@
 ✓ required-mark
 ✓ reset-form
 ✓ resizable
+✓ resizable-columns
 ✓ resize-handle
 ✓ response-rating
 ✓ result-count
@@ -547,8 +561,10 @@
 ✓ shelf
 ✓ shift-badge
 ✓ shipping-options
+✓ shortcut-overlay
 ✓ side-nav
 ✓ sidebar
+✓ sidebar-collapse
 ✓ sidebar-layout
 ✓ signature-block
 ✓ signature-pad
@@ -581,6 +597,7 @@
 ✓ spacing-picker
 ✓ sparkline
 ✓ spinner
+✓ split-pane
 ✓ split-view
 ✓ spotlight
 ✓ spreadsheet-grid
@@ -603,6 +620,7 @@
 ✓ sticky-aside
 ✓ sticky-bar
 ✓ sticky-cta
+✓ sticky-shrink
 ✓ sticky-table
 ✓ stock-badge
 ✓ stop-generating
@@ -719,7 +737,9 @@
 ✓ whats-new
 ✓ wishlist-button
 ✓ word-count
+✓ workspace-switcher
 ✓ year-picker
+✓ zoom-controls
 
 activity-dot
 advanced-toggle
@@ -728,7 +748,6 @@ aggregate-picker
 alt-text-field
 amount-input
 anchor-heading
-app-shell
 appeal-form
 area-chart
 aspect-box
@@ -740,7 +759,6 @@ big-number
 blocked-note
 blur-sensitive
 box-plot
-breadcrumb-collapse
 breakpoint-badge
 bubble-chart
 bucket-picker
@@ -759,7 +777,6 @@ click-outside
 clipboard-history
 co-edit-note
 combo-chart
-command-bar
 command-group
 command-item
 comment-pin
@@ -770,7 +787,6 @@ conflict-merge
 content-placeholder
 content-warning
 content-width
-context-panel
 contrast-check
 coordinate-input
 copy-link
@@ -791,10 +807,8 @@ did-you-mean
 digest-row
 discount-input
 distribution-bar
-dock
 download-menu
 drag-preview
-drawer-stack
 drop-cap
 drop-zone
 duplicate-badge
@@ -816,7 +830,6 @@ field-warning
 file-preview
 filter-preset
 filter-tree
-floating-toolbar
 focus-list
 folder-path
 folder-tree
@@ -840,7 +853,6 @@ key-sequence
 keyboard-map
 keyboard-tip
 kicker
-layer-list
 lazy-boundary
 likert-row
 line-chart
@@ -848,7 +860,6 @@ live-cursor
 load-error
 load-more
 media-query-note
-mega-menu
 mention-badge
 milestone-dot
 missing-fields
@@ -864,8 +875,6 @@ offline-queue
 open-question
 option-card
 outlier-flag
-pane-tabs
-panel-group
 partial-list
 paste-image
 payment-picker
@@ -884,7 +893,6 @@ presence-bar
 print-preview
 priority-inbox
 progress-donut
-property-panel
 pros-cons
 pull-quote
 qr-code
@@ -892,7 +900,6 @@ quality-score
 quantile-bar
 query-builder
 question-nav
-quick-switcher
 radar-chart
 radius-slider
 range-chart
@@ -909,7 +916,6 @@ relative-date
 report-reason
 reset-defaults
 reset-demo
-resizable-columns
 resolve-thread
 response-summary
 result-preview
@@ -933,11 +939,9 @@ share-invite
 share-sheet
 shimmer
 short-link
-shortcut-overlay
 shortcut-row
 shortlist-bar
 side-by-side
-sidebar-collapse
 sidebar-right
 sidenote
 sitemap-list
@@ -952,7 +956,6 @@ spam-note
 sparkline-grid
 spec-row
 split-amount
-split-pane
 stacked-bar
 stage-gate
 stale-badge
@@ -961,7 +964,6 @@ state-badge
 step-chart
 sticky-columns
 sticky-footer
-sticky-shrink
 stopwatch
 strike-badge
 subscribe-toggle
@@ -998,6 +1000,4 @@ whats-new-dot
 winner-badge
 workflow-map
 working-hours
-workspace-switcher
 world-clock
-zoom-controls
