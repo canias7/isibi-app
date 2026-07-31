@@ -10627,3 +10627,55 @@ unreachable (`"studio"` is not in the step allowlist, so it is never sent) and s
 merging, it will be caught after merging — three times, in this case.
 
 Unit suite **523**.
+
+---
+
+## 2026-07-31 — the 196 documentation examples are deleted
+
+Owner asked what the blocks and examples were actually for, after seeing all 27 blocks and all 196
+examples rendered in the chat. The answer for the examples was: nothing the builder can use.
+
+**The stated purpose was unreachable.** The lint rule's own message said "read one to see how a
+component is used, then write the real thing" — but the model has no file access. It can only
+IMPORT, and importing was precisely what the rule refused. Confirmed before deleting that neither
+`PAGE_RULES` nor `GENERATOR.md` ever mentions the folder, so the model was never told it existed.
+The whole tier served a human browsing the repo.
+
+**The lint rule went with the files, and that is the decision to re-examine if they come back.**
+It existed for one reason, stated in its own comment: every file in `src/examples/` COMPILED, so
+`tsc`, `vite` and every other check passed while the page published showing a real customer *"Our
+flagship product combines cutting-edge technology with sleek design."* Once the folder is gone that
+import is a missing module, which `tsc` catches like any other — the justification evaporated with
+the files, so guarding a path that no longer resolves would have been the dead-code-that-looks-alive
+pattern this repo keeps documenting.
+
+The honest cost: a page that writes `@/examples/…` from training-data habit now burns the single
+repair pass instead of being caught for free. Judged worth it, because the model is never pointed at
+that path in the first place.
+
+**The test asserts the PREMISE, not the removed rule.** `test/page-gen.test.mjs` now fails if
+`src/examples/` exists at all. Restoring the files without restoring the rule brings the silent
+failure straight back, and a test that merely stopped checking would say nothing about that.
+
+### What was NOT done
+
+**The 27 blocks stay.** Owner said examples only. Worth recording that they are in exactly the state
+the examples were in, and it is accidental rather than decided: nothing tells the model they exist,
+no lint rule mentions them either way, `tsconfig.json` excludes them and `tsconfig.kit.json` does
+not cover them — so they are typechecked by nothing and reachable by nothing. Rendered all 27 live:
+they compile and display, and every one is inert markup. `login-01`'s form has no `onSubmit`, its
+links are `href="#"`, its "Login with Google" button is wired to nothing, and not one block imports
+`@/lib/rows`. Open question, not a recommendation already acted on.
+
+### Found while rendering, not yet fixed
+
+**Any generated page using `Tooltip` outside a sidebar shell hard-crashes.**
+`src/components/ui/tooltip.tsx` is the older shadcn shape (`const Tooltip = TooltipPrimitive.Root`,
+no self-wrapping provider), and the only `TooltipProvider` in the template is inside `sidebar.tsx`,
+mounted by `SidebarProvider`. `__root.tsx` mounts none. `tooltip` IS in `UI_COMPONENTS`, so the
+generator is actively told to use it — and a business site renders no sidebar shell. Typechecks,
+bundles, publishes, throws on render: the `message-scroller` class again, where compiling is not
+working. Five of the examples were crashing on exactly this, which is how it surfaced. Two-line fix
+either way, awaiting the owner's call.
+
+Unit suite **589**, site-build 33/33, both template typechecks clean.
