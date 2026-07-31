@@ -11,7 +11,7 @@ import {
   THEMES, THEME_NAMES, paletteFor, themeCss, contrast, luminance,
   oklchToRgb, foregroundFor, shortlistForPrompt,
   distance, hueGap, separateFromAccent, MIN_STATE_SEPARATION, SAME_LANE_DEGREES,
-  CORNERS, cornerCss, fitState,
+  CORNERS, cornerCss, fitState, temperState, STATE_CHROMA_RATIO, MIN_STATE_CHROMA,
 } from "../builder/site-theme.mjs";
 
 const PAIRS = [
@@ -340,5 +340,73 @@ test("every theme is a deliberate choice, not a default", () => {
       assert.ok(t[mode].accent[1] <= 0.15,
         `${name}/${mode}: accent chroma ${t[mode].accent[1]} is louder than the set allows`);
     }
+  }
+});
+
+test("no state colour is allowed to out-shout its own theme's accent", () => {
+  // The failure this replaces was visible only in a browser: a fire-engine
+  // Cancel button on bone paper, beside an accent at a third of its chroma.
+  for (const name of THEME_NAMES) {
+    for (const mode of ["light", "dark"]) {
+      const p = paletteFor(THEMES[name], mode);
+      const ceiling = Math.max(MIN_STATE_CHROMA, THEMES[name][mode].accent[1] * STATE_CHROMA_RATIO);
+      for (const k of ["destructive", "success", "warning"]) {
+        assert.ok(p[k][1] <= ceiling + 1e-9,
+          `${name}/${mode}: ${k} chroma ${p[k][1].toFixed(3)} exceeds ${ceiling.toFixed(3)}`);
+        // ...and it is still a colour. Below the floor a red is a brown, and the
+        // token has stopped carrying the one thing it exists to carry.
+        assert.ok(p[k][1] >= MIN_STATE_CHROMA - 1e-9,
+          `${name}/${mode}: ${k} chroma ${p[k][1].toFixed(3)} is under the floor`);
+      }
+    }
+  }
+});
+
+test("tempering lowers chroma only, and never touches the hue", () => {
+  const red = [0.577, 0.245, 27.325];
+  // A quiet accent pulls it down...
+  const quiet = temperState(red, [0.34, 0.075, 264]);
+  assert.equal(quiet[1], 0.075 * STATE_CHROMA_RATIO);
+  assert.equal(quiet[2], red[2], "the hue is the meaning and must not move");
+  assert.equal(quiet[0], red[0], "lightness is fitState's job, not this one");
+  // ...a loud one does NOT push it up. The constants are the maximum, so a garish
+  // brand cannot license an alert more garish still.
+  assert.deepEqual(temperState(red, [0.6, 0.31, 300]), red);
+  // The floor binds where the accent is effectively achromatic.
+  assert.equal(temperState(red, [0.245, 0.012, 88])[1], MIN_STATE_CHROMA);
+});
+
+test("tempering happens before fitting, or the fit measures a colour that never ships", () => {
+  // ALL SIX SHIPPED THEMES CLEAR THE BAR IN EITHER ORDER, so testing the set
+  // proves nothing here — the order is the difference between a guarantee and
+  // luck, and the luck currently holds. What the order actually buys is visible
+  // only against themes that do not exist yet, which is exactly what a rule
+  // written into a generator has to survive.
+  //
+  // Tempering lowers chroma, which RAISES a red's luminance. Where the derived
+  // foreground is the light one, that raise cuts the contrast — after the fit has
+  // already declared the colour legible and stopped looking.
+  //
+  // Three cases lifted from a 15,750-theme sweep, in which the shipped order
+  // never fell below 4.60:1 and fit-first fell below 4.5 one hundred and thirty
+  // times.
+  const red = [0.577, 0.245, 27.325];
+  const CASES = [
+    { paper: [0.08, 0.012, 88], ink: [0.985, 0.015, 260], accent: [0.9, 0.01, 90] },
+    { paper: [0.353, 0.012, 88], ink: [0.985, 0.015, 260], accent: [0.9, 0.06, 27] },
+    { paper: [0.977, 0.012, 88], ink: [0.526, 0.015, 260], accent: [0.526, 0.06, 27] },
+  ];
+  for (const { paper, ink, accent } of CASES) {
+    // THROUGH `paletteFor`, not through the two functions in isolation. Composing
+    // them by hand in the test proves the principle and guards nothing: swapping
+    // the real call site left this passing until the assertion was moved here.
+    const p = paletteFor({ light: { paper, ink, accent } }, "light");
+    assert.ok(contrast(p.destructive, p["destructive-foreground"]) >= 4.5,
+      `paletteFor produced an illegible destructive on paper ${paper[0]} / ink ${ink[0]}`);
+    // The premise, asserted rather than assumed. Without this the test would keep
+    // passing if the two orders ever became equivalent, proving nothing at all.
+    const wrong = temperState(fitState(red, ink, paper), accent);
+    assert.ok(contrast(wrong, foregroundFor(wrong, ink, paper)) < 4.5,
+      `fit-first was supposed to fail on paper ${paper[0]} / ink ${ink[0]} and did not`);
   }
 });

@@ -164,6 +164,45 @@ export function fitState(state, ink, paper) {
   return best ? best.candidate : state;
 }
 
+/**
+ * The loudest thing on a quiet page must not be the framework's default.
+ *
+ * FOUND BY RENDERING, not by measuring. Every one of the four new themes passed
+ * the contrast check and then came out of the browser with a fire-engine "Cancel"
+ * button and a bright emerald confirmation line sitting on bone or warm-stone
+ * paper. The accent — the theme's whole identity — was the third loudest colour
+ * on its own page, behind two constants nobody chose. That reads as a designer
+ * having picked a palette and the framework having supplied the rest, which is
+ * precisely the generated-page tell these themes exist to avoid.
+ *
+ * So chroma is scaled to the theme, while HUE IS NOT TOUCHED. Red still means
+ * bad; it simply stops shouting on a set that whispers.
+ *
+ * The ceiling is the accent's own chroma × `STATE_CHROMA_RATIO`. An alert has to
+ * out-signal an ordinary action or it stops being an alert, so it is allowed to
+ * be louder than the brand — but proportionally, not absolutely.
+ *
+ * Two guards:
+ *   - It only ever LOWERS. A theme with a loud accent does not license an alert
+ *     louder than the conventional one; the constants are the maximum.
+ *   - `MIN_STATE_CHROMA` is a floor, because below it a red is a brown and the
+ *     meaning is gone. It binds on Atelier, whose accent is near-achromatic —
+ *     and it should: on a monochrome page the alert is the only colour there is.
+ */
+// 1.35 was arrived at in the browser, not reasoned to. 1.6 was the first guess
+// and it still produced a fire-engine "Cancel" on Bourse's dark indigo — enough
+// headroom that the constant barely moved. At 1.35 the same button is a brick
+// red: unmistakably the alert, and unmistakably not the loudest thing on the
+// page.
+export const STATE_CHROMA_RATIO = 1.35;
+export const MIN_STATE_CHROMA = 0.09;
+
+export function temperState(state, accent) {
+  const [L, C, H] = state;
+  const ceiling = Math.max(MIN_STATE_CHROMA, accent[1] * STATE_CHROMA_RATIO);
+  return [L, Math.min(C, ceiling), H];
+}
+
 export function separateFromAccent(state, accent, ink, paper) {
   // HUE FIRST. OKLab distance alone conflates "different colour" with "different
   // lightness", so a green at the accent's lightness measured 0.290 and got
@@ -339,6 +378,19 @@ export const THEMES = {
    *
    * And the clichés are avoided by name: no warm cream with terracotta, no
    * near-black with a lone acid-green pop, no purple-to-blue.
+   *
+   * A FOURTH MOVE, FOUND BY LOOKING AT THE DARK RENDERS. The obvious way to keep
+   * an accent legible on a dark ground is to lighten it past the paper, and it
+   * measures fine — `foregroundFor` simply flips to the dark text and every
+   * contrast check passes. It also destroys the theme: Vellum's deep plum came
+   * out a candy pink, Bourse's indigo a periwinkle, and a pastel fill with dark
+   * text on near-black is the exact purple-on-white look these themes exist to
+   * avoid. So these three stay DEEP in dark mode (L 0.44-0.48) and take LIGHT
+   * text instead — the button is a saturated block of the brand rather than a
+   * glowing chip, which is how the register survives the mode switch.
+   *
+   * Atelier is the deliberate exception and inverts instead: on a monochrome
+   * theme the near-white button on near-black IS the statement.
    */
 
   // Private bank, tailoring, chambers. High contrast, cold accent, almost no
@@ -349,7 +401,7 @@ export const THEMES = {
     radius: "0.125rem",
     corner: "round",
     light: { paper: [0.932, 0.008, 88], ink: [0.175, 0.018, 262], accent: [0.34, 0.075, 264] },
-    dark: { paper: [0.165, 0.016, 262], ink: [0.94, 0.006, 88], accent: [0.66, 0.09, 262] },
+    dark: { paper: [0.165, 0.016, 262], ink: [0.94, 0.006, 88], accent: [0.44, 0.115, 264] },
   },
 
   // Gallery, perfumery, jeweller. Square corners and a plum that is nearly
@@ -359,7 +411,7 @@ export const THEMES = {
     radius: "0rem",
     corner: "round",
     light: { paper: [0.945, 0.007, 72], ink: [0.168, 0.014, 35], accent: [0.375, 0.095, 338] },
-    dark: { paper: [0.155, 0.012, 35], ink: [0.945, 0.006, 72], accent: [0.66, 0.1, 340] },
+    dark: { paper: [0.155, 0.012, 35], ink: [0.945, 0.006, 72], accent: [0.42, 0.11, 335] },
   },
 
   // Apothecary, winery, heritage food. Ink is a very dark green rather than
@@ -374,7 +426,7 @@ export const THEMES = {
     radius: "0.1875rem",
     corner: "round",
     light: { paper: [0.928, 0.013, 92], ink: [0.198, 0.028, 152], accent: [0.505, 0.088, 80] },
-    dark: { paper: [0.172, 0.022, 152], ink: [0.938, 0.01, 92], accent: [0.7, 0.095, 82] },
+    dark: { paper: [0.172, 0.022, 152], ink: [0.938, 0.01, 92], accent: [0.48, 0.092, 80] },
   },
 
   // Fashion, design studio, photographer. NEARLY MONOCHROME ON PURPOSE: the
@@ -398,11 +450,22 @@ export function paletteFor(theme, mode) {
   // State colours are separated from the accent BEFORE anything derives from
   // them, so the foreground is picked for the colour that actually ships.
   const raw = SEMANTIC[mode];
-  // FIT FIRST, THEN SEPARATE. Fitting moves the colour to a lightness legible on
-  // this theme's paper; separating moves it away from the accent. Doing them the
-  // other way round lets the separation pick a lightness the fit then overwrites.
+  // TEMPER, THEN FIT, THEN SEPARATE — and the order matters at both joints, for
+  // two different reasons.
+  //
+  // Temper before fit is about FIDELITY, not legibility: chroma changes
+  // luminance, so fitting first computes its lightness move against a chroma that
+  // the temper then removes. `fitState` promises the SMALLEST step that clears
+  // the bar, and the promise is void if the colour it measured is not the colour
+  // that ships. Measured across this set the two orders diverge on 9 of 36
+  // values; the wrong one overshoots — atelier/light lands at L 0.610 and 5.01:1
+  // when L 0.590 already cleared — so the red drifts further from the
+  // conventional red than it had to, for nothing.
+  //
+  // Fit before separate is about legibility: separating picks a lightness, and
+  // doing it first lets the fit immediately overwrite that choice.
   const sem = Object.fromEntries(Object.entries(raw)
-    .map(([k, v]) => [k, separateFromAccent(fitState(v, ink, paper), accent, ink, paper)]));
+    .map(([k, v]) => [k, separateFromAccent(fitState(temperState(v, accent), ink, paper), accent, ink, paper)]));
 
   // Surfaces step AWAY from the paper toward the ink, by small amounts. A card
   // that is a different hue from the page is the thing that reads as "themed"
