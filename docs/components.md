@@ -1,4 +1,4 @@
-# Components (887 built, 113 to go)
+# Components (897 built, 103 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -14,6 +14,7 @@
 ✓ alert-dialog
 ✓ all-day-row
 ✓ alt-text-field
+✓ anchor-heading
 ✓ anchor-nav
 ✓ announcement-bar
 ✓ api-key-row
@@ -72,6 +73,7 @@
 ✓ busy-button
 ✓ button
 ✓ button-group
+✓ byline-compact
 ✓ calendar
 ✓ calendar-month
 ✓ callout
@@ -189,6 +191,7 @@
 ✓ day-schedule
 ✓ decision-matrix
 ✓ dedupe-list
+✓ definition
 ✓ delivery-estimate
 ✓ delivery-slot
 ✓ delivery-status
@@ -223,6 +226,7 @@
 ✓ drag-list
 ✓ drawer
 ✓ drawer-stack
+✓ drop-cap
 ✓ dropdown-menu
 ✓ dry-run-note
 ✓ dual-list
@@ -284,6 +288,7 @@
 ✓ follow-changes
 ✓ font-picker
 ✓ footer-summary
+✓ footnote
 ✓ forbidden
 ✓ form
 ✓ form-actions
@@ -355,6 +360,7 @@
 ✓ kbd
 ✓ key-value
 ✓ keyboard-map
+✓ kicker
 ✓ label
 ✓ labeled-progress
 ✓ landmark
@@ -537,6 +543,7 @@
 ✓ property-panel
 ✓ pros-cons
 ✓ prose
+✓ pull-quote
 ✓ pull-to-refresh
 ✓ pulse-dot
 ✓ qr-code
@@ -560,6 +567,7 @@
 ✓ rating-input
 ✓ rating-summary
 ✓ ratio-bar
+✓ read-progress
 ✓ reading-guide
 ✓ reading-time
 ✓ receipt
@@ -679,6 +687,7 @@
 ✓ sidebar
 ✓ sidebar-collapse
 ✓ sidebar-layout
+✓ sidenote
 ✓ signature-block
 ✓ signature-pad
 ✓ signup-form
@@ -774,6 +783,7 @@
 ✓ table
 ✓ table-editor
 ✓ table-export
+✓ table-of-contents
 ✓ table-search
 ✓ table-settings
 ✓ table-skeleton
@@ -890,7 +900,6 @@
 
 aggregate-picker
 amount-input
-anchor-heading
 area-chart
 aspect-box
 async-validation
@@ -901,7 +910,6 @@ breakpoint-badge
 bubble-chart
 bucket-picker
 bullet-chart
-byline-compact
 camera-capture
 chart-export
 chart-legend
@@ -921,11 +929,9 @@ currency-amount
 data-freshness
 date-preset
 deadline-bar
-definition
 discount-input
 distribution-bar
 drag-preview
-drop-cap
 drop-zone
 duplicate-badge
 edge-fade
@@ -939,7 +945,6 @@ filter-preset
 focus-list
 folder-path
 folder-tree
-footnote
 format-hint
 full-bleed
 funnel-chart
@@ -951,7 +956,6 @@ hotkey-badge
 idle-note
 key-sequence
 keyboard-tip
-kicker
 line-chart
 media-query-note
 missing-fields
@@ -962,13 +966,11 @@ payment-picker
 pie-chart
 place-search
 portal
-pull-quote
 quality-score
 quantile-bar
 radar-chart
 radius-slider
 range-chart
-read-progress
 relative-date
 reset-demo
 safe-area
@@ -977,7 +979,6 @@ scan-document
 scatter-plot
 scroll-lock
 sidebar-right
-sidenote
 snooze-until
 sparkline-grid
 split-amount
@@ -986,7 +987,6 @@ step-chart
 sticky-columns
 sticky-footer
 stopwatch
-table-of-contents
 tax-toggle
 three-col
 timezone-clock

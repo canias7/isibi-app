@@ -380,6 +380,10 @@ export const UI_COMPONENTS = [
   "preference-group", "reset-defaults", "import-settings", "export-settings",
   "shortcut-row", "theme-picker", "density-preference", "unit-preference",
   "startup-page", "advanced-toggle",
+  // Typography and long-form.
+  "drop-cap", "pull-quote", "footnote", "sidenote", "definition",
+  "table-of-contents", "anchor-heading", "read-progress", "byline-compact",
+  "kicker",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
