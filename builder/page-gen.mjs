@@ -25,6 +25,33 @@ import { CHART_COMPONENTS, CHART_API } from "./chart-api.mjs";
 // is the defect the lint refuses.
 import { CHART_USAGE } from "./chart-usage.mjs";
 
+/**
+ * The house motion set. Spec and reasoning: builder/MOTION.md.
+ *
+ * Named here because a class the model is never told about is a class no
+ * generated page will ever carry. This codebase has installed unreachable
+ * capability three times — 27 blocks, 196 examples, 882 chart primitives — each
+ * on disk, compiling, and used by nothing because no rule mentioned it. The
+ * drift test runs BOTH ways: an effect in styles.css that is not listed here is
+ * dead, and one listed here that is not in styles.css is a class the model will
+ * write and the browser will ignore.
+ */
+export const MOTION = [
+  ["motion-enter", "something appears that the visitor did not ask for — a banner, a notice"],
+  ["motion-fade", "the same, but for anything centred with translate (it would fight the centring)"],
+  ["motion-stagger", "on a <ul> whose items arrive together — a service list, a menu"],
+  ["motion-inout", "needs data-shown=\"true|false\"; stays mounted so it can animate OUT too"],
+  ["motion-collapse", "needs data-open=\"true|false\"; opens to height auto, nothing measured"],
+  ["motion-swap", "one thing replaced another in the same place — skeleton to content"],
+  ["motion-press", "on a button; the press itself, 90ms"],
+  ["motion-lift", "on a clickable card; hover only, so never the only sign it is clickable"],
+  ["motion-reveal", "a section arriving as a long page is scrolled"],
+  ["motion-progress", "a reading-progress bar; put it on the filled element"],
+  ["motion-stick", "a header that changes once it has stuck; the change goes on its CHILD"],
+];
+const MOTION_CATALOGUE = MOTION.map(([n, why]) => `${n} — ${why}`).join("\n");
+const MOTION_COUNT = MOTION.length;
+
 /** Domain -> its exports, one line each. What the compose prompt spends its chart budget on. */
 export const CHART_CATALOGUE = Object.entries(CHART_COMPONENTS)
   .map(([domain, names]) => `${domain}: ${names.join(", ")}`).join("\n");
@@ -845,6 +872,29 @@ Tailwind v4 with semantic tokens: bg-background, text-foreground, bg-card, text-
 border-border, bg-primary, text-destructive. A raw bg-slate-900 breaks dark mode. Also available:
 lucide-react icons, date-fns, recharts. Import nothing that is not already a dependency.
 
+## Motion
+
+${MOTION_COUNT} effects, as plain classes. There is NO animation library installed and none is
+needed — add one and the build fails. Never write your own duration: use these, or the
+scale \`duration-(--dur-1|2|3|4)\` (90 / 180 / 320 / 500ms) with \`ease-emphasis\` or
+\`ease-standard\`. A raw \`duration-300\` is refused.
+
+Every one of these stops for a visitor who asked for less movement, while the content
+stays — so use them freely; they cannot trap anything invisible.
+
+${MOTION_CATALOGUE}
+
+WHEN TO REACH FOR THEM, since most pages need only three:
+- Anything you render conditionally that the visitor did not just click — a banner, a
+  confirmation, a "we are closed today" notice — gets \`motion-enter\`. Appearing instantly
+  reads as a page glitch rather than as the site telling them something.
+- A list you map over — services, a menu, opening hours — gets \`motion-stagger\` on the
+  \`<ul>\`, not on the items.
+- A long page's sections get \`motion-reveal\`. A short one does not: above the fold it
+  delays the first thing they came to read.
+- Something the visitor clicked open, or an inline editor, gets NOTHING. They are already
+  looking at that spot and waiting; a fade there is felt as slowness, not polish.
+
 ## Charts — the other half of the kit
 
 ${CHART_NAME_COUNT} components across ${CHART_DOMAIN_COUNT} modules under "@/components/charts/lib/". Use them
@@ -1130,6 +1180,27 @@ export function lintPages(pages, spec) {
 
     for (const m of code.matchAll(/from\s+"@\/components\/ui\/([a-z0-9-]+)"/gi)) {
       if (!ui.has(m[1].toLowerCase())) say(path, 'imports "@/components/ui/' + m[1] + '", which does not exist. Available: ' + UI_COMPONENTS.join(", ") + ".");
+    }
+
+    // MOTION THAT INVENTS ITS OWN TIMING. Deliberately narrow: a raw duration or
+    // easing is always a real defect now, because the kit was tokenised and there
+    // is exactly one scale. It is also the failure that never announces itself —
+    // a page where the banner, the panel and the toast each picked a different
+    // number looks correct in every screenshot and simply feels unconsidered.
+    for (const m of code.matchAll(/\bduration-(\d+)\b/g)) {
+      say(path, "uses duration-" + m[1] + ". The kit has one timing scale — use " +
+        "duration-(--dur-1) 90ms, (--dur-2) 180ms, (--dur-3) 320ms or (--dur-4) 500ms.");
+    }
+    for (const m of code.matchAll(/(?<=["'\s])ease-(?:linear|in-out|in|out)(?=[\s"'`])/g)) {
+      say(path, "uses " + m[0] + ". Use ease-emphasis for anything arriving, ease-standard " +
+        "for a state change.");
+    }
+    // An animation runtime. None is installed, so this would fail the build
+    // anyway — but a named refusal explains WHY rather than leaving the model to
+    // read a module-not-found and try a different package.
+    for (const m of code.matchAll(/from\s+["'](framer-motion|motion|motion\/react|gsap|@react-spring\/[a-z]+|animejs)["']/g)) {
+      say(path, 'imports "' + m[1] + '". There is no animation library and none is needed — ' +
+        "every effect the kit needs is a CSS class. See the motion list in the rules.");
     }
 
     // THE CHART DEMOS, refused by name. This is the rule the deleted `@/examples/*`

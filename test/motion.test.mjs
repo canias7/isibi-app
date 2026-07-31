@@ -8,6 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { MOTION, PAGE_RULES, lintPages } from "../builder/page-gen.mjs";
 import path from "node:path";
 
 const TEMPLATE = "builder/lovable/template";
@@ -148,4 +149,45 @@ test("an entrance is on a root that actually appears, not on a sub-element", () 
       `${f}: the entrance is on an element that never mounts or unmounts — ` +
       `no early return null before it, and nothing rendered from a list`);
   }
+});
+
+test("every effect is reachable, and every named effect exists", () => {
+  // BOTH DIRECTIONS, because each failure is silent in its own way and this
+  // codebase has had both. An effect in styles.css that the prompt never
+  // mentions is dead weight — the 27 blocks, the 196 examples and the 882 chart
+  // primitives were each on disk, compiling, and used by nothing for exactly
+  // this reason. An effect named in the prompt that styles.css does not define
+  // is worse: the model writes the class, the browser ignores it, and the page
+  // looks static with no error anywhere.
+  // Leading whitespace allowed: every one of these lives inside a @media or
+  // @supports block, so a selector anchored to column zero finds none of them —
+  // and the test then reports the whole set as missing from the stylesheet that
+  // in fact defines all of it.
+  const inCss = [...styles.matchAll(/^[ \t]*\.(motion-[a-z-]+)/gm)].map((m) => m[1]);
+  const declared = MOTION.map(([n]) => n);
+  for (const n of new Set(inCss)) {
+    assert.ok(declared.includes(n), `${n} is defined in styles.css but the model is never told about it`);
+  }
+  for (const n of declared) {
+    assert.ok(inCss.includes(n), `${n} is named in the rules but styles.css does not define it`);
+    assert.ok(PAGE_RULES.includes(n), `${n} is in MOTION but not in the prompt text`);
+  }
+  assert.equal(declared.length, 11);
+});
+
+test("a page that invents its own timing is refused", () => {
+  // Narrow on purpose. Since the kit was tokenised there is exactly one scale,
+  // so a raw duration is always a real defect rather than a style opinion — and
+  // it is the failure that never announces itself: a page where the banner, the
+  // panel and the toast each picked a different number looks right in every
+  // screenshot and merely feels unconsidered.
+  const lint = (s) => lintPages([{ path: "index.tsx", source: s }], { tables: [] });
+  assert.match(lint('<div className="duration-300" />')[0] || "", /one timing scale/);
+  assert.match(lint('<div className="ease-linear" />')[0] || "", /ease-emphasis/);
+  assert.match(lint('import { motion } from "framer-motion";')[0] || "", /no animation library/);
+  assert.match(lint('import gsap from "gsap";')[0] || "", /no animation library/);
+  // The scale itself, and the classes, must pass clean.
+  assert.deepEqual(lint('<div className="duration-(--dur-2) motion-enter" />'), []);
+  // A comment is not code.
+  assert.deepEqual(lint('// className="duration-300"'), []);
 });
