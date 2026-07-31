@@ -1,4 +1,4 @@
-# Components (934 built, 66 to go)
+# Components (943 built, 57 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -41,6 +41,7 @@
 ✓ autofill-note
 ✓ availability-grid
 ✓ availability-legend
+✓ availability-toggle
 ✓ avatar
 ✓ avatar-group
 ✓ avatar-name
@@ -175,6 +176,7 @@
 ✓ count-badge
 ✓ count-up
 ✓ countdown
+✓ countdown-ring
 ✓ country-select
 ✓ coupon-input
 ✓ course-card
@@ -199,6 +201,7 @@
 ✓ date-range-picker
 ✓ date-time-picker
 ✓ day-schedule
+✓ deadline-bar
 ✓ decision-matrix
 ✓ dedupe-list
 ✓ definition
@@ -247,6 +250,7 @@
 ✓ duration-picker
 ✓ edit-lock
 ✓ effort-score
+✓ elapsed-timer
 ✓ email-input
 ✓ email-share
 ✓ email-verify-banner
@@ -746,6 +750,7 @@
 ✓ snap-carousel
 ✓ snap-sections
 ✓ snooze-menu
+✓ snooze-until
 ✓ social-links
 ✓ social-preview
 ✓ sonner
@@ -791,6 +796,7 @@
 ✓ sticky-table
 ✓ stock-badge
 ✓ stop-generating
+✓ stopwatch
 ✓ storage-bar
 ✓ store-locator
 ✓ streaming-text
@@ -851,6 +857,7 @@
 ✓ timeline-horizontal
 ✓ timeline-vertical
 ✓ timeout-note
+✓ timezone-clock
 ✓ timezone-note
 ✓ timezone-picker
 ✓ toast-queue
@@ -931,14 +938,15 @@
 ✓ wishlist-button
 ✓ word-count
 ✓ workflow-map
+✓ working-hours
 ✓ workspace-switcher
+✓ world-clock
 ✓ year-picker
 ✓ zoom-controls
 
 amount-input
 area-chart
 aspect-box
-availability-toggle
 bar-chart
 box-plot
 bubble-chart
@@ -952,15 +960,12 @@ comparison-chart
 completeness-bar
 content-width
 coordinate-input
-countdown-ring
 currency-amount
 data-freshness
-deadline-bar
 discount-input
 distribution-bar
 duplicate-badge
 edge-fade
-elapsed-timer
 file-preview
 folder-path
 folder-tree
@@ -984,20 +989,15 @@ range-chart
 scan-document
 scatter-plot
 sidebar-right
-snooze-until
 sparkline-grid
 split-amount
 stacked-bar
 step-chart
 sticky-columns
 sticky-footer
-stopwatch
 tax-toggle
 three-col
-timezone-clock
 treemap-chart
 trend-card
 upload-queue
 waterfall-chart
-working-hours
-world-clock

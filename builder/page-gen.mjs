@@ -400,6 +400,10 @@ export const UI_COMPONENTS = [
   // Validation.
   "error-summary-link", "field-warning", "async-validation",
   "uniqueness-check", "format-hint",
+  // Clocks and elapsed time.
+  "timezone-clock", "world-clock", "working-hours", "availability-toggle",
+  "snooze-until", "deadline-bar", "elapsed-timer", "stopwatch",
+  "countdown-ring",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
