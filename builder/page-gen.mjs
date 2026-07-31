@@ -268,6 +268,12 @@ export const UI_COMPONENTS = [
   "aspect-picker", "spacing-picker", "font-picker",
   "month-picker", "year-picker", "quarter-picker", "week-picker",
   "time-range", "cron-builder",
+  // Lists and collections, past the plain one.
+  "virtual-list", "grouped-list", "nested-list", "tree-view", "tree-item",
+  "checkbox-tree", "reorderable-grid", "list-toolbar", "list-density",
+  "two-line-row", "three-line-row", "swipeable-row", "selectable-list",
+  "multi-column-list", "chip-list", "timeline-vertical", "timeline-horizontal",
+  "shelf", "cluster", "rail",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

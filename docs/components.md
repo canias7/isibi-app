@@ -1,4 +1,4 @@
-# Components (550 built, 450 to go)
+# Components (570 built, 430 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -76,7 +76,10 @@
 ✓ chat-thread
 ✓ checkbox
 ✓ checkbox-group
+✓ checkbox-tree
+✓ chip-list
 ✓ clamp-text
+✓ cluster
 ✓ code-block
 ✓ code-editor
 ✓ collapsible
@@ -198,6 +201,7 @@
 ✓ getting-started
 ✓ glossary-item
 ✓ grid-item
+✓ grouped-list
 ✓ grouped-rows
 ✓ handoff-note
 ✓ heading
@@ -249,8 +253,10 @@
 ✓ like-button
 ✓ link-card
 ✓ link-editor
+✓ list-density
 ✓ list-format
 ✓ list-row
+✓ list-toolbar
 ✓ live-region
 ✓ loading-overlay
 ✓ location-card
@@ -285,6 +291,7 @@
 ✓ moderation-note
 ✓ money
 ✓ month-picker
+✓ multi-column-list
 ✓ multi-select
 ✓ multi-step-form
 ✓ name-fields
@@ -292,6 +299,7 @@
 ✓ nav-footer
 ✓ nav-list
 ✓ navigation-menu
+✓ nested-list
 ✓ no-results
 ✓ not-found
 ✓ notification-bell
@@ -358,6 +366,7 @@
 ✓ radio-cards
 ✓ radio-group
 ✓ radius-picker
+✓ rail
 ✓ range-input
 ✓ rate-limited
 ✓ rating-input
@@ -371,6 +380,7 @@
 ✓ recurrence-summary
 ✓ recurring-picker
 ✓ related-list
+✓ reorderable-grid
 ✓ repeatable-field
 ✓ reply-box
 ✓ required-mark
@@ -411,6 +421,7 @@
 ✓ section-header
 ✓ select
 ✓ select-all-banner
+✓ selectable-list
 ✓ selection-toolbar
 ✓ seo-jsonld
 ✓ separator
@@ -423,6 +434,7 @@
 ✓ share-buttons
 ✓ share-preview
 ✓ sheet
+✓ shelf
 ✓ shift-badge
 ✓ shipping-options
 ✓ side-nav
@@ -476,6 +488,7 @@
 ✓ store-locator
 ✓ success-panel
 ✓ suggestion-mode
+✓ swipeable-row
 ✓ switch
 ✓ switch-row
 ✓ sync-status
@@ -496,6 +509,7 @@
 ✓ textarea
 ✓ textarea-count
 ✓ theme-toggle
+✓ three-line-row
 ✓ ticket-card
 ✓ ticket-row
 ✓ time-ago
@@ -504,6 +518,8 @@
 ✓ time-slot
 ✓ time-until
 ✓ timeline
+✓ timeline-horizontal
+✓ timeline-vertical
 ✓ timezone-note
 ✓ timezone-picker
 ✓ toggle
@@ -515,12 +531,15 @@
 ✓ tour-step
 ✓ transfer-list
 ✓ travel-time
+✓ tree-item
 ✓ tree-select
+✓ tree-view
 ✓ trend-arrow
 ✓ truncate-middle
 ✓ trust-strip
 ✓ two-col
 ✓ two-factor-setup
+✓ two-line-row
 ✓ typing-indicator
 ✓ undo-redo
 ✓ undo-toast
@@ -536,6 +555,7 @@
 ✓ verified-badge
 ✓ version-history
 ✓ video-embed
+✓ virtual-list
 ✓ visually-hidden
 ✓ vote-buttons
 ✓ waitlist-form
@@ -597,15 +617,12 @@ channel-toggle
 chapter-list
 chart-export
 chart-legend
-checkbox-tree
 checklist-dot
 checkpoint-list
-chip-list
 chunked-upload
 citation-list
 click-outside
 clipboard-history
-cluster
 co-edit-note
 coach-mark
 code-diff
@@ -710,7 +727,6 @@ full-bleed
 funnel-chart
 group-by-picker
 grouped-bar
-grouped-list
 gutter
 handover-bar
 header-table
@@ -738,8 +754,6 @@ lazy-boundary
 lightbox
 likert-row
 line-chart
-list-density
-list-toolbar
 live-badge
 live-cursor
 load-error
@@ -761,14 +775,12 @@ modal-stack
 model-picker
 moderation-queue
 morph-height
-multi-column-list
 multi-sort
 multi-sort-picker
 mute-schedule
 nav-badge
 nav-group
 nav-search
-nested-list
 notification-empty
 notification-group
 nudge-bubble
@@ -824,7 +836,6 @@ quick-add
 quick-switcher
 radar-chart
 radius-slider
-rail
 range-chart
 range-summary
 ranking-list
@@ -838,7 +849,6 @@ refresh-pill
 regenerate-button
 related-nav
 relative-date
-reorderable-grid
 report-reason
 request-timing
 reset-defaults
@@ -875,14 +885,12 @@ search-scope
 search-shortcut
 section-nav
 security-score
-selectable-list
 sentiment-chip
 session-expiry
 shake-error
 share-invite
 share-sheet
 sheet-stack
-shelf
 shimmer
 short-link
 shortcut-overlay
@@ -935,7 +943,6 @@ suggestion-chips
 survey-card
 suspicious-login
 swipe-actions
-swipeable-row
 syntax-highlight
 system-prompt-editor
 tab-order-note
@@ -950,12 +957,9 @@ terminal-output
 theme-picker
 thinking-indicator
 three-col
-three-line-row
 threshold-bar
 thumb-strip
 tilt-card
-timeline-horizontal
-timeline-vertical
 timeout-note
 timezone-clock
 toast-queue
@@ -969,12 +973,9 @@ transcript-line
 transcript-toggle
 transcript-view
 transition-arrow
-tree-item
-tree-view
 treemap-chart
 trend-card
 trust-score
-two-line-row
 typewriter
 typing-dots
 uniqueness-check
@@ -987,7 +988,6 @@ verify-pending
 video-player
 viewer-count
 viewer-list
-virtual-list
 voice-input
 volume-slider
 vote-bar
