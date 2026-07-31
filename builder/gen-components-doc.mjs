@@ -11,7 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { PLANNED } from "./components-planned.mjs";
-import { NEXT_THOUSAND } from "./components-next.mjs";
+import { NEXT_SHAPES } from "./components-next.mjs";
 
 const ROOT = path.join(import.meta.dirname, "..");
 const UI_DIR = path.join(ROOT, "builder/lovable/template/src/components/ui");
@@ -25,21 +25,27 @@ export function render() {
   const done = new Set(built);
   const todo = [...new Set(PLANNED)].filter((n) => !done.has(n)).sort();
 
-  // The second thousand keeps its group headings — 1000 flat names is a wall,
-  // and the grouping is the only thing that makes it decidable.
-  const next = Object.entries(NEXT_THOUSAND)
-    .map(([group, names]) => `### ${group}\n\n`
-      + names.map((n) => (done.has(n) ? "✓ " : "") + n).join("\n"))
+  // Each proposed shape prints WITH the reason nothing shipped covers it —
+  // a bare name cannot be argued with, and this list exists because a
+  // thousand bare names hid nine hundred duplicates.
+  const next = Object.entries(NEXT_SHAPES)
+    .map(([group, entries]) => `### ${group}\n\n`
+      + Object.entries(entries)
+        .map(([n, why]) => `- ${done.has(n) ? "✓ " : ""}**${n}** — ${why}`)
+        .join("\n"))
     .join("\n\n");
-  const nextCount = Object.values(NEXT_THOUSAND).flat().length;
+  const nextCount = Object.values(NEXT_SHAPES).reduce((s, e) => s + Object.keys(e).length, 0);
 
   return `# Components (${built.length} built, ${todo.length} to go)\n\n`
     + `A ✓ means it exists and a generated site can import it today.\n\n`
-    + `## The first thousand\n\n`
+    + `## Built and planned\n\n`
     + built.map((n) => "✓ " + n).join("\n")
     + "\n\n"
     + todo.join("\n")
-    + `\n\n## The next thousand (${nextCount} proposed, none built)\n\n`
+    + `\n\n## Shapes the kit still lacks (${nextCount} proposed, none built)\n\n`
+    + `A 1000-name draft was culled to these by asking of each one: would it take\n`
+    + `the same props and render the same structure as something already built?\n`
+    + `If yes it is that component with different words in it, and it is not here.\n\n`
     + next
     + "\n";
 }
