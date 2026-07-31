@@ -1,4 +1,4 @@
-# Components (877 built, 123 to go)
+# Components (887 built, 113 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -7,6 +7,7 @@
 ✓ add-to-cart
 ✓ address-fields
 ✓ address-summary
+✓ advanced-toggle
 ✓ age-gate
 ✓ agenda-list
 ✓ alert
@@ -192,6 +193,7 @@
 ✓ delivery-slot
 ✓ delivery-status
 ✓ delta-pill
+✓ density-preference
 ✓ density-toggle
 ✓ dependent-select
 ✓ description-list
@@ -250,6 +252,7 @@
 ✓ export-button
 ✓ export-format
 ✓ export-progress
+✓ export-settings
 ✓ external-link
 ✓ facet-range
 ✓ faq
@@ -325,6 +328,7 @@
 ✓ image-strip
 ✓ image-zoom
 ✓ import-preview
+✓ import-settings
 ✓ import-summary
 ✓ inbox-list
 ✓ incident-item
@@ -506,6 +510,7 @@
 ✓ postcode-input
 ✓ poster-picker
 ✓ precision-toggle
+✓ preference-group
 ✓ presence-bar
 ✓ presence-dot
 ✓ press-quote
@@ -577,6 +582,7 @@
 ✓ report-reason
 ✓ request-timing
 ✓ required-mark
+✓ reset-defaults
 ✓ reset-form
 ✓ resizable
 ✓ resizable-columns
@@ -666,6 +672,7 @@
 ✓ shipping-options
 ✓ short-link
 ✓ shortcut-overlay
+✓ shortcut-row
 ✓ shortlist-bar
 ✓ side-by-side
 ✓ side-nav
@@ -723,6 +730,7 @@
 ✓ stagger-list
 ✓ stale-badge
 ✓ stale-data-note
+✓ startup-page
 ✓ stat-card
 ✓ state-badge
 ✓ stats-band
@@ -783,6 +791,7 @@
 ✓ text-size
 ✓ textarea
 ✓ textarea-count
+✓ theme-picker
 ✓ theme-toggle
 ✓ thinking-indicator
 ✓ three-line-row
@@ -838,6 +847,7 @@
 ✓ undo-toast
 ✓ unit-convert
 ✓ unit-input
+✓ unit-preference
 ✓ unit-toggle
 ✓ unread-divider
 ✓ upload-progress
@@ -878,7 +888,6 @@
 ✓ year-picker
 ✓ zoom-controls
 
-advanced-toggle
 aggregate-picker
 amount-input
 anchor-heading
@@ -913,7 +922,6 @@ data-freshness
 date-preset
 deadline-bar
 definition
-density-preference
 discount-input
 distribution-bar
 drag-preview
@@ -924,7 +932,6 @@ edge-fade
 elapsed-timer
 empty-cta
 error-summary-link
-export-settings
 feature-tour
 field-warning
 file-preview
@@ -942,7 +949,6 @@ gutter
 histogram
 hotkey-badge
 idle-note
-import-settings
 key-sequence
 keyboard-tip
 kicker
@@ -956,7 +962,6 @@ payment-picker
 pie-chart
 place-search
 portal
-preference-group
 pull-quote
 quality-score
 quantile-bar
@@ -965,35 +970,30 @@ radius-slider
 range-chart
 read-progress
 relative-date
-reset-defaults
 reset-demo
 safe-area
 sample-toggle
 scan-document
 scatter-plot
 scroll-lock
-shortcut-row
 sidebar-right
 sidenote
 snooze-until
 sparkline-grid
 split-amount
 stacked-bar
-startup-page
 step-chart
 sticky-columns
 sticky-footer
 stopwatch
 table-of-contents
 tax-toggle
-theme-picker
 three-col
 timezone-clock
 top-n-picker
 treemap-chart
 trend-card
 uniqueness-check
-unit-preference
 upgrade-badge
 upload-queue
 usage-nudge

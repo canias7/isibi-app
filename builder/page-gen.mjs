@@ -376,6 +376,10 @@ export const UI_COMPONENTS = [
   "survey-card", "question-nav", "likert-row", "ranking-list",
   "open-question", "csat-face", "effort-score", "exit-survey",
   "poll-result", "vote-bar", "sentiment-chip", "response-summary",
+  // Settings.
+  "preference-group", "reset-defaults", "import-settings", "export-settings",
+  "shortcut-row", "theme-picker", "density-preference", "unit-preference",
+  "startup-page", "advanced-toggle",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
