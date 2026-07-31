@@ -286,6 +286,11 @@ export const UI_COMPONENTS = [
   "inline-form", "quick-add", "bulk-edit-panel", "template-fill",
   "autofill-note", "otp-resend", "form-lock", "field-group", "field-error",
   "field-success", "form-diff",
+  // Signing in, and the screens around it.
+  "passkey-prompt", "device-list", "login-history", "suspicious-login",
+  "recovery-codes", "backup-email", "security-score", "permission-matrix",
+  "role-picker", "scope-list", "sso-button", "magic-link-sent",
+  "verify-pending", "lockout-note", "session-expiry", "step-up-prompt",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

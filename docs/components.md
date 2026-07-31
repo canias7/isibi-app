@@ -1,4 +1,4 @@
-# Components (610 built, 390 to go)
+# Components (626 built, 374 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -36,6 +36,7 @@
 ✓ avatar-upload
 ✓ award-badge
 ✓ back-link
+✓ backup-email
 ✓ badge
 ✓ banner
 ✓ bar-list
@@ -146,6 +147,7 @@
 ✓ dependent-select
 ✓ description-list
 ✓ detail-panel
+✓ device-list
 ✓ dialog
 ✓ diff-text
 ✓ direction
@@ -287,9 +289,12 @@
 ✓ loading-overlay
 ✓ location-card
 ✓ lock-indicator
+✓ lockout-note
 ✓ login-form
+✓ login-history
 ✓ logo
 ✓ logo-cloud
+✓ magic-link-sent
 ✓ maintenance-notice
 ✓ maintenance-page
 ✓ map-embed
@@ -359,12 +364,14 @@
 ✓ panel
 ✓ partial-failure
 ✓ party-size
+✓ passkey-prompt
 ✓ password-input
 ✓ password-strength
 ✓ paste-clean
 ✓ paste-table
 ✓ payment-methods
 ✓ percent-input
+✓ permission-matrix
 ✓ permission-row
 ✓ person-row
 ✓ phone-input
@@ -410,6 +417,7 @@
 ✓ recent-searches
 ✓ recipe-card
 ✓ record-header
+✓ recovery-codes
 ✓ recurrence-summary
 ✓ recurring-picker
 ✓ related-list
@@ -428,6 +436,7 @@
 ✓ review-stars
 ✓ rich-text
 ✓ role-badge
+✓ role-picker
 ✓ room-card
 ✓ row-actions
 ✓ row-detail
@@ -440,6 +449,7 @@
 ✓ save-draft
 ✓ saved-views
 ✓ scale-input
+✓ scope-list
 ✓ screen-only
 ✓ scroll-area
 ✓ scroll-progress
@@ -454,6 +464,7 @@
 ✓ section
 ✓ section-divider
 ✓ section-header
+✓ security-score
 ✓ select
 ✓ select-all-banner
 ✓ selectable-list
@@ -462,6 +473,7 @@
 ✓ separator
 ✓ service-area
 ✓ service-card
+✓ session-expiry
 ✓ session-row
 ✓ setting-item
 ✓ settings-nav
@@ -504,6 +516,7 @@
 ✓ split-view
 ✓ spotlight
 ✓ spreadsheet-grid
+✓ sso-button
 ✓ stack
 ✓ stale-data-note
 ✓ stat-card
@@ -512,6 +525,7 @@
 ✓ status-dot
 ✓ status-list
 ✓ step-nav
+✓ step-up-prompt
 ✓ stepper
 ✓ stepper-input
 ✓ steps
@@ -524,6 +538,7 @@
 ✓ store-locator
 ✓ success-panel
 ✓ suggestion-mode
+✓ suspicious-login
 ✓ swipeable-row
 ✓ switch
 ✓ switch-row
@@ -593,6 +608,7 @@
 ✓ variant-picker
 ✓ vehicle-card
 ✓ verified-badge
+✓ verify-pending
 ✓ version-history
 ✓ video-embed
 ✓ virtual-list
@@ -627,7 +643,6 @@ attachment-tray
 audio-recorder
 availability-toggle
 back-to-list
-backup-email
 bar-chart
 big-number
 blocked-note
@@ -697,7 +712,6 @@ definition
 delivery-status
 delta-pill
 density-preference
-device-list
 did-you-mean
 diff-stat
 digest-row
@@ -772,10 +786,7 @@ live-badge
 live-cursor
 load-error
 load-more
-lockout-note
 log-viewer
-login-history
-magic-link-sent
 magnetic-button
 media-caption
 media-query-note
@@ -803,12 +814,10 @@ pane-tabs
 panel-group
 parallax
 partial-list
-passkey-prompt
 paste-image
 payment-picker
 percent-ring
 permalink
-permission-matrix
 phase-bar
 pie-chart
 pinned-nav
@@ -850,7 +859,6 @@ read-progress
 reading-guide
 recent-nav
 recommendation-badge
-recovery-codes
 reduce-motion
 refresh-pill
 regenerate-button
@@ -868,7 +876,6 @@ response-summary
 result-preview
 rich-tooltip
 ripple
-role-picker
 rollback-note
 rounding-note
 safe-area
@@ -877,7 +884,6 @@ saved-search
 scan-document
 scatter-plot
 schema-viewer
-scope-list
 screen-reader-note
 scroll-lock
 scroll-reveal
@@ -889,9 +895,7 @@ search-history
 search-scope
 search-shortcut
 section-nav
-security-score
 sentiment-chip
-session-expiry
 shake-error
 share-invite
 share-sheet
@@ -923,7 +927,6 @@ sparkline-grid
 spec-row
 split-amount
 split-pane
-sso-button
 stack-trace
 stacked-bar
 stage-gate
@@ -933,7 +936,6 @@ startup-page
 state-badge
 status-code-badge
 step-chart
-step-up-prompt
 sticky-columns
 sticky-footer
 sticky-shrink
@@ -945,7 +947,6 @@ subscribe-toggle
 subtitle-track
 suggestion-chips
 survey-card
-suspicious-login
 swipe-actions
 syntax-highlight
 system-prompt-editor
@@ -984,7 +985,6 @@ unit-preference
 upgrade-badge
 upload-queue
 usage-nudge
-verify-pending
 video-player
 viewer-count
 viewer-list
