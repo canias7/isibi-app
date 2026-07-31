@@ -255,6 +255,10 @@ export const UI_COMPONENTS = [
   "markdown-editor", "markdown-preview", "format-toolbar", "paste-clean",
   "undo-redo", "char-limit-ring", "dirty-indicator", "draft-badge",
   "lock-indicator", "revert-button",
+  "rich-text", "code-editor", "emoji-picker", "mention-textarea", "link-editor",
+  "slash-menu", "block-menu", "drag-handle", "selection-toolbar",
+  "table-editor", "find-replace", "focus-mode", "version-history",
+  "comment-anchor", "suggestion-mode",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

@@ -1,4 +1,4 @@
-# Components (510 built, 490 to go)
+# Components (525 built, 475 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -41,6 +41,7 @@
 ✓ bento-grid
 ✓ billing-summary
 ✓ blackout-dates
+✓ block-menu
 ✓ booking-summary
 ✓ breadcrumb
 ✓ bubble
@@ -74,6 +75,7 @@
 ✓ checkbox-group
 ✓ clamp-text
 ✓ code-block
+✓ code-editor
 ✓ collapsible
 ✓ color-swatch
 ✓ column-mapper
@@ -81,6 +83,7 @@
 ✓ combobox
 ✓ command
 ✓ comment
+✓ comment-anchor
 ✓ comment-thread
 ✓ comparison-table
 ✓ conditional-field
@@ -135,6 +138,7 @@
 ✓ dot-plot
 ✓ download-card
 ✓ draft-badge
+✓ drag-handle
 ✓ drawer
 ✓ dropdown-menu
 ✓ dry-run-note
@@ -143,6 +147,7 @@
 ✓ duration-picker
 ✓ email-input
 ✓ email-verify-banner
+✓ emoji-picker
 ✓ emoji-reaction
 ✓ empty
 ✓ empty-illustration
@@ -168,7 +173,9 @@
 ✓ file-size
 ✓ file-type-icon
 ✓ filter-bar
+✓ find-replace
 ✓ first-run
+✓ focus-mode
 ✓ focus-trap
 ✓ forbidden
 ✓ form
@@ -232,6 +239,7 @@
 ✓ letterhead
 ✓ like-button
 ✓ link-card
+✓ link-editor
 ✓ list-format
 ✓ list-row
 ✓ live-region
@@ -255,6 +263,7 @@
 ✓ membership-card
 ✓ mention-chip
 ✓ mention-picker
+✓ mention-textarea
 ✓ menu-section
 ✓ menubar
 ✓ message
@@ -361,6 +370,7 @@
 ✓ review-card
 ✓ review-form
 ✓ review-stars
+✓ rich-text
 ✓ role-badge
 ✓ room-card
 ✓ row-actions
@@ -387,6 +397,7 @@
 ✓ section-header
 ✓ select
 ✓ select-all-banner
+✓ selection-toolbar
 ✓ seo-jsonld
 ✓ separator
 ✓ service-area
@@ -414,6 +425,7 @@
 ✓ skill-tags
 ✓ skip-link
 ✓ sla-badge
+✓ slash-menu
 ✓ slider
 ✓ slot-hold
 ✓ slow-note
@@ -445,11 +457,13 @@
 ✓ storage-bar
 ✓ store-locator
 ✓ success-panel
+✓ suggestion-mode
 ✓ switch
 ✓ switch-row
 ✓ sync-status
 ✓ tab-nav
 ✓ table
+✓ table-editor
 ✓ table-skeleton
 ✓ tabs
 ✓ tag-input
@@ -497,6 +511,7 @@
 ✓ variant-picker
 ✓ vehicle-card
 ✓ verified-badge
+✓ version-history
 ✓ video-embed
 ✓ visually-hidden
 ✓ vote-buttons
@@ -533,7 +548,6 @@ back-to-list
 backup-email
 bar-chart
 big-number
-block-menu
 blocked-note
 blocking-overlay
 blur-sensitive
@@ -573,7 +587,6 @@ cluster
 co-edit-note
 coach-mark
 code-diff
-code-editor
 color-picker
 column-filter
 column-reorder
@@ -582,7 +595,6 @@ combo-chart
 command-bar
 command-group
 command-item
-comment-anchor
 comment-pin
 commit-row
 compare-table
@@ -631,7 +643,6 @@ dismiss-all
 distribution-bar
 dock
 download-menu
-drag-handle
 drag-list
 drag-preview
 drawer-stack
@@ -645,7 +656,6 @@ effort-score
 elapsed-timer
 email-share
 embed-code
-emoji-picker
 empty-cta
 env-badge
 error-summary-link
@@ -666,11 +676,9 @@ field-warning
 file-preview
 filter-preset
 filter-tree
-find-replace
 flip-card
 floating-toolbar
 focus-list
-focus-mode
 folder-path
 folder-tree
 follow-changes
@@ -714,7 +722,6 @@ lazy-boundary
 lightbox
 likert-row
 line-chart
-link-editor
 list-density
 list-toolbar
 live-badge
@@ -732,7 +739,6 @@ media-caption
 media-query-note
 mega-menu
 mention-badge
-mention-textarea
 milestone-dot
 missing-fields
 modal-stack
@@ -831,7 +837,6 @@ resolve-thread
 response-rating
 response-summary
 result-preview
-rich-text
 rich-tooltip
 ripple
 role-picker
@@ -860,7 +865,6 @@ search-shortcut
 section-nav
 security-score
 selectable-list
-selection-toolbar
 sentiment-chip
 session-expiry
 shake-error
@@ -881,7 +885,6 @@ sitemap-list
 size-picker
 skeleton-form
 skeleton-list
-slash-menu
 slide-over
 slider-input
 snackbar
@@ -922,7 +925,6 @@ strike-badge
 subscribe-toggle
 subtitle-track
 suggestion-chips
-suggestion-mode
 survey-card
 suspicious-login
 swipe-actions
@@ -931,7 +933,6 @@ syntax-highlight
 system-prompt-editor
 tab-order-note
 tab-overflow
-table-editor
 table-export
 table-of-contents
 table-search
@@ -981,7 +982,6 @@ upgrade-badge
 upload-queue
 usage-nudge
 verify-pending
-version-history
 video-player
 viewer-count
 viewer-list
