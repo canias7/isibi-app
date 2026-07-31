@@ -1,4 +1,4 @@
-# Components (813 built, 187 to go)
+# Components (835 built, 165 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -48,9 +48,11 @@
 ✓ batch-progress
 ✓ before-after
 ✓ bento-grid
+✓ big-number
 ✓ billing-summary
 ✓ blackout-dates
 ✓ block-menu
+✓ blocked-note
 ✓ blocking-overlay
 ✓ blur-up
 ✓ booking-summary
@@ -98,6 +100,7 @@
 ✓ checkbox
 ✓ checkbox-group
 ✓ checkbox-tree
+✓ checkpoint-list
 ✓ chip-list
 ✓ citation-list
 ✓ clamp-text
@@ -126,6 +129,7 @@
 ✓ compare-table
 ✓ comparison-columns
 ✓ comparison-table
+✓ completion-ring
 ✓ conditional-field
 ✓ confetti
 ✓ confirm-dialog
@@ -160,6 +164,7 @@
 ✓ cta-band
 ✓ curl-example
 ✓ currency-input
+✓ currency-switch
 ✓ cursor-pagination
 ✓ cvc-input
 ✓ danger-zone
@@ -177,6 +182,7 @@
 ✓ delivery-estimate
 ✓ delivery-slot
 ✓ delivery-status
+✓ delta-pill
 ✓ density-toggle
 ✓ dependent-select
 ✓ description-list
@@ -283,6 +289,7 @@
 ✓ grouped-list
 ✓ grouped-rows
 ✓ handoff-note
+✓ handover-bar
 ✓ header-table
 ✓ heading
 ✓ heading-level
@@ -391,6 +398,7 @@
 ✓ message-status
 ✓ metric-delta
 ✓ metric-row
+✓ milestone-dot
 ✓ mini-bars
 ✓ mobile-nav
 ✓ modal-stack
@@ -458,10 +466,12 @@
 ✓ paste-table
 ✓ payment-methods
 ✓ percent-input
+✓ percent-ring
 ✓ permalink
 ✓ permission-matrix
 ✓ permission-row
 ✓ person-row
+✓ phase-bar
 ✓ phone-input
 ✓ pickup-point
 ✓ pinned-nav
@@ -474,6 +484,7 @@
 ✓ post-meta
 ✓ postcode-input
 ✓ poster-picker
+✓ precision-toggle
 ✓ presence-bar
 ✓ presence-dot
 ✓ press-quote
@@ -489,6 +500,7 @@
 ✓ product-card
 ✓ profile-card
 ✓ progress
+✓ progress-donut
 ✓ progress-ring
 ✓ progress-stack
 ✓ progress-toast
@@ -515,6 +527,7 @@
 ✓ radius-picker
 ✓ rail
 ✓ range-input
+✓ range-summary
 ✓ rate-limited
 ✓ rating-input
 ✓ rating-summary
@@ -556,7 +569,9 @@
 ✓ ripple
 ✓ role-badge
 ✓ role-picker
+✓ rollback-note
 ✓ room-card
+✓ rounding-note
 ✓ row-actions
 ✓ row-detail
 ✓ row-errors
@@ -669,9 +684,11 @@
 ✓ sso-button
 ✓ stack
 ✓ stack-trace
+✓ stage-gate
 ✓ stagger-list
 ✓ stale-data-note
 ✓ stat-card
+✓ state-badge
 ✓ stats-band
 ✓ status-badge
 ✓ status-code-badge
@@ -730,6 +747,7 @@
 ✓ theme-toggle
 ✓ thinking-indicator
 ✓ three-line-row
+✓ threshold-bar
 ✓ thumb-strip
 ✓ ticket-card
 ✓ ticket-row
@@ -751,6 +769,7 @@
 ✓ toggle-chip
 ✓ toggle-group
 ✓ token-meter
+✓ tolerance-bar
 ✓ tool-call-card
 ✓ toolbar
 ✓ tooltip
@@ -760,6 +779,7 @@
 ✓ transcript-line
 ✓ transcript-view
 ✓ transfer-list
+✓ transition-arrow
 ✓ travel-time
 ✓ tree-item
 ✓ tree-select
@@ -775,6 +795,7 @@
 ✓ typing-indicator
 ✓ undo-redo
 ✓ undo-toast
+✓ unit-convert
 ✓ unit-input
 ✓ unit-toggle
 ✓ unread-divider
@@ -810,6 +831,7 @@
 ✓ winner-badge
 ✓ wishlist-button
 ✓ word-count
+✓ workflow-map
 ✓ workspace-switcher
 ✓ year-picker
 ✓ zoom-controls
@@ -826,8 +848,6 @@ aspect-box
 async-validation
 availability-toggle
 bar-chart
-big-number
-blocked-note
 blur-sensitive
 box-plot
 breakpoint-badge
@@ -840,7 +860,6 @@ caption-toggle
 chart-export
 chart-legend
 checklist-dot
-checkpoint-list
 chunked-upload
 click-outside
 clipboard-history
@@ -849,7 +868,6 @@ command-group
 command-item
 comparison-chart
 completeness-bar
-completion-ring
 content-placeholder
 content-warning
 content-width
@@ -858,12 +876,10 @@ coordinate-input
 countdown-ring
 csat-face
 currency-amount
-currency-switch
 data-freshness
 date-preset
 deadline-bar
 definition
-delta-pill
 density-preference
 discount-input
 distribution-bar
@@ -892,7 +908,6 @@ funnel-chart
 group-by-picker
 grouped-bar
 gutter
-handover-bar
 high-contrast
 histogram
 hotkey-badge
@@ -907,7 +922,6 @@ likert-row
 line-chart
 load-error
 media-query-note
-milestone-dot
 missing-fields
 moderation-queue
 offline-queue
@@ -916,16 +930,12 @@ outlier-flag
 partial-list
 paste-image
 payment-picker
-percent-ring
-phase-bar
 pie-chart
 place-search
 placeholder-grid
 poll-result
 portal
-precision-toggle
 preference-group
-progress-donut
 pull-quote
 quality-score
 quantile-bar
@@ -933,7 +943,6 @@ question-nav
 radar-chart
 radius-slider
 range-chart
-range-summary
 ranking-list
 read-progress
 reading-guide
@@ -944,8 +953,6 @@ report-reason
 reset-defaults
 reset-demo
 response-summary
-rollback-note
-rounding-note
 safe-area
 sample-toggle
 scan-document
@@ -965,10 +972,8 @@ spam-note
 sparkline-grid
 split-amount
 stacked-bar
-stage-gate
 stale-badge
 startup-page
-state-badge
 step-chart
 sticky-columns
 sticky-footer
@@ -980,17 +985,13 @@ table-of-contents
 tax-toggle
 theme-picker
 three-col
-threshold-bar
 timezone-clock
-tolerance-bar
 top-n-picker
 transcript-toggle
-transition-arrow
 treemap-chart
 trend-card
 trust-score
 uniqueness-check
-unit-convert
 unit-preference
 upgrade-badge
 upload-queue
@@ -998,6 +999,5 @@ usage-nudge
 vote-bar
 waterfall-chart
 whats-new-dot
-workflow-map
 working-hours
 world-clock

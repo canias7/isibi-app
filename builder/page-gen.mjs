@@ -352,6 +352,14 @@ export const UI_COMPONENTS = [
   "pros-cons", "decision-matrix", "weighted-score", "option-card",
   "trade-off-bar", "recommendation-badge", "side-by-side", "spec-row",
   "winner-badge", "shortlist-bar",
+  // Workflow and state.
+  "state-badge", "transition-arrow", "workflow-map", "phase-bar",
+  "checkpoint-list", "rollback-note", "stage-gate", "progress-donut",
+  "completion-ring", "milestone-dot", "blocked-note", "handover-bar",
+  // Numbers and units.
+  "unit-convert", "precision-toggle", "big-number", "delta-pill",
+  "tolerance-bar", "percent-ring", "currency-switch", "rounding-note",
+  "range-summary", "threshold-bar",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
