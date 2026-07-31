@@ -384,6 +384,10 @@ export const UI_COMPONENTS = [
   "drop-cap", "pull-quote", "footnote", "sidenote", "definition",
   "table-of-contents", "anchor-heading", "read-progress", "byline-compact",
   "kicker",
+  // Plumbing - headless utilities.
+  "portal", "click-outside", "scroll-lock", "drop-zone", "drag-preview",
+  "breakpoint-badge", "safe-area", "offline-queue", "idle-note",
+  "clipboard-history", "hotkey-badge", "media-query-note",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

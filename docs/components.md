@@ -1,4 +1,4 @@
-# Components (897 built, 103 to go)
+# Components (909 built, 91 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -65,6 +65,7 @@
 ✓ branch-badge
 ✓ breadcrumb
 ✓ breadcrumb-collapse
+✓ breakpoint-badge
 ✓ bubble
 ✓ build-status
 ✓ bulk-actions
@@ -112,6 +113,8 @@
 ✓ chip-list
 ✓ citation-list
 ✓ clamp-text
+✓ click-outside
+✓ clipboard-history
 ✓ cluster
 ✓ co-edit-note
 ✓ coach-mark
@@ -224,9 +227,11 @@
 ✓ draft-badge
 ✓ drag-handle
 ✓ drag-list
+✓ drag-preview
 ✓ drawer
 ✓ drawer-stack
 ✓ drop-cap
+✓ drop-zone
 ✓ dropdown-menu
 ✓ dry-run-note
 ✓ dual-list
@@ -321,6 +326,7 @@
 ✓ hint-dot
 ✓ holiday-notice
 ✓ honeypot
+✓ hotkey-badge
 ✓ hotkey-list
 ✓ hover-card
 ✓ iban-input
@@ -328,6 +334,7 @@
 ✓ icon-picker
 ✓ ics-button
 ✓ id-badge
+✓ idle-note
 ✓ image-compare
 ✓ image-crop
 ✓ image-strip
@@ -411,6 +418,7 @@
 ✓ media-caption
 ✓ media-grid
 ✓ media-object
+✓ media-query-note
 ✓ mega-menu
 ✓ membership-card
 ✓ mention-badge
@@ -464,6 +472,7 @@
 ✓ number-input
 ✓ number-scrubber
 ✓ offline-banner
+✓ offline-queue
 ✓ on-call
 ✓ open-now
 ✓ open-question
@@ -512,6 +521,7 @@
 ✓ poll-result
 ✓ popover
 ✓ popover-menu
+✓ portal
 ✓ post-meta
 ✓ postcode-input
 ✓ poster-picker
@@ -620,6 +630,7 @@
 ✓ row-group
 ✓ row-select
 ✓ rsvp-buttons
+✓ safe-area
 ✓ safe-image
 ✓ sample-data-banner
 ✓ save-draft
@@ -631,6 +642,7 @@
 ✓ screen-only
 ✓ screen-reader-note
 ✓ scroll-area
+✓ scroll-lock
 ✓ scroll-progress
 ✓ scroll-reveal
 ✓ scroll-spy
@@ -906,7 +918,6 @@ async-validation
 availability-toggle
 bar-chart
 box-plot
-breakpoint-badge
 bubble-chart
 bucket-picker
 bullet-chart
@@ -915,8 +926,6 @@ chart-export
 chart-legend
 checklist-dot
 chunked-upload
-click-outside
-clipboard-history
 combo-chart
 command-group
 command-item
@@ -931,8 +940,6 @@ date-preset
 deadline-bar
 discount-input
 distribution-bar
-drag-preview
-drop-zone
 duplicate-badge
 edge-fade
 elapsed-timer
@@ -952,20 +959,15 @@ group-by-picker
 grouped-bar
 gutter
 histogram
-hotkey-badge
-idle-note
 key-sequence
 keyboard-tip
 line-chart
-media-query-note
 missing-fields
-offline-queue
 outlier-flag
 paste-image
 payment-picker
 pie-chart
 place-search
-portal
 quality-score
 quantile-bar
 radar-chart
@@ -973,11 +975,9 @@ radius-slider
 range-chart
 relative-date
 reset-demo
-safe-area
 sample-toggle
 scan-document
 scatter-plot
-scroll-lock
 sidebar-right
 snooze-until
 sparkline-grid
