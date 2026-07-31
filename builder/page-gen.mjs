@@ -291,6 +291,12 @@ export const UI_COMPONENTS = [
   "recovery-codes", "backup-email", "security-score", "permission-matrix",
   "role-picker", "scope-list", "sso-button", "magic-link-sent",
   "verify-pending", "lockout-note", "session-expiry", "step-up-prompt",
+  // Media, past the embed.
+  "video-player", "waveform", "transcript-line", "chapter-list",
+  "subtitle-track", "playback-speed", "scrubber", "poster-picker",
+  "volume-slider", "live-badge", "viewer-count", "audio-recorder",
+  "image-crop", "image-zoom", "image-compare", "lightbox", "thumb-strip",
+  "progressive-image", "blur-up", "media-caption",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

@@ -1,4 +1,4 @@
-# Components (626 built, 374 to go)
+# Components (646 built, 354 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -24,6 +24,7 @@
 ✓ attachment
 ✓ attachment-list
 ✓ audio-player
+✓ audio-recorder
 ✓ audit-row
 ✓ author-byline
 ✓ auto-grid
@@ -46,6 +47,7 @@
 ✓ billing-summary
 ✓ blackout-dates
 ✓ block-menu
+✓ blur-up
 ✓ booking-summary
 ✓ breadcrumb
 ✓ bubble
@@ -76,6 +78,7 @@
 ✓ center-box
 ✓ centered-form
 ✓ changelog-entry
+✓ chapter-list
 ✓ char-limit-ring
 ✓ chart
 ✓ chat-composer
@@ -246,7 +249,10 @@
 ✓ icon-picker
 ✓ ics-button
 ✓ id-badge
+✓ image-compare
+✓ image-crop
 ✓ image-strip
+✓ image-zoom
 ✓ import-preview
 ✓ import-summary
 ✓ inbox-list
@@ -278,6 +284,7 @@
 ✓ lead-time
 ✓ legend
 ✓ letterhead
+✓ lightbox
 ✓ like-button
 ✓ link-card
 ✓ link-editor
@@ -285,6 +292,7 @@
 ✓ list-format
 ✓ list-row
 ✓ list-toolbar
+✓ live-badge
 ✓ live-region
 ✓ loading-overlay
 ✓ location-card
@@ -306,6 +314,7 @@
 ✓ masonry
 ✓ matrix-question
 ✓ matrix-table
+✓ media-caption
 ✓ media-grid
 ✓ media-object
 ✓ membership-card
@@ -378,10 +387,12 @@
 ✓ pickup-point
 ✓ pivot-table
 ✓ plan-card
+✓ playback-speed
 ✓ plural
 ✓ popover
 ✓ post-meta
 ✓ postcode-input
+✓ poster-picker
 ✓ presence-dot
 ✓ press-quote
 ✓ prev-next
@@ -396,6 +407,7 @@
 ✓ progress
 ✓ progress-ring
 ✓ progress-stack
+✓ progressive-image
 ✓ property-card
 ✓ prose
 ✓ quantity-input
@@ -454,6 +466,7 @@
 ✓ scroll-area
 ✓ scroll-progress
 ✓ scroll-top
+✓ scrubber
 ✓ search-facets
 ✓ search-header
 ✓ search-input
@@ -536,6 +549,7 @@
 ✓ stock-badge
 ✓ storage-bar
 ✓ store-locator
+✓ subtitle-track
 ✓ success-panel
 ✓ suggestion-mode
 ✓ suspicious-login
@@ -565,6 +579,7 @@
 ✓ textarea-count
 ✓ theme-toggle
 ✓ three-line-row
+✓ thumb-strip
 ✓ ticket-card
 ✓ ticket-row
 ✓ time-ago
@@ -584,6 +599,7 @@
 ✓ tooltip
 ✓ totals-row
 ✓ tour-step
+✓ transcript-line
 ✓ transfer-list
 ✓ travel-time
 ✓ tree-item
@@ -611,11 +627,15 @@
 ✓ verify-pending
 ✓ version-history
 ✓ video-embed
+✓ video-player
+✓ viewer-count
 ✓ virtual-list
 ✓ visually-hidden
+✓ volume-slider
 ✓ vote-buttons
 ✓ waitlist-form
 ✓ watermark
+✓ waveform
 ✓ webhook-row
 ✓ week-picker
 ✓ week-strip
@@ -640,7 +660,6 @@ area-chart
 aspect-box
 async-validation
 attachment-tray
-audio-recorder
 availability-toggle
 back-to-list
 bar-chart
@@ -648,7 +667,6 @@ big-number
 blocked-note
 blocking-overlay
 blur-sensitive
-blur-up
 box-plot
 branch-badge
 breadcrumb-collapse
@@ -663,7 +681,6 @@ caption-toggle
 celebration
 change-request
 channel-toggle
-chapter-list
 chart-export
 chart-legend
 checklist-dot
@@ -765,9 +782,6 @@ hint-dot
 histogram
 hotkey-badge
 idle-note
-image-compare
-image-crop
-image-zoom
 import-settings
 infinite-scroll
 instant-results
@@ -779,16 +793,13 @@ keyboard-tip
 kicker
 layer-list
 lazy-boundary
-lightbox
 likert-row
 line-chart
-live-badge
 live-cursor
 load-error
 load-more
 log-viewer
 magnetic-button
-media-caption
 media-query-note
 mega-menu
 mention-badge
@@ -823,11 +834,9 @@ pie-chart
 pinned-nav
 place-search
 placeholder-grid
-playback-speed
 poll-result
 popover-menu
 portal
-poster-picker
 precision-toggle
 preference-group
 presence-bar
@@ -835,7 +844,6 @@ print-preview
 priority-inbox
 progress-donut
 progress-toast
-progressive-image
 prompt-box
 prompt-history
 property-panel
@@ -888,7 +896,6 @@ screen-reader-note
 scroll-lock
 scroll-reveal
 scroll-spy
-scrubber
 sdk-tabs
 search-empty
 search-history
@@ -944,7 +951,6 @@ stopwatch
 streaming-text
 strike-badge
 subscribe-toggle
-subtitle-track
 suggestion-chips
 survey-card
 swipe-actions
@@ -959,7 +965,6 @@ theme-picker
 thinking-indicator
 three-col
 threshold-bar
-thumb-strip
 tilt-card
 timeout-note
 timezone-clock
@@ -970,7 +975,6 @@ tolerance-bar
 tool-call-card
 top-n-picker
 trade-off-bar
-transcript-line
 transcript-toggle
 transcript-view
 transition-arrow
@@ -985,14 +989,10 @@ unit-preference
 upgrade-badge
 upload-queue
 usage-nudge
-video-player
-viewer-count
 viewer-list
 voice-input
-volume-slider
 vote-bar
 waterfall-chart
-waveform
 weighted-score
 whats-new-dot
 winner-badge
