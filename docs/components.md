@@ -1,4 +1,4 @@
-# Components (1005 built, 25 to go)
+# Components (1021 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -55,6 +55,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ award-badge
 ✓ back-link
 ✓ back-to-list
+✓ backorder-note
 ✓ backup-email
 ✓ badge
 ✓ banner
@@ -98,12 +99,14 @@ A ✓ means it exists and a generated site can import it today.
 ✓ card
 ✓ card-grid
 ✓ card-input
+✓ care-icons
 ✓ carousel
 ✓ cart-line
 ✓ cart-summary
 ✓ cascading-select
 ✓ case-study-card
 ✓ category-nav
+✓ category-tile
 ✓ celebration
 ✓ cell-badge
 ✓ cell-editor
@@ -137,6 +140,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ code-diff
 ✓ code-editor
 ✓ collapsible
+✓ collection-header
 ✓ color-picker
 ✓ color-swatch
 ✓ colour-swatch
@@ -423,6 +427,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ labeled-progress
 ✓ landmark
 ✓ lang-switch
+✓ last-chance-badge
 ✓ latency-badge
 ✓ layer-list
 ✓ lazy-boundary
@@ -464,6 +469,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ marquee
 ✓ masked-input
 ✓ masonry
+✓ material-badge
 ✓ matrix-question
 ✓ matrix-table
 ✓ media-caption
@@ -485,6 +491,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ metric-delta
 ✓ metric-row
 ✓ milestone-dot
+✓ min-order-note
 ✓ mini-bars
 ✓ minimap-scroll
 ✓ missing-fields
@@ -512,6 +519,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ nav-search
 ✓ navigation-menu
 ✓ nested-list
+✓ new-in-badge
 ✓ nl-date-input
 ✓ no-results
 ✓ node-graph
@@ -570,6 +578,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ permission-matrix
 ✓ permission-row
 ✓ person-row
+✓ personalisation-field
 ✓ phase-bar
 ✓ phone-input
 ✓ pickup-point
@@ -590,10 +599,12 @@ A ✓ means it exists and a generated site can import it today.
 ✓ poster-picker
 ✓ precision-toggle
 ✓ preference-group
+✓ preorder-badge
 ✓ presence-bar
 ✓ presence-dot
 ✓ press-quote
 ✓ prev-next
+✓ price-history
 ✓ price-list
 ✓ price-tag
 ✓ pricing-table
@@ -621,6 +632,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ pulse-dot
 ✓ qr-code
 ✓ quality-score
+✓ quantity-break
 ✓ quantity-input
 ✓ quarter-picker
 ✓ query-builder
@@ -650,6 +662,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ receipt
 ✓ recent-nav
 ✓ recent-searches
+✓ recently-viewed
 ✓ recipe-card
 ✓ recommendation-badge
 ✓ record-header
@@ -764,6 +777,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ shift-badge
 ✓ shimmer
 ✓ shipping-options
+✓ shop-the-look
 ✓ short-link
 ✓ shortcut-overlay
 ✓ shortcut-row
@@ -789,6 +803,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ skeleton-text
 ✓ skill-tags
 ✓ skip-link
+✓ sku-field
 ✓ sla-badge
 ✓ slash-menu
 ✓ slide-over
@@ -989,6 +1004,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ vote-bar
 ✓ vote-buttons
 ✓ waitlist-form
+✓ warranty-badge
 ✓ watermark
 ✓ waveform
 ✓ webhook-row
@@ -1099,27 +1115,27 @@ recurrence-editor
 
 ✓ colour-swatch
 ✓ stock-level
-backorder-note
-preorder-badge
-personalisation-field
+✓ backorder-note
+✓ preorder-badge
+✓ personalisation-field
 engrave-preview
 fit-guide
-material-badge
-care-icons
-warranty-badge
-price-history
+✓ material-badge
+✓ care-icons
+✓ warranty-badge
+✓ price-history
 ✓ unit-price
 ✓ bulk-pricing
-quantity-break
-min-order-note
-sku-field
-category-tile
-collection-header
+✓ quantity-break
+✓ min-order-note
+✓ sku-field
+✓ category-tile
+✓ collection-header
 lookbook-grid
-shop-the-look
-recently-viewed
-new-in-badge
-last-chance-badge
+✓ shop-the-look
+✓ recently-viewed
+✓ new-in-badge
+✓ last-chance-badge
 
 ### Cart and checkout
 

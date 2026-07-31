@@ -428,6 +428,10 @@ export const UI_COMPONENTS = [
   "stamp-card", "poll-composer", "minimap-scroll",
   // Catalogue.
   "colour-swatch", "stock-level", "unit-price", "bulk-pricing",
+  "preorder-badge", "backorder-note", "personalisation-field", "warranty-badge",
+  "care-icons", "material-badge", "price-history", "min-order-note",
+  "sku-field", "category-tile", "new-in-badge", "last-chance-badge",
+  "quantity-break", "collection-header", "recently-viewed", "shop-the-look",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
