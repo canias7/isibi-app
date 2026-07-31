@@ -7,6 +7,7 @@
 // `destructive` sitting at 4.24:1 in dark mode.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import {
   THEMES, THEME_NAMES, paletteFor, themeCss, contrast, luminance,
   oklchToRgb, foregroundFor, shortlistForPrompt,
@@ -228,35 +229,62 @@ test("every corner treatment emits valid css, and only the usable ones are offer
   assert.ok(!("notch" in CORNERS) && !("scoop" in CORNERS));
 });
 
-test("elliptical writes the scale, because the base cannot hold a slash", () => {
-  // `--radius-md` is `calc(var(--radius) - 2px)` and you cannot subtract from a
-  // slash pair — so the derived steps are written directly. This is also the
-  // whole reason an elliptical corner is reachable at all: the utility CLASS
-  // cannot express one, but the variable it reads substitutes whatever it holds.
-  const css = cornerCss({ ...THEMES[THEME_NAMES[0]], corner: "elliptical", radius: "1.5rem" });
-  for (const step of ["sm", "md", "lg", "xl"]) {
-    assert.match(css, new RegExp(`--radius-${step}: [\\d.]+px / [\\d.]+px;`), `${step} is not elliptical`);
+test("no corner treatment writes a radius token the bundle cannot read", () => {
+  // THE GUARD THE `elliptical` TREATMENT NEEDED AND DID NOT HAVE. It wrote
+  // `--radius-sm/md/lg/xl` as slash pairs and was a silent no-op in every
+  // browser, because the template declares that scale inside `@theme inline` —
+  // and `inline` makes Tailwind substitute the value into the utility instead of
+  // referencing the variable. The compiled bundle contains
+  // `calc(var(--radius) - 2px)` and never the string `var(--radius-md)`, so the
+  // tokens are write-only. The old test asserted the emitted CSS TEXT held the
+  // slash pairs: true, and worth nothing.
+  //
+  // Derived at BOTH ends — the swallowed names are read out of the template
+  // rather than listed here, so adding a step to that block extends this guard
+  // without anyone remembering to.
+  const sheet = fs.readFileSync(
+    new URL("../builder/lovable/template/src/styles.css", import.meta.url), "utf8");
+  const inlineBlock = sheet.match(/@theme inline \{[\s\S]*?\n\}/);
+  assert.ok(inlineBlock, "the template no longer has an @theme inline block — re-derive this test");
+  const swallowed = [...inlineBlock[0].matchAll(/--(radius-[a-z0-9]+):/g)].map((m) => m[1]);
+  assert.ok(swallowed.length >= 4, `expected several radius steps, found ${swallowed.length}`);
+
+  for (const style of Object.keys(CORNERS)) {
+    const css = cornerCss({ ...THEMES[THEME_NAMES[0]], corner: style, radius: "1.5rem" });
+    for (const name of swallowed) {
+      assert.ok(!css.includes(`--${name}:`),
+        `${style} sets --${name}, which @theme inline makes unreadable at runtime`);
+    }
+    // `--radius` itself is the ONE token the utilities really do read.
+    assert.match(css, /--radius: 1\.5rem/, `${style} must still set the base radius`);
   }
-  // The vertical radius must be flatter than the horizontal, or it is a circle
-  // written the long way.
-  const pairs = [...css.matchAll(/--radius-\w+: ([\d.]+)px \/ ([\d.]+)px;/g)];
-  assert.ok(pairs.length === 4);
-  for (const [, h, v] of pairs) assert.ok(Number(v) < Number(h), "the corner is not flattened");
-  // And the steps stay in order, the way the calc() scale does.
-  const hs = pairs.map(([, h]) => Number(h));
-  assert.deepEqual(hs, [...hs].sort((a, b) => a - b), "the elliptical scale is out of order");
 });
 
-test("elliptical needs a radius big enough to see", () => {
-  // At the ledger's 4px base the scale collapses — `sm` comes out 0px / 0px and
-  // the treatment is indistinguishable from square. Not a defect in the code, a
-  // constraint on the theme: asking for elliptical with a tiny radius silently
-  // gets you nothing, and silently getting nothing is what this asserts against.
+test("squircle and bevel both reach the descendants, not just the root", () => {
+  // `corner-shape` is a box property and box properties DO NOT INHERIT. Set on
+  // the root alone it styled the root and nothing inside it, so the whole page
+  // rendered as ordinary rounded corners — which looks exactly like the browser
+  // not supporting the property. Found by rendering it; nothing else could tell.
+  for (const style of ["squircle", "bevel"]) {
+    const css = cornerCss({ ...THEMES[THEME_NAMES[0]], corner: style, radius: "0.875rem" });
+    assert.match(css, new RegExp(`corner-shape: ${style}`));
+    assert.match(css, /body \*|,\s*\*/, `${style} must select descendants or it reaches one element`);
+    // And it must still set a radius — corner-shape has nothing to act on without one.
+    assert.match(css, /--radius: 0\.875rem/);
+  }
+  // `round` is the browser default, so emitting the property for it is noise.
+  assert.ok(!/corner-shape/.test(cornerCss({ ...THEMES[THEME_NAMES[0]], corner: "round", radius: "1rem" })));
+});
+
+test("a shaped corner needs a radius big enough to see it", () => {
+  // A squircle or a bevel at 2px is indistinguishable from a square, so a theme
+  // asking for one at a tiny radius has silently got nothing — which is the
+  // failure this whole section exists to stop being invisible.
   for (const name of THEME_NAMES) {
     const t = THEMES[name];
-    if ((t.corner ?? "round") !== "elliptical") continue;
+    if ((t.corner ?? "round") === "round") continue;
     const px = parseFloat(t.radius) * (t.radius.endsWith("rem") ? 16 : 1);
-    assert.ok(px >= 12, `${name} asks for elliptical at ${px}px — too small to read as anything`);
+    assert.ok(px >= 6, `${name} asks for ${t.corner} at ${px}px — too small to read as anything`);
   }
 });
 
@@ -334,7 +362,15 @@ test("every theme is a deliberate choice, not a default", () => {
     const px = parseFloat(t.radius) * (t.radius.endsWith("rem") ? 16 : 1);
     // ~10px is shadcn's default and every SaaS product on earth. A theme landing
     // there has not chosen a radius, it has failed to choose one.
-    assert.ok(px <= 6 || px >= 14, `${name}: radius ${px}px sits in the unconsidered middle`);
+    //
+    // SCOPED TO `round`, and that is not the goalposts moving. The tell is the
+    // 10px ROUNDED RECTANGLE specifically — a squircle or a bevel at the same
+    // number is a different shape, and nobody's default. Applying the rule to
+    // them would rule out the only radii at which those treatments are visible
+    // at all, which the test below asserts they need.
+    if ((t.corner ?? "round") === "round") {
+      assert.ok(px <= 6 || px >= 14, `${name}: radius ${px}px sits in the unconsidered middle`);
+    }
     // An accent brighter than this reads as a startup, not as a trade.
     for (const mode of ["light", "dark"]) {
       assert.ok(t[mode].accent[1] <= 0.15,

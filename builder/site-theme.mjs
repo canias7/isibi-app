@@ -275,28 +275,38 @@ const SEMANTIC = {
  */
 export const CORNERS = {
   round: { label: "arcs — the ordinary corner" },
-  elliptical: { label: "wide and shallow, a lozenge corner" },
+  squircle: { label: "a continuous curve — the corner reads as moulded rather than cut out" },
   bevel: { label: "a cut corner rather than an arc — technical, ticketed" },
 };
 
 /**
- * How much flatter the vertical radius is than the horizontal, for `elliptical`.
- *
- * A ratio rather than a second length, so the whole scale stays proportional the
- * way `calc(var(--radius) ± Npx)` keeps the round one proportional.
- */
-const FLATTEN = 0.32;
-
-/**
  * The corner CSS for a theme.
  *
- * `elliptical` writes the DERIVED scale rather than the base, because the base
- * feeds `calc(var(--radius) - 4px)` and a slash pair is not something you can
- * subtract from. Writing the four steps directly is what makes it reachable at
- * all — the utility class cannot express an elliptical corner, but the variable
- * it reads substitutes whatever it holds, slash included.
+ * ONLY `--radius` IS WRITABLE, and that constraint is the whole design of this
+ * function. The template declares its radius scale inside `@theme inline`, and
+ * `inline` means Tailwind substitutes the value into the utility instead of
+ * emitting a variable reference — the compiled bundle contains
+ * `.rounded-md{border-radius:calc(var(--radius) - 2px)}` and the string
+ * `var(--radius-md)` appears in it NOWHERE. So `--radius-sm/md/lg/xl` can be set
+ * to anything at all and no element will read them.
  *
- * `bevel` needs a DESCENDANT selector, not just the root. `corner-shape` is a
+ * THAT KILLED THE `elliptical` TREATMENT, which used to live here. It wrote the
+ * four derived steps as `Xpx / Ypx` slash pairs, because the base feeds a
+ * `calc()` and a slash pair cannot be subtracted from — so writing the steps
+ * directly was the only way to express a lozenge corner. It was implemented,
+ * wired into `themeCss`, and covered by three tests, and it was a silent no-op
+ * in every browser: measured against a real build, `bourse + elliptical` and
+ * `bourse + round` at the same radius both computed to 10px on a button and 16px
+ * on a card. The tests asserted the CSS TEXT contained the slash pairs, which
+ * was true and meant nothing. Removed rather than patched — the alternative is
+ * overriding seven utility classes plus their eight directional variants while
+ * leaving `rounded-full` alone, which is fighting the framework for a shape
+ * nothing had asked for.
+ *
+ * `squircle` replaces it and works the way `bevel` does: `corner-shape` is a
+ * real box property, so it needs no token the bundle refuses to read.
+ *
+ * BOTH SHAPES NEED A DESCENDANT SELECTOR, not just the root. `corner-shape` is a
  * box property and box properties do not inherit — set on one element it styles
  * that element and nothing inside it, which renders identically to a plain
  * rounded corner and reads as the browser not supporting it.
@@ -304,20 +314,9 @@ const FLATTEN = 0.32;
 export function cornerCss(theme) {
   const style = theme.corner ?? "round";
   const r = theme.radius;
-  if (style === "elliptical") {
-    const px = parseFloat(r) * (r.endsWith("rem") ? 16 : 1);
-    const step = (d) => {
-      const h = Math.max(0, px + d);
-      return `${+h.toFixed(2)}px / ${+(h * FLATTEN).toFixed(2)}px`;
-    };
-    return `:root {\n` +
-      `  --radius: ${r};\n` +
-      `  --radius-sm: ${step(-4)};\n  --radius-md: ${step(-2)};\n` +
-      `  --radius-lg: ${step(0)};\n  --radius-xl: ${step(4)};\n}\n`;
-  }
-  if (style === "bevel") {
+  if (style === "squircle" || style === "bevel") {
     return `:root { --radius: ${r}; }\n` +
-      `body, body * { corner-shape: bevel; }\n`;
+      `body, body * { corner-shape: ${style}; }\n`;
   }
   return `:root { --radius: ${r}; }\n`;
 }
@@ -407,9 +406,9 @@ export const THEMES = {
   // Gallery, perfumery, jeweller. Square corners and a plum that is nearly
   // brown — the accent should be noticed on the second look, not the first.
   vellum: {
-    label: "Vellum — oyster paper, deep plum, square corners",
-    radius: "0rem",
-    corner: "round",
+    label: "Vellum — oyster paper, deep plum, moulded corners",
+    radius: "0.75rem",
+    corner: "squircle",
     light: { paper: [0.945, 0.007, 72], ink: [0.168, 0.014, 35], accent: [0.375, 0.095, 338] },
     dark: { paper: [0.155, 0.012, 35], ink: [0.945, 0.006, 72], accent: [0.42, 0.11, 335] },
   },
@@ -422,9 +421,9 @@ export const THEMES = {
   // the same lane, so the separation rule has to move the warning colour or a
   // caution on this site is drawn in the brand colour.
   coppice: {
-    label: "Coppice — warm stone, brass, softly squared corners",
-    radius: "0.1875rem",
-    corner: "round",
+    label: "Coppice — warm stone, brass, cut corners",
+    radius: "0.4375rem",
+    corner: "bevel",
     light: { paper: [0.928, 0.013, 92], ink: [0.198, 0.028, 152], accent: [0.505, 0.088, 80] },
     dark: { paper: [0.172, 0.022, 152], ink: [0.938, 0.01, 92], accent: [0.48, 0.092, 80] },
   },
