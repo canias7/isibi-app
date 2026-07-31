@@ -432,6 +432,10 @@ export const UI_COMPONENTS = [
   "care-icons", "material-badge", "price-history", "min-order-note",
   "sku-field", "category-tile", "new-in-badge", "last-chance-badge",
   "quantity-break", "collection-header", "recently-viewed", "shop-the-look",
+  // Cart and checkout.
+  "cart-badge", "cart-empty", "saved-for-later", "promo-field",
+  "click-collect", "delivery-window", "substitution-pref", "price-changed-note",
+  "order-review", "place-order-bar", "gift-toggle", "gift-message",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

@@ -1,4 +1,4 @@
-# Components (1021 built, 25 to go)
+# Components (1033 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -101,6 +101,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ card-input
 ✓ care-icons
 ✓ carousel
+✓ cart-badge
+✓ cart-empty
 ✓ cart-line
 ✓ cart-summary
 ✓ cascading-select
@@ -131,6 +133,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ chunked-upload
 ✓ citation-list
 ✓ clamp-text
+✓ click-collect
 ✓ click-outside
 ✓ clipboard-history
 ✓ cluster
@@ -228,6 +231,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ delivery-estimate
 ✓ delivery-slot
 ✓ delivery-status
+✓ delivery-window
 ✓ delta-pill
 ✓ density-preference
 ✓ density-toggle
@@ -356,6 +360,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ gantt-bars
 ✓ gauge
 ✓ getting-started
+✓ gift-message
+✓ gift-toggle
 ✓ glossary-item
 ✓ grid-item
 ✓ group-by-picker
@@ -544,6 +550,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ opening-hours
 ✓ option-card
 ✓ option-priced-list
+✓ order-review
 ✓ order-summary
 ✓ order-tracker
 ✓ ordinal
@@ -584,6 +591,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ pickup-point
 ✓ pinned-nav
 ✓ pivot-table
+✓ place-order-bar
 ✓ place-search
 ✓ placeholder-grid
 ✓ plan-card
@@ -604,6 +612,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ presence-dot
 ✓ press-quote
 ✓ prev-next
+✓ price-changed-note
 ✓ price-history
 ✓ price-list
 ✓ price-tag
@@ -621,6 +630,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ progress-stack
 ✓ progress-toast
 ✓ progressive-image
+✓ promo-field
 ✓ prompt-box
 ✓ prompt-history
 ✓ property-card
@@ -719,6 +729,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ sample-data-banner
 ✓ sample-toggle
 ✓ save-draft
+✓ saved-for-later
 ✓ saved-search
 ✓ saved-views
 ✓ scale-input
@@ -875,6 +886,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ streaming-text
 ✓ strike-badge
 ✓ subscribe-toggle
+✓ substitution-pref
 ✓ subtitle-track
 ✓ success-panel
 ✓ suggestion-chips
@@ -1140,29 +1152,29 @@ lookbook-grid
 ### Cart and checkout
 
 cart-drawer
-cart-badge
-cart-empty
-saved-for-later
+✓ cart-badge
+✓ cart-empty
+✓ saved-for-later
 cart-upsell
-promo-field
-gift-toggle
-gift-message
+✓ promo-field
+✓ gift-toggle
+✓ gift-message
 delivery-picker
-click-collect
+✓ click-collect
 store-picker
 address-book
 express-pay-buttons
 order-notes
-substitution-pref
+✓ substitution-pref
 invoice-toggle
 tax-number-field
 po-number-field
-delivery-window
+✓ delivery-window
 basket-merge-note
-price-changed-note
+✓ price-changed-note
 out-of-stock-item
-order-review
-place-order-bar
+✓ order-review
+✓ place-order-bar
 
 ### Orders and fulfilment
 
