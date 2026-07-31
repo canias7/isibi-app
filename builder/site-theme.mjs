@@ -5,17 +5,29 @@
 // blue cast. A barber shop and a wine bar come out identical. Typography already
 // varies per site (site-fonts.mjs); this is the other half.
 //
-// A THEME IS FOUR DECISIONS, NOT THIRTY-SEVEN. The template declares 37 tokens
+// A THEME IS SEVEN DECISIONS, NOT THIRTY-SEVEN. The template declares 37 tokens
 // in `:root` and 36 of them are colours, but they are not 36 free choices — they
 // are role PAIRS, every surface carrying a `-foreground` that has to be legible
-// on it. So a theme here is a ground, an ink, an accent and a radius, and the
-// other 32 tokens are derived. Two things follow, and both are the point:
+// on it. So the palette here is a ground, an ink and an accent, and the other 32
+// colour tokens are derived. Two things follow, and both are the point:
 //
 //   1. A derived foreground is legible BY CONSTRUCTION. It is whichever of the
 //      theme's own ink and paper actually clears contrast on that surface,
 //      measured, not whichever one looked right.
 //   2. There is very little to get wrong. A palette written out by hand has 36
 //      chances to produce unreadable text; this has four inputs and a function.
+//
+// THE OTHER SIX ARE NOT COLOURS, and a theme that only moved the palette was the
+// gap this file had until they landed: radius · corner shape · type scale ·
+// density · border weight · shadow. Plus a recommended FONT PAIR, which is the
+// one axis that already existed — `site-fonts.mjs` is wired into `worker.js` and
+// `build-server.mjs` — but was chosen independently of the theme, so a bone-paper
+// private-bank palette could arrive set in a rounded, friendly geometric.
+//
+// Which of them are reachable at all was MEASURED against a compiled bundle, not
+// assumed; see the note above `TYPE_SCALES`. Three are plain tokens, two need a
+// class override because Tailwind inlines their value at build time, and every
+// value in the tables below was read back out of a browser before it shipped.
 //
 // WHAT IS DELIBERATELY NOT THEMED. `destructive` / `success` / `warning` keep
 // their conventional hues: red-means-bad is a convention you inherit, not one
@@ -256,6 +268,180 @@ const SEMANTIC = {
   },
 };
 
+/* --------------------------------------------------- type, density and edge */
+
+/*
+ * WHAT IS ACTUALLY THEMEABLE HERE WAS MEASURED, NOT ASSUMED, and the answers
+ * split three ways. `elliptical` shipped broken for exactly this reason — a
+ * token can be set perfectly and read by nothing.
+ *
+ *   READ AT RUNTIME, so writing the token is enough:
+ *     `--text-*` and their `--text-*--line-height` companions, `--tracking-*`,
+ *     `--leading-*`, `--font-sans`, and `--spacing` — which is ONE token that
+ *     every padding, gap, margin and width utility multiplies
+ *     (`.gap-4{gap:calc(var(--spacing) * 4)}`), so the whole rhythm of a page is
+ *     a single number.
+ *
+ *   INLINED AT BUILD TIME, so only a class override reaches them:
+ *     border width (`.border{border-width:1px}` — flatly hardcoded, and
+ *     `--default-border-width` appears nowhere in the bundle) and shadow
+ *     geometry (`.shadow-md{--tw-shadow:0 4px 6px -1px …}`).
+ *
+ *   REGISTERED `inherits: false`, which is a third and nastier category:
+ *     `--tw-shadow-color` IS a live `var()` inside every shadow utility, but
+ *     `@property --tw-shadow-color{syntax:"*";inherits:false}` means a value set
+ *     on `:root` styles the root and nothing else — the same trap `corner-shape`
+ *     sets. So the tint is baked into the class overrides rather than inherited.
+ */
+
+/**
+ * How much bigger each step of the type scale is than the last.
+ *
+ * ONLY ABOVE `base`. `xs`, `sm` and `base` stay where Tailwind has them, because
+ * those are body-text sizes and shrinking them is an accessibility decision
+ * dressed up as a style one. What a theme actually changes is how far the
+ * DISPLAY sizes travel: at `compact` a 4xl heading is 2.01rem and at `grand` it
+ * is 3.44rem, which is the difference between a dense price list and a gallery.
+ */
+export const TYPE_SCALES = {
+  compact: { ratio: 1.15, label: "close steps — dense, editorial, a lot fits" },
+  standard: { ratio: 1.2, label: "the ordinary scale" },
+  grand: { ratio: 1.28, label: "far steps — headings carry, space to breathe" },
+};
+
+/** Line height as a function of the SIZE, not of the step. */
+const leadingFor = (rem) => +Math.max(1.02, Math.min(1.45, 1.55 - 0.16 * rem)).toFixed(3);
+
+const TYPE_STEPS = ["lg", "xl", "2xl", "3xl", "4xl", "5xl"];
+
+export function typeCss(scale) {
+  const { ratio } = TYPE_SCALES[scale] ?? TYPE_SCALES.standard;
+  const lines = TYPE_STEPS.map((step, i) => {
+    const rem = +Math.pow(ratio, i + 1).toFixed(4);
+    return `  --text-${step}: ${rem}rem;\n  --text-${step}--line-height: ${leadingFor(rem)};`;
+  });
+  return `:root {\n${lines.join("\n")}\n}\n`;
+}
+
+/**
+ * `--spacing`, the one number every gap, padding, margin and width multiplies.
+ *
+ * The range is deliberately narrow. Container widths are on their own scale
+ * (`--container-*`) and do not move with this, so a page's columns stay put
+ * while everything inside them loosens or tightens — past about ±20% that stops
+ * reading as density and starts reading as a layout that has come apart.
+ */
+export const DENSITIES = {
+  tight: { spacing: "0.22rem", label: "close — more on a screen, a working tool" },
+  standard: { spacing: "0.25rem", label: "the ordinary rhythm" },
+  airy: { spacing: "0.29rem", label: "open — fewer things, more room around them" },
+};
+
+export function densityCss(density) {
+  const d = DENSITIES[density] ?? DENSITIES.standard;
+  return `:root { --spacing: ${d.spacing}; }\n`;
+}
+
+/**
+ * Border weight — a class override, because 1px is hardcoded into the utility.
+ *
+ * The NUMBERED utilities (`border-2` and friends) are deliberately left alone:
+ * a page that asked for two pixels asked for two pixels, and rescaling it would
+ * mean a theme silently overruling an explicit choice in the markup.
+ */
+/*
+ * WHOLE PIXELS ONLY, and that was measured rather than assumed. The first draft
+ * had `drawn` at 1.5px, which renders as 1px — Chrome floors the USED
+ * border-width to a whole CSS pixel and does so at every device pixel ratio, so
+ * 1px, 1.25px, 1.5px and 1.75px all come back as 1px. A theme declaring `drawn`
+ * would have been `hairline` with extra steps: the same silent no-op the
+ * elliptical corner shipped as, found the same way, by reading back what the
+ * browser actually did with it.
+ */
+export const BORDERS = {
+  hairline: { width: "1px", label: "1px — the ordinary rule" },
+  drawn: { width: "2px", label: "2px — a line you can see was drawn" },
+  bold: { width: "3px", label: "3px — the border is part of the design" },
+};
+
+// Every unnumbered border utility, with the property each one sets. Listed
+// rather than globbed: `.border-2` must not be caught, and neither must
+// `.border-transparent`, which is a COLOUR utility whose name starts the same.
+const BORDER_SIDES = [
+  ["", "border-width"], ["-t", "border-top-width"], ["-r", "border-right-width"],
+  ["-b", "border-bottom-width"], ["-l", "border-left-width"],
+  ["-x", "border-inline-width"], ["-y", "border-block-width"],
+  ["-s", "border-inline-start-width"], ["-e", "border-inline-end-width"],
+];
+
+export function borderCss(weight) {
+  const w = (BORDERS[weight] ?? BORDERS.hairline).width;
+  return BORDER_SIDES.map(([sfx, prop]) => `.border${sfx} { ${prop}: ${w}; }`).join("\n") + "\n";
+}
+
+/**
+ * Elevation.
+ *
+ * The COLOUR is `color-mix(… var(--foreground) …)`, so a shadow is the theme's
+ * own ink at low opacity rather than neutral black — on warm stone a black
+ * shadow reads as dirt. It also means one block covers both modes, since
+ * `--foreground` is already whatever the mode made it.
+ *
+ * `flat` is not "no style". A print-derived design has no elevation at all, and
+ * on Vellum or Atelier a drop shadow is the single thing that would make the
+ * page look like a web template again.
+ */
+export const SHADOWS = {
+  flat: { label: "none — the page is printed, not stacked" },
+  crisp: { label: "short and close — the ordinary elevation" },
+  soft: { label: "wide and faint — light from far away" },
+};
+
+/*
+ * THE BARE `.shadow` IS IN THIS LIST BECAUSE LEAVING IT OUT BROKE IT. The kit
+ * uses `shadow` unsuffixed 22 times — Card is one of them — so a first version
+ * covering only `xs…xl` left every card on the framework's default drop shadow
+ * while `flat` reported success. Caught by reading the card's own `--tw-shadow`
+ * back out of the browser and finding the value nobody had written.
+ *
+ * Keyed by SUFFIX, with "" meaning the bare utility, so the list is the thing
+ * a test can compare against what the component kit actually uses.
+ */
+export const SHADOW_STEPS = ["xs", "sm", "", "md", "lg", "xl", "2xl"];
+
+const SHADOW_GEOMETRY = {
+  crisp: {
+    xs: [[0, 1, 2, 0, 5]],
+    sm: [[0, 1, 3, 0, 10], [0, 1, 2, -1, 10]],
+    "": [[0, 1, 3, 0, 10], [0, 1, 2, -1, 10]],
+    md: [[0, 4, 6, -1, 10], [0, 2, 4, -2, 10]],
+    lg: [[0, 10, 15, -3, 10], [0, 4, 6, -4, 10]],
+    xl: [[0, 20, 25, -5, 10], [0, 8, 10, -6, 10]],
+    "2xl": [[0, 25, 50, -12, 14]],
+  },
+  soft: {
+    xs: [[0, 2, 6, -2, 5]],
+    sm: [[0, 4, 12, -4, 7]],
+    "": [[0, 4, 12, -4, 7]],
+    md: [[0, 8, 24, -6, 8]],
+    lg: [[0, 16, 40, -10, 9]],
+    xl: [[0, 28, 64, -16, 10]],
+    "2xl": [[0, 40, 90, -24, 12]],
+  },
+};
+
+const shadowSel = (step) => `.shadow${step ? "-" + step : ""}`;
+
+export function shadowCss(style) {
+  const geo = SHADOW_GEOMETRY[style];
+  if (!geo) return SHADOW_STEPS.map((s) => `${shadowSel(s)} { --tw-shadow: 0 0 #0000; }`).join("\n") + "\n";
+  return SHADOW_STEPS.map((s) => {
+    const layers = geo[s].map(([x, y, blur, spread, pct]) =>
+      `${x} ${y}px ${blur}px ${spread}px color-mix(in oklch, var(--foreground) ${pct}%, transparent)`);
+    return `${shadowSel(s)} { --tw-shadow: ${layers.join(", ")}; }`;
+  }).join("\n") + "\n";
+}
+
 /* ------------------------------------------------------------------ corners */
 
 /**
@@ -334,6 +520,8 @@ export const THEMES = {
     label: "Ledger — warm paper, oxblood, tight corners",
     radius: "0.25rem",
     corner: "round",
+    scale: "standard", density: "standard", border: "hairline", shadow: "crisp",
+    fonts: { heading: "source-sans-3", body: "source-sans-3" },
     light: { paper: [0.985, 0.006, 95], ink: [0.22, 0.014, 60], accent: [0.46, 0.14, 28] },
     dark: { paper: [0.19, 0.012, 60], ink: [0.96, 0.005, 95], accent: [0.63, 0.13, 30] },
   },
@@ -352,6 +540,8 @@ export const THEMES = {
     label: "Atrium — cool light, calm green, soft corners",
     radius: "1rem",
     corner: "round",
+    scale: "standard", density: "airy", border: "hairline", shadow: "soft",
+    fonts: { heading: "figtree", body: "source-sans-3" },
     light: { paper: [0.985, 0.004, 230], ink: [0.21, 0.012, 240], accent: [0.48, 0.09, 165] },
     dark: { paper: [0.18, 0.012, 240], ink: [0.96, 0.004, 230], accent: [0.68, 0.1, 168] },
   },
@@ -399,6 +589,8 @@ export const THEMES = {
     label: "Bourse — bone paper, deep indigo, near-square corners",
     radius: "0.125rem",
     corner: "round",
+    scale: "compact", density: "tight", border: "drawn", shadow: "flat",
+    fonts: { heading: "eb-garamond", body: "public-sans" },
     light: { paper: [0.932, 0.008, 88], ink: [0.175, 0.018, 262], accent: [0.34, 0.075, 264] },
     dark: { paper: [0.165, 0.016, 262], ink: [0.94, 0.006, 88], accent: [0.44, 0.115, 264] },
   },
@@ -409,6 +601,8 @@ export const THEMES = {
     label: "Vellum — oyster paper, deep plum, moulded corners",
     radius: "0.75rem",
     corner: "squircle",
+    scale: "grand", density: "airy", border: "hairline", shadow: "flat",
+    fonts: { heading: "playfair-display", body: "lora" },
     light: { paper: [0.945, 0.007, 72], ink: [0.168, 0.014, 35], accent: [0.375, 0.095, 338] },
     dark: { paper: [0.155, 0.012, 35], ink: [0.945, 0.006, 72], accent: [0.42, 0.11, 335] },
   },
@@ -424,6 +618,8 @@ export const THEMES = {
     label: "Coppice — warm stone, brass, cut corners",
     radius: "0.4375rem",
     corner: "bevel",
+    scale: "standard", density: "standard", border: "drawn", shadow: "flat",
+    fonts: { heading: "roboto-slab", body: "ibm-plex-sans" },
     light: { paper: [0.928, 0.013, 92], ink: [0.198, 0.028, 152], accent: [0.505, 0.088, 80] },
     dark: { paper: [0.172, 0.022, 152], ink: [0.938, 0.01, 92], accent: [0.48, 0.092, 80] },
   },
@@ -437,6 +633,8 @@ export const THEMES = {
     label: "Atelier — chalk paper, near-black accent, square corners",
     radius: "0rem",
     corner: "round",
+    scale: "grand", density: "airy", border: "bold", shadow: "flat",
+    fonts: { heading: "instrument-sans", body: "instrument-sans" },
     light: { paper: [0.955, 0.003, 96], ink: [0.145, 0.005, 92], accent: [0.245, 0.012, 88] },
     dark: { paper: [0.135, 0.005, 92], ink: [0.955, 0.003, 96], accent: [0.86, 0.008, 94] },
   },
@@ -523,11 +721,21 @@ export function themeCss(name) {
     const lines = Object.entries(p).map(([k, v]) => `  --${k}: ${css(v)};`);
     return `${sel} {\n${lines.join("\n")}\n}`;
   };
-  // The corner block is separate from the palette blocks because it is not a
-  // colour and, for two of the three treatments, not a single declaration
-  // either — `elliptical` writes four scale steps and `bevel` adds a selector.
+  // The non-colour blocks are separate from the palette blocks because they are
+  // not colours and several of them are not single declarations either — the
+  // shaped corners add a selector, and border and shadow are class overrides.
+  //
+  // ORDER MATTERS ONCE, at the end: the class overrides must come after the
+  // token blocks, because `shadowCss` mixes against `var(--foreground)` and the
+  // border overrides are ordinary rules competing on source order with the
+  // utilities they replace.
   return `/* theme: ${name} — generated by builder/site-theme.mjs */\n` +
-    block(":root", "light") + "\n\n" + block(".dark", "dark") + "\n\n" + cornerCss(theme);
+    block(":root", "light") + "\n\n" + block(".dark", "dark") + "\n\n" +
+    cornerCss(theme) + "\n" +
+    typeCss(theme.scale) + "\n" +
+    densityCss(theme.density) + "\n" +
+    borderCss(theme.border) + "\n" +
+    shadowCss(theme.shadow);
 }
 
 /** What the model may choose from — an enum, so an invalid theme is impossible. */

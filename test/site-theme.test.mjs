@@ -13,7 +13,9 @@ import {
   oklchToRgb, foregroundFor, shortlistForPrompt,
   distance, hueGap, separateFromAccent, MIN_STATE_SEPARATION, SAME_LANE_DEGREES,
   CORNERS, cornerCss, fitState, temperState, STATE_CHROMA_RATIO, MIN_STATE_CHROMA,
+  TYPE_SCALES, typeCss, DENSITIES, densityCss, BORDERS, borderCss, SHADOWS, shadowCss,
 } from "../builder/site-theme.mjs";
+import { SHORTLIST } from "../builder/site-fonts.mjs";
 
 const PAIRS = [
   ["background", "foreground"], ["card", "card-foreground"], ["popover", "popover-foreground"],
@@ -200,12 +202,25 @@ test("every emitted value is a real oklch triple", () => {
   // A NaN or an undefined here is a CSS declaration the browser drops silently,
   // leaving that one token on the stock palette with nothing to show for it.
   const css = themeCss("ledger");
-  for (const m of css.matchAll(/--[a-z-]+: ([^;]+);/g)) {
-    const v = m[1];
-    if (v.endsWith("rem")) continue;
-    assert.match(v, /^oklch\(-?\d+(\.\d+)? -?\d+(\.\d+)? -?\d+(\.\d+)?\)$/, `bad value ${v}`);
-    assert.ok(!/NaN|undefined/.test(v));
+  // WHICH tokens must be colours is DERIVED from the palette, not from a shape
+  // in the text. The first version skipped anything ending in `rem` and demanded
+  // oklch of everything else, which was true until the type scale started
+  // emitting unitless line heights — a correct value failing a test about
+  // colours. Deriving the names means a new non-colour axis cannot break it, and
+  // a colour that stops being one still fails.
+  const colourTokens = new Set(Object.keys(paletteFor(THEMES.ledger, "light")));
+  let checked = 0;
+  for (const m of css.matchAll(/--([a-z0-9-]+): ([^;]+);/g)) {
+    const [, name, v] = m;
+    if (colourTokens.has(name)) {
+      assert.match(v, /^oklch\(-?\d+(\.\d+)? -?\d+(\.\d+)? -?\d+(\.\d+)?\)$/, `bad colour ${name}: ${v}`);
+      checked++;
+    }
+    // Every token, colour or not: a NaN or an undefined is a declaration the
+    // browser drops silently, leaving that one value on the stock default.
+    assert.ok(!/NaN|undefined/.test(v), `${name} emitted ${v}`);
   }
+  assert.ok(checked >= colourTokens.size, `only ${checked} of ${colourTokens.size} colour tokens were seen`);
 });
 
 test("every corner treatment emits valid css, and only the usable ones are offered", () => {
@@ -298,6 +313,134 @@ test("bevel reaches the descendants, not just the root", () => {
   assert.match(css, /body \*|,\s*\*/, "bevel must select descendants or it reaches one element");
   // And it must still set a radius — corner-shape has nothing to act on without one.
   assert.match(css, /--radius: 0\.875rem/);
+});
+
+test("every shadow utility the KIT uses is one a theme can turn off", () => {
+  // THE GUARD FOR THE BUG THIS AXIS SHIPPED WITH. The first version covered
+  // `xs…xl` and missed the BARE `.shadow`, which the kit uses 22 times — Card
+  // among them — so every `flat` theme still had the framework's drop shadow on
+  // every card while the code reported success. Nothing in the CSS said so; it
+  // was found by reading `--tw-shadow` back off a rendered card.
+  //
+  // Derived from the component kit, so a component adopting a new step fails
+  // here rather than quietly escaping the theme.
+  const dir = new URL("../builder/lovable/template/src/components/ui/", import.meta.url);
+  const used = new Set();
+  for (const f of fs.readdirSync(dir)) {
+    if (!f.endsWith(".tsx")) continue;
+    const src = fs.readFileSync(new URL(f, dir), "utf8");
+    // `shadow` or `shadow-<step>` as a whole class token. `shadow-none` is
+    // excluded: it is a page asking for no shadow, which every style honours.
+    for (const m of src.matchAll(/(?<![\w-])shadow(-(?:xs|sm|md|lg|xl|2xl))?(?![\w-])/g)) {
+      used.add(m[1] ? m[1].slice(1) : "");
+    }
+  }
+  assert.ok(used.size >= 4, `expected several shadow steps in the kit, found ${used.size}`);
+  assert.ok(used.has(""), "the bare `shadow` should be in the kit — re-derive this test if it has gone");
+  for (const style of Object.keys(SHADOWS)) {
+    const css = shadowCss(style);
+    for (const step of used) {
+      const sel = `.shadow${step ? "-" + step : ""} {`;
+      assert.ok(css.includes(sel), `${style} does not override ${sel.trim()}, which the kit uses`);
+    }
+  }
+});
+
+test("a border weight is a whole pixel, or it is the weight below it", () => {
+  // MEASURED, not assumed: Chrome floors the USED border-width to a whole CSS
+  // pixel at EVERY device pixel ratio, so 1px, 1.25px, 1.5px and 1.75px all
+  // render as 1px. `drawn` shipped at 1.5px in the first draft, which made it
+  // `hairline` under a different name — the elliptical failure again, one axis
+  // over.
+  const seen = new Set();
+  for (const [name, { width }] of Object.entries(BORDERS)) {
+    assert.match(width, /^\d+px$/, `${name} is ${width}; a fraction of a pixel is floored away`);
+    assert.ok(!seen.has(width), `${name} is ${width}, which another weight already is`);
+    seen.add(width);
+  }
+  // And the numbered utilities are left alone — a page that wrote `border-2`
+  // asked for two pixels, and a theme must not overrule the markup.
+  const css = borderCss("bold");
+  assert.ok(!/\.border-\d/.test(css), "a theme is rewriting an explicit border-2");
+  assert.ok(!/\.border-(transparent|input|primary)/.test(css), "a colour utility was caught by the selector");
+});
+
+test("the type scale moves the display sizes and leaves body text alone", () => {
+  // Shrinking `sm` or `base` is an accessibility decision wearing a style
+  // costume, so the scale only acts above `base`.
+  for (const scale of Object.keys(TYPE_SCALES)) {
+    const css = typeCss(scale);
+    for (const step of ["xs", "sm", "base"]) {
+      assert.ok(!css.includes(`--text-${step}:`), `${scale} moves --text-${step}, which is body text`);
+    }
+    const sizes = [...css.matchAll(/--text-[a-z0-9]+: ([\d.]+)rem;/g)].map((m) => Number(m[1]));
+    assert.ok(sizes.length >= 6, `${scale} emitted only ${sizes.length} steps`);
+    assert.deepEqual(sizes, [...sizes].sort((a, b) => a - b), `${scale} is out of order`);
+    assert.ok(sizes[0] > 1, `${scale} starts below the base size`);
+    // Leading tightens as type grows — a display size set at body leading looks
+    // double-spaced, and that is most of what makes big type look amateur.
+    const leads = [...css.matchAll(/--line-height: ([\d.]+);/g)].map((m) => Number(m[1]));
+    assert.deepEqual(leads, [...leads].sort((a, b) => b - a), `${scale}: leading does not tighten as size grows`);
+    // Monotonic is not enough — a CONSTANT leading is trivially sorted, and a
+    // mutation setting every step to 1.4 survived this test until the gap was
+    // asserted as well. Display type set at body leading is most of what makes
+    // big type look amateur, so the drop has to be real.
+    assert.ok(leads[0] - leads.at(-1) >= 0.15,
+      `${scale}: leading only drops ${(leads[0] - leads.at(-1)).toFixed(3)} across the whole scale`);
+    assert.ok(leads.at(-1) >= 1, "a line height under 1 clips ascenders");
+  }
+  // The scales must actually differ, or naming three of them is theatre.
+  const big = (s) => Number(typeCss(s).match(/--text-4xl: ([\d.]+)rem/)[1]);
+  assert.ok(big("grand") > big("standard") * 1.2, "grand is not meaningfully grander");
+  assert.ok(big("compact") < big("standard") * 0.9, "compact is not meaningfully more compact");
+});
+
+test("density is one token, and the range stays inside what a layout survives", () => {
+  for (const [name, { spacing }] of Object.entries(DENSITIES)) {
+    assert.match(spacing, /^0\.\d+rem$/, `${name} is ${spacing}`);
+    const px = parseFloat(spacing) * 16;
+    // `--spacing` multiplies widths as well as padding, and container widths do
+    // NOT move with it, so past about a fifth either way the two scales come
+    // apart and the page reads as broken rather than as dense.
+    assert.ok(Math.abs(px - 4) / 4 <= 0.2, `${name} is ${px}px, more than 20% off the 4px base`);
+  }
+  assert.equal((densityCss("standard").match(/--spacing/g) || []).length, 1,
+    "density must be ONE token — that is the entire reason it is a single lever");
+  assert.match(densityCss("nonsense"), /--spacing: 0\.25rem/, "an unknown density must fall back, not emit nothing");
+});
+
+test("every theme declares every axis, with a value the axis offers", () => {
+  // A theme missing an axis silently gets the fallback, which reads in a diff as
+  // a deliberate choice of the ordinary value and is not one.
+  const AXES = [["scale", TYPE_SCALES], ["density", DENSITIES], ["border", BORDERS], ["shadow", SHADOWS], ["corner", CORNERS]];
+  for (const name of THEME_NAMES) {
+    const t = THEMES[name];
+    for (const [key, table] of AXES) {
+      assert.ok(t[key], `${name} declares no ${key}`);
+      assert.ok(key in table === false || table[t[key]], `${name}.${key} is "${t[key]}", which is not on offer`);
+    }
+    assert.ok(t.fonts?.heading && t.fonts?.body, `${name} recommends no font pair`);
+  }
+  // And every option is USED by something. An option nothing picks is the
+  // capability-nobody-reaches pattern this repo has hit four times.
+  for (const [key, table] of AXES) {
+    for (const option of Object.keys(table)) {
+      assert.ok(THEME_NAMES.some((n) => THEMES[n][key] === option),
+        `no theme uses ${key}: "${option}" — either use it or take it out`);
+    }
+  }
+});
+
+test("the recommended font pair is a real entry in the font shortlist", () => {
+  // A name that is not installed produces a site whose CSS points at a font
+  // never bundled — it renders as the fallback and looks like nothing happened,
+  // which is what site-fonts.mjs already asserts about its own list.
+  const ids = new Set(SHORTLIST.map((f) => f.id));
+  for (const name of THEME_NAMES) {
+    const { heading, body } = THEMES[name].fonts;
+    assert.ok(ids.has(heading), `${name}: heading font "${heading}" is not in the shortlist`);
+    assert.ok(ids.has(body), `${name}: body font "${body}" is not in the shortlist`);
+  }
 });
 
 test("the shortlist is usable as a tool enum", () => {
