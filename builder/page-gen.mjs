@@ -315,6 +315,12 @@ export const UI_COMPONENTS = [
   "popover-menu", "rich-tooltip", "coach-mark", "hint-dot", "nudge-bubble",
   "celebration", "blocking-overlay", "timeout-note", "slide-over",
   "confirm-inline", "dismiss-all",
+  // Motion and gesture. No animation runtime anywhere.
+  "parallax", "tilt-card", "count-up", "typewriter", "confetti", "ripple",
+  "drag-list", "sortable-list", "swipe-actions", "resize-handle",
+  "pull-to-refresh", "infinite-scroll", "snap-carousel", "magnetic-button",
+  "flip-card", "stagger-list", "shake-error", "pulse-dot", "morph-height",
+  "scroll-reveal",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

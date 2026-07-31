@@ -1,4 +1,4 @@
-# Components (700 built, 300 to go)
+# Components (720 built, 280 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -118,6 +118,7 @@
 ✓ comparison-columns
 ✓ comparison-table
 ✓ conditional-field
+✓ confetti
 ✓ confirm-dialog
 ✓ confirm-field
 ✓ confirm-inline
@@ -136,6 +137,7 @@
 ✓ copy-button
 ✓ copy-response
 ✓ count-badge
+✓ count-up
 ✓ countdown
 ✓ country-select
 ✓ coupon-input
@@ -182,6 +184,7 @@
 ✓ download-card
 ✓ draft-badge
 ✓ drag-handle
+✓ drag-list
 ✓ drawer
 ✓ dropdown-menu
 ✓ dry-run-note
@@ -227,6 +230,7 @@
 ✓ filter-bar
 ✓ find-replace
 ✓ first-run
+✓ flip-card
 ✓ focus-mode
 ✓ focus-trap
 ✓ font-picker
@@ -276,6 +280,7 @@
 ✓ import-summary
 ✓ inbox-list
 ✓ incident-item
+✓ infinite-scroll
 ✓ initials
 ✓ inline
 ✓ inline-alert
@@ -324,6 +329,7 @@
 ✓ logo
 ✓ logo-cloud
 ✓ magic-link-sent
+✓ magnetic-button
 ✓ maintenance-notice
 ✓ maintenance-page
 ✓ map-embed
@@ -356,6 +362,7 @@
 ✓ moderation-note
 ✓ money
 ✓ month-picker
+✓ morph-height
 ✓ multi-column-list
 ✓ multi-select
 ✓ multi-sort
@@ -395,6 +402,7 @@
 ✓ page-title
 ✓ pagination
 ✓ panel
+✓ parallax
 ✓ partial-failure
 ✓ party-size
 ✓ passkey-prompt
@@ -438,6 +446,8 @@
 ✓ prompt-history
 ✓ property-card
 ✓ prose
+✓ pull-to-refresh
+✓ pulse-dot
 ✓ quantity-input
 ✓ quarter-picker
 ✓ query-params
@@ -470,6 +480,7 @@
 ✓ required-mark
 ✓ reset-form
 ✓ resizable
+✓ resize-handle
 ✓ response-rating
 ✓ result-count
 ✓ retry-panel
@@ -480,6 +491,7 @@
 ✓ review-stars
 ✓ rich-text
 ✓ rich-tooltip
+✓ ripple
 ✓ role-badge
 ✓ role-picker
 ✓ room-card
@@ -499,6 +511,7 @@
 ✓ screen-only
 ✓ scroll-area
 ✓ scroll-progress
+✓ scroll-reveal
 ✓ scroll-top
 ✓ scrubber
 ✓ sdk-tabs
@@ -526,6 +539,7 @@
 ✓ setting-item
 ✓ settings-nav
 ✓ setup-checklist
+✓ shake-error
 ✓ share-buttons
 ✓ share-preview
 ✓ sheet
@@ -556,10 +570,12 @@
 ✓ slow-note
 ✓ slug-input
 ✓ snackbar
+✓ snap-carousel
 ✓ social-links
 ✓ sonner
 ✓ sort-select
 ✓ sortable-header
+✓ sortable-list
 ✓ source-card
 ✓ spacer
 ✓ spacing-picker
@@ -571,6 +587,7 @@
 ✓ sso-button
 ✓ stack
 ✓ stack-trace
+✓ stagger-list
 ✓ stale-data-note
 ✓ stat-card
 ✓ stats-band
@@ -597,6 +614,7 @@
 ✓ suggestion-chips
 ✓ suggestion-mode
 ✓ suspicious-login
+✓ swipe-actions
 ✓ swipeable-row
 ✓ switch
 ✓ switch-row
@@ -630,6 +648,7 @@
 ✓ thumb-strip
 ✓ ticket-card
 ✓ ticket-row
+✓ tilt-card
 ✓ time-ago
 ✓ time-input
 ✓ time-range
@@ -664,6 +683,7 @@
 ✓ two-col
 ✓ two-factor-setup
 ✓ two-line-row
+✓ typewriter
 ✓ typing-indicator
 ✓ undo-redo
 ✓ undo-toast
@@ -746,7 +766,6 @@ comment-pin
 comparison-chart
 completeness-bar
 completion-ring
-confetti
 conflict-merge
 content-placeholder
 content-warning
@@ -755,7 +774,6 @@ context-panel
 contrast-check
 coordinate-input
 copy-link
-count-up
 countdown-ring
 csat-face
 currency-amount
@@ -775,7 +793,6 @@ discount-input
 distribution-bar
 dock
 download-menu
-drag-list
 drag-preview
 drawer-stack
 drop-cap
@@ -799,7 +816,6 @@ field-warning
 file-preview
 filter-preset
 filter-tree
-flip-card
 floating-toolbar
 focus-list
 folder-path
@@ -818,7 +834,6 @@ histogram
 hotkey-badge
 idle-note
 import-settings
-infinite-scroll
 instant-results
 jump-to
 key-sequence
@@ -832,14 +847,12 @@ line-chart
 live-cursor
 load-error
 load-more
-magnetic-button
 media-query-note
 mega-menu
 mention-badge
 milestone-dot
 missing-fields
 moderation-queue
-morph-height
 multi-sort-picker
 mute-schedule
 nav-badge
@@ -853,7 +866,6 @@ option-card
 outlier-flag
 pane-tabs
 panel-group
-parallax
 partial-list
 paste-image
 payment-picker
@@ -875,8 +887,6 @@ progress-donut
 property-panel
 pros-cons
 pull-quote
-pull-to-refresh
-pulse-dot
 qr-code
 quality-score
 quantile-bar
@@ -900,11 +910,9 @@ report-reason
 reset-defaults
 reset-demo
 resizable-columns
-resize-handle
 resolve-thread
 response-summary
 result-preview
-ripple
 rollback-note
 rounding-note
 safe-area
@@ -914,7 +922,6 @@ scan-document
 scatter-plot
 screen-reader-note
 scroll-lock
-scroll-reveal
 scroll-spy
 search-empty
 search-history
@@ -922,7 +929,6 @@ search-scope
 search-shortcut
 section-nav
 sentiment-chip
-shake-error
 share-invite
 share-sheet
 shimmer
@@ -937,12 +943,10 @@ sidenote
 sitemap-list
 skeleton-form
 skeleton-list
-snap-carousel
 snap-sections
 snooze-menu
 snooze-until
 social-preview
-sortable-list
 source-label
 spam-note
 sparkline-grid
@@ -951,7 +955,6 @@ split-amount
 split-pane
 stacked-bar
 stage-gate
-stagger-list
 stale-badge
 startup-page
 state-badge
@@ -963,7 +966,6 @@ stopwatch
 strike-badge
 subscribe-toggle
 survey-card
-swipe-actions
 tab-order-note
 tab-overflow
 table-of-contents
@@ -971,7 +973,6 @@ tax-toggle
 theme-picker
 three-col
 threshold-bar
-tilt-card
 timezone-clock
 toast-queue
 tolerance-bar
@@ -982,7 +983,6 @@ transition-arrow
 treemap-chart
 trend-card
 trust-score
-typewriter
 typing-dots
 uniqueness-check
 unit-convert
