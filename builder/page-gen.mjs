@@ -407,6 +407,9 @@ export const UI_COMPONENTS = [
   // Is this data any good?
   "completeness-bar", "missing-fields", "data-freshness", "outlier-flag",
   "duplicate-badge", "quality-score",
+  // Getting files in.
+  "chunked-upload", "upload-queue", "paste-image", "camera-capture",
+  "scan-document", "file-preview", "folder-tree", "folder-path",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

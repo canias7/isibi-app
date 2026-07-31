@@ -1,4 +1,4 @@
-# Components (949 built, 51 to go)
+# Components (957 built, 43 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -82,6 +82,7 @@
 ✓ calendar
 ✓ calendar-month
 ✓ callout
+✓ camera-capture
 ✓ cancel-policy
 ✓ canned-reply
 ✓ capacity-bar
@@ -116,6 +117,7 @@
 ✓ checklist-dot
 ✓ checkpoint-list
 ✓ chip-list
+✓ chunked-upload
 ✓ citation-list
 ✓ clamp-text
 ✓ click-outside
@@ -297,6 +299,7 @@
 ✓ figure
 ✓ file-drop
 ✓ file-list
+✓ file-preview
 ✓ file-row
 ✓ file-size
 ✓ file-type-icon
@@ -310,6 +313,8 @@
 ✓ focus-list
 ✓ focus-mode
 ✓ focus-trap
+✓ folder-path
+✓ folder-tree
 ✓ follow-changes
 ✓ font-picker
 ✓ footer-summary
@@ -527,6 +532,7 @@
 ✓ password-input
 ✓ password-strength
 ✓ paste-clean
+✓ paste-image
 ✓ paste-table
 ✓ payment-methods
 ✓ percent-input
@@ -667,6 +673,7 @@
 ✓ saved-search
 ✓ saved-views
 ✓ scale-input
+✓ scan-document
 ✓ schema-viewer
 ✓ scope-list
 ✓ screen-only
@@ -909,6 +916,7 @@
 ✓ unread-divider
 ✓ upgrade-badge
 ✓ upload-progress
+✓ upload-queue
 ✓ uptime-bar
 ✓ url-input
 ✓ usage-meter
@@ -957,10 +965,8 @@ bar-chart
 box-plot
 bubble-chart
 bullet-chart
-camera-capture
 chart-export
 chart-legend
-chunked-upload
 combo-chart
 comparison-chart
 content-width
@@ -969,16 +975,12 @@ currency-amount
 discount-input
 distribution-bar
 edge-fade
-file-preview
-folder-path
-folder-tree
 full-bleed
 funnel-chart
 grouped-bar
 gutter
 histogram
 line-chart
-paste-image
 payment-picker
 pie-chart
 place-search
@@ -986,7 +988,6 @@ quantile-bar
 radar-chart
 radius-slider
 range-chart
-scan-document
 scatter-plot
 sidebar-right
 sparkline-grid
@@ -999,5 +1000,4 @@ tax-toggle
 three-col
 treemap-chart
 trend-card
-upload-queue
 waterfall-chart
