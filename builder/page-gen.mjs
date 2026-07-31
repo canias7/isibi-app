@@ -249,6 +249,12 @@ export const UI_COMPONENTS = [
   "person-row", "presence-dot", "role-badge", "org-chart", "skill-tags",
   "on-call", "handoff-note", "availability-legend", "capacity-bar",
   "mention-picker", "directory-list", "approval-chain",
+  // ── The sixth hundred (2026-07-31) ────────────────────────────────────────
+  // Editing and document state. Every product that lets somebody write
+  // anything needs these, and not one of them existed.
+  "markdown-editor", "markdown-preview", "format-toolbar", "paste-clean",
+  "undo-redo", "char-limit-ring", "dirty-indicator", "draft-badge",
+  "lock-indicator", "revert-button",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

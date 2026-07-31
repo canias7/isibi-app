@@ -1,4 +1,4 @@
-# Components (500 built, 500 to go)
+# Components (510 built, 490 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -65,6 +65,7 @@
 ✓ center-box
 ✓ centered-form
 ✓ changelog-entry
+✓ char-limit-ring
 ✓ chart
 ✓ chat-composer
 ✓ chat-message
@@ -124,6 +125,7 @@
 ✓ diff-text
 ✓ direction
 ✓ directory-list
+✓ dirty-indicator
 ✓ dish-card
 ✓ distance-badge
 ✓ divider-text
@@ -132,6 +134,7 @@
 ✓ donut-mini
 ✓ dot-plot
 ✓ download-card
+✓ draft-badge
 ✓ drawer
 ✓ dropdown-menu
 ✓ dry-run-note
@@ -174,6 +177,7 @@
 ✓ form-progress
 ✓ form-row
 ✓ form-section
+✓ format-toolbar
 ✓ gallery
 ✓ gauge
 ✓ getting-started
@@ -233,12 +237,15 @@
 ✓ live-region
 ✓ loading-overlay
 ✓ location-card
+✓ lock-indicator
 ✓ login-form
 ✓ logo
 ✓ logo-cloud
 ✓ maintenance-notice
 ✓ maintenance-page
 ✓ map-embed
+✓ markdown-editor
+✓ markdown-preview
 ✓ marker
 ✓ marquee
 ✓ masonry
@@ -295,6 +302,7 @@
 ✓ partial-failure
 ✓ party-size
 ✓ password-input
+✓ paste-clean
 ✓ paste-table
 ✓ payment-methods
 ✓ percent-input
@@ -349,6 +357,7 @@
 ✓ result-count
 ✓ retry-panel
 ✓ reveal
+✓ revert-button
 ✓ review-card
 ✓ review-form
 ✓ review-stars
@@ -477,6 +486,7 @@
 ✓ two-col
 ✓ two-factor-setup
 ✓ typing-indicator
+✓ undo-redo
 ✓ undo-toast
 ✓ unit-input
 ✓ unread-divider
@@ -549,7 +559,6 @@ cell-sparkline
 change-request
 channel-toggle
 chapter-list
-char-limit-ring
 chart-export
 chart-legend
 checkbox-tree
@@ -617,13 +626,11 @@ device-list
 did-you-mean
 diff-stat
 digest-row
-dirty-indicator
 discount-input
 dismiss-all
 distribution-bar
 dock
 download-menu
-draft-badge
 drag-handle
 drag-list
 drag-preview
@@ -673,7 +680,6 @@ footnote
 form-diff
 form-lock
 format-hint
-format-toolbar
 frozen-columns
 full-bleed
 funnel-chart
@@ -715,14 +721,11 @@ live-badge
 live-cursor
 load-error
 load-more
-lock-indicator
 lockout-note
 log-viewer
 login-history
 magic-link-sent
 magnetic-button
-markdown-editor
-markdown-preview
 masked-input
 matrix-table
 media-caption
@@ -760,7 +763,6 @@ parallax
 partial-list
 passkey-prompt
 password-strength
-paste-clean
 paste-image
 payment-picker
 percent-ring
@@ -829,7 +831,6 @@ resolve-thread
 response-rating
 response-summary
 result-preview
-revert-button
 rich-text
 rich-tooltip
 ripple
@@ -972,7 +973,6 @@ trust-score
 two-line-row
 typewriter
 typing-dots
-undo-redo
 uniqueness-check
 unit-convert
 unit-preference
