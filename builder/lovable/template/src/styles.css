@@ -378,3 +378,118 @@
     }
   }
 }
+
+/* ---------------------------------------------------------------------------
+   The rest of the house set. Spec: builder/MOTION.md
+   -------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  /* STAGGER — a list arriving together: services, a menu, opening hours.
+     Delay by position rather than by a variable each item has to carry, so the
+     markup stays a plain list. CAPPED AT EIGHT on purpose: past that the last
+     row is waiting most of a second for nothing, which reads as the page being
+     slow rather than as the list arriving. Everything after the eighth shares
+     the eighth's delay. */
+  .motion-stagger > * {
+    transition:
+      opacity var(--dur-2) var(--ease-emphasis),
+      translate var(--dur-2) var(--ease-emphasis);
+    transition-delay: calc(7 * 45ms);
+  }
+  .motion-stagger > *:nth-child(1) { transition-delay: 0ms; }
+  .motion-stagger > *:nth-child(2) { transition-delay: 45ms; }
+  .motion-stagger > *:nth-child(3) { transition-delay: 90ms; }
+  .motion-stagger > *:nth-child(4) { transition-delay: 135ms; }
+  .motion-stagger > *:nth-child(5) { transition-delay: 180ms; }
+  .motion-stagger > *:nth-child(6) { transition-delay: 225ms; }
+  .motion-stagger > *:nth-child(7) { transition-delay: 270ms; }
+  @starting-style {
+    .motion-stagger > * { opacity: 0; translate: 0 -0.25rem; }
+  }
+
+  /* SWAP — one thing became another: skeleton to content, pending to confirmed.
+     No travel, only a fade, because the replacement occupies the same place and
+     moving it would ask the eye to re-find something it is already looking at. */
+  .motion-swap { transition: opacity var(--dur-2) var(--ease-emphasis); }
+  @starting-style { .motion-swap { opacity: 0; } }
+
+  /* PRESS — the shortest thing in the set, and deliberately so. Acknowledgement
+     has to feel instant; anything above about 120ms stops reading as a response
+     and starts reading as lag. */
+  .motion-press { transition: scale var(--dur-1) var(--ease-standard); }
+  .motion-press:active { scale: 0.97; }
+
+  /* LIFT — a card that can be clicked says so. Hover ONLY, and never the sole
+     affordance: a touch device never sees it, so the card must still look
+     clickable at rest. */
+  .motion-lift {
+    transition:
+      translate var(--dur-1) var(--ease-emphasis),
+      border-color var(--dur-1) var(--ease-emphasis),
+      box-shadow var(--dur-1) var(--ease-emphasis);
+  }
+  .motion-lift:hover {
+    translate: 0 -0.25rem;
+    border-color: var(--primary);
+    box-shadow: 0 8px 20px -12px color-mix(in oklch, var(--foreground) 45%, transparent);
+  }
+}
+
+/* SCROLL-DRIVEN. Guarded, because scroll timelines sit at roughly 84% globally —
+   Chromium since 2023, Safari since 26, and FIREFOX STILL BEHIND A FLAG as of
+   June 2026. Without @supports these keyframes bind to the document timeline and
+   play once on load, parking the element at its END state: a reveal would be
+   visible (harmless) but a progress bar would sit permanently full, which is a
+   lie about the page. About one visitor in six. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    /* REVEAL — content arriving as the page is read. Replaces an
+       IntersectionObserver with no JavaScript at all. The range finishes well
+       before the element is centred; a fade that is still running once you are
+       reading it is felt as a lag, not as an arrival. */
+    @keyframes motion-reveal-in {
+      from { opacity: 0; translate: 0 1.25rem; }
+      to   { opacity: 1; translate: 0 0; }
+    }
+    .motion-reveal {
+      animation: motion-reveal-in linear both;
+      animation-timeline: view();
+      animation-range: entry 10% cover 34%;
+    }
+  }
+}
+
+@supports (animation-timeline: scroll()) {
+  @media (prefers-reduced-motion: no-preference) {
+    /* PROGRESS — how far through the page the reader is. One element scaled
+       along its own axis, driven by the root scroller. */
+    @keyframes motion-progress-grow { from { scale: 0 1; } to { scale: 1 1; } }
+    .motion-progress {
+      transform-origin: 0 50%;
+      animation: motion-progress-grow linear both;
+      animation-timeline: scroll(root block);
+    }
+  }
+}
+
+/* STICK — a header that changes once it has actually stuck.
+   `container-type: scroll-state` lets CSS ask the question directly, which
+   replaces the sentinel element and IntersectionObserver this kit used to need.
+   The query styles DESCENDANTS of the container, so the sticky element carries
+   the container and its children carry the change. */
+.motion-stick { position: sticky; top: 0; container-type: scroll-state; }
+@media (prefers-reduced-motion: no-preference) {
+  .motion-stick > * {
+    transition:
+      padding-block var(--dur-2) var(--ease-standard),
+      box-shadow var(--dur-2) var(--ease-standard);
+  }
+}
+@supports (container-type: scroll-state) {
+  @container scroll-state(stuck: top) {
+    .motion-stick > * {
+      padding-block: 0.5rem;
+      box-shadow: 0 1px 0 0 var(--border), 0 6px 16px -14px color-mix(in oklch, var(--foreground) 60%, transparent);
+    }
+  }
+}
