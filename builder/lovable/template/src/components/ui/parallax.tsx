@@ -3,66 +3,46 @@ import { cn } from "@/lib/utils";
 /**
  * Background that moves slower than the page.
  *
- * IT MOVES ONLY WHILE ON SCREEN, gated by an `IntersectionObserver`. A scroll
- * handler that runs for every parallax element on a long page, whether visible
- * or not, is the single most common cause of a page that scrolls badly on a
- * phone.
+ * DRIVEN BY `animation-timeline: view()`, so there is no scroll listener, no
+ * `requestAnimationFrame`, and no `getBoundingClientRect`. The previous version
+ * did all three: it read layout inside a frame on every scroll event, for every
+ * parallax element on the page. That read is a forced synchronous layout, it is
+ * the single most common cause of a page that scrolls badly on a phone, and the
+ * elaborate care it needed — an IntersectionObserver gate, a rAF guard, three
+ * listeners and a four-line teardown — existed entirely to make it survivable.
+ * A scroll-driven animation runs off the main thread and needs none of it.
  *
- * The transform is written in a `requestAnimationFrame`, not in the scroll
- * handler. Writing a style inside a scroll listener forces layout on every
- * scroll event — dozens a second — and produces exactly the jank the effect is
- * meant to be worth.
+ * `@supports` IS LOAD-BEARING, NOT DECORATION. Where the timeline is missing the
+ * rule is skipped, the element keeps its natural position, and the section reads
+ * as a normal background. Without the guard the same keyframes would attach to
+ * the document timeline and play ONCE on load — the background would slide to
+ * its end position and stay there, off-register, on exactly the browsers that
+ * could not do the effect.
  *
- * `prefers-reduced-motion` disables it entirely and the content sits still.
- * Parallax is a large background movement decoupled from the reader's input,
- * which is close to the definition of what triggers motion sickness.
+ * `prefers-reduced-motion` disables it and the content sits still. Parallax is a
+ * large background movement decoupled from the reader's input, which is close to
+ * the definition of what triggers motion sickness.
  *
- * `speed` is capped, because past about 0.4 the background visibly detaches
- * from the page and the effect reads as a bug rather than as depth.
+ * `speed` is capped, because past about 0.4 the background visibly detaches from
+ * the page and the effect reads as a bug rather than as depth.
  */
 export function Parallax({ speed = 0.2, children, className }: {
   speed?: number;
   children: React.ReactNode;
   className?: string;
 }) {
-  const ref = React.useRef<HTMLDivElement>(null);
-  const inner = React.useRef<HTMLDivElement>(null);
   const rate = Math.max(-0.4, Math.min(0.4, speed));
-
-  React.useEffect(() => {
-    const el = ref.current, box = inner.current;
-    if (!el || !box) return;
-    if (typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    if (typeof IntersectionObserver === "undefined") return;
-
-    let visible = false, raf = 0;
-    const paint = () => {
-      raf = 0;
-      const r = el.getBoundingClientRect();
-      const middle = r.top + r.height / 2 - window.innerHeight / 2;
-      box.style.transform = `translate3d(0, ${(-middle * rate).toFixed(1)}px, 0)`;
-    };
-    // The write goes in a frame, never in the scroll handler itself.
-    const onScroll = () => { if (visible && !raf) raf = requestAnimationFrame(paint); };
-
-    const io = new IntersectionObserver(([entry]) => {
-      visible = entry.isIntersecting;
-      if (visible) onScroll();
-    }, { rootMargin: "100px" });
-    io.observe(el);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll);
-    return () => {
-      io.disconnect();
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, [rate]);
+  // The travel is expressed as a share of the element's own height, so the
+  // effect holds at any size — the old version derived it from the viewport and
+  // had to recompute on resize.
+  const shift = (rate * 50).toFixed(2) + "%";
 
   return (
-    <div ref={ref} className={cn("relative overflow-hidden", className)}>
-      <div ref={inner} className="will-change-transform motion-reduce:transform-none">{children}</div>
+    <div
+      className={cn("parallax relative overflow-hidden", className)}
+      style={{ "--parallax-shift": shift } as React.CSSProperties}
+    >
+      <div className="parallax-layer">{children}</div>
     </div>
   );
 }
