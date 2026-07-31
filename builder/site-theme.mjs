@@ -88,6 +88,78 @@ export function foregroundFor(surface, ink, paper) {
   return contrast(surface, ink) >= contrast(surface, paper) ? ink : paper;
 }
 
+/** Perceptual distance in OKLab — what OKLCH exists to make meaningful. */
+export function distance(a, b) {
+  const lab = ([L, C, H]) => {
+    const h = (H * Math.PI) / 180;
+    return [L, C * Math.cos(h), C * Math.sin(h)];
+  };
+  const [l1, a1, b1] = lab(a), [l2, a2, b2] = lab(b);
+  return Math.hypot(l1 - l2, a1 - a2, b1 - b2);
+}
+
+/**
+ * How far apart a state colour and the brand accent have to be.
+ *
+ * MEASURED, not chosen: the first ledger render put "Request" in oxblood beside
+ * "Cancel" in the stock destructive at a distance of 0.157, and the two solid
+ * red fills read as one colour used twice rather than as brand-versus-danger.
+ * 0.30 is the smallest step from there that separates them on sight.
+ */
+export const MIN_STATE_SEPARATION = 0.3;
+
+/**
+ * Inside this many degrees, hue is not telling them apart on its own.
+ *
+ * Measured against the case that prompted it: oxblood at 28 and the stock
+ * destructive at 27.3 are 0.7 apart and read as one colour. Amber at 78 is 50
+ * away from the same accent and reads as a different thing already, so the
+ * threshold sits below that.
+ */
+export const SAME_LANE_DEGREES = 35;
+
+/**
+ * Push a state colour away from the accent without leaving its own hue lane.
+ *
+ * The hue is the ONE thing that cannot move — red-means-bad is inherited, and a
+ * "destructive" shifted to orange to dodge a red brand has stopped saying
+ * danger. So the separation is bought in LIGHTNESS, which is also the strongest
+ * cue at a glance: an alert that is markedly brighter than the brand reads as an
+ * alert even out of the corner of the eye.
+ *
+ * It only fires when the accent is in the same lane. A blue or green accent
+ * leaves every state colour exactly where it was, which is why this is a
+ * derivation and not a per-theme override to maintain.
+ */
+export function hueGap(a, b) {
+  const d = Math.abs(a[2] - b[2]) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
+export function separateFromAccent(state, accent, ink, paper) {
+  // HUE FIRST. OKLab distance alone conflates "different colour" with "different
+  // lightness", so a green at the accent's lightness measured 0.290 and got
+  // nudged — a pointless move, since hue had already done the work. Separation
+  // is only needed inside the same lane; outside it, nothing to fix.
+  if (hueGap(state, accent) >= SAME_LANE_DEGREES) return state;
+  if (distance(state, accent) >= MIN_STATE_SEPARATION) return state;
+  const [, C, H] = state;
+  let best = null;
+  // Both directions, because a dark brand wants a bright alert and a bright
+  // brand wants a deep one — and only one of the two will still be legible.
+  for (const L of Array.from({ length: 121 }, (_, i) => 0.3 + i * 0.005)) {
+    const candidate = [L, C, H];
+    if (distance(candidate, accent) < MIN_STATE_SEPARATION) continue;
+    const fg = foregroundFor(candidate, ink, paper);
+    if (contrast(candidate, fg) < 4.6) continue;
+    const cost = Math.abs(L - state[0]);
+    if (!best || cost < best.cost) best = { candidate, cost };
+  }
+  // No legible separation available — keep the conventional colour rather than
+  // shipping an illegible one. The test reports it instead of it passing quietly.
+  return best ? best.candidate : state;
+}
+
 /* ------------------------------------------------------------------- themes */
 
 /**
@@ -138,7 +210,11 @@ export const THEMES = {
 export function paletteFor(theme, mode) {
   const { paper, ink, accent } = theme[mode];
   const fg = (surface) => foregroundFor(surface, ink, paper);
-  const sem = SEMANTIC[mode];
+  // State colours are separated from the accent BEFORE anything derives from
+  // them, so the foreground is picked for the colour that actually ships.
+  const raw = SEMANTIC[mode];
+  const sem = Object.fromEntries(Object.entries(raw)
+    .map(([k, v]) => [k, separateFromAccent(v, accent, ink, paper)]));
 
   // Surfaces step AWAY from the paper toward the ink, by small amounts. A card
   // that is a different hue from the page is the thing that reads as "themed"

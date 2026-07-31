@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import {
   THEMES, THEME_NAMES, paletteFor, themeCss, contrast, luminance,
   oklchToRgb, foregroundFor, shortlistForPrompt,
+  distance, hueGap, separateFromAccent, MIN_STATE_SEPARATION, SAME_LANE_DEGREES,
 } from "../builder/site-theme.mjs";
 
 const PAIRS = [
@@ -107,6 +108,55 @@ test("surfaces sit between the paper and the ink, and in the right order", () =>
       assert.ok(d("muted") < d("border"), `${name}/${mode}: muted is past the border`);
       assert.ok(d("border") <= d("input"), `${name}/${mode}: input is not past the border`);
     }
+  }
+});
+
+test("a state colour is separable from the accent, not just conventional", () => {
+  // THE BUG A RENDER FOUND AND THE NUMBERS DID NOT. With an oxblood accent,
+  // "Request" and "Cancel" sat at hue 28 and 27.3 — every contrast pair passed,
+  // and the two solid fills read as one colour used twice rather than as
+  // brand-versus-danger. Contrast says "can you read it"; nothing said "can you
+  // tell these apart".
+  for (const name of THEME_NAMES) {
+    for (const mode of ["light", "dark"]) {
+      const { accent } = THEMES[name][mode];
+      const p = paletteFor(THEMES[name], mode);
+      for (const k of ["destructive", "success", "warning"]) {
+        const apart = hueGap(p[k], accent) >= SAME_LANE_DEGREES ||
+          distance(p[k], accent) >= MIN_STATE_SEPARATION;
+        assert.ok(apart, `${name}/${mode}: ${k} is indistinguishable from the accent`);
+      }
+    }
+  }
+});
+
+test("separation only fires inside the same hue lane", () => {
+  // The first version measured OKLab distance alone, which conflates "different
+  // colour" with "different lightness" — a green at the accent's lightness came
+  // out at 0.290 and got nudged for nothing. Hue had already done the work.
+  const ink = [0.2, 0.01, 60], paper = [0.98, 0.006, 95];
+  const redAccent = [0.46, 0.14, 28];
+  const green = [0.596, 0.145, 156];
+  assert.deepEqual(separateFromAccent(green, redAccent, ink, paper), green,
+    "a green must not move for a red accent");
+
+  const red = [0.577, 0.245, 27.325];
+  const moved = separateFromAccent(red, redAccent, ink, paper);
+  assert.notDeepEqual(moved, red, "a red in the same lane must move");
+  assert.equal(moved[2], red[2], "the HUE must not move — that is what says danger");
+  assert.equal(moved[1], red[1], "chroma is left alone; the separation is bought in lightness");
+  assert.ok(distance(moved, redAccent) >= MIN_STATE_SEPARATION);
+  assert.ok(contrast(moved, foregroundFor(moved, ink, paper)) >= 4.5,
+    "a separated colour must still be legible");
+});
+
+test("a blue accent leaves every state colour untouched", () => {
+  // The derivation must cost nothing in the ordinary case, or it is a rule that
+  // quietly reshapes palettes it was never meant to touch.
+  const ink = [0.2, 0.01, 60], paper = [0.98, 0.006, 95];
+  const blue = [0.5, 0.15, 250];
+  for (const c of [[0.577, 0.245, 27.325], [0.596, 0.145, 156], [0.75, 0.16, 78]]) {
+    assert.deepEqual(separateFromAccent(c, blue, ink, paper), c);
   }
 });
 
