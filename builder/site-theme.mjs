@@ -544,128 +544,38 @@ export function cornerCss(theme) {
  * and chroma both have to move.
  */
 export const THEMES = {
-  ledger: {
-    label: "Ledger — warm paper, oxblood, tight corners",
-    radius: "0.25rem",
-    corner: "round",
-    scale: "standard", density: "standard", border: "hairline", shadow: "crisp",
-    fonts: { heading: "source-sans-3", body: "source-sans-3" },
-    light: { paper: [0.985, 0.006, 95], ink: [0.22, 0.014, 60], accent: [0.46, 0.14, 28] },
-    dark: { paper: [0.19, 0.012, 60], ink: [0.96, 0.005, 95], accent: [0.63, 0.13, 30] },
-  },
-  // Deliberately opposite to Ledger on all four levers — cool paper against warm,
-  // a calm green against oxblood, and 16px corners against 4px. Two themes that
-  // differ on only one lever prove nothing about whether the system produces
-  // range.
+  // DELIBERATELY EMPTY. The six that were here — ledger, atrium, bourse, vellum,
+  // coppice, atelier — were removed on the owner's call, with a new set to be
+  // specified. They are in git history at 8b6786b if any is wanted back.
   //
-  // It is ALSO the awkward case on purpose: the accent sits at hue 165 and
-  // `success` at 156, nine degrees apart. That is well inside the same lane, so
-  // the separation rule has to move the success colour or a confirmation on this
-  // site would be drawn in the brand colour and stop reading as a confirmation.
-  // A theme nobody would have thought to test is worth more in the set than a
-  // second safe one.
-  atrium: {
-    label: "Atrium — cool light, calm green, soft corners",
-    radius: "1rem",
-    corner: "round",
-    scale: "standard", density: "airy", border: "hairline", shadow: "soft",
-    fonts: { heading: "figtree", body: "source-sans-3" },
-    light: { paper: [0.985, 0.004, 230], ink: [0.21, 0.012, 240], accent: [0.48, 0.09, 165] },
-    dark: { paper: [0.18, 0.012, 240], ink: [0.96, 0.004, 230], accent: [0.68, 0.1, 168] },
-  },
-
-  /* ── the considered end ──────────────────────────────────────────────────
-   *
-   * Four themes for trades where the site is part of what is being sold. They
-   * share three moves, and each one is a deliberate step away from the look
-   * generated design falls into:
-   *
-   *   THE PAPER IS NOT NEAR-WHITE. Every one sits between L 0.92 and L 0.95 —
-   *   bone, oyster, stone. An off-white ground is the single clearest tell of a
-   *   template, because it is what you get by not deciding. A ground with a
-   *   value reads as a choice before a single word is read.
-   *
-   *   THE RADIUS IS AT AN END, NEVER THE MIDDLE. 0px or 2-3px. Around 10px is
-   *   shadcn's default and every SaaS product on earth, which is exactly why it
-   *   reads as unconsidered.
-   *
-   *   THE ACCENT IS DARKER AND LESS SATURATED THAN INSTINCT SUGGESTS. Chroma
-   *   0.06-0.11 against Ledger's 0.14. Restraint is most of what reads as
-   *   expensive; a bright accent reads as a startup.
-   *
-   * And the clichés are avoided by name: no warm cream with terracotta, no
-   * near-black with a lone acid-green pop, no purple-to-blue.
-   *
-   * A FOURTH MOVE, FOUND BY LOOKING AT THE DARK RENDERS. The obvious way to keep
-   * an accent legible on a dark ground is to lighten it past the paper, and it
-   * measures fine — `foregroundFor` simply flips to the dark text and every
-   * contrast check passes. It also destroys the theme: Vellum's deep plum came
-   * out a candy pink, Bourse's indigo a periwinkle, and a pastel fill with dark
-   * text on near-black is the exact purple-on-white look these themes exist to
-   * avoid. So these three stay DEEP in dark mode (L 0.44-0.48) and take LIGHT
-   * text instead — the button is a saturated block of the brand rather than a
-   * glowing chip, which is how the register survives the mode switch.
-   *
-   * Atelier is the deliberate exception and inverts instead: on a monochrome
-   * theme the near-white button on near-black IS the statement.
-   */
-
-  // Private bank, tailoring, chambers. High contrast, cold accent, almost no
-  // radius — the palette equivalent of a good suit: nothing decorative, and the
-  // quality is entirely in the cut.
-  bourse: {
-    label: "Bourse — bone paper, deep indigo, near-square corners",
-    radius: "0.125rem",
-    corner: "round",
-    scale: "compact", density: "tight", border: "drawn", shadow: "flat",
-    fonts: { heading: "eb-garamond", body: "public-sans" },
-    light: { paper: [0.932, 0.008, 88], ink: [0.175, 0.018, 262], accent: [0.34, 0.075, 264] },
-    dark: { paper: [0.165, 0.016, 262], ink: [0.94, 0.006, 88], accent: [0.44, 0.115, 264] },
-  },
-
-  // Gallery, perfumery, jeweller. Square corners and a plum that is nearly
-  // brown — the accent should be noticed on the second look, not the first.
-  vellum: {
-    label: "Vellum — oyster paper, deep plum, moulded corners",
-    radius: "0.75rem",
-    corner: "squircle",
-    scale: "grand", density: "airy", border: "hairline", shadow: "flat",
-    fonts: { heading: "playfair-display", body: "lora" },
-    light: { paper: [0.945, 0.007, 72], ink: [0.168, 0.014, 35], accent: [0.375, 0.095, 338] },
-    dark: { paper: [0.155, 0.012, 35], ink: [0.945, 0.006, 72], accent: [0.42, 0.11, 335] },
-  },
-
-  // Apothecary, winery, heritage food. Ink is a very dark green rather than
-  // black, which is the whole trick: the page reads warm and old without a
-  // single brown surface.
+  // The ENGINE below and above is untouched, and that is the point of the split:
+  // `paletteFor`, `fitState`, `temperState`, `separateFromAccent`, `cornerCss`,
+  // `typeCss`, `densityCss`, `borderCss` and `shadowCss` describe how a theme is
+  // DERIVED, not which themes exist. Their tests run against a fixture declared
+  // in the test file rather than against whatever happens to be shipped, so an
+  // empty set leaves the machinery fully covered.
   //
-  // Its accent lands at hue 80, two degrees from `warning` at 78 — deep inside
-  // the same lane, so the separation rule has to move the warning colour or a
-  // caution on this site is drawn in the brand colour.
-  coppice: {
-    label: "Coppice — warm stone, brass, cut corners",
-    radius: "0.4375rem",
-    corner: "bevel",
-    scale: "standard", density: "standard", border: "drawn", shadow: "flat",
-    fonts: { heading: "roboto-slab", body: "ibm-plex-sans" },
-    light: { paper: [0.928, 0.013, 92], ink: [0.198, 0.028, 152], accent: [0.505, 0.088, 80] },
-    dark: { paper: [0.172, 0.022, 152], ink: [0.938, 0.01, 92], accent: [0.48, 0.092, 80] },
-  },
-
-  // Fashion, design studio, photographer. NEARLY MONOCHROME ON PURPOSE: the
-  // accent is a warm near-black, so emphasis comes from weight and contrast
-  // rather than from hue. This is the hardest register to fake and the one most
-  // opposite to generated design, which reaches for a colour to prove it made a
-  // decision.
-  atelier: {
-    label: "Atelier — chalk paper, near-black accent, square corners",
-    radius: "0rem",
-    corner: "round",
-    scale: "grand", density: "airy", border: "bold", shadow: "flat",
-    fonts: { heading: "instrument-sans", body: "instrument-sans" },
-    light: { paper: [0.955, 0.003, 96], ink: [0.145, 0.005, 92], accent: [0.245, 0.012, 88] },
-    dark: { paper: [0.135, 0.005, 92], ink: [0.955, 0.003, 96], accent: [0.86, 0.008, 94] },
-  },
+  // What an entry looks like:
+  //
+  //   name: {
+  //     label: "Name — the one-line description the model sees",
+  //     radius: "0.25rem",            // any length; `--radius` is the one token
+  //     corner: "round",              // round | squircle | bevel
+  //     scale: "standard",            // compact | standard | grand
+  //     density: "standard",          // tight | standard | airy
+  //     border: "hairline",           // hairline | drawn | bold  (whole px only)
+  //     shadow: "crisp",              // flat | crisp | soft
+  //     fonts: { heading: "<id>", body: "<id>" },   // ids from site-fonts.mjs
+  //     light: { paper: [L, C, H], ink: [L, C, H], accent: [L, C, H] },
+  //     dark:  { paper: [L, C, H], ink: [L, C, H], accent: [L, C, H] },
+  //   }
+  //
+  // `dark` is a separate ground/ink/accent rather than an inversion, because
+  // inverting is what produces the glowing over-saturated dark modes: a chroma
+  // that reads as rich on white reads as neon on black, so the accent's lightness
+  // and chroma both have to move. And a dark accent stays DEEP with light text
+  // rather than being lightened past the paper — lightening measures fine and
+  // turns a plum into a candy pink.
 };
 
 /** Every token for one mode, derived from that mode's three colours. */
@@ -740,10 +650,21 @@ export function paletteFor(theme, mode) {
  * Appended AFTER the base, so source order decides it and no `!important` or
  * specificity trick is needed — the same reasoning the accessibility overrides
  * at the end of styles.css already rely on.
+ *
+ * Takes a shipped NAME or a theme OBJECT. The object form is what makes this
+ * function testable with no themes declared at all — the alternative was tests
+ * that could only run against whatever happened to be in `THEMES`, which is how
+ * emptying that list broke four of them at once. A build resolving a theme from
+ * somewhere other than the shortlist gets the same door.
  */
-export function themeCss(name) {
-  const theme = THEMES[name];
-  if (!theme) return null;
+export function themeCss(nameOrTheme) {
+  const named = typeof nameOrTheme === "string";
+  const theme = named ? THEMES[nameOrTheme] : nameOrTheme;
+  // Both halves are required: a theme missing `dark` would emit a `.dark` block
+  // of `undefined`s, which the browser drops silently and which reads on screen
+  // as dark mode simply not having been themed.
+  if (!theme?.light || !theme?.dark) return null;
+  const name = named ? nameOrTheme : (theme.label || "custom").split("—")[0].trim();
   const block = (sel, mode) => {
     const p = paletteFor(theme, mode);
     const lines = Object.entries(p).map(([k, v]) => `  --${k}: ${css(v)};`);

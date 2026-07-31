@@ -17,6 +17,41 @@ import {
 } from "../builder/site-theme.mjs";
 import { SHORTLIST } from "../builder/site-fonts.mjs";
 
+/**
+ * THE ENGINE IS TESTED AGAINST THIS, NOT AGAINST WHATEVER IS SHIPPED.
+ *
+ * `THEMES` is deliberately empty right now, and before this fixture existed the
+ * engine's coverage was entangled with the shipped list: emptying it made four
+ * tests crash on `THEMES[THEME_NAMES[0]]` and turned every per-theme loop into a
+ * pass over nothing. Derivation is a property of the code and should be provable
+ * with no themes declared at all — so it is.
+ *
+ * Chosen to EXERCISE rather than to look nice: the accent sits at hue 30, inside
+ * the same lane as `destructive` at 27.3, so `separateFromAccent` has to fire;
+ * and the paper is off-white at L 0.93 rather than near-white, which is the case
+ * that broke the semantic colours the first time.
+ */
+const FIXTURE = {
+  label: "Fixture — the engine's test subject, not a shipped theme",
+  radius: "0.25rem", corner: "round",
+  scale: "standard", density: "standard", border: "hairline", shadow: "crisp",
+  fonts: { heading: "geist", body: "geist" },
+  light: { paper: [0.93, 0.008, 90], ink: [0.2, 0.014, 60], accent: [0.45, 0.13, 30] },
+  dark: { paper: [0.18, 0.012, 60], ink: [0.95, 0.006, 90], accent: [0.45, 0.12, 30] },
+};
+
+/**
+ * WHAT THE PER-THEME INVARIANTS RUN OVER: the shipped set PLUS the fixture.
+ *
+ * A `for (const name of NAMES_UNDER_TEST)` over an empty `THEMES` passes without
+ * checking anything — the exact shape of dead guard this repo has found in its
+ * own tests five times. Including the fixture means every invariant below is
+ * proven against at least one real theme no matter what is shipped, and each
+ * shipped theme is still checked on top.
+ */
+const THEMES_UNDER_TEST = { ...THEMES, fixture: FIXTURE };
+const NAMES_UNDER_TEST = Object.keys(THEMES_UNDER_TEST);
+
 const PAIRS = [
   ["background", "foreground"], ["card", "card-foreground"], ["popover", "popover-foreground"],
   ["primary", "primary-foreground"], ["secondary", "secondary-foreground"],
@@ -49,9 +84,9 @@ test("every pair in every theme clears 4.5:1, in BOTH modes", () => {
   // pair, every theme, both modes, so adding a theme cannot quietly ship an
   // unreadable one.
   const failures = [];
-  for (const name of THEME_NAMES) {
+  for (const name of NAMES_UNDER_TEST) {
     for (const mode of ["light", "dark"]) {
-      const p = paletteFor(THEMES[name], mode);
+      const p = paletteFor(THEMES_UNDER_TEST[name], mode);
       for (const [a, b] of PAIRS) {
         const r = contrast(p[a], p[b]);
         if (r < 4.5) failures.push(`${name}/${mode}: ${a} on ${b} is ${r.toFixed(2)}:1`);
@@ -69,10 +104,10 @@ test("a foreground is the theme's own ink or paper — with one deliberate excep
   // text has to sit BETWEEN the ink and the paper or it is not secondary, it is
   // just body text. So it is asserted differently — on the line, strictly
   // between the ends, and still clearing 4.5:1 above.
-  for (const name of THEME_NAMES) {
+  for (const name of NAMES_UNDER_TEST) {
     for (const mode of ["light", "dark"]) {
-      const { paper, ink } = THEMES[name][mode];
-      const p = paletteFor(THEMES[name], mode);
+      const { paper, ink } = THEMES_UNDER_TEST[name][mode];
+      const p = paletteFor(THEMES_UNDER_TEST[name], mode);
       const allowed = [JSON.stringify(paper), JSON.stringify(ink)];
       for (const [, fgKey] of PAIRS) {
         if (fgKey === "muted-foreground") continue;
@@ -104,9 +139,9 @@ test("surfaces sit between the paper and the ink, and in the right order", () =>
   // muted, then border, then input. Out of order and a card reads as a panel or
   // a border disappears — both of which look like a design choice rather than a
   // bug, which is why it is asserted.
-  for (const name of THEME_NAMES) {
+  for (const name of NAMES_UNDER_TEST) {
     for (const mode of ["light", "dark"]) {
-      const p = paletteFor(THEMES[name], mode);
+      const p = paletteFor(THEMES_UNDER_TEST[name], mode);
       const d = (k) => Math.abs(p[k][0] - p.background[0]);
       assert.ok(d("card") < d("muted"), `${name}/${mode}: card is not the smallest step`);
       assert.ok(d("muted") < d("border"), `${name}/${mode}: muted is past the border`);
@@ -121,10 +156,10 @@ test("a state colour is separable from the accent, not just conventional", () =>
   // and the two solid fills read as one colour used twice rather than as
   // brand-versus-danger. Contrast says "can you read it"; nothing said "can you
   // tell these apart".
-  for (const name of THEME_NAMES) {
+  for (const name of NAMES_UNDER_TEST) {
     for (const mode of ["light", "dark"]) {
-      const { accent } = THEMES[name][mode];
-      const p = paletteFor(THEMES[name], mode);
+      const { accent } = THEMES_UNDER_TEST[name][mode];
+      const p = paletteFor(THEMES_UNDER_TEST[name], mode);
       for (const k of ["destructive", "success", "warning"]) {
         const apart = hueGap(p[k], accent) >= SAME_LANE_DEGREES ||
           distance(p[k], accent) >= MIN_STATE_SEPARATION;
@@ -167,9 +202,9 @@ test("a blue accent leaves every state colour untouched", () => {
 test("state colours keep their conventional hue", () => {
   // Red-means-bad is inherited, not designed. A brand-tinted success is how a
   // confirmation stops reading as one.
-  for (const name of THEME_NAMES) {
+  for (const name of NAMES_UNDER_TEST) {
     for (const mode of ["light", "dark"]) {
-      const p = paletteFor(THEMES[name], mode);
+      const p = paletteFor(THEMES_UNDER_TEST[name], mode);
       const hue = (k) => p[k][2];
       assert.ok(hue("destructive") < 40 || hue("destructive") > 340, "destructive is not red");
       assert.ok(hue("success") > 110 && hue("success") < 190, "success is not green");
@@ -183,7 +218,7 @@ test("the css writes :root AND .dark, because the template defines both", () => 
   // and gets `:root` only. The template declares every colour twice — `--primary`
   // at line 101 and again at 140 — so a theme writing one block would leave half
   // of every site on the stock palette, visible only to somebody in dark mode.
-  const css = themeCss("ledger");
+  const css = themeCss(FIXTURE);
   assert.match(css, /^:root \{/m);
   assert.match(css, /^\.dark \{/m);
   // Both blocks carry the full palette, not a partial override.
@@ -201,14 +236,14 @@ test("the css writes :root AND .dark, because the template defines both", () => 
 test("every emitted value is a real oklch triple", () => {
   // A NaN or an undefined here is a CSS declaration the browser drops silently,
   // leaving that one token on the stock palette with nothing to show for it.
-  const css = themeCss("ledger");
+  const css = themeCss(FIXTURE);
   // WHICH tokens must be colours is DERIVED from the palette, not from a shape
   // in the text. The first version skipped anything ending in `rem` and demanded
   // oklch of everything else, which was true until the type scale started
   // emitting unitless line heights — a correct value failing a test about
   // colours. Deriving the names means a new non-colour axis cannot break it, and
   // a colour that stops being one still fails.
-  const colourTokens = new Set(Object.keys(paletteFor(THEMES.ledger, "light")));
+  const colourTokens = new Set(Object.keys(paletteFor(FIXTURE, "light")));
   let checked = 0;
   for (const m of css.matchAll(/--([a-z0-9-]+): ([^;]+);/g)) {
     const [, name, v] = m;
@@ -224,7 +259,7 @@ test("every emitted value is a real oklch triple", () => {
 });
 
 test("every corner treatment emits valid css, and only the usable ones are offered", () => {
-  const base = { ...THEMES[THEME_NAMES[0]] };
+  const base = { ...FIXTURE };
   for (const style of Object.keys(CORNERS)) {
     const css = cornerCss({ ...base, corner: style, radius: "1rem" });
     assert.match(css, /--radius:/, `${style} must still set the base radius`);
@@ -265,7 +300,7 @@ test("no corner treatment writes a radius token the bundle cannot read", () => {
   assert.ok(swallowed.length >= 4, `expected several radius steps, found ${swallowed.length}`);
 
   for (const style of Object.keys(CORNERS)) {
-    const css = cornerCss({ ...THEMES[THEME_NAMES[0]], corner: style, radius: "1.5rem" });
+    const css = cornerCss({ ...FIXTURE, corner: style, radius: "1.5rem" });
     for (const name of swallowed) {
       assert.ok(!css.includes(`--${name}:`),
         `${style} sets --${name}, which @theme inline makes unreadable at runtime`);
@@ -281,22 +316,22 @@ test("squircle and bevel both reach the descendants, not just the root", () => {
   // rendered as ordinary rounded corners — which looks exactly like the browser
   // not supporting the property. Found by rendering it; nothing else could tell.
   for (const style of ["squircle", "bevel"]) {
-    const css = cornerCss({ ...THEMES[THEME_NAMES[0]], corner: style, radius: "0.875rem" });
+    const css = cornerCss({ ...FIXTURE, corner: style, radius: "0.875rem" });
     assert.match(css, new RegExp(`corner-shape: ${style}`));
     assert.match(css, /body \*|,\s*\*/, `${style} must select descendants or it reaches one element`);
     // And it must still set a radius — corner-shape has nothing to act on without one.
     assert.match(css, /--radius: 0\.875rem/);
   }
   // `round` is the browser default, so emitting the property for it is noise.
-  assert.ok(!/corner-shape/.test(cornerCss({ ...THEMES[THEME_NAMES[0]], corner: "round", radius: "1rem" })));
+  assert.ok(!/corner-shape/.test(cornerCss({ ...FIXTURE, corner: "round", radius: "1rem" })));
 });
 
 test("a shaped corner needs a radius big enough to see it", () => {
   // A squircle or a bevel at 2px is indistinguishable from a square, so a theme
   // asking for one at a tiny radius has silently got nothing — which is the
   // failure this whole section exists to stop being invisible.
-  for (const name of THEME_NAMES) {
-    const t = THEMES[name];
+  for (const name of NAMES_UNDER_TEST) {
+    const t = THEMES_UNDER_TEST[name];
     if ((t.corner ?? "round") === "round") continue;
     const px = parseFloat(t.radius) * (t.radius.endsWith("rem") ? 16 : 1);
     assert.ok(px >= 6, `${name} asks for ${t.corner} at ${px}px — too small to read as anything`);
@@ -308,7 +343,7 @@ test("bevel reaches the descendants, not just the root", () => {
   // the root alone it styled the root and nothing inside it, so the whole page
   // rendered as ordinary rounded corners — which looks exactly like the browser
   // not supporting the property. Found by rendering it; nothing else could tell.
-  const css = cornerCss({ ...THEMES[THEME_NAMES[0]], corner: "bevel", radius: "0.875rem" });
+  const css = cornerCss({ ...FIXTURE, corner: "bevel", radius: "0.875rem" });
   assert.match(css, /corner-shape: bevel/);
   assert.match(css, /body \*|,\s*\*/, "bevel must select descendants or it reaches one element");
   // And it must still set a radius — corner-shape has nothing to act on without one.
@@ -354,8 +389,8 @@ test("a shadow is darker than the surface it falls on, in BOTH modes", () => {
   // than raised. Measured as `oklch(0.96 0.004 230 / 0.07)` on a near-black
   // page. Nothing else could see it: the shadow existed, it was the theme's own
   // colour, and it was the wrong end of the theme.
-  for (const name of THEME_NAMES) {
-    const theme = THEMES[name];
+  for (const name of NAMES_UNDER_TEST) {
+    const theme = THEMES_UNDER_TEST[name];
     if (theme.shadow === "flat") continue;
     const css = shadowCss(theme.shadow, theme);
 
@@ -454,8 +489,8 @@ test("every theme declares every axis, with a value the axis offers", () => {
   // A theme missing an axis silently gets the fallback, which reads in a diff as
   // a deliberate choice of the ordinary value and is not one.
   const AXES = [["scale", TYPE_SCALES], ["density", DENSITIES], ["border", BORDERS], ["shadow", SHADOWS], ["corner", CORNERS]];
-  for (const name of THEME_NAMES) {
-    const t = THEMES[name];
+  for (const name of NAMES_UNDER_TEST) {
+    const t = THEMES_UNDER_TEST[name];
     for (const [key, table] of AXES) {
       assert.ok(t[key], `${name} declares no ${key}`);
       assert.ok(key in table === false || table[t[key]], `${name}.${key} is "${t[key]}", which is not on offer`);
@@ -464,6 +499,13 @@ test("every theme declares every axis, with a value the axis offers", () => {
   }
   // And every option is USED by something. An option nothing picks is the
   // capability-nobody-reaches pattern this repo has hit four times.
+  //
+  // GATED ON THERE BEING A SHIPPED SET, and this is the one place gating is
+  // right rather than lazy: with nothing shipped the claim is not "no theme uses
+  // bevel" — it is that the question does not apply yet. Asserting it anyway
+  // would fail the suite for a deliberate empty state, and quietly dropping it
+  // would let a dead option slip in with the next set.
+  if (THEME_NAMES.length === 0) return;
   for (const [key, table] of AXES) {
     for (const option of Object.keys(table)) {
       assert.ok(THEME_NAMES.some((n) => THEMES[n][key] === option),
@@ -477,18 +519,20 @@ test("the recommended font pair is a real entry in the font shortlist", () => {
   // never bundled — it renders as the fallback and looks like nothing happened,
   // which is what site-fonts.mjs already asserts about its own list.
   const ids = new Set(SHORTLIST.map((f) => f.id));
-  for (const name of THEME_NAMES) {
-    const { heading, body } = THEMES[name].fonts;
+  for (const name of NAMES_UNDER_TEST) {
+    const { heading, body } = THEMES_UNDER_TEST[name].fonts;
     assert.ok(ids.has(heading), `${name}: heading font "${heading}" is not in the shortlist`);
     assert.ok(ids.has(body), `${name}: body font "${body}" is not in the shortlist`);
   }
 });
 
 test("the shortlist is usable as a tool enum", () => {
-  assert.ok(THEME_NAMES.length >= 1);
-  for (const n of THEME_NAMES) assert.match(n, /^[a-z][a-z0-9-]*$/, `${n} is not enum-safe`);
+  // Zero is a legal state — the set was emptied deliberately — so what is
+  // asserted is that the prompt and the enum agree, whatever their size.
+  for (const n of NAMES_UNDER_TEST) assert.match(n, /^[a-z][a-z0-9-]*$/, `${n} is not enum-safe`);
   const list = shortlistForPrompt();
-  for (const n of THEME_NAMES) assert.ok(list.includes(n));
+  for (const n of THEME_NAMES) assert.ok(list.includes(n), `${n} is missing from the prompt shortlist`);
+  assert.equal(list === "" , THEME_NAMES.length === 0, "the shortlist disagrees with the enum about being empty");
   // Cheap enough to sit in the prompt — the font shortlist is ~74 tokens and
   // this must not be the thing that makes per-site design expensive.
   assert.ok(list.length < 600, `the shortlist is ${list.length} chars`);
@@ -541,8 +585,8 @@ test("a state colour is fitted to THIS theme's paper, not to white", () => {
 
 test("every theme is a deliberate choice, not a default", () => {
   // The three tells of generated design, asserted rather than trusted to taste.
-  for (const name of THEME_NAMES) {
-    const t = THEMES[name];
+  for (const name of NAMES_UNDER_TEST) {
+    const t = THEMES_UNDER_TEST[name];
     const px = parseFloat(t.radius) * (t.radius.endsWith("rem") ? 16 : 1);
     // ~10px is shadcn's default and every SaaS product on earth. A theme landing
     // there has not chosen a radius, it has failed to choose one.
@@ -566,10 +610,10 @@ test("every theme is a deliberate choice, not a default", () => {
 test("no state colour is allowed to out-shout its own theme's accent", () => {
   // The failure this replaces was visible only in a browser: a fire-engine
   // Cancel button on bone paper, beside an accent at a third of its chroma.
-  for (const name of THEME_NAMES) {
+  for (const name of NAMES_UNDER_TEST) {
     for (const mode of ["light", "dark"]) {
-      const p = paletteFor(THEMES[name], mode);
-      const ceiling = Math.max(MIN_STATE_CHROMA, THEMES[name][mode].accent[1] * STATE_CHROMA_RATIO);
+      const p = paletteFor(THEMES_UNDER_TEST[name], mode);
+      const ceiling = Math.max(MIN_STATE_CHROMA, THEMES_UNDER_TEST[name][mode].accent[1] * STATE_CHROMA_RATIO);
       for (const k of ["destructive", "success", "warning"]) {
         assert.ok(p[k][1] <= ceiling + 1e-9,
           `${name}/${mode}: ${k} chroma ${p[k][1].toFixed(3)} exceeds ${ceiling.toFixed(3)}`);
