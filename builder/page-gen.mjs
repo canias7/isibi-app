@@ -404,6 +404,9 @@ export const UI_COMPONENTS = [
   "timezone-clock", "world-clock", "working-hours", "availability-toggle",
   "snooze-until", "deadline-bar", "elapsed-timer", "stopwatch",
   "countdown-ring",
+  // Is this data any good?
+  "completeness-bar", "missing-fields", "data-freshness", "outlier-flag",
+  "duplicate-badge", "quality-score",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

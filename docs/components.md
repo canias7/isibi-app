@@ -1,4 +1,4 @@
-# Components (943 built, 57 to go)
+# Components (949 built, 51 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -147,6 +147,7 @@
 ✓ compare-table
 ✓ comparison-columns
 ✓ comparison-table
+✓ completeness-bar
 ✓ completion-ring
 ✓ conditional-field
 ✓ confetti
@@ -191,6 +192,7 @@
 ✓ cursor-pagination
 ✓ cvc-input
 ✓ danger-zone
+✓ data-freshness
 ✓ data-list
 ✓ data-table
 ✓ date-badge
@@ -245,6 +247,7 @@
 ✓ dropdown-menu
 ✓ dry-run-note
 ✓ dual-list
+✓ duplicate-badge
 ✓ duration
 ✓ duration-bar
 ✓ duration-picker
@@ -455,6 +458,7 @@
 ✓ metric-row
 ✓ milestone-dot
 ✓ mini-bars
+✓ missing-fields
 ✓ mobile-nav
 ✓ modal-stack
 ✓ model-picker
@@ -505,6 +509,7 @@
 ✓ org-chart
 ✓ otp-form
 ✓ otp-resend
+✓ outlier-flag
 ✓ overflow-scroller
 ✓ page-break
 ✓ page-header
@@ -578,6 +583,7 @@
 ✓ pull-to-refresh
 ✓ pulse-dot
 ✓ qr-code
+✓ quality-score
 ✓ quantity-input
 ✓ quarter-picker
 ✓ query-builder
@@ -957,14 +963,11 @@ chart-legend
 chunked-upload
 combo-chart
 comparison-chart
-completeness-bar
 content-width
 coordinate-input
 currency-amount
-data-freshness
 discount-input
 distribution-bar
-duplicate-badge
 edge-fade
 file-preview
 folder-path
@@ -975,13 +978,10 @@ grouped-bar
 gutter
 histogram
 line-chart
-missing-fields
-outlier-flag
 paste-image
 payment-picker
 pie-chart
 place-search
-quality-score
 quantile-bar
 radar-chart
 radius-slider
