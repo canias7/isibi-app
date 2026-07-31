@@ -394,6 +394,9 @@ export const UI_COMPONENTS = [
   // Shaping a set of data.
   "date-preset", "relative-date", "filter-preset", "group-by-picker",
   "aggregate-picker", "bucket-picker", "top-n-picker",
+  // Keyboard and power users.
+  "command-item", "command-group", "key-sequence", "keyboard-tip",
+  "focus-list",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

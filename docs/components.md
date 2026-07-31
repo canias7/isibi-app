@@ -1,4 +1,4 @@
-# Components (924 built, 76 to go)
+# Components (929 built, 71 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -135,6 +135,8 @@
 ✓ combobox
 ✓ command
 ✓ command-bar
+✓ command-group
+✓ command-item
 ✓ comment
 ✓ comment-anchor
 ✓ comment-pin
@@ -295,6 +297,7 @@
 ✓ first-run
 ✓ flip-card
 ✓ floating-toolbar
+✓ focus-list
 ✓ focus-mode
 ✓ focus-trap
 ✓ follow-changes
@@ -373,8 +376,10 @@
 ✓ json-view
 ✓ jump-to
 ✓ kbd
+✓ key-sequence
 ✓ key-value
 ✓ keyboard-map
+✓ keyboard-tip
 ✓ kicker
 ✓ label
 ✓ labeled-progress
@@ -939,8 +944,6 @@ chart-export
 chart-legend
 chunked-upload
 combo-chart
-command-group
-command-item
 comparison-chart
 completeness-bar
 content-width
@@ -957,7 +960,6 @@ elapsed-timer
 error-summary-link
 field-warning
 file-preview
-focus-list
 folder-path
 folder-tree
 format-hint
@@ -966,8 +968,6 @@ funnel-chart
 grouped-bar
 gutter
 histogram
-key-sequence
-keyboard-tip
 line-chart
 missing-fields
 outlier-flag
