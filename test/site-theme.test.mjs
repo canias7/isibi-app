@@ -346,6 +346,47 @@ test("every shadow utility the KIT uses is one a theme can turn off", () => {
   }
 });
 
+test("a shadow is darker than the surface it falls on, in BOTH modes", () => {
+  // A shadow is an absence of light. The first version mixed against
+  // `var(--foreground)` and stopped, which is correct in light mode and exactly
+  // inverted in dark — `--foreground` is the near-white ink there, so every card
+  // on Ledger and Atrium got a white halo at 7-10% and read as glowing rather
+  // than raised. Measured as `oklch(0.96 0.004 230 / 0.07)` on a near-black
+  // page. Nothing else could see it: the shadow existed, it was the theme's own
+  // colour, and it was the wrong end of the theme.
+  for (const name of THEME_NAMES) {
+    const theme = THEMES[name];
+    if (theme.shadow === "flat") continue;
+    const css = shadowCss(theme.shadow, theme);
+
+    // LIGHT: the anchor is the live ink token, and the ink must be the darker end.
+    const light = css.split("\n").filter((l) => l.startsWith(".shadow"));
+    assert.ok(light.length > 0, `${name} emitted no light-mode shadow`);
+    for (const rule of light) {
+      assert.match(rule, /var\(--foreground\)/, `${name}: light shadow is not anchored on the ink`);
+    }
+    assert.ok(theme.light.ink[0] < theme.light.paper[0],
+      `${name}: the light ink is not darker than its paper, so var(--foreground) is the wrong anchor`);
+
+    // DARK: a literal, because no token holds "darker than the page".
+    const dark = css.split("\n").filter((l) => l.startsWith(".dark .shadow"));
+    assert.ok(dark.length === light.length, `${name}: ${dark.length} dark rules against ${light.length} light ones`);
+    for (const rule of dark) {
+      const m = rule.match(/oklch\((-?[\d.]+) [\d.]+ [\d.]+\)/);
+      assert.ok(m, `${name}: dark shadow has no literal anchor — ${rule.slice(0, 90)}`);
+      assert.ok(Number(m[1]) < theme.dark.paper[0],
+        `${name}: dark shadow anchor L ${m[1]} is lighter than the page at ${theme.dark.paper[0]} — that is a glow`);
+    }
+    // And it carries more of itself, or a dark-on-dark shadow does not register.
+    const alpha = (rule) => Number(rule.match(/([\d.]+)%, transparent/)[1]);
+    assert.ok(alpha(dark[0]) > alpha(light[0]),
+      `${name}: the dark shadow is no stronger than the light one`);
+  }
+  // Without a theme the dark half cannot be derived, so it must be OMITTED
+  // rather than guessed — a wrong dark rule is worse than none.
+  assert.ok(!shadowCss("crisp").includes(".dark"), "a themeless call invented a dark-mode shadow");
+});
+
 test("a border weight is a whole pixel, or it is the weight below it", () => {
   // MEASURED, not assumed: Chrome floors the USED border-width to a whole CSS
   // pixel at EVERY device pixel ratio, so 1px, 1.25px, 1.5px and 1.75px all

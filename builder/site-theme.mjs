@@ -432,14 +432,42 @@ const SHADOW_GEOMETRY = {
 
 const shadowSel = (step) => `.shadow${step ? "-" + step : ""}`;
 
-export function shadowCss(style) {
+/**
+ * A SHADOW IS AN ABSENCE OF LIGHT, so it is dark in BOTH modes.
+ *
+ * The first version mixed against `var(--foreground)` and stopped there, which
+ * is right in light mode and inverted in dark: `--foreground` is the near-white
+ * ink there, so every card got a white halo at 7-10% and read as glowing rather
+ * than raised. Measured — `oklch(0.96 0.004 230 / 0.07)` on Atrium's near-black
+ * — and visible in the render once it was looked for. Neither the contrast
+ * check nor the presence check could see it: the shadow was there, it was the
+ * theme's own colour, and it was the wrong end of the theme.
+ *
+ * So dark mode anchors on the theme's own PAPER pushed nearly to black, keeping
+ * its hue, and carries more alpha — a shadow on a dark surface has to be much
+ * darker than it to register at all. Emitted as `.dark .shadow-*`, which outruns
+ * the base rule on specificity rather than on source order.
+ */
+const DARK_SHADOW_ALPHA = 2.6;
+
+export function shadowCss(style, theme) {
   const geo = SHADOW_GEOMETRY[style];
   if (!geo) return SHADOW_STEPS.map((s) => `${shadowSel(s)} { --tw-shadow: 0 0 #0000; }`).join("\n") + "\n";
-  return SHADOW_STEPS.map((s) => {
+
+  const rules = (prefix, colour, scale) => SHADOW_STEPS.map((s) => {
     const layers = geo[s].map(([x, y, blur, spread, pct]) =>
-      `${x} ${y}px ${blur}px ${spread}px color-mix(in oklch, var(--foreground) ${pct}%, transparent)`);
-    return `${shadowSel(s)} { --tw-shadow: ${layers.join(", ")}; }`;
-  }).join("\n") + "\n";
+      `${x} ${y}px ${blur}px ${spread}px ${colour(Math.min(60, +(pct * scale).toFixed(1)))}`);
+    return `${prefix}${shadowSel(s)} { --tw-shadow: ${layers.join(", ")}; }`;
+  }).join("\n");
+
+  // Light mode stays a live `var()`, so it tracks whatever the palette makes the
+  // ink. Dark mode cannot: there is no token holding "darker than the page".
+  const light = rules("", (a) => `color-mix(in oklch, var(--foreground) ${a}%, transparent)`, 1);
+  if (!theme?.dark?.paper) return light + "\n";
+  const [, C, H] = theme.dark.paper;
+  const anchor = [0.04, Math.min(C, 0.02), H];
+  const dark = rules(".dark ", (a) => `color-mix(in oklch, ${css(anchor)} ${a}%, transparent)`, DARK_SHADOW_ALPHA);
+  return light + "\n" + dark + "\n";
 }
 
 /* ------------------------------------------------------------------ corners */
@@ -735,7 +763,7 @@ export function themeCss(name) {
     typeCss(theme.scale) + "\n" +
     densityCss(theme.density) + "\n" +
     borderCss(theme.border) + "\n" +
-    shadowCss(theme.shadow);
+    shadowCss(theme.shadow, theme);
 }
 
 /** What the model may choose from — an enum, so an invalid theme is impossible. */
