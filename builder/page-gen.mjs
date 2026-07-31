@@ -415,6 +415,9 @@ export const UI_COMPONENTS = [
   // Layout, the pieces still missing.
   "aspect-box", "full-bleed", "edge-fade", "gutter", "sidebar-right",
   "three-col", "content-width", "sticky-columns", "sticky-footer",
+  // Money as a shape.
+  "amount-input", "currency-amount", "tax-toggle", "discount-input",
+  "payment-picker", "split-amount",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

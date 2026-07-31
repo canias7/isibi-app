@@ -1,4 +1,4 @@
-# Components (969 built, 31 to go)
+# Components (975 built, 25 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -15,6 +15,7 @@
 ✓ alert-dialog
 ✓ all-day-row
 ✓ alt-text-field
+✓ amount-input
 ✓ anchor-heading
 ✓ anchor-nav
 ✓ announcement-bar
@@ -192,6 +193,7 @@
 ✓ csv-import
 ✓ cta-band
 ✓ curl-example
+✓ currency-amount
 ✓ currency-input
 ✓ currency-switch
 ✓ cursor-pagination
@@ -230,6 +232,7 @@
 ✓ direction
 ✓ directory-list
 ✓ dirty-indicator
+✓ discount-input
 ✓ dish-card
 ✓ dismiss-all
 ✓ distance-badge
@@ -541,6 +544,7 @@
 ✓ paste-image
 ✓ paste-table
 ✓ payment-methods
+✓ payment-picker
 ✓ percent-input
 ✓ percent-ring
 ✓ permalink
@@ -787,6 +791,7 @@
 ✓ sparkline
 ✓ spec-row
 ✓ spinner
+✓ split-amount
 ✓ split-pane
 ✓ split-view
 ✓ spotlight
@@ -853,6 +858,7 @@
 ✓ tag-input
 ✓ tag-list
 ✓ tag-select
+✓ tax-toggle
 ✓ team-grid
 ✓ template-download
 ✓ template-fill
@@ -970,7 +976,6 @@
 ✓ year-picker
 ✓ zoom-controls
 
-amount-input
 area-chart
 bar-chart
 box-plot
@@ -980,24 +985,19 @@ chart-export
 chart-legend
 combo-chart
 comparison-chart
-currency-amount
-discount-input
 distribution-bar
 funnel-chart
 grouped-bar
 histogram
 line-chart
-payment-picker
 pie-chart
 quantile-bar
 radar-chart
 range-chart
 scatter-plot
 sparkline-grid
-split-amount
 stacked-bar
 step-chart
-tax-toggle
 treemap-chart
 trend-card
 waterfall-chart
