@@ -1,4 +1,4 @@
-# Components (646 built, 354 to go)
+# Components (666 built, 334 to go)
 
 ✓ accordion
 ✓ account-menu
@@ -23,6 +23,7 @@
 ✓ async-select
 ✓ attachment
 ✓ attachment-list
+✓ attachment-tray
 ✓ audio-player
 ✓ audio-recorder
 ✓ audit-row
@@ -88,6 +89,7 @@
 ✓ checkbox-group
 ✓ checkbox-tree
 ✓ chip-list
+✓ citation-list
 ✓ clamp-text
 ✓ cluster
 ✓ code-block
@@ -119,9 +121,12 @@
 ✓ contact-form
 ✓ container
 ✓ context-menu
+✓ context-meter
+✓ conversation-branch
 ✓ conversation-row
 ✓ cookie-banner
 ✓ copy-button
+✓ copy-response
 ✓ count-badge
 ✓ countdown
 ✓ country-select
@@ -330,6 +335,7 @@
 ✓ metric-row
 ✓ mini-bars
 ✓ mobile-nav
+✓ model-picker
 ✓ moderation-note
 ✓ money
 ✓ month-picker
@@ -408,6 +414,8 @@
 ✓ progress-ring
 ✓ progress-stack
 ✓ progressive-image
+✓ prompt-box
+✓ prompt-history
 ✓ property-card
 ✓ prose
 ✓ quantity-input
@@ -432,6 +440,7 @@
 ✓ recovery-codes
 ✓ recurrence-summary
 ✓ recurring-picker
+✓ regenerate-button
 ✓ related-list
 ✓ reorderable-grid
 ✓ repeatable-field
@@ -439,6 +448,7 @@
 ✓ required-mark
 ✓ reset-form
 ✓ resizable
+✓ response-rating
 ✓ result-count
 ✓ retry-panel
 ✓ reveal
@@ -522,6 +532,7 @@
 ✓ sonner
 ✓ sort-select
 ✓ sortable-header
+✓ source-card
 ✓ spacer
 ✓ spacing-picker
 ✓ sparkline
@@ -547,16 +558,20 @@
 ✓ sticky-cta
 ✓ sticky-table
 ✓ stock-badge
+✓ stop-generating
 ✓ storage-bar
 ✓ store-locator
+✓ streaming-text
 ✓ subtitle-track
 ✓ success-panel
+✓ suggestion-chips
 ✓ suggestion-mode
 ✓ suspicious-login
 ✓ swipeable-row
 ✓ switch
 ✓ switch-row
 ✓ sync-status
+✓ system-prompt-editor
 ✓ tab-nav
 ✓ table
 ✓ table-editor
@@ -578,6 +593,7 @@
 ✓ textarea
 ✓ textarea-count
 ✓ theme-toggle
+✓ thinking-indicator
 ✓ three-line-row
 ✓ thumb-strip
 ✓ ticket-card
@@ -595,11 +611,14 @@
 ✓ toggle
 ✓ toggle-chip
 ✓ toggle-group
+✓ token-meter
+✓ tool-call-card
 ✓ toolbar
 ✓ tooltip
 ✓ totals-row
 ✓ tour-step
 ✓ transcript-line
+✓ transcript-view
 ✓ transfer-list
 ✓ travel-time
 ✓ tree-item
@@ -631,6 +650,7 @@
 ✓ viewer-count
 ✓ virtual-list
 ✓ visually-hidden
+✓ voice-input
 ✓ volume-slider
 ✓ vote-buttons
 ✓ waitlist-form
@@ -659,7 +679,6 @@ appeal-form
 area-chart
 aspect-box
 async-validation
-attachment-tray
 availability-toggle
 back-to-list
 bar-chart
@@ -686,7 +705,6 @@ chart-legend
 checklist-dot
 checkpoint-list
 chunked-upload
-citation-list
 click-outside
 clipboard-history
 co-edit-note
@@ -707,13 +725,10 @@ conflict-merge
 content-placeholder
 content-warning
 content-width
-context-meter
 context-panel
 contrast-check
-conversation-branch
 coordinate-input
 copy-link
-copy-response
 count-up
 countdown-ring
 csat-face
@@ -806,7 +821,6 @@ mention-badge
 milestone-dot
 missing-fields
 modal-stack
-model-picker
 moderation-queue
 morph-height
 multi-sort-picker
@@ -844,8 +858,6 @@ print-preview
 priority-inbox
 progress-donut
 progress-toast
-prompt-box
-prompt-history
 property-panel
 pros-cons
 pull-quote
@@ -869,7 +881,6 @@ recent-nav
 recommendation-badge
 reduce-motion
 refresh-pill
-regenerate-button
 related-nav
 relative-date
 report-reason
@@ -879,7 +890,6 @@ reset-demo
 resizable-columns
 resize-handle
 resolve-thread
-response-rating
 response-summary
 result-preview
 rich-tooltip
@@ -927,7 +937,6 @@ snooze-menu
 snooze-until
 social-preview
 sortable-list
-source-card
 source-label
 spam-note
 sparkline-grid
@@ -946,23 +955,18 @@ step-chart
 sticky-columns
 sticky-footer
 sticky-shrink
-stop-generating
 stopwatch
-streaming-text
 strike-badge
 subscribe-toggle
-suggestion-chips
 survey-card
 swipe-actions
 syntax-highlight
-system-prompt-editor
 tab-order-note
 tab-overflow
 table-of-contents
 tax-toggle
 terminal-output
 theme-picker
-thinking-indicator
 three-col
 threshold-bar
 tilt-card
@@ -970,13 +974,10 @@ timeout-note
 timezone-clock
 toast-queue
 toast-stack
-token-meter
 tolerance-bar
-tool-call-card
 top-n-picker
 trade-off-bar
 transcript-toggle
-transcript-view
 transition-arrow
 treemap-chart
 trend-card
@@ -990,7 +991,6 @@ upgrade-badge
 upload-queue
 usage-nudge
 viewer-list
-voice-input
 vote-bar
 waterfall-chart
 weighted-score

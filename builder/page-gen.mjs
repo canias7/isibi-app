@@ -297,6 +297,13 @@ export const UI_COMPONENTS = [
   "volume-slider", "live-badge", "viewer-count", "audio-recorder",
   "image-crop", "image-zoom", "image-compare", "lightbox", "thumb-strip",
   "progressive-image", "blur-up", "media-caption",
+  // AI surfaces. Not a vertical — every product being built now has these.
+  "prompt-box", "model-picker", "streaming-text", "thinking-indicator",
+  "tool-call-card", "citation-list", "source-card", "token-meter",
+  "regenerate-button", "response-rating", "suggestion-chips",
+  "conversation-branch", "voice-input", "transcript-view", "context-meter",
+  "attachment-tray", "stop-generating", "copy-response", "prompt-history",
+  "system-prompt-editor",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
