@@ -11,8 +11,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { build, render, exportedNames } from "../builder/gen-chart-api.mjs";
+import { build as buildUsage, render as renderUsage, fabricates } from "../builder/gen-chart-usage.mjs";
+import { CHART_USAGE } from "../builder/chart-usage.mjs";
 import { CHART_COMPONENTS, CHART_API } from "../builder/chart-api.mjs";
-import { PAGE_RULES, CHART_CATALOGUE, lintPages, importedComponentApi, pagesPrompt, pagesRequest } from "../builder/page-gen.mjs";
+import { PAGE_RULES, CHART_CATALOGUE, lintPages, importedComponentApi, importedChartUsage,
+  pagesPrompt, pagesRequest, repairPrompt } from "../builder/page-gen.mjs";
 
 const TEMPLATE = "builder/lovable/template";
 const LIB = path.join(TEMPLATE, "src/components/charts/lib");
@@ -190,6 +193,116 @@ test("every documented signature belongs to a catalogued domain", () => {
   for (const domain of Object.keys(CHART_API)) {
     assert.ok(CHART_COMPONENTS[domain], `${domain} has signatures but is not in the catalogue`);
   }
+});
+
+test("the committed worked examples match what the demos actually do", () => {
+  const fresh = renderUsage(buildUsage());
+  const committed = fs.readFileSync("builder/chart-usage.mjs", "utf8");
+  assert.equal(fresh, committed,
+    "builder/chart-usage.mjs is stale — run `node builder/gen-chart-usage.mjs`");
+});
+
+test("no worked example teaches the model to fabricate data", () => {
+  // Several lib modules export a generator beside the component — `sampleBoxes`,
+  // `sampleCandles`, `sample`, `rng`. They are real exports, so an example using
+  // one COMPILES, and that is the danger: the model copies
+  // `sampleBoxes(["Mon","Tue"], 9)` into a real page and a business publishes
+  // random numbers. The demo-import lint exists to stop exactly that, and an
+  // example is a second door into it.
+  //
+  // It also shows nothing. The whole value here is the SHAPE of the data, which
+  // a generator call hides behind a function name.
+  const dirty = Object.entries(CHART_USAGE).filter(([, v]) => fabricates(v));
+  assert.deepEqual(dirty.map(([k]) => k), []);
+  // The rule must be doing work: `boxplot.BoxPlot`'s only demo fabricates, so it
+  // has to be absent. Without that this test passes on a build where the filter
+  // was never applied because nothing fabricated in the first place.
+  assert.ok(!CHART_USAGE["boxplot.BoxPlot"],
+    "boxplot.BoxPlot's demo calls sampleBoxes — it must be dropped, not cleaned up");
+  assert.ok(CHART_USAGE["waterfall.Waterfall"], "a clean example must still survive");
+});
+
+test("every worked example names a primitive that exists", () => {
+  for (const key of Object.keys(CHART_USAGE)) {
+    const [domain, name] = key.split(".");
+    assert.ok(CHART_COMPONENTS[domain], `${key} names a domain that does not exist`);
+    assert.ok(CHART_COMPONENTS[domain].includes(name), `${key} names an export that does not exist`);
+    // And the example must actually call it, or it is documentation of
+    // something else that happened to sit in the same demo.
+    assert.match(CHART_USAGE[key], new RegExp("<" + name + "[\\s/>]"), `${key} does not call ${name}`);
+  }
+});
+
+test("a repair gets worked calls only for the charts the page imported", () => {
+  const usage = importedChartUsage([{
+    path: "index.tsx",
+    source: 'import { Waterfall } from "@/components/charts/lib/waterfall";\n' +
+            'import { Button } from "@/components/ui/button";',
+  }]);
+  assert.match(usage, /^waterfall\.Waterfall$/m);
+  assert.match(usage, /<Waterfall steps=/);
+  // The shape a bare signature could never give: `Step` is a name the model
+  // cannot resolve, and the example shows its fields AND the optional `total`.
+  assert.match(usage, /label:/);
+  assert.match(usage, /total: true/);
+  assert.ok(!/histogram\./.test(usage), "only what the page imported");
+
+  assert.equal(importedChartUsage([{ path: "index.tsx", source: "const x = 1;" }]), null,
+    "a page with no chart imports adds no section at all");
+
+  // An IMPORTED primitive with no mined example must be omitted, not emitted
+  // empty. `salon` has no demo — like every one of the 96 industry domains — so
+  // this is the common case, not an edge one, and a survivor proved nothing was
+  // checking it: without the guard the prompt gets "salon.StationHours" followed
+  // by the word `undefined`, which reads as a worked call showing no props.
+  const none = importedChartUsage([{
+    path: "index.tsx",
+    source: 'import { StationHours } from "@/components/charts/lib/salon";',
+  }]);
+  assert.equal(none, null, "a primitive with no example must add nothing");
+  const mixed = importedChartUsage([{
+    path: "index.tsx",
+    source: 'import { StationHours } from "@/components/charts/lib/salon";\n' +
+            'import { Waterfall } from "@/components/charts/lib/waterfall";',
+  }]);
+  assert.ok(!/undefined/.test(mixed), "never the string `undefined` in the prompt");
+  assert.ok(!/salon\./.test(mixed), "the unmined one is left out entirely");
+});
+
+test("worked examples ride on the repair only, never the first call", () => {
+  const pages = [{ path: "index.tsx", source: 'import { Waterfall } from "@/components/charts/lib/waterfall";' }];
+  const repair = repairPrompt("a cafe", { tables: [] }, pages, ["boom"], "Cafe");
+  assert.match(repair, /WORKING CALLS FOR THE CHARTS YOU IMPORTED/);
+  // Ordering is deliberate: the signature is the whole surface, the example is
+  // one working point on it. Read the other way round, a call showing four of
+  // nine props reads as the four that exist.
+  //
+  // BOTH markers are asserted present FIRST. Written as a bare `<` comparison
+  // this passed with the signatures gone entirely — `indexOf` answers -1, and
+  // -1 is less than any real index, so a mutant deleting the section survived an
+  // assertion whose whole subject was that section.
+  const props = repair.indexOf("THE EXACT PROPS");
+  const calls = repair.indexOf("WORKING CALLS");
+  assert.ok(props >= 0, "the signatures section is missing");
+  assert.ok(calls >= 0, "the worked-calls section is missing");
+  assert.ok(props < calls, "signatures must come before examples");
+
+  const plain = pagesRequest({ brief: "a cafe", spec: { tables: [] }, brand: "Cafe" });
+  assert.ok(!/WORKING CALLS/.test(plain.system[0].text + plain.messages[0].content),
+    "a build that worked must not pay for these");
+});
+
+test("the examples cover the demoed domains and cannot cover the others", () => {
+  // An honest statement of the ceiling. The 1,140 demos import only 45 of the
+  // 141 lib modules, so 96 domains — every industry one, which is what this
+  // platform actually builds for — can never have a mined example. That is a
+  // property of the demos, not a bug here, and it is the reason the signatures
+  // have to stand on their own.
+  const domains = new Set(Object.keys(CHART_USAGE).map((k) => k.split(".")[0]));
+  assert.ok(domains.size > 20, `only ${domains.size} domains have an example — the miner has regressed`);
+  assert.ok(domains.size < Object.keys(CHART_COMPONENTS).length,
+    "if every domain has an example the demos have grown — re-check this claim");
+  assert.ok(!domains.has("salon"), "salon has no demo, so it cannot have a mined example");
 });
 
 test("nothing in the chart lib carries meaning by colour alone", () => {

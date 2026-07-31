@@ -17,6 +17,13 @@ import { COMPONENT_API } from "./component-api.mjs";
 // The chart half, generated from src/components/charts/lib by
 // builder/gen-chart-api.mjs and kept in step by test/chart-api.test.mjs.
 import { CHART_COMPONENTS, CHART_API } from "./chart-api.mjs";
+// One worked call per primitive, mined out of the demos by
+// builder/gen-chart-usage.mjs. This is what the 1,140 demo files are FOR: they
+// are the only place in the repo these APIs are called, and they compile, so
+// every example is known-good rather than something written from the types.
+// Reachable only this way — the model has no filesystem, and importing a demo
+// is the defect the lint refuses.
+import { CHART_USAGE } from "./chart-usage.mjs";
 
 /** Domain -> its exports, one line each. What the compose prompt spends its chart budget on. */
 export const CHART_CATALOGUE = Object.entries(CHART_COMPONENTS)
@@ -1268,9 +1275,39 @@ export function importedComponentApi(pages) {
   return lines.length ? lines.join("\n") : null;
 }
 
+/**
+ * Worked calls for the chart primitives a page actually named, from the demos.
+ *
+ * Separate from the signatures because they answer different questions and one
+ * cannot stand in for the other. A signature gives the whole surface and stops
+ * at a type NAME — `Waterfall(steps: Step[], …)` never says what a `Step` is,
+ * and 27 of the 854 end that way. The example resolves it, and shows the
+ * optional `total: true` flag no type name hinted at.
+ *
+ * Scoped to what the page IMPORTED, and to the names it actually used, or this
+ * costs on every repair what the compose/repair split exists to avoid.
+ */
+export function importedChartUsage(pages) {
+  const out = [];
+  for (const p of pages || []) {
+    const src = String(p.source || "");
+    for (const m of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*["']@\/components\/charts\/lib\/([a-z0-9-]+)["']/gi)) {
+      for (const raw of m[1].replace(/[{}]/g, "").split(",")) {
+        const name = raw.trim().split(/\s+as\s+/i)[0].trim();
+        const key = m[2].toLowerCase() + "." + name;
+        if (CHART_USAGE[key] && !out.some((o) => o.startsWith(key + "\n"))) {
+          out.push(key + "\n" + CHART_USAGE[key]);
+        }
+      }
+    }
+  }
+  return out.length ? out.join("\n\n") : null;
+}
+
 export function repairPrompt(brief, spec, pages, problems, brand) {
   const files = pages.map((p) => "=== src/routes/" + p.path + " ===\n" + p.source).join("\n\n");
   const api = importedComponentApi(pages);
+  const usage = importedChartUsage(pages);
   return "The pages you wrote did not work. Fix them and return the COMPLETE set of route files again — " +
     "every file, not a patch.\n\nWHAT IS WRONG\n" +
     problems.map((p) => "- " + p).join("\n") +
@@ -1279,6 +1316,15 @@ export function repairPrompt(brief, spec, pages, problems, brand) {
         "These are the real signatures, taken from the components themselves. Where what you\n" +
         "wrote disagrees with one of these, the signature is right. Every one also takes\n" +
         "className. A `?` means optional; `= x` is the default.\n" + api
+      : "") +
+    // The examples come AFTER the signatures on purpose: the signature is the
+    // whole surface and the example is one working point on it. Read the other
+    // way round, a call showing four of nine props reads as the four that exist.
+    (usage
+      ? "\n\nWORKING CALLS FOR THE CHARTS YOU IMPORTED\n" +
+        "Real code that compiles today, so where a signature only gave you a type NAME this\n" +
+        "shows its shape. Arrays are cut short — copy the shape, not the numbers, and pass\n" +
+        "this site's own rows.\n" + usage
       : "") +
     "\n\nWHAT YOU WROTE\n" + files.slice(0, 60000) +
     "\n\n" + pagesPrompt(brief, spec, brand);
