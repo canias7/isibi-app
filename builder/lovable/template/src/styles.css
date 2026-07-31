@@ -188,3 +188,77 @@
     font-family: var(--font-heading);
   }
 }
+
+/* ---- accessibility root classes -------------------------------------------
+   `reduce-motion.tsx` and `high-contrast.tsx` toggle these classes on <html>.
+   These rules are the other half of that mechanism — without them the toggles
+   are switches wired to nothing (which is exactly how they first shipped: the
+   components rendered, toggled, and changed not a single pixel).
+
+   The system preference and the app class share ONE set of declarations per
+   concern, stated twice because CSS cannot join a media query and a class
+   selector — keep the pairs identical when editing. */
+
+/* Motion: the same global kill-switch for the OS setting and the app toggle.
+   0.01ms rather than 0s so transitionend/animationend still fire — components
+   like morph-height finish on that event and 0s never dispatches it in some
+   engines. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+.app-reduce-motion *, .app-reduce-motion *::before, .app-reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Contrast: muted ink becomes ink, hairlines become rules, focus is full ink.
+   Tokens only — the components never restate colours, so this applies to every
+   component at once, including ones that never heard of the toggle. These
+   selectors sit at the end of the file on purpose: .app-high-contrast ties
+   with :root and .dark on specificity, so source order is what makes the
+   override win. */
+.app-high-contrast {
+  --foreground: oklch(0 0 0);
+  --card-foreground: oklch(0 0 0);
+  --popover-foreground: oklch(0 0 0);
+  --muted-foreground: oklch(0.25 0 0);
+  --border: oklch(0.45 0 0);
+  --input: oklch(0.45 0 0);
+  --ring: oklch(0 0 0);
+}
+.dark.app-high-contrast {
+  --foreground: oklch(1 0 0);
+  --card-foreground: oklch(1 0 0);
+  --popover-foreground: oklch(1 0 0);
+  --muted-foreground: oklch(0.85 0 0);
+  --border: oklch(1 0 0 / 55%);
+  --input: oklch(1 0 0 / 55%);
+  --ring: oklch(1 0 0);
+}
+@media (prefers-contrast: more) {
+  :root {
+    --foreground: oklch(0 0 0);
+    --card-foreground: oklch(0 0 0);
+    --popover-foreground: oklch(0 0 0);
+    --muted-foreground: oklch(0.25 0 0);
+    --border: oklch(0.45 0 0);
+    --input: oklch(0.45 0 0);
+    --ring: oklch(0 0 0);
+  }
+  .dark {
+    --foreground: oklch(1 0 0);
+    --card-foreground: oklch(1 0 0);
+    --popover-foreground: oklch(1 0 0);
+    --muted-foreground: oklch(0.85 0 0);
+    --border: oklch(1 0 0 / 55%);
+    --input: oklch(1 0 0 / 55%);
+    --ring: oklch(1 0 0);
+  }
+}
