@@ -26,15 +26,12 @@
 // different structure, not just different props — so it is what to build first.
 export const NEXT_PLANNED = {
   "Calendar and scheduling, deep": [
-    "time-grid", "recurrence-editor", "lane-calendar", "resource-lanes", "quick-event",
-    "meeting-poll", "best-time-grid", "closed-dates", "cancellation-window",
-  ],
+    "recurrence-editor",       ],
 
   "Catalogue and products": [
-    "colour-swatch", "stock-level", "backorder-note", "preorder-badge", "bundle-builder",
-    "addon-list", "personalisation-field", "engrave-preview", "fit-guide", "material-badge",
+    "colour-swatch", "stock-level", "backorder-note", "preorder-badge",     "personalisation-field", "engrave-preview", "fit-guide", "material-badge",
     "care-icons", "warranty-badge", "price-history", "unit-price", "bulk-pricing",
-    "quantity-break", "min-order-note", "sku-field", "barcode-display", "category-tile",
+    "quantity-break", "min-order-note", "sku-field", "category-tile",
     "collection-header", "lookbook-grid", "shop-the-look", "recently-viewed", "new-in-badge",
     "last-chance-badge",
   ],
@@ -107,15 +104,14 @@ export const NEXT_PLANNED = {
   ],
 
   "Projects and kanban": [
-    "board-column", "wip-limit", "swimlane-header", "card-cover", "card-checklist",
+    "wip-limit", "card-cover", "card-checklist",
     "subtask-bar", "epic-badge", "sprint-header", "sprint-goal", "sprint-load",
     "estimate-chip", "story-points", "dependency-link", "milestone-marker", "backlog-item",
-    "triage-queue", "standup-form", "retro-column", "vote-dots", "roadmap-lane",
-    "now-next-later", "changelog-compose", "board-filter", "done-column-fold", "carryover-picker",
+    "triage-queue", "standup-form", "retro-column", "vote-dots",     "now-next-later", "changelog-compose", "board-filter", "done-column-fold", "carryover-picker",
   ],
 
   "CRM and sales": [
-    "pipeline-board", "deal-card", "deal-stage", "deal-value", "close-date-chip",
+    "deal-card", "deal-stage", "deal-value", "close-date-chip",
     "win-probability", "lost-reason", "company-card", "org-link", "last-touch",
     "next-step-field", "activity-composer", "call-log-entry", "meeting-log", "email-log-entry",
     "lead-score-facts", "territory-badge", "quota-bar", "forecast-range", "renewal-flag",
@@ -140,7 +136,7 @@ export const NEXT_PLANNED = {
     "menu-line", "dish-tile", "allergen-badges", "dietary-tags", "spice-level",
     "course-header", "tasting-menu", "wine-pairing", "daily-special", "sold-out-strike",
     "party-size-picker", "seating-preference", "waitlist-position", "buzzer-number", "order-ticket",
-    "course-fire", "modifier-picker", "combo-builder", "time-priced-badge", "service-charge-note",
+    "course-fire", "combo-builder", "time-priced-badge", "service-charge-note",
     "tip-presets", "covers-count", "turn-time",
   ],
 
@@ -221,7 +217,7 @@ export const NEXT_PLANNED = {
   "Video platforms": [
     "up-next-card", "playlist-rail", "chapter-thumbs", "quality-picker", "autoplay-toggle",
     "theater-toggle", "watch-later", "continue-watching", "member-only-badge", "dub-picker",
-    "clip-creator", "timestamp-comment", "view-milestone", "vertical-rail", "credits-skip",
+    "timestamp-comment", "view-milestone", "vertical-rail", "credits-skip",
   ],
 
   "News and publishing": [
@@ -246,7 +242,7 @@ export const NEXT_PLANNED = {
 
   "Devices and IoT": [
     "device-tile", "battery-badge", "signal-bars", "pairing-flow", "firmware-update-bar",
-    "sensor-reading", "alarm-rule", "automation-rule", "scene-button", "room-group",
+    "sensor-reading", "alarm-rule", "scene-button", "room-group",
     "energy-today", "offline-device-note", "tamper-alert", "device-share", "hub-status",
   ],
 
@@ -318,7 +314,7 @@ export const NEXT_PLANNED = {
   ],
 
   "Media library": [
-    "photo-annotate", "image-rotate", "gallery-reorder", "caption-editor", "batch-tag",
+    "image-rotate", "gallery-reorder", "caption-editor", "batch-tag",
     "photo-compare-grid", "raw-badge", "panorama-strip", "image-dedupe", "usage-count-badge",
     "media-trash",
   ],
@@ -405,7 +401,7 @@ export const NEXT_PLANNED = {
   ],
 
   "Analytics, campaigns and the rest": [
-    "capacity-heatmap", "shift-coverage", "time-off-conflict", "price-tier-table", "stock-by-location",
+    "shift-coverage", "time-off-conflict", "price-tier-table", "stock-by-location",
     "reserve-stock", "low-stock-alert", "restock-date", "swatch-group",
   ],
 

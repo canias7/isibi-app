@@ -426,6 +426,8 @@ export const UI_COMPONENTS = [
   "option-priced-list", "split-tender", "split-by-item", "range-trim",
   "image-annotate", "focal-point", "read-aloud", "rtl-preview", "barcode",
   "stamp-card", "poll-composer", "minimap-scroll",
+  // Catalogue.
+  "colour-swatch", "stock-level", "unit-price", "bulk-pricing",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

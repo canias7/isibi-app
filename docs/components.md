@@ -1,4 +1,4 @@
-# Components (1001 built, 25 to go)
+# Components (1005 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -81,6 +81,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ build-status
 ✓ bulk-actions
 ✓ bulk-edit-panel
+✓ bulk-pricing
 ✓ bullet-list
 ✓ busy-button
 ✓ button
@@ -138,6 +139,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ collapsible
 ✓ color-picker
 ✓ color-swatch
+✓ colour-swatch
 ✓ column-filter
 ✓ column-mapper
 ✓ column-reorder
@@ -850,6 +852,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ sticky-shrink
 ✓ sticky-table
 ✓ stock-badge
+✓ stock-level
 ✓ stop-generating
 ✓ stopwatch
 ✓ storage-bar
@@ -959,6 +962,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ unit-convert
 ✓ unit-input
 ✓ unit-preference
+✓ unit-price
 ✓ unit-toggle
 ✓ unread-divider
 ✓ upgrade-badge
@@ -1081,7 +1085,7 @@ what it is and what it differs from.
 - ✓ **poll-composer** — Build a poll — add and reorder options, set how long it runs. `poll-result` displays one; nothing makes one.
 - ✓ **minimap-scroll** — A shrunk map of a long document with the viewport marked, draggable. `scroll-progress` is a bar and `table-of-contents` is headings.
 
-## Then these — 850 proposed, prop-distinct
+## Then these — 830 proposed, prop-distinct
 
 Same test the shipped kit uses on its own 33 cards and 32 badges: different
 PROPS, so the model hands one its data instead of writing the layout inline.
@@ -1089,24 +1093,14 @@ PROPS, so the model hands one its data instead of writing the layout inline.
 
 ### Calendar and scheduling, deep
 
-time-grid
 recurrence-editor
-lane-calendar
-resource-lanes
-quick-event
-meeting-poll
-best-time-grid
-closed-dates
-cancellation-window
 
 ### Catalogue and products
 
-colour-swatch
-stock-level
+✓ colour-swatch
+✓ stock-level
 backorder-note
 preorder-badge
-bundle-builder
-addon-list
 personalisation-field
 engrave-preview
 fit-guide
@@ -1114,12 +1108,11 @@ material-badge
 care-icons
 warranty-badge
 price-history
-unit-price
-bulk-pricing
+✓ unit-price
+✓ bulk-pricing
 quantity-break
 min-order-note
 sku-field
-barcode-display
 category-tile
 collection-header
 lookbook-grid
@@ -1340,9 +1333,7 @@ kb-search-scope
 
 ### Projects and kanban
 
-board-column
 wip-limit
-swimlane-header
 card-cover
 card-checklist
 subtask-bar
@@ -1359,7 +1350,6 @@ triage-queue
 standup-form
 retro-column
 vote-dots
-roadmap-lane
 now-next-later
 changelog-compose
 board-filter
@@ -1368,7 +1358,6 @@ carryover-picker
 
 ### CRM and sales
 
-pipeline-board
 deal-card
 deal-stage
 deal-value
@@ -1449,7 +1438,6 @@ waitlist-position
 buzzer-number
 order-ticket
 course-fire
-modifier-picker
 combo-builder
 time-priced-badge
 service-charge-note
@@ -1692,7 +1680,6 @@ watch-later
 continue-watching
 member-only-badge
 dub-picker
-clip-creator
 timestamp-comment
 view-milestone
 vertical-rail
@@ -1760,7 +1747,6 @@ pairing-flow
 firmware-update-bar
 sensor-reading
 alarm-rule
-automation-rule
 scene-button
 room-group
 energy-today
@@ -1943,7 +1929,6 @@ selection-summary
 
 ### Media library
 
-photo-annotate
 image-rotate
 gallery-reorder
 caption-editor
@@ -2116,7 +2101,6 @@ allergy-plan
 
 ### Analytics, campaigns and the rest
 
-capacity-heatmap
 shift-coverage
 time-off-conflict
 price-tier-table
