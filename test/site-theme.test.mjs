@@ -11,6 +11,7 @@ import {
   THEMES, THEME_NAMES, paletteFor, themeCss, contrast, luminance,
   oklchToRgb, foregroundFor, shortlistForPrompt,
   distance, hueGap, separateFromAccent, MIN_STATE_SEPARATION, SAME_LANE_DEGREES,
+  CORNERS, cornerCss,
 } from "../builder/site-theme.mjs";
 
 const PAIRS = [
@@ -204,6 +205,71 @@ test("every emitted value is a real oklch triple", () => {
     assert.match(v, /^oklch\(-?\d+(\.\d+)? -?\d+(\.\d+)? -?\d+(\.\d+)?\)$/, `bad value ${v}`);
     assert.ok(!/NaN|undefined/.test(v));
   }
+});
+
+test("every corner treatment emits valid css, and only the usable ones are offered", () => {
+  const base = { ...THEMES[THEME_NAMES[0]] };
+  for (const style of Object.keys(CORNERS)) {
+    const css = cornerCss({ ...base, corner: style, radius: "1rem" });
+    assert.match(css, /--radius:/, `${style} must still set the base radius`);
+    assert.ok(!/NaN|undefined/.test(css), `${style} emitted a broken value`);
+    // Balanced braces — a malformed block silently kills every rule after it.
+    assert.equal((css.match(/\{/g) || []).length, (css.match(/\}/g) || []).length, `${style} braces`);
+  }
+  // An unknown treatment falls back to the ordinary corner rather than emitting
+  // nothing, or a typo in a theme would drop the radius entirely.
+  assert.match(cornerCss({ ...base, corner: "nonsense", radius: "1rem" }), /--radius: 1rem/);
+
+  // NOTCH AND SCOOP ARE REFUSED ON PURPOSE. Both exist and both render — and
+  // across a component kit they are unusable: the notch cuts through an input's
+  // border, a card's edge comes apart, and an avatar's initials get clipped.
+  // Asserted so that "we forgot" and "we tried it and it broke" cannot be
+  // confused a year from now.
+  assert.ok(!("notch" in CORNERS) && !("scoop" in CORNERS));
+});
+
+test("elliptical writes the scale, because the base cannot hold a slash", () => {
+  // `--radius-md` is `calc(var(--radius) - 2px)` and you cannot subtract from a
+  // slash pair — so the derived steps are written directly. This is also the
+  // whole reason an elliptical corner is reachable at all: the utility CLASS
+  // cannot express one, but the variable it reads substitutes whatever it holds.
+  const css = cornerCss({ ...THEMES[THEME_NAMES[0]], corner: "elliptical", radius: "1.5rem" });
+  for (const step of ["sm", "md", "lg", "xl"]) {
+    assert.match(css, new RegExp(`--radius-${step}: [\\d.]+px / [\\d.]+px;`), `${step} is not elliptical`);
+  }
+  // The vertical radius must be flatter than the horizontal, or it is a circle
+  // written the long way.
+  const pairs = [...css.matchAll(/--radius-\w+: ([\d.]+)px \/ ([\d.]+)px;/g)];
+  assert.ok(pairs.length === 4);
+  for (const [, h, v] of pairs) assert.ok(Number(v) < Number(h), "the corner is not flattened");
+  // And the steps stay in order, the way the calc() scale does.
+  const hs = pairs.map(([, h]) => Number(h));
+  assert.deepEqual(hs, [...hs].sort((a, b) => a - b), "the elliptical scale is out of order");
+});
+
+test("elliptical needs a radius big enough to see", () => {
+  // At the ledger's 4px base the scale collapses — `sm` comes out 0px / 0px and
+  // the treatment is indistinguishable from square. Not a defect in the code, a
+  // constraint on the theme: asking for elliptical with a tiny radius silently
+  // gets you nothing, and silently getting nothing is what this asserts against.
+  for (const name of THEME_NAMES) {
+    const t = THEMES[name];
+    if ((t.corner ?? "round") !== "elliptical") continue;
+    const px = parseFloat(t.radius) * (t.radius.endsWith("rem") ? 16 : 1);
+    assert.ok(px >= 12, `${name} asks for elliptical at ${px}px — too small to read as anything`);
+  }
+});
+
+test("bevel reaches the descendants, not just the root", () => {
+  // `corner-shape` is a box property and box properties DO NOT INHERIT. Set on
+  // the root alone it styled the root and nothing inside it, so the whole page
+  // rendered as ordinary rounded corners — which looks exactly like the browser
+  // not supporting the property. Found by rendering it; nothing else could tell.
+  const css = cornerCss({ ...THEMES[THEME_NAMES[0]], corner: "bevel", radius: "0.875rem" });
+  assert.match(css, /corner-shape: bevel/);
+  assert.match(css, /body \*|,\s*\*/, "bevel must select descendants or it reaches one element");
+  // And it must still set a radius — corner-shape has nothing to act on without one.
+  assert.match(css, /--radius: 0\.875rem/);
 });
 
 test("the shortlist is usable as a tool enum", () => {
