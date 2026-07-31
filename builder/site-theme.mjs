@@ -271,6 +271,24 @@ export const THEMES = {
     light: { paper: [0.985, 0.006, 95], ink: [0.22, 0.014, 60], accent: [0.46, 0.14, 28] },
     dark: { paper: [0.19, 0.012, 60], ink: [0.96, 0.005, 95], accent: [0.63, 0.13, 30] },
   },
+  // Deliberately opposite to Ledger on all four levers — cool paper against warm,
+  // a calm green against oxblood, and 16px corners against 4px. Two themes that
+  // differ on only one lever prove nothing about whether the system produces
+  // range.
+  //
+  // It is ALSO the awkward case on purpose: the accent sits at hue 165 and
+  // `success` at 156, nine degrees apart. That is well inside the same lane, so
+  // the separation rule has to move the success colour or a confirmation on this
+  // site would be drawn in the brand colour and stop reading as a confirmation.
+  // A theme nobody would have thought to test is worth more in the set than a
+  // second safe one.
+  atrium: {
+    label: "Atrium — cool light, calm green, soft corners",
+    radius: "1rem",
+    corner: "round",
+    light: { paper: [0.985, 0.004, 230], ink: [0.21, 0.012, 240], accent: [0.48, 0.09, 165] },
+    dark: { paper: [0.18, 0.012, 240], ink: [0.96, 0.004, 230], accent: [0.68, 0.1, 168] },
+  },
 };
 
 /** Every token for one mode, derived from that mode's three colours. */
