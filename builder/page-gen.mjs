@@ -762,6 +762,12 @@ export const UI_COMPONENTS = [
   // Music and recording
   "track-row", "setlist-row", "stem-list", "take-row", "royalty-split",
   "release-schedule", "isrc-field", "rehearsal-slot", "stage-plot",
+  // Film and production
+  "call-sheet", "scene-row", "shot-list-row", "location-release", "crew-role-row",
+  "day-out-of-days", "continuity-note", "dailies-row", "rushes-note", "wrap-report",
+  // Membership clubs and societies
+  "membership-tier-row", "renewal-reminder", "committee-list", "agm-notice", "motion-vote",
+  "minutes-entry", "subscription-arrears", "guest-sign-in", "club-fixture",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

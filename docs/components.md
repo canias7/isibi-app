@@ -1,4 +1,4 @@
-# Components (1878 built, 25 to go)
+# Components (1897 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -30,6 +30,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ aged-balance
 ✓ agenda-list
 ✓ aggregate-picker
+✓ agm-notice
 ✓ ai-confidence
 ✓ ai-disclosure
 ✓ ai-edit-diff
@@ -185,6 +186,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ calendar
 ✓ calendar-month
 ✓ calibration-note
+✓ call-sheet
 ✓ callout
 ✓ camera-access
 ✓ camera-capture
@@ -258,6 +260,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ click-outside
 ✓ clipboard-blocked
 ✓ clipboard-history
+✓ club-fixture
 ✓ cluster
 ✓ co-edit-note
 ✓ coach-mark
@@ -294,6 +297,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ comment-pin
 ✓ comment-thread
 ✓ commit-row
+✓ committee-list
 ✓ compact-number
 ✓ compare-slider
 ✓ compare-table
@@ -344,6 +348,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ context-menu
 ✓ context-meter
 ✓ context-panel
+✓ continuity-note
 ✓ contrast-check
 ✓ contrast-toggle
 ✓ conversation-branch
@@ -371,6 +376,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ credential-rotate
 ✓ credential-row
 ✓ credit-applied
+✓ crew-role-row
 ✓ cron-builder
 ✓ crop-box
 ✓ crop-stage
@@ -396,6 +402,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ cv-preview
 ✓ cvc-input
 ✓ cycle-count-row
+✓ dailies-row
 ✓ danger-zone
 ✓ data-dictionary
 ✓ data-freshness
@@ -412,6 +419,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ date-preset
 ✓ date-range-picker
 ✓ date-time-picker
+✓ day-out-of-days
 ✓ day-schedule
 ✓ dead-letter
 ✓ deadline-bar
@@ -694,6 +702,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ grouped-list
 ✓ grouped-rows
 ✓ guest-note
+✓ guest-sign-in
 ✓ guided-step
 ✓ gutter
 ✓ handoff-note
@@ -855,6 +864,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ location-access
 ✓ location-card
 ✓ location-consent
+✓ location-release
 ✓ lock-indicator
 ✓ lockout-note
 ✓ log-viewer
@@ -895,6 +905,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ meeting-poll-grid
 ✓ mega-menu
 ✓ membership-card
+✓ membership-tier-row
 ✓ mention-badge
 ✓ mention-chip
 ✓ mention-picker
@@ -916,6 +927,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ min-order-note
 ✓ mini-bars
 ✓ minimap-scroll
+✓ minutes-entry
 ✓ missing-fields
 ✓ missing-translation
 ✓ mobile-nav
@@ -928,6 +940,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ money
 ✓ month-picker
 ✓ morph-height
+✓ motion-vote
 ✓ move-to-menu
 ✓ multi-column-list
 ✓ multi-date-picker
@@ -1245,6 +1258,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ reminder-set
 ✓ renewal-note
 ✓ renewal-quote
+✓ renewal-reminder
 ✓ reorder-buttons
 ✓ reorder-list
 ✓ reorder-point
@@ -1335,6 +1349,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ rule-summary
 ✓ run-now
 ✓ running-total
+✓ rushes-note
 ✓ safe-area
 ✓ safe-area-pad
 ✓ safe-image
@@ -1358,6 +1373,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ scan-result
 ✓ scan-status
 ✓ scenario-tabs
+✓ scene-row
 ✓ schedule-preview
 ✓ schema-viewer
 ✓ scope-list
@@ -1452,6 +1468,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ shortcut-sheet
 ✓ shortlist-bar
 ✓ shortlist-tray
+✓ shot-list-row
 ✓ shrink-report
 ✓ shrinkage-note
 ✓ side-by-side
@@ -1593,6 +1610,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ study-arm
 ✓ subdomain-field
 ✓ subscribe-toggle
+✓ subscription-arrears
 ✓ substitution-pref
 ✓ substitution-row
 ✓ subtitle-track
@@ -1872,6 +1890,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ workspace-invite
 ✓ workspace-switcher
 ✓ world-clock
+✓ wrap-report
 ✓ write-blocked
 ✓ write-off-note
 ✓ write-queue

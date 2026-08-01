@@ -50,10 +50,14 @@ export function BadgeRow({ badge, holder, issuedOn, lastUsed, lastUsedDaysAgo, a
           </button>
         )}
       </p>
+      {/* Joined, not interleaved: the separator was conditional on `lastUsed`
+          while its fallback always renders, so an issued card never used read
+          as "Issued 14 Marchnever used". */}
       <p className="text-xs tabular-nums text-muted-foreground">
-        {issuedOn && `Issued ${issuedOn}`}
-        {issuedOn && lastUsed ? " · " : ""}
-        {lastUsed ? `last used ${lastUsed}` : "never used"}
+        {[
+          issuedOn ? `Issued ${issuedOn}` : null,
+          lastUsed ? `last used ${lastUsed}` : "never used",
+        ].filter(Boolean).join(" · ")}
       </p>
       {dangerous && (
         <p className="text-xs font-medium">

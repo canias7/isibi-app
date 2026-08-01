@@ -44,10 +44,14 @@ export function DwellTime({ arrivedAt, startedAt, freeMinutes = 120, elapsedMinu
         <span className="text-muted-foreground tabular-nums"> on site · {fmt(freeMinutes)} free</span>
       </p>
       {(arrivedAt || startedAt) && (
+        {/* Joined, not interleaved — the separator was conditional on
+            `startedAt` while its fallback still rendered, giving
+            "Arrived 09:12unloading not started". */}
         <p className="text-xs text-muted-foreground">
-          {arrivedAt && `Arrived ${arrivedAt}`}
-          {arrivedAt && startedAt ? " · " : ""}
-          {startedAt ? `unloading started ${startedAt}` : arrivedAt ? "unloading not started" : ""}
+          {[
+            arrivedAt ? `Arrived ${arrivedAt}` : null,
+            startedAt ? `unloading started ${startedAt}` : arrivedAt ? "unloading not started" : null,
+          ].filter(Boolean).join(" · ")}
         </p>
       )}
       {over > 0 && (
