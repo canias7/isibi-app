@@ -733,6 +733,13 @@ export const UI_COMPONENTS = [
   "catalogue-record", "shelf-mark", "loan-row", "hold-queue", "renewal-note",
   "reading-room-booking", "finding-aid", "provenance-note", "access-restriction", "digitisation-status",
   "accession-number",
+  // Museums and cultural venues
+  "object-label", "exhibition-row", "gallery-plan", "audio-stop", "conservation-note",
+  "loan-agreement", "acquisition-note", "timed-entry", "donor-credit",
+  // Research and laboratories
+  "sample-row", "protocol-step", "reagent-row", "instrument-booking", "calibration-note",
+  "chain-of-custody", "result-flag", "reference-range", "study-arm", "participant-row",
+  "ethics-approval", "data-dictionary", "replicate-group", "assay-plate", "freezer-location",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

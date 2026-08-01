@@ -1,4 +1,4 @@
-# Components (1786 built, 25 to go)
+# Components (1810 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -14,6 +14,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ accordion
 ✓ account-menu
 ✓ acknowledge-button
+✓ acquisition-note
 ✓ action-history
 ✓ activity-dot
 ✓ activity-feed
@@ -78,6 +79,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ aspect-box
 ✓ aspect-picker
 ✓ aspect-ratio
+✓ assay-plate
 ✓ assignee-picker
 ✓ async-select
 ✓ async-validation
@@ -90,6 +92,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ audience-switch
 ✓ audio-player
 ✓ audio-recorder
+✓ audio-stop
 ✓ audit-row
 ✓ author-byline
 ✓ auto-grid
@@ -172,6 +175,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ calculator-card
 ✓ calendar
 ✓ calendar-month
+✓ calibration-note
 ✓ callout
 ✓ camera-access
 ✓ camera-capture
@@ -211,6 +215,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ center-box
 ✓ centered-form
 ✓ certification-row
+✓ chain-of-custody
 ✓ change-request
 ✓ change-summary
 ✓ changelog-entry
@@ -309,6 +314,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ consent-gated-note
 ✓ consent-history
 ✓ consent-summary
+✓ conservation-note
 ✓ consignment-row
 ✓ consultation-response
 ✓ consumption-bar
@@ -375,6 +381,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ cvc-input
 ✓ cycle-count-row
 ✓ danger-zone
+✓ data-dictionary
 ✓ data-freshness
 ✓ data-list
 ✓ data-request
@@ -451,6 +458,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ document-outline
 ✓ domain-verify
 ✓ donation-card
+✓ donor-credit
 ✓ donut-mini
 ✓ dot-plot
 ✓ download-card
@@ -528,6 +536,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ estimate-band
 ✓ estimated-vs-actual
 ✓ eta-band
+✓ ethics-approval
 ✓ event-card
 ✓ event-filter
 ✓ event-meta
@@ -536,6 +545,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ evidence-list
 ✓ exchange-rate-note
 ✓ exclude-filter
+✓ exhibition-row
 ✓ exit-survey
 ✓ expandable-row
 ✓ expandable-text
@@ -632,6 +642,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ format-hint
 ✓ format-toolbar
 ✓ free-text-followup
+✓ freezer-location
 ✓ freight-quote
 ✓ frozen-columns
 ✓ frozen-corner
@@ -640,6 +651,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ funnel-step-row
 ✓ funnel-steps
 ✓ gallery
+✓ gallery-plan
 ✓ gantt-bars
 ✓ gauge
 ✓ generation-history
@@ -727,6 +739,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ install-prompt
 ✓ instalment-line
 ✓ instant-results
+✓ instrument-booking
 ✓ integration-log
 ✓ interval-picker
 ✓ invert-selection
@@ -805,6 +818,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ load-plan
 ✓ loading-more
 ✓ loading-overlay
+✓ loan-agreement
 ✓ loan-row
 ✓ locale-fallback-chain
 ✓ locale-picker
@@ -932,6 +946,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ number-scrubber
 ✓ numeric-filter
 ✓ oauth-consent-summary
+✓ object-label
 ✓ ocr-note
 ✓ offline-banner
 ✓ offline-queue
@@ -984,6 +999,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ partial-outage
 ✓ partial-save
 ✓ partial-shipment
+✓ participant-row
 ✓ party-size
 ✓ passkey-prompt
 ✓ password-input
@@ -1091,6 +1107,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ property-schema
 ✓ pros-cons
 ✓ prose
+✓ protocol-step
 ✓ provenance-note
 ✓ provider-status
 ✓ public-notice
@@ -1149,6 +1166,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ reading-guide
 ✓ reading-room-booking
 ✓ reading-time
+✓ reagent-row
 ✓ reauth-prompt
 ✓ recall-request
 ✓ receipt
@@ -1169,6 +1187,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ redaction-note
 ✓ reduce-motion
 ✓ reduced-motion-note
+✓ reference-range
 ✓ refresh-pill
 ✓ refund-line
 ✓ regenerate-button
@@ -1188,6 +1207,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ repeatable-field
 ✓ replay-event
 ✓ replenish-task
+✓ replicate-group
 ✓ reply-box
 ✓ report-problem
 ✓ report-reason
@@ -1213,6 +1233,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ restore-point
 ✓ restore-preview
 ✓ result-count
+✓ result-flag
 ✓ result-preview
 ✓ resume-later
 ✓ resume-upload
@@ -1276,6 +1297,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ sample-data-note
 ✓ sample-preview
 ✓ sample-rate
+✓ sample-row
 ✓ sample-toggle
 ✓ save-and-exit
 ✓ save-as-template
@@ -1512,6 +1534,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ streaming-text
 ✓ strike-badge
 ✓ string-context
+✓ study-arm
 ✓ subdomain-field
 ✓ subscribe-toggle
 ✓ substitution-pref
@@ -1616,6 +1639,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ time-since
 ✓ time-slot
 ✓ time-until
+✓ timed-entry
 ✓ timeline
 ✓ timeline-horizontal
 ✓ timeline-vertical
