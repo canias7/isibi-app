@@ -1,4 +1,4 @@
-# Components (1349 built, 25 to go)
+# Components (1372 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -33,6 +33,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ anchor-heading
 ✓ anchor-nav
 ✓ anchor-offset
+✓ announce-region
 ✓ announcement-bar
 ✓ answer-review
 ✓ api-key-row
@@ -220,6 +221,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ conditional-field
 ✓ conditional-section
 ✓ confetti
+✓ confidence-note
 ✓ confidence-range
 ✓ confirm-dialog
 ✓ confirm-field
@@ -243,6 +245,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ context-meter
 ✓ context-panel
 ✓ contrast-check
+✓ contrast-toggle
 ✓ conversation-branch
 ✓ conversation-row
 ✓ cookie-banner
@@ -353,6 +356,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ dry-run-note
 ✓ dual-list
 ✓ duplicate-badge
+✓ duplicate-warning
 ✓ duration
 ✓ duration-bar
 ✓ duration-input
@@ -368,6 +372,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ email-verify-banner
 ✓ embargo-note
 ✓ embed-code
+✓ embed-snippet
 ✓ emoji-picker
 ✓ emoji-reaction
 ✓ empty
@@ -395,7 +400,9 @@ A ✓ means it exists and a generated site can import it today.
 ✓ expiry-input
 ✓ export-button
 ✓ export-format
+✓ export-history
 ✓ export-progress
+✓ export-scope
 ✓ export-settings
 ✓ exposure-note
 ✓ external-link
@@ -439,6 +446,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ first-run-panel
 ✓ first-value-note
 ✓ fit-to-width
+✓ fix-suggestion
 ✓ flip-card
 ✓ floating-toolbar
 ✓ focal-point
@@ -446,6 +454,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ focus-mode
 ✓ focus-return
 ✓ focus-trap
+✓ focus-visible-note
 ✓ folder-path
 ✓ folder-tree
 ✓ follow-changes
@@ -566,9 +575,11 @@ A ✓ means it exists and a generated site can import it today.
 ✓ label
 ✓ labeled-progress
 ✓ landmark
+✓ landmark-nav
 ✓ lang-switch
 ✓ last-chance-badge
 ✓ last-synced
+✓ last-verified
 ✓ latency-badge
 ✓ layer-list
 ✓ lazy-boundary
@@ -640,6 +651,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ menu-section
 ✓ menubar
 ✓ merge-preview
+✓ merge-records
 ✓ message
 ✓ message-scroller
 ✓ message-status
@@ -724,6 +736,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ pack-checklist
 ✓ page-break
 ✓ page-header
+✓ page-header-footer
 ✓ page-size-select
 ✓ page-thumbnails
 ✓ page-title
@@ -746,6 +759,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ paste-image
 ✓ paste-parse
 ✓ paste-table
+✓ pause-motion
 ✓ payback-note
 ✓ payment-methods
 ✓ payment-picker
@@ -801,6 +815,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ print-button
 ✓ print-only
 ✓ print-preview
+✓ print-range
 ✓ priority-badge
 ✓ priority-inbox
 ✓ product-card
@@ -825,6 +840,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ pull-to-refresh
 ✓ pulse-dot
 ✓ qr-code
+✓ qr-handoff
 ✓ quality-score
 ✓ quantity-break
 ✓ quantity-input
@@ -877,6 +893,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ recurring-picker
 ✓ redaction-note
 ✓ reduce-motion
+✓ reduced-motion-note
 ✓ refresh-pill
 ✓ refund-line
 ✓ regenerate-button
@@ -936,6 +953,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ row-actions
 ✓ row-compare
 ✓ row-detail
+✓ row-error-list
 ✓ row-errors
 ✓ row-expand
 ✓ row-group
@@ -951,6 +969,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ safety-tips
 ✓ sample-data-banner
 ✓ sample-data-note
+✓ sample-preview
 ✓ sample-toggle
 ✓ save-draft
 ✓ saved-for-later
@@ -1018,6 +1037,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ setup-checklist
 ✓ setup-task
 ✓ shake-error
+✓ share-as-link
 ✓ share-buttons
 ✓ share-invite
 ✓ share-preview
@@ -1064,6 +1084,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ skill-tags
 ✓ skip-for-now
 ✓ skip-link
+✓ skip-row-note
 ✓ sku-field
 ✓ sla-badge
 ✓ sla-clock
@@ -1090,6 +1111,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ sortable-grid
 ✓ sortable-header
 ✓ sortable-list
+✓ source-attribution
 ✓ source-card
 ✓ source-label
 ✓ spacer
@@ -1193,6 +1215,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ terms-block
 ✓ testimonial
 ✓ text
+✓ text-only-toggle
 ✓ text-scale
 ✓ text-size
 ✓ textarea

@@ -579,6 +579,15 @@ export const UI_COMPONENTS = [
   // Comparison and choice. Reasons that can be argued with, and the rows that actually differ.
   "recommended-flag", "why-this-note", "eliminate-option", "shortlist-tray", "difference-only",
   "compatibility-note", "requirement-check",
+  // Data quality and import. Where a value came from, how sure we are, and which rows did not make it.
+  "duplicate-warning", "merge-records", "confidence-note", "source-attribution", "last-verified",
+  "sample-preview", "row-error-list", "fix-suggestion", "skip-row-note",
+  // Accessibility, deeper. The controls that make a page usable when the defaults are not enough.
+  "reduced-motion-note", "contrast-toggle", "focus-visible-note", "landmark-nav", "announce-region",
+  "text-only-toggle", "pause-motion",
+  // Print and export mechanics. What leaves the system, on paper or as a file.
+  "export-scope", "page-header-footer", "print-range", "export-history", "share-as-link",
+  "embed-snippet", "qr-handoff",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
