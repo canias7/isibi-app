@@ -990,14 +990,21 @@ const DECOR_LAYERS = {
       const [r, g, b] = oklchToRgb(...c).map((v) => +v.toFixed(3));
       return `0 0 0 0 ${r} 0 0 0 0 ${g} 0 0 0 0 ${b} 1 0 0 0 0`;
     };
-    const figTable = light ? "0 0 0.045 0.11" : "0 0 0.05 0.12";
-    const strTable = light ? "0 0.11 0.02 0 0.14 0.04 0 0.09 0 0.16" : "0 0.12 0.03 0 0.16 0.05 0 0.1 0 0.18";
-    const grain = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='480' height='480'><filter id='f'><feTurbulence type='fractalNoise' baseFrequency='0.028 0.006' numOctaves='3' seed='4'/><feColorMatrix type='matrix' values='${tintMatrix(figure)}'/><feComponentTransfer><feFuncA type='table' tableValues='${figTable}'/></feComponentTransfer></filter><filter id='s'><feTurbulence type='fractalNoise' baseFrequency='0.15 0.01' numOctaves='4' seed='11' result='n'/><feColorMatrix in='n' type='matrix' values='${tintMatrix(streaks)}' result='t'/><feComponentTransfer in='t' result='p'><feFuncA type='discrete' tableValues='${strTable}'/></feComponentTransfer><feTurbulence type='fractalNoise' baseFrequency='0.006 0.02' numOctaves='2' seed='7' result='d'/><feDisplacementMap in='p' in2='d' scale='14' xChannelSelector='R' yChannelSelector='G'/></filter><rect width='480' height='480' filter='url(%23f)'/><rect width='480' height='480' filter='url(%23s)'/></svg>")`;
+    // Alphas are sized to SURVIVE the opened root: the page composites this
+    // under paper at 0.35/0.42, so a whisper here arrives as nothing there
+    // (measured on the first render — grain at 0.16 read as fog again).
+    // PATCHES is the third scale: broad same-family warmth drift, the job
+    // the wash was doing but patchy the way boards age, not a smooth bloom.
+    const patches = light ? mix(paper, ink, 0.35).slice(0, 3) : mix(paper, ink, 0.3).slice(0, 3);
+    const patTable = light ? "0 0 0.05 0.13" : "0 0 0.06 0.14";
+    const figTable = light ? "0 0 0.06 0.15" : "0 0 0.07 0.17";
+    const strTable = light ? "0 0.15 0.03 0 0.19 0.05 0 0.12 0 0.22" : "0 0.16 0.04 0 0.2 0.07 0 0.13 0 0.24";
+    const grain = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='480' height='480'><filter id='p'><feTurbulence type='fractalNoise' baseFrequency='0.006 0.0035' numOctaves='2' seed='3'/><feColorMatrix type='matrix' values='${tintMatrix(patches)}'/><feComponentTransfer><feFuncA type='table' tableValues='${patTable}'/></feComponentTransfer></filter><filter id='f'><feTurbulence type='fractalNoise' baseFrequency='0.028 0.006' numOctaves='3' seed='4'/><feColorMatrix type='matrix' values='${tintMatrix(figure)}'/><feComponentTransfer><feFuncA type='table' tableValues='${figTable}'/></feComponentTransfer></filter><filter id='s'><feTurbulence type='fractalNoise' baseFrequency='0.15 0.01' numOctaves='4' seed='11' result='n'/><feColorMatrix in='n' type='matrix' values='${tintMatrix(streaks)}' result='t'/><feComponentTransfer in='t' result='p'><feFuncA type='discrete' tableValues='${strTable}'/></feComponentTransfer><feTurbulence type='fractalNoise' baseFrequency='0.006 0.02' numOctaves='2' seed='7' result='d'/><feDisplacementMap in='p' in2='d' scale='14' xChannelSelector='R' yChannelSelector='G'/></filter><rect width='480' height='480' filter='url(%23p)'/><rect width='480' height='480' filter='url(%23f)'/><rect width='480' height='480' filter='url(%23s)'/></svg>")`;
     const seam = light ? css([...mix(paper, ink, 0.38).slice(0, 3), 0.45]) : css([...shadow, 0.6]);
     const bevel = light ? css([...paper.slice(0, 3), 0.6]) : css([...mix(paper, ink, 0.3).slice(0, 3), 0.35]);
     const seams = `repeating-linear-gradient(90deg, ${seam} 0 2px, ${bevel} 2px 3px, transparent 3px 148px)`;
     const tone = mix(paper, ink, light ? 0.16 : 0.12).slice(0, 3);
-    const [a1, a2, a3, a4] = light ? [0.13, 0.3, 0.04, 0.21] : [0.1, 0.22, 0.03, 0.16];
+    const [a1, a2, a3, a4] = light ? [0.16, 0.34, 0.05, 0.24] : [0.12, 0.26, 0.04, 0.19];
     const boards = `repeating-linear-gradient(90deg, ${css([...tone, a1])} 0 148px, ${css([...tone, a2])} 148px 296px, ${css([...tone, a3])} 296px 444px, ${css([...tone, a4])} 444px 592px)`;
     return { image: `${seams}, ${grain}, ${boards}` };
   },
@@ -1038,6 +1045,14 @@ const DECOR_LAYERS = {
  * already carries its own. Without them a `bg-muted/30` band is 70% window
  * onto the loudest part of the wash, with band text sitting straight on it.
  */
+// A GROUND decor paints the whole page — boards, not a whisper of texture —
+// so it triggers everything a backdrop triggers: the root opens WIDE, the
+// bands dissolve, and muted text is refit. Measured before this existed
+// (2026-08-01): decor-only wood sat behind the 0.85 "barely open" veil and
+// the realism pass was invisible — the veil that is right for a paper-grain
+// whisper crushes a texture that is meant to BE the background.
+const GROUND_DECORS = new Set(["wood"]);
+
 export function worldCss(theme) {
   const backdrop = theme.backdrop ?? "plain";
   const decor = theme.decor ?? "none";
@@ -1052,8 +1067,9 @@ export function worldCss(theme) {
     const sel = mode === "light" ? "body" : ".dark body";
     return `${sel} { background-image: ${layers.join(", ")}; background-size: ${sizes.join(", ")}; background-attachment: ${attach.join(", ")}; }\n`;
   };
-  return openRootCss(theme, backdrop !== "plain") + rule("light") + rule("dark") +
-    (backdrop !== "plain" ? worldMutedCss(theme) + bandClearCss(theme) : "");
+  const grounded = backdrop !== "plain" || GROUND_DECORS.has(decor);
+  return openRootCss(theme, grounded) + rule("light") + rule("dark") +
+    (grounded ? worldMutedCss(theme) + bandClearCss(theme) : "");
 }
 
 /**
@@ -1083,10 +1099,15 @@ const contrastOnRgb = (fgOklch, bgRgb) => {
   return (hi + 0.05) / (lo + 0.05);
 };
 export function worldWorstGround(theme, mode) {
-  const { paper, accent } = theme[mode];
+  const { paper, ink, accent } = theme[mode];
   const rootA = theme.surface === "glass" ? GLASS_ALPHA[mode].background
     : mode === "light" ? 0.35 : 0.42;
-  const stop = mode === "light" ? [0.7, 0.25, accent[2]] : [0.55, 0.19, accent[2]];
+  // No backdrop means this fit is running for a GROUND DECOR, whose deepest
+  // broad tint is boards of the paper pushed toward ink — there is no
+  // accent-chroma stop to compose against, and pretending one would overfit
+  // the muted ink against light that never shines.
+  const stop = (theme.backdrop ?? "plain") === "plain" ? mix(paper, ink, 0.15).slice(0, 3)
+    : mode === "light" ? [0.7, 0.25, accent[2]] : [0.55, 0.19, accent[2]];
   const p = oklchToRgb(...paper.slice(0, 3)), s = oklchToRgb(...stop);
   return p.map((c, i) => c * rootA + s[i] * (1 - rootA));
 }
