@@ -807,6 +807,12 @@ export const UI_COMPONENTS = [
   // Telecoms and connectivity
   "line-status", "bundle-row", "data-allowance", "roaming-note", "coverage-note",
   "sim-row", "port-request", "contract-end", "add-on-row", "fair-use-note",
+  // Coworking and space booking
+  "room-booking-row", "access-hours", "day-pass", "occupancy-note", "amenity-list",
+  "booking-credits", "floor-picker", "locker-row", "visitor-pass",
+  // Equipment and hire
+  "asset-row", "hire-period", "condition-check", "deposit-hold", "return-due",
+  "damage-charge", "serial-row", "service-history", "off-hire-note",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

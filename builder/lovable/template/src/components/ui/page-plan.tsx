@@ -57,7 +57,10 @@ export function PagePlan({ pages, className }: { pages: PlanPage[]; className?: 
                   {p.number % 2 === 1 ? " (right)" : ""}
                 </span>
                 <span className={cn("block", !p.content && "font-medium")}>
-                  {p.content ?? "Empty"}
+                  {/* `||`, not `??`: the empty check above is `!p.content`, so an
+                      empty string counts in the summary and would render as a
+                      blank row here — the one component disagreeing with itself. */}
+                  {p.content || "Empty"}
                 </span>
                 {/* Joined from a filtered list: an absent kind is not a fact about
                     the page, and printing "not assigned" beside real content reads

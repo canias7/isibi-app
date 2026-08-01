@@ -51,7 +51,7 @@ export function LoadoutRow({ name, slots, inUse, className }: {
           <li key={s.id} className="flex items-baseline gap-3 px-3 py-1.5">
             <span className="w-24 shrink-0 text-xs text-muted-foreground">{s.slot}</span>
             <span className={cn("min-w-0 flex-1", (!s.item || s.lockedReason) && "font-medium")}>
-              {s.item ?? "Empty"}
+              {s.item || "Empty"}
               {s.lockedReason && (
                 <span className="block text-xs font-normal">
                   {s.lockedReason}

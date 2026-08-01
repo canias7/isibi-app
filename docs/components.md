@@ -1,4 +1,4 @@
-# Components (2011 built, 25 to go)
+# Components (2029 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -7,6 +7,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ abbreviation
 ✓ absentee-bid
 ✓ access-expiry
+✓ access-hours
 ✓ access-key-badge
 ✓ access-restriction
 ✓ access-summary
@@ -55,6 +56,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ alt-text-field
 ✓ alt-text-warning
 ✓ alternate-contact
+✓ amenity-list
 ✓ amount-in-words
 ✓ amount-input
 ✓ anchor-heading
@@ -93,6 +95,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ aspect-ratio
 ✓ assay-plate
 ✓ assessor-visit
+✓ asset-row
 ✓ assignee-picker
 ✓ async-select
 ✓ async-validation
@@ -165,6 +168,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ blocking-overlay
 ✓ blur-sensitive
 ✓ blur-up
+✓ booking-credits
 ✓ booking-summary
 ✓ boolean-filter
 ✓ branch-badge
@@ -331,6 +335,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ completion-meter
 ✓ completion-ring
 ✓ compliance-checklist
+✓ condition-check
 ✓ condition-report
 ✓ condition-row
 ✓ conditional-field
@@ -433,6 +438,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ cvc-input
 ✓ cycle-count-row
 ✓ dailies-row
+✓ damage-charge
 ✓ danger-zone
 ✓ data-allowance
 ✓ data-dictionary
@@ -451,6 +457,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ date-range-picker
 ✓ date-time-picker
 ✓ day-out-of-days
+✓ day-pass
 ✓ day-schedule
 ✓ dead-letter
 ✓ deadline-bar
@@ -476,6 +483,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ density-preference
 ✓ density-toggle
 ✓ dependent-select
+✓ deposit-hold
 ✓ deposit-line
 ✓ deposit-percent
 ✓ deprecation-note
@@ -682,6 +690,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ flight-leg
 ✓ flip-card
 ✓ floating-toolbar
+✓ floor-picker
 ✓ focal-point
 ✓ focus-list
 ✓ focus-mode
@@ -769,6 +778,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ high-contrast
 ✓ highlight-match
 ✓ hint-dot
+✓ hire-period
 ✓ history-scrub
 ✓ hoarding-notice
 ✓ hold-queue
@@ -922,6 +932,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ location-consent
 ✓ location-release
 ✓ lock-indicator
+✓ locker-row
 ✓ lockout-note
 ✓ log-viewer
 ✓ login-form
@@ -1059,7 +1070,9 @@ A ✓ means it exists and a generated site can import it today.
 ✓ numeric-filter
 ✓ oauth-consent-summary
 ✓ object-label
+✓ occupancy-note
 ✓ ocr-note
+✓ off-hire-note
 ✓ offer-expiry
 ✓ offer-row
 ✓ offer-summary
@@ -1392,6 +1405,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ retry-countdown
 ✓ retry-panel
 ✓ retry-policy
+✓ return-due
 ✓ return-reason
 ✓ return-window
 ✓ reveal
@@ -1416,6 +1430,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ rollback-note
 ✓ rollout-progress
 ✓ rollout-status
+✓ room-booking-row
 ✓ room-card
 ✓ rota-gap
 ✓ rotate-control
@@ -1526,9 +1541,11 @@ A ✓ means it exists and a generated site can import it today.
 ✓ seo-jsonld
 ✓ separator
 ✓ serial-capture
+✓ serial-row
 ✓ service-area
 ✓ service-area-note
 ✓ service-card
+✓ service-history
 ✓ service-standard
 ✓ session-expiry
 ✓ session-row
@@ -1949,6 +1966,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ virtual-list
 ✓ visibility-toggle
 ✓ visit-log
+✓ visitor-pass
 ✓ visitor-sign-in
 ✓ visually-hidden
 ✓ voice-input
