@@ -198,7 +198,13 @@ test("the DESIGNER can actually declare a font, and only a real one", () => {
     "the enum must be derived from site-fonts.mjs, not a second copy that can drift");
   assert.match(src, /heading:\s*\{ type: "string", enum: SITE_FONT_IDS/);
   assert.match(src, /body:\s*\{ type: "string", enum: SITE_FONT_IDS/);
-  assert.match(src, /required: \["brand", "slug", "tables", "seed", "description", "fonts"\]/,
+  // The intent is that `fonts` is REQUIRED — an optional font field is one the
+  // model will usually skip. Pinning the whole list instead made this fail the
+  // day `theme` and `family` joined it, which is a test about word order
+  // wearing the clothes of one about behaviour.
+  const required = src.match(/required: \[("[a-z]+",\s*)*"[a-z]+"\],\s*\n\s*\},\s*\n\};/);
+  assert.ok(required, "could not find design_schema's required list");
+  assert.match(required[0], /"fonts"/,
     "an optional font field is one the model will usually skip");
   assert.match(src, /fonts: \(designed && designed\.fonts\)/,
     "the designer's answer has to reach the build");

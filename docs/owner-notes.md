@@ -10767,3 +10767,62 @@ the owner named FIRST when asked what the reference apps should be).
 Unit suite **684/684** after root npm ci. The two new apps verified by the harness scoped
 run (6/6 pages built, rendered, no throws); the full 26-family fleet re-runs in CI on this
 push (`family apps` triggers on `family-pages/**` and `site-layouts.mjs`).
+
+---
+## 2026-08-01 — the theme and layout layers WIRED, and what "reachable" cost to prove
+Owner: "wire this stuff if not already wired." It was not. The audit is the finding:
+
+| module | reached a real build? |
+|---|---|
+| `site-fonts.mjs` | **yes** — enum on `design_schema` → `resolvePair` → the container writes the CSS |
+| `site-theme.mjs` | **no** — imported by its own test and the candidate tooling, nothing else |
+| `site-layouts.mjs` | **no** — imported by tests only |
+
+So no generated site could wear a theme or take a layout family, and both layers had
+shipped that way deliberately, each with a "nothing imports this yet" tripwire asking for
+wiring to be its own change. This is that change; both tripwires are now the opposite
+assertion plus a pointer to the chain.
+
+- **All 500 themes are offered, not the 2 promoted ones** (owner's call: *"I made 500,
+  name them if you want"*). `builder/site-theme-registry.mjs` composes the engine's
+  `THEMES` with the 498 candidates and their worlds. The engine still never imports the
+  candidate data — the registry is where the two meet, which is what keeps
+  `site-theme.test.mjs` able to drive the engine with hand-written objects.
+  **This overrides the candidates' README gate** ("nothing ships until promoted, with its
+  `needs` capability built"): 138 of the 498 declare a `needs` and render honestly without
+  it, the same bargain the swatch sweep already made. Recorded here because a future
+  session reading that README will otherwise think this was a mistake.
+- **Keys, never labels, and the number decided it.** All 500 names cost ~1,525 tokens on
+  every design call; the same list with each theme's one-line label costs ~7,019 — which
+  is the precise figure the `fonts` field refused when it declined to name 2,096 Fontsource
+  families. The names carry their own meaning (`broadsheet`, `bauhaus`, `zine`), so labels
+  buy sharper picking at four and a half times the price, forever.
+- **The theme goes to the container by NAME and is resolved there**, against the same
+  registry the enum came from. Sending the resolved object would put a second copy on the
+  wire and let the two drift.
+- **`writeTheme` runs AFTER `writeFonts`, and that ordering is the correctness argument** —
+  `writeFonts` restores `styles.css` from the pristine base, so a theme written first is
+  overwritten by a copy that never had it. Asserted, and mutation-checked by swapping them.
+- **The family reaches the model as a DIRECTIVE, not a name.** `layoutDirective()` is where
+  `site-layouts.mjs` states the hero, the body and the primary action; a bare name leaves
+  the model to guess all three.
+- **A revise needed its own fallback.** The designer sees only the instruction on a revise,
+  so it names no theme and no family — without `body.theme`/`body.family` behind it, every
+  revise would strip a site back to the untouched template.
+- **`test/integration/theme-seam.mjs` reads the BUILT dist, because the response cannot be
+  trusted here.** The font write already learned this: a separate stylesheet produced
+  nothing, the build reported the right fonts, the bundle shipped the defaults. **The seam
+  test caught a failure on its first run and the bug was in the TEST** — it looked for the
+  marker comment (stripped by the minifier, correctly) and for `0.975` (rewritten `97.5%`,
+  also correctly). It now asserts the value in both forms *and its position*: the theme's
+  must be the LAST `--background`, or the template's wins and the site ships the default
+  look while the response says otherwise.
+- **`test/wiring.test.mjs` is the reachability chain**, 11 assertions from a module on disk
+  to a value in a built site. 4 mutants, all caught: theme never sent to the container,
+  family never reaching the prompt, the two writes swapped, choosing made optional.
+- **One over-specified test fixed, not worked around.** `site-fonts.test.mjs` pinned the
+  whole `required` list when it only cares that `fonts` is in it, so it failed the day
+  `theme` and `family` joined — a test about word order wearing the clothes of one about
+  behaviour.
+
+Unit **708/708**, theme seam 10/10, site-build 33/33, site-runtime 23/23, kit-typecheck 4/4.

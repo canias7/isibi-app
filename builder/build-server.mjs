@@ -21,6 +21,8 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { resolvePair, fontCss, fontImports } from "./site-fonts.mjs";
+import { themeCss } from "./site-theme.mjs";
+import { resolveTheme } from "./site-theme-registry.mjs";
 
 const APP = process.env.APP_DIR || "/app";
 const ROUTES = path.join(APP, "src", "routes");
@@ -176,6 +178,34 @@ function collectDist(dir = DIST, base = "") {
 // on the platform lands in this one container, and a build wipes a shared
 // src/routes (and dist, and the generated route tree) before writing its own
 // pages. Two arriving together destroy each other: observed 2026-07-29 with two
+// The theme's own CSS, appended to whatever writeFonts left behind.
+//
+// AFTER writeFonts, NEVER BEFORE, and the ordering is the whole correctness
+// argument. `writeFonts` restores styles.css from the pristine base and writes
+// it out; running first would mean the theme is written and then overwritten by
+// a stylesheet restored from a copy that never had it. Appending is also why
+// this cannot use the @theme block fonts uses: themeCss emits real `:root` and
+// `.dark` RULES, not @theme variables, and the template declares its own token
+// values at :root further up — so the theme has to land after them to win.
+//
+// FAILS SOFT, like the font write. A site whose data layer is live and whose
+// pages compiled should not be lost over decoration: an unknown name, an
+// unreadable stylesheet or a throwing engine all leave the template's own look
+// in place and say so in the notes.
+function writeTheme(name) {
+  if (!name) return { applied: false, theme: null, notes: [] };
+  const theme = resolveTheme(name);
+  if (!theme) return { applied: false, theme: null, notes: [`No theme called "${String(name).slice(0, 40)}" — the site kept the default look.`] };
+  let css;
+  try { css = themeCss(theme); }
+  catch { return { applied: false, theme: null, notes: ["The theme could not be rendered, so the site kept the default look."] }; }
+  let base;
+  try { base = fs.readFileSync(STYLES, "utf8"); }
+  catch { return { applied: false, theme: null, notes: ["The stylesheet could not be read, so the site kept the default look."] }; }
+  fs.writeFileSync(STYLES, base + "\n" + css + "\n");
+  return { applied: true, theme: name, notes: [] };
+}
+
 // real builds a second apart — one returned a build failure with no files, the
 // other returned a bundle containing neither site's content, and a third run had
 // one customer's pages published to another customer's slug.
@@ -213,6 +243,7 @@ const server = http.createServer((req, res) => {
       resetRoutes();
       writeIndexHtml(payload.title);
       const fontsUsed = writeFonts(payload.fonts, payload.fontFiles);
+      const themeUsed = writeTheme(payload.theme);
       let wrote = 0;
       for (const [rel, content] of Object.entries(files)) {
         const safe = safeRoute(rel);
@@ -249,7 +280,7 @@ const server = http.createServer((req, res) => {
 
       const dist = collectDist();
       if (!dist["index.html"]) return send(res, 200, { ok: false, stage: "build", error: "build produced no index.html", ms: Date.now() - t0 });
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0 , fonts: fontsUsed });
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0 , fonts: fontsUsed, theme: themeUsed });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0 });
     }
