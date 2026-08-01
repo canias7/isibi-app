@@ -60,8 +60,11 @@ export function EmbargoTime({ until, timeZone, lifted, indefinite, covers = ["pu
       {covers.length > 0 && (
         <p className="text-xs text-muted-foreground">Covers {AND.format(covers)}.</p>
       )}
+      {/* Not sentence-initial: this field takes a role as often as a name ("the
+          press office"), and a lowercase word opening a sentence reads as a typo
+          while capitalising it would rewrite what the caller wrote. */}
       {contact && !indefinite && (
-        <p className="text-xs text-muted-foreground">{contact} can release it early.</p>
+        <p className="text-xs text-muted-foreground">Can be released early by {contact}.</p>
       )}
     </div>
   );

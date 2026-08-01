@@ -795,6 +795,12 @@ export const UI_COMPONENTS = [
   // Pharmacy and dispensing
   "prescription-row", "dispense-label", "stock-substitute", "controlled-drug-note", "repeat-request",
   "interaction-warning", "dosage-field", "pharmacist-check", "ready-to-collect", "patient-leaflet",
+  // Care and social support
+  "care-plan-row", "visit-log", "medication-round", "next-of-kin", "risk-assessment-row",
+  "consent-to-care", "care-hours", "safeguarding-note", "review-due", "keyworker-row",
+  // Estate agency and sales
+  "offer-row", "chain-status", "valuation-note", "listing-status", "vendor-note",
+  "buyer-position", "completion-date", "key-release", "asking-price-change",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

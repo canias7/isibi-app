@@ -1,4 +1,4 @@
-# Components (1972 built, 25 to go)
+# Components (1991 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -84,6 +84,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ area-input
 ✓ article-card
 ✓ article-header
+✓ asking-price-change
 ✓ aspect-box
 ✓ aspect-picker
 ✓ aspect-ratio
@@ -187,6 +188,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ busy-button
 ✓ button
 ✓ button-group
+✓ buyer-position
 ✓ buyers-premium
 ✓ byline-compact
 ✓ byline-row
@@ -212,7 +214,9 @@ A ✓ means it exists and a generated site can import it today.
 ✓ card-grid
 ✓ card-input
 ✓ card-record
+✓ care-hours
 ✓ care-icons
+✓ care-plan-row
 ✓ cargo-hold
 ✓ carousel
 ✓ cart-badge
@@ -239,6 +243,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ central-message
 ✓ certification-row
 ✓ chain-of-custody
+✓ chain-status
 ✓ change-request
 ✓ change-summary
 ✓ changelog-entry
@@ -317,6 +322,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ comparison-table
 ✓ compatibility-note
 ✓ completeness-bar
+✓ completion-date
 ✓ completion-meter
 ✓ completion-ring
 ✓ compliance-checklist
@@ -344,6 +350,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ consent-gated-note
 ✓ consent-history
 ✓ consent-summary
+✓ consent-to-care
 ✓ conservation-note
 ✓ consignment-row
 ✓ consultation-response
@@ -832,10 +839,12 @@ A ✓ means it exists and a generated site can import it today.
 ✓ key-cap
 ✓ key-issue
 ✓ key-points
+✓ key-release
 ✓ key-sequence
 ✓ key-value
 ✓ keyboard-map
 ✓ keyboard-tip
+✓ keyworker-row
 ✓ kicker
 ✓ known-issue
 ✓ label
@@ -881,6 +890,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ list-format
 ✓ list-row
 ✓ list-toolbar
+✓ listing-status
 ✓ live-badge
 ✓ live-cursor
 ✓ live-region
@@ -944,6 +954,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ media-grid
 ✓ media-object
 ✓ media-query-note
+✓ medication-round
 ✓ meeting-poll-grid
 ✓ mega-menu
 ✓ membership-card
@@ -1008,6 +1019,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ nested-list
 ✓ new-in-badge
 ✓ next-occurrence
+✓ next-of-kin
 ✓ nfc-prompt
 ✓ nl-date-input
 ✓ no-results
@@ -1037,6 +1049,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ oauth-consent-summary
 ✓ object-label
 ✓ ocr-note
+✓ offer-row
 ✓ offer-summary
 ✓ offline-banner
 ✓ offline-queue
@@ -1369,6 +1382,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ revert-button
 ✓ revert-panel
 ✓ review-card
+✓ review-due
 ✓ review-form
 ✓ review-stars
 ✓ review-step
@@ -1376,6 +1390,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ rich-text
 ✓ rich-tooltip
 ✓ ripple
+✓ risk-assessment-row
 ✓ role-badge
 ✓ role-description
 ✓ role-picker
@@ -1416,6 +1431,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ safe-area
 ✓ safe-area-pad
 ✓ safe-image
+✓ safeguarding-note
 ✓ safety-tips
 ✓ salary-range-note
 ✓ sample-data-banner
@@ -1888,12 +1904,14 @@ A ✓ means it exists and a generated site can import it today.
 ✓ vacancy-card
 ✓ vacancy-closing
 ✓ validation-summary
+✓ valuation-note
 ✓ variance-note
 ✓ variant-matrix
 ✓ variant-picker
 ✓ variation-order
 ✓ vehicle-card
 ✓ vehicle-check
+✓ vendor-note
 ✓ venue-allocation
 ✓ verification-steps
 ✓ verified-badge
@@ -1910,6 +1928,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ viewer-list
 ✓ virtual-list
 ✓ visibility-toggle
+✓ visit-log
 ✓ visitor-sign-in
 ✓ visually-hidden
 ✓ voice-input
