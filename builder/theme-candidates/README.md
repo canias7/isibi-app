@@ -1,6 +1,6 @@
 # Theme candidates — swatches, not shipped themes
 
-Five batches of owner-requested theme candidates (471 total), rendered as
+Six batches of owner-requested theme candidates (498 total — 500 with the two shipped), rendered as
 swatches for the owner to shortlist from. **Nothing here is wired into any
 build**: `site-theme.mjs` never imports this directory, and a theme only
 ships by being promoted into `THEMES` there — with both modes rendered on
@@ -16,6 +16,8 @@ real reference apps, tests, and any `needs` capability built.
   sky · childhood · underground · post · shopfront · patina).
 - `batch-5.mjs` — the fifth hundred (garden · kitchen · hobby · ritual ·
   architecture · weather · mechanism · street · antiquity · frontier).
+- `batch-6.mjs` — the last 27, landing the library on exactly 500
+  (gems · painters' techniques · a coda of one-offs).
 
 Kept in the repo because the scratchpad is ephemeral — a container recycle
 deleted all three once (2026-08-01) and they had to be recovered from the
