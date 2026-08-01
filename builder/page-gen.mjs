@@ -491,6 +491,77 @@ export const UI_COMPONENTS = [
   "audience-switch", "video-hero", "paywall", "email-capture",
   "ticket-tiers", "install-command", "episode-row", "calculator-card",
   "curriculum-path", "tour-dates", "bid-box", "store-badges",
+  // Sync, offline and conflict. What a page does when the connection drops, when a write does not land, and when two edits collide.
+  "conflict-diff", "conflict-choice", "pending-changes", "optimistic-note", "reconnect-strip",
+  "last-synced", "write-blocked", "read-only-mode", "draft-recovery", "unsaved-guard",
+  "version-conflict", "background-job", "job-progress", "job-failed", "resume-upload",
+  "partial-save", "retry-countdown", "connection-quality", "sync-conflict-list", "retry-budget",
+  "write-queue",
+  // Undo, history and revisions. What happened, who did it, and how to get back to how it was.
+  "undo-stack", "action-history", "revert-panel", "snapshot-list", "restore-point",
+  "diff-inline", "blame-gutter", "revision-slider", "change-summary", "who-changed",
+  "rollback-confirm", "draft-vs-live", "autosave-history", "merge-preview", "history-scrub",
+  // Selection and bulk mechanics. What 'select all' means this time, and what is actually ticked.
+  "range-select", "cross-page-selection", "invert-selection", "selection-limit", "select-scope",
+  "marquee-select", "selection-tray", "pick-remaining",
+  // Drag, drop and reorder. Every draggable list also ships the keyboard route, because drag alone makes reordering a feature only some readers have.
+  "drop-target", "reorder-list", "drop-indicator", "sortable-grid", "drag-autoscroll",
+  "nest-indent", "move-to-menu", "drag-disabled-note", "reorder-buttons", "drop-rejected",
+  // Keyboard and focus. One tab stop per list, the platform's own modifier, and saying where focus went.
+  "shortcut-hint", "key-cap", "shortcut-sheet", "roving-list", "access-key-badge",
+  "kbd-chord", "focus-return", "shortcut-conflict",
+  // Duration, interval and recurrence. How long, how often, how much notice — and whether the rule really lands where the author thinks.
+  "duration-input", "interval-picker", "lead-time-input", "buffer-time", "cutoff-time",
+  "turnaround-note", "time-since", "working-hours-input", "overlap-warning", "grace-window",
+  "time-budget", "schedule-preview", "next-occurrence", "deadline-note", "slippage-note",
+  // Measurement, units and conversion. Each carries the domain knowledge a generic unit field gets silently wrong.
+  "dimension-input", "weight-input", "temperature-input", "ratio-input", "tolerance-field",
+  "min-max-field", "measurement-summary", "size-chart-row", "capacity-input", "distance-input",
+  "area-input", "unit-mismatch",
+  // Numbers, comparison and decision aids. Every one shows the working, and none carries its meaning in colour alone.
+  "target-vs-actual", "benchmark-bar", "percentile-note", "confidence-range", "estimate-band",
+  "score-breakdown", "tradeoff-slider", "what-if-toggle", "scenario-tabs", "sensitivity-note",
+  "threshold-marker", "goal-gauge", "streak-counter", "running-total", "variance-note",
+  "break-even-note", "payback-note",
+  // Text, reading and truncation. Folded rather than cut, and the reading aids that actually help.
+  "read-more", "glossary-term", "footnote-ref", "footnote-list", "abbreviation",
+  "quote-attribution", "summary-toggle", "pronunciation-hint", "key-points", "text-scale",
+  "line-focus", "column-reader",
+  // Errors, recovery and support. Every failure names a next step, and the technical half folds away.
+  "error-retry", "error-detail-toggle", "not-found-panel", "permission-denied", "maintenance-panel",
+  "degraded-note", "report-problem", "error-reference", "support-handoff", "known-issue",
+  "recovery-steps", "contact-fallback", "partial-outage",
+  // Permissions and sharing. The safe option is never the default, and every scope states its consequence.
+  "share-scope", "link-permissions", "access-summary", "who-can-see", "pending-invite",
+  "transfer-ownership", "leave-confirm", "visibility-toggle", "embargo-note", "shared-with-list",
+  "request-access", "access-expiry", "guest-note", "scope-summary",
+  // Onboarding and guidance. Every step offers a way past it, and every nudge names the payoff.
+  "setup-task", "first-run-panel", "tip-bubble", "sample-data-note", "skip-for-now",
+  "progress-nudge", "completion-meter", "what-changed", "guided-step", "try-it-panel",
+  "dismissed-tips", "first-value-note",
+  // Search and retrieval. Why nothing matched, what was actually searched for, and which filter is hiding it.
+  "search-operators", "zero-results", "facet-list", "query-chips", "typeahead-list",
+  "search-within", "match-context", "sort-direction", "search-tips", "query-explain",
+  // Forms, deeper mechanics. The wiring that makes a long form survivable — summaries that take focus, errors that anchor, and nothing hidden that still submits.
+  "field-dependency", "conditional-section", "validation-summary", "inline-hint", "error-anchor",
+  "prefill-note", "clear-form", "form-draft", "required-legend", "field-mask",
+  "paste-parse", "field-history", "answer-review", "branching-note", "autofill-conflict",
+  // Layout mechanics. Sticky things that know they are stuck, and the edge cues that stop a scrollable box looking full.
+  "sticky-header", "scroll-shadow", "overflow-fade", "collapsible-panel", "fit-to-width",
+  "print-break", "width-preset", "safe-area-pad", "back-to-top", "anchor-offset",
+  // Tables, deeper. The parts that make a wide, long table readable — pinned columns, a real caption, and totals that say what they total.
+  "column-pin", "row-expand", "footer-totals", "cell-error", "table-density",
+  "column-chooser", "frozen-corner", "row-number", "table-loading", "cell-tooltip",
+  "column-summary", "row-compare", "table-caption", "column-order", "cell-overflow",
+  // Money mechanics. Every total shows its working, every fee says why, and nothing is rounded away in silence.
+  "price-breakdown", "fee-line", "rounding-line", "currency-note", "exchange-rate-note",
+  "amount-in-words", "payment-schedule", "instalment-line", "balance-due", "overpayment-note",
+  "credit-applied", "deposit-line", "refund-line", "surcharge-note", "tip-picker",
+  "split-evenly", "who-owes", "settle-up", "part-payment",
+  // Files and documents. What a file is, what is inside it, whether it has been checked, and whether the text can be trusted.
+  "file-preview-pane", "file-version", "file-conflict", "breadcrumb-path", "file-type-note",
+  "scan-status", "checksum-note", "download-progress", "zip-contents", "page-thumbnails",
+  "document-outline", "signature-request", "redaction-note", "watermark-note", "ocr-note",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
