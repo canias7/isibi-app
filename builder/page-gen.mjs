@@ -603,6 +603,12 @@ export const UI_COMPONENTS = [
   // Templates and reuse
   "template-picker", "save-as-template", "template-variables", "template-preview", "duplicate-options",
   "preset-menu", "default-set", "apply-to-many", "template-diff", "starter-gallery",
+  // Tagging and taxonomy
+  "tag-cloud", "category-tree", "taxonomy-picker", "label-manager", "tag-merge",
+  "suggested-tags", "tag-rename", "tag-scope", "untagged-note",
+  // Pagination and loading
+  "infinite-sentinel", "page-size", "jump-to-page", "partial-list-note", "lazy-section",
+  "list-end", "loading-more",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

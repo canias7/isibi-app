@@ -1,4 +1,4 @@
-# Components (1413 built, 25 to go)
+# Components (1429 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -162,6 +162,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ case-study-card
 ✓ category-nav
 ✓ category-tile
+✓ category-tree
 ✓ celebration
 ✓ cell-badge
 ✓ cell-editor
@@ -562,6 +563,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ inbox-list
 ✓ incident-item
 ✓ infinite-scroll
+✓ infinite-sentinel
 ✓ initials
 ✓ inline
 ✓ inline-alert
@@ -588,6 +590,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ json-tree
 ✓ json-view
 ✓ jump-to
+✓ jump-to-page
 ✓ kanban-board
 ✓ kbd
 ✓ kbd-chord
@@ -600,6 +603,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ kicker
 ✓ known-issue
 ✓ label
+✓ label-manager
 ✓ labeled-progress
 ✓ landmark
 ✓ landmark-nav
@@ -610,6 +614,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ latency-badge
 ✓ layer-list
 ✓ lazy-boundary
+✓ lazy-section
 ✓ lead
 ✓ lead-time
 ✓ lead-time-input
@@ -626,6 +631,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ link-editor
 ✓ link-permissions
 ✓ list-density
+✓ list-end
 ✓ list-format
 ✓ list-row
 ✓ list-toolbar
@@ -634,6 +640,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ live-region
 ✓ load-error
 ✓ load-more
+✓ loading-more
 ✓ loading-overlay
 ✓ location-card
 ✓ lock-indicator
@@ -765,6 +772,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ page-break
 ✓ page-header
 ✓ page-header-footer
+✓ page-size
 ✓ page-size-select
 ✓ page-thumbnails
 ✓ page-title
@@ -776,6 +784,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ part-payment
 ✓ partial-failure
 ✓ partial-list
+✓ partial-list-note
 ✓ partial-outage
 ✓ partial-save
 ✓ partial-shipment
@@ -1208,6 +1217,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ substitution-pref
 ✓ subtitle-track
 ✓ success-panel
+✓ suggested-tags
 ✓ suggestion-chips
 ✓ suggestion-mode
 ✓ summary-toggle
@@ -1237,12 +1247,17 @@ A ✓ means it exists and a generated site can import it today.
 ✓ table-settings
 ✓ table-skeleton
 ✓ tabs
+✓ tag-cloud
 ✓ tag-input
 ✓ tag-list
+✓ tag-merge
+✓ tag-rename
+✓ tag-scope
 ✓ tag-select
 ✓ takedown-note
 ✓ target-vs-actual
 ✓ tax-toggle
+✓ taxonomy-picker
 ✓ team-grid
 ✓ temperature-input
 ✓ template-diff
@@ -1346,6 +1361,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ unit-toggle
 ✓ unread-divider
 ✓ unsaved-guard
+✓ untagged-note
 ✓ upgrade-badge
 ✓ upload-progress
 ✓ upload-queue
