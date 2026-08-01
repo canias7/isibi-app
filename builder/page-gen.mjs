@@ -717,6 +717,14 @@ export const UI_COMPONENTS = [
   "bin-location", "putaway-task", "pick-path", "cycle-count-row", "goods-in-row",
   "quarantine-note", "serial-capture", "batch-trace", "stock-adjustment", "replenish-task",
   "shrink-report", "slotting-note",
+  // Manufacturing and production
+  "work-order-row", "bill-of-materials", "routing-step", "machine-status", "downtime-note",
+  "scrap-rate", "changeover-note", "takt-note", "quality-check-row", "nonconformance",
+  "batch-yield", "shift-output", "tooling-row",
+  // Energy and utilities
+  "meter-reading", "tariff-row", "consumption-bar", "outage-notice", "supply-status",
+  "smart-meter-note", "carbon-note", "generation-mix", "switch-supplier", "estimated-vs-actual",
+  "usage-compare",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

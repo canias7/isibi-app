@@ -1,4 +1,4 @@
-# Components (1739 built, 25 to go)
+# Components (1763 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -117,12 +117,14 @@ A ✓ means it exists and a generated site can import it today.
 ✓ batch-progress
 ✓ batch-trace
 ✓ batch-window
+✓ batch-yield
 ✓ before-after
 ✓ before-after-upload
 ✓ benchmark-bar
 ✓ bento-grid
 ✓ bid-box
 ✓ big-number
+✓ bill-of-materials
 ✓ billing-summary
 ✓ bin-location
 ✓ blackout-dates
@@ -175,6 +177,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ caption-toggle
 ✓ caption-track
 ✓ capture-hint
+✓ carbon-note
 ✓ card
 ✓ card-grid
 ✓ card-input
@@ -204,6 +207,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ change-summary
 ✓ changelog-entry
 ✓ changelog-feed
+✓ changeover-note
 ✓ channel-preference
 ✓ channel-toggle
 ✓ chapter-list
@@ -298,6 +302,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ consent-history
 ✓ consent-summary
 ✓ consignment-row
+✓ consumption-bar
 ✓ contact-card
 ✓ contact-card-compact
 ✓ contact-fallback
@@ -440,6 +445,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ download-card
 ✓ download-menu
 ✓ download-progress
+✓ downtime-note
 ✓ draft-badge
 ✓ draft-recovery
 ✓ draft-vs-live
@@ -508,6 +514,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ escalation-ladder
 ✓ escalation-note
 ✓ estimate-band
+✓ estimated-vs-actual
 ✓ eta-band
 ✓ event-card
 ✓ event-filter
@@ -623,6 +630,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ gantt-bars
 ✓ gauge
 ✓ generation-history
+✓ generation-mix
 ✓ getting-started
 ✓ gift-message
 ✓ gift-toggle
@@ -798,6 +806,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ logo-slot
 ✓ loop-toggle
 ✓ lot-row
+✓ machine-status
 ✓ magic-link-sent
 ✓ magnetic-button
 ✓ maintenance-notice
@@ -838,6 +847,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ message
 ✓ message-scroller
 ✓ message-status
+✓ meter-reading
 ✓ metric-delta
 ✓ metric-row
 ✓ migration-guide-link
@@ -887,6 +897,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ no-results
 ✓ no-show-note
 ✓ node-graph
+✓ nonconformance
 ✓ not-found
 ✓ not-found-panel
 ✓ notification-access
@@ -928,6 +939,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ orientation-note
 ✓ otp-form
 ✓ otp-resend
+✓ outage-notice
 ✓ outlier-flag
 ✓ overage-preview
 ✓ overbooking-note
@@ -1073,6 +1085,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ putaway-task
 ✓ qr-code
 ✓ qr-handoff
+✓ quality-check-row
 ✓ quality-score
 ✓ quantity-break
 ✓ quantity-input
@@ -1213,6 +1226,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ rounding-line
 ✓ rounding-note
 ✓ route-stop
+✓ routing-step
 ✓ roving-list
 ✓ row-actions
 ✓ row-compare
@@ -1260,6 +1274,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ scope-list
 ✓ scope-summary
 ✓ score-breakdown
+✓ scrap-rate
 ✓ screen-only
 ✓ screen-reader-note
 ✓ scroll-area
@@ -1328,6 +1343,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ shelf
 ✓ shift-badge
 ✓ shift-handover
+✓ shift-output
 ✓ shimmer
 ✓ shipping-options
 ✓ shop-the-look
@@ -1386,6 +1402,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ slow-note
 ✓ slug-input
 ✓ small-screen-note
+✓ smart-meter-note
 ✓ snackbar
 ✓ snag-item
 ✓ snag-list
@@ -1482,6 +1499,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ suggestion-chips
 ✓ suggestion-mode
 ✓ summary-toggle
+✓ supply-status
 ✓ support-handoff
 ✓ surcharge-note
 ✓ survey-card
@@ -1492,6 +1510,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ swipeable-row
 ✓ switch
 ✓ switch-row
+✓ switch-supplier
 ✓ sync-conflict-list
 ✓ sync-direction
 ✓ sync-schedule
@@ -1520,7 +1539,9 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tag-scope
 ✓ tag-select
 ✓ takedown-note
+✓ takt-note
 ✓ target-vs-actual
+✓ tariff-row
 ✓ tax-breakdown
 ✓ tax-exempt-note
 ✓ tax-toggle
@@ -1594,6 +1615,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tool-call-card
 ✓ toolbar
 ✓ toolbox-talk
+✓ tooling-row
 ✓ tooltip
 ✓ top-n-picker
 ✓ totals-row
@@ -1659,6 +1681,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ url-input
 ✓ usage-alert-rule
 ✓ usage-breakdown
+✓ usage-compare
 ✓ usage-forecast
 ✓ usage-meter
 ✓ usage-nudge
@@ -1729,6 +1752,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ wizard-exit-guard
 ✓ wizard-nav
 ✓ word-count
+✓ work-order-row
 ✓ workflow-map
 ✓ working-hours
 ✓ working-hours-input

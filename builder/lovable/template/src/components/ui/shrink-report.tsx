@@ -47,7 +47,7 @@ export function ShrinkReport({ period, lines, throughput, currency = "GBP", loca
           </span>
         )}
       </p>
-      <ul className="space-y-1">
+      <ul className="space-y-2.5">
         {lines.map((l) => (
           <li key={l.id} className="space-y-0.5">
             <p className="flex items-baseline gap-3 text-sm">
