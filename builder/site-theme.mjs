@@ -704,32 +704,6 @@ const GLASS_ALPHA = {
   dark: { background: 0.66, card: 0.12, popover: 0.88 },
 };
 
-/**
- * The AURORA the glass refracts — four saturated washes derived from the
- * accent's hue and its neighbours, covering the whole viewport so no region
- * falls back to bare paper (bare paper under glass is what reads as a white
- * page with grey boxes — the first render's failure, seen and corrected).
- * Lightness stays near the paper's so the measured contrast still holds.
- */
-function canvasCss(theme) {
-  const stop = (c, size, x, y) => `radial-gradient(${size} circle at ${x} ${y}, ${css(c)}, transparent 65%)`;
-  const layer = (mode) => {
-    const { accent } = theme[mode];
-    const H = accent[2];
-    const hues = [(H + 300) % 360, H, (H + 35) % 360, (H + 250) % 360];
-    const Ls = mode === "light" ? [0.86, 0.85, 0.87, 0.88] : [0.34, 0.3, 0.32, 0.3];
-    const Cs = mode === "light" ? [0.14, 0.16, 0.13, 0.12] : [0.14, 0.15, 0.13, 0.12];
-    // Dark auroras are GLOWS in a dark room, not floodlights — at light-mode
-    // alphas the paper never reads as black and the whole page goes murky
-    // grey-violet (measured on the first enriched-page render).
-    const As = mode === "light" ? [0.8, 0.75, 0.7, 0.6] : [0.42, 0.38, 0.34, 0.28];
-    const at = [["50rem", "8%", "4%"], ["56rem", "94%", "14%"], ["48rem", "78%", "72%"], ["52rem", "12%", "92%"]];
-    return hues.map((h, i) => stop([Ls[i], Cs[i], h, As[i]], ...at[i])).join(", ");
-  };
-  return `body { background-image: ${layer("light")}; background-attachment: fixed; }\n` +
-    `.dark body { background-image: ${layer("dark")}; }\n`;
-}
-
 export function surfaceCss(theme) {
   const style = theme.surface ?? "solid";
   if (style !== "glass") return "";
@@ -779,8 +753,240 @@ export function surfaceCss(theme) {
   return `:root {\n${tokens("light")}\n}\n.dark {\n${tokens("dark")}\n}\n` +
     `${SURF} { ${filter} border-color: oklch(1 0 0 / 0.6); background-image: linear-gradient(165deg, oklch(1 0 0 / 0.5), oklch(1 0 0 / 0) 42%); }\n` +
     `.dark ${SURF.split(", ").join(", .dark ")} { border-color: oklch(1 0 0 / 0.16); background-image: linear-gradient(165deg, oklch(1 0 0 / 0.1), oklch(1 0 0 / 0) 45%); }\n` +
-    components +
-    canvasCss(theme);
+    components;
+  // The CANVAS moved out of this function on 2026-08-01: it became the
+  // `aurora` option of the backdrop axis, because a lit world behind the page
+  // turned out to be what EVERY theme was missing, not a private feature of
+  // glass. Glass now declares `backdrop: "aurora"` like any other theme.
+}
+
+/* -------------------------------------------------------------------- world */
+
+/**
+ * THE WORLD BEHIND THE PAGE — the two axes the 2026-08-01 redesign added,
+ * after the owner put a Liquid Glass screenshot next to the 500-theme sweep
+ * and said they all look the same. They did, and the diagnosis was exact:
+ * tokens and axes control the panels, and personality lives BEHIND them —
+ * backdrop, texture, light. Apple's look is 10% palette and 90% material.
+ *
+ * `backdrop` paints the body: fields and washes and pools of light, DERIVED
+ * from the theme's own accent like everything else. `decor` lays texture into
+ * the paper: grain, stripes, grid, halftone. Both are optional — absent means
+ * plain/none, so every theme written before these axes keeps meaning what it
+ * meant — and both are data, so retrofitting the library is two fields per
+ * theme, not a rewrite.
+ *
+ * THE LEGIBILITY DEAL. A backdrop may be bold ONLY because the things that
+ * carry text sit on measured surfaces above it: cards are opaque tokens, and
+ * every band utility (`bg-muted/30` …) gets a VEIL override when a backdrop is
+ * present, exactly the trick the glass surface proved. On top of that, light-
+ * mode backdrop stops keep their lightness ≥ 0.75 and dark-mode stops ≤ 0.5 —
+ * asserted, not hoped — so even text sitting directly on the page stays
+ * readable over the loudest corner of any wash.
+ */
+export const BACKDROPS = {
+  plain: { label: "nothing behind the page — the ordinary ground" },
+  wash: { label: "one broad soft field of the accent's light" },
+  aurora: { label: "drifting colour washes — the glass canvas, for any surface" },
+  field: { label: "a committed colour field falling from the top edge" },
+  horizon: { label: "a deep band across the top, sky over ground" },
+  glow: { label: "pools of lamplight in a dim room — for dark-native themes" },
+};
+
+export const DECORS = {
+  none: { label: "plain paper" },
+  grain: { label: "paper tooth — a fine photographic grain" },
+  stripes: { label: "awning stripes on the diagonal" },
+  check: { label: "gingham — two directions of soft stripe" },
+  grid: { label: "drafting grid — the graph-paper field" },
+  dots: { label: "halftone dots, quiet and even" },
+  scanlines: { label: "hairline scanlines — broadcast paper" },
+  weave: { label: "a diagonal cross-hatch weave" },
+  spots: { label: "scattered confetti points" },
+  rays: { label: "faint rays from the top of the page" },
+};
+
+// Light stops stay HIGH and dark stops stay LOW — the numeric half of the
+// legibility deal above, applied at the derivation so no option can forget it.
+const bL = (mode, v) => (mode === "light" ? Math.max(v, 0.75) : Math.min(v, 0.5));
+
+const BACKDROP_LAYERS = {
+  wash: (theme, mode) => {
+    const [, , H] = theme[mode].accent;
+    const a = mode === "light" ? [bL(mode, 0.84), 0.18, H, 0.95] : [bL(mode, 0.3), 0.13, H, 0.6];
+    const b = mode === "light" ? [bL(mode, 0.88), 0.12, (H + 40) % 360, 0.6] : [bL(mode, 0.28), 0.1, (H + 40) % 360, 0.35];
+    return [
+      `radial-gradient(120rem circle at 50% -20%, ${css(a)}, transparent 70%)`,
+      `radial-gradient(80rem circle at 90% 110%, ${css(b)}, transparent 70%)`,
+    ];
+  },
+  /**
+   * The AURORA — four saturated washes derived from the accent's hue and its
+   * neighbours, covering the whole viewport so no region falls back to bare
+   * paper. Born as the glass canvas; generalised here when the redesign made
+   * a lit world every theme's right rather than glass's private feature.
+   * Bolder than the first glass shipped: chroma and alpha up, lightness still
+   * pinned so ink over a wash stays measured-legible.
+   */
+  aurora: (theme, mode) => {
+    const H = theme[mode].accent[2];
+    const hues = [(H + 300) % 360, H, (H + 35) % 360, (H + 250) % 360];
+    const Ls = mode === "light" ? [0.84, 0.83, 0.86, 0.87] : [0.34, 0.3, 0.32, 0.3];
+    const Cs = mode === "light" ? [0.18, 0.2, 0.16, 0.15] : [0.15, 0.16, 0.14, 0.13];
+    // Dark auroras are GLOWS in a dark room, not floodlights — at light-mode
+    // alphas the paper never reads as black and the page goes murky.
+    const As = mode === "light" ? [0.9, 0.85, 0.8, 0.7] : [0.5, 0.44, 0.4, 0.32];
+    const at = [["56rem", "8%", "4%"], ["62rem", "94%", "14%"], ["54rem", "78%", "72%"], ["58rem", "12%", "92%"]];
+    return hues.map((h, i) =>
+      `radial-gradient(${at[i][0]} circle at ${at[i][1]} ${at[i][2]}, ${css([bL(mode, Ls[i]), Cs[i], h, As[i]])}, transparent 65%)`);
+  },
+  field: (theme, mode) => {
+    const [, , H] = theme[mode].accent;
+    const top = mode === "light" ? [bL(mode, 0.78), 0.21, H, 1] : [bL(mode, 0.32), 0.16, H, 0.9];
+    const low = mode === "light" ? [bL(mode, 0.88), 0.1, (H + 30) % 360, 0.5] : [bL(mode, 0.24), 0.1, (H + 30) % 360, 0.4];
+    return [
+      `linear-gradient(180deg, ${css(top)}, transparent 62%)`,
+      `radial-gradient(90rem circle at 15% 100%, ${css(low)}, transparent 70%)`,
+    ];
+  },
+  horizon: (theme, mode) => {
+    const [, , H] = theme[mode].accent;
+    const sky = mode === "light" ? [bL(mode, 0.76), 0.22, H, 1] : [bL(mode, 0.3), 0.17, H, 0.95];
+    const haze = mode === "light" ? [bL(mode, 0.9), 0.08, H, 0.7] : [bL(mode, 0.22), 0.08, H, 0.5];
+    return [
+      `linear-gradient(180deg, ${css(sky)} 0%, ${css(sky)} 18%, ${css(haze)} 34%, transparent 52%)`,
+    ];
+  },
+  glow: (theme, mode) => {
+    const [, , H] = theme[mode].accent;
+    const warm = (h, L, C, A) => [bL(mode, L), C, h, A];
+    const pools = mode === "light"
+      ? [warm(H, 0.84, 0.16, 0.9), warm((H + 25) % 360, 0.87, 0.12, 0.7), warm((H + 340) % 360, 0.86, 0.13, 0.6)]
+      : [warm(H, 0.4, 0.15, 0.72), warm((H + 25) % 360, 0.34, 0.13, 0.55), warm((H + 340) % 360, 0.31, 0.13, 0.42)];
+    const at = [["44rem", "22%", "6%"], ["38rem", "82%", "38%"], ["40rem", "38%", "96%"]];
+    return pools.map((p, i) => `radial-gradient(${at[i][0]} circle at ${at[i][1]} ${at[i][2]}, ${css(p)}, transparent 65%)`);
+  },
+};
+
+// One texture layer each, colours derived, sizes whole px. Repeating
+// gradients tile themselves; only the dot fields need an explicit tile size.
+const DECOR_LAYERS = {
+  grain: () => ({
+    image: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/><feColorMatrix type='saturate' values='0'/><feComponentTransfer><feFuncA type='table' tableValues='0 0.055'/></feComponentTransfer></filter><rect width='140' height='140' filter='url(%23n)'/></svg>")`,
+  }),
+  stripes: (theme, mode) => {
+    const [, , H] = theme[mode].accent;
+    const c = css(mode === "light" ? [0.6, 0.12, H, 0.07] : [0.7, 0.12, H, 0.06]);
+    return { image: `repeating-linear-gradient(45deg, ${c} 0 12px, transparent 12px 34px)` };
+  },
+  check: (theme, mode) => {
+    const [, , H] = theme[mode].accent;
+    const c = css(mode === "light" ? [0.6, 0.12, H, 0.05] : [0.7, 0.11, H, 0.05]);
+    return { image: `repeating-linear-gradient(0deg, ${c} 0 14px, transparent 14px 42px), repeating-linear-gradient(90deg, ${c} 0 14px, transparent 14px 42px)` };
+  },
+  grid: (theme, mode) => {
+    const { paper, ink } = theme[mode];
+    const line = css([...mix(paper, ink, 0.14).slice(0, 3), 0.55]);
+    return { image: `repeating-linear-gradient(0deg, ${line} 0 1px, transparent 1px 26px), repeating-linear-gradient(90deg, ${line} 0 1px, transparent 1px 26px)` };
+  },
+  dots: (theme, mode) => {
+    const [, , H] = theme[mode].accent;
+    const c = css(mode === "light" ? [0.55, 0.13, H, 0.14] : [0.72, 0.12, H, 0.12]);
+    return { image: `radial-gradient(circle at 9px 9px, ${c} 1.5px, transparent 1.5px)`, size: "22px 22px" };
+  },
+  scanlines: (theme, mode) => {
+    const { paper, ink } = theme[mode];
+    const line = css([...mix(paper, ink, 0.5).slice(0, 3), mode === "light" ? 0.06 : 0.08]);
+    return { image: `repeating-linear-gradient(0deg, ${line} 0 1px, transparent 1px 4px)` };
+  },
+  weave: (theme, mode) => {
+    const { paper, ink } = theme[mode];
+    const c = css([...mix(paper, ink, 0.2).slice(0, 3), 0.16]);
+    return { image: `repeating-linear-gradient(45deg, ${c} 0 1px, transparent 1px 9px), repeating-linear-gradient(-45deg, ${c} 0 1px, transparent 1px 9px)` };
+  },
+  spots: (theme, mode) => {
+    // A TILE, not five absolute dots — percentage positions with no size put
+    // five specks on the whole page (measured: invisible). The confetti
+    // repeats on a 260px cell, offsets chosen so the tiling reads scattered.
+    const [, , H] = theme[mode].accent;
+    const dot = (h, x, y, r, A) => {
+      const c = css(mode === "light" ? [0.62, 0.15, h, A] : [0.7, 0.14, h, A * 0.9]);
+      return `radial-gradient(circle at ${x} ${y}, ${c} ${r}, transparent ${r})`;
+    };
+    return {
+      image: [
+        dot(H, "31px 47px", "5px", 0.5), dot((H + 120) % 360, "203px 23px", "4px", 0.45),
+        dot((H + 60) % 360, "239px 161px", "5px", 0.4), dot((H + 200) % 360, "57px 213px", "4px", 0.45),
+        dot((H + 300) % 360, "143px 99px", "3px", 0.35),
+      ].join(", "),
+      size: "260px 260px",
+    };
+  },
+  rays: (theme, mode) => {
+    const [, , H] = theme[mode].accent;
+    const c = css(mode === "light" ? [0.7, 0.1, H, 0.05] : [0.6, 0.1, H, 0.06]);
+    return { image: `conic-gradient(from 172deg at 50% -8%, ${c} 0 9deg, transparent 9deg 24deg, ${c} 24deg 33deg, transparent 33deg 48deg, ${c} 48deg 57deg, transparent 57deg 72deg, ${c} 72deg 81deg, transparent 81deg 96deg, ${c} 96deg 105deg, transparent 105deg 360deg)` };
+  },
+};
+
+/**
+ * The body paint for a theme's backdrop + decor, plus the band veils.
+ *
+ * ONE body rule per mode, never two: decor and backdrop are layers of the same
+ * `background-image` stack (decor first, so texture reads over the washes),
+ * with per-layer attachment — decor scrolls with the page, backdrops stay
+ * fixed so panels slide over the light, the move the glass canvas proved.
+ *
+ * The veils are emitted for any non-plain backdrop on a SOLID surface; glass
+ * already carries its own. Without them a `bg-muted/30` band is 70% window
+ * onto the loudest part of the wash, with band text sitting straight on it.
+ */
+export function worldCss(theme) {
+  const backdrop = theme.backdrop ?? "plain";
+  const decor = theme.decor ?? "none";
+  if (backdrop === "plain" && decor === "none") return "";
+  const rule = (mode) => {
+    const layers = [], sizes = [], attach = [];
+    const d = decor !== "none" && DECOR_LAYERS[decor] ? DECOR_LAYERS[decor](theme, mode) : null;
+    if (d) { layers.push(d.image); sizes.push(d.size ?? "auto"); attach.push("scroll"); }
+    const bs = backdrop !== "plain" && BACKDROP_LAYERS[backdrop] ? BACKDROP_LAYERS[backdrop](theme, mode) : [];
+    for (const b of bs) { layers.push(b); sizes.push("auto"); attach.push("fixed"); }
+    if (!layers.length) return "";
+    const sel = mode === "light" ? "body" : ".dark body";
+    return `${sel} { background-image: ${layers.join(", ")}; background-size: ${sizes.join(", ")}; background-attachment: ${attach.join(", ")}; }\n`;
+  };
+  return openRootCss(theme, backdrop !== "plain") + rule("light") + rule("dark") +
+    (backdrop !== "plain" ? veilCss(theme) : "");
+}
+
+/**
+ * THE ROOT MUST OPEN, OR THE WORLD IS PAINTED BEHIND A WALL. Every generated
+ * page's root div carries `bg-background`, and on a solid theme that token is
+ * opaque — so the first prototype rendered its backdrops invisible: the body
+ * was lit and the page sat in front of it like drywall. Measured on the
+ * before/after sheet, afters ≈ befores. Glass never hit this because its
+ * surface re-emits `--background` translucent; this does the same for any
+ * theme with a world, which is why glass (whose surface owns that token)
+ * skips it here.
+ *
+ * A BACKDROP opens the root wide (the wash is the point); decor alone opens
+ * it barely (texture wants to be felt through the paper, not to dim it).
+ */
+function openRootCss(theme, hasBackdrop) {
+  if (theme.surface === "glass") return "";
+  const A = hasBackdrop ? { light: 0.5, dark: 0.55 } : { light: 0.85, dark: 0.88 };
+  const t = (mode) => css([...theme[mode].paper.slice(0, 3), A[mode]]);
+  return `:root { --background: ${t("light")}; }\n.dark { --background: ${t("dark")}; }\n`;
+}
+
+// The band-utility veils — a translucent sheet of the paper's own white/black
+// under `bg-muted/N`, so band text sits on a measured-ish surface rather than
+// on the wash. Skipped for glass, which emits its own tuned pair.
+function veilCss(theme) {
+  if (theme.surface === "glass") return "";
+  const BANDS = ".bg-muted\\/30, .bg-muted\\/40, .bg-muted\\/50, .bg-muted\\/60";
+  return `${BANDS} { background-color: oklch(1 0 0 / 0.55) }\n` +
+    `.dark ${BANDS.split(", ").join(", .dark ")} { background-color: oklch(0 0 0 / 0.35) }\n`;
 }
 
 /* ------------------------------------------------------------------ corners */
@@ -872,7 +1078,7 @@ export const THEMES = {
     radius: "1rem", corner: "squircle",
     scale: "standard", tracking: "open", leading: "standard", weight: "standard",
     density: "airy", border: "hairline", shadow: "soft", icon: "regular",
-    surface: "glass", buttons: "pill",
+    surface: "glass", buttons: "pill", backdrop: "aurora",
     fonts: { heading: "outfit", body: "inter" },
     light: { paper: [0.985, 0.004, 285], ink: [0.21, 0.03, 285], accent: [0.5, 0.15, 285] },
     dark: { paper: [0.16, 0.03, 288], ink: [0.95, 0.012, 285], accent: [0.73, 0.14, 285] },
@@ -930,6 +1136,9 @@ export const THEMES = {
   //     icon: "regular",              // fine | regular | heavy
   //     buttons: "inherit",           // inherit | pill | sharp   (absent = inherit)
   //     inputs: "standard",           // standard | underline | filled  (absent = standard)
+  //     backdrop: "plain",            // plain | wash | aurora | field | horizon | glow  (absent = plain)
+  //     decor: "none",                // none | grain | stripes | check | grid | dots
+  //                                   //   | scanlines | weave | spots | rays  (absent = none)
   //     fonts: { heading: "<id>", body: "<id>" },   // ids from site-fonts.mjs
   //     light: { paper: [L, C, H], ink: [L, C, H], accent: [L, C, H] },
   //     dark:  { paper: [L, C, H], ink: [L, C, H], accent: [L, C, H] },
@@ -1058,7 +1267,10 @@ export function themeCss(nameOrTheme) {
     shadowCss(theme.shadow, theme) +
     // LAST, deliberately: glass re-declares tokens the palette blocks above
     // already set, and source order is the only thing making its values win.
-    surfaceCss(theme);
+    // The world paint follows even that — it owns the body and the veils, and
+    // nothing after it may re-decide what the page sits on.
+    surfaceCss(theme) +
+    worldCss(theme);
 }
 
 /** What the model may choose from — an enum, so an invalid theme is impossible. */

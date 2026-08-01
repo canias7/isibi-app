@@ -15,7 +15,7 @@ import {
   CORNERS, cornerCss, fitState, temperState, STATE_CHROMA_RATIO, MIN_STATE_CHROMA,
   TYPE_SCALES, typeCss, DENSITIES, densityCss, BORDERS, borderCss, SHADOWS, shadowCss, SHADOW_STEPS,
   SURFACES, surfaceCss, ICON_STROKES, iconCss, TRACKINGS, trackingCss, LEADINGS, leadingCss, WEIGHTS, weightCss,
-  BUTTONS, buttonsCss, INPUTS, inputsCss,
+  BUTTONS, buttonsCss, INPUTS, inputsCss, BACKDROPS, DECORS, worldCss,
 } from "../builder/site-theme.mjs";
 import { SHORTLIST } from "../builder/site-fonts.mjs";
 
@@ -610,7 +610,8 @@ test("every theme declares every axis, with a value the axis offers", () => {
   // resolves the default before comparing — otherwise "inherit" and "standard"
   // could only ever be satisfied by a theme spelling the default out, which is
   // exactly the noise the optionality exists to avoid.
-  const OPTIONAL = [["buttons", BUTTONS, "inherit"], ["inputs", INPUTS, "standard"]];
+  const OPTIONAL = [["buttons", BUTTONS, "inherit"], ["inputs", INPUTS, "standard"],
+    ["backdrop", BACKDROPS, "plain"], ["decor", DECORS, "none"]];
   for (const [key, table, dflt] of OPTIONAL) {
     for (const option of Object.keys(table)) {
       assert.ok(THEME_NAMES.some((n) => (THEMES[n][key] ?? dflt) === option),
@@ -626,7 +627,81 @@ test("component axes are optional, but a declared value must be on offer", () =>
     const t = THEMES_UNDER_TEST[name];
     if (t.buttons !== undefined) assert.ok(BUTTONS[t.buttons], `${name}.buttons is "${t.buttons}", which is not on offer`);
     if (t.inputs !== undefined) assert.ok(INPUTS[t.inputs], `${name}.inputs is "${t.inputs}", which is not on offer`);
+    if (t.backdrop !== undefined) assert.ok(BACKDROPS[t.backdrop], `${name}.backdrop is "${t.backdrop}", which is not on offer`);
+    if (t.decor !== undefined) assert.ok(DECORS[t.decor], `${name}.decor is "${t.decor}", which is not on offer`);
   }
+});
+
+test("the world axes are a no-op until declared — every old theme keeps its meaning", () => {
+  assert.equal(worldCss(FIXTURE), "", "an undeclared world emitted paint");
+  assert.equal(worldCss({ ...FIXTURE, backdrop: "plain", decor: "none" }), "", "the explicit defaults emitted paint");
+  assert.ok(!themeCss(FIXTURE).includes("body { background-image"), "themeCss painted a body nobody asked for");
+});
+
+test("every backdrop paints both modes, fixed, and every decor lays one texture", () => {
+  for (const backdrop of Object.keys(BACKDROPS)) {
+    if (backdrop === "plain") continue;
+    const out = worldCss({ ...FIXTURE, backdrop });
+    assert.match(out, /body \{ background-image:/, `${backdrop} paints light`);
+    assert.match(out, /\.dark body \{ background-image:/, `${backdrop} paints dark`);
+    assert.match(out, /background-attachment: [^;]*fixed/, `${backdrop} is not fixed — panels stop sliding over the light`);
+  }
+  for (const decor of Object.keys(DECORS)) {
+    if (decor === "none") continue;
+    const out = worldCss({ ...FIXTURE, decor });
+    assert.match(out, /body \{ background-image:/, `${decor} lays nothing`);
+    assert.ok(!out.includes("#"), `${decor} used a raw hex colour — everything here derives`);
+  }
+  // Decor SCROLLS while backdrops stay fixed — one stack, two behaviours.
+  const both = worldCss({ ...FIXTURE, backdrop: "field", decor: "stripes" });
+  assert.match(both, /background-attachment: scroll, fixed/, "decor and backdrop lost their split attachment");
+});
+
+test("the legibility deal holds: light stops stay high, dark stops stay low", () => {
+  // The numeric half of what makes a bold backdrop safe. Parse every oklch()
+  // the backdrops emit and check its lightness against the floor/ceiling —
+  // so no option, present or future, can quietly go vivid-dark behind light
+  // ink. The fixture's accent sits at hue 30; the rule must hold regardless.
+  for (const backdrop of Object.keys(BACKDROPS)) {
+    if (backdrop === "plain") continue;
+    const out = worldCss({ ...FIXTURE, backdrop });
+    const [lightRule, darkRule] = [out.match(/(?<!\.dark )body \{[^}]+\}/)?.[0] ?? "", out.match(/\.dark body \{[^}]+\}/)?.[0] ?? ""];
+    for (const m of lightRule.matchAll(/oklch\(([\d.]+) /g)) {
+      assert.ok(+m[1] >= 0.75, `${backdrop}/light emitted a stop at L ${m[1]} — too dark to sit under ink`);
+    }
+    for (const m of darkRule.matchAll(/oklch\(([\d.]+) /g)) {
+      assert.ok(+m[1] <= 0.5, `${backdrop}/dark emitted a stop at L ${m[1]} — a floodlight in a dark room`);
+    }
+  }
+});
+
+test("a backdrop brings the band veils, and never by re-tinting the muted token", () => {
+  // The other half of the deal: bg-muted/30 bands are 70% window onto the
+  // wash, so a veil goes UNDER band text — via the class overrides, exactly
+  // like glass, and never by touching --muted, which skeletons and
+  // placeholders read (the glass lesson, relearned once already).
+  for (const backdrop of ["wash", "aurora", "field", "horizon", "glow"]) {
+    const out = worldCss({ ...FIXTURE, backdrop });
+    assert.match(out, /\.bg-muted\\\/30/, `${backdrop} left band text sitting on the wash`);
+  }
+  assert.ok(!worldCss({ ...FIXTURE, backdrop: "field" }).includes("--muted:"), "the veil re-tinted the muted token");
+  // And the ROOT OPENS — the page's own bg-background is opaque on a solid
+  // theme, so without a translucent re-emit the world is painted behind a
+  // wall (measured: the first prototype's afters equalled its befores).
+  for (const backdrop of ["wash", "aurora", "field", "horizon", "glow"]) {
+    const out = worldCss({ ...FIXTURE, backdrop });
+    assert.match(out, /:root \{ --background: oklch\([^)]+ \/ 0\./, `${backdrop} left the root opaque in light`);
+    assert.match(out, /\.dark \{ --background: oklch\([^)]+ \/ 0\./, `${backdrop} left the root opaque in dark`);
+  }
+  assert.match(worldCss({ ...FIXTURE, decor: "grain" }), /--background: oklch\([^)]+ \/ 0\.8/, "decor-only should open the root barely, not wide");
+  assert.ok(!worldCss({ ...FIXTURE, surface: "glass", backdrop: "aurora" }).includes("--background:"),
+    "glass got a second --background on top of its surface's own");
+  // Decor alone is texture, not light — no veil needed, and adding one would
+  // dim every band on a theme that only asked for paper tooth.
+  assert.ok(!worldCss({ ...FIXTURE, decor: "grain" }).match(/bg-muted/), "grain alone dimmed the bands");
+  // Glass keeps its own tuned veils — a second pair would stack alpha.
+  assert.ok(!worldCss({ ...FIXTURE, surface: "glass", backdrop: "aurora" }).match(/bg-muted/),
+    "glass got a second veil on top of its own");
 });
 
 test("offset shadows are solid ink, whole pixels, and mode-invariant", () => {
@@ -864,6 +939,11 @@ test("glass is three things at once, or it is invisible", () => {
   // The axis's own claim: translucent tokens + backdrop blur + a canvas. Any
   // one missing renders EXACTLY like solid — measured; that is how the first
   // draft looked before the canvas existed — so each is asserted separately.
+  //
+  // The CANVAS moved to the backdrop axis in the 2026-08-01 redesign, so part
+  // 3 is asserted against the full themeCss of a glass theme that declares
+  // `backdrop: "aurora"` — which the SHIPPED glass does, asserted below, or
+  // the split would quietly strand glass canvasless.
   const glass = surfaceCss({ ...FIXTURE, surface: "glass" });
   // 1. Tokens re-emitted WITH alpha, in both modes.
   for (const block of [/:root \{[^}]+\}/, /\.dark \{[^}]+\}/]) {
@@ -877,9 +957,11 @@ test("glass is three things at once, or it is invisible", () => {
   assert.match(glass, /\.bg-card, \.bg-popover, \.bg-sidebar \{ backdrop-filter: blur/);
   assert.ok(!/\.bg-background[^-]/.test(glass.split("backdrop-filter")[1] ?? ""), "the page root got blurred");
   // 3. The canvas, in both modes, derived and fixed so panels slide over it.
-  assert.match(glass, /body \{ background-image: radial-gradient/);
-  assert.match(glass, /\.dark body \{ background-image: radial-gradient/);
-  assert.match(glass, /background-attachment: fixed/);
+  const full = themeCss({ ...FIXTURE, surface: "glass", backdrop: "aurora" });
+  assert.match(full, /body \{ background-image: radial-gradient/);
+  assert.match(full, /\.dark body \{ background-image: radial-gradient/);
+  assert.match(full, /background-attachment: fixed/);
+  assert.equal(THEMES.glass?.backdrop, "aurora", "shipped glass no longer declares its canvas");
 });
 
 test("the glass block is emitted LAST, or source order hands the win back", () => {
