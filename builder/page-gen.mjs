@@ -620,6 +620,13 @@ export const UI_COMPONENTS = [
   "consent-summary", "data-request", "retention-note", "purpose-list", "opt-out-row",
   "privacy-choice", "tracking-note", "export-my-data", "delete-my-data", "consent-history",
   "third-party-list", "lawful-basis-note",
+  // Device and capability
+  "orientation-note", "small-screen-note", "install-prompt", "camera-access", "location-access",
+  "notification-access", "data-saver-note", "touch-hint", "clipboard-blocked", "fullscreen-toggle",
+  "device-unsupported", "permission-prompt",
+  // Automation and rules
+  "rule-summary", "trigger-picker", "condition-row", "rule-preview", "rule-conflict",
+  "rule-log", "rule-enabled", "run-now",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

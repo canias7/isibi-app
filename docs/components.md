@@ -1,4 +1,4 @@
-# Components (1462 built, 25 to go)
+# Components (1482 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -143,6 +143,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ calendar
 ✓ calendar-month
 ✓ callout
+✓ camera-access
 ✓ camera-capture
 ✓ cancel-policy
 ✓ canned-reply
@@ -199,6 +200,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ clear-form
 ✓ click-collect
 ✓ click-outside
+✓ clipboard-blocked
 ✓ clipboard-history
 ✓ cluster
 ✓ co-edit-note
@@ -241,6 +243,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ completeness-bar
 ✓ completion-meter
 ✓ completion-ring
+✓ condition-row
 ✓ conditional-field
 ✓ conditional-section
 ✓ confetti
@@ -309,6 +312,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ data-freshness
 ✓ data-list
 ✓ data-request
+✓ data-saver-note
 ✓ data-table
 ✓ date-badge
 ✓ date-format
@@ -340,6 +344,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ description-list
 ✓ detail-panel
 ✓ device-list
+✓ device-unsupported
 ✓ dialog
 ✓ did-you-mean
 ✓ diff-inline
@@ -523,6 +528,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ frozen-columns
 ✓ frozen-corner
 ✓ full-bleed
+✓ fullscreen-toggle
 ✓ funnel-steps
 ✓ gallery
 ✓ gantt-bars
@@ -590,6 +596,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ input-group
 ✓ input-otp
 ✓ install-command
+✓ install-prompt
 ✓ instalment-line
 ✓ instant-results
 ✓ interval-picker
@@ -659,6 +666,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ load-more
 ✓ loading-more
 ✓ loading-overlay
+✓ location-access
 ✓ location-card
 ✓ location-consent
 ✓ lock-indicator
@@ -753,6 +761,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ node-graph
 ✓ not-found
 ✓ not-found-panel
+✓ notification-access
 ✓ notification-bell
 ✓ notification-empty
 ✓ notification-group
@@ -784,6 +793,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ order-tracker
 ✓ ordinal
 ✓ org-chart
+✓ orientation-note
 ✓ otp-form
 ✓ otp-resend
 ✓ outlier-flag
@@ -833,6 +843,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ permalink
 ✓ permission-denied
 ✓ permission-matrix
+✓ permission-prompt
 ✓ permission-row
 ✓ person-row
 ✓ personalisation-field
@@ -1033,6 +1044,12 @@ A ✓ means it exists and a generated site can import it today.
 ✓ rsvp-buttons
 ✓ rtl-preview
 ✓ rule-builder
+✓ rule-conflict
+✓ rule-enabled
+✓ rule-log
+✓ rule-preview
+✓ rule-summary
+✓ run-now
 ✓ running-total
 ✓ safe-area
 ✓ safe-area-pad
@@ -1170,6 +1187,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ slot-hold
 ✓ slow-note
 ✓ slug-input
+✓ small-screen-note
 ✓ snackbar
 ✓ snap-carousel
 ✓ snap-sections
@@ -1351,6 +1369,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tooltip
 ✓ top-n-picker
 ✓ totals-row
+✓ touch-hint
 ✓ tour-dates
 ✓ tour-step
 ✓ tracking-input
@@ -1370,6 +1389,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tree-table
 ✓ tree-view
 ✓ trend-arrow
+✓ trigger-picker
 ✓ truncate-middle
 ✓ trust-score
 ✓ trust-strip
