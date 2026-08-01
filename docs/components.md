@@ -1,4 +1,4 @@
-# Components (1224 built, 25 to go)
+# Components (1239 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -29,6 +29,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ anchor-heading
 ✓ anchor-nav
 ✓ announcement-bar
+✓ answer-review
 ✓ api-key-row
 ✓ app-shell
 ✓ appeal-form
@@ -52,6 +53,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ audit-row
 ✓ author-byline
 ✓ auto-grid
+✓ autofill-conflict
 ✓ autofill-note
 ✓ autosave-history
 ✓ availability-grid
@@ -87,6 +89,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ blur-up
 ✓ booking-summary
 ✓ branch-badge
+✓ branching-note
 ✓ breadcrumb
 ✓ breadcrumb-collapse
 ✓ break-even-note
@@ -151,6 +154,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ chunked-upload
 ✓ citation-list
 ✓ clamp-text
+✓ clear-form
 ✓ click-collect
 ✓ click-outside
 ✓ clipboard-history
@@ -189,6 +193,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ completion-meter
 ✓ completion-ring
 ✓ conditional-field
+✓ conditional-section
 ✓ confetti
 ✓ confidence-range
 ✓ confirm-dialog
@@ -335,6 +340,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ empty-illustration
 ✓ env-badge
 ✓ episode-row
+✓ error-anchor
 ✓ error-boundary
 ✓ error-detail-toggle
 ✓ error-reference
@@ -365,10 +371,13 @@ A ✓ means it exists and a generated site can import it today.
 ✓ feedback-widget
 ✓ field
 ✓ field-array
+✓ field-dependency
 ✓ field-error
 ✓ field-group
 ✓ field-hint
+✓ field-history
 ✓ field-lock
+✓ field-mask
 ✓ field-success
 ✓ field-warning
 ✓ figure
@@ -404,6 +413,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ form
 ✓ form-actions
 ✓ form-diff
+✓ form-draft
 ✓ form-error-summary
 ✓ form-lock
 ✓ form-progress
@@ -472,6 +482,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ inline-alert
 ✓ inline-edit
 ✓ inline-form
+✓ inline-hint
 ✓ input
 ✓ input-group
 ✓ input-otp
@@ -672,6 +683,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ password-strength
 ✓ paste-clean
 ✓ paste-image
+✓ paste-parse
 ✓ paste-table
 ✓ payback-note
 ✓ payment-methods
@@ -710,6 +722,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ poster-picker
 ✓ precision-toggle
 ✓ preference-group
+✓ prefill-note
 ✓ preorder-badge
 ✓ presence-bar
 ✓ presence-dot
@@ -809,6 +822,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ report-reason
 ✓ request-access
 ✓ request-timing
+✓ required-legend
 ✓ required-mark
 ✓ reset-defaults
 ✓ reset-demo
@@ -1177,6 +1191,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ url-input
 ✓ usage-meter
 ✓ usage-nudge
+✓ validation-summary
 ✓ variance-note
 ✓ variant-matrix
 ✓ variant-picker

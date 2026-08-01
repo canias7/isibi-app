@@ -542,6 +542,10 @@ export const UI_COMPONENTS = [
   // Search and retrieval. Why nothing matched, what was actually searched for, and which filter is hiding it.
   "search-operators", "zero-results", "facet-list", "query-chips", "typeahead-list",
   "search-within", "match-context", "sort-direction", "search-tips", "query-explain",
+  // Forms, deeper mechanics. The wiring that makes a long form survivable — summaries that take focus, errors that anchor, and nothing hidden that still submits.
+  "field-dependency", "conditional-section", "validation-summary", "inline-hint", "error-anchor",
+  "prefill-note", "clear-form", "form-draft", "required-legend", "field-mask",
+  "paste-parse", "field-history", "answer-review", "branching-note", "autofill-conflict",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
