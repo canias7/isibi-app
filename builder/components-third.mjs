@@ -25,16 +25,17 @@
 // feature with a data model, and free of any one country's rules.
 export const THIRD_PLANNED = {
   "Sync, offline and conflict": [
-    "conflict-diff", "conflict-choice", "pending-changes", "optimistic-note", "stale-note",
-    "reconnect-strip", "last-synced", "write-blocked", "read-only-mode", "draft-recovery",
-    "unsaved-guard", "version-conflict", "background-job", "job-progress", "job-failed",
-    "resume-upload", "partial-save", "retry-countdown", "connection-quality", "sync-conflict-list",
+    "conflict-diff", "conflict-choice", "pending-changes", "optimistic-note", "reconnect-strip",
+    "last-synced", "write-blocked", "read-only-mode", "draft-recovery", "unsaved-guard",
+    "version-conflict", "background-job", "job-progress", "job-failed", "resume-upload",
+    "partial-save", "retry-countdown", "connection-quality", "sync-conflict-list", "retry-budget",
+    "write-queue",
   ],
 
   "Undo, history and revisions": [
     "undo-stack", "action-history", "revert-panel", "snapshot-list", "restore-point",
-    "diff-inline", "diff-side-by-side", "blame-gutter", "revision-slider", "change-summary",
-    "who-changed", "rollback-confirm", "draft-vs-live", "autosave-history",
+    "diff-inline", "blame-gutter", "revision-slider", "change-summary", "who-changed",
+    "rollback-confirm", "draft-vs-live", "autosave-history", "merge-preview", "history-scrub",
   ],
 
   "Selection and bulk mechanics": [
@@ -49,87 +50,85 @@ export const THIRD_PLANNED = {
 
   "Keyboard and focus": [
     "shortcut-hint", "key-cap", "shortcut-sheet", "roving-list", "access-key-badge",
-    "kbd-chord", "focus-return", "keyboard-only-note",
+    "kbd-chord", "focus-return", "shortcut-conflict",
   ],
 
   "Duration, interval and recurrence": [
     "duration-input", "interval-picker", "lead-time-input", "buffer-time", "cutoff-time",
     "turnaround-note", "time-since", "working-hours-input", "overlap-warning", "grace-window",
-    "time-budget", "schedule-preview", "next-occurrence",
+    "time-budget", "schedule-preview", "next-occurrence", "deadline-note", "slippage-note",
   ],
 
   "Measurement, units and conversion": [
-    "dimension-input", "weight-input", "volume-input", "temperature-input", "ratio-input",
-    "tolerance-field", "min-max-field", "measurement-summary", "size-chart-row", "capacity-input",
-    "distance-input", "area-input",
+    "dimension-input", "weight-input", "temperature-input", "ratio-input", "tolerance-field",
+    "min-max-field", "measurement-summary", "size-chart-row", "capacity-input", "distance-input",
+    "area-input", "unit-mismatch",
   ],
 
   "Numbers, comparison and decision aids": [
     "target-vs-actual", "benchmark-bar", "percentile-note", "confidence-range", "estimate-band",
     "score-breakdown", "tradeoff-slider", "what-if-toggle", "scenario-tabs", "sensitivity-note",
     "threshold-marker", "goal-gauge", "streak-counter", "running-total", "variance-note",
+    "break-even-note", "payback-note",
   ],
 
   "Text, reading and truncation": [
-    "read-more", "text-diff", "glossary-term", "footnote-ref", "footnote-list",
-    "abbreviation", "quote-attribution", "summary-toggle", "pronunciation-hint", "key-points",
-    "text-scale", "line-focus", "column-reader",
+    "read-more", "glossary-term", "footnote-ref", "footnote-list", "abbreviation",
+    "quote-attribution", "summary-toggle", "pronunciation-hint", "key-points", "text-scale",
+    "line-focus", "column-reader",
   ],
 
   "Errors, recovery and support": [
     "error-retry", "error-detail-toggle", "not-found-panel", "permission-denied", "maintenance-panel",
     "degraded-note", "report-problem", "error-reference", "support-handoff", "known-issue",
-    "recovery-steps", "contact-fallback",
+    "recovery-steps", "contact-fallback", "partial-outage",
   ],
 
   "Permissions and sharing": [
     "share-scope", "link-permissions", "access-summary", "who-can-see", "pending-invite",
     "transfer-ownership", "leave-confirm", "visibility-toggle", "embargo-note", "shared-with-list",
-    "request-access", "access-expiry", "guest-note",
+    "request-access", "access-expiry", "guest-note", "scope-summary",
   ],
 
   "Onboarding and guidance": [
     "setup-task", "first-run-panel", "tip-bubble", "sample-data-note", "skip-for-now",
-    "progress-nudge", "completion-meter", "what-changed", "release-note-item", "new-dot",
-    "guided-step", "try-it-panel", "dismissed-tips",
+    "progress-nudge", "completion-meter", "what-changed", "guided-step", "try-it-panel",
+    "dismissed-tips", "first-value-note",
   ],
 
   "Search and retrieval": [
     "search-operators", "zero-results", "facet-list", "query-chips", "typeahead-list",
-    "search-within", "match-context", "sort-direction", "search-tips",
+    "search-within", "match-context", "sort-direction", "search-tips", "query-explain",
   ],
 
   "Forms, deeper mechanics": [
     "field-dependency", "conditional-section", "validation-summary", "inline-hint", "error-anchor",
     "prefill-note", "clear-form", "form-draft", "required-legend", "field-mask",
-    "paste-parse", "field-history", "sticky-form-actions", "long-form-save", "answer-review",
-    "branching-note",
+    "paste-parse", "field-history", "answer-review", "branching-note", "autofill-conflict",
   ],
 
   "Layout mechanics": [
-    "sticky-header", "sticky-column", "scroll-shadow", "overflow-fade", "collapsible-panel",
-    "zoom-control", "fit-to-width", "print-break", "width-preset", "safe-area-pad",
-    "back-to-top", "anchor-offset",
+    "sticky-header", "scroll-shadow", "overflow-fade", "collapsible-panel", "fit-to-width",
+    "print-break", "width-preset", "safe-area-pad", "back-to-top", "anchor-offset",
   ],
 
   "Tables, deeper": [
     "column-pin", "row-expand", "footer-totals", "cell-error", "table-density",
     "column-chooser", "frozen-corner", "row-number", "table-loading", "cell-tooltip",
-    "column-summary", "row-compare", "table-caption",
+    "column-summary", "row-compare", "table-caption", "column-order", "cell-overflow",
   ],
 
   "Money mechanics": [
     "price-breakdown", "fee-line", "rounding-line", "currency-note", "exchange-rate-note",
     "amount-in-words", "payment-schedule", "instalment-line", "balance-due", "overpayment-note",
     "credit-applied", "deposit-line", "refund-line", "surcharge-note", "tip-picker",
-    "split-evenly", "who-owes", "settle-up",
+    "split-evenly", "who-owes", "settle-up", "part-payment",
   ],
 
   "Files and documents": [
-    "file-preview-pane", "file-version", "file-conflict", "breadcrumb-path", "storage-meter",
-    "file-type-note", "scan-status", "checksum-note", "download-progress", "zip-contents",
-    "page-thumbnails", "document-outline", "signature-request", "redaction-note", "watermark-note",
-    "ocr-note",
+    "file-preview-pane", "file-version", "file-conflict", "breadcrumb-path", "file-type-note",
+    "scan-status", "checksum-note", "download-progress", "zip-contents", "page-thumbnails",
+    "document-outline", "signature-request", "redaction-note", "watermark-note", "ocr-note",
   ],
 
   "Images and media handling": [
@@ -144,7 +143,7 @@ export const THIRD_PLANNED = {
   ],
 
   "Trust, safety and moderation": [
-    "moderation-queue-item", "appeal-status", "age-note", "verified-claim", "dispute-note",
+    "moderation-queue-item", "appeal-status", "age-rating-note", "verified-claim", "dispute-note",
     "takedown-note", "safety-tips", "block-list", "mute-duration",
   ],
 
@@ -155,13 +154,13 @@ export const THIRD_PLANNED = {
   ],
 
   "Comparison and choice": [
-    "option-cards", "recommended-flag", "why-this-note", "eliminate-option", "shortlist-tray",
-    "difference-only", "compatibility-note", "requirement-check",
+    "recommended-flag", "why-this-note", "eliminate-option", "shortlist-tray", "difference-only",
+    "compatibility-note", "requirement-check",
   ],
 
   "Data quality and import": [
-    "duplicate-warning", "merge-records", "missing-field-note", "confidence-note", "source-attribution",
-    "last-verified", "sample-preview", "row-error-list", "fix-suggestion", "skip-row-note",
+    "duplicate-warning", "merge-records", "confidence-note", "source-attribution", "last-verified",
+    "sample-preview", "row-error-list", "fix-suggestion", "skip-row-note",
   ],
 
   "Accessibility, deeper": [
@@ -182,8 +181,7 @@ export const THIRD_PLANNED = {
   ],
 
   "Presence and collaboration": [
-    "presence-dots", "cursor-label", "editing-lock", "annotation-pin", "resolve-toggle",
-    "who-is-here",
+    "cursor-label", "editing-lock", "annotation-pin", "resolve-toggle", "who-is-here",
   ],
 
   "Approvals and sign-off": [
@@ -213,9 +211,8 @@ export const THIRD_PLANNED = {
   ],
 
   "Place, without a provider": [
-    "coordinates-field", "radius-input", "distance-note", "directions-link", "opening-status",
-    "travel-time-note", "nearby-list", "region-picker", "location-consent", "service-area-note",
-    "catchment-note",
+    "radius-input", "distance-note", "directions-link", "opening-status", "travel-time-note",
+    "nearby-list", "region-picker", "location-consent", "service-area-note", "catchment-note",
   ],
 
   "Consent and privacy": [
@@ -231,8 +228,8 @@ export const THIRD_PLANNED = {
   ],
 
   "Automation and rules": [
-    "rule-summary", "trigger-picker", "condition-row", "action-row", "rule-preview",
-    "rule-conflict", "rule-log", "rule-enabled", "run-now",
+    "rule-summary", "trigger-picker", "condition-row", "rule-preview", "rule-conflict",
+    "rule-log", "rule-enabled", "run-now",
   ],
 
   "Wizards and multi-step": [
@@ -250,8 +247,8 @@ export const THIRD_PLANNED = {
   ],
 
   "Feedback and rating mechanics": [
-    "rating-breakdown", "emoji-scale", "survey-progress", "free-text-followup", "response-rate",
-    "rating-guidance", "rating-changed",
+    "emoji-scale", "survey-progress", "free-text-followup", "response-rate", "rating-guidance",
+    "rating-changed",
   ],
 
   "Stock and allocation mechanics": [

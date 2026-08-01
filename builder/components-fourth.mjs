@@ -35,6 +35,7 @@ export const FOURTH_PLANNED = {
   "Webhooks and events": [
     "webhook-endpoint", "event-subscription", "delivery-attempt", "payload-preview", "signature-secret",
     "replay-event", "event-filter", "dead-letter", "delivery-rate", "webhook-test",
+    "idempotency-note", "retry-policy",
   ],
 
   "Quotas, limits and metering": [
@@ -50,13 +51,13 @@ export const FOURTH_PLANNED = {
   "Internationalisation, deeper": [
     "locale-picker", "translation-status", "missing-translation", "pluralisation-preview", "rtl-toggle",
     "date-format-preview", "number-format-preview", "measurement-system", "translator-note", "locale-fallback-chain",
-    "string-context", "machine-translated-note",
+    "string-context",
   ],
 
   "Tax and compliance surfaces": [
     "tax-breakdown", "tax-exempt-note", "reverse-charge-note", "jurisdiction-picker", "compliance-checklist",
     "regulation-note", "certification-row", "expiry-audit", "policy-version", "attestation-box",
-    "record-keeping-note", "disclosure-block",
+    "record-keeping-note", "disclosure-block", "withholding-note",
   ],
 
   "Theming and customisation": [
@@ -67,16 +68,17 @@ export const FOURTH_PLANNED = {
   "Versioning and releases": [
     "version-badge", "changelog-feed", "upgrade-prompt", "deprecation-note", "breaking-change-note",
     "migration-guide-link", "version-picker", "rollout-progress", "canary-note", "pin-version",
+    "release-freeze",
   ],
 
   "Backup, restore and migration": [
     "backup-list", "backup-schedule", "restore-preview", "restore-confirm", "migration-progress",
-    "migration-step", "dry-run-result", "cutover-note", "legacy-note", "data-residency",
+    "dry-run-result", "cutover-note", "legacy-note", "data-residency",
   ],
 
   "Performance and diagnostics": [
-    "latency-note", "slow-query-note", "cache-status", "health-check-row", "uptime-strip",
-    "status-page-link", "diagnostic-bundle",
+    "latency-note", "cache-status", "health-check-row", "uptime-strip", "status-page-link",
+    "diagnostic-bundle",
   ],
 
   "Analytics instrumentation": [
@@ -97,11 +99,11 @@ export const FOURTH_PLANNED = {
   "Construction and site work": [
     "site-diary", "snag-item", "snag-list", "drawing-revision", "permit-row",
     "plant-hire-row", "toolbox-talk", "site-induction", "weather-delay", "variation-order",
-    "retention-line", "handover-pack",
+    "retention-line", "handover-pack", "hoarding-notice",
   ],
 
   "Agriculture and growing": [
-    "field-block", "crop-stage", "sowing-window", "harvest-window", "yield-note",
+    "land-parcel", "crop-stage", "sowing-window", "harvest-window", "yield-note",
     "spray-record", "livestock-row", "herd-count", "grazing-plan", "soil-note",
     "irrigation-note", "traceability-code",
   ],
@@ -110,18 +112,19 @@ export const FOURTH_PLANNED = {
     "consignment-row", "leg-list", "freight-quote", "load-plan", "pallet-count",
     "customs-note", "incoterm-note", "hazard-class", "temperature-log", "proof-of-collection",
     "driver-assignment", "vehicle-check", "route-stop", "dwell-time", "demurrage-note",
+    "axle-weight",
   ],
 
   "Warehousing and inventory ops": [
     "bin-location", "putaway-task", "pick-path", "cycle-count-row", "goods-in-row",
-    "quarantine-note", "serial-capture", "batch-trace", "stock-adjustment", "bay-map",
-    "replenish-task", "shrink-report",
+    "quarantine-note", "serial-capture", "batch-trace", "stock-adjustment", "replenish-task",
+    "shrink-report", "slotting-note",
   ],
 
   "Manufacturing and production": [
     "work-order-row", "bill-of-materials", "routing-step", "machine-status", "downtime-note",
     "scrap-rate", "changeover-note", "takt-note", "quality-check-row", "nonconformance",
-    "batch-yield", "shift-output",
+    "batch-yield", "shift-output", "tooling-row",
   ],
 
   "Energy and utilities": [
@@ -139,40 +142,41 @@ export const FOURTH_PLANNED = {
   "Libraries and archives": [
     "catalogue-record", "shelf-mark", "loan-row", "hold-queue", "renewal-note",
     "reading-room-booking", "finding-aid", "provenance-note", "access-restriction", "digitisation-status",
+    "accession-number",
   ],
 
   "Museums and cultural venues": [
-    "object-label", "exhibition-row", "gallery-map", "audio-stop", "conservation-note",
-    "loan-agreement", "acquisition-note", "timed-entry", "donor-credit", "collection-search",
+    "object-label", "exhibition-row", "gallery-plan", "audio-stop", "conservation-note",
+    "loan-agreement", "acquisition-note", "timed-entry", "donor-credit",
   ],
 
   "Research and laboratories": [
     "sample-row", "protocol-step", "reagent-row", "instrument-booking", "calibration-note",
     "chain-of-custody", "result-flag", "reference-range", "study-arm", "participant-row",
-    "ethics-approval", "data-dictionary", "replicate-group", "assay-plate",
+    "ethics-approval", "data-dictionary", "replicate-group", "assay-plate", "freezer-location",
   ],
 
   "Recruitment and job boards": [
     "vacancy-card", "applicant-row", "pipeline-stage", "screening-question", "cv-preview",
     "interview-slot", "scorecard-row", "offer-summary", "reference-request", "salary-range-note",
-    "anonymised-toggle", "talent-pool", "rejection-note",
+    "anonymised-toggle", "talent-pool", "rejection-note", "vacancy-closing",
   ],
 
   "Insurance and claims": [
     "policy-summary-row", "cover-level", "excess-note", "claim-row", "claim-timeline",
     "incident-report", "assessor-visit", "settlement-offer", "renewal-quote", "exclusion-list",
-    "beneficiary-row",
+    "beneficiary-row", "premium-breakdown",
   ],
 
   "Accounting and bookkeeping": [
     "ledger-row", "reconciliation-row", "unmatched-note", "journal-entry", "chart-of-accounts",
     "period-lock", "accrual-note", "depreciation-row", "trial-balance-row", "aged-balance",
-    "write-off-note",
+    "write-off-note", "nominal-code", "bank-feed-row",
   ],
 
   "Security and access control": [
     "door-event", "badge-row", "visitor-sign-in", "escort-note", "zone-permission",
-    "alarm-state", "patrol-log", "key-issue", "incident-log-row",
+    "alarm-state", "patrol-log", "key-issue",
   ],
 
   "Sports leagues and fixtures": [
@@ -183,7 +187,7 @@ export const FOURTH_PLANNED = {
 
   "Music and recording": [
     "track-row", "setlist-row", "stem-list", "take-row", "royalty-split",
-    "release-schedule", "isrc-field", "rehearsal-slot",
+    "release-schedule", "isrc-field", "rehearsal-slot", "stage-plot",
   ],
 
   "Film and production": [
@@ -198,7 +202,7 @@ export const FOURTH_PLANNED = {
 
   "Volunteering and community": [
     "shift-signup", "volunteer-row", "hours-log", "induction-status", "role-description",
-    "impact-note", "thank-you-note", "rota-gap", "expenses-claim",
+    "impact-note", "thank-you-note", "rota-gap",
   ],
 
   "Waste and recycling": [
@@ -208,12 +212,12 @@ export const FOURTH_PLANNED = {
 
   "Maritime and aviation": [
     "berth-row", "tide-note", "flight-leg", "manifest-row", "crew-roster-row",
-    "fuel-log", "maintenance-due", "notam-note", "slot-time", "cargo-hold",
+    "fuel-log", "maintenance-due", "notam-note", "cargo-hold",
   ],
 
   "Franchises and multi-site": [
     "site-picker", "site-compare-row", "rollout-status", "local-override", "brand-standard-check",
-    "territory-map", "franchise-fee-row", "group-report", "site-league-table", "central-message",
+    "franchise-fee-row", "group-report", "site-league-table", "central-message",
   ],
 
   "Two-sided matching": [
@@ -222,8 +226,8 @@ export const FOURTH_PLANNED = {
   ],
 
   "Gaming and esports": [
-    "match-lobby", "ladder-row", "tournament-bracket-row", "loadout-row", "achievement-row",
-    "party-invite", "queue-timer", "spectator-count",
+    "match-lobby", "ladder-row", "loadout-row", "achievement-row", "party-invite",
+    "queue-timer", "spectator-count",
   ],
 
   "Auctions and bidding": [
@@ -233,7 +237,7 @@ export const FOURTH_PLANNED = {
 
   "Publishing and print production": [
     "issue-row", "page-plan", "proof-status", "print-run", "distribution-list",
-    "embargo-time", "byline-row", "correction-notice",
+    "embargo-time", "byline-row",
   ],
 
   "Pharmacy and dispensing": [
@@ -247,8 +251,8 @@ export const FOURTH_PLANNED = {
   ],
 
   "Estate agency and sales": [
-    "viewing-slot", "offer-row", "chain-status", "valuation-note", "listing-status",
-    "vendor-note", "buyer-position", "completion-date", "key-release", "asking-price-change",
+    "offer-row", "chain-status", "valuation-note", "listing-status", "vendor-note",
+    "buyer-position", "completion-date", "key-release", "asking-price-change",
   ],
 
   "Lending and mortgages": [
@@ -262,13 +266,13 @@ export const FOURTH_PLANNED = {
   ],
 
   "Coworking and space booking": [
-    "desk-map", "room-booking-row", "access-hours", "day-pass", "occupancy-note",
-    "amenity-list", "booking-credits", "floor-picker", "locker-row", "visitor-pass",
+    "room-booking-row", "access-hours", "day-pass", "occupancy-note", "amenity-list",
+    "booking-credits", "floor-picker", "locker-row", "visitor-pass",
   ],
 
   "Equipment and hire": [
     "asset-row", "hire-period", "condition-check", "deposit-hold", "return-due",
-    "damage-charge", "availability-calendar", "serial-row", "service-history", "off-hire-note",
+    "damage-charge", "serial-row", "service-history", "off-hire-note",
   ],
 
   "Food and drink production": [
@@ -277,8 +281,8 @@ export const FOURTH_PLANNED = {
   ],
 
   "Emergency and incident response": [
-    "incident-severity", "responder-list", "escalation-contact", "muster-list", "all-clear",
-    "resource-status", "scene-note", "triage-row", "comms-log", "stand-down",
+    "incident-severity", "responder-list", "muster-list", "all-clear", "resource-status",
+    "scene-note", "triage-row", "comms-log", "stand-down",
   ],
 
   "Health records, deeper": [
