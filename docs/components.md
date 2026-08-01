@@ -1,4 +1,4 @@
-# Components (1482 built, 25 to go)
+# Components (1504 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -61,6 +61,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ approval-quorum
 ✓ approval-request
 ✓ approver-list
+✓ approx-note
 ✓ area-input
 ✓ article-card
 ✓ article-header
@@ -98,6 +99,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ backorder-note
 ✓ backup-email
 ✓ badge
+✓ badge-explainer
 ✓ balance-due
 ✓ banner
 ✓ bar-list
@@ -121,6 +123,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ booking-summary
 ✓ boolean-filter
 ✓ branch-badge
+✓ branch-preview
 ✓ branching-note
 ✓ breadcrumb
 ✓ breadcrumb-collapse
@@ -235,6 +238,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ comment-pin
 ✓ comment-thread
 ✓ commit-row
+✓ compact-number
 ✓ compare-slider
 ✓ compare-table
 ✓ comparison-columns
@@ -291,6 +295,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ coupon-input
 ✓ course-card
 ✓ cover-image
+✓ credential-expiry
+✓ credential-row
 ✓ credit-applied
 ✓ cron-builder
 ✓ crop-box
@@ -573,6 +579,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ icon-picker
 ✓ ics-button
 ✓ id-badge
+✓ id-check-status
+✓ identity-summary
 ✓ idle-note
 ✓ image-annotate
 ✓ image-compare
@@ -773,6 +781,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ nudge-bubble
 ✓ number-format
 ✓ number-input
+✓ number-scale-note
 ✓ number-scrubber
 ✓ numeric-filter
 ✓ ocr-note
@@ -906,6 +915,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ prompt-history
 ✓ pronunciation-hint
 ✓ proof-of-delivery
+✓ proof-upload
 ✓ property-card
 ✓ property-panel
 ✓ pros-cons
@@ -942,6 +952,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ range-input
 ✓ range-select
 ✓ range-summary
+✓ range-text
 ✓ range-trim
 ✓ ranking-list
 ✓ rate-limited
@@ -1006,6 +1017,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ restore-point
 ✓ result-count
 ✓ result-preview
+✓ resume-later
 ✓ resume-upload
 ✓ retention-note
 ✓ retry-budget
@@ -1019,6 +1031,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ review-card
 ✓ review-form
 ✓ review-stars
+✓ review-step
 ✓ revision-slider
 ✓ rich-text
 ✓ rich-tooltip
@@ -1059,6 +1072,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ sample-data-note
 ✓ sample-preview
 ✓ sample-toggle
+✓ save-and-exit
 ✓ save-as-template
 ✓ save-draft
 ✓ saved-for-later
@@ -1160,6 +1174,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ signature-block
 ✓ signature-pad
 ✓ signature-request
+✓ significant-figures
 ✓ signup-form
 ✓ site-chrome
 ✓ site-footer
@@ -1239,7 +1254,10 @@ A ✓ means it exists and a generated site can import it today.
 ✓ status-dot
 ✓ status-list
 ✓ step-nav
+✓ step-skipped
+✓ step-summary
 ✓ step-up-prompt
+✓ step-validation
 ✓ stepper
 ✓ stepper-input
 ✓ steps
@@ -1391,6 +1409,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ trend-arrow
 ✓ trigger-picker
 ✓ truncate-middle
+✓ trust-level
 ✓ trust-score
 ✓ trust-strip
 ✓ try-it-panel
@@ -1427,6 +1446,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ variant-matrix
 ✓ variant-picker
 ✓ vehicle-card
+✓ verification-steps
 ✓ verified-badge
 ✓ verified-claim
 ✓ verify-pending
@@ -1473,6 +1493,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ width-preset
 ✓ winner-badge
 ✓ wishlist-button
+✓ wizard-exit-guard
+✓ wizard-nav
 ✓ word-count
 ✓ workflow-map
 ✓ working-hours

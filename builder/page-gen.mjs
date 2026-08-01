@@ -627,6 +627,14 @@ export const UI_COMPONENTS = [
   // Automation and rules
   "rule-summary", "trigger-picker", "condition-row", "rule-preview", "rule-conflict",
   "rule-log", "rule-enabled", "run-now",
+  // Wizards and multi-step
+  "wizard-nav", "step-summary", "review-step", "save-and-exit", "resume-later",
+  "step-validation", "branch-preview", "step-skipped", "wizard-exit-guard",
+  // Number presentation
+  "compact-number", "range-text", "approx-note", "significant-figures", "number-scale-note",
+  // Identity and credentials
+  "id-check-status", "trust-level", "badge-explainer", "credential-row", "credential-expiry",
+  "identity-summary", "proof-upload", "verification-steps",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
