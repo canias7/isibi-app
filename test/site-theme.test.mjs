@@ -15,7 +15,7 @@ import {
   CORNERS, cornerCss, fitState, temperState, STATE_CHROMA_RATIO, MIN_STATE_CHROMA,
   TYPE_SCALES, typeCss, DENSITIES, densityCss, BORDERS, borderCss, SHADOWS, shadowCss, SHADOW_STEPS,
   SURFACES, surfaceCss, ICON_STROKES, iconCss, TRACKINGS, trackingCss, LEADINGS, leadingCss, WEIGHTS, weightCss,
-  BUTTONS, buttonsCss, INPUTS, inputsCss, BACKDROPS, DECORS, worldCss,
+  BUTTONS, buttonsCss, INPUTS, inputsCss, BACKDROPS, DECORS, worldCss, DISPLAYS, displayCss, displayColor,
 } from "../builder/site-theme.mjs";
 import { SHORTLIST } from "../builder/site-fonts.mjs";
 
@@ -611,7 +611,7 @@ test("every theme declares every axis, with a value the axis offers", () => {
   // could only ever be satisfied by a theme spelling the default out, which is
   // exactly the noise the optionality exists to avoid.
   const OPTIONAL = [["buttons", BUTTONS, "inherit"], ["inputs", INPUTS, "standard"],
-    ["backdrop", BACKDROPS, "plain"], ["decor", DECORS, "none"]];
+    ["backdrop", BACKDROPS, "plain"], ["decor", DECORS, "none"], ["display", DISPLAYS, "ink"]];
   for (const [key, table, dflt] of OPTIONAL) {
     for (const option of Object.keys(table)) {
       assert.ok(THEME_NAMES.some((n) => (THEMES[n][key] ?? dflt) === option),
@@ -629,7 +629,29 @@ test("component axes are optional, but a declared value must be on offer", () =>
     if (t.inputs !== undefined) assert.ok(INPUTS[t.inputs], `${name}.inputs is "${t.inputs}", which is not on offer`);
     if (t.backdrop !== undefined) assert.ok(BACKDROPS[t.backdrop], `${name}.backdrop is "${t.backdrop}", which is not on offer`);
     if (t.decor !== undefined) assert.ok(DECORS[t.decor], `${name}.decor is "${t.decor}", which is not on offer`);
+    if (t.display !== undefined) assert.ok(DISPLAYS[t.display], `${name}.display is "${t.display}", which is not on offer`);
   }
+});
+
+test("display colour is the accent walked to legibility, and gradient never goes transparent-blind", () => {
+  // The raw accent is a button fill, not text — citrus at L 0.62 on white is
+  // ~2.5:1. The fitted copy must clear body-text contrast on the theme's own
+  // paper in both modes, or coloured headings are decoration over legibility.
+  for (const mode of ["light", "dark"]) {
+    const c = displayColor(FIXTURE, mode);
+    assert.ok(contrast(c, FIXTURE[mode].paper) >= 4.5, `${mode} display colour fails on its own paper`);
+  }
+  assert.equal(displayCss(FIXTURE), "", "undeclared display must emit nothing");
+  assert.equal(displayCss({ ...FIXTURE, display: "ink" }), "", "ink is the default and must emit nothing");
+  const accent = displayCss({ ...FIXTURE, display: "accent" });
+  assert.match(accent, /\.font-heading:not\(\.bg-primary \*\) \{ color: var\(--display\)/,
+    "accent display must colour .font-heading and spare headings on the accent itself");
+  assert.match(accent, /:root \{ --display: oklch/);
+  assert.match(accent, /\.dark \{ --display: oklch/);
+  const grad = displayCss({ ...FIXTURE, display: "gradient" });
+  assert.match(grad, /background-clip: text/);
+  assert.match(grad, /--display-2: oklch/, "a gradient needs its second stop");
+  assert.match(grad, /color: transparent/);
 });
 
 test("the world axes are a no-op until declared — every old theme keeps its meaning", () => {

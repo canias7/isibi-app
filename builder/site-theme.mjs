@@ -630,6 +630,54 @@ export function buttonsCss(style) {
 }
 
 /**
+ * DISPLAY — what colour the display type wears. The owner's note after the
+ * richer-worlds pass: the themes still read alike because every heading on
+ * every theme is set in the same ink. `accent` puts the theme's own colour
+ * into the headings; `gradient` runs it across them. Both use a FITTED copy
+ * of the accent — the raw accent is tuned to carry white button text, not to
+ * BE text on paper, so `displayColor` walks its lightness toward the ink
+ * until it clears 4.5:1 against the paper, the same move `fitState` makes
+ * for the state colours.
+ *
+ * The hook is `.font-heading`, the class every display element already
+ * carries for the font axis — excluded inside `.bg-primary`, where a heading
+ * sits on the accent itself and colouring it accent-on-accent would erase it.
+ */
+export const DISPLAYS = {
+  ink: { label: "headings in the ink — the ordinary page" },
+  accent: { label: "headings carry the theme's colour" },
+  gradient: { label: "the accent runs across the headings" },
+};
+
+export function displayColor(theme, mode) {
+  const { paper, ink, accent } = theme[mode];
+  let c = [...accent.slice(0, 3)];
+  for (let i = 0; i < 40 && contrast(c, paper) < 4.5; i++) c = mix(c, ink, 0.08);
+  return c;
+}
+
+export function displayCss(theme) {
+  const style = theme.display ?? "ink";
+  if (style !== "accent" && style !== "gradient") return "";
+  const SEL = `.font-heading:not(.bg-primary *)`;
+  const tok = (mode) => `--display: ${css(displayColor(theme, mode))};`;
+  const tokens = `:root { ${tok("light")} }\n.dark { ${tok("dark")} }\n`;
+  if (style === "accent") return tokens + `${SEL} { color: var(--display); }\n`;
+  // The gradient's second stop is the fitted colour swung a little around the
+  // wheel, fitted AGAIN — a rotation can leave the gamut or the contrast.
+  const stop2 = (mode) => {
+    const { paper, ink } = theme[mode];
+    let c = [...displayColor(theme, mode)];
+    c[2] = (c[2] + 40) % 360;
+    for (let i = 0; i < 40 && contrast(c, paper) < 4.5; i++) c = mix(c, ink, 0.08);
+    return c;
+  };
+  return tokens +
+    `:root { --display-2: ${css(stop2("light"))}; }\n.dark { --display-2: ${css(stop2("dark"))}; }\n` +
+    `${SEL} { background-image: linear-gradient(100deg, var(--display), var(--display-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }\n`;
+}
+
+/**
  * `underline` keeps the BOTTOM border and only the bottom — the print-form
  * ruled line. The three dropped sides go TRANSPARENT rather than 0-width, so
  * the box does not shrink and nothing reflows; the field's height, focus ring
@@ -1142,6 +1190,7 @@ export const THEMES = {
   //     icon: "regular",              // fine | regular | heavy
   //     buttons: "inherit",           // inherit | pill | sharp   (absent = inherit)
   //     inputs: "standard",           // standard | underline | filled  (absent = standard)
+  //     display: "ink",               // ink | accent | gradient  (absent = ink)
   //     backdrop: "plain",            // plain | wash | aurora | field | horizon | glow  (absent = plain)
   //     decor: "none",                // none | grain | stripes | check | grid | dots
   //                                   //   | scanlines | weave | spots | rays  (absent = none)
@@ -1270,6 +1319,7 @@ export function themeCss(nameOrTheme) {
     iconCss(theme.icon) + "\n" +
     buttonsCss(theme.buttons) +
     inputsCss(theme.inputs) +
+    displayCss(theme) +
     shadowCss(theme.shadow, theme) +
     // LAST, deliberately: glass re-declares tokens the palette blocks above
     // already set, and source order is the only thing making its values win.
