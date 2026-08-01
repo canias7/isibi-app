@@ -491,6 +491,12 @@ export const UI_COMPONENTS = [
   "audience-switch", "video-hero", "paywall", "email-capture",
   "ticket-tiers", "install-command", "episode-row", "calculator-card",
   "curriculum-path", "tour-dates", "bid-box", "store-badges",
+  // Sync, offline and conflict. What a page does when the connection drops, when a write does not land, and when two edits collide.
+  "conflict-diff", "conflict-choice", "pending-changes", "optimistic-note", "reconnect-strip",
+  "last-synced", "write-blocked", "read-only-mode", "draft-recovery", "unsaved-guard",
+  "version-conflict", "background-job", "job-progress", "job-failed", "resume-upload",
+  "partial-save", "retry-countdown", "connection-quality", "sync-conflict-list", "retry-budget",
+  "write-queue",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

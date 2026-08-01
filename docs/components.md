@@ -1,4 +1,4 @@
-# Components (1057 built, 25 to go)
+# Components (1078 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -57,6 +57,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ award-badge
 ✓ back-link
 ✓ back-to-list
+✓ background-job
 ✓ backorder-note
 ✓ backup-email
 ✓ badge
@@ -177,10 +178,13 @@ A ✓ means it exists and a generated site can import it today.
 ✓ confirm-dialog
 ✓ confirm-field
 ✓ confirm-inline
+✓ conflict-choice
+✓ conflict-diff
 ✓ conflict-merge
 ✓ conflict-note
 ✓ connect-card
 ✓ connected-account
+✓ connection-quality
 ✓ consent-checkbox
 ✓ contact-card
 ✓ contact-form
@@ -267,6 +271,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ download-card
 ✓ download-menu
 ✓ draft-badge
+✓ draft-recovery
 ✓ drag-handle
 ✓ drag-list
 ✓ drag-preview
@@ -430,6 +435,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ invoice-totals
 ✓ item
 ✓ job-card
+✓ job-failed
+✓ job-progress
 ✓ json-tree
 ✓ json-view
 ✓ jump-to
@@ -445,6 +452,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ landmark
 ✓ lang-switch
 ✓ last-chance-badge
+✓ last-synced
 ✓ latency-badge
 ✓ layer-list
 ✓ lazy-boundary
@@ -560,6 +568,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ open-now
 ✓ open-question
 ✓ opening-hours
+✓ optimistic-note
 ✓ option-card
 ✓ option-priced-list
 ✓ order-review
@@ -584,6 +593,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ parallax
 ✓ partial-failure
 ✓ partial-list
+✓ partial-save
 ✓ partial-shipment
 ✓ party-size
 ✓ passkey-prompt
@@ -595,6 +605,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ payment-methods
 ✓ payment-picker
 ✓ paywall
+✓ pending-changes
 ✓ percent-input
 ✓ percent-ring
 ✓ permalink
@@ -683,6 +694,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ rating-summary
 ✓ ratio-bar
 ✓ read-aloud
+✓ read-only-mode
 ✓ read-progress
 ✓ reading-guide
 ✓ reading-time
@@ -692,6 +704,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ recently-viewed
 ✓ recipe-card
 ✓ recommendation-badge
+✓ reconnect-strip
 ✓ record-header
 ✓ recovery-codes
 ✓ recurrence-summary
@@ -719,6 +732,9 @@ A ✓ means it exists and a generated site can import it today.
 ✓ response-summary
 ✓ result-count
 ✓ result-preview
+✓ resume-upload
+✓ retry-budget
+✓ retry-countdown
 ✓ retry-panel
 ✓ return-reason
 ✓ return-window
@@ -917,6 +933,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ swipeable-row
 ✓ switch
 ✓ switch-row
+✓ sync-conflict-list
 ✓ sync-status
 ✓ syntax-highlight
 ✓ system-prompt-editor
@@ -1015,6 +1032,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ unit-price
 ✓ unit-toggle
 ✓ unread-divider
+✓ unsaved-guard
 ✓ upgrade-badge
 ✓ upload-progress
 ✓ upload-queue
@@ -1027,6 +1045,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ vehicle-card
 ✓ verified-badge
 ✓ verify-pending
+✓ version-conflict
 ✓ version-history
 ✓ video-embed
 ✓ video-hero
@@ -1059,6 +1078,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ working-hours
 ✓ workspace-switcher
 ✓ world-clock
+✓ write-blocked
+✓ write-queue
 ✓ year-picker
 ✓ zoom-controls
 
