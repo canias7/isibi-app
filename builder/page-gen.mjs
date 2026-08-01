@@ -813,6 +813,15 @@ export const UI_COMPONENTS = [
   // Equipment and hire
   "asset-row", "hire-period", "condition-check", "deposit-hold", "return-due",
   "damage-charge", "serial-row", "service-history", "off-hire-note",
+  // Food and drink production
+  "recipe-scale", "allergen-matrix", "best-before", "production-run", "tasting-note",
+  "cellar-row", "abv-note", "label-approval", "batch-code", "shelf-life-note",
+  // Emergency and incident response
+  "incident-severity", "responder-list", "muster-list", "all-clear", "resource-status",
+  "scene-note", "triage-row", "comms-log", "stand-down",
+  // Health records, deeper
+  "triage-outcome", "referral-row", "waiting-list-note", "consent-to-share", "care-summary",
+  "allergy-row", "immunisation-row", "observation-row", "discharge-note", "symptom-row",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

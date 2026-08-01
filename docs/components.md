@@ -1,4 +1,4 @@
-# Components (2029 built, 25 to go)
+# Components (2058 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -6,6 +6,7 @@ A ✓ means it exists and a generated site can import it today.
 
 ✓ abbreviation
 ✓ absentee-bid
+✓ abv-note
 ✓ access-expiry
 ✓ access-hours
 ✓ access-key-badge
@@ -51,7 +52,10 @@ A ✓ means it exists and a generated site can import it today.
 ✓ alarm-state
 ✓ alert
 ✓ alert-dialog
+✓ all-clear
 ✓ all-day-row
+✓ allergen-matrix
+✓ allergy-row
 ✓ allocation-bar
 ✓ alt-text-field
 ✓ alt-text-warning
@@ -143,6 +147,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ banner
 ✓ bar-list
 ✓ barcode
+✓ batch-code
 ✓ batch-progress
 ✓ batch-trace
 ✓ batch-window
@@ -153,6 +158,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ beneficiary-row
 ✓ bento-grid
 ✓ berth-row
+✓ best-before
 ✓ bid-box
 ✓ big-number
 ✓ bill-of-materials
@@ -226,6 +232,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ care-hours
 ✓ care-icons
 ✓ care-plan-row
+✓ care-summary
 ✓ cargo-hold
 ✓ carousel
 ✓ cart-badge
@@ -247,6 +254,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ cell-overflow
 ✓ cell-sparkline
 ✓ cell-tooltip
+✓ cellar-row
 ✓ center-box
 ✓ centered-form
 ✓ central-message
@@ -324,6 +332,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ comment-thread
 ✓ commit-row
 ✓ committee-list
+✓ comms-log
 ✓ compact-number
 ✓ compare-slider
 ✓ compare-table
@@ -361,6 +370,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ consent-history
 ✓ consent-summary
 ✓ consent-to-care
+✓ consent-to-share
 ✓ conservation-note
 ✓ consignment-row
 ✓ consultation-response
@@ -506,6 +516,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ directions-link
 ✓ directory-list
 ✓ dirty-indicator
+✓ discharge-note
 ✓ disclosure-block
 ✓ disconnect-warning
 ✓ discount-input
@@ -803,6 +814,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ image-crop
 ✓ image-strip
 ✓ image-zoom
+✓ immunisation-row
 ✓ impact-note
 ✓ import-preview
 ✓ import-settings
@@ -811,6 +823,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ inbox-preview
 ✓ incident-item
 ✓ incident-report
+✓ incident-severity
 ✓ incoterm-note
 ✓ induction-status
 ✓ infinite-scroll
@@ -868,6 +881,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ kicker
 ✓ known-issue
 ✓ label
+✓ label-approval
 ✓ label-manager
 ✓ labeled-progress
 ✓ ladder-row
@@ -1025,6 +1039,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ multi-sort
 ✓ multi-sort-picker
 ✓ multi-step-form
+✓ muster-list
 ✓ mute-duration
 ✓ mute-schedule
 ✓ mutual-interest
@@ -1070,6 +1085,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ numeric-filter
 ✓ oauth-consent-summary
 ✓ object-label
+✓ observation-row
 ✓ occupancy-note
 ✓ ocr-note
 ✓ off-hire-note
@@ -1229,6 +1245,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ priority-picker
 ✓ privacy-choice
 ✓ product-card
+✓ production-run
 ✓ profile-card
 ✓ progress
 ✓ progress-donut
@@ -1323,6 +1340,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ recent-searches
 ✓ recently-viewed
 ✓ recipe-card
+✓ recipe-scale
 ✓ recommendation-badge
 ✓ recommended-flag
 ✓ reconciliation-row
@@ -1341,6 +1359,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ referee-assignment
 ✓ reference-range
 ✓ reference-request
+✓ referral-row
 ✓ refresh-pill
 ✓ refund-line
 ✓ regenerate-button
@@ -1388,6 +1407,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ resize-handle
 ✓ resolve-thread
 ✓ resolve-toggle
+✓ resource-status
+✓ responder-list
 ✓ response-rate
 ✓ response-rating
 ✓ response-summary
@@ -1485,6 +1506,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ scan-result
 ✓ scan-status
 ✓ scenario-tabs
+✓ scene-note
 ✓ scene-row
 ✓ schedule-preview
 ✓ schema-viewer
@@ -1567,6 +1589,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ sheet
 ✓ sheet-stack
 ✓ shelf
+✓ shelf-life-note
 ✓ shelf-mark
 ✓ shift-badge
 ✓ shift-handover
@@ -1687,6 +1710,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ stale-badge
 ✓ stale-data-note
 ✓ stamp-card
+✓ stand-down
 ✓ starter-gallery
 ✓ startup-page
 ✓ stat-card
@@ -1753,6 +1777,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ switch
 ✓ switch-row
 ✓ switch-supplier
+✓ symptom-row
 ✓ sync-conflict-list
 ✓ sync-direction
 ✓ sync-schedule
@@ -1786,6 +1811,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ talent-pool
 ✓ target-vs-actual
 ✓ tariff-row
+✓ tasting-note
 ✓ tax-breakdown
 ✓ tax-exempt-note
 ✓ tax-toggle
@@ -1893,6 +1919,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tree-table
 ✓ tree-view
 ✓ trend-arrow
+✓ triage-outcome
+✓ triage-row
 ✓ trial-balance-row
 ✓ trigger-picker
 ✓ truncate-middle
@@ -1976,6 +2004,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ volunteer-row
 ✓ vote-bar
 ✓ vote-buttons
+✓ waiting-list-note
 ✓ waiting-on
 ✓ waitlist-form
 ✓ walk-in-note
