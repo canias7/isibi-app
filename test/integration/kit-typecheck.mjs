@@ -28,6 +28,16 @@ function tsc(project) {
   return { code: r.status, out: (r.stdout || "") + (r.stderr || ""), ms: Date.now() - started };
 }
 
+// The route tree comes FIRST now for the kit check too: src/family-pages call
+// createFileRoute("/"), whose path union comes from the generated tree's module
+// augmentation. Without it every family page fails with '"/" is not assignable
+// to undefined' — locally the file lingers from old builds, in CI it does not,
+// which is the exact works-on-my-machine failure documented below.
+console.log("generating the route tree, as a site build does…");
+const gen = spawnSync("npx", ["tsr", "generate"], { cwd: TEMPLATE, encoding: "utf8" });
+if (gen.status === 0) ok("route tree generated");
+else bad("could not generate the route tree", ((gen.stderr || "") + (gen.stdout || "")).slice(0, 600));
+
 console.log("typechecking the whole kit…");
 const kit = tsc("tsconfig.kit.json");
 if (kit.code === 0) ok(`all components typecheck (${kit.ms}ms)`);
@@ -45,11 +55,6 @@ else bad("the component kit does not typecheck", kit.out.split("\n").slice(0, 20
 // definition of "works on my machine". A test whose whole claim is that it
 // checks things "the way a site build does" has to do the step the site build
 // does, or it is testing a configuration nothing ever runs.
-console.log("generating the route tree, as a site build does…");
-const gen = spawnSync("npx", ["tsr", "generate"], { cwd: TEMPLATE, encoding: "utf8" });
-if (gen.status === 0) ok("route tree generated");
-else bad("could not generate the route tree", ((gen.stderr || "") + (gen.stdout || "")).slice(0, 600));
-
 console.log("typechecking a build the way a site build does…");
 const build = tsc(null);
 if (build.code === 0) ok(`the per-build check is clean (${build.ms}ms)`);

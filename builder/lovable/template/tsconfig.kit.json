@@ -26,7 +26,9 @@
   "extends": "./tsconfig.json",
   "include": [
     "src/components/ui/**/*.ts", "src/components/ui/**/*.tsx",
-    "src/components/charts/lib/**/*.ts", "src/components/charts/lib/**/*.tsx"
+    "src/components/charts/lib/**/*.ts", "src/components/charts/lib/**/*.tsx",
+    "src/family-pages/**/*.tsx",
+    "src/routeTree.gen.ts"
   ],
   "exclude": []
 }

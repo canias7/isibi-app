@@ -2,6 +2,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { Paywall } from "@/components/ui/paywall";
+import { LoginForm } from "@/components/ui/login-form";
 import { PricingTable } from "@/components/ui/pricing-table";
 export const Route = createFileRoute("/")({ component: P });
 function P() {
@@ -35,6 +36,11 @@ function P() {
             { name: "Annual", price: "£36", period: "/year", features: ["Everything monthly", "Two months free", "Season previews"], featured: true, action: { label: "Join yearly", href: "#plans" } },
           ]} />
         </div>
+        {/* The other half of a two-state site: returners sign in right here. */}
+        <section className="mt-10 border-t border-border pt-8">
+          <h2 className="text-lg font-medium">Already a member?</h2>
+          <LoginForm className="mt-4" onSubmit={() => {}} forgotHref="#plans" />
+        </section>
       </article>
     </SiteChrome>
   );
