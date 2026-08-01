@@ -619,30 +619,35 @@ export const SURFACES = {
 // erases the canvas entirely; 16px keeps the washes legible THROUGH the panel,
 // which is the whole effect. Saturate lifts what shows through so the glass
 // reads lit rather than grey.
-const GLASS_BLUR = "16px";
-const GLASS_SATURATE = 1.4;
+const GLASS_BLUR = "20px";
+const GLASS_SATURATE = 1.65;
 const GLASS_ALPHA = {
-  light: { background: 0.5, card: 0.55, popover: 0.86 },
+  light: { background: 0.42, card: 0.5, popover: 0.85 },
   // Dark glass is a LIGHT film over a dark canvas — the card token becomes the
   // ink at low alpha, not the paper at high, or it reads as solid with extra
   // steps. Popovers stay nearly opaque in both modes: a menu floats over
   // arbitrary content, and legibility there is worth more than the trick.
-  dark: { background: 0.55, card: 0.1, popover: 0.88 },
+  dark: { background: 0.45, card: 0.12, popover: 0.88 },
 };
 
-/** The accent's own light, washed across the page for the glass to refract. */
+/**
+ * The AURORA the glass refracts — four saturated washes derived from the
+ * accent's hue and its neighbours, covering the whole viewport so no region
+ * falls back to bare paper (bare paper under glass is what reads as a white
+ * page with grey boxes — the first render's failure, seen and corrected).
+ * Lightness stays near the paper's so the measured contrast still holds.
+ */
 function canvasCss(theme) {
-  const stop = (c, size, x, y) => `radial-gradient(${size} circle at ${x} ${y}, ${css(c)}, transparent 62%)`;
+  const stop = (c, size, x, y) => `radial-gradient(${size} circle at ${x} ${y}, ${css(c)}, transparent 65%)`;
   const layer = (mode) => {
     const { accent } = theme[mode];
     const H = accent[2];
-    const hues = [H, (H + 75) % 360, (H + 300) % 360];
-    // Near the paper's lightness on purpose — the canvas may colour the page
-    // but must not change what the contrast maths measured against it.
-    const Ls = mode === "light" ? [0.88, 0.9, 0.89] : [0.32, 0.28, 0.3];
-    const Cs = mode === "light" ? [0.11, 0.09, 0.08] : [0.11, 0.1, 0.09];
-    const at = [["42rem", "12%", "8%"], ["48rem", "88%", "16%"], ["44rem", "55%", "96%"]];
-    return hues.map((h, i) => stop([Ls[i], Cs[i], h, 0.7 - i * 0.06], ...at[i])).join(", ");
+    const hues = [(H + 300) % 360, H, (H + 35) % 360, (H + 250) % 360];
+    const Ls = mode === "light" ? [0.86, 0.85, 0.87, 0.88] : [0.34, 0.3, 0.32, 0.3];
+    const Cs = mode === "light" ? [0.14, 0.16, 0.13, 0.12] : [0.14, 0.15, 0.13, 0.12];
+    const As = mode === "light" ? [0.8, 0.75, 0.7, 0.6] : [0.8, 0.75, 0.7, 0.55];
+    const at = [["50rem", "8%", "4%"], ["56rem", "94%", "14%"], ["48rem", "78%", "72%"], ["52rem", "12%", "92%"]];
+    return hues.map((h, i) => stop([Ls[i], Cs[i], h, As[i]], ...at[i])).join(", ");
   };
   return `body { background-image: ${layer("light")}; background-attachment: fixed; }\n` +
     `.dark body { background-image: ${layer("dark")}; }\n`;
@@ -669,8 +674,37 @@ export function surfaceCss(theme) {
       `  --sidebar: ${css(film)};`,
     ].join("\n");
   };
+  // The EDGE is what makes a panel read as glass rather than as a grey card:
+  // a catch-light border brighter than the fill, and a sheen falling from the
+  // top corner. Scoped to the SURFACE utilities, so a card's own edge lights
+  // up while the dividers inside it (border-border on other elements) keep
+  // the ink-mix hairline and stay visible.
+  const filter = `backdrop-filter: blur(${GLASS_BLUR}) saturate(${GLASS_SATURATE}); -webkit-backdrop-filter: blur(${GLASS_BLUR}) saturate(${GLASS_SATURATE});`;
+  const SURF = ".bg-card, .bg-popover, .bg-sidebar";
+  // THE COMPONENT LAYER — where the theme changes what components ARE, not
+  // just what colours they wear. The kit builds everything from shared
+  // primitives, so restyling the primitives' own class hooks reshapes every
+  // component that uses them, at three selectors instead of a thousand files:
+  //   - `button.justify-center` (+ link-buttons): every cva button. Glass makes
+  //     them PILLS, and the primary fill gets a top sheen and an accent glow.
+  //   - `.border-input`: every field — input, textarea, native select. Frosted:
+  //     translucent white fill, light edge, its own blur.
+  //   - the surface trio above: every card, popover and menu.
+  const [aL, aC, aH] = theme.light.accent;
+  const [dL, dC, dH] = theme.dark.accent;
+  const pills = "button.justify-center, a.justify-center.whitespace-nowrap";
+  const components =
+    `${pills} { border-radius: 9999px; }\n` +
+    `.bg-primary { background-image: linear-gradient(180deg, oklch(1 0 0 / 0.28), oklch(1 0 0 / 0) 55%); box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.35), 0 8px 22px -10px oklch(${aL} ${aC} ${aH} / 0.55); }\n` +
+    `.dark .bg-primary { box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.3), 0 8px 26px -10px oklch(${dL} ${dC} ${dH} / 0.6); }\n` +
+    `.border-input { background-color: oklch(1 0 0 / 0.45); border-color: oklch(1 0 0 / 0.55); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }\n` +
+    `.dark .border-input { background-color: oklch(1 0 0 / 0.07); border-color: oklch(1 0 0 / 0.15); }\n` +
+    `.bg-muted\\/30, .bg-muted\\/40, .bg-muted\\/50, .bg-muted\\/60 { background-color: oklch(1 0 0 / 0.3); }\n` +
+    `.dark .bg-muted\\/30, .dark .bg-muted\\/40, .dark .bg-muted\\/50, .dark .bg-muted\\/60 { background-color: oklch(1 0 0 / 0.045); }\n`;
   return `:root {\n${tokens("light")}\n}\n.dark {\n${tokens("dark")}\n}\n` +
-    `.bg-card, .bg-popover, .bg-sidebar { backdrop-filter: blur(${GLASS_BLUR}) saturate(${GLASS_SATURATE}); -webkit-backdrop-filter: blur(${GLASS_BLUR}) saturate(${GLASS_SATURATE}); }\n` +
+    `${SURF} { ${filter} border-color: oklch(1 0 0 / 0.6); background-image: linear-gradient(165deg, oklch(1 0 0 / 0.5), oklch(1 0 0 / 0) 42%); }\n` +
+    `.dark ${SURF.split(", ").join(", .dark ")} { border-color: oklch(1 0 0 / 0.16); background-image: linear-gradient(165deg, oklch(1 0 0 / 0.1), oklch(1 0 0 / 0) 45%); }\n` +
+    components +
     canvasCss(theme);
 }
 
@@ -765,8 +799,8 @@ export const THEMES = {
     density: "airy", border: "hairline", shadow: "soft", icon: "regular",
     surface: "glass",
     fonts: { heading: "outfit", body: "inter" },
-    light: { paper: [0.985, 0.005, 250], ink: [0.22, 0.03, 255], accent: [0.55, 0.15, 255] },
-    dark: { paper: [0.17, 0.025, 255], ink: [0.94, 0.012, 250], accent: [0.72, 0.13, 250] },
+    light: { paper: [0.985, 0.004, 285], ink: [0.21, 0.03, 285], accent: [0.5, 0.15, 285] },
+    dark: { paper: [0.16, 0.03, 288], ink: [0.95, 0.012, 285], accent: [0.73, 0.14, 285] },
   },
 
   // The six that were here before the reset — ledger, atrium, bourse, vellum,
