@@ -1,4 +1,9 @@
 // transactional — no marketing: form, state, confirmation. A permit renewal.
+//
+// DELIBERATELY NOT ENRICHED in the richness pass that rebuilt the other 23
+// indexes (2026-08-01): this family's taxonomy line is "layout discipline
+// over expression", and a hero band or a stats strip on a permit form is
+// the exact failure the family exists to name. Spare IS the design.
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
