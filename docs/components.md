@@ -1,4 +1,4 @@
-# Components (1239 built, 25 to go)
+# Components (1264 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -28,6 +28,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ amount-input
 ✓ anchor-heading
 ✓ anchor-nav
+✓ anchor-offset
 ✓ announcement-bar
 ✓ answer-review
 ✓ api-key-row
@@ -66,6 +67,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ award-badge
 ✓ back-link
 ✓ back-to-list
+✓ back-to-top
 ✓ background-job
 ✓ backorder-note
 ✓ backup-email
@@ -132,7 +134,10 @@ A ✓ means it exists and a generated site can import it today.
 ✓ celebration
 ✓ cell-badge
 ✓ cell-editor
+✓ cell-error
+✓ cell-overflow
 ✓ cell-sparkline
+✓ cell-tooltip
 ✓ center-box
 ✓ centered-form
 ✓ change-request
@@ -165,16 +170,21 @@ A ✓ means it exists and a generated site can import it today.
 ✓ code-diff
 ✓ code-editor
 ✓ collapsible
+✓ collapsible-panel
 ✓ collection-code
 ✓ collection-header
 ✓ color-picker
 ✓ color-swatch
 ✓ colour-swatch
+✓ column-chooser
 ✓ column-filter
 ✓ column-mapper
+✓ column-order
+✓ column-pin
 ✓ column-reader
 ✓ column-reorder
 ✓ column-resize
+✓ column-summary
 ✓ column-toggle
 ✓ combobox
 ✓ command
@@ -394,6 +404,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ first-run
 ✓ first-run-panel
 ✓ first-value-note
+✓ fit-to-width
 ✓ flip-card
 ✓ floating-toolbar
 ✓ focal-point
@@ -406,6 +417,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ follow-changes
 ✓ font-picker
 ✓ footer-summary
+✓ footer-totals
 ✓ footnote
 ✓ footnote-list
 ✓ footnote-ref
@@ -422,6 +434,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ format-hint
 ✓ format-toolbar
 ✓ frozen-columns
+✓ frozen-corner
 ✓ full-bleed
 ✓ funnel-steps
 ✓ gallery
@@ -660,6 +673,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ otp-form
 ✓ otp-resend
 ✓ outlier-flag
+✓ overflow-fade
 ✓ overflow-scroller
 ✓ overlap-warning
 ✓ pack-checklist
@@ -733,6 +747,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ price-list
 ✓ price-tag
 ✓ pricing-table
+✓ print-break
 ✓ print-button
 ✓ print-only
 ✓ print-preview
@@ -860,15 +875,19 @@ A ✓ means it exists and a generated site can import it today.
 ✓ rounding-note
 ✓ roving-list
 ✓ row-actions
+✓ row-compare
 ✓ row-detail
 ✓ row-errors
+✓ row-expand
 ✓ row-group
+✓ row-number
 ✓ row-select
 ✓ rsvp-buttons
 ✓ rtl-preview
 ✓ rule-builder
 ✓ running-total
 ✓ safe-area
+✓ safe-area-pad
 ✓ safe-image
 ✓ sample-data-banner
 ✓ sample-data-note
@@ -891,6 +910,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ scroll-lock
 ✓ scroll-progress
 ✓ scroll-reveal
+✓ scroll-shadow
 ✓ scroll-spy
 ✓ scroll-top
 ✓ scrubber
@@ -1043,6 +1063,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ sticky-columns
 ✓ sticky-cta
 ✓ sticky-footer
+✓ sticky-header
 ✓ sticky-shrink
 ✓ sticky-table
 ✓ stock-badge
@@ -1077,8 +1098,11 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tab-order-note
 ✓ tab-overflow
 ✓ table
+✓ table-caption
+✓ table-density
 ✓ table-editor
 ✓ table-export
+✓ table-loading
 ✓ table-of-contents
 ✓ table-search
 ✓ table-settings
@@ -1230,6 +1254,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ whats-new-dot
 ✓ who-can-see
 ✓ who-changed
+✓ width-preset
 ✓ winner-badge
 ✓ wishlist-button
 ✓ word-count

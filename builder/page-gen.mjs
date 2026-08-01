@@ -546,6 +546,13 @@ export const UI_COMPONENTS = [
   "field-dependency", "conditional-section", "validation-summary", "inline-hint", "error-anchor",
   "prefill-note", "clear-form", "form-draft", "required-legend", "field-mask",
   "paste-parse", "field-history", "answer-review", "branching-note", "autofill-conflict",
+  // Layout mechanics. Sticky things that know they are stuck, and the edge cues that stop a scrollable box looking full.
+  "sticky-header", "scroll-shadow", "overflow-fade", "collapsible-panel", "fit-to-width",
+  "print-break", "width-preset", "safe-area-pad", "back-to-top", "anchor-offset",
+  // Tables, deeper. The parts that make a wide, long table readable — pinned columns, a real caption, and totals that say what they total.
+  "column-pin", "row-expand", "footer-totals", "cell-error", "table-density",
+  "column-chooser", "frozen-corner", "row-number", "table-loading", "cell-tooltip",
+  "column-summary", "row-compare", "table-caption", "column-order", "cell-overflow",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
