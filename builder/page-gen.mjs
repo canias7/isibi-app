@@ -588,6 +588,15 @@ export const UI_COMPONENTS = [
   // Print and export mechanics. What leaves the system, on paper or as a file.
   "export-scope", "page-header-footer", "print-range", "export-history", "share-as-link",
   "embed-snippet", "qr-handoff",
+  // ai-suggestion ai-explain ai-confidence ai-sources ai-regenerate ai-edit-diff ai-disclosure prompt-field ai-feedback ai-limit-note draft-with-ai ai-scope-picker ai-undo model-note generation-history ai-error-note cursor-label editing-lock annotation-pin resolve-toggle who-is-here
+
+  // AI assistance surfaces
+  "ai-suggestion", "ai-explain", "ai-confidence", "ai-sources", "ai-regenerate",
+  "ai-edit-diff", "ai-disclosure", "prompt-field", "ai-feedback", "ai-limit-note",
+  "draft-with-ai", "ai-scope-picker", "ai-undo", "model-note", "generation-history",
+  "ai-error-note",
+  // Presence and collaboration
+  "cursor-label", "editing-lock", "annotation-pin", "resolve-toggle", "who-is-here",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

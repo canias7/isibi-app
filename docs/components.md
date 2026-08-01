@@ -1,4 +1,4 @@
-# Components (1372 built, 25 to go)
+# Components (1393 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -23,6 +23,18 @@ A ✓ means it exists and a generated site can import it today.
 ✓ age-rating-note
 ✓ agenda-list
 ✓ aggregate-picker
+✓ ai-confidence
+✓ ai-disclosure
+✓ ai-edit-diff
+✓ ai-error-note
+✓ ai-explain
+✓ ai-feedback
+✓ ai-limit-note
+✓ ai-regenerate
+✓ ai-scope-picker
+✓ ai-sources
+✓ ai-suggestion
+✓ ai-undo
 ✓ alert
 ✓ alert-dialog
 ✓ all-day-row
@@ -33,6 +45,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ anchor-heading
 ✓ anchor-nav
 ✓ anchor-offset
+✓ annotation-pin
 ✓ announce-region
 ✓ announcement-bar
 ✓ answer-review
@@ -275,6 +288,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ currency-note
 ✓ currency-switch
 ✓ curriculum-path
+✓ cursor-label
 ✓ cursor-pagination
 ✓ cutoff-time
 ✓ cvc-input
@@ -340,6 +354,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ draft-badge
 ✓ draft-recovery
 ✓ draft-vs-live
+✓ draft-with-ai
 ✓ drag-autoscroll
 ✓ drag-disabled-note
 ✓ drag-handle
@@ -363,6 +378,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ duration-picker
 ✓ edge-fade
 ✓ edit-lock
+✓ editing-lock
 ✓ effort-score
 ✓ elapsed-timer
 ✓ eliminate-option
@@ -484,6 +500,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ gallery
 ✓ gantt-bars
 ✓ gauge
+✓ generation-history
 ✓ getting-started
 ✓ gift-message
 ✓ gift-toggle
@@ -665,6 +682,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ missing-fields
 ✓ mobile-nav
 ✓ modal-stack
+✓ model-note
 ✓ model-picker
 ✓ moderation-note
 ✓ moderation-queue
@@ -829,6 +847,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ progressive-image
 ✓ promo-field
 ✓ prompt-box
+✓ prompt-field
 ✓ prompt-history
 ✓ pronunciation-hint
 ✓ proof-of-delivery
@@ -920,6 +939,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ resizable-columns
 ✓ resize-handle
 ✓ resolve-thread
+✓ resolve-toggle
 ✓ response-rating
 ✓ response-summary
 ✓ restore-point
@@ -1358,6 +1378,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ whats-new-dot
 ✓ who-can-see
 ✓ who-changed
+✓ who-is-here
 ✓ who-owes
 ✓ why-this-note
 ✓ width-preset
