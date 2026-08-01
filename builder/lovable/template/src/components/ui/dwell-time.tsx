@@ -43,10 +43,10 @@ export function DwellTime({ arrivedAt, startedAt, freeMinutes = 120, elapsedMinu
         <span className={cn("tabular-nums", over > 0 && "font-medium")}>{fmt(elapsedMinutes)}</span>
         <span className="text-muted-foreground tabular-nums"> on site · {fmt(freeMinutes)} free</span>
       </p>
+      {/* Joined, not interleaved — the separator was conditional on
+          `startedAt` while its fallback still rendered, giving
+          "Arrived 09:12unloading not started". */}
       {(arrivedAt || startedAt) && (
-        {/* Joined, not interleaved — the separator was conditional on
-            `startedAt` while its fallback still rendered, giving
-            "Arrived 09:12unloading not started". */}
         <p className="text-xs text-muted-foreground">
           {[
             arrivedAt ? `Arrived ${arrivedAt}` : null,
