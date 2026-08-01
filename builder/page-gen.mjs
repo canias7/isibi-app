@@ -652,6 +652,10 @@ export const UI_COMPONENTS = [
   // Attachments and evidence
   "evidence-list", "photo-required-note", "capture-hint", "attachment-limit", "file-required",
   "before-after-upload", "annotation-upload", "receipt-upload",
+  // Handover and shift work
+  "handoff-summary", "shift-handover", "escalate-action", "priority-picker", "due-soon-note",
+  "read-receipt", "batch-window", "confidence-bar", "language-fallback", "cost-estimate-note",
+  "coverage-gap", "on-call-now",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

@@ -1,4 +1,4 @@
-# Components (1546 built, 25 to go)
+# Components (1558 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -110,6 +110,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ bar-list
 ✓ barcode
 ✓ batch-progress
+✓ batch-window
 ✓ before-after
 ✓ before-after-upload
 ✓ benchmark-bar
@@ -260,6 +261,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ conditional-field
 ✓ conditional-section
 ✓ confetti
+✓ confidence-bar
 ✓ confidence-note
 ✓ confidence-range
 ✓ confirm-dialog
@@ -298,6 +300,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ copy-button
 ✓ copy-link
 ✓ copy-response
+✓ cost-estimate-note
 ✓ count-badge
 ✓ count-sheet
 ✓ count-up
@@ -308,6 +311,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ coupon-input
 ✓ course-card
 ✓ cover-image
+✓ coverage-gap
 ✓ credential-expiry
 ✓ credential-row
 ✓ credit-applied
@@ -415,6 +419,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ dropdown-menu
 ✓ dry-run-note
 ✓ dual-list
+✓ due-soon-note
 ✓ duplicate-badge
 ✓ duplicate-options
 ✓ duplicate-warning
@@ -450,6 +455,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ error-retry
 ✓ error-state
 ✓ error-summary-link
+✓ escalate-action
 ✓ escalation-ladder
 ✓ escalation-note
 ✓ estimate-band
@@ -575,6 +581,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ guided-step
 ✓ gutter
 ✓ handoff-note
+✓ handoff-summary
 ✓ handover-bar
 ✓ handover-note
 ✓ header-table
@@ -659,6 +666,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ landmark
 ✓ landmark-nav
 ✓ lang-switch
+✓ language-fallback
 ✓ last-chance-badge
 ✓ last-synced
 ✓ last-verified
@@ -810,6 +818,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ offline-banner
 ✓ offline-queue
 ✓ on-call
+✓ on-call-now
 ✓ open-now
 ✓ open-question
 ✓ opening-hours
@@ -925,6 +934,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ print-range
 ✓ priority-badge
 ✓ priority-inbox
+✓ priority-picker
 ✓ privacy-choice
 ✓ product-card
 ✓ profile-card
@@ -993,6 +1003,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ read-more
 ✓ read-only-mode
 ✓ read-progress
+✓ read-receipt
 ✓ reading-guide
 ✓ reading-time
 ✓ recall-request
@@ -1185,6 +1196,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ sheet-stack
 ✓ shelf
 ✓ shift-badge
+✓ shift-handover
 ✓ shimmer
 ✓ shipping-options
 ✓ shop-the-look
