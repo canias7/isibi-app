@@ -597,6 +597,12 @@ export const UI_COMPONENTS = [
   "ai-error-note",
   // Presence and collaboration
   "cursor-label", "editing-lock", "annotation-pin", "resolve-toggle", "who-is-here",
+  // Approvals and sign-off
+  "approval-request", "sign-off-row", "approver-list", "reject-reason", "delegate-approval",
+  "approval-deadline", "countersign", "approval-history", "approval-quorum", "recall-request",
+  // Templates and reuse
+  "template-picker", "save-as-template", "template-variables", "template-preview", "duplicate-options",
+  "preset-menu", "default-set", "apply-to-many", "template-diff", "starter-gallery",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

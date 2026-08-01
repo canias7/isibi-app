@@ -1,4 +1,4 @@
-# Components (1393 built, 25 to go)
+# Components (1413 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -54,7 +54,13 @@ A ✓ means it exists and a generated site can import it today.
 ✓ appeal-form
 ✓ appeal-status
 ✓ applied-filters
+✓ apply-to-many
 ✓ approval-chain
+✓ approval-deadline
+✓ approval-history
+✓ approval-quorum
+✓ approval-request
+✓ approver-list
 ✓ area-input
 ✓ article-card
 ✓ article-header
@@ -271,6 +277,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ count-up
 ✓ countdown
 ✓ countdown-ring
+✓ countersign
 ✓ country-select
 ✓ coupon-input
 ✓ course-card
@@ -308,8 +315,10 @@ A ✓ means it exists and a generated site can import it today.
 ✓ deadline-note
 ✓ decision-matrix
 ✓ dedupe-list
+✓ default-set
 ✓ definition
 ✓ degraded-note
+✓ delegate-approval
 ✓ delivery-estimate
 ✓ delivery-eta
 ✓ delivery-slot
@@ -371,6 +380,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ dry-run-note
 ✓ dual-list
 ✓ duplicate-badge
+✓ duplicate-options
 ✓ duplicate-warning
 ✓ duration
 ✓ duration-bar
@@ -821,6 +831,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ preorder-badge
 ✓ presence-bar
 ✓ presence-dot
+✓ preset-menu
 ✓ press-quote
 ✓ prev-next
 ✓ price-breakdown
@@ -897,6 +908,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ read-progress
 ✓ reading-guide
 ✓ reading-time
+✓ recall-request
 ✓ receipt
 ✓ recent-nav
 ✓ recent-searches
@@ -916,6 +928,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ refresh-pill
 ✓ refund-line
 ✓ regenerate-button
+✓ reject-reason
 ✓ related-list
 ✓ related-nav
 ✓ relative-date
@@ -991,6 +1004,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ sample-data-note
 ✓ sample-preview
 ✓ sample-toggle
+✓ save-as-template
 ✓ save-draft
 ✓ saved-for-later
 ✓ saved-search
@@ -1086,6 +1100,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ sidebar-layout
 ✓ sidebar-right
 ✓ sidenote
+✓ sign-off-row
 ✓ signature-block
 ✓ signature-pad
 ✓ signature-request
@@ -1156,6 +1171,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ stale-badge
 ✓ stale-data-note
 ✓ stamp-card
+✓ starter-gallery
 ✓ startup-page
 ✓ stat-card
 ✓ state-badge
@@ -1229,8 +1245,12 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tax-toggle
 ✓ team-grid
 ✓ temperature-input
+✓ template-diff
 ✓ template-download
 ✓ template-fill
+✓ template-picker
+✓ template-preview
+✓ template-variables
 ✓ terminal-output
 ✓ terms-block
 ✓ testimonial
