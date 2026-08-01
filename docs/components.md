@@ -1,4 +1,4 @@
-# Components (1331 built, 25 to go)
+# Components (1349 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -93,6 +93,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ blame-gutter
 ✓ block-list
 ✓ block-menu
+✓ blocked-by
 ✓ blocked-note
 ✓ blocking-overlay
 ✓ blur-sensitive
@@ -212,6 +213,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ compare-table
 ✓ comparison-columns
 ✓ comparison-table
+✓ compatibility-note
 ✓ completeness-bar
 ✓ completion-meter
 ✓ completion-ring
@@ -244,6 +246,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ conversation-branch
 ✓ conversation-row
 ✓ cookie-banner
+✓ cooldown-note
 ✓ coordinate-input
 ✓ copy-button
 ✓ copy-link
@@ -308,6 +311,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ diff-inline
 ✓ diff-stat
 ✓ diff-text
+✓ difference-only
 ✓ digest-row
 ✓ dimension-input
 ✓ direction
@@ -357,6 +361,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ edit-lock
 ✓ effort-score
 ✓ elapsed-timer
+✓ eliminate-option
 ✓ email-capture
 ✓ email-input
 ✓ email-share
@@ -377,8 +382,10 @@ A ✓ means it exists and a generated site can import it today.
 ✓ error-retry
 ✓ error-state
 ✓ error-summary-link
+✓ escalation-ladder
 ✓ escalation-note
 ✓ estimate-band
+✓ eta-band
 ✓ event-card
 ✓ event-meta
 ✓ exchange-rate-note
@@ -484,6 +491,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ gutter
 ✓ handoff-note
 ✓ handover-bar
+✓ handover-note
 ✓ header-table
 ✓ heading
 ✓ heading-level
@@ -571,6 +579,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ leave-safe-consent
 ✓ legend
 ✓ letterhead
+✓ lifecycle-bar
 ✓ lightbox
 ✓ like-button
 ✓ likert-row
@@ -826,6 +835,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ query-params
 ✓ question-nav
 ✓ queue-depth
+✓ queue-position
 ✓ quick-add
 ✓ quick-switcher
 ✓ quiet-hours
@@ -858,6 +868,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ recently-viewed
 ✓ recipe-card
 ✓ recommendation-badge
+✓ recommended-flag
 ✓ reconnect-strip
 ✓ record-header
 ✓ recovery-codes
@@ -884,6 +895,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ request-timing
 ✓ required-legend
 ✓ required-mark
+✓ requirement-check
 ✓ reset-defaults
 ✓ reset-demo
 ✓ reset-form
@@ -1026,6 +1038,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ shortcut-row
 ✓ shortcut-sheet
 ✓ shortlist-bar
+✓ shortlist-tray
 ✓ side-by-side
 ✓ side-nav
 ✓ sidebar
@@ -1053,6 +1066,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ skip-link
 ✓ sku-field
 ✓ sla-badge
+✓ sla-clock
 ✓ slash-menu
 ✓ slide-over
 ✓ slider
@@ -1103,6 +1117,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ startup-page
 ✓ stat-card
 ✓ state-badge
+✓ state-machine-note
 ✓ stats-band
 ✓ status-badge
 ✓ status-code-badge
@@ -1189,6 +1204,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ three-line-row
 ✓ threshold-bar
 ✓ threshold-marker
+✓ throttle-note
 ✓ thumb-strip
 ✓ thumbnail-picker
 ✓ ticket-card
@@ -1297,6 +1313,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ volume-slider
 ✓ vote-bar
 ✓ vote-buttons
+✓ waiting-on
 ✓ waitlist-form
 ✓ warranty-badge
 ✓ watch-count
@@ -1319,6 +1336,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ who-can-see
 ✓ who-changed
 ✓ who-owes
+✓ why-this-note
 ✓ width-preset
 ✓ winner-badge
 ✓ wishlist-button

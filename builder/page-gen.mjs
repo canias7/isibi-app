@@ -572,6 +572,13 @@ export const UI_COMPONENTS = [
   // Trust, safety and moderation. Removals that explain themselves, claims that name who checked them, and blocks you can find again.
   "moderation-queue-item", "appeal-status", "age-rating-note", "verified-claim", "dispute-note",
   "takedown-note", "safety-tips", "block-list", "mute-duration",
+  // Status and lifecycle. Whose move it is, what is blocking it, and when the promise runs out.
+  "lifecycle-bar", "state-machine-note", "blocked-by", "waiting-on", "handover-note",
+  "sla-clock", "escalation-ladder", "queue-position", "eta-band", "throttle-note",
+  "cooldown-note",
+  // Comparison and choice. Reasons that can be argued with, and the rows that actually differ.
+  "recommended-flag", "why-this-note", "eliminate-option", "shortlist-tray", "difference-only",
+  "compatibility-note", "requirement-check",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
