@@ -142,7 +142,6 @@ export const WORLDS = {
   backdrop: "wash"
  },
  "nordic-cabin": {
-  backdrop: "wash",
   decor: "wood",
   display: "accent"
  },
@@ -294,7 +293,6 @@ export const WORLDS = {
   display: "accent"
  },
  walnut: {
-  backdrop: "wash",
   decor: "wood",
   display: "accent"
  },
@@ -1253,7 +1251,6 @@ export const WORLDS = {
   skin: "tilt"
  },
  treehouse: {
-  backdrop: "wash",
   decor: "wood",
   display: "accent"
  },
@@ -1490,7 +1487,6 @@ export const WORLDS = {
   display: "accent"
  },
  "farm-table": {
-  backdrop: "wash",
   decor: "wood",
   display: "accent"
  },
