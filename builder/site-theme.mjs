@@ -967,14 +967,39 @@ const DECOR_LAYERS = {
     return { image: `repeating-linear-gradient(45deg, ${c} 0 1px, transparent 1px 9px), repeating-linear-gradient(-45deg, ${c} 0 1px, transparent 1px 9px)` };
   },
   wood: (theme, mode) => {
-    // Planks: a seam every 148px, alternate planks a half-shade deeper, and
-    // anisotropic turbulence for the long grain (low y-frequency stretches
-    // the noise vertically, which is what reads as grain along the board).
+    // The realism pass (owner's call 2026-08-01, a walnut-bark photo as the
+    // bar): one grey noise layer read as digital fog. Now the grain is TINTED
+    // — feColorMatrix rewrites the noise to a constant palette brown and
+    // keeps only its alpha — and comes at two scales like a real board: a
+    // broad low-frequency FIGURE (smooth ramp, soft cathedral patches) under
+    // fine STREAKS run through a non-monotonic discrete table, which is what
+    // turns fog into distinct grain lines. A second turbulence displaces the
+    // streaks a few px so no line runs ruler-straight — but the SEAMS stay
+    // straight, because boards are milled and it is the grain that wanders.
+    // Planks: a four-board tint cycle (boards cut from different trees), and
+    // a 1px light bevel beside each seam — light catching the next edge.
     const { paper, ink } = theme[mode];
-    const seam = css([...mix(paper, ink, 0.3).slice(0, 3), mode === "light" ? 0.3 : 0.38]);
-    const shade = css([...mix(paper, ink, 0.1).slice(0, 3), 0.45]);
-    const grain = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='340' height='340'><filter id='w'><feTurbulence type='fractalNoise' baseFrequency='0.11 0.009' numOctaves='3'/><feColorMatrix type='saturate' values='0'/><feComponentTransfer><feFuncA type='table' tableValues='0 0.13'/></feComponentTransfer></filter><rect width='340' height='340' filter='url(%23w)'/></svg>")`;
-    return { image: `${grain}, repeating-linear-gradient(90deg, ${seam} 0 2px, transparent 2px 148px), repeating-linear-gradient(90deg, ${shade} 0 74px, transparent 74px 148px)` };
+    const light = mode === "light";
+    // Darker-than-paper needs different derivations per mode: light mode
+    // mixes toward ink, but dark-mode ink is LIGHT, so the shadow tone drops
+    // paper's own lightness instead of mixing away from it.
+    const shadow = [Math.max(paper[0] * 0.45, 0.04), Math.min(paper[1] * 1.4, 0.05), paper[2]];
+    const streaks = light ? mix(paper, ink, 0.75).slice(0, 3) : shadow;
+    const figure = light ? mix(paper, ink, 0.5).slice(0, 3) : mix(paper, ink, 0.45).slice(0, 3);
+    const tintMatrix = (c) => {
+      const [r, g, b] = oklchToRgb(...c).map((v) => +v.toFixed(3));
+      return `0 0 0 0 ${r} 0 0 0 0 ${g} 0 0 0 0 ${b} 1 0 0 0 0`;
+    };
+    const figTable = light ? "0 0 0.045 0.11" : "0 0 0.05 0.12";
+    const strTable = light ? "0 0.11 0.02 0 0.14 0.04 0 0.09 0 0.16" : "0 0.12 0.03 0 0.16 0.05 0 0.1 0 0.18";
+    const grain = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='480' height='480'><filter id='f'><feTurbulence type='fractalNoise' baseFrequency='0.028 0.006' numOctaves='3' seed='4'/><feColorMatrix type='matrix' values='${tintMatrix(figure)}'/><feComponentTransfer><feFuncA type='table' tableValues='${figTable}'/></feComponentTransfer></filter><filter id='s'><feTurbulence type='fractalNoise' baseFrequency='0.15 0.01' numOctaves='4' seed='11' result='n'/><feColorMatrix in='n' type='matrix' values='${tintMatrix(streaks)}' result='t'/><feComponentTransfer in='t' result='p'><feFuncA type='discrete' tableValues='${strTable}'/></feComponentTransfer><feTurbulence type='fractalNoise' baseFrequency='0.006 0.02' numOctaves='2' seed='7' result='d'/><feDisplacementMap in='p' in2='d' scale='14' xChannelSelector='R' yChannelSelector='G'/></filter><rect width='480' height='480' filter='url(%23f)'/><rect width='480' height='480' filter='url(%23s)'/></svg>")`;
+    const seam = light ? css([...mix(paper, ink, 0.38).slice(0, 3), 0.45]) : css([...shadow, 0.6]);
+    const bevel = light ? css([...paper.slice(0, 3), 0.6]) : css([...mix(paper, ink, 0.3).slice(0, 3), 0.35]);
+    const seams = `repeating-linear-gradient(90deg, ${seam} 0 2px, ${bevel} 2px 3px, transparent 3px 148px)`;
+    const tone = mix(paper, ink, light ? 0.16 : 0.12).slice(0, 3);
+    const [a1, a2, a3, a4] = light ? [0.13, 0.3, 0.04, 0.21] : [0.1, 0.22, 0.03, 0.16];
+    const boards = `repeating-linear-gradient(90deg, ${css([...tone, a1])} 0 148px, ${css([...tone, a2])} 148px 296px, ${css([...tone, a3])} 296px 444px, ${css([...tone, a4])} 444px 592px)`;
+    return { image: `${seams}, ${grain}, ${boards}` };
   },
   spots: (theme, mode) => {
     // A TILE, not five absolute dots — percentage positions with no size put
