@@ -1,4 +1,4 @@
-# Components (1857 built, 25 to go)
+# Components (1878 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -200,6 +200,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ card
 ✓ card-grid
 ✓ card-input
+✓ card-record
 ✓ care-icons
 ✓ carousel
 ✓ cart-badge
@@ -378,6 +379,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ csat-face
 ✓ csv-import
 ✓ cta-band
+✓ cup-bracket
 ✓ curl-example
 ✓ currency-amount
 ✓ currency-input
@@ -629,6 +631,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ first-value-note
 ✓ fit-to-width
 ✓ fix-suggestion
+✓ fixture-postponed
+✓ fixture-row
 ✓ flip-card
 ✓ floating-toolbar
 ✓ focal-point
@@ -770,6 +774,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ invoice-row
 ✓ invoice-totals
 ✓ irrigation-note
+✓ isrc-field
 ✓ item
 ✓ job-card
 ✓ job-failed
@@ -812,6 +817,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ lead
 ✓ lead-time
 ✓ lead-time-input
+✓ league-table-row
 ✓ leave-confirm
 ✓ leave-safe-consent
 ✓ ledger-row
@@ -1077,6 +1083,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ plan-limit-row
 ✓ plant-hire-row
 ✓ playback-speed
+✓ player-stat-row
 ✓ plural
 ✓ pluralisation-preview
 ✓ policy-summary-row
@@ -1219,6 +1226,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ redaction-note
 ✓ reduce-motion
 ✓ reduced-motion-note
+✓ referee-assignment
 ✓ reference-range
 ✓ reference-request
 ✓ refresh-pill
@@ -1226,12 +1234,14 @@ A ✓ means it exists and a generated site can import it today.
 ✓ regenerate-button
 ✓ region-picker
 ✓ regulation-note
+✓ rehearsal-slot
 ✓ reject-reason
 ✓ rejection-note
 ✓ related-list
 ✓ related-nav
 ✓ relative-date
 ✓ release-freeze
+✓ release-schedule
 ✓ reminder-set
 ✓ renewal-note
 ✓ renewal-quote
@@ -1313,6 +1323,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ row-group
 ✓ row-number
 ✓ row-select
+✓ royalty-split
 ✓ rsvp-buttons
 ✓ rtl-preview
 ✓ rtl-toggle
@@ -1352,6 +1363,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ scope-list
 ✓ scope-summary
 ✓ score-breakdown
+✓ score-entry
 ✓ scorecard-row
 ✓ scrap-rate
 ✓ screen-only
@@ -1379,6 +1391,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ search-suggestions
 ✓ search-tips
 ✓ search-within
+✓ season-picker
 ✓ seat-map
 ✓ seat-usage
 ✓ seat-usage-row
@@ -1406,6 +1419,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ service-standard
 ✓ session-expiry
 ✓ session-row
+✓ setlist-row
 ✓ setting-item
 ✓ settings-nav
 ✓ settle-up
@@ -1524,11 +1538,13 @@ A ✓ means it exists and a generated site can import it today.
 ✓ spotlight
 ✓ spray-record
 ✓ spreadsheet-grid
+✓ squad-list
 ✓ sso-button
 ✓ stack
 ✓ stack-trace
 ✓ staff-load
 ✓ stage-gate
+✓ stage-plot
 ✓ stagger-list
 ✓ stale-badge
 ✓ stale-data-note
@@ -1544,6 +1560,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ status-dot
 ✓ status-list
 ✓ status-page-link
+✓ stem-list
 ✓ step-nav
 ✓ step-skipped
 ✓ step-summary
@@ -1577,6 +1594,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ subdomain-field
 ✓ subscribe-toggle
 ✓ substitution-pref
+✓ substitution-row
 ✓ subtitle-track
 ✓ success-panel
 ✓ suggested-tags
@@ -1622,6 +1640,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tag-rename
 ✓ tag-scope
 ✓ tag-select
+✓ take-row
 ✓ takedown-note
 ✓ takt-note
 ✓ talent-pool
@@ -1709,6 +1728,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tour-dates
 ✓ tour-step
 ✓ traceability-code
+✓ track-row
 ✓ tracking-input
 ✓ tracking-note
 ✓ tracking-plan-row
@@ -1784,6 +1804,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ variation-order
 ✓ vehicle-card
 ✓ vehicle-check
+✓ venue-allocation
 ✓ verification-steps
 ✓ verified-badge
 ✓ verified-claim

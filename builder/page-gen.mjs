@@ -755,6 +755,13 @@ export const UI_COMPONENTS = [
   // Security and access control
   "door-event", "badge-row", "visitor-sign-in", "escort-note", "zone-permission",
   "alarm-state", "patrol-log", "key-issue",
+  // Sports leagues and fixtures
+  "fixture-row", "league-table-row", "score-entry", "squad-list", "substitution-row",
+  "card-record", "fixture-postponed", "cup-bracket", "player-stat-row", "season-picker",
+  "venue-allocation", "referee-assignment",
+  // Music and recording
+  "track-row", "setlist-row", "stem-list", "take-row", "royalty-split",
+  "release-schedule", "isrc-field", "rehearsal-slot", "stage-plot",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
