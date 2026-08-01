@@ -1,11 +1,13 @@
-# Components (1175 built, 25 to go)
+# Components (1202 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
 ## Built and planned
 
 ✓ abbreviation
+✓ access-expiry
 ✓ access-key-badge
+✓ access-summary
 ✓ accordion
 ✓ account-menu
 ✓ action-history
@@ -200,6 +202,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ connection-quality
 ✓ consent-checkbox
 ✓ contact-card
+✓ contact-fallback
 ✓ contact-form
 ✓ container
 ✓ content-placeholder
@@ -254,6 +257,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ decision-matrix
 ✓ dedupe-list
 ✓ definition
+✓ degraded-note
 ✓ delivery-estimate
 ✓ delivery-eta
 ✓ delivery-slot
@@ -320,6 +324,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ email-input
 ✓ email-share
 ✓ email-verify-banner
+✓ embargo-note
 ✓ embed-code
 ✓ emoji-picker
 ✓ emoji-reaction
@@ -329,6 +334,9 @@ A ✓ means it exists and a generated site can import it today.
 ✓ env-badge
 ✓ episode-row
 ✓ error-boundary
+✓ error-detail-toggle
+✓ error-reference
+✓ error-retry
 ✓ error-state
 ✓ error-summary-link
 ✓ escalation-note
@@ -415,6 +423,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ group-by-picker
 ✓ grouped-list
 ✓ grouped-rows
+✓ guest-note
 ✓ gutter
 ✓ handoff-note
 ✓ handover-bar
@@ -486,6 +495,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ keyboard-map
 ✓ keyboard-tip
 ✓ kicker
+✓ known-issue
 ✓ label
 ✓ labeled-progress
 ✓ landmark
@@ -498,6 +508,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ lead
 ✓ lead-time
 ✓ lead-time-input
+✓ leave-confirm
 ✓ leave-safe-consent
 ✓ legend
 ✓ letterhead
@@ -507,6 +518,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ line-focus
 ✓ link-card
 ✓ link-editor
+✓ link-permissions
 ✓ list-density
 ✓ list-format
 ✓ list-row
@@ -529,6 +541,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ magnetic-button
 ✓ maintenance-notice
 ✓ maintenance-page
+✓ maintenance-panel
 ✓ map-embed
 ✓ markdown-editor
 ✓ markdown-preview
@@ -598,6 +611,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ no-results
 ✓ node-graph
 ✓ not-found
+✓ not-found-panel
 ✓ notification-bell
 ✓ notification-empty
 ✓ notification-group
@@ -642,6 +656,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ parallax
 ✓ partial-failure
 ✓ partial-list
+✓ partial-outage
 ✓ partial-save
 ✓ partial-shipment
 ✓ party-size
@@ -656,10 +671,12 @@ A ✓ means it exists and a generated site can import it today.
 ✓ payment-picker
 ✓ paywall
 ✓ pending-changes
+✓ pending-invite
 ✓ percent-input
 ✓ percent-ring
 ✓ percentile-note
 ✓ permalink
+✓ permission-denied
 ✓ permission-matrix
 ✓ permission-row
 ✓ person-row
@@ -764,6 +781,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ reconnect-strip
 ✓ record-header
 ✓ recovery-codes
+✓ recovery-steps
 ✓ recurrence-summary
 ✓ recurring-picker
 ✓ reduce-motion
@@ -777,7 +795,9 @@ A ✓ means it exists and a generated site can import it today.
 ✓ reorderable-grid
 ✓ repeatable-field
 ✓ reply-box
+✓ report-problem
 ✓ report-reason
+✓ request-access
 ✓ request-timing
 ✓ required-mark
 ✓ reset-defaults
@@ -838,6 +858,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ schedule-preview
 ✓ schema-viewer
 ✓ scope-list
+✓ scope-summary
 ✓ score-breakdown
 ✓ screen-only
 ✓ screen-reader-note
@@ -888,7 +909,9 @@ A ✓ means it exists and a generated site can import it today.
 ✓ share-buttons
 ✓ share-invite
 ✓ share-preview
+✓ share-scope
 ✓ share-sheet
+✓ shared-with-list
 ✓ sheet
 ✓ sheet-stack
 ✓ shelf
@@ -1008,6 +1031,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ suggestion-chips
 ✓ suggestion-mode
 ✓ summary-toggle
+✓ support-handoff
 ✓ survey-card
 ✓ suspicious-login
 ✓ swipe-actions
@@ -1096,6 +1120,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ transcript-toggle
 ✓ transcript-view
 ✓ transfer-list
+✓ transfer-ownership
 ✓ transition-arrow
 ✓ travel-time
 ✓ tree-item
@@ -1146,6 +1171,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ viewer-count
 ✓ viewer-list
 ✓ virtual-list
+✓ visibility-toggle
 ✓ visually-hidden
 ✓ voice-input
 ✓ volume-slider
@@ -1166,6 +1192,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ what-if-toggle
 ✓ whats-new
 ✓ whats-new-dot
+✓ who-can-see
 ✓ who-changed
 ✓ winner-badge
 ✓ wishlist-button

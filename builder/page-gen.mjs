@@ -527,6 +527,14 @@ export const UI_COMPONENTS = [
   "read-more", "glossary-term", "footnote-ref", "footnote-list", "abbreviation",
   "quote-attribution", "summary-toggle", "pronunciation-hint", "key-points", "text-scale",
   "line-focus", "column-reader",
+  // Errors, recovery and support. Every failure names a next step, and the technical half folds away.
+  "error-retry", "error-detail-toggle", "not-found-panel", "permission-denied", "maintenance-panel",
+  "degraded-note", "report-problem", "error-reference", "support-handoff", "known-issue",
+  "recovery-steps", "contact-fallback", "partial-outage",
+  // Permissions and sharing. The safe option is never the default, and every scope states its consequence.
+  "share-scope", "link-permissions", "access-summary", "who-can-see", "pending-invite",
+  "transfer-ownership", "leave-confirm", "visibility-toggle", "embargo-note", "shared-with-list",
+  "request-access", "access-expiry", "guest-note", "scope-summary",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
