@@ -504,6 +504,12 @@ export const UI_COMPONENTS = [
   // Selection and bulk mechanics. What 'select all' means this time, and what is actually ticked.
   "range-select", "cross-page-selection", "invert-selection", "selection-limit", "select-scope",
   "marquee-select", "selection-tray", "pick-remaining",
+  // Drag, drop and reorder. Every draggable list also ships the keyboard route, because drag alone makes reordering a feature only some readers have.
+  "drop-target", "reorder-list", "drop-indicator", "sortable-grid", "drag-autoscroll",
+  "nest-indent", "move-to-menu", "drag-disabled-note", "reorder-buttons", "drop-rejected",
+  // Keyboard and focus. One tab stop per list, the platform's own modifier, and saying where focus went.
+  "shortcut-hint", "key-cap", "shortcut-sheet", "roving-list", "access-key-badge",
+  "kbd-chord", "focus-return", "shortcut-conflict",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

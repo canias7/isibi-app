@@ -1,9 +1,10 @@
-# Components (1101 built, 25 to go)
+# Components (1119 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
 ## Built and planned
 
+✓ access-key-badge
 ✓ accordion
 ✓ account-menu
 ✓ action-history
@@ -279,12 +280,17 @@ A ✓ means it exists and a generated site can import it today.
 ✓ draft-badge
 ✓ draft-recovery
 ✓ draft-vs-live
+✓ drag-autoscroll
+✓ drag-disabled-note
 ✓ drag-handle
 ✓ drag-list
 ✓ drag-preview
 ✓ drawer
 ✓ drawer-stack
 ✓ drop-cap
+✓ drop-indicator
+✓ drop-rejected
+✓ drop-target
 ✓ drop-zone
 ✓ dropdown-menu
 ✓ dry-run-note
@@ -357,6 +363,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ focal-point
 ✓ focus-list
 ✓ focus-mode
+✓ focus-return
 ✓ focus-trap
 ✓ folder-path
 ✓ folder-tree
@@ -451,6 +458,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ jump-to
 ✓ kanban-board
 ✓ kbd
+✓ kbd-chord
+✓ key-cap
 ✓ key-sequence
 ✓ key-value
 ✓ keyboard-map
@@ -540,6 +549,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ money
 ✓ month-picker
 ✓ morph-height
+✓ move-to-menu
 ✓ multi-column-list
 ✓ multi-date-picker
 ✓ multi-select
@@ -555,6 +565,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ nav-list
 ✓ nav-search
 ✓ navigation-menu
+✓ nest-indent
 ✓ nested-list
 ✓ new-in-badge
 ✓ nl-date-input
@@ -728,6 +739,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ related-list
 ✓ related-nav
 ✓ relative-date
+✓ reorder-buttons
+✓ reorder-list
 ✓ reorderable-grid
 ✓ repeatable-field
 ✓ reply-box
@@ -768,6 +781,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ rollback-note
 ✓ room-card
 ✓ rounding-note
+✓ roving-list
 ✓ row-actions
 ✓ row-detail
 ✓ row-errors
@@ -845,8 +859,11 @@ A ✓ means it exists and a generated site can import it today.
 ✓ shipping-options
 ✓ shop-the-look
 ✓ short-link
+✓ shortcut-conflict
+✓ shortcut-hint
 ✓ shortcut-overlay
 ✓ shortcut-row
+✓ shortcut-sheet
 ✓ shortlist-bar
 ✓ side-by-side
 ✓ side-nav
@@ -888,6 +905,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ social-preview
 ✓ sonner
 ✓ sort-select
+✓ sortable-grid
 ✓ sortable-header
 ✓ sortable-list
 ✓ source-card
