@@ -1,4 +1,4 @@
-# Components (1045 built, 25 to go)
+# Components (1057 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -40,6 +40,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ attachment
 ✓ attachment-list
 ✓ attachment-tray
+✓ audience-switch
 ✓ audio-player
 ✓ audio-recorder
 ✓ audit-row
@@ -65,6 +66,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ batch-progress
 ✓ before-after
 ✓ bento-grid
+✓ bid-box
 ✓ big-number
 ✓ billing-summary
 ✓ blackout-dates
@@ -89,6 +91,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ button
 ✓ button-group
 ✓ byline-compact
+✓ calculator-card
 ✓ calendar
 ✓ calendar-month
 ✓ callout
@@ -212,6 +215,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ currency-amount
 ✓ currency-input
 ✓ currency-switch
+✓ curriculum-path
 ✓ cursor-pagination
 ✓ cvc-input
 ✓ danger-zone
@@ -281,6 +285,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ edit-lock
 ✓ effort-score
 ✓ elapsed-timer
+✓ email-capture
 ✓ email-input
 ✓ email-share
 ✓ email-verify-banner
@@ -291,6 +296,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ empty-cta
 ✓ empty-illustration
 ✓ env-badge
+✓ episode-row
 ✓ error-boundary
 ✓ error-state
 ✓ error-summary-link
@@ -415,6 +421,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ input
 ✓ input-group
 ✓ input-otp
+✓ install-command
 ✓ instant-results
 ✓ invite-form
 ✓ invoice-header
@@ -587,6 +594,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ paste-table
 ✓ payment-methods
 ✓ payment-picker
+✓ paywall
 ✓ percent-input
 ✓ percent-ring
 ✓ permalink
@@ -893,6 +901,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ stop-generating
 ✓ stopwatch
 ✓ storage-bar
+✓ store-badges
 ✓ store-locator
 ✓ streaming-text
 ✓ strike-badge
@@ -945,6 +954,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ thumb-strip
 ✓ ticket-card
 ✓ ticket-row
+✓ ticket-tiers
 ✓ tilt-card
 ✓ time-ago
 ✓ time-input
@@ -972,6 +982,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tooltip
 ✓ top-n-picker
 ✓ totals-row
+✓ tour-dates
 ✓ tour-step
 ✓ tracking-input
 ✓ trade-off-bar
@@ -1018,6 +1029,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ verify-pending
 ✓ version-history
 ✓ video-embed
+✓ video-hero
 ✓ video-player
 ✓ viewer-count
 ✓ viewer-list
