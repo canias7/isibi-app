@@ -135,7 +135,7 @@ export const FAMILIES = {
       "the archive is reachable but never in the way of the newest thing",
     ],
     kinds: ["publication", "blog", "magazine", "podcast", "newsletter", "creator", "personal brand"],
-    components: ["article-card", "author-byline", "reading-time", "post-meta", "tag-list", "audio-player", "pagination"],
+    components: ["article-card", "author-byline", "reading-time", "post-meta", "tag-list", "audio-player", "episode-row", "email-capture", "pagination"],
     variants: {
       "single-column-capture": "newsletter: the subscribe form is the hero and the archive is the proof below it",
       "link-hub": "creator: a thumb-width vertical stack of link-cards, nothing else",
@@ -153,7 +153,7 @@ export const FAMILIES = {
       "one signup path, repeated; never two competing actions",
     ],
     kinds: ["SaaS", "mobile app", "hardware", "game", "developer tool", "API"],
-    components: ["hero-split", "feature-grid", "pricing-table", "plan-card", "logo-cloud", "comparison-table", "faq", "video-embed", "changelog-entry"],
+    components: ["hero-split", "feature-grid", "pricing-table", "plan-card", "logo-cloud", "comparison-table", "faq", "video-embed", "store-badges", "changelog-entry"],
     variants: {
       "docs-sidebar": "developer tool: the install command and docs nav sit high (sdk-tabs, code-block)",
     },
@@ -170,7 +170,7 @@ export const FAMILIES = {
       "nothing links away; the page is a funnel with no exits",
     ],
     kinds: ["nonprofit", "event", "conference", "course cohort", "community", "membership", "coming soon"],
-    components: ["cta-band", "countdown", "donation-card", "event-card", "agenda-list", "steps", "stats-band", "waitlist-form", "faq"],
+    components: ["cta-band", "countdown", "ticket-tiers", "donation-card", "event-card", "agenda-list", "steps", "stats-band", "waitlist-form", "faq"],
     variants: {},
     ready: true,
   },
@@ -238,7 +238,7 @@ export const FAMILIES = {
       "one ask at the end, not five",
     ],
     kinds: ["résumé", "speaker", "author", "coach", "consultant", "campaign", "artist", "musician"],
-    components: ["profile-card", "timeline", "quote", "press-quote", "event-card", "gallery", "social-links"],
+    components: ["profile-card", "timeline", "quote", "press-quote", "event-card", "tour-dates", "gallery", "social-links"],
     variants: {
       "donate-volunteer-split": "campaign: two primary actions of equal weight, donate and volunteer",
     },
@@ -255,7 +255,7 @@ export const FAMILIES = {
       "every page links sideways — dead ends are the failure",
     ],
     kinds: ["API reference", "SDK docs", "open source project", "help center", "knowledge base", "changelog", "status page"],
-    components: ["side-nav", "table-of-contents", "search-input", "code-block", "copy-button", "curl-example", "sdk-tabs", "prev-next", "anchor-heading", "changelog-entry"],
+    components: ["install-command", "side-nav", "table-of-contents", "search-input", "code-block", "copy-button", "curl-example", "sdk-tabs", "prev-next", "anchor-heading", "changelog-entry"],
     variants: {},
     ready: true,
   },
@@ -270,7 +270,7 @@ export const FAMILIES = {
       "every figure is tabular-nums and every claim has its number beside it",
     ],
     kinds: ["dashboard product", "analytics", "BI tool", "pricing calculator", "comparison site", "research report"],
-    components: ["big-number", "stats-band", "sparkline", "metric-delta", "gauge", "data-table", "comparison-table", "donut-mini"],
+    components: ["big-number", "stats-band", "sparkline", "metric-delta", "gauge", "data-table", "comparison-table", "calculator-card", "donut-mini"],
     variants: {},
     ready: true,
   },
@@ -284,12 +284,9 @@ export const FAMILIES = {
       "body: tasks over marketing; search prominent; events and notices as first-class sections",
     ],
     kinds: ["university", "school", "government", "municipal", "hospital system", "museum", "gallery", "church"],
-    components: ["category-nav", "search-header", "event-card", "faq", "steps", "download-card"],
+    components: ["audience-switch", "category-nav", "search-header", "event-card", "faq", "steps", "download-card"],
     variants: {},
-    // The signature — "I am a: prospective / current / alumni" — has no
-    // component yet. Specced in builder/component-gaps.md as `audience-switch`.
-    ready: false,
-    wants: ["audience-switch"],
+    ready: true,
   },
 
   immersive: {
@@ -302,12 +299,9 @@ export const FAMILIES = {
       "motion is the grammar here — reveals and parallax carry the pacing",
     ],
     kinds: ["fashion brand", "car manufacturer", "luxury hospitality", "film", "show", "design studio"],
-    components: ["hero", "gallery", "lightbox", "before-after", "marquee", "parallax", "snap-sections", "full-bleed", "progressive-image"],
+    components: ["video-hero", "gallery", "lightbox", "before-after", "marquee", "parallax", "snap-sections", "full-bleed", "progressive-image"],
     variants: {},
-    // The signature — a muted looping background video with a poster fallback —
-    // has no component yet. Specced in builder/component-gaps.md as `video-hero`.
-    ready: false,
-    wants: ["video-hero"],
+    ready: true,
   },
 
   transactional: {
@@ -349,7 +343,7 @@ export const FAMILIES = {
       "body: the live board, with its freshness visible; stale-looking data is the failure",
     ],
     kinds: ["ticketing", "box office", "auction", "flash sale", "drop", "live results", "status board"],
-    components: ["countdown", "countdown-ring", "deadline-bar", "live-badge", "refresh-pill", "time-until", "seat-map", "big-number", "viewer-count"],
+    components: ["countdown", "countdown-ring", "deadline-bar", "live-badge", "refresh-pill", "time-until", "seat-map", "bid-box", "big-number", "viewer-count"],
     variants: {},
     ready: true,
   },
@@ -364,12 +358,9 @@ export const FAMILIES = {
       "the wall is designed, not a dead end — it shows what it is refusing",
     ],
     kinds: ["paywalled publication", "private community", "alumni portal", "fan club", "B2B customer portal"],
-    components: ["login-form", "signup-form", "membership-card", "plan-card", "pricing-table", "upgrade-badge"],
+    components: ["paywall", "login-form", "signup-form", "membership-card", "plan-card", "pricing-table", "upgrade-badge"],
     variants: {},
-    // The signature — the metered-article fade into a subscribe card — has no
-    // component yet. Specced in builder/component-gaps.md as `paywall`.
-    ready: false,
-    wants: ["paywall"],
+    ready: true,
   },
 
   industrial: {
@@ -412,7 +403,7 @@ export const FAMILIES = {
       "outcomes and placement numbers wherever they are claimed",
     ],
     kinds: ["course platform", "interactive tutorial", "LMS", "practice tool", "library", "archive"],
-    components: ["course-card", "chapter-list", "steps", "progress-ring", "completion-ring", "stats-band", "faq"],
+    components: ["course-card", "curriculum-path", "chapter-list", "steps", "progress-ring", "completion-ring", "stats-band", "faq"],
     variants: {},
     ready: true,
   },
@@ -475,11 +466,9 @@ export const MOLD_BREAKERS = {
       "body: each side gets its own proof and its own action; neither is the default",
     ],
     kinds: ["marketplace"],
-    components: ["search-input", "steps", "stats-band"],
+    components: ["audience-switch", "search-input", "steps", "stats-band"],
     variants: {},
-    // Same missing signature as `institutional`, same spec: `audience-switch`.
-    ready: false,
-    wants: ["audience-switch"],
+    ready: true,
   },
   directory: {
     md: "Directory",

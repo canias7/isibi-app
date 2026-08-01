@@ -124,7 +124,8 @@ test("the prompt shortlist offers ready families only, and stays cheap", () => {
 });
 
 test("a directive carries the whole contract, and refuses everything unknown", () => {
-  for (const n of [...READY_FAMILIES, "directory"]) {
+  const READY_MOLDS = Object.keys(MOLD_BREAKERS).filter((n) => MOLD_BREAKERS[n].ready);
+  for (const n of [...READY_FAMILIES, ...READY_MOLDS]) {
     const f = ALL[n];
     const d = layoutDirective(n);
     assert.ok(d, `${n} produced no directive`);
@@ -134,9 +135,14 @@ test("a directive carries the whole contract, and refuses everything unknown", (
     for (const c of f.components) assert.ok(d.includes(c), `${n}: component ${c} missing`);
   }
   // Everything unknown or unready is null, never a best guess: a directive is a
-  // promise about the kit, and a wrong one must fail at the call site.
-  assert.equal(layoutDirective("institutional"), null, "a not-ready family must not produce a directive");
-  assert.equal(layoutDirective("marketplace"), null, "a not-ready mold-breaker must not produce a directive");
+  // promise about the kit, and a wrong one must fail at the call site. DERIVED,
+  // not named — the first version hardcoded "institutional", which went stale
+  // the day its component landed and everything became ready.
+  const notReady = [...FAMILY_NAMES, ...Object.keys(MOLD_BREAKERS)]
+    .filter((n) => !(FAMILIES[n] ?? MOLD_BREAKERS[n]).ready);
+  for (const n of notReady) {
+    assert.equal(layoutDirective(n), null, `${n} is not ready and must not produce a directive`);
+  }
   assert.equal(layoutDirective("no-such-family"), null);
   assert.equal(layoutDirective("menu-first", { structure: "no-such-structure" }), null);
   assert.equal(layoutDirective("menu-first", { variant: "no-such-variant" }), null);
