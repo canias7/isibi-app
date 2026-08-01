@@ -1,4 +1,4 @@
-# Components (1119 built, 25 to go)
+# Components (1146 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -31,6 +31,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ appeal-form
 ✓ applied-filters
 ✓ approval-chain
+✓ area-input
 ✓ article-card
 ✓ article-header
 ✓ aspect-box
@@ -87,6 +88,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ breakpoint-badge
 ✓ bubble
 ✓ bucket-picker
+✓ buffer-time
 ✓ build-status
 ✓ bulk-actions
 ✓ bulk-edit-panel
@@ -104,6 +106,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ cancel-policy
 ✓ canned-reply
 ✓ capacity-bar
+✓ capacity-input
 ✓ caption-toggle
 ✓ card
 ✓ card-grid
@@ -227,6 +230,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ currency-switch
 ✓ curriculum-path
 ✓ cursor-pagination
+✓ cutoff-time
 ✓ cvc-input
 ✓ danger-zone
 ✓ data-freshness
@@ -241,6 +245,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ date-time-picker
 ✓ day-schedule
 ✓ deadline-bar
+✓ deadline-note
 ✓ decision-matrix
 ✓ dedupe-list
 ✓ definition
@@ -262,6 +267,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ diff-stat
 ✓ diff-text
 ✓ digest-row
+✓ dimension-input
 ✓ direction
 ✓ directory-list
 ✓ dirty-indicator
@@ -269,6 +275,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ dish-card
 ✓ dismiss-all
 ✓ distance-badge
+✓ distance-input
 ✓ divider-text
 ✓ dock
 ✓ document-meta
@@ -298,6 +305,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ duplicate-badge
 ✓ duration
 ✓ duration-bar
+✓ duration-input
 ✓ duration-picker
 ✓ edge-fade
 ✓ edit-lock
@@ -392,6 +400,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ gift-message
 ✓ gift-toggle
 ✓ glossary-item
+✓ grace-window
 ✓ grid-item
 ✓ group-by-picker
 ✓ grouped-list
@@ -443,6 +452,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ input-otp
 ✓ install-command
 ✓ instant-results
+✓ interval-picker
 ✓ invert-selection
 ✓ invite-form
 ✓ invoice-header
@@ -476,6 +486,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ lazy-boundary
 ✓ lead
 ✓ lead-time
+✓ lead-time-input
 ✓ leave-safe-consent
 ✓ legend
 ✓ letterhead
@@ -517,6 +528,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ material-badge
 ✓ matrix-question
 ✓ matrix-table
+✓ measurement-summary
 ✓ media-caption
 ✓ media-grid
 ✓ media-object
@@ -537,6 +549,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ metric-delta
 ✓ metric-row
 ✓ milestone-dot
+✓ min-max-field
 ✓ min-order-note
 ✓ mini-bars
 ✓ minimap-scroll
@@ -568,6 +581,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ nest-indent
 ✓ nested-list
 ✓ new-in-badge
+✓ next-occurrence
 ✓ nl-date-input
 ✓ no-results
 ✓ node-graph
@@ -603,6 +617,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ otp-resend
 ✓ outlier-flag
 ✓ overflow-scroller
+✓ overlap-warning
 ✓ pack-checklist
 ✓ page-break
 ✓ page-header
@@ -717,6 +732,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ rating-input
 ✓ rating-summary
 ✓ ratio-bar
+✓ ratio-input
 ✓ read-aloud
 ✓ read-only-mode
 ✓ read-progress
@@ -800,6 +816,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ saved-views
 ✓ scale-input
 ✓ scan-document
+✓ schedule-preview
 ✓ schema-viewer
 ✓ scope-list
 ✓ screen-only
@@ -878,6 +895,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ site-footer
 ✓ site-header
 ✓ sitemap-list
+✓ size-chart-row
 ✓ size-picker
 ✓ skeleton
 ✓ skeleton-card
@@ -892,6 +910,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ slide-over
 ✓ slider
 ✓ slider-input
+✓ slippage-note
 ✓ slot-hold
 ✓ slow-note
 ✓ slug-input
@@ -992,6 +1011,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tag-select
 ✓ tax-toggle
 ✓ team-grid
+✓ temperature-input
 ✓ template-download
 ✓ template-fill
 ✓ terminal-output
@@ -1013,9 +1033,11 @@ A ✓ means it exists and a generated site can import it today.
 ✓ ticket-tiers
 ✓ tilt-card
 ✓ time-ago
+✓ time-budget
 ✓ time-input
 ✓ time-lane-grid
 ✓ time-range
+✓ time-since
 ✓ time-slot
 ✓ time-until
 ✓ timeline
@@ -1033,6 +1055,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ toggle-group
 ✓ token-meter
 ✓ tolerance-bar
+✓ tolerance-field
 ✓ tool-call-card
 ✓ toolbar
 ✓ tooltip
@@ -1056,6 +1079,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ truncate-middle
 ✓ trust-score
 ✓ trust-strip
+✓ turnaround-note
 ✓ two-col
 ✓ two-factor-setup
 ✓ two-line-row
@@ -1068,6 +1092,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ uniqueness-check
 ✓ unit-convert
 ✓ unit-input
+✓ unit-mismatch
 ✓ unit-preference
 ✓ unit-price
 ✓ unit-toggle
@@ -1106,6 +1131,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ week-picker
 ✓ week-strip
 ✓ weekday-picker
+✓ weight-input
 ✓ weighted-score
 ✓ welcome-card
 ✓ well
@@ -1117,6 +1143,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ word-count
 ✓ workflow-map
 ✓ working-hours
+✓ working-hours-input
 ✓ workspace-switcher
 ✓ world-clock
 ✓ write-blocked

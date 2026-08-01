@@ -510,6 +510,14 @@ export const UI_COMPONENTS = [
   // Keyboard and focus. One tab stop per list, the platform's own modifier, and saying where focus went.
   "shortcut-hint", "key-cap", "shortcut-sheet", "roving-list", "access-key-badge",
   "kbd-chord", "focus-return", "shortcut-conflict",
+  // Duration, interval and recurrence. How long, how often, how much notice — and whether the rule really lands where the author thinks.
+  "duration-input", "interval-picker", "lead-time-input", "buffer-time", "cutoff-time",
+  "turnaround-note", "time-since", "working-hours-input", "overlap-warning", "grace-window",
+  "time-budget", "schedule-preview", "next-occurrence", "deadline-note", "slippage-note",
+  // Measurement, units and conversion. Each carries the domain knowledge a generic unit field gets silently wrong.
+  "dimension-input", "weight-input", "temperature-input", "ratio-input", "tolerance-field",
+  "min-max-field", "measurement-summary", "size-chart-row", "capacity-input", "distance-input",
+  "area-input", "unit-mismatch",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
