@@ -20,6 +20,10 @@ import { cn } from "@/lib/utils";
  *
  * A `<textarea>` for long values so they wrap rather than scrolling sideways
  * inside a one-line box — a truncated key looks complete and is not.
+ *
+ * AN EMPTY `label` RENDERS NO PARAGRAPH AT ALL. Callers that already label the
+ * field themselves — `domain-verify` puts these under a `<dt>` — pass "", and
+ * an empty `<p>` there is a stray gap in the middle of a definition list.
  */
 export function ClipboardBlocked({ value, label = "Copying is not available here — select and copy this yourself", multiline, className }: {
   value: string;
@@ -34,7 +38,7 @@ export function ClipboardBlocked({ value, label = "Copying is not available here
   };
   return (
     <div className={cn("space-y-1", className)}>
-      <p className="text-xs text-muted-foreground">{label}</p>
+      {label ? <p className="text-xs text-muted-foreground">{label}</p> : null}
       {multiline ? (
         <textarea ref={select} readOnly value={value} rows={3} aria-label="Value to copy"
           onFocus={(e) => e.currentTarget.select()}

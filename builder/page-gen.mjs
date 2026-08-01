@@ -664,6 +664,12 @@ export const UI_COMPONENTS = [
   "webhook-endpoint", "event-subscription", "delivery-attempt", "payload-preview", "signature-secret",
   "replay-event", "event-filter", "dead-letter", "delivery-rate", "webhook-test",
   "idempotency-note", "retry-policy",
+  // Quotas, limits and metering
+  "usage-breakdown", "overage-preview", "limit-reached", "plan-limit-row", "burst-note",
+  "usage-forecast", "seat-usage-row", "hard-limit-warning", "usage-alert-rule",
+  // Multi-tenancy and white-label
+  "tenant-badge", "brand-upload", "custom-domain", "domain-verify", "subdomain-field",
+  "tenant-limits", "workspace-invite", "cross-workspace-note", "tenant-delete",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

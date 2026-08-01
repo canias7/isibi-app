@@ -1,4 +1,4 @@
-# Components (1583 built, 25 to go)
+# Components (1601 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -132,6 +132,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ branch-badge
 ✓ branch-preview
 ✓ branching-note
+✓ brand-upload
 ✓ breadcrumb
 ✓ breadcrumb-collapse
 ✓ breadcrumb-path
@@ -145,6 +146,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ bulk-edit-panel
 ✓ bulk-pricing
 ✓ bullet-list
+✓ burst-note
 ✓ busy-button
 ✓ button
 ✓ button-group
@@ -321,6 +323,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ cron-builder
 ✓ crop-box
 ✓ cross-page-selection
+✓ cross-workspace-note
 ✓ csat-face
 ✓ csv-import
 ✓ cta-band
@@ -332,6 +335,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ curriculum-path
 ✓ cursor-label
 ✓ cursor-pagination
+✓ custom-domain
 ✓ cutoff-time
 ✓ cvc-input
 ✓ danger-zone
@@ -401,6 +405,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ dock
 ✓ document-meta
 ✓ document-outline
+✓ domain-verify
 ✓ donation-card
 ✓ donut-mini
 ✓ dot-plot
@@ -594,6 +599,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ handoff-summary
 ✓ handover-bar
 ✓ handover-note
+✓ hard-limit-warning
 ✓ header-table
 ✓ heading
 ✓ heading-level
@@ -698,6 +704,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ lightbox
 ✓ like-button
 ✓ likert-row
+✓ limit-reached
 ✓ line-focus
 ✓ link-card
 ✓ link-editor
@@ -851,6 +858,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ otp-form
 ✓ otp-resend
 ✓ outlier-flag
+✓ overage-preview
 ✓ overbooking-note
 ✓ overflow-fade
 ✓ overflow-scroller
@@ -916,6 +924,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ place-search
 ✓ placeholder-grid
 ✓ plan-card
+✓ plan-limit-row
 ✓ playback-speed
 ✓ plural
 ✓ poll-composer
@@ -1176,6 +1185,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ search-within
 ✓ seat-map
 ✓ seat-usage
+✓ seat-usage-row
 ✓ section
 ✓ section-divider
 ✓ section-header
@@ -1348,6 +1358,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ streak-counter
 ✓ streaming-text
 ✓ strike-badge
+✓ subdomain-field
 ✓ subscribe-toggle
 ✓ substitution-pref
 ✓ subtitle-track
@@ -1404,6 +1415,9 @@ A ✓ means it exists and a generated site can import it today.
 ✓ template-picker
 ✓ template-preview
 ✓ template-variables
+✓ tenant-badge
+✓ tenant-delete
+✓ tenant-limits
 ✓ terminal-output
 ✓ terms-block
 ✓ test-connection
@@ -1514,6 +1528,9 @@ A ✓ means it exists and a generated site can import it today.
 ✓ upload-queue
 ✓ uptime-bar
 ✓ url-input
+✓ usage-alert-rule
+✓ usage-breakdown
+✓ usage-forecast
 ✓ usage-meter
 ✓ usage-nudge
 ✓ utilisation-bar
@@ -1578,6 +1595,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ workflow-map
 ✓ working-hours
 ✓ working-hours-input
+✓ workspace-invite
 ✓ workspace-switcher
 ✓ world-clock
 ✓ write-blocked
