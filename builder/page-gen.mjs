@@ -562,6 +562,10 @@ export const UI_COMPONENTS = [
   "file-preview-pane", "file-version", "file-conflict", "breadcrumb-path", "file-type-note",
   "scan-status", "checksum-note", "download-progress", "zip-contents", "page-thumbnails",
   "document-outline", "signature-request", "redaction-note", "watermark-note", "ocr-note",
+  // Images and media handling. The controls a player and an image editor need, each with the keyboard route that gesture-only versions leave out.
+  "crop-box", "rotate-control", "compare-slider", "zoom-pan", "exposure-note",
+  "alt-text-warning", "media-duration", "caption-track", "waveform-scrub", "thumbnail-picker",
+  "media-error", "autoplay-note", "picture-in-picture", "loop-toggle", "volume-control",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

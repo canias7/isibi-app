@@ -1,4 +1,4 @@
-# Components (1299 built, 25 to go)
+# Components (1314 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -25,6 +25,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ alert-dialog
 ✓ all-day-row
 ✓ alt-text-field
+✓ alt-text-warning
 ✓ amount-in-words
 ✓ amount-input
 ✓ anchor-heading
@@ -57,6 +58,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ auto-grid
 ✓ autofill-conflict
 ✓ autofill-note
+✓ autoplay-note
 ✓ autosave-history
 ✓ availability-grid
 ✓ availability-legend
@@ -121,6 +123,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ capacity-bar
 ✓ capacity-input
 ✓ caption-toggle
+✓ caption-track
 ✓ card
 ✓ card-grid
 ✓ card-input
@@ -200,6 +203,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ comment-pin
 ✓ comment-thread
 ✓ commit-row
+✓ compare-slider
 ✓ compare-table
 ✓ comparison-columns
 ✓ comparison-table
@@ -249,6 +253,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ cover-image
 ✓ credit-applied
 ✓ cron-builder
+✓ crop-box
 ✓ cross-page-selection
 ✓ csat-face
 ✓ csv-import
@@ -379,6 +384,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ export-format
 ✓ export-progress
 ✓ export-settings
+✓ exposure-note
 ✓ external-link
 ✓ facet-list
 ✓ facet-range
@@ -583,6 +589,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ login-history
 ✓ logo
 ✓ logo-cloud
+✓ loop-toggle
 ✓ magic-link-sent
 ✓ magnetic-button
 ✓ maintenance-notice
@@ -602,6 +609,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ matrix-table
 ✓ measurement-summary
 ✓ media-caption
+✓ media-duration
+✓ media-error
 ✓ media-grid
 ✓ media-object
 ✓ media-query-note
@@ -739,6 +748,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ phone-input
 ✓ pick-remaining
 ✓ pickup-point
+✓ picture-in-picture
 ✓ pinned-nav
 ✓ pivot-table
 ✓ place-order-bar
@@ -896,6 +906,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ rollback-confirm
 ✓ rollback-note
 ✓ room-card
+✓ rotate-control
 ✓ rounding-line
 ✓ rounding-note
 ✓ roving-list
@@ -1164,6 +1175,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ threshold-bar
 ✓ threshold-marker
 ✓ thumb-strip
+✓ thumbnail-picker
 ✓ ticket-card
 ✓ ticket-row
 ✓ ticket-tiers
@@ -1265,6 +1277,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ visibility-toggle
 ✓ visually-hidden
 ✓ voice-input
+✓ volume-control
 ✓ volume-slider
 ✓ vote-bar
 ✓ vote-buttons
@@ -1273,6 +1286,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ watermark
 ✓ watermark-note
 ✓ waveform
+✓ waveform-scrub
 ✓ webhook-row
 ✓ week-picker
 ✓ week-strip
@@ -1303,6 +1317,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ zero-results
 ✓ zip-contents
 ✓ zoom-controls
+✓ zoom-pan
 
 area-chart
 bar-chart
