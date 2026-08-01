@@ -8,7 +8,8 @@ export const WORLDS = {
  broadsheet: {},
  literary: {},
  zine: {
-  decor: "grain"
+  decor: "grain",
+  edge: "torn"
  },
  journal: {
   decor: "grain"
@@ -38,23 +39,27 @@ export const WORLDS = {
  },
  "gradient-mesh": {
   backdrop: "aurora",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  aurora: {
   backdrop: "aurora",
-  display: "gradient"
+  display: "gradient",
+  ambient: "drift"
  },
  cyber: {
   backdrop: "glow",
   decor: "scanlines",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  "industrial-technical": {
   decor: "grid"
  },
  "ai-native": {
   backdrop: "aurora",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  minimal: {},
  monochrome: {},
@@ -65,44 +70,56 @@ export const WORLDS = {
  japandi: {},
  utilitarian: {},
  "wabi-sabi": {
-  decor: "grain"
+  decor: "grain",
+  edge: "torn"
  },
- gallery: {},
+ gallery: {
+  skin: "frame"
+ },
  maximalist: {
   backdrop: "field",
   decor: "spots",
-  display: "gradient"
+  display: "gradient",
+  ambient: "lively"
  },
  poster: {
   backdrop: "horizon",
-  display: "accent"
+  display: "accent",
+  ambient: "lively"
  },
  kinetic: {
   backdrop: "field",
-  display: "accent"
+  display: "accent",
+  ambient: "lively",
+  edge: "angle"
  },
  "anti-design": {},
  acid: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "lively"
  },
  "y2k": {
   backdrop: "aurora",
-  display: "gradient"
+  display: "gradient",
+  ambient: "lively"
  },
  vaporwave: {
   backdrop: "horizon",
   decor: "grid",
-  display: "gradient"
+  display: "gradient",
+  ambient: "lively"
  },
  memphis: {
   decor: "spots",
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  ambient: "lively"
  },
  psychedelic: {
   backdrop: "aurora",
-  display: "gradient"
+  display: "gradient",
+  ambient: "lively"
  },
  artisan: {
   decor: "grain",
@@ -125,7 +142,8 @@ export const WORLDS = {
   display: "accent"
  },
  coastal: {
-  backdrop: "wash"
+  backdrop: "wash",
+  edge: "wave"
  },
  "nordic-cabin": {
   backdrop: "wash",
@@ -159,19 +177,23 @@ export const WORLDS = {
  "retro-futurism": {
   decor: "rays",
   backdrop: "field",
-  display: "accent"
+  display: "accent",
+  edge: "angle"
  },
  grunge: {
   decor: "grain",
-  display: "ink"
+  display: "ink",
+  edge: "torn"
  },
  punk: {
-  decor: "grain"
+  decor: "grain",
+  edge: "torn"
  },
  "analog-vhs": {
   decor: "scanlines",
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  blueprint: {
   decor: "grid"
@@ -182,7 +204,8 @@ export const WORLDS = {
  couture: {},
  jewellery: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  hotel: {
   backdrop: "wash"
@@ -197,43 +220,52 @@ export const WORLDS = {
  toybox: {
   backdrop: "wash",
   decor: "spots",
-  display: "gradient"
+  display: "gradient",
+  ambient: "lively"
  },
  sticker: {
   decor: "spots",
   backdrop: "wash",
-  display: "gradient"
+  display: "gradient",
+  ambient: "lively",
+  skin: "tilt"
  },
  claymorphism: {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  ambient: "lively"
  },
  comic: {
   decor: "dots",
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  ambient: "lively"
  },
  nursery: {
   backdrop: "wash",
   decor: "dots",
-  display: "accent"
+  display: "accent",
+  ambient: "lively"
  },
  arcade: {
   backdrop: "glow",
   decor: "scanlines",
-  display: "gradient"
+  display: "gradient",
+  ambient: "lively"
  },
  noir: {},
  cinematic: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  gothic: {
   display: "accent"
  },
  nightlife: {
   backdrop: "glow",
-  display: "gradient"
+  display: "gradient",
+  ambient: "drift"
  },
  esoteric: {
   decor: "grain",
@@ -273,7 +305,8 @@ export const WORLDS = {
  },
  velvet: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  trattoria: {
   backdrop: "wash",
@@ -281,11 +314,13 @@ export const WORLDS = {
  },
  izakaya: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  greenhouse: {
   backdrop: "aurora",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  boathouse: {
   backdrop: "wash",
@@ -330,7 +365,8 @@ export const WORLDS = {
  },
  baroque: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  rococo: {
   backdrop: "wash",
@@ -352,25 +388,31 @@ export const WORLDS = {
   display: "accent"
  },
  alpine: {
-  backdrop: "field"
+  backdrop: "field",
+  edge: "angle"
  },
  desert: {
   backdrop: "horizon"
  },
  monsoon: {
-  backdrop: "wash"
+  backdrop: "wash",
+  edge: "wave"
  },
  tundra: {},
  meadow: {
   backdrop: "wash",
-  decor: "spots"
+  decor: "spots",
+  edge: "wave"
  },
  tidepool: {
-  backdrop: "aurora"
+  backdrop: "aurora",
+  ambient: "drift",
+  edge: "wave"
  },
  canyon: {
   backdrop: "horizon",
-  display: "accent"
+  display: "accent",
+  edge: "torn"
  },
  orchard: {
   backdrop: "wash",
@@ -382,7 +424,8 @@ export const WORLDS = {
  },
  ember: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  "barber-classic": {
   backdrop: "wash",
@@ -392,7 +435,8 @@ export const WORLDS = {
   backdrop: "wash"
  },
  "butcher-paper": {
-  decor: "grain"
+  decor: "grain",
+  edge: "torn"
  },
  carpenter: {
   backdrop: "wash",
@@ -400,7 +444,8 @@ export const WORLDS = {
  },
  foundry: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  printshop: {
   backdrop: "wash",
@@ -412,7 +457,8 @@ export const WORLDS = {
  },
  distillery: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  florist: {
   backdrop: "wash",
@@ -431,7 +477,8 @@ export const WORLDS = {
  libretto: {},
  mixtape: {
   decor: "grain",
-  display: "accent"
+  display: "accent",
+  skin: "tilt"
  },
  arthouse: {
   display: "accent"
@@ -467,10 +514,13 @@ export const WORLDS = {
  eink: {},
  "cassette-futurism": {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift",
+  edge: "angle"
  },
  hologram: {
-  display: "gradient"
+  display: "gradient",
+  ambient: "drift"
  },
  "beige-box": {},
  vector: {
@@ -490,7 +540,8 @@ export const WORLDS = {
  },
  "wine-cellar": {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  "oyster-bar": {
   backdrop: "wash",
@@ -498,15 +549,18 @@ export const WORLDS = {
  },
  gelato: {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  edge: "wave"
  },
  smokehouse: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  cocktail: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  honey: {
   backdrop: "wash",
@@ -517,13 +571,16 @@ export const WORLDS = {
   display: "accent"
  },
  transit: {
-  display: "accent"
+  display: "accent",
+  skin: "ticket"
  },
  municipal: {},
  library: {
   decor: "grain"
  },
- "museum-label": {},
+ "museum-label": {
+  skin: "frame"
+ },
  schoolhouse: {
   decor: "grid",
   display: "accent"
@@ -533,7 +590,8 @@ export const WORLDS = {
  },
  observatory: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  "post-office": {
   decor: "stripes",
@@ -571,7 +629,8 @@ export const WORLDS = {
  },
  lagoon: {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  edge: "wave"
  },
  onsen: {
   backdrop: "wash"
@@ -582,14 +641,16 @@ export const WORLDS = {
  orchestra: {},
  "jazz-club": {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  choir: {
   display: "accent"
  },
  karaoke: {
   backdrop: "glow",
-  display: "gradient"
+  display: "gradient",
+  ambient: "drift"
  },
  boombox: {
   decor: "scanlines",
@@ -601,20 +662,24 @@ export const WORLDS = {
  },
  busker: {
   decor: "grain",
-  backdrop: "wash"
+  backdrop: "wash",
+  skin: "tilt"
  },
  discotheque: {
   backdrop: "glow",
-  display: "gradient"
+  display: "gradient",
+  ambient: "drift"
  },
  chamber: {},
  "opera-house": {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  velodrome: {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  edge: "angle"
  },
  "tennis-club": {
   backdrop: "wash",
@@ -622,7 +687,8 @@ export const WORLDS = {
  },
  "boxing-gym": {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  "yacht-club": {
   backdrop: "wash",
@@ -630,14 +696,16 @@ export const WORLDS = {
  },
  marathon: {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  edge: "angle"
  },
  "chess-club": {
   backdrop: "wash"
  },
  billiards: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  "bowling-alley": {
   backdrop: "wash",
@@ -645,7 +713,8 @@ export const WORLDS = {
  },
  surf: {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  edge: "wave"
  },
  dojo: {
   backdrop: "wash",
@@ -664,7 +733,8 @@ export const WORLDS = {
  },
  anatomy: {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  skin: "frame"
  },
  "arctic-station": {
   backdrop: "wash",
@@ -672,7 +742,8 @@ export const WORLDS = {
  },
  aquarium: {
   backdrop: "aurora",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  aviary: {
   backdrop: "wash",
@@ -688,11 +759,13 @@ export const WORLDS = {
  },
  orrery: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  darkroom: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  loom: {
   decor: "weave",
@@ -703,7 +776,8 @@ export const WORLDS = {
  },
  glassblower: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  mosaic: {
   backdrop: "wash",
@@ -724,7 +798,8 @@ export const WORLDS = {
  },
  easel: {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  skin: "frame"
  },
  mural: {
   backdrop: "wash",
@@ -739,11 +814,13 @@ export const WORLDS = {
  },
  bloom: {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  edge: "wave"
  },
  midwinter: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  advent: {
   backdrop: "wash",
@@ -751,11 +828,13 @@ export const WORLDS = {
  },
  lantern: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  bonfire: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  almanac: {
   backdrop: "wash",
@@ -771,7 +850,8 @@ export const WORLDS = {
  },
  "sleeper-train": {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  airship: {
   backdrop: "wash"
@@ -782,7 +862,8 @@ export const WORLDS = {
  },
  harbour: {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  edge: "wave"
  },
  "bicycle-shop": {
   backdrop: "wash",
@@ -790,7 +871,8 @@ export const WORLDS = {
  },
  motel: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  caravan: {
   backdrop: "wash",
@@ -820,7 +902,8 @@ export const WORLDS = {
   decor: "weave"
  },
  silk: {
-  display: "gradient"
+  display: "gradient",
+  ambient: "drift"
  },
  haberdashery: {
   decor: "dots"
@@ -831,7 +914,8 @@ export const WORLDS = {
  },
  thrift: {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  skin: "tilt"
  },
  streetwear: {
   backdrop: "wash",
@@ -850,7 +934,8 @@ export const WORLDS = {
  },
  "treasure-map": {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  edge: "torn"
  },
  circus: {
   backdrop: "wash",
@@ -869,7 +954,8 @@ export const WORLDS = {
   display: "accent"
  },
  castaway: {
-  backdrop: "wash"
+  backdrop: "wash",
+  edge: "torn"
  },
  labyrinth: {
   backdrop: "wash",
@@ -877,14 +963,17 @@ export const WORLDS = {
  },
  masquerade: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  "penny-dreadful": {
-  decor: "dots"
+  decor: "dots",
+  edge: "torn"
  },
  typewriter: {},
  "corner-office": {
-  backdrop: "glow"
+  backdrop: "glow",
+  ambient: "drift"
  },
  switchboard: {
   decor: "dots"
@@ -903,7 +992,8 @@ export const WORLDS = {
   decor: "grid"
  },
  "night-shift": {
-  backdrop: "glow"
+  backdrop: "glow",
+  ambient: "drift"
  },
  dispatch: {
   decor: "grid",
@@ -937,11 +1027,13 @@ export const WORLDS = {
  bazaar: {
   backdrop: "glow",
   decor: "weave",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  milonga: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  highlands: {
   decor: "check",
@@ -958,7 +1050,9 @@ export const WORLDS = {
  },
  "drive-in": {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift",
+  skin: "ticket"
  },
  tiki: {
   decor: "weave",
@@ -968,11 +1062,13 @@ export const WORLDS = {
  "county-fair": {
   decor: "spots",
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  skin: "ticket"
  },
  "honky-tonk": {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  rodeo: {
   decor: "grain",
@@ -981,7 +1077,8 @@ export const WORLDS = {
  boardwalk: {
   decor: "stripes",
   backdrop: "horizon",
-  display: "accent"
+  display: "accent",
+  edge: "wave"
  },
  "soda-fountain": {
   decor: "check",
@@ -994,10 +1091,12 @@ export const WORLDS = {
  },
  jukebox: {
   backdrop: "glow",
-  display: "gradient"
+  display: "gradient",
+  ambient: "drift"
  },
  "silent-film": {
-  decor: "grain"
+  decor: "grain",
+  skin: "frame"
  },
  ballet: {
   backdrop: "wash",
@@ -1005,7 +1104,8 @@ export const WORLDS = {
  },
  cabaret: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  vaudeville: {
   decor: "rays",
@@ -1014,21 +1114,27 @@ export const WORLDS = {
  matinee: {
   backdrop: "glow",
   decor: "grain",
-  display: "accent"
+  display: "accent",
+  ambient: "drift",
+  skin: "ticket"
  },
  backstage: {
-  backdrop: "glow"
+  backdrop: "glow",
+  ambient: "drift"
  },
  "magic-show": {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  "box-office": {
-  decor: "grain"
+  decor: "grain",
+  skin: "ticket"
  },
  "shadow-play": {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  "green-room": {
   backdrop: "wash"
@@ -1040,7 +1146,8 @@ export const WORLDS = {
  },
  casino: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  "playing-cards": {
   display: "accent"
@@ -1056,7 +1163,8 @@ export const WORLDS = {
  pinball: {
   backdrop: "glow",
   decor: "dots",
-  display: "gradient"
+  display: "gradient",
+  ambient: "drift"
  },
  mahjong: {
   decor: "grid",
@@ -1066,12 +1174,14 @@ export const WORLDS = {
  dungeon: {
   decor: "grid",
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  bingo: {
   decor: "dots",
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  skin: "ticket"
  },
  lighthouse: {
   backdrop: "wash",
@@ -1079,11 +1189,13 @@ export const WORLDS = {
  },
  riverboat: {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  edge: "wave"
  },
  canal: {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  edge: "wave"
  },
  fjord: {
   backdrop: "wash",
@@ -1091,17 +1203,22 @@ export const WORLDS = {
  },
  submarine: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift",
+  edge: "angle"
  },
  pearl: {
-  backdrop: "aurora"
+  backdrop: "aurora",
+  ambient: "drift"
  },
  ferry: {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  skin: "ticket"
  },
  estuary: {
-  backdrop: "wash"
+  backdrop: "wash",
+  edge: "wave"
  },
  kelp: {
   backdrop: "wash",
@@ -1113,21 +1230,26 @@ export const WORLDS = {
  },
  eclipse: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  comet: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  moonrise: {
-  backdrop: "glow"
+  backdrop: "glow",
+  ambient: "drift"
  },
  cumulus: {
-  backdrop: "aurora"
+  backdrop: "aurora",
+  ambient: "drift"
  },
  nebula: {
   backdrop: "aurora",
-  display: "gradient"
+  display: "gradient",
+  ambient: "drift"
  },
  sundial: {
   decor: "rays"
@@ -1144,15 +1266,18 @@ export const WORLDS = {
   display: "accent"
  },
  polaris: {
-  backdrop: "glow"
+  backdrop: "glow",
+  ambient: "drift"
  },
  crayon: {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  skin: "tilt"
  },
  "paper-plane": {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  skin: "tilt"
  },
  treehouse: {
   backdrop: "wash",
@@ -1160,7 +1285,8 @@ export const WORLDS = {
  },
  "lemonade-stand": {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  skin: "tilt"
  },
  marbles: {
   backdrop: "wash",
@@ -1184,20 +1310,25 @@ export const WORLDS = {
  },
  bubblegum: {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  edge: "wave"
  },
  cave: {
-  backdrop: "glow"
+  backdrop: "glow",
+  ambient: "drift"
  },
  grotto: {
-  backdrop: "aurora"
+  backdrop: "aurora",
+  ambient: "drift"
  },
  mine: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  catacomb: {
-  backdrop: "glow"
+  backdrop: "glow",
+  ambient: "drift"
  },
  "metro-tile": {
   decor: "grid",
@@ -1208,14 +1339,17 @@ export const WORLDS = {
  },
  burrow: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  "root-cellar": {
-  backdrop: "glow"
+  backdrop: "glow",
+  ambient: "drift"
  },
  speakeasy: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  vault: {},
  stationery: {},
@@ -1225,12 +1359,14 @@ export const WORLDS = {
  },
  postcard: {
   decor: "grain",
-  display: "accent"
+  display: "accent",
+  skin: "tilt"
  },
  scrapbook: {
   decor: "spots",
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  skin: "tilt"
  },
  "carbon-copy": {
   decor: "scanlines"
@@ -1275,7 +1411,8 @@ export const WORLDS = {
  },
  "night-market": {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  candlemaker: {
   backdrop: "wash",
@@ -1293,28 +1430,33 @@ export const WORLDS = {
   backdrop: "wash"
  },
  ruin: {
-  decor: "grain"
+  decor: "grain",
+  edge: "torn"
  },
  palimpsest: {
   decor: "grain"
  },
  fresco: {
   decor: "grain",
-  backdrop: "wash"
+  backdrop: "wash",
+  skin: "frame"
  },
  sepia: {
-  decor: "grain"
+  decor: "grain",
+  skin: "frame"
  },
  kintsugi: {
   display: "accent"
  },
  "ghost-sign": {
   decor: "grain",
-  display: "accent"
+  display: "accent",
+  edge: "torn"
  },
  attic: {
   decor: "grain",
-  backdrop: "glow"
+  backdrop: "glow",
+  ambient: "drift"
  },
  "time-capsule": {
   decor: "grain"
@@ -1366,7 +1508,8 @@ export const WORLDS = {
  },
  "supper-club": {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  cookbook: {
   backdrop: "wash",
@@ -1390,7 +1533,8 @@ export const WORLDS = {
  },
  picnic: {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  edge: "wave"
  },
  preserves: {
   backdrop: "wash",
@@ -1418,7 +1562,8 @@ export const WORLDS = {
  },
  rocketry: {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  edge: "angle"
  },
  beekeeping: {
   backdrop: "wash",
@@ -1439,7 +1584,8 @@ export const WORLDS = {
  },
  "midnight-snack": {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  "sunday-morning": {
   backdrop: "wash",
@@ -1451,7 +1597,8 @@ export const WORLDS = {
  },
  "small-hours": {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  "lie-in": {
   backdrop: "wash",
@@ -1463,7 +1610,8 @@ export const WORLDS = {
  },
  nightcap: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  "dawn-chorus": {
   backdrop: "wash",
@@ -1475,7 +1623,8 @@ export const WORLDS = {
  },
  "porch-light": {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  palladian: {
   backdrop: "wash"
@@ -1486,7 +1635,8 @@ export const WORLDS = {
  },
  "a-frame": {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  edge: "angle"
  },
  penthouse: {
   backdrop: "wash"
@@ -1505,7 +1655,8 @@ export const WORLDS = {
  },
  conservatory: {
   backdrop: "aurora",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  terrace: {
   backdrop: "wash",
@@ -1513,7 +1664,8 @@ export const WORLDS = {
  },
  geodesic: {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  edge: "angle"
  },
  thunderstorm: {
   backdrop: "field",
@@ -1531,16 +1683,19 @@ export const WORLDS = {
  },
  rainbow: {
   backdrop: "aurora",
-  display: "gradient"
+  display: "gradient",
+  ambient: "drift"
  },
  dewfall: {
-  backdrop: "aurora"
+  backdrop: "aurora",
+  ambient: "drift"
  },
  sirocco: {
   backdrop: "horizon"
  },
  mistral: {
-  backdrop: "field"
+  backdrop: "field",
+  edge: "angle"
  },
  gale: {
   backdrop: "field",
@@ -1564,7 +1719,8 @@ export const WORLDS = {
  },
  "camera-obscura": {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  seismograph: {
   backdrop: "wash",
@@ -1588,7 +1744,8 @@ export const WORLDS = {
  },
  "magic-lantern": {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  rooftops: {
   backdrop: "wash",
@@ -1603,7 +1760,8 @@ export const WORLDS = {
  },
  gaslight: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  plaza: {
   backdrop: "wash",
@@ -1627,7 +1785,8 @@ export const WORLDS = {
  },
  skyline: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  amphora: {
   backdrop: "field",
@@ -1639,7 +1798,8 @@ export const WORLDS = {
  },
  oracle: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  hieroglyph: {
   decor: "grain",
@@ -1650,17 +1810,20 @@ export const WORLDS = {
  },
  atlantis: {
   backdrop: "aurora",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  papyrus: {
   decor: "weave"
  },
  obsidian: {
-  backdrop: "glow"
+  backdrop: "glow",
+  ambient: "drift"
  },
  phoenix: {
   backdrop: "glow",
-  display: "gradient"
+  display: "gradient",
+  ambient: "drift"
  },
  scarab: {
   display: "accent",
@@ -1670,29 +1833,34 @@ export const WORLDS = {
   decor: "grid"
  },
  summit: {
-  backdrop: "field"
+  backdrop: "field",
+  edge: "angle"
  },
  rainforest: {
   backdrop: "field"
  },
  oasis: {
   backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  edge: "wave"
  },
  outback: {
   backdrop: "horizon",
   decor: "grain",
-  display: "accent"
+  display: "accent",
+  edge: "torn"
  },
  steppe: {
   backdrop: "horizon"
  },
  volcano: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  glacier: {
-  backdrop: "aurora"
+  backdrop: "aurora",
+  ambient: "drift"
  },
  dune: {
   backdrop: "horizon"
@@ -1707,7 +1875,8 @@ export const WORLDS = {
  },
  lapis: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  "rose-quartz": {
   backdrop: "wash",
@@ -1722,14 +1891,17 @@ export const WORLDS = {
  },
  opal: {
   backdrop: "aurora",
-  display: "gradient"
+  display: "gradient",
+  ambient: "drift"
  },
  onyx: {
-  backdrop: "glow"
+  backdrop: "glow",
+  ambient: "drift"
  },
  amber: {
   backdrop: "glow",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  granite: {
   decor: "grain"
@@ -1737,7 +1909,9 @@ export const WORLDS = {
  impressionist: {
   backdrop: "aurora",
   decor: "grain",
-  display: "accent"
+  display: "accent",
+  ambient: "drift",
+  skin: "frame"
  },
  fauvist: {
   backdrop: "field",
@@ -1752,7 +1926,9 @@ export const WORLDS = {
  },
  watercolour: {
   backdrop: "aurora",
-  display: "accent"
+  display: "accent",
+  ambient: "drift",
+  skin: "frame"
  },
  gouache: {
   backdrop: "wash",
@@ -1771,11 +1947,13 @@ export const WORLDS = {
  tarot: {
   backdrop: "glow",
   decor: "grain",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  bioluminescence: {
   backdrop: "aurora",
-  display: "accent"
+  display: "accent",
+  ambient: "drift"
  },
  prism: {
   decor: "grid",
@@ -1793,12 +1971,14 @@ export const WORLDS = {
   backdrop: "wash"
  },
  terrarium: {
-  backdrop: "aurora"
+  backdrop: "aurora",
+  ambient: "drift"
  },
  kaleidoscope: {
   backdrop: "aurora",
   decor: "spots",
-  display: "gradient"
+  display: "gradient",
+  ambient: "drift"
  },
  matchbox: {
   decor: "grain",
