@@ -1044,15 +1044,24 @@ const DECOR_LAYERS = {
     const boards = `repeating-linear-gradient(90deg, ${css([...tone, a1])} 0 148px, ${css([...tone, a2])} 148px 296px, ${css([...tone, a3])} 296px 444px, ${css([...tone, a4])} 444px 592px)`;
     return { image: `${seams}, ${grain}, ${boards}` };
   },
+  // Material alphas below are CALIBRATED, not guessed: the first draft used
+  // wood's whisper numbers and every tile came back blank — wood only reads
+  // because its seam/board gradients carry structure the noise rides on. A
+  // noise-only material needs roughly double the peak alpha to survive the
+  // opened root (scratchpad mat-cal harness, 2026-08-01).
   paper: (theme, mode) => {
     // Laid paper: soft pulp mottle under a fine fleck of pressed fibre — the
     // ground for print-world themes, felt more than seen.
     const { paper, ink } = theme[mode];
     const light = mode === "light";
-    return { image: matSvg(420, [
-      { freq: "0.008 0.01", seed: 5, tint: mix(paper, ink, 0.3).slice(0, 3), table: light ? "0 0 0.05 0.1" : "0 0 0.06 0.11" },
-      { freq: "0.55 0.55", octaves: 2, seed: 9, tint: mix(paper, ink, 0.5).slice(0, 3), kind: "discrete", table: light ? "0 0.035 0 0.055" : "0 0.04 0 0.06" },
-    ]) };
+    const mat = matSvg(420, [
+      { freq: "0.008 0.01", seed: 5, tint: mix(paper, ink, 0.38).slice(0, 3), table: light ? "0 0.02 0.09 0.16" : "0 0.02 0.1 0.17" },
+      { freq: "0.55 0.55", seed: 9, tint: mix(paper, ink, 0.7).slice(0, 3), kind: "discrete", table: light ? "0 0.12 0 0.16" : "0 0.13 0 0.17" },
+    ]);
+    // Laid ribbing — the fine chain-line texture that says handmade sheet
+    // rather than copier stock. The signature; the mottle alone was blank.
+    const rib = css([...mix(paper, ink, 0.4).slice(0, 3), light ? 0.07 : 0.08]);
+    return { image: `repeating-linear-gradient(0deg, ${rib} 0 1px, transparent 1px 4px), ${mat}` };
   },
   linen: (theme, mode) => {
     // Flax cloth: broad tone drift, a thread field in each direction, and
@@ -1060,24 +1069,24 @@ const DECOR_LAYERS = {
     // rather than printed.
     const { paper, ink } = theme[mode];
     const light = mode === "light";
-    const thread = mix(paper, ink, light ? 0.45 : 0.4).slice(0, 3);
+    const thread = mix(paper, ink, light ? 0.6 : 0.5).slice(0, 3);
     return { image: matSvg(440, [
-      { freq: "0.008 0.006", octaves: 2, seed: 3, tint: mix(paper, ink, 0.3).slice(0, 3), table: light ? "0 0 0.06 0.12" : "0 0 0.07 0.13" },
-      { freq: "0.45 0.02", octaves: 2, seed: 6, tint: thread, kind: "discrete", table: light ? "0 0.05 0 0.08" : "0 0.06 0 0.09" },
-      { freq: "0.02 0.45", octaves: 2, seed: 8, tint: thread, kind: "discrete", table: light ? "0 0.05 0 0.08" : "0 0.06 0 0.09" },
-      { freq: "0.09 0.005", seed: 12, tint: mix(paper, ink, light ? 0.6 : 0.5).slice(0, 3), kind: "discrete", table: "0 0 0 0 0 0 0 0.09 0 0.12", warp: { freq: "0.01 0.02", seed: 4, scale: 10 } },
+      { freq: "0.008 0.006", octaves: 2, seed: 3, tint: mix(paper, ink, 0.38).slice(0, 3), table: light ? "0 0.02 0.1 0.17" : "0 0.02 0.11 0.18" },
+      { freq: "0.45 0.02", octaves: 2, seed: 6, tint: thread, kind: "discrete", table: light ? "0 0.12 0 0.17" : "0 0.13 0 0.18" },
+      { freq: "0.02 0.45", octaves: 2, seed: 8, tint: thread, kind: "discrete", table: light ? "0 0.12 0 0.17" : "0 0.13 0 0.18" },
+      { freq: "0.09 0.005", seed: 12, tint: mix(paper, ink, light ? 0.62 : 0.52).slice(0, 3), kind: "discrete", table: "0 0 0 0 0 0 0.12 0 0.16 0.2", warp: { freq: "0.01 0.02", seed: 4, scale: 10 } },
     ]) };
   },
   canvas: (theme, mode) => {
     // Linen's coarse cousin: heavier threads, stronger slub, more tooth.
     const { paper, ink } = theme[mode];
     const light = mode === "light";
-    const thread = mix(paper, ink, light ? 0.5 : 0.45).slice(0, 3);
+    const thread = mix(paper, ink, light ? 0.56 : 0.5).slice(0, 3);
     return { image: matSvg(440, [
-      { freq: "0.009 0.007", octaves: 2, seed: 5, tint: mix(paper, ink, 0.32).slice(0, 3), table: light ? "0 0 0.07 0.14" : "0 0 0.08 0.15" },
-      { freq: "0.22 0.015", octaves: 2, seed: 7, tint: thread, kind: "discrete", table: light ? "0 0.07 0 0.1" : "0 0.08 0 0.11" },
-      { freq: "0.015 0.22", octaves: 2, seed: 9, tint: thread, kind: "discrete", table: light ? "0 0.07 0 0.1" : "0 0.08 0 0.11" },
-      { freq: "0.07 0.006", seed: 13, tint: mix(paper, ink, light ? 0.62 : 0.52).slice(0, 3), kind: "discrete", table: "0 0 0 0 0 0 0 0.1 0 0.14", warp: { freq: "0.012 0.02", seed: 6, scale: 12 } },
+      { freq: "0.009 0.007", octaves: 2, seed: 5, tint: mix(paper, ink, 0.4).slice(0, 3), table: light ? "0 0.03 0.12 0.2" : "0 0.03 0.13 0.21" },
+      { freq: "0.22 0.015", octaves: 2, seed: 7, tint: thread, kind: "discrete", table: light ? "0 0.12 0 0.16" : "0 0.13 0 0.17" },
+      { freq: "0.015 0.22", octaves: 2, seed: 9, tint: thread, kind: "discrete", table: light ? "0 0.12 0 0.16" : "0 0.13 0 0.17" },
+      { freq: "0.07 0.006", seed: 13, tint: mix(paper, ink, light ? 0.66 : 0.56).slice(0, 3), kind: "discrete", table: "0 0 0 0 0 0 0.14 0 0.18 0.22", warp: { freq: "0.012 0.02", seed: 6, scale: 12 } },
     ]) };
   },
   plaster: (theme, mode) => {
@@ -1086,9 +1095,9 @@ const DECOR_LAYERS = {
     const { paper, ink } = theme[mode];
     const light = mode === "light";
     return { image: matSvg(460, [
-      { freq: "0.006 0.007", seed: 4, tint: mix(paper, ink, 0.32).slice(0, 3), table: light ? "0 0.02 0.08 0.14" : "0 0.02 0.09 0.15" },
-      { freq: "0.03 0.035", seed: 7, tint: mix(paper, ink, 0.24).slice(0, 3), table: "0 0 0.04 0.08" },
-      { freq: "0.4 0.4", octaves: 2, seed: 11, tint: mix(paper, ink, 0.45).slice(0, 3), kind: "discrete", table: "0 0.03 0 0.05" },
+      { freq: "0.006 0.007", seed: 4, tint: mix(paper, ink, 0.42).slice(0, 3), table: light ? "0 0.06 0.18 0.3" : "0 0.06 0.19 0.31" },
+      { freq: "0.03 0.035", seed: 7, tint: mix(paper, ink, 0.45).slice(0, 3), table: "0 0 0.12 0.2" },
+      { freq: "0.4 0.4", octaves: 2, seed: 11, tint: mix(paper, ink, 0.55).slice(0, 3), kind: "discrete", table: "0 0.09 0 0.12" },
     ]) };
   },
   concrete: (theme, mode) => {
@@ -1099,23 +1108,26 @@ const DECOR_LAYERS = {
     const light = mode === "light";
     const pit = deepen(paper, ink, mode, 0.55);
     const mat = matSvg(460, [
-      { freq: "0.006 0.007", seed: 6, tint: mix(paper, ink, 0.3).slice(0, 3), table: light ? "0 0.02 0.08 0.14" : "0 0.02 0.09 0.15" },
-      { freq: "0.035 0.04", seed: 9, tint: mix(paper, ink, 0.22).slice(0, 3), table: "0 0 0.04 0.09" },
-      { freq: "0.3 0.3", octaves: 2, seed: 13, tint: pit, kind: "discrete", table: "0 0 0 0 0 0 0 0 0.1 0.14" },
+      { freq: "0.006 0.007", seed: 6, tint: mix(paper, ink, 0.42).slice(0, 3), table: light ? "0 0.06 0.18 0.3" : "0 0.06 0.19 0.31" },
+      { freq: "0.035 0.04", seed: 9, tint: mix(paper, ink, 0.42).slice(0, 3), table: "0 0 0.12 0.2" },
+      { freq: "0.3 0.3", octaves: 2, seed: 13, tint: pit, kind: "discrete", table: "0 0 0 0 0 0 0 0.16 0.2 0.24" },
     ]);
-    const seam = css([...mix(paper, ink, 0.3).slice(0, 3), light ? 0.35 : 0.4]);
+    const seam = css([...mix(paper, ink, 0.3).slice(0, 3), light ? 0.5 : 0.55]);
     return { image: `repeating-linear-gradient(90deg, ${seam} 0 2px, transparent 2px 260px), ${mat}` };
   },
   marble: (theme, mode) => {
-    // Veined stone: soft clouds, and thin filaments bent hard by a
-    // displacement field — a vein is a straight crack that the stone grew
-    // around, which is what heavy warp on a sparse table draws. In dark
-    // mode the veins run LIGHT, the way dark marble actually figures.
+    // Veined stone: soft clouds under a connected vein web. The veins live
+    // at the ZERO-CROSSINGS of ridged turbulence — |noise| runs to zero
+    // along connected creases, so firing the LOW bins draws a branching
+    // crack network, where firing the tails of fractal noise drew
+    // disconnected worms (measured on the calibration sheet). A gentle
+    // warp then bends the web. In dark mode the veins run LIGHT, the way
+    // dark marble actually figures.
     const { paper, ink } = theme[mode];
     const light = mode === "light";
     return { image: matSvg(480, [
-      { freq: "0.009 0.011", seed: 5, tint: mix(paper, ink, 0.26).slice(0, 3), table: light ? "0 0 0.05 0.1" : "0 0 0.06 0.11" },
-      { freq: "0.012 0.05", octaves: 2, seed: 9, tint: mix(paper, ink, light ? 0.5 : 0.55).slice(0, 3), kind: "discrete", table: "0 0 0 0 0 0 0 0 0.14 0.18", warp: { freq: "0.008 0.012", seed: 6, scale: 55 } },
+      { freq: "0.009 0.011", seed: 5, tint: mix(paper, ink, 0.36).slice(0, 3), table: light ? "0 0.02 0.1 0.17" : "0 0.02 0.11 0.18" },
+      { type: "turbulence", freq: "0.014 0.03", seed: 9, tint: mix(paper, ink, light ? 0.55 : 0.6).slice(0, 3), kind: "discrete", table: "0.26 0.18 0 0 0 0 0 0 0 0", warp: { freq: "0.008 0.012", seed: 6, scale: 30 } },
     ]) };
   },
   leather: (theme, mode) => {
@@ -1125,8 +1137,8 @@ const DECOR_LAYERS = {
     const light = mode === "light";
     const crease = deepen(paper, ink, mode, 0.5);
     return { image: matSvg(440, [
-      { freq: "0.006 0.006", octaves: 2, seed: 3, tint: mix(paper, ink, 0.32).slice(0, 3), table: light ? "0 0 0.06 0.13" : "0 0 0.07 0.14" },
-      { type: "turbulence", freq: "0.07 0.07", octaves: 4, seed: 8, tint: crease, kind: "discrete", table: light ? "0 0.1 0 0.02 0.08 0 0.05 0 0.11 0" : "0 0.12 0 0.03 0.09 0 0.06 0 0.13 0" },
+      { freq: "0.006 0.006", octaves: 2, seed: 3, tint: mix(paper, ink, 0.4).slice(0, 3), table: light ? "0 0.03 0.11 0.19" : "0 0.03 0.12 0.2" },
+      { type: "turbulence", freq: "0.085 0.085", octaves: 4, seed: 8, tint: crease, kind: "discrete", table: light ? "0 0.28 0 0.07 0.22 0 0.14 0 0.3 0" : "0 0.3 0 0.08 0.23 0 0.15 0 0.32 0" },
     ]) };
   },
   felt: (theme, mode) => {
@@ -1135,9 +1147,9 @@ const DECOR_LAYERS = {
     const { paper, ink } = theme[mode];
     const light = mode === "light";
     return { image: matSvg(400, [
-      { freq: "0.008 0.008", octaves: 2, seed: 5, tint: mix(paper, ink, 0.3).slice(0, 3), table: light ? "0 0 0.05 0.1" : "0 0 0.06 0.11" },
-      { freq: "0.55 0.55", seed: 7, tint: mix(paper, ink, 0.42).slice(0, 3), kind: "discrete", table: light ? "0 0.05 0.02 0.07" : "0 0.06 0.02 0.08" },
-      { freq: "0.3 0.3", octaves: 2, seed: 11, tint: mix(paper, ink, 0.36).slice(0, 3), table: "0 0 0.04 0.06" },
+      { freq: "0.008 0.008", octaves: 2, seed: 5, tint: mix(paper, ink, 0.38).slice(0, 3), table: light ? "0 0.02 0.09 0.16" : "0 0.02 0.1 0.17" },
+      { freq: "0.6 0.6", seed: 7, tint: mix(paper, ink, 0.6).slice(0, 3), kind: "discrete", table: light ? "0 0.13 0.06 0.18" : "0 0.14 0.06 0.19" },
+      { freq: "0.3 0.3", octaves: 2, seed: 11, tint: mix(paper, ink, 0.42).slice(0, 3), table: "0 0 0.07 0.11" },
     ]) };
   },
   brushed: (theme, mode) => {
@@ -1146,8 +1158,10 @@ const DECOR_LAYERS = {
     const { paper, ink } = theme[mode];
     const light = mode === "light";
     return { image: matSvg(460, [
-      { freq: "0.003 0.06", octaves: 2, seed: 9, tint: mix(paper, ink, 0.25).slice(0, 3), table: light ? "0 0 0.05 0.1" : "0 0 0.06 0.12" },
-      { freq: "0.004 0.4", octaves: 2, seed: 6, tint: mix(paper, ink, light ? 0.45 : 0.4).slice(0, 3), kind: "discrete", table: light ? "0 0.05 0.02 0.08" : "0 0.06 0.02 0.09" },
+      { freq: "0.003 0.06", octaves: 2, seed: 9, tint: mix(paper, ink, 0.32).slice(0, 3), table: light ? "0 0.02 0.09 0.16" : "0 0.02 0.1 0.18" },
+      // Dark drag marks are HALVED: light hairlines on a dark ground at 2px
+      // spacing read as CRT scanlines, not metal (calibration sheet).
+      { freq: "0.003 0.55", octaves: 2, seed: 6, tint: mix(paper, ink, light ? 0.6 : 0.42).slice(0, 3), kind: "discrete", table: light ? "0 0.13 0.06 0.19" : "0 0.07 0.03 0.1" },
     ]) };
   },
   spots: (theme, mode) => {
