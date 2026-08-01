@@ -23,12 +23,15 @@
   // The DEMOS stay out on purpose. They are a catalogue in the sense the comment
   // in tsconfig.json means, 1,140 files nothing is meant to import, and the lint
   // in page-gen.mjs refuses them by name rather than by type error.
+  // src/family-pages is NOT here, deliberately. Each family app declares its
+  // own routes (/listing, /guide, /event …) which the TEMPLATE's route tree
+  // never registers, so createFileRoute would refuse them in this pass. They
+  // are typechecked the only honest way — per family, against a regenerated
+  // route tree, by test/integration/family-apps.mjs building each one.
   "extends": "./tsconfig.json",
   "include": [
     "src/components/ui/**/*.ts", "src/components/ui/**/*.tsx",
-    "src/components/charts/lib/**/*.ts", "src/components/charts/lib/**/*.tsx",
-    "src/family-pages/**/*.tsx",
-    "src/routeTree.gen.ts"
+    "src/components/charts/lib/**/*.ts", "src/components/charts/lib/**/*.tsx"
   ],
   "exclude": []
 }

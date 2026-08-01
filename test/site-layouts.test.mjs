@@ -67,7 +67,28 @@ test("every family is complete and enum-safe", () => {
       assert.match(v, /^[a-z][a-z0-9-]*$/, `${id} variant ${v}`);
       assert.ok(text.length > 15, `${id} variant ${v} says nothing`);
     }
+    // The page set: index first, flat enum-safe route files, each with a real
+    // role sentence. 1–5 because zero pages is no site and past five the
+    // family should be questioning itself.
+    assert.ok(Array.isArray(f.pages) && f.pages.length >= 1 && f.pages.length <= 5, `${id} pages`);
+    assert.equal(f.pages[0].file, "index", `${id}'s first page must be index`);
+    const files = f.pages.map((p) => p.file);
+    assert.equal(new Set(files).size, files.length, `${id} declares a page twice`);
+    for (const p of f.pages) {
+      assert.match(p.file, /^[a-z][a-z0-9-]*$/, `${id} page "${p.file}" is not a flat route file`);
+      assert.ok(p.role && p.role.length > 20 && p.role.length < 140, `${id} page "${p.file}" role length`);
+    }
   }
+});
+
+test("page counts DIFFER by family — the flat budget is gone", () => {
+  // The whole point of the field (owner's call, 2026-08-01): a café is one
+  // scroll, a docs site is four linked pages. A regression to a uniform count
+  // — any uniform count — recreates the every-site-is-the-same-depth failure.
+  const counts = FAMILY_NAMES.map((n) => FAMILIES[n].pages.length);
+  assert.ok(new Set(counts).size >= 3, `page counts collapsed to ${[...new Set(counts)]}`);
+  assert.ok(counts.includes(1), "no single-page family left — conversion-single's definition IS one page");
+  assert.ok(counts.some((c) => c >= 4), "no deep family left — docs-first is four linked pages");
 });
 
 test("every component a family cites exists in the kit", () => {
@@ -133,6 +154,10 @@ test("a directive carries the whole contract, and refuses everything unknown", (
     for (const line of f.shape) assert.ok(d.includes(line), `${n}: shape line missing`);
     for (const c of f.cta) assert.ok(d.includes(`"${c}"`), `${n}: cta ${c} missing`);
     for (const c of f.components) assert.ok(d.includes(c), `${n}: component ${c} missing`);
+    assert.ok(d.includes(`ships ${f.pages.length} page`), `${n}: page count missing`);
+    for (const p of f.pages) {
+      assert.ok(d.includes(`${p.file === "index" ? "/" : "/" + p.file} — ${p.role}`), `${n}: page ${p.file} missing`);
+    }
   }
   // Everything unknown or unready is null, never a best guess: a directive is a
   // promise about the kit, and a wrong one must fail at the call site. DERIVED,

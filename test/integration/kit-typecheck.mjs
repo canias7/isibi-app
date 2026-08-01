@@ -28,11 +28,13 @@ function tsc(project) {
   return { code: r.status, out: (r.stdout || "") + (r.stderr || ""), ms: Date.now() - started };
 }
 
-// The route tree comes FIRST now for the kit check too: src/family-pages call
-// createFileRoute("/"), whose path union comes from the generated tree's module
-// augmentation. Without it every family page fails with '"/" is not assignable
-// to undefined' — locally the file lingers from old builds, in CI it does not,
-// which is the exact works-on-my-machine failure documented below.
+// The route tree comes first: the per-build check below needs it (main.tsx
+// imports src/routeTree.gen.ts), and generating it up front means both tsc
+// passes run against the same freshly generated file. src/family-pages is in
+// NEITHER pass — each family app declares routes the template tree never
+// registers, so they are typechecked per family by
+// test/integration/family-apps.mjs, against a tree regenerated from their own
+// files, which is the only configuration in which they are honest to check.
 console.log("generating the route tree, as a site build does…");
 const gen = spawnSync("npx", ["tsr", "generate"], { cwd: TEMPLATE, encoding: "utf8" });
 if (gen.status === 0) ok("route tree generated");
