@@ -1,4 +1,4 @@
-# Components (1314 built, 25 to go)
+# Components (1331 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -10,6 +10,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ access-summary
 ✓ accordion
 ✓ account-menu
+✓ acknowledge-button
 ✓ action-history
 ✓ activity-dot
 ✓ activity-feed
@@ -19,6 +20,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ address-summary
 ✓ advanced-toggle
 ✓ age-gate
+✓ age-rating-note
 ✓ agenda-list
 ✓ aggregate-picker
 ✓ alert
@@ -36,6 +38,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ api-key-row
 ✓ app-shell
 ✓ appeal-form
+✓ appeal-status
 ✓ applied-filters
 ✓ approval-chain
 ✓ area-input
@@ -88,6 +91,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ billing-summary
 ✓ blackout-dates
 ✓ blame-gutter
+✓ block-list
 ✓ block-menu
 ✓ blocked-note
 ✓ blocking-overlay
@@ -149,6 +153,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ change-request
 ✓ change-summary
 ✓ changelog-entry
+✓ channel-preference
 ✓ channel-toggle
 ✓ chapter-list
 ✓ char-limit-ring
@@ -312,6 +317,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ dish-card
 ✓ dismiss-all
 ✓ dismissed-tips
+✓ dispute-note
 ✓ distance-badge
 ✓ distance-input
 ✓ divider-text
@@ -436,6 +442,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ folder-path
 ✓ folder-tree
 ✓ follow-changes
+✓ follow-toggle
 ✓ font-picker
 ✓ footer-summary
 ✓ footer-totals
@@ -640,6 +647,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ model-picker
 ✓ moderation-note
 ✓ moderation-queue
+✓ moderation-queue-item
 ✓ money
 ✓ month-picker
 ✓ morph-height
@@ -650,6 +658,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ multi-sort
 ✓ multi-sort-picker
 ✓ multi-step-form
+✓ mute-duration
 ✓ mute-schedule
 ✓ name-fields
 ✓ native-select
@@ -819,6 +828,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ queue-depth
 ✓ quick-add
 ✓ quick-switcher
+✓ quiet-hours
 ✓ quote
 ✓ quote-attribution
 ✓ radio-cards
@@ -862,6 +872,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ related-list
 ✓ related-nav
 ✓ relative-date
+✓ reminder-set
 ✓ reorder-buttons
 ✓ reorder-list
 ✓ reorderable-grid
@@ -925,6 +936,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ safe-area
 ✓ safe-area-pad
 ✓ safe-image
+✓ safety-tips
 ✓ sample-data-banner
 ✓ sample-data-note
 ✓ sample-toggle
@@ -972,6 +984,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ section-header
 ✓ section-nav
 ✓ security-score
+✓ seen-by
 ✓ select
 ✓ select-all-banner
 ✓ select-scope
@@ -1053,6 +1066,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ snap-sections
 ✓ snapshot-list
 ✓ snooze-menu
+✓ snooze-picker
 ✓ snooze-until
 ✓ social-links
 ✓ social-preview
@@ -1153,6 +1167,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tag-input
 ✓ tag-list
 ✓ tag-select
+✓ takedown-note
 ✓ target-vs-actual
 ✓ tax-toggle
 ✓ team-grid
@@ -1265,6 +1280,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ variant-picker
 ✓ vehicle-card
 ✓ verified-badge
+✓ verified-claim
 ✓ verify-pending
 ✓ version-conflict
 ✓ version-history
@@ -1283,6 +1299,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ vote-buttons
 ✓ waitlist-form
 ✓ warranty-badge
+✓ watch-count
 ✓ watermark
 ✓ watermark-note
 ✓ waveform

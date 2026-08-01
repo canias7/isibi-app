@@ -566,6 +566,12 @@ export const UI_COMPONENTS = [
   "crop-box", "rotate-control", "compare-slider", "zoom-pan", "exposure-note",
   "alt-text-warning", "media-duration", "caption-track", "waveform-scrub", "thumbnail-picker",
   "media-error", "autoplay-note", "picture-in-picture", "loop-toggle", "volume-control",
+  // Notifications and attention. Who has seen it, when it comes back, and which channel carries which kind.
+  "snooze-picker", "quiet-hours", "channel-preference", "seen-by", "acknowledge-button",
+  "reminder-set", "follow-toggle", "watch-count",
+  // Trust, safety and moderation. Removals that explain themselves, claims that name who checked them, and blocks you can find again.
+  "moderation-queue-item", "appeal-status", "age-rating-note", "verified-claim", "dispute-note",
+  "takedown-note", "safety-tips", "block-list", "mute-duration",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
