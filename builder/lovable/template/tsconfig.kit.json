@@ -9,8 +9,19 @@
   // for reasons that look like the model's fault.
   //
   // This config is that missing half. It is not run per build; it runs once, in
-  // the test suite (test/kit-typecheck.test.mjs). Two checks with different
-  // jobs, rather than one doing both badly.
+  // `test/integration/kit-typecheck.mjs`, from CI workflow `site-build`. Two
+  // checks with different jobs, rather than one doing both badly.
+  //
+  // IT IS NOT IN `npm test`, AND THIS COMMENT USED TO SAY IT WAS — it named a
+  // `test/kit-typecheck.test.mjs` that has never existed. That was not a
+  // harmless stale line: it is why a JSX syntax error in `dwell-time.tsx` sat on
+  // the branch through five batches while `npm test` reported 684 green. The
+  // per-build check cannot see it either, because `tsconfig.json` excludes
+  // `src/components/ui` and only follows an import into it — and the file that
+  // broke was fixed by a SWEEP over an already-pushed component, so no contact
+  // sheet imported it. A sweep fix is precisely the change both fast checks are
+  // blind to. Run the integration check after one (~65s), or read the `site
+  // build` job.
   //
   // `charts/lib` joined it 2026-07-31, when the generator was first told those
   // 882 primitives exist. Until then they were typechecked by NOTHING and it was

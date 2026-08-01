@@ -562,6 +562,266 @@ export const UI_COMPONENTS = [
   "file-preview-pane", "file-version", "file-conflict", "breadcrumb-path", "file-type-note",
   "scan-status", "checksum-note", "download-progress", "zip-contents", "page-thumbnails",
   "document-outline", "signature-request", "redaction-note", "watermark-note", "ocr-note",
+  // Images and media handling. The controls a player and an image editor need, each with the keyboard route that gesture-only versions leave out.
+  "crop-box", "rotate-control", "compare-slider", "zoom-pan", "exposure-note",
+  "alt-text-warning", "media-duration", "caption-track", "waveform-scrub", "thumbnail-picker",
+  "media-error", "autoplay-note", "picture-in-picture", "loop-toggle", "volume-control",
+  // Notifications and attention. Who has seen it, when it comes back, and which channel carries which kind.
+  "snooze-picker", "quiet-hours", "channel-preference", "seen-by", "acknowledge-button",
+  "reminder-set", "follow-toggle", "watch-count",
+  // Trust, safety and moderation. Removals that explain themselves, claims that name who checked them, and blocks you can find again.
+  "moderation-queue-item", "appeal-status", "age-rating-note", "verified-claim", "dispute-note",
+  "takedown-note", "safety-tips", "block-list", "mute-duration",
+  // Status and lifecycle. Whose move it is, what is blocking it, and when the promise runs out.
+  "lifecycle-bar", "state-machine-note", "blocked-by", "waiting-on", "handover-note",
+  "sla-clock", "escalation-ladder", "queue-position", "eta-band", "throttle-note",
+  "cooldown-note",
+  // Comparison and choice. Reasons that can be argued with, and the rows that actually differ.
+  "recommended-flag", "why-this-note", "eliminate-option", "shortlist-tray", "difference-only",
+  "compatibility-note", "requirement-check",
+  // Data quality and import. Where a value came from, how sure we are, and which rows did not make it.
+  "duplicate-warning", "merge-records", "confidence-note", "source-attribution", "last-verified",
+  "sample-preview", "row-error-list", "fix-suggestion", "skip-row-note",
+  // Accessibility, deeper. The controls that make a page usable when the defaults are not enough.
+  "reduced-motion-note", "contrast-toggle", "focus-visible-note", "landmark-nav", "announce-region",
+  "text-only-toggle", "pause-motion",
+  // Print and export mechanics. What leaves the system, on paper or as a file.
+  "export-scope", "page-header-footer", "print-range", "export-history", "share-as-link",
+  "embed-snippet", "qr-handoff",
+  // ai-suggestion ai-explain ai-confidence ai-sources ai-regenerate ai-edit-diff ai-disclosure prompt-field ai-feedback ai-limit-note draft-with-ai ai-scope-picker ai-undo model-note generation-history ai-error-note cursor-label editing-lock annotation-pin resolve-toggle who-is-here
+
+  // AI assistance surfaces
+  "ai-suggestion", "ai-explain", "ai-confidence", "ai-sources", "ai-regenerate",
+  "ai-edit-diff", "ai-disclosure", "prompt-field", "ai-feedback", "ai-limit-note",
+  "draft-with-ai", "ai-scope-picker", "ai-undo", "model-note", "generation-history",
+  "ai-error-note",
+  // Presence and collaboration
+  "cursor-label", "editing-lock", "annotation-pin", "resolve-toggle", "who-is-here",
+  // Approvals and sign-off
+  "approval-request", "sign-off-row", "approver-list", "reject-reason", "delegate-approval",
+  "approval-deadline", "countersign", "approval-history", "approval-quorum", "recall-request",
+  // Templates and reuse
+  "template-picker", "save-as-template", "template-variables", "template-preview", "duplicate-options",
+  "preset-menu", "default-set", "apply-to-many", "template-diff", "starter-gallery",
+  // Tagging and taxonomy
+  "tag-cloud", "category-tree", "taxonomy-picker", "label-manager", "tag-merge",
+  "suggested-tags", "tag-rename", "tag-scope", "untagged-note",
+  // Pagination and loading
+  "infinite-sentinel", "page-size", "jump-to-page", "partial-list-note", "lazy-section",
+  "list-end", "loading-more",
+  // Filters, deeper
+  "filter-group", "exclude-filter", "filter-count", "clear-filters", "filter-summary",
+  "numeric-filter", "boolean-filter", "multi-select-filter", "filter-drawer", "quick-filters",
+  "filter-conflict",
+  // Place, without a provider
+  "radius-input", "distance-note", "directions-link", "opening-status", "travel-time-note",
+  "nearby-list", "region-picker", "location-consent", "service-area-note", "catchment-note",
+  // Consent and privacy
+  "consent-summary", "data-request", "retention-note", "purpose-list", "opt-out-row",
+  "privacy-choice", "tracking-note", "export-my-data", "delete-my-data", "consent-history",
+  "third-party-list", "lawful-basis-note",
+  // Device and capability
+  "orientation-note", "small-screen-note", "install-prompt", "camera-access", "location-access",
+  "notification-access", "data-saver-note", "touch-hint", "clipboard-blocked", "fullscreen-toggle",
+  "device-unsupported", "permission-prompt",
+  // Automation and rules
+  "rule-summary", "trigger-picker", "condition-row", "rule-preview", "rule-conflict",
+  "rule-log", "rule-enabled", "run-now",
+  // Wizards and multi-step
+  "wizard-nav", "step-summary", "review-step", "save-and-exit", "resume-later",
+  "step-validation", "branch-preview", "step-skipped", "wizard-exit-guard",
+  // Number presentation
+  "compact-number", "range-text", "approx-note", "significant-figures", "number-scale-note",
+  // Identity and credentials
+  "id-check-status", "trust-level", "badge-explainer", "credential-row", "credential-expiry",
+  "identity-summary", "proof-upload", "verification-steps",
+  // Feedback and rating mechanics
+  "emoji-scale", "survey-progress", "free-text-followup", "response-rate", "rating-guidance",
+  "rating-changed",
+  // Stock and allocation mechanics
+  "allocation-bar", "reserved-note", "lot-row", "expiry-batch", "reorder-point",
+  "stock-move", "shrinkage-note", "count-sheet",
+  // Comments and annotation mechanics
+  "unresolved-count", "comment-draft", "reaction-summary", "thread-participants", "comment-permalink",
+  // Capacity and queueing
+  "slot-capacity", "overbooking-note", "staff-load", "utilisation-bar", "peak-note",
+  "no-show-note", "walk-in-note",
+  // Contact and address mechanics
+  "contact-method-picker", "preferred-contact", "contact-verify", "do-not-contact", "alternate-contact",
+  "address-validate", "delivery-note-field", "contact-card-compact",
+  // Attachments and evidence
+  "evidence-list", "photo-required-note", "capture-hint", "attachment-limit", "file-required",
+  "before-after-upload", "annotation-upload", "receipt-upload",
+  // Handover and shift work
+  "handoff-summary", "shift-handover", "escalate-action", "priority-picker", "due-soon-note",
+  "read-receipt", "batch-window", "confidence-bar", "language-fallback", "cost-estimate-note",
+  "coverage-gap", "on-call-now",
+  // Integrations and connectors
+  "connector-card", "connection-health", "oauth-consent-summary", "reauth-prompt", "field-mapping",
+  "sync-direction", "sync-schedule", "integration-log", "disconnect-warning", "credential-rotate",
+  "provider-status", "mapping-conflict", "test-connection",
+  // Webhooks and events
+  "webhook-endpoint", "event-subscription", "delivery-attempt", "payload-preview", "signature-secret",
+  "replay-event", "event-filter", "dead-letter", "delivery-rate", "webhook-test",
+  "idempotency-note", "retry-policy",
+  // Quotas, limits and metering
+  "usage-breakdown", "overage-preview", "limit-reached", "plan-limit-row", "burst-note",
+  "usage-forecast", "seat-usage-row", "hard-limit-warning", "usage-alert-rule",
+  // Multi-tenancy and white-label
+  "tenant-badge", "brand-upload", "custom-domain", "domain-verify", "subdomain-field",
+  "tenant-limits", "workspace-invite", "cross-workspace-note", "tenant-delete",
+  // Internationalisation, deeper
+  "locale-picker", "translation-status", "missing-translation", "pluralisation-preview", "rtl-toggle",
+  "date-format-preview", "number-format-preview", "measurement-system", "translator-note", "locale-fallback-chain",
+  "string-context",
+  // Theming and customisation
+  "palette-preview", "font-preview", "spacing-preview", "logo-slot", "theme-reset",
+  "custom-css-note", "preview-frame", "brand-check", "theme-export",
+  // Tax and compliance surfaces
+  "tax-breakdown", "tax-exempt-note", "reverse-charge-note", "jurisdiction-picker", "compliance-checklist",
+  "regulation-note", "certification-row", "expiry-audit", "policy-version", "attestation-box",
+  "record-keeping-note", "disclosure-block", "withholding-note",
+  // Versioning and releases
+  "version-badge", "changelog-feed", "upgrade-prompt", "deprecation-note", "breaking-change-note",
+  "migration-guide-link", "version-picker", "rollout-progress", "canary-note", "pin-version",
+  "release-freeze",
+  // Backup, restore and migration
+  "backup-list", "backup-schedule", "restore-preview", "restore-confirm", "migration-progress",
+  "dry-run-result", "cutover-note", "legacy-note", "data-residency",
+  // Performance and diagnostics
+  "latency-note", "cache-status", "health-check-row", "uptime-strip", "status-page-link",
+  "diagnostic-bundle",
+  // Analytics instrumentation
+  "event-name-field", "property-schema", "tracking-plan-row", "consent-gated-note", "sample-rate",
+  "funnel-step-row", "cohort-picker", "attribution-note", "goal-definition",
+  // Voice, gesture and scanning
+  "voice-transcript", "push-to-talk", "swipe-hint", "pinch-hint", "scan-overlay",
+  "scan-result", "nfc-prompt",
+  // Email and embed rendering
+  "email-preview", "plain-text-fallback", "inbox-preview", "unsubscribe-footer", "email-safe-note",
+  "embed-size", "embed-permissions", "iframe-fallback", "widget-key", "embed-preview",
+  // Construction and site work
+  "site-diary", "snag-item", "snag-list", "drawing-revision", "permit-row",
+  "plant-hire-row", "toolbox-talk", "site-induction", "weather-delay", "variation-order",
+  "retention-line", "handover-pack", "hoarding-notice",
+  // Agriculture and growing
+  "land-parcel", "crop-stage", "sowing-window", "harvest-window", "yield-note",
+  "spray-record", "livestock-row", "herd-count", "grazing-plan", "soil-note",
+  "irrigation-note", "traceability-code",
+  // Logistics and freight
+  "consignment-row", "leg-list", "freight-quote", "load-plan", "pallet-count",
+  "customs-note", "incoterm-note", "hazard-class", "temperature-log", "proof-of-collection",
+  "driver-assignment", "vehicle-check", "route-stop", "dwell-time", "demurrage-note",
+  "axle-weight",
+  // Warehousing and inventory ops
+  "bin-location", "putaway-task", "pick-path", "cycle-count-row", "goods-in-row",
+  "quarantine-note", "serial-capture", "batch-trace", "stock-adjustment", "replenish-task",
+  "shrink-report", "slotting-note",
+  // Manufacturing and production
+  "work-order-row", "bill-of-materials", "routing-step", "machine-status", "downtime-note",
+  "scrap-rate", "changeover-note", "takt-note", "quality-check-row", "nonconformance",
+  "batch-yield", "shift-output", "tooling-row",
+  // Energy and utilities
+  "meter-reading", "tariff-row", "consumption-bar", "outage-notice", "supply-status",
+  "smart-meter-note", "carbon-note", "generation-mix", "switch-supplier", "estimated-vs-actual",
+  "usage-compare",
+  // Civic and public services
+  "case-reference", "eligibility-check", "application-status", "document-checklist", "appointment-offer",
+  "service-standard", "appeal-route", "accessibility-statement", "translation-request", "representative-note",
+  "public-notice", "consultation-response",
+  // Libraries and archives
+  "catalogue-record", "shelf-mark", "loan-row", "hold-queue", "renewal-note",
+  "reading-room-booking", "finding-aid", "provenance-note", "access-restriction", "digitisation-status",
+  "accession-number",
+  // Museums and cultural venues
+  "object-label", "exhibition-row", "gallery-plan", "audio-stop", "conservation-note",
+  "loan-agreement", "acquisition-note", "timed-entry", "donor-credit",
+  // Research and laboratories
+  "sample-row", "protocol-step", "reagent-row", "instrument-booking", "calibration-note",
+  "chain-of-custody", "result-flag", "reference-range", "study-arm", "participant-row",
+  "ethics-approval", "data-dictionary", "replicate-group", "assay-plate", "freezer-location",
+  // Recruitment and job boards
+  "vacancy-card", "applicant-row", "pipeline-stage", "screening-question", "cv-preview",
+  "interview-slot", "scorecard-row", "offer-summary", "reference-request", "salary-range-note",
+  "anonymised-toggle", "talent-pool", "rejection-note", "vacancy-closing",
+  // Insurance and claims
+  "policy-summary-row", "cover-level", "excess-note", "claim-row", "claim-timeline",
+  "incident-report", "assessor-visit", "settlement-offer", "renewal-quote", "exclusion-list",
+  "beneficiary-row", "premium-breakdown",
+  // Accounting and bookkeeping
+  "ledger-row", "reconciliation-row", "unmatched-note", "journal-entry", "chart-of-accounts",
+  "period-lock", "accrual-note", "depreciation-row", "trial-balance-row", "aged-balance",
+  "write-off-note", "nominal-code", "bank-feed-row",
+  // Security and access control
+  "door-event", "badge-row", "visitor-sign-in", "escort-note", "zone-permission",
+  "alarm-state", "patrol-log", "key-issue",
+  // Sports leagues and fixtures
+  "fixture-row", "league-table-row", "score-entry", "squad-list", "substitution-row",
+  "card-record", "fixture-postponed", "cup-bracket", "player-stat-row", "season-picker",
+  "venue-allocation", "referee-assignment",
+  // Music and recording
+  "track-row", "setlist-row", "stem-list", "take-row", "royalty-split",
+  "release-schedule", "isrc-field", "rehearsal-slot", "stage-plot",
+  // Film and production
+  "call-sheet", "scene-row", "shot-list-row", "location-release", "crew-role-row",
+  "day-out-of-days", "continuity-note", "dailies-row", "rushes-note", "wrap-report",
+  // Membership clubs and societies
+  "membership-tier-row", "renewal-reminder", "committee-list", "agm-notice", "motion-vote",
+  "minutes-entry", "subscription-arrears", "guest-sign-in", "club-fixture",
+  // Volunteering and community
+  "shift-signup", "volunteer-row", "hours-log", "induction-status", "role-description",
+  "impact-note", "thank-you-note", "rota-gap",
+  // Waste and recycling
+  "collection-day", "bin-type", "contamination-note", "weighbridge-row", "recycling-rate",
+  "missed-collection",
+  // Maritime and aviation
+  "berth-row", "tide-note", "flight-leg", "manifest-row", "crew-roster-row",
+  "fuel-log", "maintenance-due", "notam-note", "cargo-hold",
+  // Franchises and multi-site
+  "site-picker", "site-compare-row", "rollout-status", "local-override", "brand-standard-check",
+  "franchise-fee-row", "group-report", "site-league-table", "central-message",
+  // Two-sided matching
+  "match-score", "mutual-interest", "shortlist-both", "availability-overlap", "intro-request",
+  "match-reason", "decline-politely", "rematch-note", "match-expiry", "preference-weights",
+  // Gaming and esports
+  "match-lobby", "ladder-row", "loadout-row", "achievement-row", "party-invite",
+  "queue-timer", "spectator-count",
+  // Auctions and bidding
+  "lot-card", "reserve-note", "proxy-bid", "buyers-premium", "auction-timer",
+  "withdrawn-lot", "hammer-price", "condition-report", "absentee-bid",
+  // Publishing and print production
+  "issue-row", "page-plan", "proof-status", "print-run", "distribution-list",
+  "embargo-time", "byline-row",
+  // Pharmacy and dispensing
+  "prescription-row", "dispense-label", "stock-substitute", "controlled-drug-note", "repeat-request",
+  "interaction-warning", "dosage-field", "pharmacist-check", "ready-to-collect", "patient-leaflet",
+  // Care and social support
+  "care-plan-row", "visit-log", "medication-round", "next-of-kin", "risk-assessment-row",
+  "consent-to-care", "care-hours", "safeguarding-note", "review-due", "keyworker-row",
+  // Estate agency and sales
+  "offer-row", "chain-status", "valuation-note", "listing-status", "vendor-note",
+  "buyer-position", "completion-date", "key-release", "asking-price-change",
+  // Lending and mortgages
+  "affordability-note", "repayment-preview", "rate-type", "term-slider", "deposit-percent",
+  "offer-expiry", "arrears-note", "overpayment-allowance", "redemption-note", "broker-note",
+  // Telecoms and connectivity
+  "line-status", "bundle-row", "data-allowance", "roaming-note", "coverage-note",
+  "sim-row", "port-request", "contract-end", "add-on-row", "fair-use-note",
+  // Coworking and space booking
+  "room-booking-row", "access-hours", "day-pass", "occupancy-note", "amenity-list",
+  "booking-credits", "floor-picker", "locker-row", "visitor-pass",
+  // Equipment and hire
+  "asset-row", "hire-period", "condition-check", "deposit-hold", "return-due",
+  "damage-charge", "serial-row", "service-history", "off-hire-note",
+  // Food and drink production
+  "recipe-scale", "allergen-matrix", "best-before", "production-run", "tasting-note",
+  "cellar-row", "abv-note", "label-approval", "batch-code", "shelf-life-note",
+  // Emergency and incident response
+  "incident-severity", "responder-list", "muster-list", "all-clear", "resource-status",
+  "scene-note", "triage-row", "comms-log", "stand-down",
+  // Health records, deeper
+  "triage-outcome", "referral-row", "waiting-list-note", "consent-to-share", "care-summary",
+  "allergy-row", "immunisation-row", "observation-row", "discharge-note", "symptom-row",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
