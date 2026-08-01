@@ -12,7 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  REFERENCE_PAGE, UI_COMPONENTS, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MANAGED_COLUMNS,
+  REFERENCE_PAGE, REFERENCE_PAGES, UI_COMPONENTS, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MANAGED_COLUMNS,
   schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, ACCESS_NOTE,
 } from "../builder/page-gen.mjs";
 import * as api from "../builder/page-gen.mjs";
@@ -44,6 +44,38 @@ const SPEC = {
   ],
 };
 
+// The schema the four reference pages were written against — a superset of SPEC
+// above, because they demonstrate the publicView and the claim token that the
+// smaller fixture deliberately lacks.
+const REFERENCE_SPEC = {
+  tables: [
+    {
+      name: "services", access: "display", fts: true,
+      columns: [
+        { name: "name", type: "text", notnull: true },
+        { name: "description", type: "text" },
+        { name: "price", type: "real" },
+        { name: "duration_minutes", type: "integer" },
+        { name: "image_url", type: "text" },
+      ],
+    },
+    {
+      name: "appointments", access: "collect",
+      publicView: { columns: ["date", "time"] },
+      columns: [
+        { name: "service", type: "text", notnull: true, ref: "services" },
+        { name: "customer_name", type: "text", notnull: true },
+        { name: "customer_phone", type: "text" },
+        { name: "date", type: "text", notnull: true },
+        { name: "time", type: "text" },
+        { name: "notes", type: "text" },
+        { name: "claim_token", type: "text" },
+      ],
+    },
+    { name: "profiles", access: "user", columns: [{ name: "nickname", type: "text" }] },
+  ],
+};
+
 const page = (source, p = "index.tsx") => [{ path: p, source }];
 
 // ── the copies of things that live on disk ────────────────────────────────────
@@ -51,10 +83,35 @@ const page = (source, p = "index.tsx") => [{ path: p, source }];
 // duplicated into the module. GENERATOR.md's rule is that the file wins, which is
 // only enforceable if something notices when they diverge.
 
-test("the reference page in the module is the reference page on disk", () => {
-  const disk = fs.readFileSync(path.join(TEMPLATE, "src/routes/index.tsx"), "utf8");
-  assert.equal(REFERENCE_PAGE, disk,
-    "builder/page-gen.mjs has drifted from src/routes/index.tsx — copy the file over REFERENCE_PAGE");
+test("every reference page in the module is the file on disk", () => {
+  // DERIVED FROM THE FOLDER, not from a list here. The first version named
+  // index.tsx by hand, which meant adding a reference page silently added an
+  // unguarded copy — the guard would keep passing while the new page rotted.
+  const dir = path.join(TEMPLATE, "src/routes");
+  const onDisk = fs.readdirSync(dir)
+    .filter((f) => f.endsWith(".tsx") && f !== "__root.tsx").sort();
+  assert.deepEqual(REFERENCE_PAGES.map((p) => p.path).sort(), onDisk,
+    "src/routes and REFERENCE_PAGES disagree about which pages exist");
+  for (const p of REFERENCE_PAGES) {
+    assert.equal(p.source, fs.readFileSync(path.join(dir, p.path), "utf8"),
+      `builder/page-gen.mjs has drifted from src/routes/${p.path}`);
+    assert.ok(p.blurb && p.blurb.length > 10, `${p.path} has no blurb saying what it is for`);
+  }
+  // `REFERENCE_PAGE` is still the home page, since that is what most briefs need.
+  assert.equal(REFERENCE_PAGE, REFERENCE_PAGES[0].source);
+  assert.equal(REFERENCE_PAGES[0].path, "index.tsx");
+});
+
+test("every reference page is in the prompt, and each is lint-clean", () => {
+  // The pages exist to be imitated, so a page the model never sees is a page
+  // that cost template maintenance and bought nothing — the dead-capability
+  // shape this repo has hit five times. And a reference page that would FAIL the
+  // lint teaches the model to write something the lint then refuses.
+  for (const p of REFERENCE_PAGES) {
+    assert.ok(PAGE_RULES.includes(p.source), `${p.path} is not in the prompt`);
+    assert.deepEqual(lintPages([{ path: p.path, source: p.source }], REFERENCE_SPEC), [],
+      `${p.path} does not survive the lint that generated pages are held to`);
+  }
 });
 
 test("the advertised ui components are the ones that exist", () => {

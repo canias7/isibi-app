@@ -1,25 +1,52 @@
-// Reference page. Hand-written against the schema the designer actually
-// produced for "a small barber shop site": services(name, description, price,
-// duration_minutes) and appointments(service, customer_name, customer_phone,
-// date, time, notes).
+// Reference page — THE HOME PAGE, laid out the way the TRADE lays one out.
 //
-// This exists to be imitated. It is the shape the generator should emit — read
-// with useRows, write with useCreateRow, shadcn for every control, and no fetch
-// code anywhere. If a generated page diverges from this, the generator is wrong.
-import { createFileRoute } from "@tanstack/react-router";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { toast } from "sonner";
+// A generated site is not a generic landing page wearing a business's name. A
+// barber shop has conventions, and following them is most of what reads as
+// "somebody who knows this trade made this":
+//
+//   - The PRICE LIST IS A MENU — rows with the price on the right — never a
+//     grid of product cards. `PriceList`'s own comment calls it the most common
+//     shape on a site this platform builds.
+//   - PEOPLE BOOK A BARBER, not a shop, so the team gets a section. The
+//     pictures are the owner's to add later; `TeamGrid` guards them.
+//   - The GALLERY is the work. It is the shop's portfolio, not decoration.
+//   - HOURS, ADDRESS AND PHONE LIVE TOGETHER in one "Find us" section, because
+//     they answer one question. Hours floating alone answer half of it.
+//
+// AND THE BUTTONS SIT WHERE THE DECISION HAPPENS. "Book" is in the header on
+// every page, in the hero, on EVERY ROW of the price list, and once more at the
+// bottom. The per-row button carries its service into the form —
+// `/book?service=Skin fade` — so the form opens half-filled. "Call" is beside
+// "Book" in the hero as a real tel: link, because for a barber shop the phone
+// IS a booking channel.
+//
+// The rhythm is BANDS: full-bleed hero, then sections alternating between the
+// page colour and `bg-muted`, each with its own inner container. A page where
+// every section is `mt-14` inside one narrow column reads as a document.
+//
+// THE PAGES ARE WIRED TOGETHER — owner's call. One chrome navigates between
+// them, the price rows carry their service into /book, the form hands back the
+// claim link /manage opens, and the member pages sit behind the real session,
+// so the site WORKS the day it is generated. What stays written into the page
+// is the owner's own facts — hours, the team, the gallery captions — and that
+// is a data decision, not a wiring one: those cost no query and cannot render
+// empty on a fresh site.
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 
-import { useRows, useCreateRow, type Row } from "@/lib/rows";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { useRows, type Row } from "@/lib/rows";
+import { CtaBand } from "@/components/ui/cta-band";
+import { Gallery } from "@/components/ui/gallery";
+import { Hero } from "@/components/ui/hero";
+import { LocationCard } from "@/components/ui/location-card";
+import { OpenNow } from "@/components/ui/open-now";
+import { OpeningHours, type DayHours } from "@/components/ui/opening-hours";
+import { PriceList } from "@/components/ui/price-list";
+import { SectionHeader } from "@/components/ui/section-header";
+import { SiteChrome } from "@/components/ui/site-chrome";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { TeamGrid } from "@/components/ui/team-grid";
+import { Testimonial } from "@/components/ui/testimonial";
+import { TrustStrip } from "@/components/ui/trust-strip";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -30,184 +57,194 @@ type Service = Row & {
   duration_minutes: number | null;
 };
 
-// Mirrors the declared columns. The API rejects anything undeclared anyway, but
-// validating here means the visitor is told before a round trip.
-const booking = z.object({
-  service: z.string().min(1, "Pick a service"),
-  customer_name: z.string().min(2, "Tell us your name"),
-  customer_phone: z.string().min(6, "We need a number to confirm on"),
-  date: z.string().min(1, "Pick a date"),
-  time: z.string().min(1, "Pick a time"),
-  notes: z.string().max(500).optional(),
-});
+// The same facts on every page of the site. Written once per file rather than
+// once per return. The phone is a nav link because for this trade it is a
+// booking channel, not small print.
+const CHROME = {
+  name: "Cutler Row",
+  tagline: "Six chairs on Cutler Row. Walk in, or book one.",
+  links: [
+    { label: "Prices", href: "#prices" },
+    { label: "The barbers", href: "#barbers" },
+    { label: "Find us", href: "#find-us" },
+    { label: "0114 270 0000", href: "tel:+441142700000" },
+  ],
+  action: { label: "Book a chair", href: "#/book" },
+};
 
-type Booking = z.infer<typeof booking>;
+// The shop's own facts. Anything the owner will never edit from a form belongs
+// in the page — it costs no query and cannot be empty on a fresh site.
+const HOURS: DayHours[] = [
+  { day: 1, label: "Monday", open: null, close: null },
+  { day: 2, label: "Tuesday", open: "09:00", close: "18:00" },
+  { day: 3, label: "Wednesday", open: "09:00", close: "18:00" },
+  { day: 4, label: "Thursday", open: "09:00", close: "20:00" },
+  { day: 5, label: "Friday", open: "09:00", close: "20:00" },
+  { day: 6, label: "Saturday", open: "08:30", close: "17:00" },
+  { day: 0, label: "Sunday", open: null, close: null },
+];
 
 function Home() {
   const services = useRows<Service>("services", { order: "price", dir: "asc" });
-  const create = useCreateRow("appointments");
-
-  const form = useForm<Booking>({
-    resolver: zodResolver(booking),
-    defaultValues: { service: "", customer_name: "", customer_phone: "", date: "", time: "", notes: "" },
-  });
-
-  const onSubmit = (values: Booking) => {
-    create.mutate(values, {
-      onSuccess: () => {
-        toast.success("Booked — we'll call to confirm.");
-        form.reset();
-      },
-      // The API separates the caller's fault from a server fault, so its own
-      // message is worth showing instead of a generic failure.
-      onError: (e: Error) => toast.error(e.message),
-    });
-  };
+  const navigate = useNavigate();
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16">
-      <h1 className="text-4xl font-semibold tracking-tight">Barber Shop</h1>
-      <p className="mt-2 text-muted-foreground">Book a chair. We'll call to confirm.</p>
+    <SiteChrome {...CHROME}>
+      <Hero
+        title="Barbering on Cutler Row since 2014"
+        subtitle="Six barbers, no appointment needed on weekdays. Walk in before eleven, or book a chair."
+        primary={{ label: "Book a chair", href: "#/book" }}
+        secondary={{ label: "Call 0114 270 0000", href: "tel:+441142700000" }}
+      />
 
-      <section className="mt-12">
-        <h2 className="text-xl font-medium">Services</h2>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          {services.isPending && [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
+      {/* Reassurance in the trade's own language, not a corporate stats band. */}
+      <section className="mx-auto max-w-5xl px-6">
+        <TrustStrip
+          items={[
+            { title: "Walk-ins welcome", description: "Before 11 on weekdays you won't wait long" },
+            {
+              title: "4.9 on Google",
+              description: "Two hundred odd reviews, mostly about the fades",
+            },
+            { title: "Cash or card", description: "No booking fee, no deposit" },
+          ]}
+        />
+      </section>
 
+      <section id="prices" className="mt-4 border-y border-border bg-muted/40">
+        <div className="mx-auto max-w-3xl px-6 py-20">
+          <SectionHeader
+            eyebrow="The price list"
+            title="Cuts and shaves"
+            description="Every cut finishes with a hot towel. Students £4 off, Tuesday to Thursday."
+          />
+          {/* A price list is ROWS — name, price on the right, a Book button on
+              the row — because that is how the trade writes one. `PriceList`
+              takes the whole list at once, so the query's states sit around it;
+              when a page lays rows out itself, `DataList` carries all four
+              states instead. */}
+          {services.isPending && <Skeleton className="mt-8 h-64 rounded-xl" />}
           {services.isError && (
-            <p className="text-sm text-destructive sm:col-span-2">
-              Couldn't load the services. Refresh and try again.
+            <p className="mt-8 text-sm text-destructive">
+              Couldn't load the price list. Refresh and try again.
             </p>
           )}
-
           {services.data?.length === 0 && (
-            <p className="text-sm text-muted-foreground sm:col-span-2">Nothing listed yet.</p>
+            <p className="mt-8 text-sm text-muted-foreground">Nothing listed yet.</p>
           )}
-
-          {services.data?.map((s) => (
-            <Card key={s.id}>
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-baseline justify-between text-base">
-                  <span>{s.name}</span>
-                  {s.price != null && <span className="tabular-nums">${s.price}</span>}
-                </CardTitle>
-                {s.duration_minutes != null && <CardDescription>{s.duration_minutes} min</CardDescription>}
-              </CardHeader>
-              {s.description && (
-                <CardContent className="text-sm text-muted-foreground">{s.description}</CardContent>
-              )}
-            </Card>
-          ))}
+          {!!services.data?.length && (
+            <PriceList
+              className="mt-6"
+              items={services.data.map((s) => ({
+                name: s.name,
+                description: s.description,
+                price: s.price,
+                meta: s.duration_minutes != null ? `${s.duration_minutes} min` : null,
+              }))}
+              /* THE BUTTON IN THE RIGHT PLACE: the row you are reading is the
+                 service you want, so its Book button carries the service into
+                 the form. The search param is typed by /book's own
+                 validateSearch, so a typo here fails the build. */
+              action={{
+                label: "Book",
+                onSelect: (r) => navigate({ to: "/book", search: { service: r.name } }),
+              }}
+            />
+          )}
         </div>
       </section>
 
-      <section className="mt-14">
-        <h2 className="text-xl font-medium">Book an appointment</h2>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="mt-4 grid gap-4 sm:grid-cols-2">
-            <FormField
-              control={form.control}
-              name="service"
-              render={({ field }) => (
-                <FormItem className="sm:col-span-2">
-                  <FormLabel>Service</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Choose one" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {services.data?.map((s) => (
-                        <SelectItem key={s.id} value={s.name}>
-                          {s.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="customer_name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Your name</FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="customer_phone"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Phone</FormLabel>
-                  <FormControl>
-                    <Input type="tel" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="date"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Date</FormLabel>
-                  <FormControl>
-                    <Input type="date" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="time"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Time</FormLabel>
-                  <FormControl>
-                    <Input type="time" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="notes"
-              render={({ field }) => (
-                <FormItem className="sm:col-span-2">
-                  <FormLabel>Anything else?</FormLabel>
-                  <FormControl>
-                    <Textarea rows={3} {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <div className="sm:col-span-2">
-              <Button type="submit" disabled={create.isPending}>
-                {create.isPending ? "Booking…" : "Request appointment"}
-              </Button>
-            </div>
-          </form>
-        </Form>
+      <section id="barbers" className="mx-auto max-w-5xl px-6 py-20">
+        <SectionHeader
+          eyebrow="The barbers"
+          title="Pick your chair"
+          description="Six of us, two generations. Ask for whoever cut you last — it's on your booking."
+        />
+        {/* People book a person. Photos are the owner's to add after the build,
+            so every one is guarded by the component. */}
+        <TeamGrid
+          className="mt-8"
+          items={[
+            { name: "Tommy Vasile", role: "Owner — fades and razor work" },
+            { name: "Marcus Obeng", role: "Beards and hot towel shaves" },
+            { name: "Ellis Ward", role: "Scissor cuts" },
+            { name: "Deniz Aydın", role: "Kids and first cuts" },
+          ]}
+        />
       </section>
-    </main>
+
+      <section className="border-y border-border bg-muted/40">
+        <div className="mx-auto max-w-5xl px-6 py-20 motion-reveal">
+          <SectionHeader eyebrow="The work" title="Recent cuts" />
+          <Gallery
+            className="mt-8"
+            columns={3}
+            items={[
+              { src: null, alt: "Skin fade, front window chair" },
+              { src: null, alt: "Beard line-up" },
+              { src: null, alt: "Scissor crop" },
+              { src: null, alt: "Hot towel shave" },
+              { src: null, alt: "The long window on a Saturday" },
+              { src: null, alt: "Tommy's chair" },
+            ]}
+          />
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-5xl px-6 py-20">
+        <SectionHeader eyebrow="Kind words" title="What the chairs say" />
+        <div className="mt-8 grid gap-5 sm:grid-cols-2">
+          <Testimonial
+            item={{
+              quote:
+                "Been coming since they opened. Never waited more than ten minutes, never had a bad cut.",
+              name: "Dan Whitfield",
+              role: "Every third Thursday",
+            }}
+          />
+          <Testimonial
+            item={{
+              quote: "Took my lad for his first proper cut. Deniz had him laughing the whole time.",
+              name: "Priya Nair",
+              role: "Saturday regular",
+            }}
+          />
+        </div>
+      </section>
+
+      {/* Hours, address and phone are ONE question — how do I get there and
+          when — so they are one section, with the live answer on top. */}
+      <section id="find-us" className="border-y border-border bg-muted/40">
+        <div className="mx-auto grid max-w-5xl gap-10 px-6 py-20 sm:grid-cols-2">
+          <div>
+            <SectionHeader eyebrow="Find us" title="On the row itself" />
+            <OpenNow
+              className="mt-6"
+              hours={HOURS.filter((h) => h.open && h.close).map((h) => ({
+                day: h.day,
+                open: h.open!,
+                close: h.close!,
+              }))}
+            />
+            <OpeningHours days={HOURS} className="mt-4" />
+          </div>
+          <LocationCard
+            className="self-start"
+            name="Cutler Row Barbers"
+            address="14 Cutler Row, Sheffield S1 2AY"
+            note="Two minutes from the Cathedral tram stop. No parking on the row itself — use Campo Lane."
+          />
+        </div>
+      </section>
+
+      {/* The last thing before the footer is the thing you want them to do. */}
+      <section className="mx-auto max-w-5xl px-6 py-20">
+        <CtaBand
+          title="A chair is usually free the same day"
+          description="Book in thirty seconds. We'll call to confirm."
+          action={{ label: "Book a chair", href: "#/book" }}
+        />
+      </section>
+    </SiteChrome>
   );
 }

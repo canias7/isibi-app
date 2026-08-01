@@ -1,0 +1,52 @@
+# Every family reference app, built and driven for real. src/family-pages is
+# excluded from BOTH static tsc passes (its routes only exist in a tree
+# generated from its own files), so this workflow is the only thing standing
+# between a broken family page and the prompt that cites it as known-good.
+#
+# Costs nothing: no model call, no container, no Neon project.
+name: family apps
+
+on:
+  push:
+    paths:
+      - 'builder/lovable/template/src/family-pages/**'
+      - 'builder/site-layouts.mjs'
+      - 'builder/build-server.mjs'
+      - 'builder/lovable/template/src/components/**'
+      - 'test/integration/family-apps.mjs'
+      - '.github/workflows/family-apps.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: builder/lovable/template/package-lock.json
+
+      - run: npm ci --no-audit --no-fund --loglevel=error
+        working-directory: builder/lovable/template
+
+      - run: npx playwright install --with-deps chromium
+        working-directory: builder/lovable/template
+
+      - run: node test/integration/family-apps.mjs
+        env:
+          FAM_SHOTS: fam-shots
+
+      # The renders, for eyes. Typecheck-clean grey charts taught this repo
+      # that a screenshot is part of the definition of done.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: family-app-renders
+          path: fam-shots/
+          if-no-files-found: ignore

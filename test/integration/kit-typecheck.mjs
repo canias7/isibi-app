@@ -28,6 +28,18 @@ function tsc(project) {
   return { code: r.status, out: (r.stdout || "") + (r.stderr || ""), ms: Date.now() - started };
 }
 
+// The route tree comes first: the per-build check below needs it (main.tsx
+// imports src/routeTree.gen.ts), and generating it up front means both tsc
+// passes run against the same freshly generated file. src/family-pages is in
+// NEITHER pass — each family app declares routes the template tree never
+// registers, so they are typechecked per family by
+// test/integration/family-apps.mjs, against a tree regenerated from their own
+// files, which is the only configuration in which they are honest to check.
+console.log("generating the route tree, as a site build does…");
+const gen = spawnSync("npx", ["tsr", "generate"], { cwd: TEMPLATE, encoding: "utf8" });
+if (gen.status === 0) ok("route tree generated");
+else bad("could not generate the route tree", ((gen.stderr || "") + (gen.stdout || "")).slice(0, 600));
+
 console.log("typechecking the whole kit…");
 const kit = tsc("tsconfig.kit.json");
 if (kit.code === 0) ok(`all components typecheck (${kit.ms}ms)`);
@@ -45,11 +57,6 @@ else bad("the component kit does not typecheck", kit.out.split("\n").slice(0, 20
 // definition of "works on my machine". A test whose whole claim is that it
 // checks things "the way a site build does" has to do the step the site build
 // does, or it is testing a configuration nothing ever runs.
-console.log("generating the route tree, as a site build does…");
-const gen = spawnSync("npx", ["tsr", "generate"], { cwd: TEMPLATE, encoding: "utf8" });
-if (gen.status === 0) ok("route tree generated");
-else bad("could not generate the route tree", ((gen.stderr || "") + (gen.stdout || "")).slice(0, 600));
-
 console.log("typechecking a build the way a site build does…");
 const build = tsc(null);
 if (build.code === 0) ok(`the per-build check is clean (${build.ms}ms)`);

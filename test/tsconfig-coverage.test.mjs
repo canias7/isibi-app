@@ -60,13 +60,23 @@ test("and it is picked up by the config that does check it", () => {
 });
 
 test("every excluded directory is checked by something", () => {
-  // Derived, not listed: whatever tsconfig.json excludes has to be either a
-  // CATALOGUE (never edited by hand, only ever imported) or covered by the kit
-  // config. A fifth exclusion added for speed fails here until somebody decides
-  // which it is.
+  // Derived, not listed: whatever tsconfig.json excludes has to be a CATALOGUE
+  // (never edited by hand, only ever imported), covered by the kit config, or
+  // owned by a named integration harness. A fifth exclusion added for speed
+  // fails here until somebody decides which it is.
   const CATALOGUE = new Set(["src/components/charts"]);
+  // src/family-pages cannot join the kit pass: each family app declares routes
+  // (/listing, /guide …) that only exist in a route tree generated from its
+  // own files, so the honest check is a real per-family build. Owned by
+  // test/integration/family-apps.mjs — asserted to exist and to derive its
+  // coverage from site-layouts.mjs in test/family-pages.test.mjs.
+  const HARNESSED = new Map([["src/family-pages", "test/integration/family-apps.mjs"]]);
   const covered = (dir) => kit.include.some((g) => g.replace(/\/\*\*.*$/, "").startsWith(dir));
   for (const dir of base.exclude) {
+    if (HARNESSED.has(dir)) {
+      assert.ok(fs.existsSync(HARNESSED.get(dir)), `${dir}'s harness ${HARNESSED.get(dir)} is gone`);
+      continue;
+    }
     assert.ok(CATALOGUE.has(dir) || covered(dir),
       `${dir} is excluded from the build check and checked by nothing else — add it to tsconfig.kit.json`);
   }
