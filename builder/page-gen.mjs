@@ -656,6 +656,14 @@ export const UI_COMPONENTS = [
   "handoff-summary", "shift-handover", "escalate-action", "priority-picker", "due-soon-note",
   "read-receipt", "batch-window", "confidence-bar", "language-fallback", "cost-estimate-note",
   "coverage-gap", "on-call-now",
+  // Integrations and connectors
+  "connector-card", "connection-health", "oauth-consent-summary", "reauth-prompt", "field-mapping",
+  "sync-direction", "sync-schedule", "integration-log", "disconnect-warning", "credential-rotate",
+  "provider-status", "mapping-conflict", "test-connection",
+  // Webhooks and events
+  "webhook-endpoint", "event-subscription", "delivery-attempt", "payload-preview", "signature-secret",
+  "replay-event", "event-filter", "dead-letter", "delivery-rate", "webhook-test",
+  "idempotency-note", "retry-policy",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

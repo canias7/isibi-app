@@ -1,4 +1,4 @@
-# Components (1558 built, 25 to go)
+# Components (1583 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -273,7 +273,9 @@ A ✓ means it exists and a generated site can import it today.
 ✓ conflict-note
 ✓ connect-card
 ✓ connected-account
+✓ connection-health
 ✓ connection-quality
+✓ connector-card
 ✓ consent-checkbox
 ✓ consent-history
 ✓ consent-summary
@@ -313,6 +315,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ cover-image
 ✓ coverage-gap
 ✓ credential-expiry
+✓ credential-rotate
 ✓ credential-row
 ✓ credit-applied
 ✓ cron-builder
@@ -345,6 +348,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ date-range-picker
 ✓ date-time-picker
 ✓ day-schedule
+✓ dead-letter
 ✓ deadline-bar
 ✓ deadline-note
 ✓ decision-matrix
@@ -354,9 +358,11 @@ A ✓ means it exists and a generated site can import it today.
 ✓ degraded-note
 ✓ delegate-approval
 ✓ delete-my-data
+✓ delivery-attempt
 ✓ delivery-estimate
 ✓ delivery-eta
 ✓ delivery-note-field
+✓ delivery-rate
 ✓ delivery-slot
 ✓ delivery-status
 ✓ delivery-window
@@ -381,6 +387,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ directions-link
 ✓ directory-list
 ✓ dirty-indicator
+✓ disconnect-warning
 ✓ discount-input
 ✓ dish-card
 ✓ dismiss-all
@@ -461,7 +468,9 @@ A ✓ means it exists and a generated site can import it today.
 ✓ estimate-band
 ✓ eta-band
 ✓ event-card
+✓ event-filter
 ✓ event-meta
+✓ event-subscription
 ✓ evidence-list
 ✓ exchange-rate-note
 ✓ exclude-filter
@@ -497,6 +506,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ field-hint
 ✓ field-history
 ✓ field-lock
+✓ field-mapping
 ✓ field-mask
 ✓ field-success
 ✓ field-warning
@@ -607,6 +617,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ ics-button
 ✓ id-badge
 ✓ id-check-status
+✓ idempotency-note
 ✓ identity-summary
 ✓ idle-note
 ✓ image-annotate
@@ -634,6 +645,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ install-prompt
 ✓ instalment-line
 ✓ instant-results
+✓ integration-log
 ✓ interval-picker
 ✓ invert-selection
 ✓ invite-form
@@ -720,6 +732,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ maintenance-page
 ✓ maintenance-panel
 ✓ map-embed
+✓ mapping-conflict
 ✓ markdown-editor
 ✓ markdown-preview
 ✓ marker
@@ -814,6 +827,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ number-scale-note
 ✓ number-scrubber
 ✓ numeric-filter
+✓ oauth-consent-summary
 ✓ ocr-note
 ✓ offline-banner
 ✓ offline-queue
@@ -872,6 +886,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ paste-table
 ✓ pause-motion
 ✓ payback-note
+✓ payload-preview
 ✓ payment-methods
 ✓ payment-picker
 ✓ payment-schedule
@@ -956,6 +971,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ property-panel
 ✓ pros-cons
 ✓ prose
+✓ provider-status
 ✓ pull-quote
 ✓ pull-to-refresh
 ✓ pulse-dot
@@ -1006,6 +1022,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ read-receipt
 ✓ reading-guide
 ✓ reading-time
+✓ reauth-prompt
 ✓ recall-request
 ✓ receipt
 ✓ receipt-upload
@@ -1038,6 +1055,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ reorder-point
 ✓ reorderable-grid
 ✓ repeatable-field
+✓ replay-event
 ✓ reply-box
 ✓ report-problem
 ✓ report-reason
@@ -1067,6 +1085,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ retry-budget
 ✓ retry-countdown
 ✓ retry-panel
+✓ retry-policy
 ✓ return-reason
 ✓ return-window
 ✓ reveal
@@ -1220,6 +1239,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ signature-block
 ✓ signature-pad
 ✓ signature-request
+✓ signature-secret
 ✓ significant-figures
 ✓ signup-form
 ✓ site-chrome
@@ -1346,6 +1366,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ switch
 ✓ switch-row
 ✓ sync-conflict-list
+✓ sync-direction
+✓ sync-schedule
 ✓ sync-status
 ✓ syntax-highlight
 ✓ system-prompt-editor
@@ -1384,6 +1406,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ template-variables
 ✓ terminal-output
 ✓ terms-block
+✓ test-connection
 ✓ testimonial
 ✓ text
 ✓ text-only-toggle
@@ -1527,7 +1550,9 @@ A ✓ means it exists and a generated site can import it today.
 ✓ watermark-note
 ✓ waveform
 ✓ waveform-scrub
+✓ webhook-endpoint
 ✓ webhook-row
+✓ webhook-test
 ✓ week-picker
 ✓ week-strip
 ✓ weekday-picker
