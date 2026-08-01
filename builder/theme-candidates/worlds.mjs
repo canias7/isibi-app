@@ -1,17 +1,25 @@
-// THE WORLD ASSIGNMENT — backdrop · decor · display for every candidate
-// (2026-08-01, the redesign). Generated with hand overrides for ~200 themes
-// whose genre names its texture, genre rules for the rest; every value is a
-// legal option of the world/display axes in site-theme.mjs. Edit per theme
-// freely — this file is data, and the sweep harness merges it onto the
-// batches at render time. A missing entry or field means plain/none/ink.
+// THE WORLD ASSIGNMENT — the whole package per candidate (2026-08-01,
+// the realism sweep): ground (a MATERIAL where the theme's world names a
+// surface, light backdrops only where light is the subject), display,
+// motion, skin — and the component echoes a material implies (a marble
+// theme's buttons go sharp, a paper theme's inputs underline), filled only
+// where the batch theme left that axis unset so hand-authored axes always
+// win. Every value is validated against the engine's real option sets at
+// generation. Edit per theme freely — this file is data, and the sweep
+// harness merges it onto the batches at render time. A missing entry or
+// field means plain/none/ink.
 export const WORLDS = {
  broadsheet: {},
  literary: {},
  zine: {
-  decor: "grain"
+  decor: "paper",
+  inputs: "underline",
+  display: "ink"
  },
  journal: {
-  decor: "grain"
+  decor: "paper",
+  inputs: "underline",
+  display: "ink"
  },
  gazette: {},
  manifesto: {},
@@ -64,12 +72,12 @@ export const WORLDS = {
  monochrome: {},
  "quiet-luxury": {},
  scandi: {
-  backdrop: "wash"
+  decor: "wood"
  },
  japandi: {},
  utilitarian: {},
  "wabi-sabi": {
-  decor: "grain"
+  decor: "plaster"
  },
  gallery: {
   skin: "frame"
@@ -119,12 +127,12 @@ export const WORLDS = {
   ambient: "lively"
  },
  artisan: {
-  decor: "grain",
-  backdrop: "wash"
+  decor: "paper",
+  inputs: "underline",
+  display: "ink"
  },
  farmhouse: {
-  decor: "check",
-  backdrop: "wash"
+  decor: "wood"
  },
  botanical: {
   backdrop: "wash",
@@ -151,8 +159,8 @@ export const WORLDS = {
   display: "accent"
  },
  "mid-century": {
-  backdrop: "field",
-  display: "accent"
+  display: "accent",
+  decor: "wood"
  },
  "art-deco": {
   decor: "rays",
@@ -204,7 +212,9 @@ export const WORLDS = {
   backdrop: "wash"
  },
  "fine-dining": {
-  display: "accent"
+  display: "accent",
+  decor: "linen",
+  inputs: "underline"
  },
  heritage: {},
  spa: {
@@ -253,7 +263,8 @@ export const WORLDS = {
   ambient: "drift"
  },
  gothic: {
-  display: "accent"
+  display: "accent",
+  decor: "leather"
  },
  nightlife: {
   backdrop: "glow",
@@ -265,10 +276,13 @@ export const WORLDS = {
   display: "accent"
  },
  letterpress: {
-  decor: "grain"
+  decor: "paper",
+  inputs: "underline",
+  display: "ink"
  },
  linen: {
-  decor: "weave"
+  decor: "linen",
+  inputs: "underline"
  },
  terrazzo: {
   decor: "spots",
@@ -278,19 +292,23 @@ export const WORLDS = {
   decor: "grain"
  },
  denim: {
-  decor: "weave",
-  display: "accent"
+  decor: "linen",
+  display: "accent",
+  inputs: "underline"
  },
  porcelain: {
   backdrop: "wash",
   display: "accent"
  },
  concrete: {
-  decor: "grain"
+  decor: "concrete",
+  buttons: "sharp",
+  display: "ink"
  },
  copper: {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "brushed",
+  buttons: "sharp"
  },
  walnut: {
   decor: "wood",
@@ -302,8 +320,9 @@ export const WORLDS = {
   ambient: "drift"
  },
  trattoria: {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "paper",
+  inputs: "underline"
  },
  izakaya: {
   backdrop: "glow",
@@ -334,7 +353,8 @@ export const WORLDS = {
   backdrop: "wash"
  },
  study: {
-  backdrop: "wash"
+  decor: "leather",
+  display: "accent"
  },
  chapel: {
   backdrop: "wash",
@@ -366,7 +386,9 @@ export const WORLDS = {
   display: "accent"
  },
  "brutalist-concrete": {
-  backdrop: "wash"
+  decor: "concrete",
+  buttons: "sharp",
+  display: "ink"
  },
  "belle-epoque": {
   backdrop: "wash",
@@ -416,47 +438,51 @@ export const WORLDS = {
   ambient: "drift"
  },
  "barber-classic": {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "leather"
  },
  tailor: {
-  backdrop: "wash"
+  decor: "linen",
+  inputs: "underline"
  },
  "butcher-paper": {
-  decor: "grain"
+  decor: "paper",
+  inputs: "underline",
+  display: "ink"
  },
  carpenter: {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "wood"
  },
  foundry: {
-  backdrop: "glow",
   display: "accent",
-  ambient: "drift"
+  decor: "concrete",
+  buttons: "sharp"
  },
  printshop: {
   backdrop: "wash",
   display: "accent"
  },
  brewery: {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "wood"
  },
  distillery: {
-  backdrop: "glow",
   display: "accent",
-  ambient: "drift"
+  decor: "wood"
  },
  florist: {
   backdrop: "wash",
   display: "accent"
  },
  cobbler: {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "leather"
  },
  paperback: {
-  decor: "grain"
+  decor: "paper",
+  inputs: "underline",
+  display: "ink"
  },
  tabloid: {
   decor: "dots"
@@ -484,7 +510,11 @@ export const WORLDS = {
   decor: "grain"
  },
  marginalia: {},
- "system-classic": {},
+ "system-classic": {
+  decor: "brushed",
+  buttons: "sharp",
+  display: "ink"
+ },
  "dot-matrix": {
   decor: "scanlines"
  },
@@ -492,13 +522,17 @@ export const WORLDS = {
   decor: "grid"
  },
  skeuomorph: {
-  decor: "weave",
-  backdrop: "wash"
+  decor: "leather",
+  display: "accent"
  },
  "terminal-amber": {
   decor: "scanlines"
  },
- eink: {},
+ eink: {
+  decor: "paper",
+  inputs: "underline",
+  display: "ink"
+ },
  "cassette-futurism": {
   backdrop: "glow",
   display: "accent",
@@ -561,9 +595,10 @@ export const WORLDS = {
  },
  municipal: {},
  library: {
-  decor: "grain"
+  decor: "wood"
  },
  "museum-label": {
+  decor: "plaster",
   skin: "frame"
  },
  schoolhouse: {
@@ -585,7 +620,11 @@ export const WORLDS = {
  ledger: {
   decor: "grid"
  },
- courthouse: {},
+ courthouse: {
+  decor: "marble",
+  buttons: "sharp",
+  display: "ink"
+ },
  dusk: {
   backdrop: "wash",
   display: "accent"
@@ -595,7 +634,7 @@ export const WORLDS = {
   display: "accent"
  },
  siesta: {
-  backdrop: "wash"
+  decor: "plaster"
  },
  fiesta: {
   backdrop: "wash",
@@ -617,10 +656,11 @@ export const WORLDS = {
   display: "accent"
  },
  onsen: {
-  backdrop: "wash"
+  decor: "wood"
  },
  safari: {
-  backdrop: "wash"
+  decor: "canvas",
+  display: "accent"
  },
  orchestra: {},
  "jazz-club": {
@@ -661,8 +701,8 @@ export const WORLDS = {
   ambient: "drift"
  },
  velodrome: {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "wood"
  },
  "tennis-club": {
   backdrop: "wash",
@@ -674,15 +714,15 @@ export const WORLDS = {
   ambient: "drift"
  },
  "yacht-club": {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "wood"
  },
  marathon: {
   backdrop: "wash",
   display: "accent"
  },
  "chess-club": {
-  backdrop: "wash"
+  decor: "wood"
  },
  billiards: {
   backdrop: "glow",
@@ -690,8 +730,8 @@ export const WORLDS = {
   ambient: "drift"
  },
  "bowling-alley": {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "wood"
  },
  surf: {
   backdrop: "wash",
@@ -709,8 +749,8 @@ export const WORLDS = {
   display: "accent"
  },
  mineralogy: {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "felt"
  },
  anatomy: {
   backdrop: "wash",
@@ -739,9 +779,9 @@ export const WORLDS = {
   display: "accent"
  },
  orrery: {
-  backdrop: "glow",
   display: "accent",
-  ambient: "drift"
+  decor: "brushed",
+  buttons: "sharp"
  },
  darkroom: {
   backdrop: "glow",
@@ -749,8 +789,9 @@ export const WORLDS = {
   ambient: "drift"
  },
  loom: {
-  decor: "weave",
-  display: "accent"
+  decor: "linen",
+  display: "accent",
+  inputs: "underline"
  },
  bindery: {
   backdrop: "wash"
@@ -778,8 +819,8 @@ export const WORLDS = {
   display: "accent"
  },
  easel: {
-  backdrop: "wash",
   display: "accent",
+  decor: "canvas",
   skin: "frame"
  },
  mural: {
@@ -807,9 +848,9 @@ export const WORLDS = {
   display: "accent"
  },
  lantern: {
-  backdrop: "glow",
   display: "accent",
-  ambient: "drift"
+  decor: "paper",
+  inputs: "underline"
  },
  bonfire: {
   backdrop: "glow",
@@ -825,13 +866,13 @@ export const WORLDS = {
   display: "accent"
  },
  "snow-day": {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "felt"
  },
  "sleeper-train": {
-  backdrop: "glow",
   display: "accent",
-  ambient: "drift"
+  decor: "brushed",
+  buttons: "sharp"
  },
  airship: {
   backdrop: "wash"
@@ -845,8 +886,9 @@ export const WORLDS = {
   display: "accent"
  },
  "bicycle-shop": {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "brushed",
+  buttons: "sharp"
  },
  motel: {
   backdrop: "glow",
@@ -870,15 +912,16 @@ export const WORLDS = {
   display: "accent"
  },
  millinery: {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "paper",
+  inputs: "underline"
  },
  perfumery: {
   backdrop: "wash",
   display: "accent"
  },
  tweed: {
-  decor: "weave"
+  decor: "felt"
  },
  silk: {
   display: "gradient",
@@ -928,8 +971,9 @@ export const WORLDS = {
   display: "accent"
  },
  clockwork: {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "brushed",
+  buttons: "sharp"
  },
  castaway: {
   backdrop: "wash"
@@ -946,10 +990,13 @@ export const WORLDS = {
  "penny-dreadful": {
   decor: "dots"
  },
- typewriter: {},
+ typewriter: {
+  decor: "paper",
+  inputs: "underline",
+  display: "ink"
+ },
  "corner-office": {
-  backdrop: "glow",
-  ambient: "drift"
+  decor: "wood"
  },
  switchboard: {
   decor: "dots"
@@ -962,10 +1009,14 @@ export const WORLDS = {
   decor: "grid"
  },
  reception: {
-  backdrop: "wash"
+  decor: "marble",
+  buttons: "sharp",
+  display: "ink"
  },
  stockroom: {
-  decor: "grid"
+  decor: "brushed",
+  buttons: "sharp",
+  display: "ink"
  },
  "night-shift": {
   backdrop: "glow",
@@ -976,29 +1027,28 @@ export const WORLDS = {
   display: "accent"
  },
  hammam: {
-  backdrop: "wash",
-  decor: "dots",
-  display: "accent"
+  decor: "marble",
+  display: "accent",
+  buttons: "sharp"
  },
  riad: {
-  decor: "grid",
-  backdrop: "wash",
+  decor: "plaster",
   display: "accent"
  },
  taverna: {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "plaster"
  },
  fika: {
   decor: "check",
   backdrop: "wash"
  },
  hanok: {
-  decor: "weave"
+  decor: "wood"
  },
  pueblo: {
-  backdrop: "horizon",
-  display: "accent"
+  display: "accent",
+  decor: "plaster"
  },
  bazaar: {
   backdrop: "glow",
@@ -1021,8 +1071,7 @@ export const WORLDS = {
   display: "accent"
  },
  western: {
-  decor: "grain",
-  backdrop: "wash"
+  decor: "wood"
  },
  "drive-in": {
   backdrop: "glow",
@@ -1047,12 +1096,11 @@ export const WORLDS = {
   ambient: "drift"
  },
  rodeo: {
-  decor: "grain",
-  backdrop: "wash"
+  decor: "leather",
+  display: "accent"
  },
  boardwalk: {
-  decor: "stripes",
-  backdrop: "horizon",
+  decor: "wood",
   display: "accent"
  },
  "soda-fountain": {
@@ -1103,7 +1151,9 @@ export const WORLDS = {
   ambient: "drift"
  },
  "box-office": {
-  decor: "grain",
+  decor: "paper",
+  inputs: "underline",
+  display: "ink",
   skin: "ticket"
  },
  "shadow-play": {
@@ -1125,7 +1175,9 @@ export const WORLDS = {
   ambient: "drift"
  },
  "playing-cards": {
-  display: "accent"
+  display: "accent",
+  decor: "linen",
+  inputs: "underline"
  },
  crossword: {
   decor: "grid"
@@ -1142,15 +1194,14 @@ export const WORLDS = {
   ambient: "drift"
  },
  mahjong: {
-  decor: "grid",
+  decor: "felt",
   display: "accent"
  },
  dominoes: {},
  dungeon: {
-  decor: "grid",
-  backdrop: "glow",
+  decor: "paper",
   display: "accent",
-  ambient: "drift"
+  inputs: "underline"
  },
  bingo: {
   decor: "dots",
@@ -1159,8 +1210,8 @@ export const WORLDS = {
   skin: "ticket"
  },
  lighthouse: {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "plaster"
  },
  riverboat: {
   backdrop: "wash",
@@ -1175,9 +1226,9 @@ export const WORLDS = {
   display: "accent"
  },
  submarine: {
-  backdrop: "glow",
   display: "accent",
-  ambient: "drift"
+  decor: "brushed",
+  buttons: "sharp"
  },
  pearl: {
   backdrop: "aurora",
@@ -1225,15 +1276,18 @@ export const WORLDS = {
  sundial: {
   decor: "rays"
  },
- weathervane: {},
+ weathervane: {
+  decor: "brushed",
+  buttons: "sharp",
+  display: "ink"
+ },
  kite: {
   decor: "spots",
   backdrop: "field",
   display: "accent"
  },
  balloonist: {
-  decor: "stripes",
-  backdrop: "horizon",
+  decor: "canvas",
   display: "accent"
  },
  polaris: {
@@ -1241,13 +1295,15 @@ export const WORLDS = {
   ambient: "drift"
  },
  crayon: {
-  backdrop: "wash",
   display: "accent",
+  decor: "paper",
+  inputs: "underline",
   skin: "tilt"
  },
  "paper-plane": {
-  backdrop: "wash",
   display: "accent",
+  decor: "paper",
+  inputs: "underline",
   skin: "tilt"
  },
  treehouse: {
@@ -1321,15 +1377,24 @@ export const WORLDS = {
   display: "accent",
   ambient: "drift"
  },
- vault: {},
- stationery: {},
+ vault: {
+  decor: "brushed",
+  buttons: "sharp",
+  display: "ink"
+ },
+ stationery: {
+  decor: "paper",
+  inputs: "underline",
+  display: "ink"
+ },
  "wax-seal": {
   decor: "grain",
   display: "accent"
  },
  postcard: {
-  decor: "grain",
+  decor: "paper",
   display: "accent",
+  inputs: "underline",
   skin: "tilt"
  },
  scrapbook: {
@@ -1342,19 +1407,27 @@ export const WORLDS = {
   decor: "scanlines"
  },
  "composition-book": {
-  decor: "grid"
+  decor: "marble",
+  buttons: "sharp",
+  display: "ink"
  },
- "fountain-pen": {},
+ "fountain-pen": {
+  decor: "leather",
+  display: "accent"
+ },
  envelope: {
-  decor: "grain"
+  decor: "paper",
+  inputs: "underline",
+  display: "ink"
  },
  "ink-blot": {},
  receipt: {
   decor: "scanlines"
  },
  fishmonger: {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "marble",
+  buttons: "sharp"
  },
  cheesemonger: {
   backdrop: "wash",
@@ -1389,8 +1462,9 @@ export const WORLDS = {
   display: "accent"
  },
  locksmith: {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "brushed",
+  buttons: "sharp"
  },
  patina: {
   decor: "grain"
@@ -1403,11 +1477,12 @@ export const WORLDS = {
   decor: "grain"
  },
  palimpsest: {
-  decor: "grain"
+  decor: "paper",
+  inputs: "underline",
+  display: "ink"
  },
  fresco: {
-  decor: "grain",
-  backdrop: "wash",
+  decor: "plaster",
   skin: "frame"
  },
  sepia: {
@@ -1535,8 +1610,7 @@ export const WORLDS = {
   display: "accent"
  },
  knitting: {
-  decor: "weave",
-  backdrop: "wash",
+  decor: "felt",
   display: "accent"
  },
  "fly-fishing": {
@@ -1603,7 +1677,9 @@ export const WORLDS = {
   display: "accent"
  },
  penthouse: {
-  backdrop: "wash"
+  decor: "marble",
+  buttons: "sharp",
+  display: "ink"
  },
  bungalow: {
   backdrop: "wash",
@@ -1614,8 +1690,8 @@ export const WORLDS = {
   display: "accent"
  },
  windmill: {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "canvas"
  },
  conservatory: {
   backdrop: "aurora",
@@ -1668,16 +1744,19 @@ export const WORLDS = {
   display: "accent"
  },
  gramophone: {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "brushed",
+  buttons: "sharp"
  },
  "difference-engine": {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "brushed",
+  buttons: "sharp"
  },
  pendulum: {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "brushed",
+  buttons: "sharp"
  },
  "camera-obscura": {
   backdrop: "glow",
@@ -1701,8 +1780,9 @@ export const WORLDS = {
   display: "accent"
  },
  astrolabe: {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "brushed",
+  buttons: "sharp"
  },
  "magic-lantern": {
   backdrop: "glow",
@@ -1734,8 +1814,8 @@ export const WORLDS = {
   display: "accent"
  },
  awning: {
-  backdrop: "wash",
-  display: "accent"
+  display: "accent",
+  decor: "canvas"
  },
  balcony: {
   backdrop: "wash",
@@ -1776,7 +1856,9 @@ export const WORLDS = {
   ambient: "drift"
  },
  papyrus: {
-  decor: "weave"
+  decor: "paper",
+  inputs: "underline",
+  display: "ink"
  },
  obsidian: {
   backdrop: "glow",
@@ -1792,7 +1874,8 @@ export const WORLDS = {
   backdrop: "wash"
  },
  basecamp: {
-  decor: "grid"
+  decor: "canvas",
+  display: "accent"
  },
  summit: {
   backdrop: "field"
@@ -1863,7 +1946,9 @@ export const WORLDS = {
   ambient: "drift"
  },
  granite: {
-  decor: "grain"
+  decor: "marble",
+  buttons: "sharp",
+  display: "ink"
  },
  impressionist: {
   backdrop: "aurora",
@@ -1927,7 +2012,9 @@ export const WORLDS = {
   display: "gradient"
  },
  "paper-cut": {
-  backdrop: "wash"
+  decor: "paper",
+  inputs: "underline",
+  display: "ink"
  },
  terrarium: {
   backdrop: "aurora",
