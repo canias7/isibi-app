@@ -748,6 +748,13 @@ export const UI_COMPONENTS = [
   "policy-summary-row", "cover-level", "excess-note", "claim-row", "claim-timeline",
   "incident-report", "assessor-visit", "settlement-offer", "renewal-quote", "exclusion-list",
   "beneficiary-row", "premium-breakdown",
+  // Accounting and bookkeeping
+  "ledger-row", "reconciliation-row", "unmatched-note", "journal-entry", "chart-of-accounts",
+  "period-lock", "accrual-note", "depreciation-row", "trial-balance-row", "aged-balance",
+  "write-off-note", "nominal-code", "bank-feed-row",
+  // Security and access control
+  "door-event", "badge-row", "visitor-sign-in", "escort-note", "zone-permission",
+  "alarm-state", "patrol-log", "key-issue",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

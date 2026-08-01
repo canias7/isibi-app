@@ -1,4 +1,4 @@
-# Components (1836 built, 25 to go)
+# Components (1857 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -13,6 +13,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ accession-number
 ✓ accordion
 ✓ account-menu
+✓ accrual-note
 ✓ acknowledge-button
 ✓ acquisition-note
 ✓ action-history
@@ -26,6 +27,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ advanced-toggle
 ✓ age-gate
 ✓ age-rating-note
+✓ aged-balance
 ✓ agenda-list
 ✓ aggregate-picker
 ✓ ai-confidence
@@ -40,6 +42,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ ai-sources
 ✓ ai-suggestion
 ✓ ai-undo
+✓ alarm-state
 ✓ alert
 ✓ alert-dialog
 ✓ all-day-row
@@ -122,7 +125,9 @@ A ✓ means it exists and a generated site can import it today.
 ✓ backup-schedule
 ✓ badge
 ✓ badge-explainer
+✓ badge-row
 ✓ balance-due
+✓ bank-feed-row
 ✓ banner
 ✓ bar-list
 ✓ barcode
@@ -230,6 +235,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ chapter-list
 ✓ char-limit-ring
 ✓ chart
+✓ chart-of-accounts
 ✓ chat-composer
 ✓ chat-message
 ✓ chat-thread
@@ -430,6 +436,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ dependent-select
 ✓ deposit-line
 ✓ deprecation-note
+✓ depreciation-row
 ✓ description-list
 ✓ detail-panel
 ✓ device-list
@@ -468,6 +475,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ donation-card
 ✓ donor-credit
 ✓ donut-mini
+✓ door-event
 ✓ dot-plot
 ✓ download-card
 ✓ download-menu
@@ -541,6 +549,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ escalate-action
 ✓ escalation-ladder
 ✓ escalation-note
+✓ escort-note
 ✓ estimate-band
 ✓ estimated-vs-actual
 ✓ eta-band
@@ -765,6 +774,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ job-card
 ✓ job-failed
 ✓ job-progress
+✓ journal-entry
 ✓ json-tree
 ✓ json-view
 ✓ jump-to
@@ -774,6 +784,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ kbd
 ✓ kbd-chord
 ✓ key-cap
+✓ key-issue
 ✓ key-points
 ✓ key-sequence
 ✓ key-value
@@ -803,6 +814,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ lead-time-input
 ✓ leave-confirm
 ✓ leave-safe-consent
+✓ ledger-row
 ✓ leg-list
 ✓ legacy-note
 ✓ legend
@@ -938,6 +950,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ no-results
 ✓ no-show-note
 ✓ node-graph
+✓ nominal-code
 ✓ nonconformance
 ✓ not-found
 ✓ not-found-panel
@@ -1021,6 +1034,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ paste-image
 ✓ paste-parse
 ✓ paste-table
+✓ patrol-log
 ✓ pause-motion
 ✓ payback-note
 ✓ payload-preview
@@ -1034,6 +1048,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ percent-input
 ✓ percent-ring
 ✓ percentile-note
+✓ period-lock
 ✓ permalink
 ✓ permission-denied
 ✓ permission-matrix
@@ -1193,6 +1208,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ recipe-card
 ✓ recommendation-badge
 ✓ recommended-flag
+✓ reconciliation-row
 ✓ reconnect-strip
 ✓ record-header
 ✓ record-keeping-note
@@ -1714,6 +1730,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tree-table
 ✓ tree-view
 ✓ trend-arrow
+✓ trial-balance-row
 ✓ trigger-picker
 ✓ truncate-middle
 ✓ trust-level
@@ -1738,6 +1755,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ unit-preference
 ✓ unit-price
 ✓ unit-toggle
+✓ unmatched-note
 ✓ unread-divider
 ✓ unresolved-count
 ✓ unsaved-guard
@@ -1781,6 +1799,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ viewer-list
 ✓ virtual-list
 ✓ visibility-toggle
+✓ visitor-sign-in
 ✓ visually-hidden
 ✓ voice-input
 ✓ voice-transcript
@@ -1833,11 +1852,13 @@ A ✓ means it exists and a generated site can import it today.
 ✓ workspace-switcher
 ✓ world-clock
 ✓ write-blocked
+✓ write-off-note
 ✓ write-queue
 ✓ year-picker
 ✓ yield-note
 ✓ zero-results
 ✓ zip-contents
+✓ zone-permission
 ✓ zoom-controls
 ✓ zoom-pan
 
