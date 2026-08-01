@@ -143,6 +143,7 @@ export const WORLDS = {
  },
  "nordic-cabin": {
   backdrop: "wash",
+  decor: "wood",
   display: "accent"
  },
  market: {
@@ -294,6 +295,7 @@ export const WORLDS = {
  },
  walnut: {
   backdrop: "wash",
+  decor: "wood",
   display: "accent"
  },
  velvet: {
@@ -1252,6 +1254,7 @@ export const WORLDS = {
  },
  treehouse: {
   backdrop: "wash",
+  decor: "wood",
   display: "accent"
  },
  "lemonade-stand": {
@@ -1442,8 +1445,7 @@ export const WORLDS = {
   display: "accent"
  },
  "potting-shed": {
-  backdrop: "wash",
-  display: "accent"
+  decor: "wood"
  },
  hedgerow: {
   backdrop: "wash",
@@ -1489,6 +1491,7 @@ export const WORLDS = {
  },
  "farm-table": {
   backdrop: "wash",
+  decor: "wood",
   display: "accent"
  },
  "spice-rack": {

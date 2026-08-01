@@ -850,6 +850,7 @@ export const DECORS = {
   dots: { label: "halftone dots, quiet and even" },
   scanlines: { label: "hairline scanlines — broadcast paper" },
   weave: { label: "a diagonal cross-hatch weave" },
+  wood: { label: "planked wood — seams and long grain" },
   spots: { label: "scattered confetti points" },
   rays: { label: "faint rays from the top of the page" },
 };
@@ -861,9 +862,12 @@ const bL = (mode, v) => (mode === "light" ? Math.max(v, 0.7) : Math.min(v, 0.55)
 const BACKDROP_LAYERS = {
   wash: (theme, mode) => {
     const [, , H] = theme[mode].accent;
+    // ONE hue family, deliberately (owner's call, 2026-08-01): the rotated
+    // blooms put a violet patch on every red theme and read as three colours
+    // fighting. Tone-on-tone now — same hue, different depths.
     const a = mode === "light" ? [bL(mode, 0.8), 0.22, H, 1] : [bL(mode, 0.33), 0.15, H, 0.7];
-    const b = mode === "light" ? [bL(mode, 0.84), 0.15, (H + 40) % 360, 0.85] : [bL(mode, 0.3), 0.12, (H + 40) % 360, 0.5];
-    const c = mode === "light" ? [bL(mode, 0.86), 0.13, (H + 320) % 360, 0.7] : [bL(mode, 0.28), 0.11, (H + 320) % 360, 0.4];
+    const b = mode === "light" ? [bL(mode, 0.85), 0.14, (H + 12) % 360, 0.8] : [bL(mode, 0.3), 0.12, (H + 12) % 360, 0.5];
+    const c = mode === "light" ? [bL(mode, 0.87), 0.1, (H + 350) % 360, 0.6] : [bL(mode, 0.28), 0.1, (H + 350) % 360, 0.35];
     return [
       `radial-gradient(110rem circle at 50% -14%, ${css(a)}, transparent 72%)`,
       `radial-gradient(80rem circle at 92% 108%, ${css(b)}, transparent 70%)`,
@@ -877,6 +881,10 @@ const BACKDROP_LAYERS = {
    * a lit world every theme's right rather than glass's private feature.
    * Bolder than the first glass shipped: chroma and alpha up, lightness still
    * pinned so ink over a wash stays measured-legible.
+   *
+   * THE ONE POLY-HUE EXCEPTION: when the backdrops went tone-on-tone
+   * (owner's call), aurora kept its neighbouring hues — a rainbow canvas is
+   * the option's whole identity, and glass shipped wearing it.
    */
   aurora: (theme, mode) => {
     const H = theme[mode].accent[2];
@@ -893,8 +901,8 @@ const BACKDROP_LAYERS = {
   field: (theme, mode) => {
     const [, , H] = theme[mode].accent;
     const top = mode === "light" ? [bL(mode, 0.73), 0.24, H, 1] : [bL(mode, 0.34), 0.18, H, 1];
-    const mid = mode === "light" ? [bL(mode, 0.84), 0.14, (H + 25) % 360, 0.8] : [bL(mode, 0.27), 0.12, (H + 25) % 360, 0.6];
-    const low = mode === "light" ? [bL(mode, 0.86), 0.12, (H + 320) % 360, 0.7] : [bL(mode, 0.24), 0.11, (H + 320) % 360, 0.5];
+    const mid = mode === "light" ? [bL(mode, 0.85), 0.13, (H + 12) % 360, 0.75] : [bL(mode, 0.27), 0.11, (H + 12) % 360, 0.55];
+    const low = mode === "light" ? [bL(mode, 0.87), 0.1, (H + 352) % 360, 0.6] : [bL(mode, 0.24), 0.1, (H + 352) % 360, 0.45];
     return [
       `linear-gradient(180deg, ${css(top)}, transparent 58%)`,
       `radial-gradient(70rem circle at 88% 30%, ${css(mid)}, transparent 68%)`,
@@ -905,7 +913,7 @@ const BACKDROP_LAYERS = {
     const [, , H] = theme[mode].accent;
     const sky = mode === "light" ? [bL(mode, 0.72), 0.25, H, 1] : [bL(mode, 0.32), 0.19, H, 1];
     const haze = mode === "light" ? [bL(mode, 0.87), 0.1, H, 0.85] : [bL(mode, 0.24), 0.09, H, 0.6];
-    const sun = mode === "light" ? [bL(mode, 0.88), 0.14, (H + 45) % 360, 0.9] : [bL(mode, 0.38), 0.13, (H + 45) % 360, 0.55];
+    const sun = mode === "light" ? [bL(mode, 0.88), 0.13, (H + 18) % 360, 0.9] : [bL(mode, 0.38), 0.12, (H + 18) % 360, 0.55];
     return [
       `radial-gradient(30rem circle at 72% 12%, ${css(sun)}, transparent 60%)`,
       `linear-gradient(180deg, ${css(sky)} 0%, ${css(sky)} 16%, ${css(haze)} 34%, transparent 54%)`,
@@ -915,8 +923,8 @@ const BACKDROP_LAYERS = {
     const [, , H] = theme[mode].accent;
     const warm = (h, L, C, A) => [bL(mode, L), C, h, A];
     const pools = mode === "light"
-      ? [warm(H, 0.8, 0.18, 1), warm((H + 25) % 360, 0.84, 0.14, 0.85), warm((H + 340) % 360, 0.83, 0.15, 0.7)]
-      : [warm(H, 0.42, 0.16, 0.85), warm((H + 25) % 360, 0.36, 0.14, 0.65), warm((H + 340) % 360, 0.32, 0.14, 0.5)];
+      ? [warm(H, 0.8, 0.18, 1), warm((H + 14) % 360, 0.84, 0.14, 0.85), warm((H + 348) % 360, 0.83, 0.14, 0.7)]
+      : [warm(H, 0.42, 0.16, 0.85), warm((H + 14) % 360, 0.36, 0.14, 0.65), warm((H + 348) % 360, 0.32, 0.13, 0.5)];
     const at = [["50rem", "22%", "6%"], ["44rem", "82%", "38%"], ["46rem", "38%", "96%"]];
     return pools.map((p, i) => `radial-gradient(${at[i][0]} circle at ${at[i][1]} ${at[i][2]}, ${css(p)}, transparent 65%)`);
   },
@@ -957,6 +965,16 @@ const DECOR_LAYERS = {
     const { paper, ink } = theme[mode];
     const c = css([...mix(paper, ink, 0.2).slice(0, 3), 0.22]);
     return { image: `repeating-linear-gradient(45deg, ${c} 0 1px, transparent 1px 9px), repeating-linear-gradient(-45deg, ${c} 0 1px, transparent 1px 9px)` };
+  },
+  wood: (theme, mode) => {
+    // Planks: a seam every 148px, alternate planks a half-shade deeper, and
+    // anisotropic turbulence for the long grain (low y-frequency stretches
+    // the noise vertically, which is what reads as grain along the board).
+    const { paper, ink } = theme[mode];
+    const seam = css([...mix(paper, ink, 0.3).slice(0, 3), mode === "light" ? 0.3 : 0.38]);
+    const shade = css([...mix(paper, ink, 0.1).slice(0, 3), 0.45]);
+    const grain = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='340' height='340'><filter id='w'><feTurbulence type='fractalNoise' baseFrequency='0.11 0.009' numOctaves='3'/><feColorMatrix type='saturate' values='0'/><feComponentTransfer><feFuncA type='table' tableValues='0 0.13'/></feComponentTransfer></filter><rect width='340' height='340' filter='url(%23w)'/></svg>")`;
+    return { image: `${grain}, repeating-linear-gradient(90deg, ${seam} 0 2px, transparent 2px 148px), repeating-linear-gradient(90deg, ${shade} 0 74px, transparent 74px 148px)` };
   },
   spots: (theme, mode) => {
     // A TILE, not five absolute dots — percentage positions with no size put
@@ -1132,7 +1150,9 @@ export function ambientCss(theme) {
   const dur = style === "drift" ? "38s" : "16s";
   const layer = (mode) => {
     const H = theme[mode].accent[2];
-    const hues = [H, (H + 60) % 360, (H + 300) % 360].slice(0, n);
+    // Same hue family as the world it drifts over — the H+60/H+300 rotations
+    // were the violet patches the owner flagged on every warm theme.
+    const hues = [H, (H + 18) % 360, (H + 342) % 360].slice(0, n);
     const L = mode === "light" ? 0.84 : 0.36;
     const C = mode === "light" ? 0.16 : 0.14;
     const A = (mode === "light" ? [0.55, 0.4, 0.35] : [0.42, 0.32, 0.26]).slice(0, n);
@@ -1326,7 +1346,7 @@ export const THEMES = {
   //     display: "ink",               // ink | accent | gradient  (absent = ink)
   //     backdrop: "plain",            // plain | wash | aurora | field | horizon | glow  (absent = plain)
   //     decor: "none",                // none | grain | stripes | check | grid | dots
-  //                                   //   | scanlines | weave | spots | rays  (absent = none)
+  //                                   //   | scanlines | weave | wood | spots | rays  (absent = none)
   //     ambient: "still",             // still | drift | lively  (absent = still)
   //     skin: "flat",                 // flat | frame | ticket | tilt  (absent = flat)
   //     fonts: { heading: "<id>", body: "<id>" },   // ids from site-fonts.mjs
