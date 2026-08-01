@@ -1,6 +1,7 @@
-// institutional — audience-split navigation: several unrelated journeys share
-// one homepage, and the switch up top rearranges the page for whoever
-// answered. Tasks over marketing; notices and dates are first-class.
+// institutional — SINGLE-SCROLL as a TASK LIST: the register of the civic
+// web. The audience switch up top, then plain ruled lists of things to DO,
+// dates as a table, no tinted bands and no persuasion — the reader came to
+// finish a task, and the design's job is to get out of the way.
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
@@ -8,19 +9,23 @@ import { AnnouncementBar } from "@/components/ui/announcement-bar";
 import { AudienceSwitch } from "@/components/ui/audience-switch";
 import { EventCard } from "@/components/ui/event-card";
 import { Faq } from "@/components/ui/faq";
-import { SectionHeader } from "@/components/ui/section-header";
-import { StatsBand } from "@/components/ui/stats-band";
 export const Route = createFileRoute("/")({ component: P });
-const TASKS: Record<string, { title: string; items: { label: string; href: string }[] }> = {
+const TASKS: Record<string, { title: string; items: { label: string; note: string; href: string }[] }> = {
   prospective: { title: "Thinking of joining us", items: [
-    { label: "Book an open evening", href: "#/visit" }, { label: "Find your course", href: "#/courses" },
-    { label: "Fees and support", href: "#/apply" }, { label: "How to apply", href: "#/apply" }] },
+    { label: "Find your course", note: "38 A-levels and BTECs, honest entry lines", href: "#/courses" },
+    { label: "Book an open evening", note: "Drop-in — no booking needed, next one 17 Sept", href: "#/visit" },
+    { label: "How to apply", note: "Fifteen minutes online; closes 16 Jan", href: "#/apply" },
+    { label: "Fees and support", note: "Free for 16–18; bursaries explained plainly", href: "#/apply" }] },
   current: { title: "You're here already", items: [
-    { label: "Timetables", href: "#events" }, { label: "Library", href: "#events" },
-    { label: "Pay for trips", href: "#events" }, { label: "Wellbeing drop-in", href: "#events" }] },
+    { label: "Timetables", note: "This term's, by course code", href: "#events" },
+    { label: "Pay for trips", note: "The October ones are up", href: "#events" },
+    { label: "Library", note: "Open till 7 on teaching days", href: "#events" },
+    { label: "Wellbeing drop-in", note: "Tuesdays and Thursdays, no appointment", href: "#events" }] },
   alumni: { title: "You were here once", items: [
-    { label: "Transcripts", href: "#faq" }, { label: "Alumni events", href: "#events" },
-    { label: "Give back", href: "#faq" }, { label: "Update your details", href: "#faq" }] },
+    { label: "Transcripts", note: "Five working days, free", href: "#faq" },
+    { label: "Alumni events", note: "The December reunion is booking", href: "#events" },
+    { label: "Give back", note: "Mentoring beats money — an hour a term", href: "#faq" },
+    { label: "Update your details", note: "Two minutes", href: "#faq" }] },
 };
 function P() {
   const [who, setWho] = useState("prospective");
@@ -31,56 +36,52 @@ function P() {
       <SiteChrome name="Rivelin College" tagline="A sixth-form college in the Rivelin valley."
         links={[{ label: "Courses", href: "#/courses" }, { label: "Visit us", href: "#/visit" }, { label: "Term dates", href: "#events" }]}
         action={{ label: "Apply", href: "#/apply" }}>
+        <div className="mx-auto max-w-3xl px-6 py-12">
+          <h1 className="text-3xl font-semibold tracking-tight">Rivelin College</h1>
+          <p className="mt-2 text-muted-foreground">Sixth form · 1,400 students · two buses from Hillsborough every morning</p>
 
-        <section className="border-b border-border bg-muted/40">
-          <div className="mx-auto max-w-4xl px-6 py-14">
-            <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Sixth form · 1,400 students · Rivelin valley</p>
-            <h1 className="mt-2 max-w-2xl text-4xl font-semibold tracking-tight text-balance">One college, three front doors</h1>
-            {/* The audience switch IS the hero — the page rearranges for the answer. */}
-            <div className="mt-6">
-              <AudienceSwitch value={who} onChange={setWho} label="I am"
-                audiences={[
-                  { key: "prospective", label: "Future student" },
-                  { key: "current", label: "Current student" },
-                  { key: "alumni", label: "Alumni" }]} />
-            </div>
-            <div className="mt-6 rounded-xl border bg-card p-6 shadow-sm">
-              <h2 className="text-lg font-medium">{t.title}</h2>
-              <ul className="mt-4 grid gap-2 sm:grid-cols-2">
-                {t.items.map((i) => <li key={i.label}><a href={i.href} className="text-sm underline-offset-4 hover:underline">{i.label} →</a></li>)}
-              </ul>
-            </div>
+          <div className="mt-6">
+            <AudienceSwitch value={who} onChange={setWho} label="I am"
+              audiences={[
+                { key: "prospective", label: "Future student" },
+                { key: "current", label: "Current student" },
+                { key: "alumni", label: "Alumni" }]} />
           </div>
-        </section>
 
-        <section className="mx-auto max-w-4xl px-6 py-12">
-          <StatsBand items={[
-            { value: "38", label: "A-levels and BTECs" },
-            { value: "62%", label: "A*–B last summer" },
-            { value: "94%", label: "First-choice destinations" },
-            { value: "2", label: "Buses from Hillsborough each morning" }]} />
-        </section>
+          {/* The task register — a ruled list, not cards. */}
+          <h2 className="mt-8 text-sm font-medium uppercase tracking-widest text-muted-foreground">{t.title}</h2>
+          <ul className="mt-2 divide-y divide-border border-y border-border">
+            {t.items.map((i) => (
+              <li key={i.label}>
+                <a href={i.href} className="group flex items-baseline justify-between gap-4 py-3.5">
+                  <span>
+                    <span className="font-medium group-hover:underline">{i.label}</span>
+                    <span className="block text-sm text-muted-foreground">{i.note}</span>
+                  </span>
+                  <span aria-hidden="true" className="text-muted-foreground">→</span>
+                </a>
+              </li>
+            ))}
+          </ul>
 
-        <section id="events" className="border-y border-border bg-muted/40">
-          <div className="mx-auto max-w-4xl px-6 py-14">
-            <SectionHeader eyebrow="This term" title="Dates that matter" />
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          <section id="events" className="mt-12">
+            <h2 className="text-sm font-medium uppercase tracking-widest text-muted-foreground">Dates that matter</h2>
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
               <EventCard title="A-level results surgery" start="2026-08-13T09:00:00" venue="Room 14 — walk in" />
               <EventCard title="Open evening — all subjects" start="2026-09-17T18:00:00" venue="Main hall, then everywhere" />
               <EventCard title="Open morning — sciences" start="2026-10-03T10:00:00" venue="The labs, B block" />
               <EventCard title="Applications close for 2027" start="2027-01-16T17:00:00" venue="Online" />
             </div>
-            <p className="mt-4 text-sm"><a className="font-medium underline underline-offset-4" href="#/visit">Everything about visiting →</a></p>
-          </div>
-        </section>
+          </section>
 
-        <section id="faq" className="mx-auto max-w-2xl px-6 py-14">
-          <SectionHeader eyebrow="Quick answers" title="Asked every September" />
-          <Faq className="mt-6" items={[
-            { question: "When are term dates published?", answer: "June, for the following year — in the calendar and the downloads." },
-            { question: "Is there a bus from Hillsborough?", answer: "Two each morning — the 81 and our own minibus. Passes from reception." },
-            { question: "Can I change subjects after enrolling?", answer: "In the first three weeks, usually yes — it's a conversation with your tutor, not a form." }]} />
-        </section>
+          <section id="faq" className="mt-12 border-t border-border pt-8">
+            <h2 className="text-sm font-medium uppercase tracking-widest text-muted-foreground">Asked every September</h2>
+            <Faq className="mt-3" items={[
+              { question: "When are term dates published?", answer: "June, for the following year — in the calendar and the downloads." },
+              { question: "Is there a bus from Hillsborough?", answer: "Two each morning — the 81 and our own minibus. Passes from reception." },
+              { question: "Can I change subjects after enrolling?", answer: "In the first three weeks, usually yes — a conversation with your tutor, not a form." }]} />
+          </section>
+        </div>
       </SiteChrome>
     </div>
   );

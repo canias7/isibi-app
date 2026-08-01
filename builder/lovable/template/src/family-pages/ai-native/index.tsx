@@ -1,16 +1,12 @@
-// ai-native — the input is the hero, working, with no wall in front of it.
-// A rewriting tool: the box up top, chips that fill it, a live-looking
-// result, and proof below. Signup appears only after the visitor has already
-// made something — the family's whole ethic.
+// ai-native — TERMINAL structure: a playground, monospace, no imagery, no
+// marketing furniture. The input is a prompt line, the output prints under
+// it, and the whole pitch is that it already ran before you signed up.
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { CodeBlock } from "@/components/ui/code-block";
 import { PromptBox } from "@/components/ui/prompt-box";
-import { RegenerateButton } from "@/components/ui/regenerate-button";
 import { StreamingText } from "@/components/ui/streaming-text";
-import { SectionHeader } from "@/components/ui/section-header";
-import { StatsBand } from "@/components/ui/stats-band";
 import { SuggestionChips } from "@/components/ui/suggestion-chips";
-import { Testimonial } from "@/components/ui/testimonial";
 export const Route = createFileRoute("/")({ component: P });
 const SAMPLES: Record<string, string> = {
   "Make it warmer": "Thanks so much for thinking of us — honestly, we'd love to. Just say the word and we'll be there.",
@@ -20,46 +16,43 @@ const SAMPLES: Record<string, string> = {
 function P() {
   const [value, setValue] = useState("we will come to the party thanks for inviting us");
   const [out, setOut] = useState<string | null>(null);
+  const [voice, setVoice] = useState("Make it warmer");
   return (
-    <div className="min-h-svh bg-background text-foreground">
+    <div className="min-h-svh bg-background font-mono text-foreground">
       <header className="border-b border-border">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-3">
-          <span className="font-semibold tracking-tight">Reword</span>
-          <span className="text-sm text-muted-foreground">Free · no account to try</span>
+        <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-3 text-sm">
+          <span className="font-semibold">reword</span>
+          <span className="text-xs uppercase tracking-widest text-muted-foreground">v2.4 · free · no account to try</span>
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl px-6 py-14">
-        <div className="text-center">
-          <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Say it again, properly</p>
-          <h1 className="mt-2 text-4xl font-semibold tracking-tight text-balance">Reword any sentence in any room's voice</h1>
+      <main className="mx-auto max-w-3xl px-6 py-12">
+        <p className="text-xs uppercase tracking-widest text-muted-foreground">$ reword --voice "{voice.toLowerCase().replace("make it ", "")}"</p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Any sentence, any room's voice.</h1>
+
+        <div className="mt-6 border border-border p-3">
+          <PromptBox value={value} onChange={setValue} onSubmit={() => setOut(SAMPLES[voice])} placeholder="paste the sentence you keep rewriting…" />
+          <SuggestionChips className="mt-3" suggestions={["Make it warmer", "Make it shorter", "Make it formal"]} onPick={(c) => { setVoice(c); setOut(SAMPLES[c]); }} />
         </div>
 
-        {/* The input IS the hero — working before any signup. */}
-        <div className="mt-8 rounded-2xl border bg-card p-4 shadow-sm">
-          <PromptBox value={value} onChange={setValue} onSubmit={() => setOut(SAMPLES["Make it warmer"])} placeholder="Paste the sentence you keep rewriting…" />
-          <SuggestionChips className="mt-3" suggestions={["Make it warmer", "Make it shorter", "Make it formal"]} onPick={(c) => setOut(SAMPLES[c] ?? SAMPLES["Make it warmer"])} />
-          {out && (
-            <div className="mt-4 rounded-lg border bg-muted/40 p-4 text-left">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Reworded</p>
-              <StreamingText className="mt-1" text={out} done />
-              <div className="mt-3 flex items-center justify-between gap-3">
-                <p className="text-xs text-muted-foreground">Three rewrites free — an account keeps your voices.</p>
-                <RegenerateButton onRegenerate={(v) => setOut(SAMPLES[v === "shorter" ? "Make it shorter" : "Make it warmer"] ?? out)} />
-              </div>
-            </div>
-          )}
+        {out && (
+          <div className="mt-4 border border-border p-4">
+            <p className="text-xs uppercase tracking-widest text-muted-foreground">stdout</p>
+            <StreamingText className="mt-2" text={out} done />
+            <p className="mt-3 border-t border-border/60 pt-2 text-xs text-muted-foreground">rewrites left: 2 of 3 · an account keeps your voices</p>
+          </div>
+        )}
+
+        <div className="mt-10 border-t border-border pt-6">
+          <p className="text-xs uppercase tracking-widest text-muted-foreground">Also speaks API</p>
+          <div className="mt-3"><CodeBlock language="bash" code={'curl -X POST https://api.reword.dev/v1 \\\n  -d text="we will come to the party" \\\n  -d voice=warmer'} /></div>
         </div>
 
-        <StatsBand className="mt-12" items={[
-          { value: "0", label: "Signup walls before the first result" },
-          { value: "9", label: "Voices, from boardroom to group chat" },
-          { value: "480k", label: "Sentences reworded this month" }]} />
-
-        <section className="mt-12">
-          <SectionHeader eyebrow="Why it sticks" title="The output is the pitch" description="No feature grid can prove a rewriting tool. The box above either just did, or we've lost you fairly." />
-          <Testimonial className="mt-6" item={{ quote: "I pasted my resignation letter in at 11pm. It came back kind. I sent that one.", name: "Anonymous user", role: "The feedback box, March" }} />
-        </section>
+        <div className="mt-10 grid gap-1 border-t border-border pt-6 text-xs uppercase tracking-wide text-muted-foreground sm:grid-cols-3">
+          <span>0 signup walls before output</span>
+          <span>9 voices, boardroom → group chat</span>
+          <span>480k sentences this month</span>
+        </div>
       </main>
     </div>
   );

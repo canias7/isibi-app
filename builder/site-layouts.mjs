@@ -111,6 +111,7 @@ export const FAMILIES = {
       "call-now": "home services: the phone IS the booking channel — a tel: link leads, the form is the fallback",
       "class-schedule": "fitness: the weekly timetable replaces the slot picker as the hero",
     },
+    structure: "single-scroll",
     ready: true,
   },
 
@@ -133,6 +134,7 @@ export const FAMILIES = {
     variants: {
       "date-picker": "travel and hotel: dates and party size come before any results (date-range-picker)",
     },
+    structure: "card-grid",
     ready: true,
   },
 
@@ -154,6 +156,7 @@ export const FAMILIES = {
     kinds: ["agency", "consultancy", "law firm", "architecture", "interior design", "photographer", "videographer", "wedding vendor"],
     components: ["gallery", "masonry", "case-study-card", "before-after", "lightbox", "press-quote", "testimonial", "logo-cloud"],
     variants: {},
+    structure: "editorial",
     ready: true,
   },
 
@@ -178,6 +181,7 @@ export const FAMILIES = {
       "single-column-capture": "newsletter: the subscribe form is the hero and the archive is the proof below it",
       "link-hub": "creator: a thumb-width vertical stack of link-cards, nothing else",
     },
+    structure: "single-scroll",
     ready: true,
   },
 
@@ -200,6 +204,7 @@ export const FAMILIES = {
     variants: {
       "docs-sidebar": "developer tool: the install command and docs nav sit high (sdk-tabs, code-block)",
     },
+    structure: "bento",
     ready: true,
   },
 
@@ -218,6 +223,7 @@ export const FAMILIES = {
     kinds: ["nonprofit", "event", "conference", "course cohort", "community", "membership", "coming soon"],
     components: ["cta-band", "countdown", "ticket-tiers", "donation-card", "event-card", "agenda-list", "steps", "stats-band", "waitlist-form", "faq"],
     variants: {},
+    structure: "full-bleed-hero",
     ready: true,
   },
 
@@ -241,6 +247,7 @@ export const FAMILIES = {
     variants: {
       "booking-hybrid": "veterinary and clinics: the slot picker appears after trust is established, not before",
     },
+    structure: "single-scroll",
     ready: true,
   },
 
@@ -263,6 +270,7 @@ export const FAMILIES = {
       "tap-list": "bar and brewery: what is pouring NOW leads, dense price-list rows",
       "order-widget": "delivery-native: the order path sits above everything else",
     },
+    structure: "single-scroll",
     ready: true,
   },
 
@@ -285,6 +293,7 @@ export const FAMILIES = {
       "property-switcher": "hotel group: switch between properties rather than search for one",
       "in-stock-near-you": "retail: the stock answer per branch is the point of the page",
     },
+    structure: "split-screen",
     ready: true,
   },
 
@@ -307,6 +316,7 @@ export const FAMILIES = {
     variants: {
       "donate-volunteer-split": "campaign: two primary actions of equal weight, donate and volunteer",
     },
+    structure: "editorial",
     ready: true,
   },
 
@@ -329,6 +339,7 @@ export const FAMILIES = {
     kinds: ["API reference", "SDK docs", "open source project", "help center", "knowledge base", "changelog", "status page"],
     components: ["install-command", "side-nav", "table-of-contents", "search-input", "code-block", "copy-button", "curl-example", "sdk-tabs", "prev-next", "anchor-heading", "changelog-entry"],
     variants: {},
+    structure: "sidebar",
     ready: true,
   },
 
@@ -349,6 +360,7 @@ export const FAMILIES = {
     kinds: ["dashboard product", "analytics", "BI tool", "pricing calculator", "comparison site", "research report"],
     components: ["big-number", "stats-band", "sparkline", "metric-delta", "gauge", "data-table", "comparison-table", "calculator-card", "donut-mini"],
     variants: {},
+    structure: "bento",
     ready: true,
   },
 
@@ -369,6 +381,7 @@ export const FAMILIES = {
     kinds: ["university", "school", "government", "municipal", "hospital system", "museum", "gallery", "church"],
     components: ["audience-switch", "category-nav", "search-header", "event-card", "faq", "steps", "download-card"],
     variants: {},
+    structure: "single-scroll",
     ready: true,
   },
 
@@ -389,6 +402,7 @@ export const FAMILIES = {
     kinds: ["fashion brand", "car manufacturer", "luxury hospitality", "film", "show", "design studio"],
     components: ["video-hero", "gallery", "lightbox", "before-after", "marquee", "parallax", "snap-sections", "full-bleed", "progressive-image"],
     variants: {},
+    structure: "full-bleed-hero",
     ready: true,
   },
 
@@ -410,6 +424,7 @@ export const FAMILIES = {
     kinds: ["customer portal", "billing", "support ticket", "confirmation page", "checkout", "waitlist"],
     components: ["multi-step-form", "form-progress", "form-section", "steps", "order-summary", "receipt", "success-panel", "not-found", "maintenance-page"],
     variants: {},
+    structure: "single-scroll",
     ready: true,
   },
 
@@ -430,6 +445,7 @@ export const FAMILIES = {
     kinds: ["bank", "credit union", "crypto exchange", "pharma", "cannabis retail", "gambling", "sportsbook"],
     components: ["age-gate", "terms-block", "consent-checkbox", "data-table", "pricing-table", "faq"],
     variants: {},
+    structure: "single-scroll",
     ready: true,
   },
 
@@ -449,6 +465,7 @@ export const FAMILIES = {
     kinds: ["ticketing", "box office", "auction", "flash sale", "drop", "live results", "status board"],
     components: ["countdown", "countdown-ring", "deadline-bar", "live-badge", "refresh-pill", "time-until", "seat-map", "bid-box", "big-number", "viewer-count"],
     variants: {},
+    structure: "terminal",
     ready: true,
   },
 
@@ -470,6 +487,7 @@ export const FAMILIES = {
     kinds: ["paywalled publication", "private community", "alumni portal", "fan club", "B2B customer portal"],
     components: ["paywall", "login-form", "signup-form", "membership-card", "plan-card", "pricing-table", "upgrade-badge"],
     variants: {},
+    structure: "editorial",
     ready: true,
   },
 
@@ -490,6 +508,7 @@ export const FAMILIES = {
     kinds: ["manufacturer", "logistics", "freight", "construction", "wholesale", "distributor", "lab", "testing services"],
     components: ["spec-row", "feature-matrix", "data-table", "download-card", "file-list", "store-locator", "tracking-input", "contact-form"],
     variants: {},
+    structure: "split-screen",
     ready: true,
   },
 
@@ -511,6 +530,7 @@ export const FAMILIES = {
     variants: {
       "dual-audience": "staffing: employers and seekers get two entry paths of equal weight",
     },
+    structure: "bento",
     ready: true,
   },
 
@@ -531,6 +551,7 @@ export const FAMILIES = {
     kinds: ["course platform", "interactive tutorial", "LMS", "practice tool", "library", "archive"],
     components: ["course-card", "curriculum-path", "chapter-list", "steps", "progress-ring", "completion-ring", "stats-band", "faq"],
     variants: {},
+    structure: "sidebar",
     ready: true,
   },
 
@@ -551,6 +572,7 @@ export const FAMILIES = {
     kinds: ["HOA", "neighborhood", "library branch", "nonprofit chapter", "small-town municipal"],
     components: ["opening-hours", "open-now", "location-card", "contact-form", "download-card", "file-list", "faq", "announcement-bar"],
     variants: {},
+    structure: "single-scroll",
     ready: true,
   },
 
@@ -570,6 +592,7 @@ export const FAMILIES = {
     kinds: ["wedding", "memorial", "baby registry", "single-page résumé", "digital garden", "link-in-bio"],
     components: ["rsvp-buttons", "event-card", "countdown", "gallery", "timeline", "quote", "social-links", "link-card"],
     variants: {},
+    structure: "single-scroll",
     ready: true,
   },
 
@@ -588,6 +611,7 @@ export const FAMILIES = {
     kinds: ["chat-as-homepage", "agent builder", "workflow builder", "prompt gallery", "playground", "generative tool"],
     components: ["prompt-box", "chat-composer", "chat-thread", "chat-message", "suggestion-chips", "streaming-text", "before-after", "code-block", "regenerate-button", "model-picker"],
     variants: {},
+    structure: "terminal",
     ready: true,
   },
 };
@@ -610,6 +634,7 @@ export const MOLD_BREAKERS = {
     kinds: ["marketplace"],
     components: ["audience-switch", "search-input", "steps", "stats-band"],
     variants: {},
+    structure: "split-screen",
     ready: true,
   },
   directory: {
@@ -626,6 +651,7 @@ export const MOLD_BREAKERS = {
     kinds: ["directory"],
     components: ["search-input", "search-suggestions", "recent-searches", "result-count", "category-nav"],
     variants: {},
+    structure: "single-scroll",
     ready: true,
   },
 };
@@ -661,6 +687,12 @@ export function layoutDirective(family, { structure, variant } = {}) {
   if (!f || !f.ready) return null;
   if (structure !== undefined && !STRUCTURES[structure]) return null;
   if (variant !== undefined && !f.variants[variant]) return null;
+  // The SKELETON is a family property with a per-build override. Every family
+  // declares a default structure — a store browses (card-grid), a firm reads
+  // (single column), a departures board is a terminal — so two families stop
+  // sharing one shape by default, and a build may still ask for any of the
+  // eight explicitly.
+  const chosen = structure ?? f.structure;
 
   const lines = [
     `LAYOUT — ${f.md}: ${f.label}.`,
@@ -675,6 +707,6 @@ export function layoutDirective(family, { structure, variant } = {}) {
     ...f.pages.map((p) => `- ${p.file === "index" ? "/" : "/" + p.file} — ${p.role}`),
   ];
   if (variant) lines.push(`Variant — ${variant}: ${f.variants[variant]}.`);
-  if (structure) lines.push(`Structure — ${structure}: ${STRUCTURES[structure].text}.`);
+  if (chosen) lines.push(`Structure — ${chosen}: ${STRUCTURES[chosen].text}.`);
   return lines.join("\n");
 }

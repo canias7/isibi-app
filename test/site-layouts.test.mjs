@@ -67,6 +67,8 @@ test("every family is complete and enum-safe", () => {
       assert.match(v, /^[a-z][a-z0-9-]*$/, `${id} variant ${v}`);
       assert.ok(text.length > 15, `${id} variant ${v} says nothing`);
     }
+    // The skeleton: every family declares a structure the table offers.
+    assert.ok(STRUCTURES[f.structure], `${id} declares structure "${f.structure}", which is not one of the eight`);
     // The page set: index first, flat enum-safe route files, each with a real
     // role sentence. 1–5 because zero pages is no site and past five the
     // family should be questioning itself.
@@ -79,6 +81,23 @@ test("every family is complete and enum-safe", () => {
       assert.ok(p.role && p.role.length > 20 && p.role.length < 140, `${id} page "${p.file}" role length`);
     }
   }
+});
+
+test("all eight structures are somebody's default — no skeleton is decorative", () => {
+  // The reason the axis exists (owner's call, 2026-08-01): every reference app
+  // shared one band rhythm, so every generated site did too. Each structure
+  // must be at least one family's default, or it is a name in a table with no
+  // rendered embodiment — the blocks-and-examples failure shape again.
+  for (const st of STRUCTURE_NAMES) {
+    assert.ok(FAMILY_NAMES.some((n) => FAMILIES[n].structure === st),
+      `structure "${st}" is nobody's default`);
+  }
+  // And the defaults must actually SPREAD — if one structure covers most of
+  // the set, the sameness this exists to break is back under a new name.
+  const counts = {};
+  for (const n of FAMILY_NAMES) counts[FAMILIES[n].structure] = (counts[FAMILIES[n].structure] || 0) + 1;
+  assert.ok(Math.max(...Object.values(counts)) <= FAMILY_NAMES.length / 2,
+    `one structure is the default for over half the families: ${JSON.stringify(counts)}`);
 });
 
 test("page counts DIFFER by family — the flat budget is gone", () => {
@@ -155,6 +174,7 @@ test("a directive carries the whole contract, and refuses everything unknown", (
     for (const c of f.cta) assert.ok(d.includes(`"${c}"`), `${n}: cta ${c} missing`);
     for (const c of f.components) assert.ok(d.includes(c), `${n}: component ${c} missing`);
     assert.ok(d.includes(`ships ${f.pages.length} page`), `${n}: page count missing`);
+    assert.ok(d.includes(`Structure — ${f.structure}:`), `${n}: default structure missing from directive`);
     for (const p of f.pages) {
       assert.ok(d.includes(`${p.file === "index" ? "/" : "/" + p.file} — ${p.role}`), `${n}: page ${p.file} missing`);
     }
