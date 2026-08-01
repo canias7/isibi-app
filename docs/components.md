@@ -1,4 +1,4 @@
-# Components (1686 built, 25 to go)
+# Components (1711 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -335,6 +335,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ credit-applied
 ✓ cron-builder
 ✓ crop-box
+✓ crop-stage
 ✓ cross-page-selection
 ✓ cross-workspace-note
 ✓ csat-face
@@ -443,6 +444,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ drag-preview
 ✓ drawer
 ✓ drawer-stack
+✓ drawing-revision
 ✓ drop-cap
 ✓ drop-indicator
 ✓ drop-rejected
@@ -619,6 +621,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ goal-definition
 ✓ goal-gauge
 ✓ grace-window
+✓ grazing-plan
 ✓ grid-item
 ✓ group-by-picker
 ✓ grouped-list
@@ -630,7 +633,9 @@ A ✓ means it exists and a generated site can import it today.
 ✓ handoff-summary
 ✓ handover-bar
 ✓ handover-note
+✓ handover-pack
 ✓ hard-limit-warning
+✓ harvest-window
 ✓ header-table
 ✓ heading
 ✓ heading-level
@@ -638,12 +643,14 @@ A ✓ means it exists and a generated site can import it today.
 ✓ heat-strip
 ✓ heatmap-grid
 ✓ help-launcher
+✓ herd-count
 ✓ hero
 ✓ hero-split
 ✓ high-contrast
 ✓ highlight-match
 ✓ hint-dot
 ✓ history-scrub
+✓ hoarding-notice
 ✓ holiday-notice
 ✓ honeypot
 ✓ hotkey-badge
@@ -693,6 +700,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ invoice-lines
 ✓ invoice-row
 ✓ invoice-totals
+✓ irrigation-note
 ✓ item
 ✓ job-card
 ✓ job-failed
@@ -716,6 +724,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ label
 ✓ label-manager
 ✓ labeled-progress
+✓ land-parcel
 ✓ landmark
 ✓ landmark-nav
 ✓ lang-switch
@@ -754,6 +763,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ live-badge
 ✓ live-cursor
 ✓ live-region
+✓ livestock-row
 ✓ load-error
 ✓ load-more
 ✓ loading-more
@@ -957,6 +967,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ permission-matrix
 ✓ permission-prompt
 ✓ permission-row
+✓ permit-row
 ✓ person-row
 ✓ personalisation-field
 ✓ phase-bar
@@ -975,6 +986,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ plain-text-fallback
 ✓ plan-card
 ✓ plan-limit-row
+✓ plant-hire-row
 ✓ playback-speed
 ✓ plural
 ✓ pluralisation-preview
@@ -1150,6 +1162,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ result-preview
 ✓ resume-later
 ✓ resume-upload
+✓ retention-line
 ✓ retention-note
 ✓ retry-budget
 ✓ retry-countdown
@@ -1319,8 +1332,10 @@ A ✓ means it exists and a generated site can import it today.
 ✓ significant-figures
 ✓ signup-form
 ✓ site-chrome
+✓ site-diary
 ✓ site-footer
 ✓ site-header
+✓ site-induction
 ✓ sitemap-list
 ✓ size-chart-row
 ✓ size-picker
@@ -1347,6 +1362,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ slug-input
 ✓ small-screen-note
 ✓ snackbar
+✓ snag-item
+✓ snag-list
 ✓ snap-carousel
 ✓ snap-sections
 ✓ snapshot-list
@@ -1355,6 +1372,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ snooze-until
 ✓ social-links
 ✓ social-preview
+✓ soil-note
 ✓ sonner
 ✓ sort-direction
 ✓ sort-select
@@ -1364,6 +1382,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ source-attribution
 ✓ source-card
 ✓ source-label
+✓ sowing-window
 ✓ spacer
 ✓ spacing-picker
 ✓ spacing-preview
@@ -1378,6 +1397,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ split-tender
 ✓ split-view
 ✓ spotlight
+✓ spray-record
 ✓ spreadsheet-grid
 ✓ sso-button
 ✓ stack
@@ -1546,12 +1566,14 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tolerance-field
 ✓ tool-call-card
 ✓ toolbar
+✓ toolbox-talk
 ✓ tooltip
 ✓ top-n-picker
 ✓ totals-row
 ✓ touch-hint
 ✓ tour-dates
 ✓ tour-step
+✓ traceability-code
 ✓ tracking-input
 ✓ tracking-note
 ✓ tracking-plan-row
@@ -1618,6 +1640,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ variance-note
 ✓ variant-matrix
 ✓ variant-picker
+✓ variation-order
 ✓ vehicle-card
 ✓ verification-steps
 ✓ verified-badge
@@ -1650,6 +1673,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ watermark-note
 ✓ waveform
 ✓ waveform-scrub
+✓ weather-delay
 ✓ webhook-endpoint
 ✓ webhook-row
 ✓ webhook-test
@@ -1686,6 +1710,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ write-blocked
 ✓ write-queue
 ✓ year-picker
+✓ yield-note
 ✓ zero-results
 ✓ zip-contents
 ✓ zoom-controls

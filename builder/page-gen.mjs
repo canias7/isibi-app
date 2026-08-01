@@ -700,6 +700,14 @@ export const UI_COMPONENTS = [
   // Email and embed rendering
   "email-preview", "plain-text-fallback", "inbox-preview", "unsubscribe-footer", "email-safe-note",
   "embed-size", "embed-permissions", "iframe-fallback", "widget-key", "embed-preview",
+  // Construction and site work
+  "site-diary", "snag-item", "snag-list", "drawing-revision", "permit-row",
+  "plant-hire-row", "toolbox-talk", "site-induction", "weather-delay", "variation-order",
+  "retention-line", "handover-pack", "hoarding-notice",
+  // Agriculture and growing
+  "land-parcel", "crop-stage", "sowing-window", "harvest-window", "yield-note",
+  "spray-record", "livestock-row", "herd-count", "grazing-plan", "soil-note",
+  "irrigation-note", "traceability-code",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
