@@ -1,4 +1,4 @@
-# Components (1897 built, 25 to go)
+# Components (1920 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -141,11 +141,13 @@ A ✓ means it exists and a generated site can import it today.
 ✓ benchmark-bar
 ✓ beneficiary-row
 ✓ bento-grid
+✓ berth-row
 ✓ bid-box
 ✓ big-number
 ✓ bill-of-materials
 ✓ billing-summary
 ✓ bin-location
+✓ bin-type
 ✓ blackout-dates
 ✓ blame-gutter
 ✓ block-list
@@ -204,6 +206,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ card-input
 ✓ card-record
 ✓ care-icons
+✓ cargo-hold
 ✓ carousel
 ✓ cart-badge
 ✓ cart-empty
@@ -271,6 +274,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ collapsible
 ✓ collapsible-panel
 ✓ collection-code
+✓ collection-day
 ✓ collection-header
 ✓ color-picker
 ✓ color-swatch
@@ -342,6 +346,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ contact-method-picker
 ✓ contact-verify
 ✓ container
+✓ contamination-note
 ✓ content-placeholder
 ✓ content-warning
 ✓ content-width
@@ -377,6 +382,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ credential-row
 ✓ credit-applied
 ✓ crew-role-row
+✓ crew-roster-row
 ✓ cron-builder
 ✓ crop-box
 ✓ crop-stage
@@ -641,6 +647,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ fix-suggestion
 ✓ fixture-postponed
 ✓ fixture-row
+✓ flight-leg
 ✓ flip-card
 ✓ floating-toolbar
 ✓ focal-point
@@ -677,6 +684,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ freight-quote
 ✓ frozen-columns
 ✓ frozen-corner
+✓ fuel-log
 ✓ full-bleed
 ✓ fullscreen-toggle
 ✓ funnel-step-row
@@ -733,6 +741,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ honeypot
 ✓ hotkey-badge
 ✓ hotkey-list
+✓ hours-log
 ✓ hover-card
 ✓ iban-input
 ✓ icon-badge
@@ -749,6 +758,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ image-crop
 ✓ image-strip
 ✓ image-zoom
+✓ impact-note
 ✓ import-preview
 ✓ import-settings
 ✓ import-summary
@@ -757,6 +767,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ incident-item
 ✓ incident-report
 ✓ incoterm-note
+✓ induction-status
 ✓ infinite-scroll
 ✓ infinite-sentinel
 ✓ initials
@@ -878,9 +889,11 @@ A ✓ means it exists and a generated site can import it today.
 ✓ machine-status
 ✓ magic-link-sent
 ✓ magnetic-button
+✓ maintenance-due
 ✓ maintenance-notice
 ✓ maintenance-page
 ✓ maintenance-panel
+✓ manifest-row
 ✓ map-embed
 ✓ mapping-conflict
 ✓ markdown-editor
@@ -928,6 +941,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ mini-bars
 ✓ minimap-scroll
 ✓ minutes-entry
+✓ missed-collection
 ✓ missing-fields
 ✓ missing-translation
 ✓ mobile-nav
@@ -973,6 +987,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ nonconformance
 ✓ not-found
 ✓ not-found-panel
+✓ notam-note
 ✓ notification-access
 ✓ notification-bell
 ✓ notification-empty
@@ -1236,6 +1251,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ recovery-steps
 ✓ recurrence-summary
 ✓ recurring-picker
+✓ recycling-rate
 ✓ redaction-note
 ✓ reduce-motion
 ✓ reduced-motion-note
@@ -1317,11 +1333,13 @@ A ✓ means it exists and a generated site can import it today.
 ✓ rich-tooltip
 ✓ ripple
 ✓ role-badge
+✓ role-description
 ✓ role-picker
 ✓ rollback-confirm
 ✓ rollback-note
 ✓ rollout-progress
 ✓ room-card
+✓ rota-gap
 ✓ rotate-control
 ✓ rounding-line
 ✓ rounding-note
@@ -1457,6 +1475,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ shift-badge
 ✓ shift-handover
 ✓ shift-output
+✓ shift-signup
 ✓ shimmer
 ✓ shipping-options
 ✓ shop-the-look
@@ -1690,6 +1709,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ text-size
 ✓ textarea
 ✓ textarea-count
+✓ thank-you-note
 ✓ theme-export
 ✓ theme-picker
 ✓ theme-reset
@@ -1707,6 +1727,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ ticket-card
 ✓ ticket-row
 ✓ ticket-tiers
+✓ tide-note
 ✓ tilt-card
 ✓ time-ago
 ✓ time-budget
@@ -1844,6 +1865,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ voice-transcript
 ✓ volume-control
 ✓ volume-slider
+✓ volunteer-row
 ✓ vote-bar
 ✓ vote-buttons
 ✓ waiting-on
@@ -1862,6 +1884,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ week-picker
 ✓ week-strip
 ✓ weekday-picker
+✓ weighbridge-row
 ✓ weight-input
 ✓ weighted-score
 ✓ welcome-card

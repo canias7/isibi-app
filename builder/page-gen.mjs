@@ -768,6 +768,15 @@ export const UI_COMPONENTS = [
   // Membership clubs and societies
   "membership-tier-row", "renewal-reminder", "committee-list", "agm-notice", "motion-vote",
   "minutes-entry", "subscription-arrears", "guest-sign-in", "club-fixture",
+  // Volunteering and community
+  "shift-signup", "volunteer-row", "hours-log", "induction-status", "role-description",
+  "impact-note", "thank-you-note", "rota-gap",
+  // Waste and recycling
+  "collection-day", "bin-type", "contamination-note", "weighbridge-row", "recycling-rate",
+  "missed-collection",
+  // Maritime and aviation
+  "berth-row", "tide-note", "flight-leg", "manifest-row", "crew-roster-row",
+  "fuel-log", "maintenance-due", "notam-note", "cargo-hold",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
