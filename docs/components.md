@@ -1,4 +1,4 @@
-# Components (1504 built, 25 to go)
+# Components (1523 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -38,6 +38,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ alert
 ✓ alert-dialog
 ✓ all-day-row
+✓ allocation-bar
 ✓ alt-text-field
 ✓ alt-text-warning
 ✓ amount-in-words
@@ -235,6 +236,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ command-item
 ✓ comment
 ✓ comment-anchor
+✓ comment-draft
+✓ comment-permalink
 ✓ comment-pin
 ✓ comment-thread
 ✓ commit-row
@@ -287,6 +290,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ copy-link
 ✓ copy-response
 ✓ count-badge
+✓ count-sheet
 ✓ count-up
 ✓ countdown
 ✓ countdown-ring
@@ -422,6 +426,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ embed-snippet
 ✓ emoji-picker
 ✓ emoji-reaction
+✓ emoji-scale
 ✓ empty
 ✓ empty-cta
 ✓ empty-illustration
@@ -445,6 +450,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ exit-survey
 ✓ expandable-row
 ✓ expandable-text
+✓ expiry-batch
 ✓ expiry-input
 ✓ export-button
 ✓ export-format
@@ -531,6 +537,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ form-section
 ✓ format-hint
 ✓ format-toolbar
+✓ free-text-followup
 ✓ frozen-columns
 ✓ frozen-corner
 ✓ full-bleed
@@ -685,6 +692,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ logo
 ✓ logo-cloud
 ✓ loop-toggle
+✓ lot-row
 ✓ magic-link-sent
 ✓ magnetic-button
 ✓ maintenance-notice
@@ -956,10 +964,13 @@ A ✓ means it exists and a generated site can import it today.
 ✓ range-trim
 ✓ ranking-list
 ✓ rate-limited
+✓ rating-changed
+✓ rating-guidance
 ✓ rating-input
 ✓ rating-summary
 ✓ ratio-bar
 ✓ ratio-input
+✓ reaction-summary
 ✓ read-aloud
 ✓ read-more
 ✓ read-only-mode
@@ -994,6 +1005,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ reminder-set
 ✓ reorder-buttons
 ✓ reorder-list
+✓ reorder-point
 ✓ reorderable-grid
 ✓ repeatable-field
 ✓ reply-box
@@ -1004,6 +1016,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ required-legend
 ✓ required-mark
 ✓ requirement-check
+✓ reserved-note
 ✓ reset-defaults
 ✓ reset-demo
 ✓ reset-form
@@ -1012,6 +1025,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ resize-handle
 ✓ resolve-thread
 ✓ resolve-toggle
+✓ response-rate
 ✓ response-rating
 ✓ response-summary
 ✓ restore-point
@@ -1163,6 +1177,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ shortcut-sheet
 ✓ shortlist-bar
 ✓ shortlist-tray
+✓ shrinkage-note
 ✓ side-by-side
 ✓ side-nav
 ✓ sidebar
@@ -1271,6 +1286,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ sticky-table
 ✓ stock-badge
 ✓ stock-level
+✓ stock-move
 ✓ stop-generating
 ✓ stopwatch
 ✓ storage-bar
@@ -1290,6 +1306,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ support-handoff
 ✓ surcharge-note
 ✓ survey-card
+✓ survey-progress
 ✓ suspicious-login
 ✓ swipe-actions
 ✓ swipeable-row
@@ -1345,6 +1362,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ theme-toggle
 ✓ thinking-indicator
 ✓ third-party-list
+✓ thread-participants
 ✓ three-col
 ✓ three-line-row
 ✓ threshold-bar
@@ -1432,6 +1450,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ unit-price
 ✓ unit-toggle
 ✓ unread-divider
+✓ unresolved-count
 ✓ unsaved-guard
 ✓ untagged-note
 ✓ upgrade-badge

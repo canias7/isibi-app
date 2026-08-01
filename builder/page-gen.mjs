@@ -635,6 +635,14 @@ export const UI_COMPONENTS = [
   // Identity and credentials
   "id-check-status", "trust-level", "badge-explainer", "credential-row", "credential-expiry",
   "identity-summary", "proof-upload", "verification-steps",
+  // Feedback and rating mechanics
+  "emoji-scale", "survey-progress", "free-text-followup", "response-rate", "rating-guidance",
+  "rating-changed",
+  // Stock and allocation mechanics
+  "allocation-bar", "reserved-note", "lot-row", "expiry-batch", "reorder-point",
+  "stock-move", "shrinkage-note", "count-sheet",
+  // Comments and annotation mechanics
+  "unresolved-count", "comment-draft", "reaction-summary", "thread-participants", "comment-permalink",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
