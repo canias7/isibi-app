@@ -1,4 +1,4 @@
-# Components (1283 built, 25 to go)
+# Components (1298 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -96,6 +96,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ branching-note
 ✓ breadcrumb
 ✓ breadcrumb-collapse
+✓ breadcrumb-path
 ✓ break-even-note
 ✓ breakpoint-badge
 ✓ bubble
@@ -157,6 +158,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ checkbox-tree
 ✓ checklist-dot
 ✓ checkpoint-list
+✓ checksum-note
 ✓ chip-list
 ✓ chunked-upload
 ✓ citation-list
@@ -310,11 +312,13 @@ A ✓ means it exists and a generated site can import it today.
 ✓ divider-text
 ✓ dock
 ✓ document-meta
+✓ document-outline
 ✓ donation-card
 ✓ donut-mini
 ✓ dot-plot
 ✓ download-card
 ✓ download-menu
+✓ download-progress
 ✓ draft-badge
 ✓ draft-recovery
 ✓ draft-vs-live
@@ -398,12 +402,16 @@ A ✓ means it exists and a generated site can import it today.
 ✓ field-success
 ✓ field-warning
 ✓ figure
+✓ file-conflict
 ✓ file-drop
 ✓ file-list
 ✓ file-preview
+✓ file-preview-pane
 ✓ file-row
 ✓ file-size
 ✓ file-type-icon
+✓ file-type-note
+✓ file-version
 ✓ filter-bar
 ✓ filter-preset
 ✓ filter-tree
@@ -663,6 +671,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ number-format
 ✓ number-input
 ✓ number-scrubber
+✓ ocr-note
 ✓ offline-banner
 ✓ offline-queue
 ✓ on-call
@@ -689,6 +698,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ page-break
 ✓ page-header
 ✓ page-size-select
+✓ page-thumbnails
 ✓ page-title
 ✓ pagination
 ✓ pane-tabs
@@ -834,6 +844,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ recovery-steps
 ✓ recurrence-summary
 ✓ recurring-picker
+✓ redaction-note
 ✓ reduce-motion
 ✓ refresh-pill
 ✓ refund-line
@@ -912,6 +923,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ saved-views
 ✓ scale-input
 ✓ scan-document
+✓ scan-status
 ✓ scenario-tabs
 ✓ schedule-preview
 ✓ schema-viewer
@@ -999,6 +1011,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ sidenote
 ✓ signature-block
 ✓ signature-pad
+✓ signature-request
 ✓ signup-form
 ✓ site-footer
 ✓ site-header
@@ -1257,6 +1270,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ waitlist-form
 ✓ warranty-badge
 ✓ watermark
+✓ watermark-note
 ✓ waveform
 ✓ webhook-row
 ✓ week-picker
@@ -1286,6 +1300,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ write-queue
 ✓ year-picker
 ✓ zero-results
+✓ zip-contents
 ✓ zoom-controls
 
 area-chart

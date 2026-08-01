@@ -558,6 +558,10 @@ export const UI_COMPONENTS = [
   "amount-in-words", "payment-schedule", "instalment-line", "balance-due", "overpayment-note",
   "credit-applied", "deposit-line", "refund-line", "surcharge-note", "tip-picker",
   "split-evenly", "who-owes", "settle-up", "part-payment",
+  // Files and documents. What a file is, what is inside it, whether it has been checked, and whether the text can be trusted.
+  "file-preview-pane", "file-version", "file-conflict", "breadcrumb-path", "file-type-note",
+  "scan-status", "checksum-note", "download-progress", "zip-contents", "page-thumbnails",
+  "document-outline", "signature-request", "redaction-note", "watermark-note", "ocr-note",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
