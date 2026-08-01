@@ -777,6 +777,12 @@ export const UI_COMPONENTS = [
   // Maritime and aviation
   "berth-row", "tide-note", "flight-leg", "manifest-row", "crew-roster-row",
   "fuel-log", "maintenance-due", "notam-note", "cargo-hold",
+  // Franchises and multi-site
+  "site-picker", "site-compare-row", "rollout-status", "local-override", "brand-standard-check",
+  "franchise-fee-row", "group-report", "site-league-table", "central-message",
+  // Two-sided matching
+  "match-score", "mutual-interest", "shortlist-both", "availability-overlap", "intro-request",
+  "match-reason", "decline-politely", "rematch-note", "match-expiry", "preference-weights",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

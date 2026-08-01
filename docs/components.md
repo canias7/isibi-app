@@ -1,4 +1,4 @@
-# Components (1920 built, 25 to go)
+# Components (1939 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -109,6 +109,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ autosave-history
 ✓ availability-grid
 ✓ availability-legend
+✓ availability-overlap
 ✓ availability-toggle
 ✓ avatar
 ✓ avatar-group
@@ -163,6 +164,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ branch-preview
 ✓ branching-note
 ✓ brand-check
+✓ brand-standard-check
 ✓ brand-upload
 ✓ breadcrumb
 ✓ breadcrumb-collapse
@@ -229,6 +231,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ cell-tooltip
 ✓ center-box
 ✓ centered-form
+✓ central-message
 ✓ certification-row
 ✓ chain-of-custody
 ✓ change-request
@@ -431,6 +434,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ deadline-bar
 ✓ deadline-note
 ✓ decision-matrix
+✓ decline-politely
 ✓ dedupe-list
 ✓ default-set
 ✓ definition
@@ -679,6 +683,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ form-section
 ✓ format-hint
 ✓ format-toolbar
+✓ franchise-fee-row
 ✓ free-text-followup
 ✓ freezer-location
 ✓ freight-quote
@@ -707,6 +712,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ grazing-plan
 ✓ grid-item
 ✓ group-by-picker
+✓ group-report
 ✓ grouped-list
 ✓ grouped-rows
 ✓ guest-note
@@ -787,6 +793,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ integration-log
 ✓ interval-picker
 ✓ interview-slot
+✓ intro-request
 ✓ invert-selection
 ✓ invite-form
 ✓ invoice-header
@@ -870,6 +877,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ loading-overlay
 ✓ loan-agreement
 ✓ loan-row
+✓ local-override
 ✓ locale-fallback-chain
 ✓ locale-picker
 ✓ location-access
@@ -904,6 +912,9 @@ A ✓ means it exists and a generated site can import it today.
 ✓ masked-input
 ✓ masonry
 ✓ match-context
+✓ match-expiry
+✓ match-reason
+✓ match-score
 ✓ material-badge
 ✓ matrix-question
 ✓ matrix-table
@@ -965,6 +976,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ multi-step-form
 ✓ mute-duration
 ✓ mute-schedule
+✓ mutual-interest
 ✓ name-fields
 ✓ native-select
 ✓ nav-badge
@@ -1126,6 +1138,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ poster-picker
 ✓ precision-toggle
 ✓ preference-group
+✓ preference-weights
 ✓ preferred-contact
 ✓ prefill-note
 ✓ premium-breakdown
@@ -1271,6 +1284,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ relative-date
 ✓ release-freeze
 ✓ release-schedule
+✓ rematch-note
 ✓ reminder-set
 ✓ renewal-note
 ✓ renewal-quote
@@ -1338,6 +1352,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ rollback-confirm
 ✓ rollback-note
 ✓ rollout-progress
+✓ rollout-status
 ✓ room-card
 ✓ rota-gap
 ✓ rotate-control
@@ -1486,6 +1501,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ shortcut-row
 ✓ shortcut-sheet
 ✓ shortlist-bar
+✓ shortlist-both
 ✓ shortlist-tray
 ✓ shot-list-row
 ✓ shrink-report
@@ -1505,10 +1521,13 @@ A ✓ means it exists and a generated site can import it today.
 ✓ significant-figures
 ✓ signup-form
 ✓ site-chrome
+✓ site-compare-row
 ✓ site-diary
 ✓ site-footer
 ✓ site-header
 ✓ site-induction
+✓ site-league-table
+✓ site-picker
 ✓ sitemap-list
 ✓ size-chart-row
 ✓ size-picker

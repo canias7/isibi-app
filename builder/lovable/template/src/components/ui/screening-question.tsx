@@ -55,7 +55,7 @@ export function ScreeningQuestion({ question, kind = "preference", options, valu
               value={o}
               checked={value === o}
               onChange={() => onChange?.(o)}
-              className="size-4"
+              className="size-4 accent-foreground"
             />
             <span>{o}</span>
           </label>

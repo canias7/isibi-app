@@ -40,7 +40,7 @@ export function AnonymisedToggle({ on, onChange, hides = [], doesNotHide = [], r
           type="checkbox"
           checked={on}
           onChange={(e) => onChange?.(e.target.checked)}
-          className="size-4"
+          className="size-4 accent-foreground"
         />
         <span>Hide identifying details while screening</span>
       </label>
