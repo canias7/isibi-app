@@ -32,8 +32,8 @@ function P() {
         </div>
         <div id="plans" className="mt-12">
           <PricingTable tiers={[
-            { name: "Monthly", price: "£4", period: "/month", features: ["Every review", "The archive", "Comments"], action: { label: "Join monthly", href: "#plans" } },
-            { name: "Annual", price: "£36", period: "/year", features: ["Everything monthly", "Two months free", "Season previews"], featured: true, action: { label: "Join yearly", href: "#plans" } },
+            { name: "Monthly", price: "£4", period: "month", features: ["Every review", "The archive", "Comments"], action: { label: "Join monthly", href: "#plans" } },
+            { name: "Annual", price: "£36", period: "year", features: ["Everything monthly", "Two months free", "Season previews"], featured: true, action: { label: "Join yearly", href: "#plans" } },
           ]} />
         </div>
         {/* The other half of a two-state site: returners sign in right here. */}

@@ -13,7 +13,7 @@ import {
   oklchToRgb, foregroundFor, shortlistForPrompt,
   distance, hueGap, separateFromAccent, MIN_STATE_SEPARATION, SAME_LANE_DEGREES,
   CORNERS, cornerCss, fitState, temperState, STATE_CHROMA_RATIO, MIN_STATE_CHROMA,
-  TYPE_SCALES, typeCss, DENSITIES, densityCss, BORDERS, borderCss, SHADOWS, shadowCss,
+  TYPE_SCALES, typeCss, DENSITIES, densityCss, BORDERS, borderCss, SHADOWS, shadowCss, SURFACES, surfaceCss,
   ICON_STROKES, iconCss, TRACKINGS, trackingCss, LEADINGS, leadingCss, WEIGHTS, weightCss,
 } from "../builder/site-theme.mjs";
 import { SHORTLIST } from "../builder/site-fonts.mjs";
@@ -592,12 +592,13 @@ test("every theme declares every axis, with a value the axis offers", () => {
   // And every option is USED by something. An option nothing picks is the
   // capability-nobody-reaches pattern this repo has hit four times.
   //
-  // GATED ON THERE BEING A SHIPPED SET, and this is the one place gating is
-  // right rather than lazy: with nothing shipped the claim is not "no theme uses
-  // bevel" — it is that the question does not apply yet. Asserting it anyway
-  // would fail the suite for a deliberate empty state, and quietly dropping it
-  // would let a dead option slip in with the next set.
-  if (THEME_NAMES.length === 0) return;
+  // GATED ON THE SET BEING BIG ENOUGH TO ANSWER, and this is the one place
+  // gating is right rather than lazy: the owner is specifying the new set ONE
+  // THEME AT A TIME, and a one-theme set cannot use three values of any axis —
+  // firing here would punish the deliberate building state, not a dead option.
+  // Every axis table holds three options, so from three shipped themes onward
+  // full coverage is possible and the sweep is armed again.
+  if (THEME_NAMES.length < 3) return;
   for (const [key, table] of AXES) {
     for (const option of Object.keys(table)) {
       assert.ok(THEME_NAMES.some((n) => THEMES[n][key] === option),
@@ -765,4 +766,46 @@ test("tempering happens before fitting, or the fit measures a colour that never 
     assert.ok(contrast(wrong, foregroundFor(wrong, ink, paper)) < 4.5,
       `fit-first was supposed to fail on paper ${paper[0]} / ink ${ink[0]} and did not`);
   }
+});
+
+test("solid surfaces are a real no-op, and absent means solid", () => {
+  // Every theme written before the surface axis existed declares nothing — it
+  // must keep meaning what it meant, byte for byte.
+  assert.equal(surfaceCss(FIXTURE), "");
+  assert.equal(surfaceCss({ ...FIXTURE, surface: "solid" }), "");
+  assert.ok(!themeCss(FIXTURE).includes("backdrop-filter"), "a solid theme grew a blur from somewhere");
+});
+
+test("glass is three things at once, or it is invisible", () => {
+  // The axis's own claim: translucent tokens + backdrop blur + a canvas. Any
+  // one missing renders EXACTLY like solid — measured; that is how the first
+  // draft looked before the canvas existed — so each is asserted separately.
+  const glass = surfaceCss({ ...FIXTURE, surface: "glass" });
+  // 1. Tokens re-emitted WITH alpha, in both modes.
+  for (const block of [/:root \{[^}]+\}/, /\.dark \{[^}]+\}/]) {
+    const m = glass.match(block)[0];
+    for (const tok of ["--background", "--card", "--popover"]) {
+      assert.match(m, new RegExp(`${tok}: oklch\\([^)]+ / 0\\.`), `${tok} is opaque in ${block}`);
+    }
+  }
+  // 2. Blur on the surface utilities — and NOT on .bg-background, which is the
+  // page root and a GPU tax that washes the canvas out.
+  assert.match(glass, /\.bg-card, \.bg-popover, \.bg-sidebar \{ backdrop-filter: blur/);
+  assert.ok(!/\.bg-background[^-]/.test(glass.split("backdrop-filter")[1] ?? ""), "the page root got blurred");
+  // 3. The canvas, in both modes, derived and fixed so panels slide over it.
+  assert.match(glass, /body \{ background-image: radial-gradient/);
+  assert.match(glass, /\.dark body \{ background-image: radial-gradient/);
+  assert.match(glass, /background-attachment: fixed/);
+});
+
+test("the glass block is emitted LAST, or source order hands the win back", () => {
+  // surfaceCss re-declares tokens the palette blocks already set; the only
+  // thing making its values apply is coming after them.
+  const out = themeCss({ ...FIXTURE, surface: "glass" });
+  assert.ok(out.lastIndexOf("backdrop-filter") > out.lastIndexOf("--tw-shadow"),
+    "the surface block no longer follows the shadow overrides");
+  const firstCard = out.indexOf("--card:");
+  const lastCard = out.lastIndexOf("--card:");
+  assert.ok(firstCard !== lastCard && out.slice(lastCard).includes("/ 0."),
+    "the translucent --card is not the one that wins");
 });

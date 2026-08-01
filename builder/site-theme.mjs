@@ -91,7 +91,13 @@ export function contrast(a, b) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-const css = ([L, C, H]) => `oklch(${+L.toFixed(4)} ${+C.toFixed(4)} ${+H.toFixed(2)})`;
+// A fourth element is ALPHA. Everything the palette derives stays opaque —
+// the contrast maths above is defined on opaque colours — but the surface
+// treatments below re-emit a handful of tokens translucently, and they need
+// the same emitter or the two drift on formatting.
+const css = ([L, C, H, A]) =>
+  A == null ? `oklch(${+L.toFixed(4)} ${+C.toFixed(4)} ${+H.toFixed(2)})`
+            : `oklch(${+L.toFixed(4)} ${+C.toFixed(4)} ${+H.toFixed(2)} / ${+A.toFixed(3)})`;
 const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
 
 /**
@@ -571,6 +577,103 @@ export function shadowCss(style, theme) {
   return light + "\n" + dark + "\n";
 }
 
+/* ----------------------------------------------------------------- surfaces */
+
+/**
+ * Whether surfaces are painted solid or as GLASS — frosted, translucent,
+ * blurred — and this is the one axis that cannot be a token alone.
+ *
+ * Three things have to move together or none of them reads:
+ *
+ *   1. TRANSLUCENT TOKENS. `--background`, `--card`, `--popover` and the
+ *      sidebar mirror are re-emitted with alpha AFTER the palette blocks, so
+ *      source order wins the way every other override here does. The palette's
+ *      own derivation stays opaque — the contrast guarantee is measured on
+ *      opaque proxies, and the canvas below is deliberately pinned to the
+ *      paper's lightness so the effective surface stays within a hair of the
+ *      measured one.
+ *   2. BACKDROP BLUR, a class override on `.bg-card`/`.bg-popover`/
+ *      `.bg-sidebar` — the same reach-every-user trick as the icon stroke:
+ *      Card alone puts `bg-card` on 19 files. `.bg-background` is deliberately
+ *      NOT blurred: the page root carries it, and blurring a full-page element
+ *      is a GPU tax that visibly washes the canvas. The sticky header already
+ *      ships `bg-background/85 backdrop-blur`, so it goes glass for free the
+ *      moment the token is translucent.
+ *   3. A CANVAS for the blur to prove itself against. Glass over flat white is
+ *      invisible — measured the obvious way: without this block the render is
+ *      identical to solid. The body gets two or three large radial washes,
+ *      DERIVED from the accent (its own hue and two neighbours), pinned near
+ *      the paper's lightness so text contrast holds everywhere, and
+ *      `background-attachment: fixed` so panels visibly slide over the light
+ *      while scrolling.
+ *
+ * `solid` is the absence of all three, and an absent field means solid — every
+ * theme written before this axis existed keeps meaning what it meant.
+ */
+export const SURFACES = {
+  solid: { label: "opaque surfaces — the ordinary card" },
+  glass: { label: "frosted translucent panels floating over a soft-lit canvas" },
+};
+
+// Measured in the browser, not reasoned to: 10px blur reads as smudge, 24px
+// erases the canvas entirely; 16px keeps the washes legible THROUGH the panel,
+// which is the whole effect. Saturate lifts what shows through so the glass
+// reads lit rather than grey.
+const GLASS_BLUR = "16px";
+const GLASS_SATURATE = 1.4;
+const GLASS_ALPHA = {
+  light: { background: 0.5, card: 0.55, popover: 0.86 },
+  // Dark glass is a LIGHT film over a dark canvas — the card token becomes the
+  // ink at low alpha, not the paper at high, or it reads as solid with extra
+  // steps. Popovers stay nearly opaque in both modes: a menu floats over
+  // arbitrary content, and legibility there is worth more than the trick.
+  dark: { background: 0.55, card: 0.1, popover: 0.88 },
+};
+
+/** The accent's own light, washed across the page for the glass to refract. */
+function canvasCss(theme) {
+  const stop = (c, size, x, y) => `radial-gradient(${size} circle at ${x} ${y}, ${css(c)}, transparent 62%)`;
+  const layer = (mode) => {
+    const { accent } = theme[mode];
+    const H = accent[2];
+    const hues = [H, (H + 75) % 360, (H + 300) % 360];
+    // Near the paper's lightness on purpose — the canvas may colour the page
+    // but must not change what the contrast maths measured against it.
+    const Ls = mode === "light" ? [0.88, 0.9, 0.89] : [0.32, 0.28, 0.3];
+    const Cs = mode === "light" ? [0.11, 0.09, 0.08] : [0.11, 0.1, 0.09];
+    const at = [["42rem", "12%", "8%"], ["48rem", "88%", "16%"], ["44rem", "55%", "96%"]];
+    return hues.map((h, i) => stop([Ls[i], Cs[i], h, 0.7 - i * 0.06], ...at[i])).join(", ");
+  };
+  return `body { background-image: ${layer("light")}; background-attachment: fixed; }\n` +
+    `.dark body { background-image: ${layer("dark")}; }\n`;
+}
+
+export function surfaceCss(theme) {
+  const style = theme.surface ?? "solid";
+  if (style !== "glass") return "";
+  const tokens = (mode) => {
+    const { paper, ink } = theme[mode];
+    const a = GLASS_ALPHA[mode];
+    const film = mode === "light"
+      // Light glass: the paper itself, lifted toward white, mostly clear.
+      ? [Math.min(0.995, paper[0] + 0.02), paper[1] * 0.5, paper[2], a.card]
+      // Dark glass: the ink as a thin bright film.
+      : [ink[0], Math.min(ink[1], 0.02), ink[2], a.card];
+    const popover = mode === "light"
+      ? [Math.min(0.995, paper[0] + 0.02), paper[1] * 0.5, paper[2], a.popover]
+      : [...mix(paper, ink, 0.08).slice(0, 3), a.popover];
+    return [
+      `  --background: ${css([...paper.slice(0, 3), a.background])};`,
+      `  --card: ${css(film)};`,
+      `  --popover: ${css(popover)};`,
+      `  --sidebar: ${css(film)};`,
+    ].join("\n");
+  };
+  return `:root {\n${tokens("light")}\n}\n.dark {\n${tokens("dark")}\n}\n` +
+    `.bg-card, .bg-popover, .bg-sidebar { backdrop-filter: blur(${GLASS_BLUR}) saturate(${GLASS_SATURATE}); -webkit-backdrop-filter: blur(${GLASS_BLUR}) saturate(${GLASS_SATURATE}); }\n` +
+    canvasCss(theme);
+}
+
 /* ------------------------------------------------------------------ corners */
 
 /**
@@ -645,9 +748,31 @@ export function cornerCss(theme) {
  * and chroma both have to move.
  */
 export const THEMES = {
-  // DELIBERATELY EMPTY. The six that were here — ledger, atrium, bourse, vellum,
-  // coppice, atelier — were removed on the owner's call, with a new set to be
-  // specified. They are in git history at 8b6786b if any is wanted back.
+  /**
+   * GLASS — the first of the owner's new set (2026-08-01).
+   *
+   * Frosted translucent panels over a soft-lit canvas: `surface: "glass"` is
+   * the load-bearing line (translucent tokens + backdrop blur + the derived
+   * canvas — see `surfaceCss`), and every other axis leans the same way:
+   * squircle corners at a full 1rem so the panels read moulded, soft wide
+   * shadows because glass floats, airy density, open tracking, and a cool
+   * azure accent whose hue also seeds the canvas washes.
+   */
+  glass: {
+    label: "Glass — frosted panels floating over soft colour; airy, luminous, modern",
+    radius: "1rem", corner: "squircle",
+    scale: "standard", tracking: "open", leading: "standard", weight: "standard",
+    density: "airy", border: "hairline", shadow: "soft", icon: "regular",
+    surface: "glass",
+    fonts: { heading: "outfit", body: "inter" },
+    light: { paper: [0.985, 0.005, 250], ink: [0.22, 0.03, 255], accent: [0.55, 0.15, 255] },
+    dark: { paper: [0.17, 0.025, 255], ink: [0.94, 0.012, 250], accent: [0.72, 0.13, 250] },
+  },
+
+  // The six that were here before the reset — ledger, atrium, bourse, vellum,
+  // coppice, atelier — were removed on the owner's call, with the new set
+  // being specified one at a time. They are in git history at 8b6786b if any
+  // is wanted back.
   //
   // The ENGINE below and above is untouched, and that is the point of the split:
   // `paletteFor`, `fitState`, `temperState`, `separateFromAccent`, `cornerCss`,
@@ -793,7 +918,10 @@ export function themeCss(nameOrTheme) {
     densityCss(theme.density) + "\n" +
     borderCss(theme.border) + "\n" +
     iconCss(theme.icon) + "\n" +
-    shadowCss(theme.shadow, theme);
+    shadowCss(theme.shadow, theme) +
+    // LAST, deliberately: glass re-declares tokens the palette blocks above
+    // already set, and source order is the only thing making its values win.
+    surfaceCss(theme);
 }
 
 /** What the model may choose from — an enum, so an invalid theme is impossible. */
