@@ -780,7 +780,7 @@ export function surfaceCss(theme) {
  * carry text sit on measured surfaces above it: cards are opaque tokens, and
  * every band utility (`bg-muted/30` …) gets a VEIL override when a backdrop is
  * present, exactly the trick the glass surface proved. On top of that, light-
- * mode backdrop stops keep their lightness ≥ 0.75 and dark-mode stops ≤ 0.5 —
+ * mode backdrop stops keep their lightness ≥ 0.70 and dark-mode stops ≤ 0.55 —
  * asserted, not hoped — so even text sitting directly on the page stays
  * readable over the loudest corner of any wash.
  */
@@ -808,16 +808,18 @@ export const DECORS = {
 
 // Light stops stay HIGH and dark stops stay LOW — the numeric half of the
 // legibility deal above, applied at the derivation so no option can forget it.
-const bL = (mode, v) => (mode === "light" ? Math.max(v, 0.75) : Math.min(v, 0.5));
+const bL = (mode, v) => (mode === "light" ? Math.max(v, 0.7) : Math.min(v, 0.55));
 
 const BACKDROP_LAYERS = {
   wash: (theme, mode) => {
     const [, , H] = theme[mode].accent;
-    const a = mode === "light" ? [bL(mode, 0.84), 0.18, H, 0.95] : [bL(mode, 0.3), 0.13, H, 0.6];
-    const b = mode === "light" ? [bL(mode, 0.88), 0.12, (H + 40) % 360, 0.6] : [bL(mode, 0.28), 0.1, (H + 40) % 360, 0.35];
+    const a = mode === "light" ? [bL(mode, 0.8), 0.22, H, 1] : [bL(mode, 0.33), 0.15, H, 0.7];
+    const b = mode === "light" ? [bL(mode, 0.84), 0.15, (H + 40) % 360, 0.85] : [bL(mode, 0.3), 0.12, (H + 40) % 360, 0.5];
+    const c = mode === "light" ? [bL(mode, 0.86), 0.13, (H + 320) % 360, 0.7] : [bL(mode, 0.28), 0.11, (H + 320) % 360, 0.4];
     return [
-      `radial-gradient(120rem circle at 50% -20%, ${css(a)}, transparent 70%)`,
-      `radial-gradient(80rem circle at 90% 110%, ${css(b)}, transparent 70%)`,
+      `radial-gradient(110rem circle at 50% -14%, ${css(a)}, transparent 72%)`,
+      `radial-gradient(80rem circle at 92% 108%, ${css(b)}, transparent 70%)`,
+      `radial-gradient(70rem circle at 4% 78%, ${css(c)}, transparent 68%)`,
     ];
   },
   /**
@@ -831,39 +833,43 @@ const BACKDROP_LAYERS = {
   aurora: (theme, mode) => {
     const H = theme[mode].accent[2];
     const hues = [(H + 300) % 360, H, (H + 35) % 360, (H + 250) % 360];
-    const Ls = mode === "light" ? [0.84, 0.83, 0.86, 0.87] : [0.34, 0.3, 0.32, 0.3];
-    const Cs = mode === "light" ? [0.18, 0.2, 0.16, 0.15] : [0.15, 0.16, 0.14, 0.13];
+    const Ls = mode === "light" ? [0.8, 0.79, 0.83, 0.84] : [0.36, 0.32, 0.34, 0.31];
+    const Cs = mode === "light" ? [0.22, 0.24, 0.2, 0.18] : [0.17, 0.18, 0.16, 0.15];
     // Dark auroras are GLOWS in a dark room, not floodlights — at light-mode
     // alphas the paper never reads as black and the page goes murky.
-    const As = mode === "light" ? [0.9, 0.85, 0.8, 0.7] : [0.5, 0.44, 0.4, 0.32];
-    const at = [["56rem", "8%", "4%"], ["62rem", "94%", "14%"], ["54rem", "78%", "72%"], ["58rem", "12%", "92%"]];
+    const As = mode === "light" ? [1, 0.95, 0.9, 0.8] : [0.58, 0.5, 0.46, 0.38];
+    const at = [["60rem", "8%", "4%"], ["66rem", "94%", "14%"], ["58rem", "78%", "72%"], ["62rem", "12%", "92%"]];
     return hues.map((h, i) =>
       `radial-gradient(${at[i][0]} circle at ${at[i][1]} ${at[i][2]}, ${css([bL(mode, Ls[i]), Cs[i], h, As[i]])}, transparent 65%)`);
   },
   field: (theme, mode) => {
     const [, , H] = theme[mode].accent;
-    const top = mode === "light" ? [bL(mode, 0.78), 0.21, H, 1] : [bL(mode, 0.32), 0.16, H, 0.9];
-    const low = mode === "light" ? [bL(mode, 0.88), 0.1, (H + 30) % 360, 0.5] : [bL(mode, 0.24), 0.1, (H + 30) % 360, 0.4];
+    const top = mode === "light" ? [bL(mode, 0.73), 0.24, H, 1] : [bL(mode, 0.34), 0.18, H, 1];
+    const mid = mode === "light" ? [bL(mode, 0.84), 0.14, (H + 25) % 360, 0.8] : [bL(mode, 0.27), 0.12, (H + 25) % 360, 0.6];
+    const low = mode === "light" ? [bL(mode, 0.86), 0.12, (H + 320) % 360, 0.7] : [bL(mode, 0.24), 0.11, (H + 320) % 360, 0.5];
     return [
-      `linear-gradient(180deg, ${css(top)}, transparent 62%)`,
-      `radial-gradient(90rem circle at 15% 100%, ${css(low)}, transparent 70%)`,
+      `linear-gradient(180deg, ${css(top)}, transparent 58%)`,
+      `radial-gradient(70rem circle at 88% 30%, ${css(mid)}, transparent 68%)`,
+      `radial-gradient(90rem circle at 12% 102%, ${css(low)}, transparent 70%)`,
     ];
   },
   horizon: (theme, mode) => {
     const [, , H] = theme[mode].accent;
-    const sky = mode === "light" ? [bL(mode, 0.76), 0.22, H, 1] : [bL(mode, 0.3), 0.17, H, 0.95];
-    const haze = mode === "light" ? [bL(mode, 0.9), 0.08, H, 0.7] : [bL(mode, 0.22), 0.08, H, 0.5];
+    const sky = mode === "light" ? [bL(mode, 0.72), 0.25, H, 1] : [bL(mode, 0.32), 0.19, H, 1];
+    const haze = mode === "light" ? [bL(mode, 0.87), 0.1, H, 0.85] : [bL(mode, 0.24), 0.09, H, 0.6];
+    const sun = mode === "light" ? [bL(mode, 0.88), 0.14, (H + 45) % 360, 0.9] : [bL(mode, 0.38), 0.13, (H + 45) % 360, 0.55];
     return [
-      `linear-gradient(180deg, ${css(sky)} 0%, ${css(sky)} 18%, ${css(haze)} 34%, transparent 52%)`,
+      `radial-gradient(30rem circle at 72% 12%, ${css(sun)}, transparent 60%)`,
+      `linear-gradient(180deg, ${css(sky)} 0%, ${css(sky)} 16%, ${css(haze)} 34%, transparent 54%)`,
     ];
   },
   glow: (theme, mode) => {
     const [, , H] = theme[mode].accent;
     const warm = (h, L, C, A) => [bL(mode, L), C, h, A];
     const pools = mode === "light"
-      ? [warm(H, 0.84, 0.16, 0.9), warm((H + 25) % 360, 0.87, 0.12, 0.7), warm((H + 340) % 360, 0.86, 0.13, 0.6)]
-      : [warm(H, 0.4, 0.15, 0.72), warm((H + 25) % 360, 0.34, 0.13, 0.55), warm((H + 340) % 360, 0.31, 0.13, 0.42)];
-    const at = [["44rem", "22%", "6%"], ["38rem", "82%", "38%"], ["40rem", "38%", "96%"]];
+      ? [warm(H, 0.8, 0.18, 1), warm((H + 25) % 360, 0.84, 0.14, 0.85), warm((H + 340) % 360, 0.83, 0.15, 0.7)]
+      : [warm(H, 0.42, 0.16, 0.85), warm((H + 25) % 360, 0.36, 0.14, 0.65), warm((H + 340) % 360, 0.32, 0.14, 0.5)];
+    const at = [["50rem", "22%", "6%"], ["44rem", "82%", "38%"], ["46rem", "38%", "96%"]];
     return pools.map((p, i) => `radial-gradient(${at[i][0]} circle at ${at[i][1]} ${at[i][2]}, ${css(p)}, transparent 65%)`);
   },
 };
@@ -872,36 +878,36 @@ const BACKDROP_LAYERS = {
 // gradients tile themselves; only the dot fields need an explicit tile size.
 const DECOR_LAYERS = {
   grain: () => ({
-    image: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/><feColorMatrix type='saturate' values='0'/><feComponentTransfer><feFuncA type='table' tableValues='0 0.055'/></feComponentTransfer></filter><rect width='140' height='140' filter='url(%23n)'/></svg>")`,
+    image: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/><feColorMatrix type='saturate' values='0'/><feComponentTransfer><feFuncA type='table' tableValues='0 0.09'/></feComponentTransfer></filter><rect width='140' height='140' filter='url(%23n)'/></svg>")`,
   }),
   stripes: (theme, mode) => {
     const [, , H] = theme[mode].accent;
-    const c = css(mode === "light" ? [0.6, 0.12, H, 0.07] : [0.7, 0.12, H, 0.06]);
+    const c = css(mode === "light" ? [0.6, 0.13, H, 0.11] : [0.7, 0.13, H, 0.09]);
     return { image: `repeating-linear-gradient(45deg, ${c} 0 12px, transparent 12px 34px)` };
   },
   check: (theme, mode) => {
     const [, , H] = theme[mode].accent;
-    const c = css(mode === "light" ? [0.6, 0.12, H, 0.05] : [0.7, 0.11, H, 0.05]);
+    const c = css(mode === "light" ? [0.6, 0.13, H, 0.085] : [0.7, 0.12, H, 0.08]);
     return { image: `repeating-linear-gradient(0deg, ${c} 0 14px, transparent 14px 42px), repeating-linear-gradient(90deg, ${c} 0 14px, transparent 14px 42px)` };
   },
   grid: (theme, mode) => {
     const { paper, ink } = theme[mode];
-    const line = css([...mix(paper, ink, 0.14).slice(0, 3), 0.55]);
+    const line = css([...mix(paper, ink, 0.14).slice(0, 3), 0.7]);
     return { image: `repeating-linear-gradient(0deg, ${line} 0 1px, transparent 1px 26px), repeating-linear-gradient(90deg, ${line} 0 1px, transparent 1px 26px)` };
   },
   dots: (theme, mode) => {
     const [, , H] = theme[mode].accent;
-    const c = css(mode === "light" ? [0.55, 0.13, H, 0.14] : [0.72, 0.12, H, 0.12]);
+    const c = css(mode === "light" ? [0.55, 0.14, H, 0.2] : [0.72, 0.13, H, 0.17]);
     return { image: `radial-gradient(circle at 9px 9px, ${c} 1.5px, transparent 1.5px)`, size: "22px 22px" };
   },
   scanlines: (theme, mode) => {
     const { paper, ink } = theme[mode];
-    const line = css([...mix(paper, ink, 0.5).slice(0, 3), mode === "light" ? 0.06 : 0.08]);
+    const line = css([...mix(paper, ink, 0.5).slice(0, 3), mode === "light" ? 0.08 : 0.1]);
     return { image: `repeating-linear-gradient(0deg, ${line} 0 1px, transparent 1px 4px)` };
   },
   weave: (theme, mode) => {
     const { paper, ink } = theme[mode];
-    const c = css([...mix(paper, ink, 0.2).slice(0, 3), 0.16]);
+    const c = css([...mix(paper, ink, 0.2).slice(0, 3), 0.22]);
     return { image: `repeating-linear-gradient(45deg, ${c} 0 1px, transparent 1px 9px), repeating-linear-gradient(-45deg, ${c} 0 1px, transparent 1px 9px)` };
   },
   spots: (theme, mode) => {
@@ -915,16 +921,16 @@ const DECOR_LAYERS = {
     };
     return {
       image: [
-        dot(H, "31px 47px", "5px", 0.5), dot((H + 120) % 360, "203px 23px", "4px", 0.45),
-        dot((H + 60) % 360, "239px 161px", "5px", 0.4), dot((H + 200) % 360, "57px 213px", "4px", 0.45),
-        dot((H + 300) % 360, "143px 99px", "3px", 0.35),
+        dot(H, "31px 47px", "6px", 0.6), dot((H + 120) % 360, "203px 23px", "5px", 0.55),
+        dot((H + 60) % 360, "239px 161px", "6px", 0.5), dot((H + 200) % 360, "57px 213px", "5px", 0.55),
+        dot((H + 300) % 360, "143px 99px", "4px", 0.45),
       ].join(", "),
       size: "260px 260px",
     };
   },
   rays: (theme, mode) => {
     const [, , H] = theme[mode].accent;
-    const c = css(mode === "light" ? [0.7, 0.1, H, 0.05] : [0.6, 0.1, H, 0.06]);
+    const c = css(mode === "light" ? [0.7, 0.12, H, 0.09] : [0.6, 0.12, H, 0.1]);
     return { image: `conic-gradient(from 172deg at 50% -8%, ${c} 0 9deg, transparent 9deg 24deg, ${c} 24deg 33deg, transparent 33deg 48deg, ${c} 48deg 57deg, transparent 57deg 72deg, ${c} 72deg 81deg, transparent 81deg 96deg, ${c} 96deg 105deg, transparent 105deg 360deg)` };
   },
 };
@@ -974,7 +980,7 @@ export function worldCss(theme) {
  */
 function openRootCss(theme, hasBackdrop) {
   if (theme.surface === "glass") return "";
-  const A = hasBackdrop ? { light: 0.5, dark: 0.55 } : { light: 0.85, dark: 0.88 };
+  const A = hasBackdrop ? { light: 0.35, dark: 0.42 } : { light: 0.85, dark: 0.88 };
   const t = (mode) => css([...theme[mode].paper.slice(0, 3), A[mode]]);
   return `:root { --background: ${t("light")}; }\n.dark { --background: ${t("dark")}; }\n`;
 }

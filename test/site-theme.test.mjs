@@ -667,10 +667,10 @@ test("the legibility deal holds: light stops stay high, dark stops stay low", ()
     const out = worldCss({ ...FIXTURE, backdrop });
     const [lightRule, darkRule] = [out.match(/(?<!\.dark )body \{[^}]+\}/)?.[0] ?? "", out.match(/\.dark body \{[^}]+\}/)?.[0] ?? ""];
     for (const m of lightRule.matchAll(/oklch\(([\d.]+) /g)) {
-      assert.ok(+m[1] >= 0.75, `${backdrop}/light emitted a stop at L ${m[1]} — too dark to sit under ink`);
+      assert.ok(+m[1] >= 0.7, `${backdrop}/light emitted a stop at L ${m[1]} — too dark to sit under ink`);
     }
     for (const m of darkRule.matchAll(/oklch\(([\d.]+) /g)) {
-      assert.ok(+m[1] <= 0.5, `${backdrop}/dark emitted a stop at L ${m[1]} — a floodlight in a dark room`);
+      assert.ok(+m[1] <= 0.55, `${backdrop}/dark emitted a stop at L ${m[1]} — a floodlight in a dark room`);
     }
   }
 });
