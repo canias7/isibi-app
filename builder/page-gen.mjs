@@ -535,6 +535,13 @@ export const UI_COMPONENTS = [
   "share-scope", "link-permissions", "access-summary", "who-can-see", "pending-invite",
   "transfer-ownership", "leave-confirm", "visibility-toggle", "embargo-note", "shared-with-list",
   "request-access", "access-expiry", "guest-note", "scope-summary",
+  // Onboarding and guidance. Every step offers a way past it, and every nudge names the payoff.
+  "setup-task", "first-run-panel", "tip-bubble", "sample-data-note", "skip-for-now",
+  "progress-nudge", "completion-meter", "what-changed", "guided-step", "try-it-panel",
+  "dismissed-tips", "first-value-note",
+  // Search and retrieval. Why nothing matched, what was actually searched for, and which filter is hiding it.
+  "search-operators", "zero-results", "facet-list", "query-chips", "typeahead-list",
+  "search-within", "match-context", "sort-direction", "search-tips", "query-explain",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
