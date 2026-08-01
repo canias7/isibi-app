@@ -1043,6 +1043,103 @@ function veilCss(theme) {
     `.dark ${BANDS.split(", ").join(", .dark ")} { background-color: oklch(0 0 0 / 0.35) }\n`;
 }
 
+/* ------------------------------------------- motion · edges · skins (2026-08-01) */
+
+/**
+ * The second wave of the redesign, ordered by the owner after the worlds
+ * landed: AMBIENT (the light moves), EDGE (how bands meet the page), SKIN
+ * (what a card is shaped like). All three are optional axes that default to
+ * exactly today's rendering, all three derive from the theme's own palette
+ * where they use colour at all, and all three retrofit through worlds.mjs.
+ */
+export const AMBIENTS = {
+  still: { label: "nothing moves — the ordinary page" },
+  drift: { label: "the light drifts, slow as weather" },
+  lively: { label: "the light plays — quicker, three blobs, a little scale" },
+};
+
+/**
+ * An ANIMATED OVERLAY, not an animated backdrop: `body::after`, fixed, z-index
+ * -1 — which paints above the body's own background (the world) and below
+ * every descendant, so the moving light slides between the backdrop and the
+ * page. Transform-only animation (GPU-cheap, never filter or position), and
+ * `prefers-reduced-motion` stops it dead — the blobs stay, the motion goes.
+ */
+export function ambientCss(theme) {
+  const style = theme.ambient ?? "still";
+  if (style !== "drift" && style !== "lively") return "";
+  const n = style === "drift" ? 2 : 3;
+  const dur = style === "drift" ? "38s" : "16s";
+  const layer = (mode) => {
+    const H = theme[mode].accent[2];
+    const hues = [H, (H + 60) % 360, (H + 300) % 360].slice(0, n);
+    const L = mode === "light" ? 0.84 : 0.36;
+    const C = mode === "light" ? 0.16 : 0.14;
+    const A = (mode === "light" ? [0.55, 0.4, 0.35] : [0.42, 0.32, 0.26]).slice(0, n);
+    const at = [["40rem", "24%", "28%"], ["34rem", "78%", "18%"], ["36rem", "60%", "82%"]];
+    return hues.map((h, i) =>
+      `radial-gradient(${at[i][0]} circle at ${at[i][1]} ${at[i][2]}, ${css([bL(mode, L), C, h, A[i]])}, transparent 65%)`).join(", ");
+  };
+  const move = style === "drift"
+    ? `from { transform: translate3d(-3%, -2%, 0) rotate(-2deg); } to { transform: translate3d(3%, 2%, 0) rotate(2deg); }`
+    : `from { transform: translate3d(-4%, -3%, 0) rotate(-3deg) scale(1); } to { transform: translate3d(4%, 3%, 0) rotate(4deg) scale(1.07); }`;
+  return `body::after { content: ""; position: fixed; inset: -22%; z-index: -1; pointer-events: none; background-image: ${layer("light")}; animation: isibi-ambient ${dur} ease-in-out infinite alternate; }\n` +
+    `.dark body::after { background-image: ${layer("dark")}; }\n` +
+    `@keyframes isibi-ambient { ${move} }\n` +
+    `@media (prefers-reduced-motion: reduce) { body::after { animation: none; } }\n`;
+}
+
+export const EDGES = {
+  straight: { label: "bands meet the page square — the ordinary section" },
+  wave: { label: "bands roll in and out on a wave" },
+  angle: { label: "bands cut across on a slant" },
+  torn: { label: "bands tear off like paper" },
+};
+
+// One stretched SVG mask per style: viewBox 0-100 with wavy/slanted/jagged top
+// and bottom edges, preserveAspectRatio none so the amplitude rides at ~5% of
+// the band's height. Applied to the same band utilities the veils cover.
+const EDGE_PATHS = {
+  wave: "M0,5 C 12,0 20,10 32,5 C 44,0 52,10 64,5 C 76,0 84,10 100,5 L100,95 C 88,100 78,90 66,95 C 54,100 44,90 32,95 C 20,100 12,90 0,95 Z",
+  angle: "M0,6 L100,0 L100,94 L0,100 Z",
+  torn: "M0,3 L9,6 L17,1 L26,7 L34,2 L45,6 L53,1 L62,5 L71,2 L80,7 L90,3 L100,6 L100,96 L91,93 L82,98 L72,94 L61,99 L52,95 L41,98 L33,93 L24,97 L15,94 L7,98 L0,95 Z",
+};
+
+export function edgeCss(style) {
+  const path = EDGE_PATHS[style];
+  if (!path) return "";
+  const svg = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'><path d='${path}' fill='black'/></svg>")`;
+  const BANDS = ".bg-muted\\/30, .bg-muted\\/40, .bg-muted\\/50, .bg-muted\\/60";
+  return `${BANDS} { -webkit-mask-image: ${svg}; mask-image: ${svg}; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; }\n`;
+}
+
+export const SKINS = {
+  flat: { label: "cards as the kit draws them" },
+  frame: { label: "a museum mat — a second rule floated round the card" },
+  ticket: { label: "punched side notches — the card is a stub" },
+  tilt: { label: "cards sit a hair off square, alternating" },
+};
+
+/**
+ * `.bg-card` is the hook (Card and nothing else — popovers and the sidebar
+ * carry their own tokens). `ticket` needs `mask-composite: intersect`: mask
+ * layers union by default, and the union of two mostly-black layers is
+ * everything — the notches only survive where BOTH layers agree.
+ */
+export function skinCss(style) {
+  if (style === "frame") {
+    return `.bg-card { outline: 1px solid var(--border); outline-offset: 5px; }\n`;
+  }
+  if (style === "ticket") {
+    const m = `radial-gradient(0.7rem circle at 0 55%, transparent 98%, black), radial-gradient(0.7rem circle at 100% 55%, transparent 98%, black)`;
+    return `.bg-card { -webkit-mask-image: ${m}; mask-image: ${m}; -webkit-mask-composite: source-in; mask-composite: intersect; }\n`;
+  }
+  if (style === "tilt") {
+    return `.bg-card { transform: rotate(-0.5deg); }\n.bg-card:nth-child(even) { transform: rotate(0.55deg); }\n`;
+  }
+  return "";
+}
+
 /* ------------------------------------------------------------------ corners */
 
 /**
@@ -1194,6 +1291,9 @@ export const THEMES = {
   //     backdrop: "plain",            // plain | wash | aurora | field | horizon | glow  (absent = plain)
   //     decor: "none",                // none | grain | stripes | check | grid | dots
   //                                   //   | scanlines | weave | spots | rays  (absent = none)
+  //     ambient: "still",             // still | drift | lively  (absent = still)
+  //     edge: "straight",             // straight | wave | angle | torn  (absent = straight)
+  //     skin: "flat",                 // flat | frame | ticket | tilt  (absent = flat)
   //     fonts: { heading: "<id>", body: "<id>" },   // ids from site-fonts.mjs
   //     light: { paper: [L, C, H], ink: [L, C, H], accent: [L, C, H] },
   //     dark:  { paper: [L, C, H], ink: [L, C, H], accent: [L, C, H] },
@@ -1326,7 +1426,10 @@ export function themeCss(nameOrTheme) {
     // The world paint follows even that — it owns the body and the veils, and
     // nothing after it may re-decide what the page sits on.
     surfaceCss(theme) +
-    worldCss(theme);
+    worldCss(theme) +
+    edgeCss(theme.edge) +
+    skinCss(theme.skin) +
+    ambientCss(theme);
 }
 
 /** What the model may choose from — an enum, so an invalid theme is impossible. */
