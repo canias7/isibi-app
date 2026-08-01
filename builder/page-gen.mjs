@@ -801,6 +801,12 @@ export const UI_COMPONENTS = [
   // Estate agency and sales
   "offer-row", "chain-status", "valuation-note", "listing-status", "vendor-note",
   "buyer-position", "completion-date", "key-release", "asking-price-change",
+  // Lending and mortgages
+  "affordability-note", "repayment-preview", "rate-type", "term-slider", "deposit-percent",
+  "offer-expiry", "arrears-note", "overpayment-allowance", "redemption-note", "broker-note",
+  // Telecoms and connectivity
+  "line-status", "bundle-row", "data-allowance", "roaming-note", "coverage-note",
+  "sim-row", "port-request", "contract-end", "add-on-row", "fair-use-note",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

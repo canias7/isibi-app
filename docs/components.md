@@ -1,4 +1,4 @@
-# Components (1991 built, 25 to go)
+# Components (2011 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -21,12 +21,14 @@ A ✓ means it exists and a generated site can import it today.
 ✓ action-history
 ✓ activity-dot
 ✓ activity-feed
+✓ add-on-row
 ✓ add-to-cart
 ✓ address-correct-note
 ✓ address-fields
 ✓ address-summary
 ✓ address-validate
 ✓ advanced-toggle
+✓ affordability-note
 ✓ age-gate
 ✓ age-rating-note
 ✓ aged-balance
@@ -82,6 +84,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ approver-list
 ✓ approx-note
 ✓ area-input
+✓ arrears-note
 ✓ article-card
 ✓ article-header
 ✓ asking-price-change
@@ -176,6 +179,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ break-even-note
 ✓ breaking-change-note
 ✓ breakpoint-badge
+✓ broker-note
 ✓ bubble
 ✓ bucket-picker
 ✓ buffer-time
@@ -184,6 +188,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ bulk-edit-panel
 ✓ bulk-pricing
 ✓ bullet-list
+✓ bundle-row
 ✓ burst-note
 ✓ busy-button
 ✓ button
@@ -370,6 +375,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ context-meter
 ✓ context-panel
 ✓ continuity-note
+✓ contract-end
 ✓ contrast-check
 ✓ contrast-toggle
 ✓ controlled-drug-note
@@ -394,6 +400,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ cover-image
 ✓ cover-level
 ✓ coverage-gap
+✓ coverage-note
 ✓ credential-expiry
 ✓ credential-rotate
 ✓ credential-row
@@ -427,6 +434,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ cycle-count-row
 ✓ dailies-row
 ✓ danger-zone
+✓ data-allowance
 ✓ data-dictionary
 ✓ data-freshness
 ✓ data-list
@@ -469,6 +477,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ density-toggle
 ✓ dependent-select
 ✓ deposit-line
+✓ deposit-percent
 ✓ deprecation-note
 ✓ depreciation-row
 ✓ description-list
@@ -621,6 +630,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ facet-list
 ✓ facet-range
 ✓ failed-delivery
+✓ fair-use-note
 ✓ faq
 ✓ faq-search
 ✓ feature-grid
@@ -882,6 +892,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ likert-row
 ✓ limit-reached
 ✓ line-focus
+✓ line-status
 ✓ link-card
 ✓ link-editor
 ✓ link-permissions
@@ -1049,6 +1060,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ oauth-consent-summary
 ✓ object-label
 ✓ ocr-note
+✓ offer-expiry
 ✓ offer-row
 ✓ offer-summary
 ✓ offline-banner
@@ -1079,6 +1091,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ overflow-fade
 ✓ overflow-scroller
 ✓ overlap-warning
+✓ overpayment-allowance
 ✓ overpayment-note
 ✓ pack-checklist
 ✓ page-break
@@ -1167,6 +1180,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ poll-result
 ✓ popover
 ✓ popover-menu
+✓ port-request
 ✓ portal
 ✓ post-meta
 ✓ postcode-input
@@ -1270,6 +1284,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ range-trim
 ✓ ranking-list
 ✓ rate-limited
+✓ rate-type
 ✓ rating-changed
 ✓ rating-guidance
 ✓ rating-input
@@ -1307,6 +1322,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ recurring-picker
 ✓ recycling-rate
 ✓ redaction-note
+✓ redemption-note
 ✓ reduce-motion
 ✓ reduced-motion-note
 ✓ referee-assignment
@@ -1334,6 +1350,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ reorder-list
 ✓ reorder-point
 ✓ reorderable-grid
+✓ repayment-preview
 ✓ repeat-request
 ✓ repeatable-field
 ✓ replay-event
@@ -1391,6 +1408,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ rich-tooltip
 ✓ ripple
 ✓ risk-assessment-row
+✓ roaming-note
 ✓ role-badge
 ✓ role-description
 ✓ role-picker
@@ -1566,6 +1584,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ signature-secret
 ✓ significant-figures
 ✓ signup-form
+✓ sim-row
 ✓ site-chrome
 ✓ site-compare-row
 ✓ site-diary
@@ -1766,6 +1785,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tenant-badge
 ✓ tenant-delete
 ✓ tenant-limits
+✓ term-slider
 ✓ terminal-output
 ✓ terms-block
 ✓ test-connection
