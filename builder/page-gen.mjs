@@ -670,6 +670,13 @@ export const UI_COMPONENTS = [
   // Multi-tenancy and white-label
   "tenant-badge", "brand-upload", "custom-domain", "domain-verify", "subdomain-field",
   "tenant-limits", "workspace-invite", "cross-workspace-note", "tenant-delete",
+  // Internationalisation, deeper
+  "locale-picker", "translation-status", "missing-translation", "pluralisation-preview", "rtl-toggle",
+  "date-format-preview", "number-format-preview", "measurement-system", "translator-note", "locale-fallback-chain",
+  "string-context",
+  // Theming and customisation
+  "palette-preview", "font-preview", "spacing-preview", "logo-slot", "theme-reset",
+  "custom-css-note", "preview-frame", "brand-check", "theme-export",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

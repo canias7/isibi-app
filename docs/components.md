@@ -1,4 +1,4 @@
-# Components (1601 built, 25 to go)
+# Components (1621 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -132,6 +132,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ branch-badge
 ✓ branch-preview
 ✓ branching-note
+✓ brand-check
 ✓ brand-upload
 ✓ breadcrumb
 ✓ breadcrumb-collapse
@@ -335,6 +336,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ curriculum-path
 ✓ cursor-label
 ✓ cursor-pagination
+✓ custom-css-note
 ✓ custom-domain
 ✓ cutoff-time
 ✓ cvc-input
@@ -346,6 +348,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ data-table
 ✓ date-badge
 ✓ date-format
+✓ date-format-preview
 ✓ date-nav
 ✓ date-of-birth
 ✓ date-preset
@@ -554,6 +557,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ follow-changes
 ✓ follow-toggle
 ✓ font-picker
+✓ font-preview
 ✓ footer-summary
 ✓ footer-totals
 ✓ footnote
@@ -721,6 +725,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ load-more
 ✓ loading-more
 ✓ loading-overlay
+✓ locale-fallback-chain
+✓ locale-picker
 ✓ location-access
 ✓ location-card
 ✓ location-consent
@@ -731,6 +737,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ login-history
 ✓ logo
 ✓ logo-cloud
+✓ logo-slot
 ✓ loop-toggle
 ✓ lot-row
 ✓ magic-link-sent
@@ -752,6 +759,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ matrix-question
 ✓ matrix-table
 ✓ measurement-summary
+✓ measurement-system
 ✓ media-caption
 ✓ media-duration
 ✓ media-error
@@ -780,6 +788,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ mini-bars
 ✓ minimap-scroll
 ✓ missing-fields
+✓ missing-translation
 ✓ mobile-nav
 ✓ modal-stack
 ✓ model-note
@@ -830,6 +839,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ nps-scale
 ✓ nudge-bubble
 ✓ number-format
+✓ number-format-preview
 ✓ number-input
 ✓ number-scale-note
 ✓ number-scrubber
@@ -873,6 +883,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ page-thumbnails
 ✓ page-title
 ✓ pagination
+✓ palette-preview
 ✓ pane-tabs
 ✓ panel
 ✓ panel-group
@@ -927,6 +938,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ plan-limit-row
 ✓ playback-speed
 ✓ plural
+✓ pluralisation-preview
 ✓ poll-composer
 ✓ poll-result
 ✓ popover
@@ -945,6 +957,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ preset-menu
 ✓ press-quote
 ✓ prev-next
+✓ preview-frame
 ✓ price-breakdown
 ✓ price-changed-note
 ✓ price-history
@@ -1128,6 +1141,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ row-select
 ✓ rsvp-buttons
 ✓ rtl-preview
+✓ rtl-toggle
 ✓ rule-builder
 ✓ rule-conflict
 ✓ rule-enabled
@@ -1300,6 +1314,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ source-label
 ✓ spacer
 ✓ spacing-picker
+✓ spacing-preview
 ✓ spam-note
 ✓ sparkline
 ✓ spec-row
@@ -1358,6 +1373,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ streak-counter
 ✓ streaming-text
 ✓ strike-badge
+✓ string-context
 ✓ subdomain-field
 ✓ subscribe-toggle
 ✓ substitution-pref
@@ -1428,7 +1444,9 @@ A ✓ means it exists and a generated site can import it today.
 ✓ text-size
 ✓ textarea
 ✓ textarea-count
+✓ theme-export
 ✓ theme-picker
+✓ theme-reset
 ✓ theme-toggle
 ✓ thinking-indicator
 ✓ third-party-list
@@ -1488,6 +1506,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ transfer-list
 ✓ transfer-ownership
 ✓ transition-arrow
+✓ translation-status
+✓ translator-note
 ✓ travel-time
 ✓ travel-time-note
 ✓ tree-item
