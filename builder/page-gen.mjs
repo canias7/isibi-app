@@ -496,31 +496,50 @@ import { MANAGED_COLUMNS, canReadAccess, canWriteAccess, whyNotReadable, needsMe
 export const MAX_PAGES = 6;
 export const MAX_PAGE_CHARS = 24000;
 
-// A byte-for-byte copy of builder/lovable/template/src/routes/index.tsx. The only
-// change is the escape on the one `${` sequence, which a template literal would
-// otherwise interpolate. test/page-gen.test.mjs fails if the two diverge.
-export const REFERENCE_PAGE = `// Reference page. Hand-written against the schema the designer actually
-// produced for "a small barber shop site": services(name, description, price,
-// duration_minutes) and appointments(service, customer_name, customer_phone,
-// date, time, notes).
+// A byte-for-byte copy of every file in builder/lovable/template/src/routes/
+// that the generator is meant to imitate. Inlined rather than read from disk
+// because worker.js bundles this module and a Worker has no filesystem; the
+// escaping is generated, never hand-typed. test/page-gen.test.mjs fails if any
+// of them diverges from the file it was copied from.
 //
-// This exists to be imitated. It is the shape the generator should emit — read
-// with useRows, write with useCreateRow, shadcn for every control, and no fetch
-// code anywhere. If a generated page diverges from this, the generator is wrong.
-import { createFileRoute } from "@tanstack/react-router";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { toast } from "sonner";
+// FOUR PAGES, NOT ONE, and the reason is what the single page could not show.
+// Measured against the rules that cite them: `usePublicRows` had 8 mentions and
+// 0 demonstrations, `useMember` 10 and 0, the claim hooks 1 each and 0, and all
+// 11 motion effects were named and none shown. A rule the model is told but
+// never shown is a rule it satisfies by inventing a shape, and the invented
+// shape is what burns the single repair pass.
+//
+// They ride in the SYSTEM block, which carries `cache_control: ephemeral`, so
+// the extra length is a cache READ on every build after the first rather than
+// fresh input. That is also why they are a constant set and not selected per
+// build: varying the block by schema would break the cache on every build and
+// cost far more than the pages it saved.
+export const REFERENCE_PAGES = [
+  {
+    path: "index.tsx",
+    blurb: "THE HOME PAGE — site chrome, a list, and a link to the form.",
+    source: `// Reference page — THE HOME PAGE. Hand-written against the schema the designer
+// actually produced for "a small barber shop site": services(name, description,
+// price, duration_minutes, image_url) and appointments(...), plus opening hours
+// the owner fills in.
+//
+// This exists to be imitated. It is the shape the generator should emit, and it
+// is deliberately a SITE rather than a page: header, navigation, content,
+// footer, and a link to the booking page. Read with useRows, never write fetch
+// code, and reach for a composition from @/components/ui before building one out
+// of Card and div — every list state below is one component, not four blocks.
+//
+// The booking FORM lives on book.tsx, because that is where a real site puts it
+// and because a home page that is mostly a form is the thing every generated
+// site used to be.
+import { createFileRoute, Link } from "@tanstack/react-router";
 
-import { useRows, useCreateRow, type Row } from "@/lib/rows";
+import { useRows, type Row } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DataList } from "@/components/ui/data-list";
+import { OpeningHours, type DayHours } from "@/components/ui/opening-hours";
+import { SafeImage } from "@/components/ui/safe-image";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -529,7 +548,149 @@ type Service = Row & {
   description: string | null;
   price: number | null;
   duration_minutes: number | null;
+  image_url: string | null;
 };
+
+// Opening hours are the shop's own facts, not a table. Anything the owner will
+// never edit from a form belongs in the page, where it costs no query.
+const HOURS: DayHours[] = [
+  { day: 1, label: "Monday", open: null, close: null },
+  { day: 2, label: "Tuesday", open: "09:00", close: "18:00" },
+  { day: 3, label: "Wednesday", open: "09:00", close: "18:00" },
+  { day: 4, label: "Thursday", open: "09:00", close: "20:00" },
+  { day: 5, label: "Friday", open: "09:00", close: "20:00" },
+  { day: 6, label: "Saturday", open: "08:30", close: "17:00" },
+  { day: 0, label: "Sunday", open: null, close: null },
+];
+
+function Home() {
+  const services = useRows<Service>("services", { order: "price", dir: "asc" });
+
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <header className="border-b border-border">
+        <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-4">
+          <span className="text-lg font-semibold tracking-tight">Cutler Row</span>
+          <nav className="flex items-center gap-5 text-sm">
+            <a href="#services" className="text-muted-foreground hover:text-foreground">Services</a>
+            <a href="#hours" className="text-muted-foreground hover:text-foreground">Hours</a>
+            {/* Between PAGES it is <Link to>, never <a href> — an anchor reloads
+                the whole app and loses the router. Within a page, a hash anchor
+                is right and a Link is not. */}
+            <Link to="/book" className="font-medium">Book</Link>
+          </nav>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-4xl px-6 py-14">
+        <h1 className="text-4xl font-semibold tracking-tight">Barbering on Cutler Row since 2014</h1>
+        <p className="mt-3 max-w-xl text-muted-foreground">
+          Walk in before eleven, or book a chair. Six barbers, no appointment needed on weekdays.
+        </p>
+        <div className="mt-6 flex gap-3">
+          {/* asChild hands the button's styling to the Link, so it is a real
+              navigation rather than a button with an onClick that pushes. */}
+          <Button asChild className="motion-press">
+            <Link to="/book">Book a chair</Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <a href="#services">See the price list</a>
+          </Button>
+        </div>
+
+        <section id="services" className="mt-14">
+          <h2 className="text-xl font-medium">Services</h2>
+          {/* DataList carries the loading skeleton, the error sentence, the empty
+              state and the rows. Writing those four by hand on every list of
+              every page is the single most repeated mistake in a generated site,
+              and getting one wrong is invisible until a visitor hits it. */}
+          <DataList
+            query={services}
+            className="mt-4 grid gap-3 motion-stagger sm:grid-cols-2"
+            skeletonClassName="h-40 rounded-xl"
+            empty={{ title: "Nothing listed yet", description: "The price list is on its way." }}
+            error="Couldn't load the services. Refresh and try again."
+          >
+            {(s) => (
+              <Card key={s.id} className="motion-lift overflow-hidden">
+                {/* A picture column holds a URL the OWNER fills in after the
+                    build, so it is empty on a fresh site. SafeImage renders the
+                    fallback instead of a broken-image icon — which is why no
+                    page here needs its own \`{s.image_url && ...}\` guard. */}
+                <SafeImage src={s.image_url} alt={s.name} ratio="16/9" />
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-baseline justify-between text-base">
+                    <span>{s.name}</span>
+                    {s.price != null && <span className="tabular-nums">£{s.price}</span>}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="text-sm text-muted-foreground">
+                  {s.description}
+                  {s.duration_minutes != null && (
+                    <span className="mt-1 block tabular-nums">{s.duration_minutes} min</span>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </DataList>
+        </section>
+
+        <section id="hours" className="mt-14 motion-reveal">
+          <h2 className="text-xl font-medium">Opening hours</h2>
+          <OpeningHours days={HOURS} className="mt-4 max-w-sm" />
+        </section>
+      </main>
+
+      <footer className="border-t border-border">
+        <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-2 px-6 py-6 text-sm text-muted-foreground">
+          <span>14 Cutler Row, Sheffield S1</span>
+          <a href="tel:+441142700000" className="hover:text-foreground">0114 270 0000</a>
+        </div>
+      </footer>
+    </div>
+  );
+}
+`,
+  },
+  {
+    path: "book.tsx",
+    blurb: "THE FORM — validation, taken slots, and the claim link back.",
+    source: `// Reference page — THE FORM. Everything a \`collect\` table needs: validation
+// before a round trip, the four list states behind a Select, the slots somebody
+// else has already taken, and the claim link that lets the customer come back.
+//
+// A \`collect\` table is write-only: no policy lets anyone list it, so a booking
+// page CANNOT read the bookings to work out what is free. \`usePublicRows\` reads
+// a VIEW the schema published for exactly that — the taken times and nothing
+// else. If the schema declares no view for a table, ship the ordinary form; a
+// visitor is told about a clash on submit instead of before it.
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { toast } from "sonner";
+
+import { useRows, useCreateRow, usePublicRows, type Row } from "@/lib/rows";
+import { AvailabilityGrid } from "@/components/ui/availability-grid";
+import { Button } from "@/components/ui/button";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+
+export const Route = createFileRoute("/book")({ component: Book });
+
+type Service = Row & { name: string; price: number | null };
+
+// \`claim_token\` is a column the schema declares on a \`collect\` table, and the
+// insert hands the whole row back — so the token arrives as part of the row
+// rather than beside it. It is NULLABLE, because only a table that declared one
+// has it: read it guarded, never destructured as required.
+type Appointment = Row & { claim_token: string | null };
+
+const SLOTS = ["09:00", "09:30", "10:00", "10:30", "11:00", "11:30",
+  "14:00", "14:30", "15:00", "15:30", "16:00", "16:30"];
 
 // Mirrors the declared columns. The API rejects anything undeclared anyway, but
 // validating here means the visitor is told before a round trip.
@@ -544,20 +705,36 @@ const booking = z.object({
 
 type Booking = z.infer<typeof booking>;
 
-function Home() {
+function Book() {
   const services = useRows<Service>("services", { order: "price", dir: "asc" });
-  const create = useCreateRow("appointments");
+  const create = useCreateRow<Appointment>("appointments");
+  const [claim, setClaim] = useState<string | null>(null);
 
   const form = useForm<Booking>({
     resolver: zodResolver(booking),
     defaultValues: { service: "", customer_name: "", customer_phone: "", date: "", time: "", notes: "" },
   });
 
+  // Watched, because which slots are gone depends on the day being asked about.
+  const date = form.watch("date");
+  // The argument is the TABLE, not the name of a view. A \`publicView\` is a
+  // projection the schema declared ON that table, so \`appointments\` is what is
+  // asked for and the server returns only the published columns.
+  //
+  // Those rows carry NEVER an \`id\` — a projection strips it — so they are keyed
+  // on a published column. Filters are FLAT: a declared column name is the key,
+  // with no \`filter\` wrapper around it.
+  const taken = usePublicRows<{ time: string }>("appointments", date ? { date } : undefined);
+
   const onSubmit = (values: Booking) => {
     create.mutate(values, {
-      onSuccess: () => {
+      // The callback parameter is NOT annotated: TanStack's signature is
+      // contravariant in four arguments and refuses any hand-written type here.
+      onSuccess: (row) => {
         toast.success("Booked — we'll call to confirm.");
         form.reset();
+        if (!row.claim_token) return;
+        setClaim(row.claim_token);
       },
       // The API separates the caller's fault from a server fault, so its own
       // message is worth showing instead of a generic failure.
@@ -565,154 +742,406 @@ function Home() {
     });
   };
 
+  if (claim) {
+    return (
+      <main className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
+        <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
+        <p className="mt-3 text-muted-foreground">
+          Keep this link — it is the only way back to this appointment.
+        </p>
+        <Button asChild className="mt-6">
+          <Link to="/manage" search={{ t: claim }}>Manage your booking</Link>
+        </Button>
+      </main>
+    );
+  }
+
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16">
-      <h1 className="text-4xl font-semibold tracking-tight">Barber Shop</h1>
-      <p className="mt-2 text-muted-foreground">Book a chair. We'll call to confirm.</p>
+    <main className="mx-auto max-w-2xl px-6 py-14">
+      <h1 className="text-3xl font-semibold tracking-tight">Book a chair</h1>
+      <p className="mt-2 text-muted-foreground">We'll call to confirm within the hour.</p>
 
-      <section className="mt-12">
-        <h2 className="text-xl font-medium">Services</h2>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          {services.isPending && [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
-
-          {services.isError && (
-            <p className="text-sm text-destructive sm:col-span-2">
-              Couldn't load the services. Refresh and try again.
-            </p>
-          )}
-
-          {services.data?.length === 0 && (
-            <p className="text-sm text-muted-foreground sm:col-span-2">Nothing listed yet.</p>
-          )}
-
-          {services.data?.map((s) => (
-            <Card key={s.id}>
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-baseline justify-between text-base">
-                  <span>{s.name}</span>
-                  {s.price != null && <span className="tabular-nums">\${s.price}</span>}
-                </CardTitle>
-                {s.duration_minutes != null && <CardDescription>{s.duration_minutes} min</CardDescription>}
-              </CardHeader>
-              {s.description && (
-                <CardContent className="text-sm text-muted-foreground">{s.description}</CardContent>
-              )}
-            </Card>
-          ))}
-        </div>
-      </section>
-
-      <section className="mt-14">
-        <h2 className="text-xl font-medium">Book an appointment</h2>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="mt-4 grid gap-4 sm:grid-cols-2">
-            <FormField
-              control={form.control}
-              name="service"
-              render={({ field }) => (
-                <FormItem className="sm:col-span-2">
-                  <FormLabel>Service</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Choose one" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {services.data?.map((s) => (
-                        <SelectItem key={s.id} value={s.name}>
-                          {s.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="customer_name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Your name</FormLabel>
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
+          <FormField
+            control={form.control}
+            name="service"
+            render={({ field }) => (
+              <FormItem className="sm:col-span-2">
+                <FormLabel>Service</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value}>
                   <FormControl>
-                    <Input {...field} />
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choose one" />
+                    </SelectTrigger>
                   </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                  <SelectContent>
+                    {services.data?.map((s) => (
+                      <SelectItem key={s.id} value={s.name}>{s.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
-            <FormField
-              control={form.control}
-              name="customer_phone"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Phone</FormLabel>
-                  <FormControl>
-                    <Input type="tel" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+          <FormField
+            control={form.control}
+            name="customer_name"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Your name</FormLabel>
+                <FormControl><Input autoComplete="name" {...field} /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
-            <FormField
-              control={form.control}
-              name="date"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Date</FormLabel>
-                  <FormControl>
-                    <Input type="date" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+          <FormField
+            control={form.control}
+            name="customer_phone"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Phone</FormLabel>
+                <FormControl><Input type="tel" autoComplete="tel" {...field} /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
-            <FormField
-              control={form.control}
-              name="time"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Time</FormLabel>
-                  <FormControl>
-                    <Input type="time" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+          <FormField
+            control={form.control}
+            name="date"
+            render={({ field }) => (
+              <FormItem className="sm:col-span-2">
+                <FormLabel>Date</FormLabel>
+                <FormControl><Input type="date" {...field} /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
-            <FormField
-              control={form.control}
-              name="notes"
-              render={({ field }) => (
-                <FormItem className="sm:col-span-2">
-                  <FormLabel>Anything else?</FormLabel>
-                  <FormControl>
-                    <Textarea rows={3} {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+          <FormField
+            control={form.control}
+            name="time"
+            render={({ field }) => (
+              <FormItem className="sm:col-span-2">
+                <FormLabel>Time</FormLabel>
+                <FormControl>
+                  {/* Taken slots are struck through and unpickable, so a visitor
+                      sees 09:30 is gone BEFORE submitting rather than being
+                      refused after filling the whole form in. */}
+                  <AvailabilityGrid
+                    slots={SLOTS}
+                    taken={taken.data?.map((t) => t.time) ?? []}
+                    value={field.value}
+                    onSelect={field.onChange}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
-            <div className="sm:col-span-2">
-              <Button type="submit" disabled={create.isPending}>
-                {create.isPending ? "Booking…" : "Request appointment"}
-              </Button>
-            </div>
-          </form>
-        </Form>
-      </section>
+          <FormField
+            control={form.control}
+            name="notes"
+            render={({ field }) => (
+              <FormItem className="sm:col-span-2">
+                <FormLabel>Anything else?</FormLabel>
+                <FormControl><Textarea rows={3} {...field} /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <div className="sm:col-span-2">
+            {/* Disabled while in flight, or a customer who sees nothing happen
+                presses again and books three times. */}
+            <Button type="submit" className="motion-press" disabled={create.isPending}>
+              {create.isPending ? "Booking…" : "Request appointment"}
+            </Button>
+          </div>
+        </form>
+      </Form>
     </main>
   );
 }
-`;
+`,
+  },
+  {
+    path: "manage.tsx",
+    blurb: "COMING BACK — one row, opened by a claim token off the URL.",
+    source: `// Reference page — COMING BACK. The person who filled the form in has no
+// account and never will, so a claim token IS their identity: it arrives in the
+// confirmation link, it opens exactly one row, and it does nothing else.
+//
+// Build this page whenever a site takes appointments, orders or reservations —
+// anything a customer might need to check or cancel. A plain contact form does
+// not need one; nobody comes back to look at an enquiry.
+//
+// The token is read off the URL. A wrong token and a row that is not there
+// answer IDENTICALLY, which is deliberate: a distinct "bad link" would tell
+// somebody guessing which bookings exist.
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { toast } from "sonner";
+
+import { useClaimedRow, useCancelClaim, type Row } from "@/lib/rows";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+
+export const Route = createFileRoute("/manage")({
+  component: Manage,
+  // Search params arrive as unknown strings; narrowing here is what makes
+  // \`claim\` a string for the rest of the page instead of \`unknown\`.
+  validateSearch: (search: Record<string, unknown>) => ({
+    t: typeof search.t === "string" ? search.t : undefined,
+  }),
+});
+
+type Appointment = Row & {
+  service: string;
+  date: string;
+  time: string;
+  status: string | null;
+};
+
+function Manage() {
+  const { t: claim } = Route.useSearch();
+  // The schema declares these two functions; they are named here, not guessed.
+  const booking = useClaimedRow<Appointment>("booking_by_claim", claim);
+  const cancel = useCancelClaim("cancel_booking_by_claim");
+
+  const onCancel = () => {
+    if (!claim) return;
+    cancel.mutate({ claim }, {
+      // Idempotent on purpose — a cancel link gets clicked twice, and the second
+      // click should read as "already cancelled", never as a broken link.
+      onSuccess: () => toast.success("Cancelled. Sorry to miss you."),
+      onError: (e: Error) => toast.error(e.message),
+    });
+  };
+
+  return (
+    <main className="mx-auto max-w-lg px-6 py-16">
+      <h1 className="text-3xl font-semibold tracking-tight">Your booking</h1>
+
+      {!claim && (
+        <p className="mt-4 text-muted-foreground">
+          This page needs the link from your confirmation. <Link to="/book" className="underline">Book a chair</Link> instead.
+        </p>
+      )}
+
+      {claim && booking.isPending && <Skeleton className="mt-6 h-40 rounded-xl" />}
+
+      {claim && booking.isError && (
+        <p className="mt-4 text-sm text-destructive">Couldn't load your booking. Refresh and try again.</p>
+      )}
+
+      {/* A missing row and a wrong token land here together, and say the same
+          thing — which is the whole point. */}
+      {claim && !booking.isPending && !booking.isError && !booking.data && (
+        <p className="mt-4 text-muted-foreground">
+          We couldn't find that booking. It may have been cancelled already.
+        </p>
+      )}
+
+      {booking.data && (
+        <Card className="mt-6 motion-enter">
+          <CardHeader>
+            <CardTitle>{booking.data.service}</CardTitle>
+            <CardDescription className="tabular-nums">
+              {booking.data.date} at {booking.data.time}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex items-center justify-between gap-4">
+            <span className="text-sm text-muted-foreground">
+              {booking.data.status === "cancelled" ? "Cancelled" : "Confirmed"}
+            </span>
+            {booking.data.status !== "cancelled" && (
+              <Button variant="destructive" onClick={onCancel} disabled={cancel.isPending}>
+                {cancel.isPending ? "Cancelling…" : "Cancel booking"}
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </main>
+  );
+}
+`,
+  },
+  {
+    path: "account.tsx",
+    blurb: "MEMBERS — sign in, then read a table scoped to whoever signed in.",
+    source: `// Reference page — MEMBERS. A \`user\`, \`feed\` or \`admin\` table is scoped to the
+// visitor who is signed in, so reading or writing one WITHOUT a session is a
+// 401, and a page that shows an error instead of a sign-in form looks broken
+// rather than locked. That is the whole reason this page exists.
+//
+// One form, two buttons. Sign-up and sign-in take the same shape, so splitting
+// them into two pages doubles the code and halves the chance a visitor finds the
+// one they need.
+//
+// ONE ERROR FOR THE WHOLE FORM, never per field. Saying which of the address and
+// the password was wrong tells somebody whether that address has an account
+// here.
+import { createFileRoute } from "@tanstack/react-router";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { toast } from "sonner";
+
+import { useMember, useLogin, useSignup, useLogout, useRows, useCreateRow, type Row } from "@/lib/rows";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DataList } from "@/components/ui/data-list";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+
+export const Route = createFileRoute("/account")({ component: Account });
+
+type Profile = Row & { nickname: string | null };
+
+const credentials = z.object({
+  email: z.string().email("That doesn't look like an email address"),
+  // 8 is the server's own minimum. Saying so here saves a round trip.
+  password: z.string().min(8, "At least 8 characters"),
+  name: z.string().optional(),
+});
+
+type Credentials = z.infer<typeof credentials>;
+
+function Account() {
+  const member = useMember();
+  const login = useLogin();
+  const signup = useSignup();
+  const logout = useLogout();
+
+  const form = useForm<Credentials>({
+    resolver: zodResolver(credentials),
+    defaultValues: { email: "", password: "", name: "" },
+  });
+
+  // The callback's parameter is NOT annotated. TanStack's mutation callback is
+  // contravariant in four arguments and refuses any hand-written type for it.
+  const submit = (action: typeof login, values: Credentials) => {
+    action.mutate(values, {
+      onSuccess: (data) => {
+        // A second factor answers with \`pending\` and NO token, so "it returned
+        // 200" is not the same as "you are signed in".
+        if (data && typeof data === "object" && "pending" in data) {
+          toast.message("Check your authenticator app to finish signing in.");
+          return;
+        }
+        form.reset();
+      },
+      onError: () => toast.error("That email and password didn't match."),
+    });
+  };
+
+  if (member.isPending) {
+    return <main className="mx-auto max-w-md px-6 py-20 text-muted-foreground">Checking your sign-in…</main>;
+  }
+
+  if (member.data) return <SignedIn name={member.data.name} onSignOut={() => logout.mutate()} />;
+
+  return (
+    <main className="mx-auto max-w-md px-6 py-16">
+      <h1 className="text-3xl font-semibold tracking-tight">Your account</h1>
+      <p className="mt-2 text-muted-foreground">Sign in, or make an account to keep your details.</p>
+
+      <Form {...form}>
+        <form className="mt-8 grid gap-4" onSubmit={form.handleSubmit((v) => submit(login, v))}>
+          <FormField
+            control={form.control}
+            name="email"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Email</FormLabel>
+                <FormControl><Input type="email" autoComplete="email" {...field} /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="password"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Password</FormLabel>
+                <FormControl><Input type="password" autoComplete="current-password" {...field} /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <div className="flex gap-3">
+            <Button type="submit" className="motion-press" disabled={login.isPending}>
+              {login.isPending ? "Signing in…" : "Sign in"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={signup.isPending}
+              onClick={form.handleSubmit((v) => submit(signup, v))}
+            >
+              Create an account
+            </Button>
+          </div>
+        </form>
+      </Form>
+    </main>
+  );
+}
+
+// Member-scoped reads live BEHIND the sign-in check, never beside it. Rendering
+// this component at all is the proof there is a session.
+function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) {
+  const profiles = useRows<Profile>("profiles");
+  const create = useCreateRow("profiles");
+
+  return (
+    <main className="mx-auto max-w-md px-6 py-16">
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-semibold tracking-tight">Hello, {name}</h1>
+        <Button variant="ghost" onClick={onSignOut}>Sign out</Button>
+      </div>
+
+      <Card className="mt-8">
+        <CardHeader><CardTitle className="text-base">Your details</CardTitle></CardHeader>
+        <CardContent>
+          {/* \`profiles\` is a \`user\` table, so this read returns THIS member's
+              rows and nobody else's — the scoping is the database's job, not a
+              filter written here. */}
+          <DataList
+            query={profiles}
+            className="grid gap-2"
+            skeleton={1}
+            empty={{ title: "Nothing saved yet" }}
+            error="Couldn't load your details."
+          >
+            {(p) => <p key={p.id} className="text-sm">{p.nickname}</p>}
+          </DataList>
+          <Button
+            className="mt-4"
+            disabled={create.isPending}
+            onClick={() => create.mutate({ nickname: name })}
+          >
+            Save my name
+          </Button>
+        </CardContent>
+      </Card>
+    </main>
+  );
+}
+`,
+  },
+];
+
+/** The home page alone, which is what most briefs need. */
+export const REFERENCE_PAGE = REFERENCE_PAGES[0].source;
 
 export const PAGE_RULES = `You write the pages of a small business website, as TypeScript React route files.
 
@@ -959,12 +1388,14 @@ no unresolved imports, no props a component does not take.
 Keep it to the few pages the brief actually needs — usually one, at most ${MAX_PAGES}. Write warm,
 specific copy for the business in the brief; never lorem ipsum, never a placeholder image URL.
 
-## The page to imitate
+## The pages to imitate
 
-This is a real, compiling page written against services(display) + appointments(collect). It is
-the shape to copy — every rule above is visible in it.
+Four real, compiling pages of ONE site, written against services(display) + appointments(collect,
+with a publicView and a claim token) + profiles(user). They are the shape to copy — every rule
+above is visible in them. Take the pages the brief needs and leave the rest; a site with no member
+table needs no account page, and a plain contact form needs no manage page.
 
-${REFERENCE_PAGE}`;
+${REFERENCE_PAGES.map((p) => `### ${p.path} — ${p.blurb}\n\n${p.source}`).join("\n\n")}`;
 
 export const SITE_PAGES_TOOL = {
   name: "write_pages",
