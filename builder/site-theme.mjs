@@ -796,8 +796,7 @@ export function surfaceCss(theme) {
     `.dark .bg-primary { box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.3), 0 8px 26px -10px oklch(${dL} ${dC} ${dH} / 0.6); }\n` +
     `.border-input { background-color: oklch(1 0 0 / 0.45); border-color: oklch(1 0 0 / 0.55); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }\n` +
     `.dark .border-input { background-color: oklch(1 0 0 / 0.07); border-color: oklch(1 0 0 / 0.15); }\n` +
-    `.bg-muted\\/30, .bg-muted\\/40, .bg-muted\\/50, .bg-muted\\/60 { background-color: oklch(1 0 0 / 0.3); }\n` +
-    `.dark .bg-muted\\/30, .dark .bg-muted\\/40, .dark .bg-muted\\/50, .dark .bg-muted\\/60 { background-color: oklch(1 0 0 / 0.045); }\n`;
+    `.bg-muted\\/30, .bg-muted\\/40, .bg-muted\\/50, .bg-muted\\/60 { background-color: transparent; }\n`;
   return `:root {\n${tokens("light")}\n}\n.dark {\n${tokens("dark")}\n}\n` +
     `${SURF} { ${filter} border-color: oklch(1 0 0 / 0.6); background-image: linear-gradient(165deg, oklch(1 0 0 / 0.5), oklch(1 0 0 / 0) 42%); }\n` +
     `.dark ${SURF.split(", ").join(", .dark ")} { border-color: oklch(1 0 0 / 0.16); background-image: linear-gradient(165deg, oklch(1 0 0 / 0.1), oklch(1 0 0 / 0) 45%); }\n` +
@@ -826,8 +825,9 @@ export function surfaceCss(theme) {
  *
  * THE LEGIBILITY DEAL. A backdrop may be bold ONLY because the things that
  * carry text sit on measured surfaces above it: cards are opaque tokens, and
- * every band utility (`bg-muted/30` …) gets a VEIL override when a backdrop is
- * present, exactly the trick the glass surface proved. On top of that, light-
+ * every band utility (`bg-muted/30` …) DISSOLVES to transparent when a
+ * backdrop is present — the page is one continuous world, sections separated
+ * by spacing rather than tone (the owner rejected the veiled slabs on sight). On top of that, light-
  * mode backdrop stops keep their lightness ≥ 0.70 and dark-mode stops ≤ 0.55 —
  * asserted, not hoped — so even text sitting directly on the page stays
  * readable over the loudest corner of any wash.
@@ -1010,7 +1010,7 @@ export function worldCss(theme) {
     return `${sel} { background-image: ${layers.join(", ")}; background-size: ${sizes.join(", ")}; background-attachment: ${attach.join(", ")}; }\n`;
   };
   return openRootCss(theme, backdrop !== "plain") + rule("light") + rule("dark") +
-    (backdrop !== "plain" ? worldMutedCss(theme) + veilCss(theme) : "");
+    (backdrop !== "plain" ? worldMutedCss(theme) + bandClearCss(theme) : "");
 }
 
 /**
@@ -1079,14 +1079,20 @@ function openRootCss(theme, hasBackdrop) {
   return `:root { --background: ${t("light")}; }\n.dark { --background: ${t("dark")}; }\n`;
 }
 
-// The band-utility veils — a translucent sheet of the paper's own white/black
-// under `bg-muted/N`, so band text sits on a measured-ish surface rather than
-// on the wash. Skipped for glass, which emits its own tuned pair.
-function veilCss(theme) {
+/**
+ * BANDS DISSOLVE UNDER A WORLD. The first pass VEILED them — a translucent
+ * white/black sheet under `bg-muted/N` so band text had a surface — and the
+ * owner read the result exactly right: the page divided into four visible
+ * slabs (2026-08-01, the phone screenshot). The veil was only ever there for
+ * text contrast, and `worldMutedCss` now guarantees that against the RAW
+ * worst ground — so the bands can simply go transparent and the page becomes
+ * one continuous world. Sections separate by spacing and type, not by tone.
+ * Skipped for glass, whose surface block clears its own band utilities.
+ */
+function bandClearCss(theme) {
   if (theme.surface === "glass") return "";
   const BANDS = ".bg-muted\\/30, .bg-muted\\/40, .bg-muted\\/50, .bg-muted\\/60";
-  return `${BANDS} { background-color: oklch(1 0 0 / 0.55) }\n` +
-    `.dark ${BANDS.split(", ").join(", .dark ")} { background-color: oklch(0 0 0 / 0.35) }\n`;
+  return `${BANDS} { background-color: transparent }\n`;
 }
 
 /* ------------------------------------------- motion · edges · skins (2026-08-01) */

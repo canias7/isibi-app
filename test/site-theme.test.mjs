@@ -730,16 +730,18 @@ test("the legibility deal holds: light stops stay high, dark stops stay low", ()
   }
 });
 
-test("a backdrop brings the band veils, and never by re-tinting the muted token", () => {
-  // The other half of the deal: bg-muted/30 bands are 70% window onto the
-  // wash, so a veil goes UNDER band text — via the class overrides, exactly
-  // like glass, and never by touching --muted, which skeletons and
-  // placeholders read (the glass lesson, relearned once already).
+test("a backdrop dissolves the bands, and never by re-tinting the muted token", () => {
+  // The owner rejected the veiled slabs on sight — a page divided into four
+  // tonal blocks. Bands now go TRANSPARENT under any world (safe because
+  // worldMutedCss fits small text against the raw worst ground), and still
+  // never by touching --muted, which skeletons and placeholders read (the
+  // glass lesson, relearned once already).
   for (const backdrop of ["wash", "aurora", "field", "horizon", "glow"]) {
     const out = worldCss({ ...FIXTURE, backdrop });
-    assert.match(out, /\.bg-muted\\\/30/, `${backdrop} left band text sitting on the wash`);
+    assert.match(out, /\.bg-muted\\\/30[^{]*\{ background-color: transparent/,
+      `${backdrop} left the band slabs standing`);
   }
-  assert.ok(!worldCss({ ...FIXTURE, backdrop: "field" }).includes("--muted:"), "the veil re-tinted the muted token");
+  assert.ok(!worldCss({ ...FIXTURE, backdrop: "field" }).includes("--muted:"), "the dissolve re-tinted the muted token");
   // And the ROOT OPENS — the page's own bg-background is opaque on a solid
   // theme, so without a translucent re-emit the world is painted behind a
   // wall (measured: the first prototype's afters equalled its befores).
@@ -751,12 +753,13 @@ test("a backdrop brings the band veils, and never by re-tinting the muted token"
   assert.match(worldCss({ ...FIXTURE, decor: "grain" }), /--background: oklch\([^)]+ \/ 0\.8/, "decor-only should open the root barely, not wide");
   assert.ok(!worldCss({ ...FIXTURE, surface: "glass", backdrop: "aurora" }).includes("--background:"),
     "glass got a second --background on top of its surface's own");
-  // Decor alone is texture, not light — no veil needed, and adding one would
-  // dim every band on a theme that only asked for paper tooth.
-  assert.ok(!worldCss({ ...FIXTURE, decor: "grain" }).match(/bg-muted/), "grain alone dimmed the bands");
-  // Glass keeps its own tuned veils — a second pair would stack alpha.
+  // Decor alone is texture, not light — the bands may keep their tint there.
+  assert.ok(!worldCss({ ...FIXTURE, decor: "grain" }).match(/bg-muted/), "grain alone dissolved the bands");
+  // Glass clears its own band utilities in the surface block — once, not twice.
   assert.ok(!worldCss({ ...FIXTURE, surface: "glass", backdrop: "aurora" }).match(/bg-muted/),
-    "glass got a second veil on top of its own");
+    "glass got a second band rule on top of its own");
+  assert.match(surfaceCss({ ...FIXTURE, surface: "glass" }), /\.bg-muted\\\/30[^{]*\{ background-color: transparent/,
+    "the glass surface stopped clearing its bands");
 });
 
 test("small text clears 4.5:1 on the worst ground a world can produce", () => {
