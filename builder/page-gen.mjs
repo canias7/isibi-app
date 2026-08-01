@@ -64,7 +64,7 @@ export const UI_COMPONENTS = [
   "context-menu", "dialog", "drawer", "dropdown-menu", "form", "hover-card", "input-otp",
   "input", "label", "menubar", "navigation-menu", "pagination", "popover", "progress",
   "radio-group", "resizable", "scroll-area", "select", "separator", "sheet", "sidebar",
-  "skeleton", "slider", "sonner", "switch", "table", "tabs", "textarea", "toggle-group",
+  "site-chrome", "skeleton", "slider", "sonner", "switch", "table", "tabs", "textarea", "toggle-group",
   "toggle", "tooltip",
   // Added 2026-07-30. `empty` and `spinner` because the rules already require
   // every list to handle "nothing yet" and every submit to show it is working,
@@ -517,7 +517,7 @@ export const MAX_PAGE_CHARS = 24000;
 export const REFERENCE_PAGES = [
   {
     path: "index.tsx",
-    blurb: "THE HOME PAGE — site chrome, a list, and a link to the form.",
+    blurb: "THE HOME PAGE — chrome, a list, and a link to the form.",
     source: `// Reference page — THE HOME PAGE. Hand-written against the schema the designer
 // actually produced for "a small barber shop site": services(name, description,
 // price, duration_minutes, image_url) and appointments(...), plus opening hours
@@ -540,6 +540,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataList } from "@/components/ui/data-list";
 import { OpeningHours, type DayHours } from "@/components/ui/opening-hours";
 import { SafeImage } from "@/components/ui/safe-image";
+import { SiteChrome } from "@/components/ui/site-chrome";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -567,23 +568,27 @@ function Home() {
   const services = useRows<Service>("services", { order: "price", dir: "asc" });
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="border-b border-border">
-        <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-4">
-          <span className="text-lg font-semibold tracking-tight">Cutler Row</span>
-          <nav className="flex items-center gap-5 text-sm">
-            <a href="#services" className="text-muted-foreground hover:text-foreground">Services</a>
-            <a href="#hours" className="text-muted-foreground hover:text-foreground">Hours</a>
-            {/* Between PAGES it is <Link to>, never <a href> — an anchor reloads
-                the whole app and loses the router. Within a page, a hash anchor
-                is right and a Link is not. */}
-            <Link to="/book" className="font-medium">Book</Link>
-          </nav>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-4xl px-6 py-14">
-        <h1 className="text-4xl font-semibold tracking-tight">Barbering on Cutler Row since 2014</h1>
+    // SiteChrome carries the header, the footer, the single <main> and the skip
+    // link, so EVERY page of the site has them and no page writes them twice.
+    // \`nav\` is a node rather than a list of props because <Link to> is typed
+    // against the routes that exist — passing strings would need a cast, and the
+    // cast throws away the check that catches a link to a page nobody built.
+    <SiteChrome
+      name="Cutler Row"
+      address="14 Cutler Row, Sheffield S1"
+      phone="0114 270 0000"
+      nav={
+        <>
+          <Link to="/">Home</Link>
+          <Link to="/book">Book</Link>
+          <Link to="/account">Account</Link>
+        </>
+      }
+    >
+      <div className="mx-auto max-w-4xl px-6 py-14">
+        <h1 className="text-4xl font-semibold tracking-tight">
+          Barbering on Cutler Row since 2014
+        </h1>
         <p className="mt-3 max-w-xl text-muted-foreground">
           Walk in before eleven, or book a chair. Six barbers, no appointment needed on weekdays.
         </p>
@@ -639,15 +644,8 @@ function Home() {
           <h2 className="text-xl font-medium">Opening hours</h2>
           <OpeningHours days={HOURS} className="mt-4 max-w-sm" />
         </section>
-      </main>
-
-      <footer className="border-t border-border">
-        <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-2 px-6 py-6 text-sm text-muted-foreground">
-          <span>14 Cutler Row, Sheffield S1</span>
-          <a href="tel:+441142700000" className="hover:text-foreground">0114 270 0000</a>
-        </div>
-      </footer>
-    </div>
+      </div>
+    </SiteChrome>
   );
 }
 `,
@@ -674,9 +672,23 @@ import { toast } from "sonner";
 import { useRows, useCreateRow, usePublicRows, type Row } from "@/lib/rows";
 import { AvailabilityGrid } from "@/components/ui/availability-grid";
 import { Button } from "@/components/ui/button";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SiteChrome } from "@/components/ui/site-chrome";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
 export const Route = createFileRoute("/book")({ component: Book });
@@ -689,8 +701,35 @@ type Service = Row & { name: string; price: number | null };
 // has it: read it guarded, never destructured as required.
 type Appointment = Row & { claim_token: string | null };
 
-const SLOTS = ["09:00", "09:30", "10:00", "10:30", "11:00", "11:30",
-  "14:00", "14:30", "15:00", "15:30", "16:00", "16:30"];
+// The same facts on every page of the site. Written once per file rather than
+// once per return.
+const CHROME = {
+  name: "Cutler Row",
+  address: "14 Cutler Row, Sheffield S1",
+  phone: "0114 270 0000",
+  nav: (
+    <>
+      <Link to="/">Home</Link>
+      <Link to="/book">Book</Link>
+      <Link to="/account">Account</Link>
+    </>
+  ),
+};
+
+const SLOTS = [
+  "09:00",
+  "09:30",
+  "10:00",
+  "10:30",
+  "11:00",
+  "11:30",
+  "14:00",
+  "14:30",
+  "15:00",
+  "15:30",
+  "16:00",
+  "16:30",
+];
 
 // Mirrors the declared columns. The API rejects anything undeclared anyway, but
 // validating here means the visitor is told before a round trip.
@@ -712,7 +751,14 @@ function Book() {
 
   const form = useForm<Booking>({
     resolver: zodResolver(booking),
-    defaultValues: { service: "", customer_name: "", customer_phone: "", date: "", time: "", notes: "" },
+    defaultValues: {
+      service: "",
+      customer_name: "",
+      customer_phone: "",
+      date: "",
+      time: "",
+      notes: "",
+    },
   });
 
   // Watched, because which slots are gone depends on the day being asked about.
@@ -744,128 +790,144 @@ function Book() {
 
   if (claim) {
     return (
-      <main className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
-        <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
-        <p className="mt-3 text-muted-foreground">
-          Keep this link — it is the only way back to this appointment.
-        </p>
-        <Button asChild className="mt-6">
-          <Link to="/manage" search={{ t: claim }}>Manage your booking</Link>
-        </Button>
-      </main>
+      <SiteChrome {...CHROME}>
+        <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
+          <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
+          <p className="mt-3 text-muted-foreground">
+            Keep this link — it is the only way back to this appointment.
+          </p>
+          <Button asChild className="mt-6">
+            <Link to="/manage" search={{ t: claim }}>
+              Manage your booking
+            </Link>
+          </Button>
+        </div>
+      </SiteChrome>
     );
   }
 
   return (
-    <main className="mx-auto max-w-2xl px-6 py-14">
-      <h1 className="text-3xl font-semibold tracking-tight">Book a chair</h1>
-      <p className="mt-2 text-muted-foreground">We'll call to confirm within the hour.</p>
+    <SiteChrome {...CHROME}>
+      <div className="mx-auto max-w-2xl px-6 py-14">
+        <h1 className="text-3xl font-semibold tracking-tight">Book a chair</h1>
+        <p className="mt-2 text-muted-foreground">We'll call to confirm within the hour.</p>
 
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
-          <FormField
-            control={form.control}
-            name="service"
-            render={({ field }) => (
-              <FormItem className="sm:col-span-2">
-                <FormLabel>Service</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value}>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
+            <FormField
+              control={form.control}
+              name="service"
+              render={({ field }) => (
+                <FormItem className="sm:col-span-2">
+                  <FormLabel>Service</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Choose one" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {services.data?.map((s) => (
+                        <SelectItem key={s.id} value={s.name}>
+                          {s.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="customer_name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Your name</FormLabel>
                   <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Choose one" />
-                    </SelectTrigger>
+                    <Input autoComplete="name" {...field} />
                   </FormControl>
-                  <SelectContent>
-                    {services.data?.map((s) => (
-                      <SelectItem key={s.id} value={s.name}>{s.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-          <FormField
-            control={form.control}
-            name="customer_name"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Your name</FormLabel>
-                <FormControl><Input autoComplete="name" {...field} /></FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+            <FormField
+              control={form.control}
+              name="customer_phone"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Phone</FormLabel>
+                  <FormControl>
+                    <Input type="tel" autoComplete="tel" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-          <FormField
-            control={form.control}
-            name="customer_phone"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Phone</FormLabel>
-                <FormControl><Input type="tel" autoComplete="tel" {...field} /></FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+            <FormField
+              control={form.control}
+              name="date"
+              render={({ field }) => (
+                <FormItem className="sm:col-span-2">
+                  <FormLabel>Date</FormLabel>
+                  <FormControl>
+                    <Input type="date" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-          <FormField
-            control={form.control}
-            name="date"
-            render={({ field }) => (
-              <FormItem className="sm:col-span-2">
-                <FormLabel>Date</FormLabel>
-                <FormControl><Input type="date" {...field} /></FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="time"
-            render={({ field }) => (
-              <FormItem className="sm:col-span-2">
-                <FormLabel>Time</FormLabel>
-                <FormControl>
-                  {/* Taken slots are struck through and unpickable, so a visitor
+            <FormField
+              control={form.control}
+              name="time"
+              render={({ field }) => (
+                <FormItem className="sm:col-span-2">
+                  <FormLabel>Time</FormLabel>
+                  <FormControl>
+                    {/* Taken slots are struck through and unpickable, so a visitor
                       sees 09:30 is gone BEFORE submitting rather than being
                       refused after filling the whole form in. */}
-                  <AvailabilityGrid
-                    slots={SLOTS}
-                    taken={taken.data?.map((t) => t.time) ?? []}
-                    value={field.value}
-                    onSelect={field.onChange}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+                    <AvailabilityGrid
+                      slots={SLOTS}
+                      taken={taken.data?.map((t) => t.time) ?? []}
+                      value={field.value}
+                      onSelect={field.onChange}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-          <FormField
-            control={form.control}
-            name="notes"
-            render={({ field }) => (
-              <FormItem className="sm:col-span-2">
-                <FormLabel>Anything else?</FormLabel>
-                <FormControl><Textarea rows={3} {...field} /></FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+            <FormField
+              control={form.control}
+              name="notes"
+              render={({ field }) => (
+                <FormItem className="sm:col-span-2">
+                  <FormLabel>Anything else?</FormLabel>
+                  <FormControl>
+                    <Textarea rows={3} {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-          <div className="sm:col-span-2">
-            {/* Disabled while in flight, or a customer who sees nothing happen
+            <div className="sm:col-span-2">
+              {/* Disabled while in flight, or a customer who sees nothing happen
                 presses again and books three times. */}
-            <Button type="submit" className="motion-press" disabled={create.isPending}>
-              {create.isPending ? "Booking…" : "Request appointment"}
-            </Button>
-          </div>
-        </form>
-      </Form>
-    </main>
+              <Button type="submit" className="motion-press" disabled={create.isPending}>
+                {create.isPending ? "Booking…" : "Request appointment"}
+              </Button>
+            </div>
+          </form>
+        </Form>
+      </div>
+    </SiteChrome>
   );
 }
 `,
@@ -890,12 +952,13 @@ import { toast } from "sonner";
 import { useClaimedRow, useCancelClaim, type Row } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { SiteChrome } from "@/components/ui/site-chrome";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/manage")({
   component: Manage,
-  // Search params arrive as unknown strings; narrowing here is what makes
-  // \`claim\` a string for the rest of the page instead of \`unknown\`.
+  // Search params arrive as unknown; narrowing here is what makes the token a
+  // string for the rest of the page instead of \`unknown\`.
   validateSearch: (search: Record<string, unknown>) => ({
     t: typeof search.t === "string" ? search.t : undefined,
   }),
@@ -908,6 +971,21 @@ type Appointment = Row & {
   status: string | null;
 };
 
+// The same facts on every page of the site. Written once per file rather than
+// once per return.
+const CHROME = {
+  name: "Cutler Row",
+  address: "14 Cutler Row, Sheffield S1",
+  phone: "0114 270 0000",
+  nav: (
+    <>
+      <Link to="/">Home</Link>
+      <Link to="/book">Book</Link>
+      <Link to="/account">Account</Link>
+    </>
+  ),
+};
+
 function Manage() {
   const { t: claim } = Route.useSearch();
   // The schema declares these two functions; they are named here, not guessed.
@@ -916,59 +994,70 @@ function Manage() {
 
   const onCancel = () => {
     if (!claim) return;
-    cancel.mutate({ claim }, {
-      // Idempotent on purpose — a cancel link gets clicked twice, and the second
-      // click should read as "already cancelled", never as a broken link.
-      onSuccess: () => toast.success("Cancelled. Sorry to miss you."),
-      onError: (e: Error) => toast.error(e.message),
-    });
+    cancel.mutate(
+      { claim },
+      {
+        // Idempotent on purpose — a cancel link gets clicked twice, and the second
+        // click should read as "already cancelled", never as a broken link.
+        onSuccess: () => toast.success("Cancelled. Sorry to miss you."),
+        onError: (e: Error) => toast.error(e.message),
+      },
+    );
   };
 
   return (
-    <main className="mx-auto max-w-lg px-6 py-16">
-      <h1 className="text-3xl font-semibold tracking-tight">Your booking</h1>
+    <SiteChrome {...CHROME}>
+      <div className="mx-auto max-w-lg px-6 py-16">
+        <h1 className="text-3xl font-semibold tracking-tight">Your booking</h1>
 
-      {!claim && (
-        <p className="mt-4 text-muted-foreground">
-          This page needs the link from your confirmation. <Link to="/book" className="underline">Book a chair</Link> instead.
-        </p>
-      )}
+        {!claim && (
+          <p className="mt-4 text-muted-foreground">
+            This page needs the link from your confirmation.{" "}
+            <Link to="/book" className="underline">
+              Book a chair
+            </Link>{" "}
+            instead.
+          </p>
+        )}
 
-      {claim && booking.isPending && <Skeleton className="mt-6 h-40 rounded-xl" />}
+        {claim && booking.isPending && <Skeleton className="mt-6 h-40 rounded-xl" />}
 
-      {claim && booking.isError && (
-        <p className="mt-4 text-sm text-destructive">Couldn't load your booking. Refresh and try again.</p>
-      )}
+        {claim && booking.isError && (
+          <p className="mt-4 text-sm text-destructive">
+            Couldn't load your booking. Refresh and try again.
+          </p>
+        )}
 
-      {/* A missing row and a wrong token land here together, and say the same
-          thing — which is the whole point. */}
-      {claim && !booking.isPending && !booking.isError && !booking.data && (
-        <p className="mt-4 text-muted-foreground">
-          We couldn't find that booking. It may have been cancelled already.
-        </p>
-      )}
+        {/* A missing row and a wrong token land here together, and say the same
+            thing — which is the whole point. */}
+        {claim && !booking.isPending && !booking.isError && !booking.data && (
+          <p className="mt-4 text-muted-foreground">
+            We couldn't find that booking. It may have been cancelled already.
+          </p>
+        )}
 
-      {booking.data && (
-        <Card className="mt-6 motion-enter">
-          <CardHeader>
-            <CardTitle>{booking.data.service}</CardTitle>
-            <CardDescription className="tabular-nums">
-              {booking.data.date} at {booking.data.time}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex items-center justify-between gap-4">
-            <span className="text-sm text-muted-foreground">
-              {booking.data.status === "cancelled" ? "Cancelled" : "Confirmed"}
-            </span>
-            {booking.data.status !== "cancelled" && (
-              <Button variant="destructive" onClick={onCancel} disabled={cancel.isPending}>
-                {cancel.isPending ? "Cancelling…" : "Cancel booking"}
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-      )}
-    </main>
+        {booking.data && (
+          <Card className="mt-6 motion-enter">
+            <CardHeader>
+              <CardTitle>{booking.data.service}</CardTitle>
+              <CardDescription className="tabular-nums">
+                {booking.data.date} at {booking.data.time}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex items-center justify-between gap-4">
+              <span className="text-sm text-muted-foreground">
+                {booking.data.status === "cancelled" ? "Cancelled" : "Confirmed"}
+              </span>
+              {booking.data.status !== "cancelled" && (
+                <Button variant="destructive" onClick={onCancel} disabled={cancel.isPending}>
+                  {cancel.isPending ? "Cancelling…" : "Cancel booking"}
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </SiteChrome>
   );
 }
 `,
@@ -988,28 +1077,62 @@ function Manage() {
 // ONE ERROR FOR THE WHOLE FORM, never per field. Saying which of the address and
 // the password was wrong tells somebody whether that address has an account
 // here.
-import { createFileRoute } from "@tanstack/react-router";
+//
+// The chrome wraps the page ONCE, with the three states switching inside it. A
+// component that returns early into a second copy of the layout is how a header
+// ends up on two of a page's three states.
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 
-import { useMember, useLogin, useSignup, useLogout, useRows, useCreateRow, type Row } from "@/lib/rows";
+import {
+  useMember,
+  useLogin,
+  useSignup,
+  useLogout,
+  useRows,
+  useCreateRow,
+  type Row,
+} from "@/lib/rows";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataList } from "@/components/ui/data-list";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { SiteChrome } from "@/components/ui/site-chrome";
 
 export const Route = createFileRoute("/account")({ component: Account });
 
 type Profile = Row & { nickname: string | null };
 
+// The same facts on every page of the site. Written once per file rather than
+// once per return.
+const CHROME = {
+  name: "Cutler Row",
+  address: "14 Cutler Row, Sheffield S1",
+  phone: "0114 270 0000",
+  nav: (
+    <>
+      <Link to="/">Home</Link>
+      <Link to="/book">Book</Link>
+      <Link to="/account">Account</Link>
+    </>
+  ),
+};
+
 const credentials = z.object({
   email: z.string().email("That doesn't look like an email address"),
   // 8 is the server's own minimum. Saying so here saves a round trip.
   password: z.string().min(8, "At least 8 characters"),
-  name: z.string().optional(),
 });
 
 type Credentials = z.infer<typeof credentials>;
@@ -1022,7 +1145,7 @@ function Account() {
 
   const form = useForm<Credentials>({
     resolver: zodResolver(credentials),
-    defaultValues: { email: "", password: "", name: "" },
+    defaultValues: { email: "", password: "" },
   });
 
   // The callback's parameter is NOT annotated. TanStack's mutation callback is
@@ -1042,75 +1165,92 @@ function Account() {
     });
   };
 
-  if (member.isPending) {
-    return <main className="mx-auto max-w-md px-6 py-20 text-muted-foreground">Checking your sign-in…</main>;
-  }
-
-  if (member.data) return <SignedIn name={member.data.name} onSignOut={() => logout.mutate()} />;
-
   return (
-    <main className="mx-auto max-w-md px-6 py-16">
-      <h1 className="text-3xl font-semibold tracking-tight">Your account</h1>
-      <p className="mt-2 text-muted-foreground">Sign in, or make an account to keep your details.</p>
+    <SiteChrome {...CHROME}>
+      <div className="mx-auto max-w-md px-6 py-16">
+        {member.isPending && <p className="text-muted-foreground">Checking your sign-in…</p>}
 
-      <Form {...form}>
-        <form className="mt-8 grid gap-4" onSubmit={form.handleSubmit((v) => submit(login, v))}>
-          <FormField
-            control={form.control}
-            name="email"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Email</FormLabel>
-                <FormControl><Input type="email" autoComplete="email" {...field} /></FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="password"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Password</FormLabel>
-                <FormControl><Input type="password" autoComplete="current-password" {...field} /></FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <div className="flex gap-3">
-            <Button type="submit" className="motion-press" disabled={login.isPending}>
-              {login.isPending ? "Signing in…" : "Sign in"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={signup.isPending}
-              onClick={form.handleSubmit((v) => submit(signup, v))}
-            >
-              Create an account
-            </Button>
-          </div>
-        </form>
-      </Form>
-    </main>
+        {/* Member-scoped reads live BEHIND the sign-in check, never beside it.
+            Rendering this at all is the proof there is a session. */}
+        {member.data && <SignedIn name={member.data.name} onSignOut={() => logout.mutate()} />}
+
+        {!member.isPending && !member.data && (
+          <>
+            <h1 className="text-3xl font-semibold tracking-tight">Your account</h1>
+            <p className="mt-2 text-muted-foreground">
+              Sign in, or make an account to keep your details.
+            </p>
+
+            <Form {...form}>
+              <form
+                className="mt-8 grid gap-4"
+                onSubmit={form.handleSubmit((v) => submit(login, v))}
+              >
+                <FormField
+                  control={form.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email</FormLabel>
+                      <FormControl>
+                        <Input type="email" autoComplete="email" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Password</FormLabel>
+                      <FormControl>
+                        <Input type="password" autoComplete="current-password" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <div className="flex gap-3">
+                  <Button type="submit" className="motion-press" disabled={login.isPending}>
+                    {login.isPending ? "Signing in…" : "Sign in"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={signup.isPending}
+                    onClick={form.handleSubmit((v) => submit(signup, v))}
+                  >
+                    Create an account
+                  </Button>
+                </div>
+              </form>
+            </Form>
+          </>
+        )}
+      </div>
+    </SiteChrome>
   );
 }
 
-// Member-scoped reads live BEHIND the sign-in check, never beside it. Rendering
-// this component at all is the proof there is a session.
 function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) {
   const profiles = useRows<Profile>("profiles");
   const create = useCreateRow("profiles");
 
   return (
-    <main className="mx-auto max-w-md px-6 py-16">
+    <>
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-semibold tracking-tight">Hello, {name}</h1>
-        <Button variant="ghost" onClick={onSignOut}>Sign out</Button>
+        <Button variant="ghost" onClick={onSignOut}>
+          Sign out
+        </Button>
       </div>
 
       <Card className="mt-8">
-        <CardHeader><CardTitle className="text-base">Your details</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="text-base">Your details</CardTitle>
+        </CardHeader>
         <CardContent>
           {/* \`profiles\` is a \`user\` table, so this read returns THIS member's
               rows and nobody else's — the scoping is the database's job, not a
@@ -1122,7 +1262,11 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
             empty={{ title: "Nothing saved yet" }}
             error="Couldn't load your details."
           >
-            {(p) => <p key={p.id} className="text-sm">{p.nickname}</p>}
+            {(p) => (
+              <p key={p.id} className="text-sm">
+                {p.nickname}
+              </p>
+            )}
           </DataList>
           <Button
             className="mt-4"
@@ -1133,7 +1277,7 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
           </Button>
         </CardContent>
       </Card>
-    </main>
+    </>
   );
 }
 `,

@@ -20,14 +20,19 @@ RUN npm ci --no-audit --no-fund --loglevel=error
 COPY lovable/template/ ./
 
 # A pristine src/routes, restored before every build. Only the root layout: the
-# template's own index.tsx is the REFERENCE page, written against a barber shop's
-# schema, and leaving it in place would publish it to any site whose generator
-# failed to produce a home page.
+# template's own routes are the REFERENCE pages, written against a barber shop's
+# schema, and leaving them in place would publish them to any site whose
+# generator failed to produce that page.
+#
+# ALL of them are stripped, not just index.tsx. There were four as of
+# 2026-08-01 — index, book, manage, account — and removing one by name would
+# have shipped a stranger's booking page to every site that did not build one.
+# `find` rather than a list, so adding a fifth needs no change here.
 RUN mkdir -p /app/.routes-base \
     && cp src/routes/__root.tsx /app/.routes-base/ \
     && cp index.html /app/.index-base.html \
     && cp src/styles.css /app/.styles-base.css \
-    && rm -f src/routes/index.tsx
+    && find src/routes -maxdepth 1 -name '*.tsx' ! -name '__root.tsx' -delete
 
 # site-fonts.mjs and its index are imported BY build-server.mjs, so a missing one
 # is not a degraded build — the service fails to start at all.

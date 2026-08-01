@@ -20,6 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataList } from "@/components/ui/data-list";
 import { OpeningHours, type DayHours } from "@/components/ui/opening-hours";
 import { SafeImage } from "@/components/ui/safe-image";
+import { SiteChrome } from "@/components/ui/site-chrome";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -47,23 +48,27 @@ function Home() {
   const services = useRows<Service>("services", { order: "price", dir: "asc" });
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="border-b border-border">
-        <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-4">
-          <span className="text-lg font-semibold tracking-tight">Cutler Row</span>
-          <nav className="flex items-center gap-5 text-sm">
-            <a href="#services" className="text-muted-foreground hover:text-foreground">Services</a>
-            <a href="#hours" className="text-muted-foreground hover:text-foreground">Hours</a>
-            {/* Between PAGES it is <Link to>, never <a href> — an anchor reloads
-                the whole app and loses the router. Within a page, a hash anchor
-                is right and a Link is not. */}
-            <Link to="/book" className="font-medium">Book</Link>
-          </nav>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-4xl px-6 py-14">
-        <h1 className="text-4xl font-semibold tracking-tight">Barbering on Cutler Row since 2014</h1>
+    // SiteChrome carries the header, the footer, the single <main> and the skip
+    // link, so EVERY page of the site has them and no page writes them twice.
+    // `nav` is a node rather than a list of props because <Link to> is typed
+    // against the routes that exist — passing strings would need a cast, and the
+    // cast throws away the check that catches a link to a page nobody built.
+    <SiteChrome
+      name="Cutler Row"
+      address="14 Cutler Row, Sheffield S1"
+      phone="0114 270 0000"
+      nav={
+        <>
+          <Link to="/">Home</Link>
+          <Link to="/book">Book</Link>
+          <Link to="/account">Account</Link>
+        </>
+      }
+    >
+      <div className="mx-auto max-w-4xl px-6 py-14">
+        <h1 className="text-4xl font-semibold tracking-tight">
+          Barbering on Cutler Row since 2014
+        </h1>
         <p className="mt-3 max-w-xl text-muted-foreground">
           Walk in before eleven, or book a chair. Six barbers, no appointment needed on weekdays.
         </p>
@@ -119,14 +124,7 @@ function Home() {
           <h2 className="text-xl font-medium">Opening hours</h2>
           <OpeningHours days={HOURS} className="mt-4 max-w-sm" />
         </section>
-      </main>
-
-      <footer className="border-t border-border">
-        <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-2 px-6 py-6 text-sm text-muted-foreground">
-          <span>14 Cutler Row, Sheffield S1</span>
-          <a href="tel:+441142700000" className="hover:text-foreground">0114 270 0000</a>
-        </div>
-      </footer>
-    </div>
+      </div>
+    </SiteChrome>
   );
 }

@@ -15,12 +15,13 @@ import { toast } from "sonner";
 import { useClaimedRow, useCancelClaim, type Row } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { SiteChrome } from "@/components/ui/site-chrome";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/manage")({
   component: Manage,
-  // Search params arrive as unknown strings; narrowing here is what makes
-  // `claim` a string for the rest of the page instead of `unknown`.
+  // Search params arrive as unknown; narrowing here is what makes the token a
+  // string for the rest of the page instead of `unknown`.
   validateSearch: (search: Record<string, unknown>) => ({
     t: typeof search.t === "string" ? search.t : undefined,
   }),
@@ -33,6 +34,21 @@ type Appointment = Row & {
   status: string | null;
 };
 
+// The same facts on every page of the site. Written once per file rather than
+// once per return.
+const CHROME = {
+  name: "Cutler Row",
+  address: "14 Cutler Row, Sheffield S1",
+  phone: "0114 270 0000",
+  nav: (
+    <>
+      <Link to="/">Home</Link>
+      <Link to="/book">Book</Link>
+      <Link to="/account">Account</Link>
+    </>
+  ),
+};
+
 function Manage() {
   const { t: claim } = Route.useSearch();
   // The schema declares these two functions; they are named here, not guessed.
@@ -41,58 +57,69 @@ function Manage() {
 
   const onCancel = () => {
     if (!claim) return;
-    cancel.mutate({ claim }, {
-      // Idempotent on purpose — a cancel link gets clicked twice, and the second
-      // click should read as "already cancelled", never as a broken link.
-      onSuccess: () => toast.success("Cancelled. Sorry to miss you."),
-      onError: (e: Error) => toast.error(e.message),
-    });
+    cancel.mutate(
+      { claim },
+      {
+        // Idempotent on purpose — a cancel link gets clicked twice, and the second
+        // click should read as "already cancelled", never as a broken link.
+        onSuccess: () => toast.success("Cancelled. Sorry to miss you."),
+        onError: (e: Error) => toast.error(e.message),
+      },
+    );
   };
 
   return (
-    <main className="mx-auto max-w-lg px-6 py-16">
-      <h1 className="text-3xl font-semibold tracking-tight">Your booking</h1>
+    <SiteChrome {...CHROME}>
+      <div className="mx-auto max-w-lg px-6 py-16">
+        <h1 className="text-3xl font-semibold tracking-tight">Your booking</h1>
 
-      {!claim && (
-        <p className="mt-4 text-muted-foreground">
-          This page needs the link from your confirmation. <Link to="/book" className="underline">Book a chair</Link> instead.
-        </p>
-      )}
+        {!claim && (
+          <p className="mt-4 text-muted-foreground">
+            This page needs the link from your confirmation.{" "}
+            <Link to="/book" className="underline">
+              Book a chair
+            </Link>{" "}
+            instead.
+          </p>
+        )}
 
-      {claim && booking.isPending && <Skeleton className="mt-6 h-40 rounded-xl" />}
+        {claim && booking.isPending && <Skeleton className="mt-6 h-40 rounded-xl" />}
 
-      {claim && booking.isError && (
-        <p className="mt-4 text-sm text-destructive">Couldn't load your booking. Refresh and try again.</p>
-      )}
+        {claim && booking.isError && (
+          <p className="mt-4 text-sm text-destructive">
+            Couldn't load your booking. Refresh and try again.
+          </p>
+        )}
 
-      {/* A missing row and a wrong token land here together, and say the same
-          thing — which is the whole point. */}
-      {claim && !booking.isPending && !booking.isError && !booking.data && (
-        <p className="mt-4 text-muted-foreground">
-          We couldn't find that booking. It may have been cancelled already.
-        </p>
-      )}
+        {/* A missing row and a wrong token land here together, and say the same
+            thing — which is the whole point. */}
+        {claim && !booking.isPending && !booking.isError && !booking.data && (
+          <p className="mt-4 text-muted-foreground">
+            We couldn't find that booking. It may have been cancelled already.
+          </p>
+        )}
 
-      {booking.data && (
-        <Card className="mt-6 motion-enter">
-          <CardHeader>
-            <CardTitle>{booking.data.service}</CardTitle>
-            <CardDescription className="tabular-nums">
-              {booking.data.date} at {booking.data.time}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex items-center justify-between gap-4">
-            <span className="text-sm text-muted-foreground">
-              {booking.data.status === "cancelled" ? "Cancelled" : "Confirmed"}
-            </span>
-            {booking.data.status !== "cancelled" && (
-              <Button variant="destructive" onClick={onCancel} disabled={cancel.isPending}>
-                {cancel.isPending ? "Cancelling…" : "Cancel booking"}
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-      )}
-    </main>
+        {booking.data && (
+          <Card className="mt-6 motion-enter">
+            <CardHeader>
+              <CardTitle>{booking.data.service}</CardTitle>
+              <CardDescription className="tabular-nums">
+                {booking.data.date} at {booking.data.time}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex items-center justify-between gap-4">
+              <span className="text-sm text-muted-foreground">
+                {booking.data.status === "cancelled" ? "Cancelled" : "Confirmed"}
+              </span>
+              {booking.data.status !== "cancelled" && (
+                <Button variant="destructive" onClick={onCancel} disabled={cancel.isPending}>
+                  {cancel.isPending ? "Cancelling…" : "Cancel booking"}
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </SiteChrome>
   );
 }
