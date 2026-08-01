@@ -1010,7 +1010,53 @@ export function worldCss(theme) {
     return `${sel} { background-image: ${layers.join(", ")}; background-size: ${sizes.join(", ")}; background-attachment: ${attach.join(", ")}; }\n`;
   };
   return openRootCss(theme, backdrop !== "plain") + rule("light") + rule("dark") +
-    (backdrop !== "plain" ? veilCss(theme) : "");
+    (backdrop !== "plain" ? worldMutedCss(theme) + veilCss(theme) : "");
+}
+
+/**
+ * SMALL TEXT OVER THE WORLD — the owner's catch after the first world sheets
+ * (2026-08-01): secondary text sits directly on the page in heroes and
+ * footnotes, and the page is no longer paper — it is paper at 35% over a
+ * wash whose stops may sit at the L 0.70 floor. `muted-foreground` was
+ * derived against the PAPER, so over the deepest corner of a rich backdrop
+ * it dropped to ~3:1.
+ *
+ * The fix is the same move the palette always makes, aimed at the right
+ * ground: build the WORST surface a backdrop is allowed to produce — the
+ * floor-deep, chroma-maxed stop composited under the opened root, in real
+ * sRGB the way the browser will actually blend it — and walk the muted ink
+ * toward the full ink until it clears 4.5:1 against THAT. Emitted after the
+ * palette blocks, so it wins on source order like every world token.
+ * Exported for the tests, which rebuild the blend from public primitives
+ * and measure rather than trust.
+ */
+const lumRgb = ([r, g, b]) => {
+  const lin = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+};
+const contrastOnRgb = (fgOklch, bgRgb) => {
+  const a = lumRgb(oklchToRgb(...fgOklch.slice(0, 3))), b = lumRgb(bgRgb);
+  const [hi, lo] = a > b ? [a, b] : [b, a];
+  return (hi + 0.05) / (lo + 0.05);
+};
+export function worldWorstGround(theme, mode) {
+  const { paper, accent } = theme[mode];
+  const rootA = theme.surface === "glass" ? GLASS_ALPHA[mode].background
+    : mode === "light" ? 0.35 : 0.42;
+  const stop = mode === "light" ? [0.7, 0.25, accent[2]] : [0.55, 0.19, accent[2]];
+  const p = oklchToRgb(...paper.slice(0, 3)), s = oklchToRgb(...stop);
+  return p.map((c, i) => c * rootA + s[i] * (1 - rootA));
+}
+export function worldMutedColor(theme, mode) {
+  const { paper, ink } = theme[mode];
+  const ground = worldWorstGround(theme, mode);
+  let fg = mix(paper, ink, mode === "light" ? 0.62 : 0.66).slice(0, 3);
+  for (let i = 0; i < 40 && contrastOnRgb(fg, ground) < 4.5; i++) fg = mix(fg, ink, 0.08);
+  return fg;
+}
+function worldMutedCss(theme) {
+  return `:root { --muted-foreground: ${css(worldMutedColor(theme, "light"))}; }\n` +
+    `.dark { --muted-foreground: ${css(worldMutedColor(theme, "dark"))}; }\n`;
 }
 
 /**

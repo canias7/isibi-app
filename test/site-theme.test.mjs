@@ -16,7 +16,7 @@ import {
   TYPE_SCALES, typeCss, DENSITIES, densityCss, BORDERS, borderCss, SHADOWS, shadowCss, SHADOW_STEPS,
   SURFACES, surfaceCss, ICON_STROKES, iconCss, TRACKINGS, trackingCss, LEADINGS, leadingCss, WEIGHTS, weightCss,
   BUTTONS, buttonsCss, INPUTS, inputsCss, BACKDROPS, DECORS, worldCss, DISPLAYS, displayCss, displayColor,
-  AMBIENTS, ambientCss, SKINS, skinCss,
+  AMBIENTS, ambientCss, SKINS, skinCss, worldWorstGround, worldMutedColor,
 } from "../builder/site-theme.mjs";
 import { SHORTLIST } from "../builder/site-fonts.mjs";
 
@@ -757,6 +757,37 @@ test("a backdrop brings the band veils, and never by re-tinting the muted token"
   // Glass keeps its own tuned veils — a second pair would stack alpha.
   assert.ok(!worldCss({ ...FIXTURE, surface: "glass", backdrop: "aurora" }).match(/bg-muted/),
     "glass got a second veil on top of its own");
+});
+
+test("small text clears 4.5:1 on the worst ground a world can produce", () => {
+  // The owner's catch: muted text sits directly on the page, and with a
+  // backdrop the page is paper-at-35% over a stop at the L 0.70 floor — the
+  // palette's paper-fitted muted ink dropped to ~3:1 there. The world now
+  // re-derives it against that worst blend; this measures the claim with its
+  // own arithmetic rather than trusting the function under test.
+  const lum = ([r, g, b]) => {
+    const lin = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  };
+  const ratio = (a, b) => { const [hi, lo] = a > b ? [a, b] : [b, a]; return (hi + 0.05) / (lo + 0.05); };
+  for (const surface of [undefined, "glass"]) {
+    for (const mode of ["light", "dark"]) {
+      const t = { ...FIXTURE, surface, backdrop: surface ? "aurora" : "field" };
+      const ground = worldWorstGround(t, mode);
+      const fg = worldMutedColor(t, mode);
+      const r = ratio(lum(oklchToRgb(...fg)), lum(ground));
+      assert.ok(r >= 4.5, `${surface ?? "solid"}/${mode}: fitted muted text is ${r.toFixed(2)}:1 on the worst ground`);
+    }
+  }
+  // And the token actually ships: any non-plain backdrop re-emits it in both
+  // modes, while decor-only leaves the palette's derivation alone — texture
+  // does not move the ground the way light does.
+  const out = worldCss({ ...FIXTURE, backdrop: "field" });
+  assert.match(out, /:root \{ --muted-foreground: oklch/);
+  assert.match(out, /\.dark \{ --muted-foreground: oklch/);
+  assert.match(worldCss({ ...FIXTURE, surface: "glass", backdrop: "aurora" }), /--muted-foreground/);
+  assert.ok(!worldCss({ ...FIXTURE, decor: "grain" }).includes("--muted-foreground"),
+    "decor-only re-tinted muted text for no reason");
 });
 
 test("offset shadows are solid ink, whole pixels, and mode-invariant", () => {
