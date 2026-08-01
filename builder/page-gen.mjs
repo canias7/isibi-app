@@ -685,6 +685,15 @@ export const UI_COMPONENTS = [
   "version-badge", "changelog-feed", "upgrade-prompt", "deprecation-note", "breaking-change-note",
   "migration-guide-link", "version-picker", "rollout-progress", "canary-note", "pin-version",
   "release-freeze",
+  // Backup, restore and migration
+  "backup-list", "backup-schedule", "restore-preview", "restore-confirm", "migration-progress",
+  "dry-run-result", "cutover-note", "legacy-note", "data-residency",
+  // Performance and diagnostics
+  "latency-note", "cache-status", "health-check-row", "uptime-strip", "status-page-link",
+  "diagnostic-bundle",
+  // Analytics instrumentation
+  "event-name-field", "property-schema", "tracking-plan-row", "consent-gated-note", "sample-rate",
+  "funnel-step-row", "cohort-picker", "attribution-note", "goal-definition",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

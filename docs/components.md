@@ -1,4 +1,4 @@
-# Components (1645 built, 25 to go)
+# Components (1669 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -80,6 +80,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ attachment-list
 ✓ attachment-tray
 ✓ attestation-box
+✓ attribution-note
 ✓ audience-switch
 ✓ audio-player
 ✓ audio-recorder
@@ -104,6 +105,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ background-job
 ✓ backorder-note
 ✓ backup-email
+✓ backup-list
+✓ backup-schedule
 ✓ badge
 ✓ badge-explainer
 ✓ balance-due
@@ -154,6 +157,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ button
 ✓ button-group
 ✓ byline-compact
+✓ cache-status
 ✓ calculator-card
 ✓ calendar
 ✓ calendar-month
@@ -227,6 +231,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ code-block
 ✓ code-diff
 ✓ code-editor
+✓ cohort-picker
 ✓ collapsible
 ✓ collapsible-panel
 ✓ collection-code
@@ -286,6 +291,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ connection-quality
 ✓ connector-card
 ✓ consent-checkbox
+✓ consent-gated-note
 ✓ consent-history
 ✓ consent-summary
 ✓ contact-card
@@ -345,11 +351,13 @@ A ✓ means it exists and a generated site can import it today.
 ✓ custom-css-note
 ✓ custom-domain
 ✓ cutoff-time
+✓ cutover-note
 ✓ cvc-input
 ✓ danger-zone
 ✓ data-freshness
 ✓ data-list
 ✓ data-request
+✓ data-residency
 ✓ data-saver-note
 ✓ data-table
 ✓ date-badge
@@ -389,6 +397,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ detail-panel
 ✓ device-list
 ✓ device-unsupported
+✓ diagnostic-bundle
 ✓ dialog
 ✓ did-you-mean
 ✓ diff-inline
@@ -441,6 +450,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ drop-zone
 ✓ dropdown-menu
 ✓ dry-run-note
+✓ dry-run-result
 ✓ dual-list
 ✓ due-soon-note
 ✓ duplicate-badge
@@ -486,6 +496,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ event-card
 ✓ event-filter
 ✓ event-meta
+✓ event-name-field
 ✓ event-subscription
 ✓ evidence-list
 ✓ exchange-rate-note
@@ -589,6 +600,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ frozen-corner
 ✓ full-bleed
 ✓ fullscreen-toggle
+✓ funnel-step-row
 ✓ funnel-steps
 ✓ gallery
 ✓ gantt-bars
@@ -599,6 +611,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ gift-toggle
 ✓ glossary-item
 ✓ glossary-term
+✓ goal-definition
 ✓ goal-gauge
 ✓ grace-window
 ✓ grid-item
@@ -616,6 +629,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ header-table
 ✓ heading
 ✓ heading-level
+✓ health-check-row
 ✓ heat-strip
 ✓ heatmap-grid
 ✓ help-launcher
@@ -703,6 +717,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ last-synced
 ✓ last-verified
 ✓ latency-badge
+✓ latency-note
 ✓ lawful-basis-note
 ✓ layer-list
 ✓ lazy-boundary
@@ -712,6 +727,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ lead-time-input
 ✓ leave-confirm
 ✓ leave-safe-consent
+✓ legacy-note
 ✓ legend
 ✓ letterhead
 ✓ lifecycle-bar
@@ -793,6 +809,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ metric-delta
 ✓ metric-row
 ✓ migration-guide-link
+✓ migration-progress
 ✓ milestone-dot
 ✓ min-max-field
 ✓ min-order-note
@@ -1004,6 +1021,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ proof-upload
 ✓ property-card
 ✓ property-panel
+✓ property-schema
 ✓ pros-cons
 ✓ prose
 ✓ provider-status
@@ -1114,7 +1132,9 @@ A ✓ means it exists and a generated site can import it today.
 ✓ response-rate
 ✓ response-rating
 ✓ response-summary
+✓ restore-confirm
 ✓ restore-point
+✓ restore-preview
 ✓ result-count
 ✓ result-preview
 ✓ resume-later
@@ -1175,6 +1195,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ sample-data-banner
 ✓ sample-data-note
 ✓ sample-preview
+✓ sample-rate
 ✓ sample-toggle
 ✓ save-and-exit
 ✓ save-as-template
@@ -1364,6 +1385,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ status-code-badge
 ✓ status-dot
 ✓ status-list
+✓ status-page-link
 ✓ step-nav
 ✓ step-skipped
 ✓ step-summary
@@ -1518,6 +1540,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tour-step
 ✓ tracking-input
 ✓ tracking-note
+✓ tracking-plan-row
 ✓ trade-off-bar
 ✓ tradeoff-slider
 ✓ transcript-line
@@ -1568,6 +1591,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ upload-progress
 ✓ upload-queue
 ✓ uptime-bar
+✓ uptime-strip
 ✓ url-input
 ✓ usage-alert-rule
 ✓ usage-breakdown
