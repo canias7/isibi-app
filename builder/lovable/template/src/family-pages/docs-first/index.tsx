@@ -17,7 +17,7 @@ function P() {
       <div className="mx-auto grid max-w-6xl gap-10 px-6 py-10 md:grid-cols-[210px_1fr]">
         <SideNav active="#install" sections={[
           { title: "Start", items: [{ label: "Install", href: "#install" }, { label: "Guide", href: "#/guide" }] },
-          { title: "Reference", items: [{ label: "API", href: "#/api" }, { label: "Changelog", href: "#/changelog" }] },
+          { title: "Reference", items: [{ label: "API", href: "#/api" }, { label: "Examples", href: "#/examples" }, { label: "Changelog", href: "#/changelog" }] },
         ]} />
         <main className="min-w-0">
           <h1 className="text-3xl font-semibold tracking-tight">A table in one import</h1>

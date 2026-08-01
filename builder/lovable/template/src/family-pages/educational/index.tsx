@@ -11,7 +11,7 @@ function P() {
   return (
     <SiteChrome name="The Proving Room" tagline="Sourdough, taught slowly, online."
       links={[{ label: "The course", href: "#path" }, { label: "This week's lesson", href: "#/lesson" }, { label: "Questions", href: "#faq" }]}
-      action={{ label: "Enroll — £79", href: "#path" }}>
+      action={{ label: "Enroll — £79", href: "#/enroll" }}>
       <div className="mx-auto max-w-2xl px-6 py-12">
         <div className="flex items-center justify-between gap-4">
           <div>

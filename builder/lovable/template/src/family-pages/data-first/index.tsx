@@ -13,7 +13,7 @@ function P() {
   const need = v.people * 15 + v.streams * 25;
   return (
     <SiteChrome name="Wire the North" tagline="Every broadband deal in S postcodes, priced honestly."
-      links={[{ label: "Compare", href: "#compare" }, { label: "What do I need?", href: "#calc" }, { label: "How we count", href: "#/methodology" }]}>
+      links={[{ label: "Compare", href: "#compare" }, { label: "What do I need?", href: "#calc" }, { label: "How we count", href: "#/methodology" }, { label: "The report", href: "#/report" }]}>
       <div className="mx-auto max-w-3xl px-6 py-12">
         {/* Numbers first — the headline row IS the hero. */}
         <StatsBand items={[

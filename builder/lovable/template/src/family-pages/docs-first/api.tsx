@@ -11,7 +11,7 @@ import { SideNav } from "@/components/ui/side-nav";
 export const Route = createFileRoute("/api")({ component: P });
 const NAV = [
   { title: "Start", items: [{ label: "Install", href: "#/" }, { label: "Guide", href: "#/guide" }] },
-  { title: "Reference", items: [{ label: "API", href: "#/api" }, { label: "Changelog", href: "#/changelog" }] },
+  { title: "Reference", items: [{ label: "API", href: "#/api" }, { label: "Examples", href: "#/examples" }, { label: "Changelog", href: "#/changelog" }] },
 ];
 function P() {
   return (
@@ -43,7 +43,7 @@ function P() {
             { key: "py", label: "Python", lang: "python", code: 'from littletable import lt\n\nrows = lt("invoices").rows()' },
             { key: "sh", label: "curl", lang: "bash", code: 'curl -H "Authorization: Bearer $LT_KEY" \\\n  https://api.littletable.dev/v3/tables/invoices/rows' },
           ]} />
-          <PrevNext className="mt-12" prev={{ label: "Guide", href: "#/guide" }} next={{ label: "Changelog", href: "#/changelog" }} />
+          <PrevNext className="mt-12" prev={{ label: "Guide", href: "#/guide" }} next={{ label: "Cookbook", href: "#/examples" }} />
         </main>
       </div>
     </div>

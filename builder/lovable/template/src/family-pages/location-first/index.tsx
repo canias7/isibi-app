@@ -9,8 +9,8 @@ export const Route = createFileRoute("/")({ component: P });
 function P() {
   return (
     <SiteChrome name="Forge Gyms" tagline="Four gyms, one membership, no contracts."
-      links={[{ label: "Find a gym", href: "#find" }, { label: "Join", href: "#find" }]}
-      action={{ label: "Join — £24.99", href: "#find" }}>
+      links={[{ label: "Find a gym", href: "#find" }, { label: "Memberships", href: "#/memberships" }]}
+      action={{ label: "Join — £24.99", href: "#/memberships" }}>
       <div className="mx-auto max-w-3xl px-6 py-12">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <h1 className="text-3xl font-semibold tracking-tight">Which Forge is nearest?</h1>

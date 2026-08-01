@@ -12,7 +12,7 @@ function P() {
         subtitle="Nine rooms above a Lakeland ghyll. Nothing else for six miles."
         src={null} poster={null} overlay={60}
         primary={{ label: "Explore the rooms", href: "#/rooms" }}
-        secondary={{ label: "The table", href: "#rooms" }} />
+        secondary={{ label: "The table", href: "#/dining" }} />
       <Marquee className="border-y border-border py-3 text-sm text-muted-foreground"
         items={["Ghyll water in the taps", "Peat fires from October", "No televisions", "Dogs before people"]} />
       <section id="rooms" className="mx-auto max-w-6xl px-6 py-20">

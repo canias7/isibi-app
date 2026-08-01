@@ -103,6 +103,7 @@ export const FAMILIES = {
       { file: "index", role: "the case and today's slots — everything funnels to /book" },
       { file: "book", role: "the booking form itself; it arrives knowing the service when a price row sent it" },
       { file: "manage", role: "an existing appointment, reached from its claim link — view, move, cancel" },
+      { file: "work", role: "the work itself — a gallery of finished sets, because nails are a visual trade" },
     ],
     kinds: ["salon", "spa", "nail studio", "clinic", "dental", "therapy", "tattoo studio", "home services", "fitness studio", "yoga"],
     components: ["availability-grid", "week-strip", "day-schedule", "price-list", "team-grid", "open-now", "opening-hours", "booking-summary"],
@@ -125,6 +126,7 @@ export const FAMILIES = {
     pages: [
       { file: "index", role: "search, the filter rail, the results — browsing starts immediately" },
       { file: "listing", role: "one property told fully — the gallery, the facts, the viewing enquiry" },
+      { file: "landlords", role: "the OTHER audience — what managing costs, what it includes, the valuation ask" },
     ],
     kinds: ["real estate", "car dealership", "job board", "rentals", "travel", "hotel"],
     components: ["search-input", "search-facets", "filter-bar", "facet-range", "sort-select", "result-count", "property-card", "vehicle-card", "pagination"],
@@ -147,6 +149,7 @@ export const FAMILIES = {
       { file: "index", role: "the strongest work, uncrowded; every piece leads to /project or /contact" },
       { file: "project", role: "one commission told as a story — the brief, the day, the pictures" },
       { file: "contact", role: "the enquiry — dates, place, one form; the destination the whole site points at" },
+      { file: "pricing", role: "the packages, priced in the open — the question every enquiry asks first" },
     ],
     kinds: ["agency", "consultancy", "law firm", "architecture", "interior design", "photographer", "videographer", "wedding vendor"],
     components: ["gallery", "masonry", "case-study-card", "before-after", "lightbox", "press-quote", "testimonial", "logo-cloud"],
@@ -167,6 +170,7 @@ export const FAMILIES = {
       { file: "index", role: "the stream — newest on top, the subscribe capture riding mid-feed" },
       { file: "episode", role: "one entry in full — the player, the notes, who was in it" },
       { file: "archive", role: "everything ever published in one dense list, filterable" },
+      { file: "about", role: "who makes it, how it's made, how to pitch or sponsor — the page other media checks" },
     ],
     kinds: ["publication", "blog", "magazine", "podcast", "newsletter", "creator", "personal brand"],
     components: ["article-card", "author-byline", "reading-time", "post-meta", "tag-list", "audio-player", "episode-row", "email-capture", "pagination"],
@@ -189,6 +193,7 @@ export const FAMILIES = {
     pages: [
       { file: "index", role: "the pitch — the product working, proof in descending strength, one signup path" },
       { file: "pricing", role: "the plans side by side, what each includes, the objections answered" },
+      { file: "support", role: "help that actually helps — the common fixes, then a human; app stores require this page" },
     ],
     kinds: ["SaaS", "mobile app", "hardware", "game", "developer tool", "API"],
     components: ["hero-split", "feature-grid", "pricing-table", "plan-card", "logo-cloud", "comparison-table", "faq", "video-embed", "store-badges", "changelog-entry"],
@@ -229,6 +234,7 @@ export const FAMILIES = {
       { file: "index", role: "who we are and what we are licensed for, before any pitch" },
       { file: "services", role: "each practice area stated plainly — what it covers, what it costs to start" },
       { file: "contact", role: "the consultation form, with who answers it and how fast" },
+      { file: "about", role: "the firm itself — history, regulation, how it charges; the page trust is checked against" },
     ],
     kinds: ["accounting", "tax", "bookkeeping", "insurance broker", "financial advisor", "medical specialist", "childcare", "eldercare", "tutoring", "veterinary"],
     components: ["trust-strip", "profile-card", "verified-badge", "award-badge", "testimonial", "press-quote", "faq", "contact-form"],
@@ -271,6 +277,7 @@ export const FAMILIES = {
     pages: [
       { file: "index", role: "the locator — postcode in, nearest branch out" },
       { file: "location", role: "one branch's own page — hours, timetable, how to join" },
+      { file: "memberships", role: "the plans compared — one price everywhere is the chain's whole pitch, so say it" },
     ],
     kinds: ["franchise", "gym chain", "coworking", "dispensary", "pharmacy", "hotel group", "retail with pickup"],
     components: ["store-locator", "map-embed", "location-card", "open-now", "distance-badge", "pickup-point", "stock-badge"],
@@ -293,6 +300,7 @@ export const FAMILIES = {
     pages: [
       { file: "index", role: "the portrait, the story, the proof — in that order" },
       { file: "press", role: "the press kit — a bio at three lengths, photos, quotes ready to lift" },
+      { file: "music", role: "the work itself — releases with players; a musician's site without the music is a CV" },
     ],
     kinds: ["résumé", "speaker", "author", "coach", "consultant", "campaign", "artist", "musician"],
     components: ["profile-card", "timeline", "quote", "press-quote", "event-card", "tour-dates", "gallery", "social-links"],
@@ -316,6 +324,7 @@ export const FAMILIES = {
       { file: "guide", role: "the walkthrough — install to first result, in order, with the sidebar" },
       { file: "api", role: "the reference — every call with its arguments and returns, linkable" },
       { file: "changelog", role: "reverse-chronological, no marketing — what changed and when" },
+      { file: "examples", role: "the cookbook — whole working recipes for the jobs people actually have" },
     ],
     kinds: ["API reference", "SDK docs", "open source project", "help center", "knowledge base", "changelog", "status page"],
     components: ["install-command", "side-nav", "table-of-contents", "search-input", "code-block", "copy-button", "curl-example", "sdk-tabs", "prev-next", "anchor-heading", "changelog-entry"],
@@ -335,6 +344,7 @@ export const FAMILIES = {
     pages: [
       { file: "index", role: "the numbers themselves, above any prose" },
       { file: "methodology", role: "how the numbers were made — sources, sample, what was excluded; the trust page" },
+      { file: "report", role: "the annual deep-dive — what's inside, the headline findings, the capture that gates it" },
     ],
     kinds: ["dashboard product", "analytics", "BI tool", "pricing calculator", "comparison site", "research report"],
     components: ["big-number", "stats-band", "sparkline", "metric-delta", "gauge", "data-table", "comparison-table", "calculator-card", "donut-mini"],
@@ -354,6 +364,7 @@ export const FAMILIES = {
       { file: "index", role: "the audience switch — the page rearranges for who you are" },
       { file: "apply", role: "the prospective journey — dates, steps, the application itself" },
       { file: "visit", role: "open days and getting here — times, travel, what to expect" },
+      { file: "courses", role: "the course finder — searchable, honest about entry requirements per subject" },
     ],
     kinds: ["university", "school", "government", "municipal", "hospital system", "museum", "gallery", "church"],
     components: ["audience-switch", "category-nav", "search-header", "event-card", "faq", "steps", "download-card"],
@@ -373,6 +384,7 @@ export const FAMILIES = {
     pages: [
       { file: "index", role: "the media takes the first screen; chrome nearly disappears" },
       { file: "rooms", role: "the offering as full-bleed passages — one each, sparse type between" },
+      { file: "dining", role: "the table — one sitting, one menu, the same full-bleed restraint" },
     ],
     kinds: ["fashion brand", "car manufacturer", "luxury hospitality", "film", "show", "design studio"],
     components: ["video-hero", "gallery", "lightbox", "before-after", "marquee", "parallax", "snap-sections", "full-bleed", "progressive-image"],
@@ -393,6 +405,7 @@ export const FAMILIES = {
       { file: "index", role: "the form — it starts where the page does" },
       { file: "status", role: "an existing application looked up and answered plainly" },
       { file: "done", role: "the confirmation — reference number, what happens next; a designed page, not an afterthought" },
+      { file: "maintenance", role: "the down-for-works page, designed on purpose — when it's back, what still works, who to ring" },
     ],
     kinds: ["customer portal", "billing", "support ticket", "confirmation page", "checkout", "waitlist"],
     components: ["multi-step-form", "form-progress", "form-section", "steps", "order-summary", "receipt", "success-panel", "not-found", "maintenance-page"],
@@ -412,6 +425,7 @@ export const FAMILIES = {
     pages: [
       { file: "index", role: "the gate first, then the goods — nothing renders before the age answer" },
       { file: "terms", role: "the disclosures as a first-class page — delivery, returns, licensing, in real sections" },
+      { file: "tastings", role: "the events — gated like the shelf, booked like a class, licence rules stated" },
     ],
     kinds: ["bank", "credit union", "crypto exchange", "pharma", "cannabis retail", "gambling", "sportsbook"],
     components: ["age-gate", "terms-block", "consent-checkbox", "data-table", "pricing-table", "faq"],
@@ -430,6 +444,7 @@ export const FAMILIES = {
     pages: [
       { file: "index", role: "what is live right now, each with its clock; freshness visible" },
       { file: "event", role: "one night in full — the countdown, the tiers, what remains" },
+      { file: "season", role: "everything on sale — the whole board, each show carrying its own urgency state" },
     ],
     kinds: ["ticketing", "box office", "auction", "flash sale", "drop", "live results", "status board"],
     components: ["countdown", "countdown-ring", "deadline-bar", "live-badge", "refresh-pill", "time-until", "seat-map", "bid-box", "big-number", "viewer-count"],
@@ -450,6 +465,7 @@ export const FAMILIES = {
       { file: "index", role: "logged out — the pitch, and a wall that shows what it is refusing" },
       { file: "letters", role: "logged in — the product itself, no marketing left anywhere" },
       { file: "account", role: "the membership — plan, renewal, sign out" },
+      { file: "letter", role: "one letter, read in full — the surface the membership actually buys, wall-free" },
     ],
     kinds: ["paywalled publication", "private community", "alumni portal", "fan club", "B2B customer portal"],
     components: ["paywall", "login-form", "signup-form", "membership-card", "plan-card", "pricing-table", "upgrade-badge"],
@@ -469,6 +485,7 @@ export const FAMILIES = {
       { file: "index", role: "what is made and to what tolerance; the quote path is the conversion" },
       { file: "product", role: "one line in full — the spec table and the downloads" },
       { file: "quote", role: "the RFQ — part, quantity, spec upload, who to call back" },
+      { file: "stockists", role: "where to buy without an account — the distributor list, nearest first" },
     ],
     kinds: ["manufacturer", "logistics", "freight", "construction", "wholesale", "distributor", "lab", "testing services"],
     components: ["spec-row", "feature-matrix", "data-table", "download-card", "file-list", "store-locator", "tracking-input", "contact-form"],
@@ -487,6 +504,7 @@ export const FAMILIES = {
     pages: [
       { file: "index", role: "the open roles, filterable, above the culture proof" },
       { file: "role", role: "one role in full — the work, the pay, the apply form" },
+      { file: "life", role: "the culture proof, shown not claimed — the week, the room, the benefits as facts" },
     ],
     kinds: ["careers site", "staffing agency", "talent marketplace", "internship", "bootcamp"],
     components: ["job-card", "filter-bar", "search-input", "team-grid", "stats-band", "steps", "faq"],
@@ -508,6 +526,7 @@ export const FAMILIES = {
     pages: [
       { file: "index", role: "the outcome, then the curriculum as an ordered spine" },
       { file: "lesson", role: "one lesson — the content, where you are on the path, what is next" },
+      { file: "enroll", role: "joining — what the money buys, when cohorts start, the one form" },
     ],
     kinds: ["course platform", "interactive tutorial", "LMS", "practice tool", "library", "archive"],
     components: ["course-card", "curriculum-path", "chapter-list", "steps", "progress-ring", "completion-ring", "stats-band", "faq"],
@@ -527,6 +546,7 @@ export const FAMILIES = {
     pages: [
       { file: "index", role: "hours, notices, documents, contact — utility over polish" },
       { file: "events", role: "what is on this month, listed plainly with dates and rooms" },
+      { file: "join", role: "getting a card — who can, what it needs, what it unlocks; the library's one form" },
     ],
     kinds: ["HOA", "neighborhood", "library branch", "nonprofit chapter", "small-town municipal"],
     components: ["opening-hours", "open-now", "location-card", "contact-form", "download-card", "file-list", "faq", "announcement-bar"],
@@ -545,6 +565,7 @@ export const FAMILIES = {
     pages: [
       { file: "index", role: "the story in order, then the RSVP" },
       { file: "travel", role: "getting there and staying — trains, rooms, the shape of the day" },
+      { file: "registry", role: "the gifts, put the intimate way — a few real things, the honeymoon pot, and permission to bring nothing" },
     ],
     kinds: ["wedding", "memorial", "baby registry", "single-page résumé", "digital garden", "link-in-bio"],
     components: ["rsvp-buttons", "event-card", "countdown", "gallery", "timeline", "quote", "social-links", "link-card"],

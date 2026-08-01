@@ -13,7 +13,7 @@ function P() {
   const [sent, setSent] = useState(false);
   return (
     <SiteChrome name="Hartley & Voss" tagline="Chartered accountants, est. 1987."
-      links={[{ label: "Who we are", href: "#people" }, { label: "What we do", href: "#/services" }, { label: "Questions", href: "#faq" }]}
+      links={[{ label: "Who we are", href: "#people" }, { label: "What we do", href: "#/services" }, { label: "The firm", href: "#/about" }, { label: "Questions", href: "#faq" }]}
       action={{ label: "Free consultation", href: "#/contact" }}>
       <div className="mx-auto max-w-3xl px-6 py-12">
         <h1 className="text-3xl font-semibold tracking-tight">Hartley &amp; Voss</h1>

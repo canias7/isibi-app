@@ -16,7 +16,7 @@ function P() {
   const t = TASKS[who];
   return (
     <SiteChrome name="Rivelin College" tagline="A sixth-form college in the Rivelin valley."
-      links={[{ label: "Visit us", href: "#/visit" }, { label: "Term dates", href: "#events" }, { label: "Questions", href: "#faq" }]}
+      links={[{ label: "Courses", href: "#/courses" }, { label: "Visit us", href: "#/visit" }, { label: "Term dates", href: "#events" }, { label: "Questions", href: "#faq" }]}
       action={{ label: "Apply", href: "#/apply" }}>
       <div className="mx-auto max-w-4xl px-6 py-12">
         <h1 className="text-3xl font-semibold tracking-tight">Rivelin College</h1>
@@ -30,7 +30,7 @@ function P() {
         <section className="mt-8 rounded-xl border bg-muted/40 p-6">
           <h2 className="text-lg font-medium">{t.title}</h2>
           <ul className="mt-4 grid gap-2 sm:grid-cols-2">
-            {t.items.map((i) => <li key={i}><a href={i.includes("open day") ? "#/visit" : "#/apply"} className="text-sm underline-offset-4 hover:underline">{i}</a></li>)}
+            {t.items.map((i) => <li key={i}><a href={i.includes("open day") ? "#/visit" : i === "Course finder" ? "#/courses" : "#/apply"} className="text-sm underline-offset-4 hover:underline">{i}</a></li>)}
           </ul>
         </section>
         <section id="events" className="mt-10">

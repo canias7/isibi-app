@@ -11,7 +11,7 @@ export const Route = createFileRoute("/")({ component: P });
 function P() {
   return (
     <SiteChrome name="The Playhouse" tagline="Box office, but honest about the clock."
-      links={[{ label: "On-sale board", href: "#/" }, { label: "Press night", href: "#/event" }]}>
+      links={[{ label: "On-sale board", href: "#/" }, { label: "Whole season", href: "#/season" }, { label: "Press night", href: "#/event" }]}>
       <div className="mx-auto max-w-2xl px-6 py-12">
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-3xl font-semibold tracking-tight">Winter season on-sale</h1>

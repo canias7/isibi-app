@@ -28,7 +28,7 @@ function P() {
             <RsvpButtons value={rsvp} onChange={setRsvp} counts={{ yes: 68, maybe: 9, no: 4 }} />
           </div>
         </section>
-        <p className="mt-8 text-sm"><a className="font-medium underline underline-offset-4" href="#/travel">Getting there, staying over, the shape of the day →</a></p>
+        <p className="mt-8 text-sm"><a className="font-medium underline underline-offset-4" href="#/travel">Getting there, staying over →</a> · <a className="font-medium underline underline-offset-4" href="#/registry">gifts, if you must →</a></p>
         <section className="mt-10"><Gallery columns={3} items={[
           { src: null, alt: "Us, Win Hill" }, { src: null, alt: "The allotment in June" }, { src: null, alt: "The hall" }]} /></section>
       </main>

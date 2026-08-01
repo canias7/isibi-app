@@ -17,7 +17,7 @@ function P() {
   const [done, setDone] = useState(false);
   return (
     <SiteChrome name="Made in Sheffield" tagline="A podcast about this city, fortnightly."
-      links={[{ label: "Episodes", href: "#eps" }, { label: "All 41", href: "#/archive" }, { label: "Subscribe", href: "#sub" }]}>
+      links={[{ label: "Episodes", href: "#eps" }, { label: "All 41", href: "#/archive" }, { label: "About", href: "#/about" }, { label: "Subscribe", href: "#sub" }]}>
       <div className="mx-auto max-w-2xl px-6 py-12">
         {/* The newest episode IS the top of the page. No hero above the feed. */}
         <TagList items={["Steel", "Housing", "Music", "Football"]} active={null} onSelect={() => {}} />

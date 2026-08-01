@@ -8,7 +8,7 @@ import { SideNav } from "@/components/ui/side-nav";
 export const Route = createFileRoute("/changelog")({ component: P });
 const NAV = [
   { title: "Start", items: [{ label: "Install", href: "#/" }, { label: "Guide", href: "#/guide" }] },
-  { title: "Reference", items: [{ label: "API", href: "#/api" }, { label: "Changelog", href: "#/changelog" }] },
+  { title: "Reference", items: [{ label: "API", href: "#/api" }, { label: "Examples", href: "#/examples" }, { label: "Changelog", href: "#/changelog" }] },
 ];
 function P() {
   return (
@@ -38,7 +38,7 @@ function P() {
               <code>cols</code> renamed to <code>columns</code>. A codemod ships in the package: <code>npx littletable-migrate v3</code>. That is the whole breaking change.
             </ChangelogEntry>
           </div>
-          <PrevNext className="mt-12" prev={{ label: "API reference", href: "#/api" }} />
+          <PrevNext className="mt-12" prev={{ label: "Cookbook", href: "#/examples" }} />
         </main>
       </div>
     </div>

@@ -12,7 +12,7 @@ export const Route = createFileRoute("/")({ component: P });
 function P() {
   return (
     <SiteChrome name="Elsie Marrow" tagline="Songs about rivers and shift work."
-      links={[{ label: "Dates", href: "#dates" }, { label: "The story", href: "#story" }, { label: "Press kit", href: "#/press" }]}
+      links={[{ label: "Dates", href: "#dates" }, { label: "The story", href: "#story" }, { label: "Music", href: "#/music" }, { label: "Press kit", href: "#/press" }]}
       action={{ label: "Book me", href: "#dates" }}>
       <div className="mx-auto max-w-2xl px-6 py-12">
         <div className="grid items-center gap-6 sm:grid-cols-[180px_1fr]">

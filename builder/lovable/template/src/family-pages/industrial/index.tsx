@@ -11,7 +11,7 @@ function P() {
   const [sent, setSent] = useState(false);
   return (
     <SiteChrome name="Attercliffe Fastenings" tagline="Cold-forged fasteners since 1953. BS EN ISO 898-1."
-      links={[{ label: "Specs", href: "#specs" }, { label: "The 12.9 line", href: "#/product" }, { label: "Downloads", href: "#dl" }]}
+      links={[{ label: "Specs", href: "#specs" }, { label: "The 12.9 line", href: "#/product" }, { label: "Stockists", href: "#/stockists" }, { label: "Downloads", href: "#dl" }]}
       action={{ label: "Request quote", href: "#/quote" }}>
       <div className="mx-auto max-w-3xl px-6 py-12">
         <h1 className="text-3xl font-semibold tracking-tight">M6–M24, grade 8.8 to 12.9, from stock</h1>

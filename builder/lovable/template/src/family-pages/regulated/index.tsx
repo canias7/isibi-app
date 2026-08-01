@@ -12,7 +12,7 @@ function P() {
   const [consent, setConsent] = useState(false);
   return (
     <SiteChrome name="The Dram Room" tagline="Independent whisky, Abbeydale Road."
-      links={[{ label: "The shelf", href: "#/" }, { label: "Terms of sale", href: "#/terms" }]}>
+      links={[{ label: "The shelf", href: "#/" }, { label: "Tastings", href: "#/tastings" }, { label: "Terms of sale", href: "#/terms" }]}>
       <div className="mx-auto max-w-2xl px-6 py-12">
         {/* The gate wraps the CONTENT, not the whole site — the name and the
             terms are legal to show; the shelf is not until the answer. */}

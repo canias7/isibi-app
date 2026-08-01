@@ -11,7 +11,7 @@ export const Route = createFileRoute("/")({ component: P });
 function P() {
   return (
     <SiteChrome name="Hale & Frost" tagline="Weddings photographed like they felt."
-      links={[{ label: "The work", href: "#work" }, { label: "A recent day", href: "#/project" }, { label: "Kind words", href: "#words" }]}
+      links={[{ label: "The work", href: "#work" }, { label: "A recent day", href: "#/project" }, { label: "Pricing", href: "#/pricing" }, { label: "Kind words", href: "#words" }]}
       action={{ label: "Start a project", href: "#/contact" }}>
       <SafeImage src={null} alt="Nadia and Tom, first dance, Cressbrook Mill" ratio="21/9" />
       <div className="mx-auto max-w-5xl px-6 pb-16">

@@ -22,7 +22,7 @@ function P() {
     <div className="min-h-svh bg-background text-foreground">
       <AnnouncementBar href="#docs">Boiler works 11–15 August — we're open, but wear a jumper.</AnnouncementBar>
       <SiteChrome name="Walkley Library" tagline="Volunteer-run since 2014. Everyone welcome, no card needed to sit."
-        links={[{ label: "Hours", href: "#hours" }, { label: "What's on", href: "#/events" }, { label: "Minutes", href: "#docs" }]}>
+        links={[{ label: "Hours", href: "#hours" }, { label: "What's on", href: "#/events" }, { label: "Join", href: "#/join" }, { label: "Minutes", href: "#docs" }]}>
         <div className="mx-auto max-w-2xl px-6 py-10">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <h1 className="text-3xl font-semibold tracking-tight">Walkley Library</h1>

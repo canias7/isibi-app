@@ -14,7 +14,7 @@ function P() {
   const [sort, setSort] = useState("newest");
   return (
     <SiteChrome name="Loxley Lets" tagline="Rentals across the west of the city."
-      links={[{ label: "Tenants", href: "#results" }, { label: "Landlords", href: "#results" }]}
+      links={[{ label: "Tenants", href: "#results" }, { label: "Landlords", href: "#/landlords" }]}
       action={{ label: "Value my property", href: "#results" }}>
       <div className="mx-auto max-w-5xl px-6 py-10">
         {/* No hero. The search is the first thing, results the second. */}

@@ -12,7 +12,7 @@ function P() {
   const [done, setDone] = useState(false);
   return (
     <div className="min-h-svh bg-background text-foreground">
-      <header className="border-b border-border"><div className="mx-auto flex max-w-xl items-center justify-between px-6 py-3 text-sm"><span className="font-medium">Resident parking — renew permit</span><a className="text-muted-foreground underline underline-offset-4" href="#/status">Check an application</a></div></header>
+      <header className="border-b border-border"><div className="mx-auto flex max-w-xl items-center justify-between px-6 py-3 text-sm"><span className="font-medium">Resident parking — renew permit</span><a className="text-muted-foreground underline underline-offset-4" href="#/status">Check an application</a></div><div className="mx-auto max-w-xl px-6 pb-2 text-xs text-muted-foreground">Planned works Sat 22:00–06:00 — <a className="underline underline-offset-4" href="#/maintenance">what happens then</a></div></header>
       <main className="mx-auto max-w-xl px-6 py-10">
         {/* No hero, no pitch. The numbered sequence is the content. */}
         <Steps items={[

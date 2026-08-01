@@ -10,7 +10,7 @@ import { SideNav } from "@/components/ui/side-nav";
 export const Route = createFileRoute("/guide")({ component: P });
 const NAV = [
   { title: "Start", items: [{ label: "Install", href: "#/" }, { label: "Guide", href: "#/guide" }] },
-  { title: "Reference", items: [{ label: "API", href: "#/api" }, { label: "Changelog", href: "#/changelog" }] },
+  { title: "Reference", items: [{ label: "API", href: "#/api" }, { label: "Examples", href: "#/examples" }, { label: "Changelog", href: "#/changelog" }] },
 ];
 function P() {
   return (

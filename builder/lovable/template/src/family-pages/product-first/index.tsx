@@ -12,7 +12,7 @@ export const Route = createFileRoute("/")({ component: P });
 function P() {
   return (
     <SiteChrome name="Snicket" tagline="Walking routes that prefer the alleys."
-      links={[{ label: "Features", href: "#features" }, { label: "Pricing", href: "#/pricing" }]}
+      links={[{ label: "Features", href: "#features" }, { label: "Pricing", href: "#/pricing" }, { label: "Support", href: "#/support" }]}
       action={{ label: "Download", href: "#get" }}>
       <HeroSplit title="The quiet way there" subtitle="Snicket routes you down ginnels, jitties and back lanes — the ways a city actually walks." image={null} imageAlt="The app, mid-route down a ginnel" action={{ label: "Get Snicket", href: "#get" }} />
       <div id="get" className="mx-auto max-w-5xl px-6 pt-6"><StoreBadges label="Free on both" stores={[

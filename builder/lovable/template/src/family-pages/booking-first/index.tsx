@@ -22,7 +22,7 @@ function P() {
   const [slot, setSlot] = useState<string | null>(null);
   return (
     <SiteChrome name="Tenfold Nails" tagline="Ten chairs on Ecclesall Road."
-      links={[{ label: "Prices", href: "#prices" }, { label: "The team", href: "#team" }, { label: "Book", href: "#/book" }]}
+      links={[{ label: "Prices", href: "#prices" }, { label: "The work", href: "#/work" }, { label: "The team", href: "#team" }, { label: "Book", href: "#/book" }]}
       action={{ label: "Book now", href: "#/book" }}>
       <div className="mx-auto max-w-3xl px-6 py-12">
         <div className="flex flex-wrap items-baseline justify-between gap-3">

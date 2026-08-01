@@ -11,7 +11,7 @@ export const Route = createFileRoute("/")({ component: P });
 function P() {
   return (
     <SiteChrome name="Kelham Works" tagline="A 14-person product studio by the river."
-      links={[{ label: "Open roles", href: "#roles" }, { label: "How we hire", href: "#how" }]}>
+      links={[{ label: "Open roles", href: "#roles" }, { label: "Working here", href: "#/life" }, { label: "How we hire", href: "#how" }]}>
       <div className="mx-auto max-w-3xl px-6 py-12">
         <h1 className="text-3xl font-semibold tracking-tight">Three open chairs</h1>
         {/* Roles first. The culture section EARNS its place below the list. */}

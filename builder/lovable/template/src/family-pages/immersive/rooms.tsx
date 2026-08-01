@@ -16,7 +16,7 @@ function P() {
     <div className="min-h-svh bg-background text-foreground">
       <header className="absolute inset-x-0 top-0 z-10 flex items-center justify-between px-6 py-4 text-sm">
         <a href="#/" className="font-semibold tracking-tight">Fell &amp; Water</a>
-        <a href="#/" className="underline underline-offset-4">Back</a>
+        <a href="#/dining" className="underline-offset-4 hover:underline">Dining</a> <a href="#/" className="underline underline-offset-4">Back</a>
       </header>
       <div className="relative">
         <SafeImage src={null} alt="The nine windows at night, lit from inside" ratio="21/9" />
