@@ -68,9 +68,36 @@ if (!fs.existsSync(path.join(TEMPLATE, "node_modules"))) {
   process.exit(1);
 }
 
-// The reference page, read from disk rather than copied — this test is only
+// The reference app, read from disk rather than copied — this test is only
 // meaningful if it runs the real thing.
-const REFERENCE = fs.readFileSync(path.join(TEMPLATE, "src/routes/index.tsx"), "utf8");
+//
+// EVERY ROUTE, NOT JUST index.tsx. The build service wipes `src/routes` before
+// writing what it was posted, so a route this leaves out simply does not exist
+// in the built app — and the reference page navigates to `/book`, which
+// navigates to `/manage`. Posting the index alone made `tsc` refuse
+// `to: "/book"` as not assignable to `"/" | "." | ".."`, so the build failed
+// and every assertion below it never ran. That is the same failure the chart
+// exclusion test hit (`<Link to="/menu">` against a route nobody posted), and
+// it broke this job the day the reference page gained a Book button.
+//
+// DERIVED, NOT LISTED, for that reason: naming the three routes here means the
+// next link added to the reference app breaks this test again, in a way that
+// reads as unrelated to whoever added it.
+const ROUTES = Object.fromEntries(
+  fs.readdirSync(path.join(TEMPLATE, "src/routes"))
+    .filter((f) => f.endsWith(".tsx") && f !== "__root.tsx")
+    .map((f) => [f, fs.readFileSync(path.join(TEMPLATE, "src/routes", f), "utf8")]),
+);
+const REFERENCE = ROUTES["index.tsx"];
+if (!REFERENCE) throw new Error("the template has no src/routes/index.tsx to drive");
+
+// What a failed read has to put in front of a visitor. Matched on the SHAPE of
+// the sentence rather than its exact words: this looked for "Couldn't load the
+// services" and the reference page now says "the price list", so the wait timed
+// out at 20s and reported the retry policy as broken when the copy had simply
+// been edited. The assertion is that a visitor sees a sentence instead of a
+// skeleton forever — the noun is the page author's business.
+const FAILED_READ = /(couldn't|couldn’t|could not|unable to) load|refresh and try again/i;
 
 const SERVICES = [
   { id: 1, name: "Skin fade", description: "Clippers, blended to the skin.", price: 28, duration_minutes: 45, created_at: "2026-07-28 10:00:00" },
@@ -126,7 +153,7 @@ try {
   console.log("building the reference page…");
   const built = await (await fetch(`http://127.0.0.1:${BUILD_PORT}/build`, {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ files: { "index.tsx": REFERENCE }, slug: SLUG, title: "Barber Shop" }),
+    body: JSON.stringify({ files: ROUTES, slug: SLUG, title: "Barber Shop" }),
   })).json();
   ok("the reference page builds", built.ok === true, built.stage + ": " + built.error);
   if (!built.ok) throw new Error("cannot drive a site that did not build");
@@ -199,6 +226,8 @@ try {
 
   browser = await chromium.launch(chromiumPath ? { executablePath: chromiumPath } : {});
   const base = `http://127.0.0.1:${SITE_PORT}/s/${SLUG}/`;
+  // Hash history, so a route is `#/book` off the same document.
+  const formUrl = `${base}#/book`;
   const newPage = async () => {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -239,7 +268,7 @@ try {
     const t0 = Date.now();
     await page.goto(base, { waitUntil: "domcontentloaded" });
     let shown = true;
-    try { await page.getByText(/Couldn't load the services/i).waitFor({ timeout: 20000 }); }
+    try { await page.getByText(FAILED_READ).waitFor({ timeout: 20000 }); }
     catch { shown = false; }
     const ms = Date.now() - t0;
     ok("a failed read shows a sentence a visitor can act on", shown,
@@ -260,7 +289,7 @@ try {
     const t0 = Date.now();
     await page.goto(base, { waitUntil: "domcontentloaded" });
     let shown = true;
-    try { await page.getByText(/Couldn't load the services/i).waitFor({ timeout: 10000 }); }
+    try { await page.getByText(FAILED_READ).waitFor({ timeout: 10000 }); }
     catch { shown = false; }
     const ms = Date.now() - t0;
     ok("a 403 surfaces as an error state too", shown, (await page.locator("body").innerText()).slice(0, 300));
@@ -275,8 +304,13 @@ try {
   {
     mode = "ok";
     posted.length = 0;
+    // THE FORM IS ON /book, NOT ON THE INDEX PAGE. The reference app grew a
+    // booking route and the index page kept only a "Book a chair" button; this
+    // block went on driving `base` and timed out waiting for a combobox that is
+    // one navigation away. `formPage()` is the one place that knows where the
+    // form lives, so moving it again is a one-line change here.
     const { page, errors } = await newPage();
-    await page.goto(base, { waitUntil: "networkidle" });
+    await page.goto(formUrl, { waitUntil: "networkidle" });
 
     // shadcn's Select is a Radix portal, not a <select> — open it and pick.
     await page.getByRole("combobox").first().click();
@@ -284,7 +318,11 @@ try {
     await page.getByLabel("Your name").fill("Ada Lovelace");
     await page.getByLabel("Phone").fill("07700900123");
     await page.locator('input[type="date"]').fill("2026-08-03");
-    await page.locator('input[type="time"]').fill("10:30");
+    // The time is an AvailabilityGrid, not an <input type="time">: taken slots
+    // are struck through and disabled so a visitor sees a slot has gone BEFORE
+    // filling the form in. Picking one is a click, and its accessible name is
+    // the slot itself.
+    await page.getByRole("button", { name: "10:30", exact: true }).click();
     await page.getByRole("button", { name: /Request appointment/i }).click();
     await page.waitForTimeout(1200);
 
@@ -311,13 +349,17 @@ try {
     mode = "overlap";
     posted.length = 0;
     const { page } = await newPage();
-    await page.goto(base, { waitUntil: "networkidle" });
+    await page.goto(formUrl, { waitUntil: "networkidle" });
     await page.getByRole("combobox").first().click();
     await page.getByRole("option", { name: "Beard trim" }).click();
     await page.getByLabel("Your name").fill("Grace Hopper");
     await page.getByLabel("Phone").fill("07700900456");
     await page.locator('input[type="date"]').fill("2026-08-03");
-    await page.locator('input[type="time"]').fill("10:30");
+    // The time is an AvailabilityGrid, not an <input type="time">: taken slots
+    // are struck through and disabled so a visitor sees a slot has gone BEFORE
+    // filling the form in. Picking one is a click, and its accessible name is
+    // the slot itself.
+    await page.getByRole("button", { name: "10:30", exact: true }).click();
     await page.getByRole("button", { name: /Request appointment/i }).click();
     await page.waitForTimeout(1200);
 
@@ -342,7 +384,7 @@ try {
     mode = "ok";
     posted.length = 0;
     const { page } = await newPage();
-    await page.goto(base, { waitUntil: "networkidle" });
+    await page.goto(formUrl, { waitUntil: "networkidle" });
     await page.getByRole("button", { name: /Request appointment/i }).click();
     await page.waitForTimeout(800);
     const body = await page.locator("body").innerText();
