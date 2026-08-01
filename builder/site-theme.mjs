@@ -851,6 +851,15 @@ export const DECORS = {
   scanlines: { label: "hairline scanlines — broadcast paper" },
   weave: { label: "a diagonal cross-hatch weave" },
   wood: { label: "planked wood — seams and long grain" },
+  paper: { label: "laid paper — pulp mottle and fibre fleck" },
+  linen: { label: "woven linen — threads and slubs" },
+  canvas: { label: "coarse canvas — heavy weave, real tooth" },
+  plaster: { label: "troweled plaster — soft mottle, no lines" },
+  concrete: { label: "cast concrete — mottle, pits, shutter seams" },
+  marble: { label: "veined stone — clouds and bent filaments" },
+  leather: { label: "pebbled leather — creases and burnish" },
+  felt: { label: "pressed wool felt — dense fibre depth" },
+  brushed: { label: "brushed metal — level drag marks and sheen" },
   spots: { label: "scattered confetti points" },
   rays: { label: "faint rays from the top of the page" },
 };
@@ -930,6 +939,33 @@ const BACKDROP_LAYERS = {
   },
 };
 
+// THE MATERIAL ASSEMBLER (2026-08-01, the realism pass generalised). The
+// owner's bar is a photograph — a real surface per theme, not "AI slop
+// backgrounds". What made wood read as wood was never wood-specific:
+// layered turbulence with each layer TINTED to a palette colour (a
+// constant-colour matrix keeps only the noise's alpha), SHAPED by a
+// transfer table (smooth = mottle and figure, discrete = lines, cells and
+// flecks), and where the surface needs it, BENT by a displacement field so
+// nothing runs digital-straight. Every material below is this one pipeline
+// with different numbers, and every colour still derives from paper/ink,
+// so a material always sits in its theme's own family.
+const matLayer = ({ type = "fractalNoise", freq, octaves = 3, seed, tint, kind = "table", table, warp }, i) => {
+  const [r, g, b] = oklchToRgb(...tint).map((v) => +v.toFixed(3));
+  const wire = warp ? [" result='n'", " in='n'", " result='t'", " in='t' result='p'"] : ["", "", "", ""];
+  const bend = warp
+    ? `<feTurbulence type='fractalNoise' baseFrequency='${warp.freq}' numOctaves='2' seed='${warp.seed}' result='d'/><feDisplacementMap in='p' in2='d' scale='${warp.scale}' xChannelSelector='R' yChannelSelector='G'/>`
+    : "";
+  return `<filter id='m${i}'><feTurbulence type='${type}' baseFrequency='${freq}' numOctaves='${octaves}' seed='${seed}'${wire[0]}/><feColorMatrix${wire[1]} type='matrix' values='0 0 0 0 ${r} 0 0 0 0 ${g} 0 0 0 0 ${b} 1 0 0 0 0'${wire[2]}/><feComponentTransfer${wire[3]}><feFuncA type='${kind}' tableValues='${table}'/></feComponentTransfer>${bend}</filter>`;
+};
+const matSvg = (size, layers) =>
+  `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='${size}' height='${size}'>${layers.map(matLayer).join("")}${layers.map((_, i) => `<rect width='${size}' height='${size}' filter='url(%23m${i})'/>`).join("")}</svg>")`;
+// Darker-than-paper in both modes: light mode mixes toward ink, dark mode
+// drops paper's own lightness — its ink is LIGHT, so mixing toward it can
+// only lighten. The wood-seam lesson, shared by every material shadow.
+const deepen = (paper, ink, mode, t) => mode === "light"
+  ? mix(paper, ink, t).slice(0, 3)
+  : [Math.max(paper[0] * (1 - t * 0.8), 0.04), Math.min(paper[1] * 1.3, 0.05), paper[2]];
+
 // One texture layer each, colours derived, sizes whole px. Repeating
 // gradients tile themselves; only the dot fields need an explicit tile size.
 const DECOR_LAYERS = {
@@ -986,10 +1022,6 @@ const DECOR_LAYERS = {
     const shadow = [Math.max(paper[0] * 0.45, 0.04), Math.min(paper[1] * 1.4, 0.05), paper[2]];
     const streaks = light ? mix(paper, ink, 0.75).slice(0, 3) : shadow;
     const figure = light ? mix(paper, ink, 0.5).slice(0, 3) : mix(paper, ink, 0.45).slice(0, 3);
-    const tintMatrix = (c) => {
-      const [r, g, b] = oklchToRgb(...c).map((v) => +v.toFixed(3));
-      return `0 0 0 0 ${r} 0 0 0 0 ${g} 0 0 0 0 ${b} 1 0 0 0 0`;
-    };
     // Alphas are sized to SURVIVE the opened root: the page composites this
     // under paper at 0.35/0.42, so a whisper here arrives as nothing there
     // (measured on the first render — grain at 0.16 read as fog again).
@@ -999,7 +1031,11 @@ const DECOR_LAYERS = {
     const patTable = light ? "0 0 0.05 0.13" : "0 0 0.06 0.14";
     const figTable = light ? "0 0 0.06 0.15" : "0 0 0.07 0.17";
     const strTable = light ? "0 0.15 0.03 0 0.19 0.05 0 0.12 0 0.22" : "0 0.16 0.04 0 0.2 0.07 0 0.13 0 0.24";
-    const grain = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='480' height='480'><filter id='p'><feTurbulence type='fractalNoise' baseFrequency='0.006 0.0035' numOctaves='2' seed='3'/><feColorMatrix type='matrix' values='${tintMatrix(patches)}'/><feComponentTransfer><feFuncA type='table' tableValues='${patTable}'/></feComponentTransfer></filter><filter id='f'><feTurbulence type='fractalNoise' baseFrequency='0.028 0.006' numOctaves='3' seed='4'/><feColorMatrix type='matrix' values='${tintMatrix(figure)}'/><feComponentTransfer><feFuncA type='table' tableValues='${figTable}'/></feComponentTransfer></filter><filter id='s'><feTurbulence type='fractalNoise' baseFrequency='0.15 0.01' numOctaves='4' seed='11' result='n'/><feColorMatrix in='n' type='matrix' values='${tintMatrix(streaks)}' result='t'/><feComponentTransfer in='t' result='p'><feFuncA type='discrete' tableValues='${strTable}'/></feComponentTransfer><feTurbulence type='fractalNoise' baseFrequency='0.006 0.02' numOctaves='2' seed='7' result='d'/><feDisplacementMap in='p' in2='d' scale='14' xChannelSelector='R' yChannelSelector='G'/></filter><rect width='480' height='480' filter='url(%23p)'/><rect width='480' height='480' filter='url(%23f)'/><rect width='480' height='480' filter='url(%23s)'/></svg>")`;
+    const grain = matSvg(480, [
+      { freq: "0.006 0.0035", octaves: 2, seed: 3, tint: patches, table: patTable },
+      { freq: "0.028 0.006", seed: 4, tint: figure, table: figTable },
+      { freq: "0.15 0.01", octaves: 4, seed: 11, tint: streaks, kind: "discrete", table: strTable, warp: { freq: "0.006 0.02", seed: 7, scale: 14 } },
+    ]);
     const seam = light ? css([...mix(paper, ink, 0.38).slice(0, 3), 0.45]) : css([...shadow, 0.6]);
     const bevel = light ? css([...paper.slice(0, 3), 0.6]) : css([...mix(paper, ink, 0.3).slice(0, 3), 0.35]);
     const seams = `repeating-linear-gradient(90deg, ${seam} 0 2px, ${bevel} 2px 3px, transparent 3px 148px)`;
@@ -1007,6 +1043,112 @@ const DECOR_LAYERS = {
     const [a1, a2, a3, a4] = light ? [0.16, 0.34, 0.05, 0.24] : [0.12, 0.26, 0.04, 0.19];
     const boards = `repeating-linear-gradient(90deg, ${css([...tone, a1])} 0 148px, ${css([...tone, a2])} 148px 296px, ${css([...tone, a3])} 296px 444px, ${css([...tone, a4])} 444px 592px)`;
     return { image: `${seams}, ${grain}, ${boards}` };
+  },
+  paper: (theme, mode) => {
+    // Laid paper: soft pulp mottle under a fine fleck of pressed fibre — the
+    // ground for print-world themes, felt more than seen.
+    const { paper, ink } = theme[mode];
+    const light = mode === "light";
+    return { image: matSvg(420, [
+      { freq: "0.008 0.01", seed: 5, tint: mix(paper, ink, 0.3).slice(0, 3), table: light ? "0 0 0.05 0.1" : "0 0 0.06 0.11" },
+      { freq: "0.55 0.55", octaves: 2, seed: 9, tint: mix(paper, ink, 0.5).slice(0, 3), kind: "discrete", table: light ? "0 0.035 0 0.055" : "0 0.04 0 0.06" },
+    ]) };
+  },
+  linen: (theme, mode) => {
+    // Flax cloth: broad tone drift, a thread field in each direction, and
+    // displaced SLUBS — the occasional thicker thread is what says woven
+    // rather than printed.
+    const { paper, ink } = theme[mode];
+    const light = mode === "light";
+    const thread = mix(paper, ink, light ? 0.45 : 0.4).slice(0, 3);
+    return { image: matSvg(440, [
+      { freq: "0.008 0.006", octaves: 2, seed: 3, tint: mix(paper, ink, 0.3).slice(0, 3), table: light ? "0 0 0.06 0.12" : "0 0 0.07 0.13" },
+      { freq: "0.45 0.02", octaves: 2, seed: 6, tint: thread, kind: "discrete", table: light ? "0 0.05 0 0.08" : "0 0.06 0 0.09" },
+      { freq: "0.02 0.45", octaves: 2, seed: 8, tint: thread, kind: "discrete", table: light ? "0 0.05 0 0.08" : "0 0.06 0 0.09" },
+      { freq: "0.09 0.005", seed: 12, tint: mix(paper, ink, light ? 0.6 : 0.5).slice(0, 3), kind: "discrete", table: "0 0 0 0 0 0 0 0.09 0 0.12", warp: { freq: "0.01 0.02", seed: 4, scale: 10 } },
+    ]) };
+  },
+  canvas: (theme, mode) => {
+    // Linen's coarse cousin: heavier threads, stronger slub, more tooth.
+    const { paper, ink } = theme[mode];
+    const light = mode === "light";
+    const thread = mix(paper, ink, light ? 0.5 : 0.45).slice(0, 3);
+    return { image: matSvg(440, [
+      { freq: "0.009 0.007", octaves: 2, seed: 5, tint: mix(paper, ink, 0.32).slice(0, 3), table: light ? "0 0 0.07 0.14" : "0 0 0.08 0.15" },
+      { freq: "0.22 0.015", octaves: 2, seed: 7, tint: thread, kind: "discrete", table: light ? "0 0.07 0 0.1" : "0 0.08 0 0.11" },
+      { freq: "0.015 0.22", octaves: 2, seed: 9, tint: thread, kind: "discrete", table: light ? "0 0.07 0 0.1" : "0 0.08 0 0.11" },
+      { freq: "0.07 0.006", seed: 13, tint: mix(paper, ink, light ? 0.62 : 0.52).slice(0, 3), kind: "discrete", table: "0 0 0 0 0 0 0 0.1 0 0.14", warp: { freq: "0.012 0.02", seed: 6, scale: 12 } },
+    ]) };
+  },
+  plaster: (theme, mode) => {
+    // Troweled plaster: two scales of soft mottle and a whisper of sand —
+    // no lines anywhere, which is exactly what a trowel leaves.
+    const { paper, ink } = theme[mode];
+    const light = mode === "light";
+    return { image: matSvg(460, [
+      { freq: "0.006 0.007", seed: 4, tint: mix(paper, ink, 0.32).slice(0, 3), table: light ? "0 0.02 0.08 0.14" : "0 0.02 0.09 0.15" },
+      { freq: "0.03 0.035", seed: 7, tint: mix(paper, ink, 0.24).slice(0, 3), table: "0 0 0.04 0.08" },
+      { freq: "0.4 0.4", octaves: 2, seed: 11, tint: mix(paper, ink, 0.45).slice(0, 3), kind: "discrete", table: "0 0.03 0 0.05" },
+    ]) };
+  },
+  concrete: (theme, mode) => {
+    // Cast concrete: plaster's mottle plus dark PITS and the shutter-board
+    // seams the pour was formed against — straight like the wood seams, and
+    // for the same reason: the formwork is milled, the surface is not.
+    const { paper, ink } = theme[mode];
+    const light = mode === "light";
+    const pit = deepen(paper, ink, mode, 0.55);
+    const mat = matSvg(460, [
+      { freq: "0.006 0.007", seed: 6, tint: mix(paper, ink, 0.3).slice(0, 3), table: light ? "0 0.02 0.08 0.14" : "0 0.02 0.09 0.15" },
+      { freq: "0.035 0.04", seed: 9, tint: mix(paper, ink, 0.22).slice(0, 3), table: "0 0 0.04 0.09" },
+      { freq: "0.3 0.3", octaves: 2, seed: 13, tint: pit, kind: "discrete", table: "0 0 0 0 0 0 0 0 0.1 0.14" },
+    ]);
+    const seam = css([...mix(paper, ink, 0.3).slice(0, 3), light ? 0.35 : 0.4]);
+    return { image: `repeating-linear-gradient(90deg, ${seam} 0 2px, transparent 2px 260px), ${mat}` };
+  },
+  marble: (theme, mode) => {
+    // Veined stone: soft clouds, and thin filaments bent hard by a
+    // displacement field — a vein is a straight crack that the stone grew
+    // around, which is what heavy warp on a sparse table draws. In dark
+    // mode the veins run LIGHT, the way dark marble actually figures.
+    const { paper, ink } = theme[mode];
+    const light = mode === "light";
+    return { image: matSvg(480, [
+      { freq: "0.009 0.011", seed: 5, tint: mix(paper, ink, 0.26).slice(0, 3), table: light ? "0 0 0.05 0.1" : "0 0 0.06 0.11" },
+      { freq: "0.012 0.05", octaves: 2, seed: 9, tint: mix(paper, ink, light ? 0.5 : 0.55).slice(0, 3), kind: "discrete", table: "0 0 0 0 0 0 0 0 0.14 0.18", warp: { freq: "0.008 0.012", seed: 6, scale: 55 } },
+    ]) };
+  },
+  leather: (theme, mode) => {
+    // Pebbled hide: ridged turbulence (not fractal fog) posterised into
+    // cells reads as grain creases; broad patches carry the burnish.
+    const { paper, ink } = theme[mode];
+    const light = mode === "light";
+    const crease = deepen(paper, ink, mode, 0.5);
+    return { image: matSvg(440, [
+      { freq: "0.006 0.006", octaves: 2, seed: 3, tint: mix(paper, ink, 0.32).slice(0, 3), table: light ? "0 0 0.06 0.13" : "0 0 0.07 0.14" },
+      { type: "turbulence", freq: "0.07 0.07", octaves: 4, seed: 8, tint: crease, kind: "discrete", table: light ? "0 0.1 0 0.02 0.08 0 0.05 0 0.11 0" : "0 0.12 0 0.03 0.09 0 0.06 0 0.13 0" },
+    ]) };
+  },
+  felt: (theme, mode) => {
+    // Pressed wool: dense fine fibre over soft tone — no structure at all,
+    // just depth, which is what makes it felt and not paper.
+    const { paper, ink } = theme[mode];
+    const light = mode === "light";
+    return { image: matSvg(400, [
+      { freq: "0.008 0.008", octaves: 2, seed: 5, tint: mix(paper, ink, 0.3).slice(0, 3), table: light ? "0 0 0.05 0.1" : "0 0 0.06 0.11" },
+      { freq: "0.55 0.55", seed: 7, tint: mix(paper, ink, 0.42).slice(0, 3), kind: "discrete", table: light ? "0 0.05 0.02 0.07" : "0 0.06 0.02 0.08" },
+      { freq: "0.3 0.3", octaves: 2, seed: 11, tint: mix(paper, ink, 0.36).slice(0, 3), table: "0 0 0.04 0.06" },
+    ]) };
+  },
+  brushed: (theme, mode) => {
+    // Brushed metal: extreme horizontal anisotropy — hairline drag marks
+    // under two broad sheen bands. The one material whose grain runs level.
+    const { paper, ink } = theme[mode];
+    const light = mode === "light";
+    return { image: matSvg(460, [
+      { freq: "0.003 0.06", octaves: 2, seed: 9, tint: mix(paper, ink, 0.25).slice(0, 3), table: light ? "0 0 0.05 0.1" : "0 0 0.06 0.12" },
+      { freq: "0.004 0.4", octaves: 2, seed: 6, tint: mix(paper, ink, light ? 0.45 : 0.4).slice(0, 3), kind: "discrete", table: light ? "0 0.05 0.02 0.08" : "0 0.06 0.02 0.09" },
+    ]) };
   },
   spots: (theme, mode) => {
     // A TILE, not five absolute dots — percentage positions with no size put
@@ -1045,13 +1187,16 @@ const DECOR_LAYERS = {
  * already carries its own. Without them a `bg-muted/30` band is 70% window
  * onto the loudest part of the wash, with band text sitting straight on it.
  */
-// A GROUND decor paints the whole page — boards, not a whisper of texture —
-// so it triggers everything a backdrop triggers: the root opens WIDE, the
-// bands dissolve, and muted text is refit. Measured before this existed
-// (2026-08-01): decor-only wood sat behind the 0.85 "barely open" veil and
-// the realism pass was invisible — the veil that is right for a paper-grain
-// whisper crushes a texture that is meant to BE the background.
-const GROUND_DECORS = new Set(["wood"]);
+// A GROUND decor paints the whole page — a material, not a whisper of
+// texture — so it triggers everything a backdrop triggers: the root opens
+// WIDE, the bands dissolve, and muted text is refit. Measured before this
+// existed (2026-08-01): decor-only wood sat behind the 0.85 "barely open"
+// veil and the realism pass was invisible — the veil that is right for a
+// paper-grain whisper crushes a texture that is meant to BE the background.
+// Exported for the tests and for the assignment tooling.
+export const GROUND_DECORS = new Set([
+  "wood", "paper", "linen", "canvas", "plaster", "concrete", "marble", "leather", "felt", "brushed",
+]);
 
 export function worldCss(theme) {
   const backdrop = theme.backdrop ?? "plain";

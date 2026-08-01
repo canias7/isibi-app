@@ -16,7 +16,7 @@ import {
   TYPE_SCALES, typeCss, DENSITIES, densityCss, BORDERS, borderCss, SHADOWS, shadowCss, SHADOW_STEPS,
   SURFACES, surfaceCss, ICON_STROKES, iconCss, TRACKINGS, trackingCss, LEADINGS, leadingCss, WEIGHTS, weightCss,
   BUTTONS, buttonsCss, INPUTS, inputsCss, BACKDROPS, DECORS, worldCss, DISPLAYS, displayCss, displayColor,
-  AMBIENTS, ambientCss, SKINS, skinCss, worldWorstGround, worldMutedColor,
+  AMBIENTS, ambientCss, SKINS, skinCss, worldWorstGround, worldMutedColor, GROUND_DECORS,
 } from "../builder/site-theme.mjs";
 import { SHORTLIST } from "../builder/site-fonts.mjs";
 
@@ -753,12 +753,15 @@ test("a backdrop dissolves the bands, and never by re-tinting the muted token", 
   assert.match(worldCss({ ...FIXTURE, decor: "grain" }), /--background: oklch\([^)]+ \/ 0\.8/, "decor-only should open the root barely, not wide");
   assert.ok(!worldCss({ ...FIXTURE, surface: "glass", backdrop: "aurora" }).includes("--background:"),
     "glass got a second --background on top of its surface's own");
-  // A GROUND decor is the exception: wood IS the background, so alone it
-  // opens the root backdrop-wide and dissolves the bands — behind the 0.85
-  // whisper veil the whole realism pass measured invisible (2026-08-01).
-  const wood = worldCss({ ...FIXTURE, decor: "wood" });
-  assert.match(wood, /:root \{ --background: oklch\([^)]+ \/ 0\.35/, "wood alone left the root at the whisper veil");
-  assert.match(wood, /\.bg-muted\\\/30[^{]*\{ background-color: transparent/, "wood alone left the band slabs standing");
+  // GROUND decors are the exception: a material IS the background, so alone
+  // it opens the root backdrop-wide and dissolves the bands — behind the
+  // 0.85 whisper veil the whole realism pass measured invisible (2026-08-01).
+  for (const g of GROUND_DECORS) {
+    assert.ok(DECORS[g], `${g} is a ground decor that is not on offer`);
+    const out = worldCss({ ...FIXTURE, decor: g });
+    assert.match(out, /:root \{ --background: oklch\([^)]+ \/ 0\.35/, `${g} alone left the root at the whisper veil`);
+    assert.match(out, /\.bg-muted\\\/30[^{]*\{ background-color: transparent/, `${g} alone left the band slabs standing`);
+  }
   // Decor alone is texture, not light — the bands may keep their tint there.
   assert.ok(!worldCss({ ...FIXTURE, decor: "grain" }).match(/bg-muted/), "grain alone dissolved the bands");
   // Glass clears its own band utilities in the surface block — once, not twice.
@@ -797,12 +800,15 @@ test("small text clears 4.5:1 on the worst ground a world can produce", () => {
   assert.match(worldCss({ ...FIXTURE, surface: "glass", backdrop: "aurora" }), /--muted-foreground/);
   assert.ok(!worldCss({ ...FIXTURE, decor: "grain" }).includes("--muted-foreground"),
     "decor-only re-tinted muted text for no reason");
-  // A ground decor refits too — its boards move the ground the way light
+  // A ground decor refits too — its material moves the ground the way light
   // does — and its worst stop is paper pushed toward INK, recomputed here by
   // hand so the branch cannot quietly reuse an accent stop that a
   // backdrop-less theme does not have.
+  for (const g of GROUND_DECORS) {
+    assert.match(worldCss({ ...FIXTURE, decor: g }), /:root \{ --muted-foreground: oklch/,
+      `${g} alone left muted text fit to bare paper`);
+  }
   const w = { ...FIXTURE, decor: "wood" };
-  assert.match(worldCss(w), /:root \{ --muted-foreground: oklch/, "wood alone left muted text fit to bare paper");
   for (const mode of ["light", "dark"]) {
     const r = ratio(lum(oklchToRgb(...worldMutedColor(w, mode))), lum(worldWorstGround(w, mode)));
     assert.ok(r >= 4.5, `wood/${mode}: fitted muted text is ${r.toFixed(2)}:1 on the board ground`);
