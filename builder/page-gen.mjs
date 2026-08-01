@@ -483,6 +483,14 @@ export const UI_COMPONENTS = [
   "order-timeline", "tracking-input", "delivery-eta", "return-window",
   "partial-shipment", "pack-checklist", "failed-delivery", "leave-safe-consent",
   "return-reason", "proof-of-delivery", "collection-code", "address-correct-note",
+  // Family signatures — the shape a whole KIND of site is built around, where
+  // the kit had nothing close. An institutional site talking to two audiences,
+  // an immersive top-of-page, a membership gate, the block a feed site ends
+  // with, and the event/publishing/teaching shapes the model was writing inline
+  // every time.
+  "audience-switch", "video-hero", "paywall", "email-capture",
+  "ticket-tiers", "install-command", "episode-row", "calculator-card",
+  "curriculum-path", "tour-dates", "bid-box", "store-badges",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
