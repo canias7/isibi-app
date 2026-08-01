@@ -16,7 +16,7 @@ import {
   TYPE_SCALES, typeCss, DENSITIES, densityCss, BORDERS, borderCss, SHADOWS, shadowCss, SHADOW_STEPS,
   SURFACES, surfaceCss, ICON_STROKES, iconCss, TRACKINGS, trackingCss, LEADINGS, leadingCss, WEIGHTS, weightCss,
   BUTTONS, buttonsCss, INPUTS, inputsCss, BACKDROPS, DECORS, worldCss, DISPLAYS, displayCss, displayColor,
-  AMBIENTS, ambientCss, EDGES, edgeCss, SKINS, skinCss,
+  AMBIENTS, ambientCss, SKINS, skinCss,
 } from "../builder/site-theme.mjs";
 import { SHORTLIST } from "../builder/site-fonts.mjs";
 
@@ -613,7 +613,7 @@ test("every theme declares every axis, with a value the axis offers", () => {
   // exactly the noise the optionality exists to avoid.
   const OPTIONAL = [["buttons", BUTTONS, "inherit"], ["inputs", INPUTS, "standard"],
     ["backdrop", BACKDROPS, "plain"], ["decor", DECORS, "none"], ["display", DISPLAYS, "ink"],
-    ["ambient", AMBIENTS, "still"], ["edge", EDGES, "straight"], ["skin", SKINS, "flat"]];
+    ["ambient", AMBIENTS, "still"], ["skin", SKINS, "flat"]];
   for (const [key, table, dflt] of OPTIONAL) {
     for (const option of Object.keys(table)) {
       assert.ok(THEME_NAMES.some((n) => (THEMES[n][key] ?? dflt) === option),
@@ -633,7 +633,6 @@ test("component axes are optional, but a declared value must be on offer", () =>
     if (t.decor !== undefined) assert.ok(DECORS[t.decor], `${name}.decor is "${t.decor}", which is not on offer`);
     if (t.display !== undefined) assert.ok(DISPLAYS[t.display], `${name}.display is "${t.display}", which is not on offer`);
     if (t.ambient !== undefined) assert.ok(AMBIENTS[t.ambient], `${name}.ambient is "${t.ambient}", which is not on offer`);
-    if (t.edge !== undefined) assert.ok(EDGES[t.edge], `${name}.edge is "${t.edge}", which is not on offer`);
     if (t.skin !== undefined) assert.ok(SKINS[t.skin], `${name}.skin is "${t.skin}", which is not on offer`);
   }
 });
@@ -654,15 +653,7 @@ test("ambient motion is an overlay that a reduced-motion request stops dead", ()
   assert.match(lively, /scale\(1\.0/, "lively lost its pulse");
 });
 
-test("edges mask the band utilities; skins reshape only the card", () => {
-  assert.equal(edgeCss("straight"), "", "straight must emit nothing");
-  assert.equal(edgeCss(undefined), "", "absent must emit nothing");
-  for (const edge of ["wave", "angle", "torn"]) {
-    const out = edgeCss(edge);
-    assert.match(out, /\.bg-muted\\\/30/, `${edge} must ride the band utilities`);
-    assert.match(out, /-webkit-mask-image/, `${edge} skipped the webkit prefix`);
-    assert.match(out, /preserveAspectRatio='none'/, `${edge} amplitude must stretch with the band`);
-  }
+test("skins reshape only the card", () => {
   assert.equal(skinCss("flat"), "", "flat must emit nothing");
   assert.equal(skinCss(undefined), "", "absent must emit nothing");
   assert.match(skinCss("frame"), /\.bg-card \{ outline: 1px solid var\(--border\); outline-offset/);

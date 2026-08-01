@@ -1047,10 +1047,18 @@ function veilCss(theme) {
 
 /**
  * The second wave of the redesign, ordered by the owner after the worlds
- * landed: AMBIENT (the light moves), EDGE (how bands meet the page), SKIN
- * (what a card is shaped like). All three are optional axes that default to
- * exactly today's rendering, all three derive from the theme's own palette
- * where they use colour at all, and all three retrofit through worlds.mjs.
+ * landed: AMBIENT (the light moves) and SKIN (what a card is shaped like).
+ * Both are optional axes that default to exactly today's rendering, derive
+ * from the theme's own palette where they use colour at all, and retrofit
+ * through worlds.mjs.
+ *
+ * AN EDGE AXIS IS DELIBERATELY ABSENT. It was built, rendered and REJECTED
+ * by the owner on sight (2026-08-01): wave, angle and torn band edges — SVG
+ * masks on the band utilities — all read as decoration fighting the page
+ * ("looks ugly", "the separate lines thing"). Recorded rather than silently
+ * dropped, because "we forgot it" and "we tried it and the owner killed it"
+ * look identical in a list of axis names a year later. Same discipline as
+ * the notch/scoop note above CORNERS.
  */
 export const AMBIENTS = {
   still: { label: "nothing moves — the ordinary page" },
@@ -1087,30 +1095,6 @@ export function ambientCss(theme) {
     `.dark body::after { background-image: ${layer("dark")}; }\n` +
     `@keyframes isibi-ambient { ${move} }\n` +
     `@media (prefers-reduced-motion: reduce) { body::after { animation: none; } }\n`;
-}
-
-export const EDGES = {
-  straight: { label: "bands meet the page square — the ordinary section" },
-  wave: { label: "bands roll in and out on a wave" },
-  angle: { label: "bands cut across on a slant" },
-  torn: { label: "bands tear off like paper" },
-};
-
-// One stretched SVG mask per style: viewBox 0-100 with wavy/slanted/jagged top
-// and bottom edges, preserveAspectRatio none so the amplitude rides at ~5% of
-// the band's height. Applied to the same band utilities the veils cover.
-const EDGE_PATHS = {
-  wave: "M0,5 C 12,0 20,10 32,5 C 44,0 52,10 64,5 C 76,0 84,10 100,5 L100,95 C 88,100 78,90 66,95 C 54,100 44,90 32,95 C 20,100 12,90 0,95 Z",
-  angle: "M0,6 L100,0 L100,94 L0,100 Z",
-  torn: "M0,3 L9,6 L17,1 L26,7 L34,2 L45,6 L53,1 L62,5 L71,2 L80,7 L90,3 L100,6 L100,96 L91,93 L82,98 L72,94 L61,99 L52,95 L41,98 L33,93 L24,97 L15,94 L7,98 L0,95 Z",
-};
-
-export function edgeCss(style) {
-  const path = EDGE_PATHS[style];
-  if (!path) return "";
-  const svg = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'><path d='${path}' fill='black'/></svg>")`;
-  const BANDS = ".bg-muted\\/30, .bg-muted\\/40, .bg-muted\\/50, .bg-muted\\/60";
-  return `${BANDS} { -webkit-mask-image: ${svg}; mask-image: ${svg}; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; }\n`;
 }
 
 export const SKINS = {
@@ -1292,7 +1276,6 @@ export const THEMES = {
   //     decor: "none",                // none | grain | stripes | check | grid | dots
   //                                   //   | scanlines | weave | spots | rays  (absent = none)
   //     ambient: "still",             // still | drift | lively  (absent = still)
-  //     edge: "straight",             // straight | wave | angle | torn  (absent = straight)
   //     skin: "flat",                 // flat | frame | ticket | tilt  (absent = flat)
   //     fonts: { heading: "<id>", body: "<id>" },   // ids from site-fonts.mjs
   //     light: { paper: [L, C, H], ink: [L, C, H], accent: [L, C, H] },
@@ -1427,7 +1410,6 @@ export function themeCss(nameOrTheme) {
     // nothing after it may re-decide what the page sits on.
     surfaceCss(theme) +
     worldCss(theme) +
-    edgeCss(theme.edge) +
     skinCss(theme.skin) +
     ambientCss(theme);
 }
