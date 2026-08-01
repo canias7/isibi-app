@@ -1,4 +1,4 @@
-# Components (1429 built, 25 to go)
+# Components (1440 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -119,6 +119,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ blur-sensitive
 ✓ blur-up
 ✓ booking-summary
+✓ boolean-filter
 ✓ branch-badge
 ✓ branching-note
 ✓ breadcrumb
@@ -193,6 +194,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ chunked-upload
 ✓ citation-list
 ✓ clamp-text
+✓ clear-filters
 ✓ clear-form
 ✓ click-collect
 ✓ click-outside
@@ -421,6 +423,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ event-card
 ✓ event-meta
 ✓ exchange-rate-note
+✓ exclude-filter
 ✓ exit-survey
 ✓ expandable-row
 ✓ expandable-text
@@ -466,7 +469,12 @@ A ✓ means it exists and a generated site can import it today.
 ✓ file-type-note
 ✓ file-version
 ✓ filter-bar
+✓ filter-conflict
+✓ filter-count
+✓ filter-drawer
+✓ filter-group
 ✓ filter-preset
+✓ filter-summary
 ✓ filter-tree
 ✓ find-replace
 ✓ first-run
@@ -711,6 +719,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ multi-column-list
 ✓ multi-date-picker
 ✓ multi-select
+✓ multi-select-filter
 ✓ multi-sort
 ✓ multi-sort-picker
 ✓ multi-step-form
@@ -745,6 +754,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ number-format
 ✓ number-input
 ✓ number-scrubber
+✓ numeric-filter
 ✓ ocr-note
 ✓ offline-banner
 ✓ offline-queue
@@ -892,6 +902,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ queue-depth
 ✓ queue-position
 ✓ quick-add
+✓ quick-filters
 ✓ quick-switcher
 ✓ quiet-hours
 ✓ quote

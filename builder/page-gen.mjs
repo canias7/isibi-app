@@ -609,6 +609,10 @@ export const UI_COMPONENTS = [
   // Pagination and loading
   "infinite-sentinel", "page-size", "jump-to-page", "partial-list-note", "lazy-section",
   "list-end", "loading-more",
+  // Filters, deeper
+  "filter-group", "exclude-filter", "filter-count", "clear-filters", "filter-summary",
+  "numeric-filter", "boolean-filter", "multi-select-filter", "filter-drawer", "quick-filters",
+  "filter-conflict",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
