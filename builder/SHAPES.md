@@ -18,6 +18,43 @@ a business, so the wedding-website / memorial / link-in-bio cluster has no
 members here — it lives in `BUSINESSES.md` and would need a sector of its own
 to come back.
 
+## Where each shape lands (mapped 2026-08-01)
+
+Every shape resolves to a layout family in `builder/site-layouts.mjs`, so a
+store renders like a store rather than as a generic landing page. 21 of the 23
+already had a true home in the owner's taxonomy — the variant column is where
+`LAYOUTS.md` itself places the trade (home services are booking-first's
+*call-now*, gyms its *class-schedule*). The two that had no home at all —
+**Online store** (77 sectors, the second-largest shape) and **Internal tool**
+(CRM, booking platforms) — got new families the same day: `store` and
+`workspace`, families 25 and 26, each with a rendered three-page reference app.
+
+| Shape | Family | Variant / note |
+|---|---|---|
+| Appointment booking | `booking-first` | |
+| Online store | **`store`** (new) | *single-product* and *catalogue* variants |
+| Enquiry-led professional | `trust-first` | |
+| Local trade callout | `booking-first` | *call-now* — the phone IS the booking channel |
+| Menu & reserve | `menu-first` | |
+| Courses & enrolment | `educational` | |
+| Timetable & membership | `booking-first` | *class-schedule*; a chain → `location-first` |
+| Listings & search | `inventory-first` | |
+| Regulated & gated | `regulated` | |
+| Portfolio & commission | `evidence-first` | |
+| Events & ticketing | `time-sensitive` | |
+| Bar & nightlife venue | `menu-first` | an event-led nightclub → `time-sensitive` |
+| Industrial spec & quote | `industrial` | |
+| Stays & accommodation | `immersive` | bookable rooms → `inventory-first` *date-picker* |
+| Care & residential | `trust-first` | |
+| Internal tool | **`workspace`** (new) | *board* and *queue* variants |
+| SaaS product | `product-first` | |
+| Vehicle sales & service | `inventory-first` | a repair garage → `booking-first` *call-now* |
+| Publication & feed | `feed-first` | |
+| Nonprofit & donate | `conversion-single` | |
+| Civic & information | `local-civic` | |
+| Developer & documentation | `docs-first` | |
+| Community & membership | `membership-gated` | |
+
 ---
 
 ## Enquiry-led professional

@@ -10719,3 +10719,51 @@ and still needs v9.** The pin is about that component, not about the blocks that
 the blocks is not a reason to unpin.
 
 Unit suite **589**, site-build 33/33, both template typechecks clean.
+
+---
+
+## 2026-08-01 — the sector vocabulary, and the two families the squeeze exposed
+
+Owner's session, in three moves. First: name the BUSINESSES, not the layouts — "forget about
+layout for now". `builder/BUSINESSES.md` (207 trades, 17 sectors) and `builder/SECTORS.md`
+(a flat list of 500 — 100 broad, then 400 specialisations beneath them). Second: "squeeze
+some, make sure they are reusables" → `builder/SHAPES.md`, the 500 sectors verified onto
+**23 reusable app shapes** — every sector claimed exactly once, checked by script before the
+doc was written, and the check caught four real errors on its first run. The finding is the
+top-weighting: four shapes absorb 267 of the 500 (appointment booking 80 · online store 77 ·
+enquiry-led professional 69 · trade callout 41). Third: "make the layouts now — a store
+looking like a store."
+
+**The mapping came out 21-of-23, and the two missing were the same two from every angle.**
+21 shapes already had a true home in the owner's LAYOUTS.md taxonomy (trades are
+booking-first's *call-now* variant, gyms its *class-schedule* — the owner's own doc placed
+them, so no new families were invented for those). The two with no home at all: **online
+store** (77 sectors, the second-largest shape — no ecommerce, cart, shop or checkout
+anywhere in the old 165 trade names) and **internal tool** (CRM, booking platforms — what
+the owner named FIRST when asked what the reference apps should be).
+
+- **Families 25 and 26: `store` and `workspace`** — LAYOUTS.md sections, module entries,
+  and a rendered three-page reference app each. Store is a small-batch ceramics shop
+  (index/product/checkout: category nav, was-prices on seconds, sold-out chips, cart lines,
+  shipping with real prices, payment pick, one place-order bar, confirmation in place).
+  Workspace is a five-person-firm CRM (index/records/record: the door with sign-in, the
+  pipeline as table AND board over the same records, one record with fields + activity
+  trail). The commerce and admin component waves from 2026-07-31 turn out to be exactly
+  what these needed — all 22 cited components existed already.
+- **The renders caught what the compiler could not, again.** The record's activity feed
+  read "in 3 weeks" — demo history dated in the future, honestly rendered by the
+  relative-time component. And both apps' column splits used `lg:` so they stacked at the
+  harness's 880px; `md:` is right. Both found by LOOKING at the screenshots, found by
+  nothing else. (Also: prose dates then disagreed with the corrected activity dates —
+  fixed in the same pass.)
+- **The harness grew `FAM_ONLY=store,workspace`** — scopes the run while iterating on one
+  family; unset, CI builds all 26 as before.
+- The shape→family mapping lives in SHAPES.md ("Where each shape lands"). Layout layer
+  still deliberately unwired — the "nothing imports this yet" tripwire stands.
+- **Pre-existing, not mine:** 11 unit failures on a fresh container are missing root
+  `node_modules` (`@neondatabase/serverless` not installed), same on clean main; `npm ci`
+  at root clears them.
+
+Unit suite **684/684** after root npm ci. The two new apps verified by the harness scoped
+run (6/6 pages built, rendered, no throws); the full 26-family fleet re-runs in CI on this
+push (`family apps` triggers on `family-pages/**` and `site-layouts.mjs`).

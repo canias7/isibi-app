@@ -17,7 +17,9 @@
 // LOOKED at, which is how the grey charts and the white-glow shadows were
 // caught after every typecheck in the repo passed.
 //
-// $0: no model call, no Neon project. One build server, 24 sequential builds.
+// $0: no model call, no Neon project. One build server, one sequential build
+// per family. FAM_ONLY=store,workspace scopes the run while iterating on one
+// family's pages; unset, every family builds, which is what CI does.
 import { spawn } from "node:child_process";
 import http from "node:http";
 import fs from "node:fs";
@@ -96,7 +98,8 @@ try {
   const pageErrors = [];
   page.on("pageerror", (e) => pageErrors.push(String(e).slice(0, 200)));
 
-  for (const name of FAMILY_NAMES) {
+  const ONLY = new Set((process.env.FAM_ONLY || "").split(",").map((s) => s.trim()).filter(Boolean));
+  for (const name of FAMILY_NAMES.filter((n) => ONLY.size === 0 || ONLY.has(n))) {
     const dir = path.join(TEMPLATE, "src/family-pages", name);
     const files = {};
     for (const p of FAMILIES[name].pages) {
