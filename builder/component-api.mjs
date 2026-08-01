@@ -757,7 +757,7 @@ export const COMPONENT_API = {
   "signature-block": "SignatureBlock(name?: string, role?: string, signedAt?: string | number | Date, signature?: string | null, label?: string = \"Signed\")",
   "signature-pad": "SignaturePad(onChange?: (dataUrl: string | null) => void, height?: number = 160)",
   "signup-form": "SignupForm(onSubmit: function, busy?: boolean, error?: string | null, terms?: React.ReactNode, loginHref?: string)",
-  "site-chrome": "SiteChrome(name: string, nav?: React.ReactNode, children: React.ReactNode, address?: string, phone?: string, note?: string)",
+  "site-chrome": "SiteChrome(name: string, tagline?: string, links?: NavLink[] = [], action?: object, children: React.ReactNode)",
   "site-footer": "SiteFooter(brand: string, tagline?: string, links?: { label: string; href: string }[] = [])",
   "site-header": "SiteHeader(brand: string, links?: NavLink[] = [], action?: object)",
   "sitemap-list": "SitemapList(groups: object[], current?: string)",

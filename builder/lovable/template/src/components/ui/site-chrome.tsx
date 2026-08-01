@@ -1,45 +1,54 @@
 import * as React from "react";
+import { SiteFooter } from "@/components/ui/site-footer";
+import { SiteHeader, type NavLink } from "@/components/ui/site-header";
 import { cn } from "@/lib/utils";
 
 /**
- * The header and footer every page of a site shares.
+ * The frame every page of a site sits in.
  *
- * WHY THIS EXISTS. A generated site used to put its header inside the home page,
+ * WHY IT EXISTS. A generated site used to put its header inside the home page,
  * so the home page was a site and every other page was a bare document — no
  * name, no navigation, no way back. Measured on the reference pages themselves:
- * three of four had no chrome at all. It is the same argument as `DataList` —
- * the most repeated markup we generate should be a component, because getting it
- * wrong is invisible until somebody lands on the second page.
+ * three of four had no chrome at all.
  *
- * `nav` IS A NODE AND NOT AN ARRAY OF PROPS, which looks like a lapse and is the
- * one honest option. TanStack types `<Link to>` as a union of the routes that
- * actually exist, so a `{ to: string }` prop would not compile without a cast —
- * and that cast would throw away the check that catches a link to a page the
- * site never built. The links stay in the page where they are typed; everything
- * around them lives here.
+ * IT COMPOSES `SiteHeader` AND `SiteFooter` RATHER THAN REDRAWING THEM. The
+ * first version of this file hand-wrote both, and they were worse than the ones
+ * already in the kit — `SiteHeader` is sticky, blurs what scrolls under it, and
+ * carries a real mobile menu in a Sheet rather than links that vanish under
+ * `md`. Rebuilding a component that already exists is the mistake this whole
+ * layer is meant to stop.
  *
- * The SKIP LINK is the reason this is worth a component even at one page. Every
- * keyboard user starts each page by tabbing through the whole header; two lines
- * fix it, and no generated page has ever written them.
+ * WHAT IT ADDS is the three things neither of them can own alone: a SKIP LINK,
+ * the page's single `<main>`, and the column that pins the footer to the bottom
+ * on a short page. The skip link is the reason this is worth a component even at
+ * one page — every keyboard user starts each page by tabbing through the whole
+ * header, two lines fix it, and no generated page has ever written them.
+ *
+ * LINKS ARE `#/...` HREFS, and that is not a compromise: the app uses hash
+ * history, so a hash anchor is real client-side navigation. Measured — no page
+ * load, window state survives, the router renders the new route. (`href="/"` is
+ * NOT: that is a full reload to the server root, which on a published site is
+ * the platform rather than the site.) Inside a page's own body prefer
+ * `<Link to="/book">`, which is typed against the routes that exist and fails
+ * the build if the page was never written.
  */
 export function SiteChrome({
   name,
-  nav,
+  tagline,
+  links = [],
+  action,
   children,
-  address,
-  phone,
-  note,
   className,
 }: {
   /** The business's name, in the header and the footer. */
   name: string;
-  /** The page's own typed <Link>s. */
-  nav?: React.ReactNode;
+  /** One line under the name in the footer — what the business is. */
+  tagline?: string;
+  /** `{ label, href }`, with hash hrefs: `{ label: "Book", href: "#/book" }`. */
+  links?: NavLink[];
+  /** The one thing you want them to do, as a button in the header. */
+  action?: { label: string; href?: string; onClick?: () => void };
   children: React.ReactNode;
-  address?: string;
-  phone?: string;
-  /** A closing line — opening times, a licence number, "est. 1994". */
-  note?: string;
   className?: string;
 }) {
   return (
@@ -51,12 +60,7 @@ export function SiteChrome({
         Skip to content
       </a>
 
-      <header className="border-b border-border">
-        <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-3 px-6 py-4">
-          <span className="text-lg font-semibold tracking-tight">{name}</span>
-          {nav && <nav className="flex items-center gap-5 text-sm">{nav}</nav>}
-        </div>
-      </header>
+      <SiteHeader brand={name} links={links} action={action} />
 
       {/* ONE <main> per page, and it is focusable so the skip link can land on
           it — a skip link pointing at something unfocusable moves the scroll and
@@ -65,21 +69,7 @@ export function SiteChrome({
         {children}
       </main>
 
-      <footer className="border-t border-border">
-        <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-6 py-6 text-sm text-muted-foreground">
-          <span>{address ?? name}</span>
-          <div className="flex flex-wrap items-center gap-4">
-            {note && <span>{note}</span>}
-            {/* A real `tel:` link, because on the device most visitors are using
-                it is the difference between a phone number and a phone call. */}
-            {phone && (
-              <a href={`tel:${phone.replace(/[^\d+]/g, "")}`} className="hover:text-foreground">
-                {phone}
-              </a>
-            )}
-          </div>
-        </div>
-      </footer>
+      <SiteFooter brand={name} tagline={tagline} links={links} />
     </div>
   );
 }

@@ -36,7 +36,18 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-export const Route = createFileRoute("/book")({ component: Book });
+export const Route = createFileRoute("/book")({
+  component: Book,
+  // Every Book button on the site carries its service here — the price list's
+  // per-row button navigates with `search: { service: r.name }` — so the form
+  // opens half-filled. Narrowing here is also what TYPES that navigate call.
+  // The return type marks the key OPTIONAL (`service?:`), not merely
+  // possibly-undefined — without that, every <Link to="/book"> in the site is
+  // forced to spell out a search object.
+  validateSearch: (search: Record<string, unknown>): { service?: string } => ({
+    service: typeof search.service === "string" ? search.service : undefined,
+  }),
+});
 
 type Service = Row & { name: string; price: number | null };
 
@@ -50,15 +61,13 @@ type Appointment = Row & { claim_token: string | null };
 // once per return.
 const CHROME = {
   name: "Cutler Row",
-  address: "14 Cutler Row, Sheffield S1",
-  phone: "0114 270 0000",
-  nav: (
-    <>
-      <Link to="/">Home</Link>
-      <Link to="/book">Book</Link>
-      <Link to="/account">Account</Link>
-    </>
-  ),
+  tagline: "Six chairs on Cutler Row. Walk in, or book one.",
+  links: [
+    { label: "Home", href: "#/" },
+    { label: "Book", href: "#/book" },
+    { label: "Account", href: "#/account" },
+  ],
+  action: { label: "Book a chair", href: "#/book" },
 };
 
 const SLOTS = [
@@ -90,6 +99,9 @@ const booking = z.object({
 type Booking = z.infer<typeof booking>;
 
 function Book() {
+  // A service name that no longer exists simply leaves the Select on its
+  // placeholder — a stale link half-fills instead of breaking.
+  const { service: preselected } = Route.useSearch();
   const services = useRows<Service>("services", { order: "price", dir: "asc" });
   const create = useCreateRow<Appointment>("appointments");
   const [claim, setClaim] = useState<string | null>(null);
@@ -97,7 +109,7 @@ function Book() {
   const form = useForm<Booking>({
     resolver: zodResolver(booking),
     defaultValues: {
-      service: "",
+      service: preselected ?? "",
       customer_name: "",
       customer_phone: "",
       date: "",

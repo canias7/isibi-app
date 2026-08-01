@@ -14,7 +14,7 @@
 // The chrome wraps the page ONCE, with the three states switching inside it. A
 // component that returns early into a second copy of the layout is how a header
 // ends up on two of a page's three states.
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -51,15 +51,13 @@ type Profile = Row & { nickname: string | null };
 // once per return.
 const CHROME = {
   name: "Cutler Row",
-  address: "14 Cutler Row, Sheffield S1",
-  phone: "0114 270 0000",
-  nav: (
-    <>
-      <Link to="/">Home</Link>
-      <Link to="/book">Book</Link>
-      <Link to="/account">Account</Link>
-    </>
-  ),
+  tagline: "Six chairs on Cutler Row. Walk in, or book one.",
+  links: [
+    { label: "Home", href: "#/" },
+    { label: "Book", href: "#/book" },
+    { label: "Account", href: "#/account" },
+  ],
+  action: { label: "Book a chair", href: "#/book" },
 };
 
 const credentials = z.object({

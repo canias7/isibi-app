@@ -38,15 +38,13 @@ type Appointment = Row & {
 // once per return.
 const CHROME = {
   name: "Cutler Row",
-  address: "14 Cutler Row, Sheffield S1",
-  phone: "0114 270 0000",
-  nav: (
-    <>
-      <Link to="/">Home</Link>
-      <Link to="/book">Book</Link>
-      <Link to="/account">Account</Link>
-    </>
-  ),
+  tagline: "Six chairs on Cutler Row. Walk in, or book one.",
+  links: [
+    { label: "Home", href: "#/" },
+    { label: "Book", href: "#/book" },
+    { label: "Account", href: "#/account" },
+  ],
+  action: { label: "Book a chair", href: "#/book" },
 };
 
 function Manage() {
