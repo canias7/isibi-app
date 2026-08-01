@@ -1,4 +1,4 @@
-# Components (1621 built, 25 to go)
+# Components (1645 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -79,6 +79,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ attachment-limit
 ✓ attachment-list
 ✓ attachment-tray
+✓ attestation-box
 ✓ audience-switch
 ✓ audio-player
 ✓ audio-recorder
@@ -138,6 +139,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ breadcrumb-collapse
 ✓ breadcrumb-path
 ✓ break-even-note
+✓ breaking-change-note
 ✓ breakpoint-badge
 ✓ bubble
 ✓ bucket-picker
@@ -158,6 +160,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ callout
 ✓ camera-access
 ✓ camera-capture
+✓ canary-note
 ✓ cancel-policy
 ✓ canned-reply
 ✓ capacity-bar
@@ -189,9 +192,11 @@ A ✓ means it exists and a generated site can import it today.
 ✓ cell-tooltip
 ✓ center-box
 ✓ centered-form
+✓ certification-row
 ✓ change-request
 ✓ change-summary
 ✓ changelog-entry
+✓ changelog-feed
 ✓ channel-preference
 ✓ channel-toggle
 ✓ chapter-list
@@ -260,6 +265,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ completeness-bar
 ✓ completion-meter
 ✓ completion-ring
+✓ compliance-checklist
 ✓ condition-row
 ✓ conditional-field
 ✓ conditional-section
@@ -378,6 +384,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ density-toggle
 ✓ dependent-select
 ✓ deposit-line
+✓ deprecation-note
 ✓ description-list
 ✓ detail-panel
 ✓ device-list
@@ -394,6 +401,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ directions-link
 ✓ directory-list
 ✓ dirty-indicator
+✓ disclosure-block
 ✓ disconnect-warning
 ✓ discount-input
 ✓ dish-card
@@ -485,6 +493,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ exit-survey
 ✓ expandable-row
 ✓ expandable-text
+✓ expiry-audit
 ✓ expiry-batch
 ✓ expiry-input
 ✓ export-button
@@ -671,6 +680,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ json-view
 ✓ jump-to
 ✓ jump-to-page
+✓ jurisdiction-picker
 ✓ kanban-board
 ✓ kbd
 ✓ kbd-chord
@@ -782,6 +792,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ message-status
 ✓ metric-delta
 ✓ metric-row
+✓ migration-guide-link
 ✓ milestone-dot
 ✓ min-max-field
 ✓ min-order-note
@@ -929,6 +940,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ pick-remaining
 ✓ pickup-point
 ✓ picture-in-picture
+✓ pin-version
 ✓ pinned-nav
 ✓ pivot-table
 ✓ place-order-bar
@@ -939,6 +951,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ playback-speed
 ✓ plural
 ✓ pluralisation-preview
+✓ policy-version
 ✓ poll-composer
 ✓ poll-result
 ✓ popover
@@ -1056,6 +1069,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ recommended-flag
 ✓ reconnect-strip
 ✓ record-header
+✓ record-keeping-note
 ✓ recovery-codes
 ✓ recovery-steps
 ✓ recurrence-summary
@@ -1067,10 +1081,12 @@ A ✓ means it exists and a generated site can import it today.
 ✓ refund-line
 ✓ regenerate-button
 ✓ region-picker
+✓ regulation-note
 ✓ reject-reason
 ✓ related-list
 ✓ related-nav
 ✓ relative-date
+✓ release-freeze
 ✓ reminder-set
 ✓ reorder-buttons
 ✓ reorder-list
@@ -1111,6 +1127,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ return-reason
 ✓ return-window
 ✓ reveal
+✓ reverse-charge-note
 ✓ revert-button
 ✓ revert-panel
 ✓ review-card
@@ -1125,6 +1142,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ role-picker
 ✓ rollback-confirm
 ✓ rollback-note
+✓ rollout-progress
 ✓ room-card
 ✓ rotate-control
 ✓ rounding-line
@@ -1421,6 +1439,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tag-select
 ✓ takedown-note
 ✓ target-vs-actual
+✓ tax-breakdown
+✓ tax-exempt-note
 ✓ tax-toggle
 ✓ taxonomy-picker
 ✓ team-grid
@@ -1544,6 +1564,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ unsaved-guard
 ✓ untagged-note
 ✓ upgrade-badge
+✓ upgrade-prompt
 ✓ upload-progress
 ✓ upload-queue
 ✓ uptime-bar
@@ -1563,8 +1584,10 @@ A ✓ means it exists and a generated site can import it today.
 ✓ verified-badge
 ✓ verified-claim
 ✓ verify-pending
+✓ version-badge
 ✓ version-conflict
 ✓ version-history
+✓ version-picker
 ✓ video-embed
 ✓ video-hero
 ✓ video-player
@@ -1609,6 +1632,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ width-preset
 ✓ winner-badge
 ✓ wishlist-button
+✓ withholding-note
 ✓ wizard-exit-guard
 ✓ wizard-nav
 ✓ word-count

@@ -677,6 +677,14 @@ export const UI_COMPONENTS = [
   // Theming and customisation
   "palette-preview", "font-preview", "spacing-preview", "logo-slot", "theme-reset",
   "custom-css-note", "preview-frame", "brand-check", "theme-export",
+  // Tax and compliance surfaces
+  "tax-breakdown", "tax-exempt-note", "reverse-charge-note", "jurisdiction-picker", "compliance-checklist",
+  "regulation-note", "certification-row", "expiry-audit", "policy-version", "attestation-box",
+  "record-keeping-note", "disclosure-block", "withholding-note",
+  // Versioning and releases
+  "version-badge", "changelog-feed", "upgrade-prompt", "deprecation-note", "breaking-change-note",
+  "migration-guide-link", "version-picker", "rollout-progress", "canary-note", "pin-version",
+  "release-freeze",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
