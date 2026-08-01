@@ -497,6 +497,13 @@ export const UI_COMPONENTS = [
   "version-conflict", "background-job", "job-progress", "job-failed", "resume-upload",
   "partial-save", "retry-countdown", "connection-quality", "sync-conflict-list", "retry-budget",
   "write-queue",
+  // Undo, history and revisions. What happened, who did it, and how to get back to how it was.
+  "undo-stack", "action-history", "revert-panel", "snapshot-list", "restore-point",
+  "diff-inline", "blame-gutter", "revision-slider", "change-summary", "who-changed",
+  "rollback-confirm", "draft-vs-live", "autosave-history", "merge-preview", "history-scrub",
+  // Selection and bulk mechanics. What 'select all' means this time, and what is actually ticked.
+  "range-select", "cross-page-selection", "invert-selection", "selection-limit", "select-scope",
+  "marquee-select", "selection-tray", "pick-remaining",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

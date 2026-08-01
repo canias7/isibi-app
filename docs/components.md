@@ -1,4 +1,4 @@
-# Components (1078 built, 25 to go)
+# Components (1101 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -6,6 +6,7 @@ A ✓ means it exists and a generated site can import it today.
 
 ✓ accordion
 ✓ account-menu
+✓ action-history
 ✓ activity-dot
 ✓ activity-feed
 ✓ add-to-cart
@@ -47,6 +48,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ author-byline
 ✓ auto-grid
 ✓ autofill-note
+✓ autosave-history
 ✓ availability-grid
 ✓ availability-legend
 ✓ availability-toggle
@@ -71,6 +73,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ big-number
 ✓ billing-summary
 ✓ blackout-dates
+✓ blame-gutter
 ✓ block-menu
 ✓ blocked-note
 ✓ blocking-overlay
@@ -121,6 +124,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ center-box
 ✓ centered-form
 ✓ change-request
+✓ change-summary
 ✓ changelog-entry
 ✓ channel-toggle
 ✓ chapter-list
@@ -212,6 +216,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ course-card
 ✓ cover-image
 ✓ cron-builder
+✓ cross-page-selection
 ✓ csat-face
 ✓ csv-import
 ✓ cta-band
@@ -252,6 +257,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ device-list
 ✓ dialog
 ✓ did-you-mean
+✓ diff-inline
 ✓ diff-stat
 ✓ diff-text
 ✓ digest-row
@@ -272,6 +278,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ download-menu
 ✓ draft-badge
 ✓ draft-recovery
+✓ draft-vs-live
 ✓ drag-handle
 ✓ drag-list
 ✓ drag-preview
@@ -396,6 +403,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ high-contrast
 ✓ highlight-match
 ✓ hint-dot
+✓ history-scrub
 ✓ holiday-notice
 ✓ honeypot
 ✓ hotkey-badge
@@ -428,6 +436,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ input-otp
 ✓ install-command
 ✓ instant-results
+✓ invert-selection
 ✓ invite-form
 ✓ invoice-header
 ✓ invoice-lines
@@ -493,6 +502,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ markdown-preview
 ✓ marker
 ✓ marquee
+✓ marquee-select
 ✓ masked-input
 ✓ masonry
 ✓ material-badge
@@ -511,6 +521,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ mention-textarea
 ✓ menu-section
 ✓ menubar
+✓ merge-preview
 ✓ message
 ✓ message-scroller
 ✓ message-status
@@ -615,6 +626,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ personalisation-field
 ✓ phase-bar
 ✓ phone-input
+✓ pick-remaining
 ✓ pickup-point
 ✓ pinned-nav
 ✓ pivot-table
@@ -686,6 +698,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ radius-slider
 ✓ rail
 ✓ range-input
+✓ range-select
 ✓ range-summary
 ✓ range-trim
 ✓ ranking-list
@@ -730,6 +743,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ resolve-thread
 ✓ response-rating
 ✓ response-summary
+✓ restore-point
 ✓ result-count
 ✓ result-preview
 ✓ resume-upload
@@ -740,14 +754,17 @@ A ✓ means it exists and a generated site can import it today.
 ✓ return-window
 ✓ reveal
 ✓ revert-button
+✓ revert-panel
 ✓ review-card
 ✓ review-form
 ✓ review-stars
+✓ revision-slider
 ✓ rich-text
 ✓ rich-tooltip
 ✓ ripple
 ✓ role-badge
 ✓ role-picker
+✓ rollback-confirm
 ✓ rollback-note
 ✓ room-card
 ✓ rounding-note
@@ -800,8 +817,11 @@ A ✓ means it exists and a generated site can import it today.
 ✓ security-score
 ✓ select
 ✓ select-all-banner
+✓ select-scope
 ✓ selectable-list
+✓ selection-limit
 ✓ selection-toolbar
+✓ selection-tray
 ✓ sentiment-chip
 ✓ seo-jsonld
 ✓ separator
@@ -861,6 +881,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ snackbar
 ✓ snap-carousel
 ✓ snap-sections
+✓ snapshot-list
 ✓ snooze-menu
 ✓ snooze-until
 ✓ social-links
@@ -1024,6 +1045,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ typing-dots
 ✓ typing-indicator
 ✓ undo-redo
+✓ undo-stack
 ✓ undo-toast
 ✓ uniqueness-check
 ✓ unit-convert
@@ -1071,6 +1093,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ well
 ✓ whats-new
 ✓ whats-new-dot
+✓ who-changed
 ✓ winner-badge
 ✓ wishlist-button
 ✓ word-count
