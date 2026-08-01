@@ -543,6 +543,14 @@ export const REFERENCE_PAGES = [
 // The rhythm is BANDS: full-bleed hero, then sections alternating between the
 // page colour and \`bg-muted\`, each with its own inner container. A page where
 // every section is \`mt-14\` inside one narrow column reads as a document.
+//
+// THE PAGES ARE WIRED TOGETHER — owner's call. One chrome navigates between
+// them, the price rows carry their service into /book, the form hands back the
+// claim link /manage opens, and the member pages sit behind the real session,
+// so the site WORKS the day it is generated. What stays written into the page
+// is the owner's own facts — hours, the team, the gallery captions — and that
+// is a data decision, not a wiring one: those cost no query and cannot render
+// empty on a fresh site.
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 
 import { useRows, type Row } from "@/lib/rows";
