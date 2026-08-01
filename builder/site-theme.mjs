@@ -627,7 +627,7 @@ const GLASS_ALPHA = {
   // ink at low alpha, not the paper at high, or it reads as solid with extra
   // steps. Popovers stay nearly opaque in both modes: a menu floats over
   // arbitrary content, and legibility there is worth more than the trick.
-  dark: { background: 0.45, card: 0.12, popover: 0.88 },
+  dark: { background: 0.66, card: 0.12, popover: 0.88 },
 };
 
 /**
@@ -645,7 +645,10 @@ function canvasCss(theme) {
     const hues = [(H + 300) % 360, H, (H + 35) % 360, (H + 250) % 360];
     const Ls = mode === "light" ? [0.86, 0.85, 0.87, 0.88] : [0.34, 0.3, 0.32, 0.3];
     const Cs = mode === "light" ? [0.14, 0.16, 0.13, 0.12] : [0.14, 0.15, 0.13, 0.12];
-    const As = mode === "light" ? [0.8, 0.75, 0.7, 0.6] : [0.8, 0.75, 0.7, 0.55];
+    // Dark auroras are GLOWS in a dark room, not floodlights — at light-mode
+    // alphas the paper never reads as black and the whole page goes murky
+    // grey-violet (measured on the first enriched-page render).
+    const As = mode === "light" ? [0.8, 0.75, 0.7, 0.6] : [0.42, 0.38, 0.34, 0.28];
     const at = [["50rem", "8%", "4%"], ["56rem", "94%", "14%"], ["48rem", "78%", "72%"], ["52rem", "12%", "92%"]];
     return hues.map((h, i) => stop([Ls[i], Cs[i], h, As[i]], ...at[i])).join(", ");
   };
