@@ -14,7 +14,7 @@ function P() {
   const [found, setFound] = useState(false);
   return (
     <div className="min-h-svh bg-background text-foreground">
-      <header className="border-b border-border"><div className="mx-auto flex max-w-xl items-center justify-between px-6 py-3 text-sm"><span className="font-medium">Resident parking — application status</span><a className="text-muted-foreground underline underline-offset-4" href="#/">Renew instead</a></div></header>
+      <header><div className="mx-auto flex max-w-xl items-center justify-between px-6 py-3 text-sm"><span className="font-medium">Resident parking — application status</span><a className="text-muted-foreground underline underline-offset-4" href="#/">Renew instead</a></div></header>
       <main className="mx-auto max-w-xl px-6 py-10">
         {found ? (
           <div>

@@ -10,7 +10,7 @@ export const Route = createFileRoute("/done")({ component: P });
 function P() {
   return (
     <div className="min-h-svh bg-background text-foreground">
-      <header className="border-b border-border"><div className="mx-auto max-w-xl px-6 py-3 text-sm font-medium">Resident parking — renewed</div></header>
+      <header><div className="mx-auto max-w-xl px-6 py-3 text-sm font-medium">Resident parking — renewed</div></header>
       <main className="mx-auto max-w-xl px-6 py-10">
         <SuccessPanel title="Permit renewed to August 2027" description="Nothing to display in the windscreen — enforcement reads the plate." />
         <div className="mt-6 flex items-center justify-between rounded-lg border p-4">

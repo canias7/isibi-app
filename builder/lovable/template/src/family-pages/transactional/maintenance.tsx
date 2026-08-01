@@ -9,7 +9,7 @@ export const Route = createFileRoute("/maintenance")({ component: P });
 function P() {
   return (
     <div className="min-h-svh bg-background text-foreground">
-      <header className="border-b border-border"><div className="mx-auto max-w-xl px-6 py-3 text-sm font-medium">Resident parking</div></header>
+      <header><div className="mx-auto max-w-xl px-6 py-3 text-sm font-medium">Resident parking</div></header>
       <main className="mx-auto max-w-xl px-6">
         <MaintenancePage
           backAt="2026-08-02T06:00:00"

@@ -19,7 +19,7 @@ function P() {
   const [voice, setVoice] = useState("Make it warmer");
   return (
     <div className="min-h-svh bg-background font-mono text-foreground">
-      <header className="border-b border-border">
+      <header>
         <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-3 text-sm">
           <span className="font-semibold">reword</span>
           <span className="text-xs uppercase tracking-widest text-muted-foreground">v2.4 · free · no account to try</span>
