@@ -806,6 +806,29 @@ export const THEMES = {
     dark: { paper: [0.16, 0.03, 288], ink: [0.95, 0.012, 285], accent: [0.73, 0.14, 285] },
   },
 
+  /**
+   * EDITORIAL — the second of the owner's set (2026-08-01).
+   *
+   * Print, not product: a page from a magazine that happens to be a website.
+   * Every axis is the print decision — Playfair over a calm humanist sans,
+   * GRAND scale so display type carries, the editorial tracking ramp (display
+   * tight, caps letterspaced — the magazine move the ramp is named for),
+   * CONTRAST weights (light body, heavy heads), square corners, hairline
+   * rules, and FLAT elevation, because print has no drop shadows and one
+   * shadow would make it a web template again. Ivory paper, warm ink, and an
+   * oxblood accent that sits in red's lane — which is exactly what
+   * separateFromAccent exists for, and this theme is what exercises it.
+   */
+  editorial: {
+    label: "Editorial — a printed page that happens to be a website; ivory, serif display, hairline rules",
+    radius: "0rem", corner: "round",
+    scale: "grand", tracking: "editorial", leading: "open", weight: "contrast",
+    density: "airy", border: "hairline", shadow: "flat", icon: "fine",
+    fonts: { heading: "playfair-display", body: "source-sans-3" },
+    light: { paper: [0.965, 0.012, 85], ink: [0.19, 0.012, 60], accent: [0.36, 0.11, 28] },
+    dark: { paper: [0.165, 0.01, 60], ink: [0.94, 0.012, 85], accent: [0.52, 0.11, 26] },
+  },
+
   // The six that were here before the reset — ledger, atrium, bourse, vellum,
   // coppice, atelier — were removed on the owner's call, with the new set
   // being specified one at a time. They are in git history at 8b6786b if any
