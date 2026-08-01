@@ -956,6 +956,7 @@ export const COMPONENT_API = {
   "signature-pad": "SignaturePad(onChange?: (dataUrl: string | null) => void, height?: number = 160)",
   "signature-request": "SignatureRequest(signatories: Signatory[], onRemind?: (name: string) => void)",
   "signup-form": "SignupForm(onSubmit: function, busy?: boolean, error?: string | null, terms?: React.ReactNode, loginHref?: string)",
+  "site-chrome": "SiteChrome(name: string, tagline?: string, links?: NavLink[] = [], action?: object, children: React.ReactNode)",
   "site-footer": "SiteFooter(brand: string, tagline?: string, links?: { label: string; href: string }[] = [])",
   "site-header": "SiteHeader(brand: string, links?: NavLink[] = [], action?: object)",
   "sitemap-list": "SitemapList(groups: object[], current?: string)",

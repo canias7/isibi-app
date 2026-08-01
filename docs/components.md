@@ -1,4 +1,4 @@
-# Components (1298 built, 25 to go)
+# Components (1299 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -1013,6 +1013,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ signature-pad
 ✓ signature-request
 ✓ signup-form
+✓ site-chrome
 ✓ site-footer
 ✓ site-header
 ✓ sitemap-list

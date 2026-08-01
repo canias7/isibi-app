@@ -1,8 +1,23 @@
 # The page generator — contract
 
-What the generator must emit, derived from the working reference page at
-`lovable/template/src/routes/index.tsx`. That file is the spec; this document
-is why it looks the way it does. When the two disagree, the file wins.
+What the generator must emit, derived from the working reference pages in
+`lovable/template/src/routes/`. Those files are the spec; this document is why
+they look the way they do. When the two disagree, the files win.
+
+**FOUR PAGES OF ONE SITE, not one page** — `index.tsx` (chrome, a list, a link
+to the form), `book.tsx` (validation, taken slots, the claim link back),
+`manage.tsx` (one row opened by a claim token) and `account.tsx` (sign in, then
+read a member-scoped table). They were one page until 2026-08-01, and what the
+single page could not show was measured rather than guessed: of the rules that
+cite them, `usePublicRows` had 8 mentions and 0 demonstrations, `useMember` 10
+and 0, the claim hooks 1 each and 0, and all 11 motion effects were named and
+none shown. A rule the model is told but never shown is one it satisfies by
+inventing a shape, and the invented shape is what burns the single repair pass.
+
+They are a CONSTANT set rather than chosen per build, because they ride in the
+system block under `cache_control: ephemeral`: constant means a cache read on
+every build after the first, while varying them by schema would break the cache
+on every build and cost far more than the pages it saved.
 
 ## Where it sits
 
