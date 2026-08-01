@@ -25,7 +25,9 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 // Game builder (Phase 3): same generate→build→publish pipeline, engine swapped for
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
-import { SHORTLIST, resolvePair, shortlistForPrompt } from "./builder/site-fonts.mjs";
+import { SHORTLIST, resolvePair } from "./builder/site-fonts.mjs";
+import { THEME_IDS } from "./builder/site-theme-registry.mjs";
+import { FAMILY_NAMES, layoutDirective } from "./builder/site-layouts.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)
 // bakes kaplay + a headless Chromium for the smoke test. Runs to zero after idle.
@@ -2577,6 +2579,18 @@ const SITE_BUILD_FEE = 2;
 // points at a font that was never bundled, and it renders as the fallback.
 const SITE_FONT_IDS = SHORTLIST.map((f) => f.id);
 
+// Same argument as the fonts enum, and the same measurement behind it. All 500
+// theme names cost ~1,525 tokens on every design call; the same list carrying
+// each theme's one-line label costs ~7,019 — which is the figure the fonts field
+// refused when it declined to name 2,096 Fontsource families. The keys carry
+// their own meaning (`broadsheet`, `bauhaus`, `zine`), so labels buy sharper
+// picking at four and a half times the price, on every build, forever.
+const SITE_THEME_IDS = THEME_IDS;
+// Derived, never restated: a family named here that site-layouts.mjs does not
+// declare produces a directive of nothing, and the page prompt silently loses
+// its layout while every test still passes.
+const SITE_FAMILY_IDS = FAMILY_NAMES;
+
 const SITE_SCHEMA_TOOL = {
   name: "design_schema",
   description: "Design the database tables a site needs, as an isibi.schema.json.",
@@ -2766,8 +2780,30 @@ const SITE_SCHEMA_TOOL = {
         },
         required: ["heading", "body"],
       },
+      // The LOOK, as an enum for the same reason the typeface is one: a name
+      // outside this list would render as the untouched template while the
+      // response claimed a theme, which is the failure shape the font write
+      // exists to end.
+      theme: {
+        type: "string",
+        enum: SITE_THEME_IDS,
+        description:
+          "The site's visual world. Pick for the TRADE and its mood, not for novelty — the name says what it is " +
+          "(broadsheet, bauhaus, zine, apothecary). A barber shop and a law firm want different worlds; " +
+          "most businesses want a quiet one. This sets colour, type feeling, corners, borders and shadows together.",
+      },
+      // The SHAPE. Distinct from the theme on purpose: a theme decides how a
+      // site looks, a family decides what its pages ARE and in what order.
+      family: {
+        type: "string",
+        enum: SITE_FAMILY_IDS,
+        description:
+          "The kind of site this is, which decides the page shapes rather than the paint. " +
+          "booking-first is a slot picker; store is a product grid and a basket; workspace is signed-in software; " +
+          "menu-first is a menu and a table. Pick the one whose PAGES match what this business needs.",
+      },
     },
-    required: ["brand", "slug", "tables", "seed", "description", "fonts"],
+    required: ["brand", "slug", "tables", "seed", "description", "fonts", "theme", "family"],
   },
 };
 
@@ -3387,7 +3423,7 @@ async function fetchSiteFonts(pair) {
 // all? — live in builder/publish-pages.mjs, which takes every side effect as an
 // injected function so they can be driven against fakes in test/publish-pages.test.mjs.
 // This is only the wiring that supplies the real ones.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, family }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
@@ -3397,8 +3433,13 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
     // it is logged here or nowhere. A failed FIRST attempt propagates and is
     // logged by the route, so logging it here too would only duplicate it.
     generate: async (fix) => {
-      if (!fix) return generateSitePages(env, brief, spec, brand);
-      try { return await generateSitePages(env, brief, spec, brand, fix); }
+      // The family reaches the model as a DIRECTIVE appended to the brief, not
+      // as a bare name: `layoutDirective` is where site-layouts.mjs states the
+      // hero, the body and the primary action for that family, and a name on
+      // its own would leave the model to guess all three.
+      const withLayout = family ? `${brief}\n\n${layoutDirective(family)}` : brief;
+      if (!fix) return generateSitePages(env, withLayout, spec, brand);
+      try { return await generateSitePages(env, withLayout, spec, brand, fix); }
       catch (e) { console.error("page repair failed:", slug, (e && (e.detail || e.message))); throw e; }
     },
     compile: async (pages) => {
@@ -3410,6 +3451,11 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ files, slug, title: brand,
           fonts: { heading: fontPair.heading.id, body: fontPair.body.id },
+          // Passed by NAME, resolved inside the container against the same
+          // registry the enum came from. Sending the resolved object instead
+          // would put a second copy of the theme on the wire and let the two
+          // drift; the name is the whole contract.
+          theme: theme || null,
           fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined }),
       }));
       return await r.json().catch(() => ({ ok: false, stage: "build", error: "the build service returned no JSON" }));
@@ -5687,6 +5733,12 @@ async function handleRequest(request, env, ctx) {
             brief: briefForPages({ brief, priorBrief }), spec: pageSpec, slug, brand,
             siteDescription, ogImage,
             fonts: (designed && designed.fonts) || (body && body.fonts) || null,
+            // Same fallback chain as fonts, and it matters most on a REVISE:
+            // the designer sees only the instruction then, so it names no theme
+            // and no family, and without the body fallback every revise would
+            // strip the site back to the untouched template.
+            theme: (designed && designed.theme) || (body && body.theme) || null,
+            family: (designed && designed.family) || (body && body.family) || null,
             auth: request.headers.get("Authorization") || "",
           });
         } catch (e) {

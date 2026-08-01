@@ -197,11 +197,16 @@ test("a directive carries the whole contract, and refuses everything unknown", (
   assert.ok(d.includes(FAMILIES["menu-first"].variants["tap-list"]));
 });
 
-test("nothing imports this yet, and that is deliberate", () => {
-  // Same contract site-theme.mjs shipped under: the layer lands tested and
-  // unwired, so no build behaviour changes until wiring is its own change.
-  for (const file of ["worker.js", "builder/page-gen.mjs", "builder/publish-pages.mjs"]) {
-    const src = fs.readFileSync(new URL("../" + file, import.meta.url), "utf8");
-    assert.ok(!src.includes("site-layouts"), `${file} already imports site-layouts.mjs — wiring should be its own change`);
-  }
+test("this IS wired now, and the chain is guarded next door", () => {
+  // Was the opposite assertion — "nothing imports this yet, and that is
+  // deliberate" — which was correct until wiring landed as its own change, as
+  // that test asked for. Replaced rather than deleted, because an unwired layer
+  // is the exact shape of the blocks and examples this repo installed twice and
+  // deleted twice, and something has to keep saying so.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.ok(src.includes("site-layouts"), "worker.js no longer imports site-layouts.mjs — the families are unreachable again");
+  assert.ok(
+    fs.existsSync(new URL("./wiring.test.mjs", import.meta.url)),
+    "the reachability chain that guards this has been deleted",
+  );
 });

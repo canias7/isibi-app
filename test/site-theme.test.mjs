@@ -907,19 +907,19 @@ test("the shortlist is usable as a tool enum", () => {
   assert.ok(list.length < 600, `the shortlist is ${list.length} chars`);
 });
 
-test("nothing imports this yet, and that is deliberate", () => {
-  // Recorded rather than assumed. This module is a demonstration: wiring it is a
-  // separate decision, and until then no build behaviour changes. When it IS
-  // wired, this test should be replaced by one asserting the opposite — a module
-  // nothing imports is the exact shape of the blocks and examples this repo
-  // installed twice and deleted twice.
+test("this IS wired now, and the chain is guarded next door", () => {
+  // Was "nothing imports this yet, and that is deliberate", whose own comment
+  // asked for exactly this replacement once the module was wired: an assertion
+  // of the opposite, plus a reachability chain. The chain is test/wiring.test.mjs
+  // — it drives every one of the 500 themes through the engine and follows the
+  // name from the designer's enum to real CSS in a built dist.
   const fs = require$("node:fs");
-  const hits = [];
-  for (const f of ["builder/page-gen.mjs", "builder/build-server.mjs", "builder/publish-pages.mjs", "worker.js"]) {
-    if (/site-theme/.test(fs.readFileSync(f, "utf8"))) hits.push(f);
-  }
-  assert.deepEqual(hits, [],
-    "site-theme.mjs is now imported — wire it properly and replace this test with a reachability chain");
+  assert.ok(/site-theme/.test(fs.readFileSync("worker.js", "utf8")),
+    "worker.js no longer imports the theme registry — no site can wear a theme");
+  assert.ok(/site-theme/.test(fs.readFileSync("builder/build-server.mjs", "utf8")),
+    "the container no longer turns a theme name into CSS");
+  assert.ok(fs.existsSync("test/wiring.test.mjs"),
+    "the reachability chain that guards this has been deleted");
 });
 
 // node:test runs as ESM here; `require` is not defined, so the one filesystem
