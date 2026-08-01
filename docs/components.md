@@ -1,4 +1,4 @@
-# Components (1955 built, 25 to go)
+# Components (1972 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -189,6 +189,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ button-group
 ✓ buyers-premium
 ✓ byline-compact
+✓ byline-row
 ✓ cache-status
 ✓ calculator-card
 ✓ calendar
@@ -364,6 +365,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ continuity-note
 ✓ contrast-check
 ✓ contrast-toggle
+✓ controlled-drug-note
 ✓ conversation-branch
 ✓ conversation-row
 ✓ cookie-banner
@@ -486,10 +488,12 @@ A ✓ means it exists and a generated site can import it today.
 ✓ dish-card
 ✓ dismiss-all
 ✓ dismissed-tips
+✓ dispense-label
 ✓ dispute-note
 ✓ distance-badge
 ✓ distance-input
 ✓ distance-note
+✓ distribution-list
 ✓ divider-text
 ✓ do-not-contact
 ✓ dock
@@ -501,6 +505,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ donor-credit
 ✓ donut-mini
 ✓ door-event
+✓ dosage-field
 ✓ dot-plot
 ✓ download-card
 ✓ download-menu
@@ -551,6 +556,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ email-share
 ✓ email-verify-banner
 ✓ embargo-note
+✓ embargo-time
 ✓ embed-code
 ✓ embed-permissions
 ✓ embed-preview
@@ -797,6 +803,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ instant-results
 ✓ instrument-booking
 ✓ integration-log
+✓ interaction-warning
 ✓ interval-picker
 ✓ interview-slot
 ✓ intro-request
@@ -808,6 +815,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ invoice-totals
 ✓ irrigation-note
 ✓ isrc-field
+✓ issue-row
 ✓ item
 ✓ job-card
 ✓ job-failed
@@ -1063,6 +1071,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ page-break
 ✓ page-header
 ✓ page-header-footer
+✓ page-plan
 ✓ page-size
 ✓ page-size-select
 ✓ page-thumbnails
@@ -1091,6 +1100,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ paste-image
 ✓ paste-parse
 ✓ paste-table
+✓ patient-leaflet
 ✓ patrol-log
 ✓ pause-motion
 ✓ payback-note
@@ -1114,6 +1124,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ permit-row
 ✓ person-row
 ✓ personalisation-field
+✓ pharmacist-check
 ✓ phase-bar
 ✓ phone-input
 ✓ photo-required-note
@@ -1154,6 +1165,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ prefill-note
 ✓ premium-breakdown
 ✓ preorder-badge
+✓ prescription-row
 ✓ presence-bar
 ✓ presence-dot
 ✓ preset-menu
@@ -1171,6 +1183,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ print-only
 ✓ print-preview
 ✓ print-range
+✓ print-run
 ✓ priority-badge
 ✓ priority-inbox
 ✓ priority-picker
@@ -1191,6 +1204,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ pronunciation-hint
 ✓ proof-of-collection
 ✓ proof-of-delivery
+✓ proof-status
 ✓ proof-upload
 ✓ property-card
 ✓ property-panel
@@ -1258,6 +1272,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ reading-guide
 ✓ reading-room-booking
 ✓ reading-time
+✓ ready-to-collect
 ✓ reagent-row
 ✓ reauth-prompt
 ✓ recall-request
@@ -1306,6 +1321,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ reorder-list
 ✓ reorder-point
 ✓ reorderable-grid
+✓ repeat-request
 ✓ repeatable-field
 ✓ replay-event
 ✓ replenish-task
@@ -1651,6 +1667,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ stock-badge
 ✓ stock-level
 ✓ stock-move
+✓ stock-substitute
 ✓ stop-generating
 ✓ stopwatch
 ✓ storage-bar

@@ -789,6 +789,12 @@ export const UI_COMPONENTS = [
   // Auctions and bidding
   "lot-card", "reserve-note", "proxy-bid", "buyers-premium", "auction-timer",
   "withdrawn-lot", "hammer-price", "condition-report", "absentee-bid",
+  // Publishing and print production
+  "issue-row", "page-plan", "proof-status", "print-run", "distribution-list",
+  "embargo-time", "byline-row",
+  // Pharmacy and dispensing
+  "prescription-row", "dispense-label", "stock-substitute", "controlled-drug-note", "repeat-request",
+  "interaction-warning", "dosage-field", "pharmacist-check", "ready-to-collect", "patient-leaflet",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
