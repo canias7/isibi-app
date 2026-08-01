@@ -1,4 +1,4 @@
-# Components (1264 built, 25 to go)
+# Components (1283 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -25,6 +25,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ alert-dialog
 ✓ all-day-row
 ✓ alt-text-field
+✓ amount-in-words
 ✓ amount-input
 ✓ anchor-heading
 ✓ anchor-nav
@@ -72,6 +73,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ backorder-note
 ✓ backup-email
 ✓ badge
+✓ balance-due
 ✓ banner
 ✓ bar-list
 ✓ barcode
@@ -243,6 +245,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ coupon-input
 ✓ course-card
 ✓ cover-image
+✓ credit-applied
 ✓ cron-builder
 ✓ cross-page-selection
 ✓ csat-face
@@ -251,6 +254,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ curl-example
 ✓ currency-amount
 ✓ currency-input
+✓ currency-note
 ✓ currency-switch
 ✓ curriculum-path
 ✓ cursor-pagination
@@ -283,6 +287,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ density-preference
 ✓ density-toggle
 ✓ dependent-select
+✓ deposit-line
 ✓ description-list
 ✓ detail-panel
 ✓ device-list
@@ -361,6 +366,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ estimate-band
 ✓ event-card
 ✓ event-meta
+✓ exchange-rate-note
 ✓ exit-survey
 ✓ expandable-row
 ✓ expandable-text
@@ -378,6 +384,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ feature-grid
 ✓ feature-matrix
 ✓ feature-tour
+✓ fee-line
 ✓ feedback-widget
 ✓ field
 ✓ field-array
@@ -500,6 +507,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ input-group
 ✓ input-otp
 ✓ install-command
+✓ instalment-line
 ✓ instant-results
 ✓ interval-picker
 ✓ invert-selection
@@ -676,6 +684,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ overflow-fade
 ✓ overflow-scroller
 ✓ overlap-warning
+✓ overpayment-note
 ✓ pack-checklist
 ✓ page-break
 ✓ page-header
@@ -686,6 +695,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ panel
 ✓ panel-group
 ✓ parallax
+✓ part-payment
 ✓ partial-failure
 ✓ partial-list
 ✓ partial-outage
@@ -702,6 +712,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ payback-note
 ✓ payment-methods
 ✓ payment-picker
+✓ payment-schedule
 ✓ paywall
 ✓ pending-changes
 ✓ pending-invite
@@ -742,6 +753,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ presence-dot
 ✓ press-quote
 ✓ prev-next
+✓ price-breakdown
 ✓ price-changed-note
 ✓ price-history
 ✓ price-list
@@ -824,6 +836,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ recurring-picker
 ✓ reduce-motion
 ✓ refresh-pill
+✓ refund-line
 ✓ regenerate-button
 ✓ related-list
 ✓ related-nav
@@ -872,6 +885,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ rollback-confirm
 ✓ rollback-note
 ✓ room-card
+✓ rounding-line
 ✓ rounding-note
 ✓ roving-list
 ✓ row-actions
@@ -952,6 +966,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ session-row
 ✓ setting-item
 ✓ settings-nav
+✓ settle-up
 ✓ setup-checklist
 ✓ setup-task
 ✓ shake-error
@@ -1032,6 +1047,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ spinner
 ✓ split-amount
 ✓ split-by-item
+✓ split-evenly
 ✓ split-pane
 ✓ split-tender
 ✓ split-view
@@ -1084,6 +1100,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ suggestion-mode
 ✓ summary-toggle
 ✓ support-handoff
+✓ surcharge-note
 ✓ survey-card
 ✓ suspicious-login
 ✓ swipe-actions
@@ -1154,6 +1171,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ timezone-note
 ✓ timezone-picker
 ✓ tip-bubble
+✓ tip-picker
 ✓ toast-queue
 ✓ toast-stack
 ✓ toggle
@@ -1254,6 +1272,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ whats-new-dot
 ✓ who-can-see
 ✓ who-changed
+✓ who-owes
 ✓ width-preset
 ✓ winner-badge
 ✓ wishlist-button

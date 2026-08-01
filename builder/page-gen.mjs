@@ -553,6 +553,11 @@ export const UI_COMPONENTS = [
   "column-pin", "row-expand", "footer-totals", "cell-error", "table-density",
   "column-chooser", "frozen-corner", "row-number", "table-loading", "cell-tooltip",
   "column-summary", "row-compare", "table-caption", "column-order", "cell-overflow",
+  // Money mechanics. Every total shows its working, every fee says why, and nothing is rounded away in silence.
+  "price-breakdown", "fee-line", "rounding-line", "currency-note", "exchange-rate-note",
+  "amount-in-words", "payment-schedule", "instalment-line", "balance-due", "overpayment-note",
+  "credit-applied", "deposit-line", "refund-line", "surcharge-note", "tip-picker",
+  "split-evenly", "who-owes", "settle-up", "part-payment",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
