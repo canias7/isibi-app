@@ -694,6 +694,12 @@ export const UI_COMPONENTS = [
   // Analytics instrumentation
   "event-name-field", "property-schema", "tracking-plan-row", "consent-gated-note", "sample-rate",
   "funnel-step-row", "cohort-picker", "attribution-note", "goal-definition",
+  // Voice, gesture and scanning
+  "voice-transcript", "push-to-talk", "swipe-hint", "pinch-hint", "scan-overlay",
+  "scan-result", "nfc-prompt",
+  // Email and embed rendering
+  "email-preview", "plain-text-fallback", "inbox-preview", "unsubscribe-footer", "email-safe-note",
+  "embed-size", "embed-permissions", "iframe-fallback", "widget-key", "embed-preview",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

@@ -1,4 +1,4 @@
-# Components (1669 built, 25 to go)
+# Components (1686 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -468,10 +468,15 @@ A ✓ means it exists and a generated site can import it today.
 ✓ eliminate-option
 ✓ email-capture
 ✓ email-input
+✓ email-preview
+✓ email-safe-note
 ✓ email-share
 ✓ email-verify-banner
 ✓ embargo-note
 ✓ embed-code
+✓ embed-permissions
+✓ embed-preview
+✓ embed-size
 ✓ embed-snippet
 ✓ emoji-picker
 ✓ emoji-reaction
@@ -653,6 +658,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ idempotency-note
 ✓ identity-summary
 ✓ idle-note
+✓ iframe-fallback
 ✓ image-annotate
 ✓ image-compare
 ✓ image-crop
@@ -662,6 +668,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ import-settings
 ✓ import-summary
 ✓ inbox-list
+✓ inbox-preview
 ✓ incident-item
 ✓ infinite-scroll
 ✓ infinite-sentinel
@@ -850,6 +857,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ nested-list
 ✓ new-in-badge
 ✓ next-occurrence
+✓ nfc-prompt
 ✓ nl-date-input
 ✓ no-results
 ✓ no-show-note
@@ -958,11 +966,13 @@ A ✓ means it exists and a generated site can import it today.
 ✓ pickup-point
 ✓ picture-in-picture
 ✓ pin-version
+✓ pinch-hint
 ✓ pinned-nav
 ✓ pivot-table
 ✓ place-order-bar
 ✓ place-search
 ✓ placeholder-grid
+✓ plain-text-fallback
 ✓ plan-card
 ✓ plan-limit-row
 ✓ playback-speed
@@ -1029,6 +1039,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ pull-to-refresh
 ✓ pulse-dot
 ✓ purpose-list
+✓ push-to-talk
 ✓ qr-code
 ✓ qr-handoff
 ✓ quality-score
@@ -1205,6 +1216,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ saved-views
 ✓ scale-input
 ✓ scan-document
+✓ scan-overlay
+✓ scan-result
 ✓ scan-status
 ✓ scenario-tabs
 ✓ schedule-preview
@@ -1429,6 +1442,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ survey-progress
 ✓ suspicious-login
 ✓ swipe-actions
+✓ swipe-hint
 ✓ swipeable-row
 ✓ switch
 ✓ switch-row
@@ -1585,6 +1599,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ unread-divider
 ✓ unresolved-count
 ✓ unsaved-guard
+✓ unsubscribe-footer
 ✓ untagged-note
 ✓ upgrade-badge
 ✓ upgrade-prompt
@@ -1621,6 +1636,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ visibility-toggle
 ✓ visually-hidden
 ✓ voice-input
+✓ voice-transcript
 ✓ volume-control
 ✓ volume-slider
 ✓ vote-bar
@@ -1653,6 +1669,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ who-is-here
 ✓ who-owes
 ✓ why-this-note
+✓ widget-key
 ✓ width-preset
 ✓ winner-badge
 ✓ wishlist-button
