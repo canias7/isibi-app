@@ -783,6 +783,12 @@ export const UI_COMPONENTS = [
   // Two-sided matching
   "match-score", "mutual-interest", "shortlist-both", "availability-overlap", "intro-request",
   "match-reason", "decline-politely", "rematch-note", "match-expiry", "preference-weights",
+  // Gaming and esports
+  "match-lobby", "ladder-row", "loadout-row", "achievement-row", "party-invite",
+  "queue-timer", "spectator-count",
+  // Auctions and bidding
+  "lot-card", "reserve-note", "proxy-bid", "buyers-premium", "auction-timer",
+  "withdrawn-lot", "hammer-price", "condition-report", "absentee-bid",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

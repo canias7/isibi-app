@@ -1,10 +1,11 @@
-# Components (1939 built, 25 to go)
+# Components (1955 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
 ## Built and planned
 
 ✓ abbreviation
+✓ absentee-bid
 ✓ access-expiry
 ✓ access-key-badge
 ✓ access-restriction
@@ -14,6 +15,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ accordion
 ✓ account-menu
 ✓ accrual-note
+✓ achievement-row
 ✓ acknowledge-button
 ✓ acquisition-note
 ✓ action-history
@@ -96,6 +98,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ attachment-tray
 ✓ attestation-box
 ✓ attribution-note
+✓ auction-timer
 ✓ audience-switch
 ✓ audio-player
 ✓ audio-recorder
@@ -184,6 +187,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ busy-button
 ✓ button
 ✓ button-group
+✓ buyers-premium
 ✓ byline-compact
 ✓ cache-status
 ✓ calculator-card
@@ -315,6 +319,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ completion-meter
 ✓ completion-ring
 ✓ compliance-checklist
+✓ condition-report
 ✓ condition-row
 ✓ conditional-field
 ✓ conditional-section
@@ -719,6 +724,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ guest-sign-in
 ✓ guided-step
 ✓ gutter
+✓ hammer-price
 ✓ handoff-note
 ✓ handoff-summary
 ✓ handover-bar
@@ -827,6 +833,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ label
 ✓ label-manager
 ✓ labeled-progress
+✓ ladder-row
 ✓ land-parcel
 ✓ landmark
 ✓ landmark-nav
@@ -875,6 +882,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ load-plan
 ✓ loading-more
 ✓ loading-overlay
+✓ loadout-row
 ✓ loan-agreement
 ✓ loan-row
 ✓ local-override
@@ -893,6 +901,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ logo-cloud
 ✓ logo-slot
 ✓ loop-toggle
+✓ lot-card
 ✓ lot-row
 ✓ machine-status
 ✓ magic-link-sent
@@ -913,6 +922,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ masonry
 ✓ match-context
 ✓ match-expiry
+✓ match-lobby
 ✓ match-reason
 ✓ match-score
 ✓ material-badge
@@ -1072,6 +1082,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ partial-save
 ✓ partial-shipment
 ✓ participant-row
+✓ party-invite
 ✓ party-size
 ✓ passkey-prompt
 ✓ password-input
@@ -1189,6 +1200,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ protocol-step
 ✓ provenance-note
 ✓ provider-status
+✓ proxy-bid
 ✓ public-notice
 ✓ pull-quote
 ✓ pull-to-refresh
@@ -1211,6 +1223,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ question-nav
 ✓ queue-depth
 ✓ queue-position
+✓ queue-timer
 ✓ quick-add
 ✓ quick-filters
 ✓ quick-switcher
@@ -1306,6 +1319,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ required-legend
 ✓ required-mark
 ✓ requirement-check
+✓ reserve-note
 ✓ reserved-note
 ✓ reset-defaults
 ✓ reset-demo
@@ -1583,6 +1597,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ spam-note
 ✓ sparkline
 ✓ spec-row
+✓ spectator-count
 ✓ spinner
 ✓ split-amount
 ✓ split-by-item
@@ -1921,6 +1936,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ width-preset
 ✓ winner-badge
 ✓ wishlist-button
+✓ withdrawn-lot
 ✓ withholding-note
 ✓ wizard-exit-guard
 ✓ wizard-nav
