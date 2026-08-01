@@ -69,7 +69,7 @@ export function ConsignmentRow({ reference, carrierReference, carrier, from, to,
         </p>
       )}
       {silent && (
-        <p className="text-xs font-medium">Nothing scanned for {staleDays} days — chase this.</p>
+        <p className="text-xs font-medium">Nothing scanned for {staleDays} {staleDays === 1 ? "day" : "days"} — chase this.</p>
       )}
     </li>
   );

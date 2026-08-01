@@ -54,7 +54,7 @@ export function ShiftOutput({ shift, target, made, elapsedMinutes, shiftMinutes,
       )}
       {downtimeMinutes !== undefined && downtimeMinutes > 0 && (
         <p className="text-xs tabular-nums text-muted-foreground">
-          {downtimeMinutes} minutes of the shift were lost to stoppages.
+          {downtimeMinutes} {downtimeMinutes === 1 ? "minute" : "minutes"} of the shift {downtimeMinutes === 1 ? "was" : "were"} lost to stoppages.
         </p>
       )}
     </div>

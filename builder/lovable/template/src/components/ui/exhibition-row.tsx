@@ -46,7 +46,7 @@ export function ExhibitionRow({ title, gallery, opensOn, closesOn, daysLeft, clo
           {closed
             ? "Closed"
             : soon
-              ? daysLeft === 0 ? "Last day" : `${daysLeft} days left`
+              ? daysLeft === 0 ? "Last day" : `${daysLeft} ${daysLeft === 1 ? "day" : "days"} left`
               : closesOn ? `Until ${closesOn}` : "Now on"}
         </span>
       </p>

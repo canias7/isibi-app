@@ -61,7 +61,7 @@ export function ReagentRow({ name, lot, amountLeft, unit, neededForNextRun, expi
       {openedOn ? (
         <p className="text-xs">
           Opened {openedOn}
-          {openLifeDays !== undefined && ` — in-use life ${openLifeDays} days, which is what actually applies`}
+          {openLifeDays !== undefined && ` — in-use life ${openLifeDays} ${openLifeDays === 1 ? "day" : "days"}, which is what actually applies`}
         </p>
       ) : (
         <p className="text-xs text-muted-foreground">Unopened.</p>

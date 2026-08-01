@@ -67,7 +67,7 @@ export function TemperatureLog({ readings, min, max, breachMinutes = 15, breache
       {real.map((b) => (
         <p key={`${b.from}-${b.to}`} className="text-xs">
           <span className="font-medium tabular-nums">{b.peak}°C</span>
-          <span className="text-muted-foreground tabular-nums"> for {b.minutes} minutes, {b.from} to {b.to}</span>
+          <span className="text-muted-foreground tabular-nums"> for {b.minutes} {b.minutes === 1 ? "minute" : "minutes"}, {b.from} to {b.to}</span>
         </p>
       ))}
       {gaps > 0 && (

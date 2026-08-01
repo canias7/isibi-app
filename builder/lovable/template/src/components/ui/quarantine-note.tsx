@@ -36,7 +36,7 @@ export function QuarantineNote({ item, quantity, reason, placedBy, placedOn, rel
     <div className={cn("space-y-0.5 text-sm", className)}>
       <p>
         <span className="font-medium">Held: {item}</span>
-        {quantity !== undefined && <span className="tabular-nums text-muted-foreground"> · {quantity} units</span>}
+        {quantity !== undefined && <span className="tabular-nums text-muted-foreground"> · {quantity} {quantity === 1 ? "unit" : "units"}</span>}
       </p>
       <p className="text-xs">{reason}</p>
       <p className="text-xs text-muted-foreground">

@@ -46,7 +46,7 @@ export function AppealRoute({ decision, deadline, daysLeft, firstStep, thenStep,
             ? `You have until ${deadline} to challenge this.`
             : "There is a deadline for challenging this."}
         {daysLeft !== undefined && daysLeft >= 0 && (
-          <span className="tabular-nums"> {daysLeft === 0 ? "Today is the last day." : `${daysLeft} days left.`}</span>
+          <span className="tabular-nums"> {daysLeft === 0 ? "Today is the last day." : `${daysLeft} ${daysLeft === 1 ? "day" : "days"} left.`}</span>
         )}
       </p>
       <p className="text-xs">First: {firstStep}</p>

@@ -43,7 +43,7 @@ export function SlottingNote({ item, currentLocation, suggestedLocation, picksPe
       </p>
       {picksPerWeek !== undefined && (
         <p className="text-xs tabular-nums text-muted-foreground">
-          Picked {picksPerWeek} times a week from its current bin.
+          Picked {picksPerWeek} {picksPerWeek === 1 ? "time" : "times"} a week from its current bin.
         </p>
       )}
       {savingNote && <p className="text-xs font-medium">Would save {savingNote}.</p>}

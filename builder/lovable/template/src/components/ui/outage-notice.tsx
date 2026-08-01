@@ -42,7 +42,7 @@ export function OutageNotice({ area, planned, since, cause, estimatedRestore, ne
       <p className="text-xs text-muted-foreground">
         {since && `Since ${since}`}
         {since && affectedCount !== undefined ? " · " : ""}
-        {affectedCount !== undefined && `${affectedCount.toLocaleString()} properties`}
+        {affectedCount !== undefined && `${affectedCount.toLocaleString()} ${affectedCount === 1 ? "property" : "properties"}`}
       </p>
       {cause && <p className="text-xs">{cause}</p>}
       <p className={cn("text-xs", estimatedRestore ? "" : "font-medium")}>

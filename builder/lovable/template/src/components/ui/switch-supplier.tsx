@@ -73,7 +73,7 @@ export function SwitchSupplier({ from, to, tariff, switchOn, coolingOffDays = 14
         Nothing physical changes — no engineer, no interruption, the same meter.
       </p>
       <p className="text-xs text-muted-foreground">
-        You can cancel within {coolingOffDays} days. Your old supplier will send a final bill for what you used.
+        You can cancel within {coolingOffDays} {coolingOffDays === 1 ? "day" : "days"}. Your old supplier will send a final bill for what you used.
       </p>
     </div>
   );

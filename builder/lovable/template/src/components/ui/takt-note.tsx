@@ -48,7 +48,7 @@ export function TaktNote({ demand, availableMinutes, cycleSeconds, className }: 
       )}
       {willMake !== undefined && willMake < demand && (
         <p className="text-xs font-medium tabular-nums">
-          At this rate the shift finishes about {demand - willMake} units short.
+          At this rate the shift finishes about {demand - willMake} {demand - willMake === 1 ? "unit" : "units"} short.
         </p>
       )}
       {willMake !== undefined && willMake > demand && (

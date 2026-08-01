@@ -55,7 +55,7 @@ export function HoldQueue({ title, position, aheadOf, copies, estimateNote, hold
       </p>
       {holdDays !== undefined && (
         <p className="text-xs">
-          Once it arrives we hold it for {holdDays} days, then it goes to the next reader.
+          Once it arrives we hold it for {holdDays} {holdDays === 1 ? "day" : "days"}, then it goes to the next reader.
         </p>
       )}
       {canSuspend && (

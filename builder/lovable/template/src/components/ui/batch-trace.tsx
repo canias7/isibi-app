@@ -93,7 +93,7 @@ export function BatchTrace({ batch, receivedQuantity, onHandQuantity, cameFrom =
       )}
       {unaccounted !== undefined && unaccounted !== 0 && (
         <p className="text-xs font-medium tabular-nums">
-          {Math.abs(unaccounted)} units {unaccounted > 0 ? "unaccounted for" : "more shipped than received"}.
+          {Math.abs(unaccounted)} {Math.abs(unaccounted) === 1 ? "unit" : "units"} {unaccounted > 0 ? "unaccounted for" : "more shipped than received"}.
         </p>
       )}
     </div>

@@ -1,4 +1,4 @@
-# Components (1810 built, 25 to go)
+# Components (1836 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -56,12 +56,14 @@ A ✓ means it exists and a generated site can import it today.
 ✓ annotation-upload
 ✓ announce-region
 ✓ announcement-bar
+✓ anonymised-toggle
 ✓ answer-review
 ✓ api-key-row
 ✓ app-shell
 ✓ appeal-form
 ✓ appeal-route
 ✓ appeal-status
+✓ applicant-row
 ✓ application-status
 ✓ applied-filters
 ✓ apply-to-many
@@ -80,6 +82,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ aspect-picker
 ✓ aspect-ratio
 ✓ assay-plate
+✓ assessor-visit
 ✓ assignee-picker
 ✓ async-select
 ✓ async-validation
@@ -130,6 +133,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ before-after
 ✓ before-after-upload
 ✓ benchmark-bar
+✓ beneficiary-row
 ✓ bento-grid
 ✓ bid-box
 ✓ big-number
@@ -238,6 +242,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ chip-list
 ✓ chunked-upload
 ✓ citation-list
+✓ claim-row
+✓ claim-timeline
 ✓ clamp-text
 ✓ clear-filters
 ✓ clear-form
@@ -352,6 +358,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ coupon-input
 ✓ course-card
 ✓ cover-image
+✓ cover-level
 ✓ coverage-gap
 ✓ credential-expiry
 ✓ credential-rotate
@@ -378,6 +385,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ customs-note
 ✓ cutoff-time
 ✓ cutover-note
+✓ cv-preview
 ✓ cvc-input
 ✓ cycle-count-row
 ✓ danger-zone
@@ -543,8 +551,10 @@ A ✓ means it exists and a generated site can import it today.
 ✓ event-name-field
 ✓ event-subscription
 ✓ evidence-list
+✓ excess-note
 ✓ exchange-rate-note
 ✓ exclude-filter
+✓ exclusion-list
 ✓ exhibition-row
 ✓ exit-survey
 ✓ expandable-row
@@ -723,6 +733,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ inbox-list
 ✓ inbox-preview
 ✓ incident-item
+✓ incident-report
 ✓ incoterm-note
 ✓ infinite-scroll
 ✓ infinite-sentinel
@@ -742,6 +753,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ instrument-booking
 ✓ integration-log
 ✓ interval-picker
+✓ interview-slot
 ✓ invert-selection
 ✓ invite-form
 ✓ invoice-header
@@ -948,6 +960,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ oauth-consent-summary
 ✓ object-label
 ✓ ocr-note
+✓ offer-summary
 ✓ offline-banner
 ✓ offline-queue
 ✓ on-call
@@ -1039,6 +1052,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ pin-version
 ✓ pinch-hint
 ✓ pinned-nav
+✓ pipeline-stage
 ✓ pivot-table
 ✓ place-order-bar
 ✓ place-search
@@ -1050,6 +1064,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ playback-speed
 ✓ plural
 ✓ pluralisation-preview
+✓ policy-summary-row
 ✓ policy-version
 ✓ poll-composer
 ✓ poll-result
@@ -1063,6 +1078,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ preference-group
 ✓ preferred-contact
 ✓ prefill-note
+✓ premium-breakdown
 ✓ preorder-badge
 ✓ presence-bar
 ✓ presence-dot
@@ -1188,18 +1204,21 @@ A ✓ means it exists and a generated site can import it today.
 ✓ reduce-motion
 ✓ reduced-motion-note
 ✓ reference-range
+✓ reference-request
 ✓ refresh-pill
 ✓ refund-line
 ✓ regenerate-button
 ✓ region-picker
 ✓ regulation-note
 ✓ reject-reason
+✓ rejection-note
 ✓ related-list
 ✓ related-nav
 ✓ relative-date
 ✓ release-freeze
 ✓ reminder-set
 ✓ renewal-note
+✓ renewal-quote
 ✓ reorder-buttons
 ✓ reorder-list
 ✓ reorder-point
@@ -1293,6 +1312,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ safe-area-pad
 ✓ safe-image
 ✓ safety-tips
+✓ salary-range-note
 ✓ sample-data-banner
 ✓ sample-data-note
 ✓ sample-preview
@@ -1316,9 +1336,11 @@ A ✓ means it exists and a generated site can import it today.
 ✓ scope-list
 ✓ scope-summary
 ✓ score-breakdown
+✓ scorecard-row
 ✓ scrap-rate
 ✓ screen-only
 ✓ screen-reader-note
+✓ screening-question
 ✓ scroll-area
 ✓ scroll-lock
 ✓ scroll-progress
@@ -1371,6 +1393,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ setting-item
 ✓ settings-nav
 ✓ settle-up
+✓ settlement-offer
 ✓ setup-checklist
 ✓ setup-task
 ✓ shake-error
@@ -1585,6 +1608,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tag-select
 ✓ takedown-note
 ✓ takt-note
+✓ talent-pool
 ✓ target-vs-actual
 ✓ tariff-row
 ✓ tax-breakdown
@@ -1733,6 +1757,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ usage-meter
 ✓ usage-nudge
 ✓ utilisation-bar
+✓ vacancy-card
+✓ vacancy-closing
 ✓ validation-summary
 ✓ variance-note
 ✓ variant-matrix

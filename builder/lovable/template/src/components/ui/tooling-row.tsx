@@ -39,7 +39,7 @@ export function ToolingRow({ tool, location, cyclesUsed, cyclesRated, nextRunCyc
         <span className="min-w-0 flex-1">{tool}</span>
         {left !== undefined && (
           <span className={cn("shrink-0 tabular-nums", wontLast && "font-medium")}>
-            {left.toLocaleString()} cycles left
+            {left.toLocaleString()} {left === 1 ? "cycle" : "cycles"} left
           </span>
         )}
       </p>

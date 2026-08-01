@@ -740,6 +740,14 @@ export const UI_COMPONENTS = [
   "sample-row", "protocol-step", "reagent-row", "instrument-booking", "calibration-note",
   "chain-of-custody", "result-flag", "reference-range", "study-arm", "participant-row",
   "ethics-approval", "data-dictionary", "replicate-group", "assay-plate", "freezer-location",
+  // Recruitment and job boards
+  "vacancy-card", "applicant-row", "pipeline-stage", "screening-question", "cv-preview",
+  "interview-slot", "scorecard-row", "offer-summary", "reference-request", "salary-range-note",
+  "anonymised-toggle", "talent-pool", "rejection-note", "vacancy-closing",
+  // Insurance and claims
+  "policy-summary-row", "cover-level", "excess-note", "claim-row", "claim-timeline",
+  "incident-report", "assessor-visit", "settlement-offer", "renewal-quote", "exclusion-list",
+  "beneficiary-row", "premium-breakdown",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

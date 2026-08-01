@@ -56,7 +56,7 @@ export function DowntimeNote({ machine, minutes, cause, note, at, planned, times
       <p className="text-xs text-muted-foreground">
         {planned ? "Planned" : "Unplanned"}
         {at && ` · ${at}`}
-        {lostUnits !== undefined && ` · about ${lostUnits} units lost`}
+        {lostUnits !== undefined && ` · about ${lostUnits} ${lostUnits === 1 ? "unit" : "units"} lost`}
       </p>
       {note && <p className="text-xs">{note}</p>}
       {timesThisWeek !== undefined && timesThisWeek > 1 && (
