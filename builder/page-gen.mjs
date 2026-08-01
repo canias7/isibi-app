@@ -725,6 +725,14 @@ export const UI_COMPONENTS = [
   "meter-reading", "tariff-row", "consumption-bar", "outage-notice", "supply-status",
   "smart-meter-note", "carbon-note", "generation-mix", "switch-supplier", "estimated-vs-actual",
   "usage-compare",
+  // Civic and public services
+  "case-reference", "eligibility-check", "application-status", "document-checklist", "appointment-offer",
+  "service-standard", "appeal-route", "accessibility-statement", "translation-request", "representative-note",
+  "public-notice", "consultation-response",
+  // Libraries and archives
+  "catalogue-record", "shelf-mark", "loan-row", "hold-queue", "renewal-note",
+  "reading-room-booking", "finding-aid", "provenance-note", "access-restriction", "digitisation-status",
+  "accession-number",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will

@@ -39,7 +39,14 @@ export function SwitchSupplier({ from, to, tariff, switchOn, coolingOffDays = 14
 }) {
   // Same rule as `tariff-row`: these are estimates and round fees, so pennies
   // appear only when the figure actually has them.
-  const money = new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  // Decided PER VALUE, the same rule as `tariff-row` — a blanket minimum of 0
+  // renders £74.50 as "£74.5".
+  const money = (v: number) => new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency,
+    minimumFractionDigits: Number.isInteger(v) ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(v);
   const net = estimatedSaving !== undefined && exitFee !== undefined ? estimatedSaving - exitFee : undefined;
   return (
     <div className={cn("space-y-0.5 text-sm", className)}>
@@ -51,14 +58,14 @@ export function SwitchSupplier({ from, to, tariff, switchOn, coolingOffDays = 14
       </p>
       {estimatedSaving !== undefined && (
         <p className="text-xs tabular-nums">
-          About {money.format(estimatedSaving)} a year less
+          About {money(estimatedSaving)} a year less
           {savingAt !== undefined && <span className="text-muted-foreground"> at {savingAt.toLocaleString()} {unit} a year</span>}
         </p>
       )}
       {exitFee !== undefined && exitFee > 0 && (
         <p className="text-xs tabular-nums">
-          {money.format(exitFee)} exit fee on your current deal
-          {net !== undefined && ` — ${money.format(net)} better off in the first year`}
+          {money(exitFee)} exit fee on your current deal
+          {net !== undefined && ` — ${money(net)} better off in the first year`}
         </p>
       )}
       {switchOn && <p className="text-xs text-muted-foreground">Your supply transfers on {switchOn}.</p>}
