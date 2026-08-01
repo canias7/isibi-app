@@ -502,6 +502,7 @@ export const SHADOWS = {
   flat: { label: "none — the page is printed, not stacked" },
   crisp: { label: "short and close — the ordinary elevation" },
   soft: { label: "wide and faint — light from far away" },
+  offset: { label: "hard offset blocks — the shadow is drawn, not cast" },
 };
 
 /*
@@ -557,7 +558,23 @@ const shadowSel = (step) => `.shadow${step ? "-" + step : ""}`;
  */
 const DARK_SHADOW_ALPHA = 2.6;
 
+// The offset ramp is WHOLE PIXELS, same discipline as the border axis: a hard
+// block shadow at a fractional offset antialiases into exactly the soft edge
+// the style exists to refuse.
+const OFFSET_STEPS = { xs: 2, sm: 2, "": 3, md: 4, lg: 6, xl: 8, "2xl": 10 };
+
 export function shadowCss(style, theme) {
+  // OFFSET IS ITS OWN BRANCH, not a geometry row, for two reasons that are both
+  // about colour: the block is SOLID `var(--foreground)` — the mix-and-cap path
+  // tops out at 60% and a translucent block reads as a misrendered drop shadow —
+  // and it is the one style that wants NO dark-mode variant. The ink is already
+  // the theme's light-on-dark colour there, and pale blocks on dark paper is
+  // what dark-mode brutalism looks like; anchoring it near-black like a cast
+  // shadow would make it vanish into the page.
+  if (style === "offset") {
+    return SHADOW_STEPS.map((s) =>
+      `${shadowSel(s)} { --tw-shadow: ${OFFSET_STEPS[s]}px ${OFFSET_STEPS[s]}px 0 0 var(--foreground); }`).join("\n") + "\n";
+  }
   const geo = SHADOW_GEOMETRY[style];
   if (!geo) return SHADOW_STEPS.map((s) => `${shadowSel(s)} { --tw-shadow: 0 0 #0000; }`).join("\n") + "\n";
 
@@ -575,6 +592,63 @@ export function shadowCss(style, theme) {
   const anchor = [0.04, Math.min(C, 0.02), H];
   const dark = rules(".dark ", (a) => `color-mix(in oklch, ${css(anchor)} ${a}%, transparent)`, DARK_SHADOW_ALPHA);
   return light + "\n" + dark + "\n";
+}
+
+/* --------------------------------------------------------------- components */
+
+/**
+ * The two component axes — where a theme changes what a component IS, not what
+ * colour it wears. They exist because `--radius` is ONE dial: turn it and the
+ * cards, buttons and inputs all move together, so every theme built from tokens
+ * alone is the same page wearing different paint (measured on the 73-swatch
+ * sweep — the owner's exact complaint). The kit builds everything from shared
+ * primitives, so restyling the primitives' class hooks reshapes every component
+ * that uses them:
+ *
+ *   - `button.justify-center` + `a.justify-center.whitespace-nowrap` — every
+ *     cva button AND the link-buttons pages hand-write. The selector pair is
+ *     lifted from the glass surface layer, where it was proven on real pages.
+ *   - `.border-input` — every field: input, textarea, native select, the
+ *     SelectTrigger. The same hook the glass frosted treatment styles.
+ *
+ * `inherit`/`standard` mean "the radius axis decides", emit NOTHING, and are
+ * what an absent field means — every theme written before these axes existed
+ * keeps meaning what it meant.
+ */
+export const BUTTONS = {
+  inherit: { label: "buttons follow the radius axis — the ordinary button" },
+  pill: { label: "fully round ends, whatever the cards do" },
+  sharp: { label: "square buttons, even where the cards are round" },
+};
+
+const BUTTON_SEL = "button.justify-center, a.justify-center.whitespace-nowrap";
+
+export function buttonsCss(style) {
+  if (style === "pill") return `${BUTTON_SEL} { border-radius: 9999px; }\n`;
+  if (style === "sharp") return `${BUTTON_SEL} { border-radius: 0; }\n`;
+  return "";
+}
+
+/**
+ * `underline` keeps the BOTTOM border and only the bottom — the print-form
+ * ruled line. The three dropped sides go TRANSPARENT rather than 0-width, so
+ * the box does not shrink and nothing reflows; the field's height, focus ring
+ * and autofill behaviour are untouched. `filled` is the borderless muted well.
+ */
+export const INPUTS = {
+  standard: { label: "the ordinary bordered field" },
+  underline: { label: "a ruled line, not a box — the print form" },
+  filled: { label: "a soft filled well with no border" },
+};
+
+export function inputsCss(style) {
+  if (style === "underline") {
+    return `.border-input { border-top-color: transparent; border-left-color: transparent; border-right-color: transparent; background-color: transparent; border-radius: 0; }\n`;
+  }
+  if (style === "filled") {
+    return `.border-input { background-color: var(--muted); border-color: transparent; }\n`;
+  }
+  return "";
 }
 
 /* ----------------------------------------------------------------- surfaces */
@@ -684,20 +758,18 @@ export function surfaceCss(theme) {
   // the ink-mix hairline and stay visible.
   const filter = `backdrop-filter: blur(${GLASS_BLUR}) saturate(${GLASS_SATURATE}); -webkit-backdrop-filter: blur(${GLASS_BLUR}) saturate(${GLASS_SATURATE});`;
   const SURF = ".bg-card, .bg-popover, .bg-sidebar";
-  // THE COMPONENT LAYER — where the theme changes what components ARE, not
-  // just what colours they wear. The kit builds everything from shared
-  // primitives, so restyling the primitives' own class hooks reshapes every
-  // component that uses them, at three selectors instead of a thousand files:
-  //   - `button.justify-center` (+ link-buttons): every cva button. Glass makes
-  //     them PILLS, and the primary fill gets a top sheen and an accent glow.
-  //   - `.border-input`: every field — input, textarea, native select. Frosted:
-  //     translucent white fill, light edge, its own blur.
-  //   - the surface trio above: every card, popover and menu.
+  // THE GLASS COMPONENT TREATMENT — what stays here after the buttons/inputs
+  // axes were generalised out (the pill rule moved to `buttonsCss`; glass now
+  // DECLARES `buttons: "pill"` like any other theme). What remains is the part
+  // only a glass surface wants:
+  //   - `.bg-primary`: a top sheen and an accent glow, so the one filled
+  //     element reads lit like the panels around it.
+  //   - `.border-input`: the FROSTED field — translucent white fill, light
+  //     edge, its own blur. Deliberately still here rather than an `inputs`
+  //     option: it depends on the canvas behind it to read as glass at all.
   const [aL, aC, aH] = theme.light.accent;
   const [dL, dC, dH] = theme.dark.accent;
-  const pills = "button.justify-center, a.justify-center.whitespace-nowrap";
   const components =
-    `${pills} { border-radius: 9999px; }\n` +
     `.bg-primary { background-image: linear-gradient(180deg, oklch(1 0 0 / 0.28), oklch(1 0 0 / 0) 55%); box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.35), 0 8px 22px -10px oklch(${aL} ${aC} ${aH} / 0.55); }\n` +
     `.dark .bg-primary { box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.3), 0 8px 26px -10px oklch(${dL} ${dC} ${dH} / 0.6); }\n` +
     `.border-input { background-color: oklch(1 0 0 / 0.45); border-color: oklch(1 0 0 / 0.55); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }\n` +
@@ -800,7 +872,7 @@ export const THEMES = {
     radius: "1rem", corner: "squircle",
     scale: "standard", tracking: "open", leading: "standard", weight: "standard",
     density: "airy", border: "hairline", shadow: "soft", icon: "regular",
-    surface: "glass",
+    surface: "glass", buttons: "pill",
     fonts: { heading: "outfit", body: "inter" },
     light: { paper: [0.985, 0.004, 285], ink: [0.21, 0.03, 285], accent: [0.5, 0.15, 285] },
     dark: { paper: [0.16, 0.03, 288], ink: [0.95, 0.012, 285], accent: [0.73, 0.14, 285] },
@@ -824,6 +896,7 @@ export const THEMES = {
     radius: "0rem", corner: "round",
     scale: "grand", tracking: "editorial", leading: "open", weight: "contrast",
     density: "airy", border: "hairline", shadow: "flat", icon: "fine",
+    buttons: "sharp", inputs: "underline",
     fonts: { heading: "playfair-display", body: "source-sans-3" },
     light: { paper: [0.965, 0.012, 85], ink: [0.19, 0.012, 60], accent: [0.36, 0.11, 28] },
     dark: { paper: [0.165, 0.01, 60], ink: [0.94, 0.012, 85], accent: [0.52, 0.11, 26] },
@@ -853,8 +926,10 @@ export const THEMES = {
   //     weight: "standard",           // contrast | standard | uniform
   //     density: "standard",          // tight | standard | airy
   //     border: "hairline",           // hairline | drawn | bold  (whole px only)
-  //     shadow: "crisp",              // flat | crisp | soft
+  //     shadow: "crisp",              // flat | crisp | soft | offset
   //     icon: "regular",              // fine | regular | heavy
+  //     buttons: "inherit",           // inherit | pill | sharp   (absent = inherit)
+  //     inputs: "standard",           // standard | underline | filled  (absent = standard)
   //     fonts: { heading: "<id>", body: "<id>" },   // ids from site-fonts.mjs
   //     light: { paper: [L, C, H], ink: [L, C, H], accent: [L, C, H] },
   //     dark:  { paper: [L, C, H], ink: [L, C, H], accent: [L, C, H] },
@@ -978,6 +1053,8 @@ export function themeCss(nameOrTheme) {
     densityCss(theme.density) + "\n" +
     borderCss(theme.border) + "\n" +
     iconCss(theme.icon) + "\n" +
+    buttonsCss(theme.buttons) +
+    inputsCss(theme.inputs) +
     shadowCss(theme.shadow, theme) +
     // LAST, deliberately: glass re-declares tokens the palette blocks above
     // already set, and source order is the only thing making its values win.

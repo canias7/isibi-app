@@ -13,8 +13,9 @@ import {
   oklchToRgb, foregroundFor, shortlistForPrompt,
   distance, hueGap, separateFromAccent, MIN_STATE_SEPARATION, SAME_LANE_DEGREES,
   CORNERS, cornerCss, fitState, temperState, STATE_CHROMA_RATIO, MIN_STATE_CHROMA,
-  TYPE_SCALES, typeCss, DENSITIES, densityCss, BORDERS, borderCss, SHADOWS, shadowCss, SURFACES, surfaceCss,
-  ICON_STROKES, iconCss, TRACKINGS, trackingCss, LEADINGS, leadingCss, WEIGHTS, weightCss,
+  TYPE_SCALES, typeCss, DENSITIES, densityCss, BORDERS, borderCss, SHADOWS, shadowCss, SHADOW_STEPS,
+  SURFACES, surfaceCss, ICON_STROKES, iconCss, TRACKINGS, trackingCss, LEADINGS, leadingCss, WEIGHTS, weightCss,
+  BUTTONS, buttonsCss, INPUTS, inputsCss,
 } from "../builder/site-theme.mjs";
 import { SHORTLIST } from "../builder/site-fonts.mjs";
 
@@ -605,6 +606,89 @@ test("every theme declares every axis, with a value the axis offers", () => {
         `no theme uses ${key}: "${option}" — either use it or take it out`);
     }
   }
+  // The component axes are OPTIONAL (absent means the default), so the sweep
+  // resolves the default before comparing — otherwise "inherit" and "standard"
+  // could only ever be satisfied by a theme spelling the default out, which is
+  // exactly the noise the optionality exists to avoid.
+  const OPTIONAL = [["buttons", BUTTONS, "inherit"], ["inputs", INPUTS, "standard"]];
+  for (const [key, table, dflt] of OPTIONAL) {
+    for (const option of Object.keys(table)) {
+      assert.ok(THEME_NAMES.some((n) => (THEMES[n][key] ?? dflt) === option),
+        `no theme uses ${key}: "${option}" — either use it or take it out`);
+    }
+  }
+});
+
+test("component axes are optional, but a declared value must be on offer", () => {
+  // Absent is legal and means the default; a TYPO is not — `buttons: "pills"`
+  // would silently emit nothing and read in a diff as a deliberate choice.
+  for (const name of NAMES_UNDER_TEST) {
+    const t = THEMES_UNDER_TEST[name];
+    if (t.buttons !== undefined) assert.ok(BUTTONS[t.buttons], `${name}.buttons is "${t.buttons}", which is not on offer`);
+    if (t.inputs !== undefined) assert.ok(INPUTS[t.inputs], `${name}.inputs is "${t.inputs}", which is not on offer`);
+  }
+});
+
+test("offset shadows are solid ink, whole pixels, and mode-invariant", () => {
+  const out = shadowCss("offset", FIXTURE);
+  for (const s of SHADOW_STEPS) {
+    const sel = `.shadow${s ? "-" + s : ""} `;
+    assert.ok(out.includes(sel), `offset covers ${sel.trim()}`);
+  }
+  // Solid var(--foreground) with zero blur and zero spread — a translucent or
+  // blurred block is a misrendered drop shadow, not the drawn style.
+  const rules = out.trim().split("\n");
+  let prev = 0;
+  for (const r of rules) {
+    const m = r.match(/--tw-shadow: (\d+)px (\d+)px 0 0 var\(--foreground\); \}$/);
+    assert.ok(m, `not a solid whole-px block: ${r}`);
+    assert.equal(m[1], m[2], "the offset is diagonal — x and y move together");
+    assert.ok(+m[1] >= prev, "the ramp never shrinks as steps grow");
+    prev = +m[1];
+  }
+  // ONE ruleset for both modes: the ink is already the light colour in dark
+  // mode, and pale blocks on dark paper IS dark-mode brutalism. The cast-shadow
+  // styles anchor dark mode near black; this one must not.
+  assert.ok(!out.includes(".dark"), "offset emitted a dark variant it must not have");
+  assert.ok(SHADOWS.offset, "the style is not on offer to a theme");
+});
+
+test("the buttons axis reshapes every button hook; inherit is a no-op", () => {
+  const pill = buttonsCss("pill");
+  // Both halves of the selector, or the cva buttons change and the hand-written
+  // link-buttons on generated pages keep the old corner beside them.
+  assert.match(pill, /button\.justify-center, a\.justify-center\.whitespace-nowrap \{ border-radius: 9999px; \}/);
+  assert.match(buttonsCss("sharp"), /button\.justify-center, a\.justify-center\.whitespace-nowrap \{ border-radius: 0; \}/);
+  assert.equal(buttonsCss("inherit"), "", "inherit must emit nothing — the radius axis decides");
+  assert.equal(buttonsCss(undefined), "", "absent must emit nothing");
+  assert.ok(themeCss({ ...FIXTURE, buttons: "pill" }).includes("border-radius: 9999px"), "themeCss carries the axis");
+  assert.ok(!themeCss(FIXTURE).includes("9999px"), "a theme declaring nothing gets no button rule");
+});
+
+test("the inputs axis: underline keeps ONLY the ruled line; filled drops the border", () => {
+  const u = inputsCss("underline");
+  // Three sides transparent — NOT zero-width, which would shrink the box and
+  // reflow the form — and the bottom side never touched, so it keeps the
+  // border axis's width and the palette's colour.
+  for (const side of ["top", "left", "right"]) assert.match(u, new RegExp(`border-${side}-color: transparent`));
+  assert.ok(!u.includes("border-bottom"), "the ruled line itself must not be overridden");
+  assert.match(u, /background-color: transparent/);
+  assert.match(u, /border-radius: 0/);
+  const f = inputsCss("filled");
+  assert.match(f, /background-color: var\(--muted\)/);
+  assert.match(f, /border-color: transparent/);
+  assert.equal(inputsCss("standard"), "", "standard must emit nothing");
+  assert.equal(inputsCss(undefined), "", "absent must emit nothing");
+});
+
+test("glass pills come from the buttons axis now, not the surface block", () => {
+  // End to end unchanged: the shipped glass theme still renders pill buttons.
+  assert.ok(themeCss("glass").includes("border-radius: 9999px"), "glass lost its pills");
+  // And the rule genuinely MOVED — if it creeps back into surfaceCss, every
+  // glass-surfaced theme gets pills whether it asked or not, and the axis is
+  // decoration on top of a hardcode.
+  assert.ok(!surfaceCss({ ...FIXTURE, surface: "glass" }).includes("9999px"),
+    "the surface block still hardcodes pills");
 });
 
 test("the recommended font pair is a real entry in the font shortlist", () => {
