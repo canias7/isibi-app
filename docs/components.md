@@ -1,4 +1,4 @@
-# Components (1523 built, 25 to go)
+# Components (1546 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -18,6 +18,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ address-correct-note
 ✓ address-fields
 ✓ address-summary
+✓ address-validate
 ✓ advanced-toggle
 ✓ age-gate
 ✓ age-rating-note
@@ -41,12 +42,14 @@ A ✓ means it exists and a generated site can import it today.
 ✓ allocation-bar
 ✓ alt-text-field
 ✓ alt-text-warning
+✓ alternate-contact
 ✓ amount-in-words
 ✓ amount-input
 ✓ anchor-heading
 ✓ anchor-nav
 ✓ anchor-offset
 ✓ annotation-pin
+✓ annotation-upload
 ✓ announce-region
 ✓ announcement-bar
 ✓ answer-review
@@ -73,6 +76,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ async-select
 ✓ async-validation
 ✓ attachment
+✓ attachment-limit
 ✓ attachment-list
 ✓ attachment-tray
 ✓ audience-switch
@@ -107,6 +111,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ barcode
 ✓ batch-progress
 ✓ before-after
+✓ before-after-upload
 ✓ benchmark-bar
 ✓ bento-grid
 ✓ bid-box
@@ -155,6 +160,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ capacity-input
 ✓ caption-toggle
 ✓ caption-track
+✓ capture-hint
 ✓ card
 ✓ card-grid
 ✓ card-input
@@ -270,8 +276,11 @@ A ✓ means it exists and a generated site can import it today.
 ✓ consent-history
 ✓ consent-summary
 ✓ contact-card
+✓ contact-card-compact
 ✓ contact-fallback
 ✓ contact-form
+✓ contact-method-picker
+✓ contact-verify
 ✓ container
 ✓ content-placeholder
 ✓ content-warning
@@ -343,6 +352,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ delete-my-data
 ✓ delivery-estimate
 ✓ delivery-eta
+✓ delivery-note-field
 ✓ delivery-slot
 ✓ delivery-status
 ✓ delivery-window
@@ -376,6 +386,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ distance-input
 ✓ distance-note
 ✓ divider-text
+✓ do-not-contact
 ✓ dock
 ✓ document-meta
 ✓ document-outline
@@ -445,6 +456,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ eta-band
 ✓ event-card
 ✓ event-meta
+✓ evidence-list
 ✓ exchange-rate-note
 ✓ exclude-filter
 ✓ exit-survey
@@ -488,6 +500,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ file-list
 ✓ file-preview
 ✓ file-preview-pane
+✓ file-required
 ✓ file-row
 ✓ file-size
 ✓ file-type-icon
@@ -774,6 +787,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ next-occurrence
 ✓ nl-date-input
 ✓ no-results
+✓ no-show-note
 ✓ node-graph
 ✓ not-found
 ✓ not-found-panel
@@ -814,6 +828,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ otp-form
 ✓ otp-resend
 ✓ outlier-flag
+✓ overbooking-note
 ✓ overflow-fade
 ✓ overflow-scroller
 ✓ overlap-warning
@@ -852,6 +867,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ payment-picker
 ✓ payment-schedule
 ✓ paywall
+✓ peak-note
 ✓ pending-changes
 ✓ pending-invite
 ✓ percent-input
@@ -866,6 +882,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ personalisation-field
 ✓ phase-bar
 ✓ phone-input
+✓ photo-required-note
 ✓ pick-remaining
 ✓ pickup-point
 ✓ picture-in-picture
@@ -887,6 +904,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ poster-picker
 ✓ precision-toggle
 ✓ preference-group
+✓ preferred-contact
 ✓ prefill-note
 ✓ preorder-badge
 ✓ presence-bar
@@ -979,6 +997,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ reading-time
 ✓ recall-request
 ✓ receipt
+✓ receipt-upload
 ✓ recent-nav
 ✓ recent-searches
 ✓ recently-viewed
@@ -1214,6 +1233,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ slider
 ✓ slider-input
 ✓ slippage-note
+✓ slot-capacity
 ✓ slot-hold
 ✓ slow-note
 ✓ slug-input
@@ -1253,6 +1273,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ sso-button
 ✓ stack
 ✓ stack-trace
+✓ staff-load
 ✓ stage-gate
 ✓ stagger-list
 ✓ stale-badge
@@ -1460,6 +1481,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ url-input
 ✓ usage-meter
 ✓ usage-nudge
+✓ utilisation-bar
 ✓ validation-summary
 ✓ variance-note
 ✓ variant-matrix
@@ -1486,6 +1508,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ vote-buttons
 ✓ waiting-on
 ✓ waitlist-form
+✓ walk-in-note
 ✓ warranty-badge
 ✓ watch-count
 ✓ watermark

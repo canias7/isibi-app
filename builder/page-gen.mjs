@@ -643,6 +643,15 @@ export const UI_COMPONENTS = [
   "stock-move", "shrinkage-note", "count-sheet",
   // Comments and annotation mechanics
   "unresolved-count", "comment-draft", "reaction-summary", "thread-participants", "comment-permalink",
+  // Capacity and queueing
+  "slot-capacity", "overbooking-note", "staff-load", "utilisation-bar", "peak-note",
+  "no-show-note", "walk-in-note",
+  // Contact and address mechanics
+  "contact-method-picker", "preferred-contact", "contact-verify", "do-not-contact", "alternate-contact",
+  "address-validate", "delivery-note-field", "contact-card-compact",
+  // Attachments and evidence
+  "evidence-list", "photo-required-note", "capture-hint", "attachment-limit", "file-required",
+  "before-after-upload", "annotation-upload", "receipt-upload",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
