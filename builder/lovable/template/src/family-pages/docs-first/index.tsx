@@ -16,7 +16,7 @@ const NAV = [
 function P() {
   return (
     <div className="min-h-svh bg-background text-foreground">
-      <header className="border-b border-border">
+      <header>
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
           <span className="font-semibold tracking-tight">littletable</span>
           <div className="flex items-center gap-3 text-sm text-muted-foreground">

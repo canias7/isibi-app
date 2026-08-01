@@ -13,8 +13,10 @@ import {
   oklchToRgb, foregroundFor, shortlistForPrompt,
   distance, hueGap, separateFromAccent, MIN_STATE_SEPARATION, SAME_LANE_DEGREES,
   CORNERS, cornerCss, fitState, temperState, STATE_CHROMA_RATIO, MIN_STATE_CHROMA,
-  TYPE_SCALES, typeCss, DENSITIES, densityCss, BORDERS, borderCss, SHADOWS, shadowCss, SURFACES, surfaceCss,
-  ICON_STROKES, iconCss, TRACKINGS, trackingCss, LEADINGS, leadingCss, WEIGHTS, weightCss,
+  TYPE_SCALES, typeCss, DENSITIES, densityCss, BORDERS, borderCss, SHADOWS, shadowCss, SHADOW_STEPS,
+  SURFACES, surfaceCss, ICON_STROKES, iconCss, TRACKINGS, trackingCss, LEADINGS, leadingCss, WEIGHTS, weightCss,
+  BUTTONS, buttonsCss, INPUTS, inputsCss, BACKDROPS, DECORS, worldCss, DISPLAYS, displayCss, displayColor,
+  AMBIENTS, ambientCss, SKINS, skinCss, worldWorstGround, worldMutedColor, GROUND_DECORS,
 } from "../builder/site-theme.mjs";
 import { SHORTLIST } from "../builder/site-fonts.mjs";
 
@@ -605,6 +607,280 @@ test("every theme declares every axis, with a value the axis offers", () => {
         `no theme uses ${key}: "${option}" — either use it or take it out`);
     }
   }
+  // The component axes are OPTIONAL (absent means the default), so the sweep
+  // resolves the default before comparing — otherwise "inherit" and "standard"
+  // could only ever be satisfied by a theme spelling the default out, which is
+  // exactly the noise the optionality exists to avoid.
+  const OPTIONAL = [["buttons", BUTTONS, "inherit"], ["inputs", INPUTS, "standard"],
+    ["backdrop", BACKDROPS, "plain"], ["decor", DECORS, "none"], ["display", DISPLAYS, "ink"],
+    ["ambient", AMBIENTS, "still"], ["skin", SKINS, "flat"]];
+  for (const [key, table, dflt] of OPTIONAL) {
+    for (const option of Object.keys(table)) {
+      assert.ok(THEME_NAMES.some((n) => (THEMES[n][key] ?? dflt) === option),
+        `no theme uses ${key}: "${option}" — either use it or take it out`);
+    }
+  }
+});
+
+test("component axes are optional, but a declared value must be on offer", () => {
+  // Absent is legal and means the default; a TYPO is not — `buttons: "pills"`
+  // would silently emit nothing and read in a diff as a deliberate choice.
+  for (const name of NAMES_UNDER_TEST) {
+    const t = THEMES_UNDER_TEST[name];
+    if (t.buttons !== undefined) assert.ok(BUTTONS[t.buttons], `${name}.buttons is "${t.buttons}", which is not on offer`);
+    if (t.inputs !== undefined) assert.ok(INPUTS[t.inputs], `${name}.inputs is "${t.inputs}", which is not on offer`);
+    if (t.backdrop !== undefined) assert.ok(BACKDROPS[t.backdrop], `${name}.backdrop is "${t.backdrop}", which is not on offer`);
+    if (t.decor !== undefined) assert.ok(DECORS[t.decor], `${name}.decor is "${t.decor}", which is not on offer`);
+    if (t.display !== undefined) assert.ok(DISPLAYS[t.display], `${name}.display is "${t.display}", which is not on offer`);
+    if (t.ambient !== undefined) assert.ok(AMBIENTS[t.ambient], `${name}.ambient is "${t.ambient}", which is not on offer`);
+    if (t.skin !== undefined) assert.ok(SKINS[t.skin], `${name}.skin is "${t.skin}", which is not on offer`);
+  }
+});
+
+test("ambient motion is an overlay that a reduced-motion request stops dead", () => {
+  assert.equal(ambientCss(FIXTURE), "", "still must emit nothing");
+  for (const ambient of ["drift", "lively"]) {
+    const out = ambientCss({ ...FIXTURE, ambient });
+    assert.match(out, /body::after \{ content: ""; position: fixed; inset: -22%; z-index: -1/,
+      `${ambient} must be the between-layers overlay, not a repaint of the world`);
+    assert.match(out, /\.dark body::after \{ background-image:/, `${ambient} paints dark`);
+    assert.match(out, /animation: isibi-ambient/, `${ambient} does not move`);
+    assert.match(out, /@media \(prefers-reduced-motion: reduce\) \{ body::after \{ animation: none/,
+      `${ambient} ignores prefers-reduced-motion`);
+    assert.ok(!/animation[^}]*filter/.test(out), "animating filter is a GPU tax");
+  }
+  const lively = ambientCss({ ...FIXTURE, ambient: "lively" });
+  assert.match(lively, /scale\(1\.0/, "lively lost its pulse");
+});
+
+test("skins reshape only the card", () => {
+  assert.equal(skinCss("flat"), "", "flat must emit nothing");
+  assert.equal(skinCss(undefined), "", "absent must emit nothing");
+  assert.match(skinCss("frame"), /\.bg-card \{ outline: 1px solid var\(--border\); outline-offset/);
+  const ticket = skinCss("ticket");
+  assert.match(ticket, /mask-composite: intersect/,
+    "ticket notches vanish without intersect — mask layers union by default");
+  assert.match(skinCss("tilt"), /nth-child\(even\)/, "tilt must alternate or every card leans the same way");
+  for (const skin of ["frame", "ticket", "tilt"]) {
+    assert.ok(!skinCss(skin).includes(".bg-popover"), `${skin} reached the popover`);
+  }
+});
+
+test("display colour is the accent walked to legibility, and gradient never goes transparent-blind", () => {
+  // The raw accent is a button fill, not text — citrus at L 0.62 on white is
+  // ~2.5:1. The fitted copy must clear body-text contrast on the theme's own
+  // paper in both modes, or coloured headings are decoration over legibility.
+  for (const mode of ["light", "dark"]) {
+    const c = displayColor(FIXTURE, mode);
+    assert.ok(contrast(c, FIXTURE[mode].paper) >= 4.5, `${mode} display colour fails on its own paper`);
+  }
+  assert.equal(displayCss(FIXTURE), "", "undeclared display must emit nothing");
+  assert.equal(displayCss({ ...FIXTURE, display: "ink" }), "", "ink is the default and must emit nothing");
+  const accent = displayCss({ ...FIXTURE, display: "accent" });
+  assert.match(accent, /\.font-heading:not\(\.bg-primary \*\) \{ color: var\(--display\)/,
+    "accent display must colour .font-heading and spare headings on the accent itself");
+  assert.match(accent, /:root \{ --display: oklch/);
+  assert.match(accent, /\.dark \{ --display: oklch/);
+  const grad = displayCss({ ...FIXTURE, display: "gradient" });
+  assert.match(grad, /background-clip: text/);
+  assert.match(grad, /--display-2: oklch/, "a gradient needs its second stop");
+  assert.match(grad, /color: transparent/);
+});
+
+test("the world axes are a no-op until declared — every old theme keeps its meaning", () => {
+  assert.equal(worldCss(FIXTURE), "", "an undeclared world emitted paint");
+  assert.equal(worldCss({ ...FIXTURE, backdrop: "plain", decor: "none" }), "", "the explicit defaults emitted paint");
+  assert.ok(!themeCss(FIXTURE).includes("body { background-image"), "themeCss painted a body nobody asked for");
+});
+
+test("every backdrop paints both modes, fixed, and every decor lays one texture", () => {
+  for (const backdrop of Object.keys(BACKDROPS)) {
+    if (backdrop === "plain") continue;
+    const out = worldCss({ ...FIXTURE, backdrop });
+    assert.match(out, /body \{ background-image:/, `${backdrop} paints light`);
+    assert.match(out, /\.dark body \{ background-image:/, `${backdrop} paints dark`);
+    assert.match(out, /background-attachment: [^;]*fixed/, `${backdrop} is not fixed — panels stop sliding over the light`);
+  }
+  for (const decor of Object.keys(DECORS)) {
+    if (decor === "none") continue;
+    const out = worldCss({ ...FIXTURE, decor });
+    assert.match(out, /body \{ background-image:/, `${decor} lays nothing`);
+    assert.ok(!out.includes("#"), `${decor} used a raw hex colour — everything here derives`);
+  }
+  // Decor SCROLLS while backdrops stay fixed — one stack, two behaviours.
+  const both = worldCss({ ...FIXTURE, backdrop: "field", decor: "stripes" });
+  assert.match(both, /background-attachment: scroll, fixed/, "decor and backdrop lost their split attachment");
+});
+
+test("the legibility deal holds: light stops stay high, dark stops stay low", () => {
+  // The numeric half of what makes a bold backdrop safe. Parse every oklch()
+  // the backdrops emit and check its lightness against the floor/ceiling —
+  // so no option, present or future, can quietly go vivid-dark behind light
+  // ink. The fixture's accent sits at hue 30; the rule must hold regardless.
+  for (const backdrop of Object.keys(BACKDROPS)) {
+    if (backdrop === "plain") continue;
+    const out = worldCss({ ...FIXTURE, backdrop });
+    const [lightRule, darkRule] = [out.match(/(?<!\.dark )body \{[^}]+\}/)?.[0] ?? "", out.match(/\.dark body \{[^}]+\}/)?.[0] ?? ""];
+    for (const m of lightRule.matchAll(/oklch\(([\d.]+) /g)) {
+      assert.ok(+m[1] >= 0.7, `${backdrop}/light emitted a stop at L ${m[1]} — too dark to sit under ink`);
+    }
+    for (const m of darkRule.matchAll(/oklch\(([\d.]+) /g)) {
+      assert.ok(+m[1] <= 0.55, `${backdrop}/dark emitted a stop at L ${m[1]} — a floodlight in a dark room`);
+    }
+  }
+});
+
+test("a backdrop dissolves the bands, and never by re-tinting the muted token", () => {
+  // The owner rejected the veiled slabs on sight — a page divided into four
+  // tonal blocks. Bands now go TRANSPARENT under any world (safe because
+  // worldMutedCss fits small text against the raw worst ground), and still
+  // never by touching --muted, which skeletons and placeholders read (the
+  // glass lesson, relearned once already).
+  for (const backdrop of ["wash", "aurora", "field", "horizon", "glow"]) {
+    const out = worldCss({ ...FIXTURE, backdrop });
+    assert.match(out, /\.bg-muted\\\/30[^{]*\{ background-color: transparent/,
+      `${backdrop} left the band slabs standing`);
+  }
+  assert.ok(!worldCss({ ...FIXTURE, backdrop: "field" }).includes("--muted:"), "the dissolve re-tinted the muted token");
+  // And the ROOT OPENS — the page's own bg-background is opaque on a solid
+  // theme, so without a translucent re-emit the world is painted behind a
+  // wall (measured: the first prototype's afters equalled its befores).
+  for (const backdrop of ["wash", "aurora", "field", "horizon", "glow"]) {
+    const out = worldCss({ ...FIXTURE, backdrop });
+    assert.match(out, /:root \{ --background: oklch\([^)]+ \/ 0\./, `${backdrop} left the root opaque in light`);
+    assert.match(out, /\.dark \{ --background: oklch\([^)]+ \/ 0\./, `${backdrop} left the root opaque in dark`);
+  }
+  assert.match(worldCss({ ...FIXTURE, decor: "grain" }), /--background: oklch\([^)]+ \/ 0\.8/, "decor-only should open the root barely, not wide");
+  assert.ok(!worldCss({ ...FIXTURE, surface: "glass", backdrop: "aurora" }).includes("--background:"),
+    "glass got a second --background on top of its surface's own");
+  // GROUND decors are the exception: a material IS the background, so alone
+  // it opens the root backdrop-wide and dissolves the bands — behind the
+  // 0.85 whisper veil the whole realism pass measured invisible (2026-08-01).
+  for (const g of GROUND_DECORS) {
+    assert.ok(DECORS[g], `${g} is a ground decor that is not on offer`);
+    const out = worldCss({ ...FIXTURE, decor: g });
+    assert.match(out, /:root \{ --background: oklch\([^)]+ \/ 0\.35/, `${g} alone left the root at the whisper veil`);
+    assert.match(out, /\.bg-muted\\\/30[^{]*\{ background-color: transparent/, `${g} alone left the band slabs standing`);
+  }
+  // Decor alone is texture, not light — the bands may keep their tint there.
+  assert.ok(!worldCss({ ...FIXTURE, decor: "grain" }).match(/bg-muted/), "grain alone dissolved the bands");
+  // Glass clears its own band utilities in the surface block — once, not twice.
+  assert.ok(!worldCss({ ...FIXTURE, surface: "glass", backdrop: "aurora" }).match(/bg-muted/),
+    "glass got a second band rule on top of its own");
+  assert.match(surfaceCss({ ...FIXTURE, surface: "glass" }), /\.bg-muted\\\/30[^{]*\{ background-color: transparent/,
+    "the glass surface stopped clearing its bands");
+});
+
+test("small text clears 4.5:1 on the worst ground a world can produce", () => {
+  // The owner's catch: muted text sits directly on the page, and with a
+  // backdrop the page is paper-at-35% over a stop at the L 0.70 floor — the
+  // palette's paper-fitted muted ink dropped to ~3:1 there. The world now
+  // re-derives it against that worst blend; this measures the claim with its
+  // own arithmetic rather than trusting the function under test.
+  const lum = ([r, g, b]) => {
+    const lin = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  };
+  const ratio = (a, b) => { const [hi, lo] = a > b ? [a, b] : [b, a]; return (hi + 0.05) / (lo + 0.05); };
+  for (const surface of [undefined, "glass"]) {
+    for (const mode of ["light", "dark"]) {
+      const t = { ...FIXTURE, surface, backdrop: surface ? "aurora" : "field" };
+      const ground = worldWorstGround(t, mode);
+      const fg = worldMutedColor(t, mode);
+      const r = ratio(lum(oklchToRgb(...fg)), lum(ground));
+      assert.ok(r >= 4.5, `${surface ?? "solid"}/${mode}: fitted muted text is ${r.toFixed(2)}:1 on the worst ground`);
+    }
+  }
+  // And the token actually ships: any non-plain backdrop re-emits it in both
+  // modes, while decor-only leaves the palette's derivation alone — texture
+  // does not move the ground the way light does.
+  const out = worldCss({ ...FIXTURE, backdrop: "field" });
+  assert.match(out, /:root \{ --muted-foreground: oklch/);
+  assert.match(out, /\.dark \{ --muted-foreground: oklch/);
+  assert.match(worldCss({ ...FIXTURE, surface: "glass", backdrop: "aurora" }), /--muted-foreground/);
+  assert.ok(!worldCss({ ...FIXTURE, decor: "grain" }).includes("--muted-foreground"),
+    "decor-only re-tinted muted text for no reason");
+  // A ground decor refits too — its material moves the ground the way light
+  // does — and its worst stop is paper pushed toward INK, recomputed here by
+  // hand so the branch cannot quietly reuse an accent stop that a
+  // backdrop-less theme does not have.
+  for (const g of GROUND_DECORS) {
+    assert.match(worldCss({ ...FIXTURE, decor: g }), /:root \{ --muted-foreground: oklch/,
+      `${g} alone left muted text fit to bare paper`);
+  }
+  const w = { ...FIXTURE, decor: "wood" };
+  for (const mode of ["light", "dark"]) {
+    const r = ratio(lum(oklchToRgb(...worldMutedColor(w, mode))), lum(worldWorstGround(w, mode)));
+    assert.ok(r >= 4.5, `wood/${mode}: fitted muted text is ${r.toFixed(2)}:1 on the board ground`);
+    const { paper, ink } = FIXTURE[mode];
+    const rootA = mode === "light" ? 0.35 : 0.42;
+    const toward = paper.slice(0, 3).map((v, i) => v + (ink[i] - v) * 0.15);
+    const hand = oklchToRgb(...paper.slice(0, 3)).map((c, i) => c * rootA + oklchToRgb(...toward)[i] * (1 - rootA));
+    assert.deepEqual(worldWorstGround(w, mode).map((v) => +v.toFixed(6)), hand.map((v) => +v.toFixed(6)),
+      `wood/${mode}: the ground-decor worst stop is not the paper-toward-ink blend`);
+  }
+});
+
+test("offset shadows are solid ink, whole pixels, and mode-invariant", () => {
+  const out = shadowCss("offset", FIXTURE);
+  for (const s of SHADOW_STEPS) {
+    const sel = `.shadow${s ? "-" + s : ""} `;
+    assert.ok(out.includes(sel), `offset covers ${sel.trim()}`);
+  }
+  // Solid var(--foreground) with zero blur and zero spread — a translucent or
+  // blurred block is a misrendered drop shadow, not the drawn style.
+  const rules = out.trim().split("\n");
+  let prev = 0;
+  for (const r of rules) {
+    const m = r.match(/--tw-shadow: (\d+)px (\d+)px 0 0 var\(--foreground\); \}$/);
+    assert.ok(m, `not a solid whole-px block: ${r}`);
+    assert.equal(m[1], m[2], "the offset is diagonal — x and y move together");
+    assert.ok(+m[1] >= prev, "the ramp never shrinks as steps grow");
+    prev = +m[1];
+  }
+  // ONE ruleset for both modes: the ink is already the light colour in dark
+  // mode, and pale blocks on dark paper IS dark-mode brutalism. The cast-shadow
+  // styles anchor dark mode near black; this one must not.
+  assert.ok(!out.includes(".dark"), "offset emitted a dark variant it must not have");
+  assert.ok(SHADOWS.offset, "the style is not on offer to a theme");
+});
+
+test("the buttons axis reshapes every button hook; inherit is a no-op", () => {
+  const pill = buttonsCss("pill");
+  // Both halves of the selector, or the cva buttons change and the hand-written
+  // link-buttons on generated pages keep the old corner beside them.
+  assert.match(pill, /button\.justify-center, a\.justify-center\.whitespace-nowrap \{ border-radius: 9999px; \}/);
+  assert.match(buttonsCss("sharp"), /button\.justify-center, a\.justify-center\.whitespace-nowrap \{ border-radius: 0; \}/);
+  assert.equal(buttonsCss("inherit"), "", "inherit must emit nothing — the radius axis decides");
+  assert.equal(buttonsCss(undefined), "", "absent must emit nothing");
+  assert.ok(themeCss({ ...FIXTURE, buttons: "pill" }).includes("border-radius: 9999px"), "themeCss carries the axis");
+  assert.ok(!themeCss(FIXTURE).includes("9999px"), "a theme declaring nothing gets no button rule");
+});
+
+test("the inputs axis: underline keeps ONLY the ruled line; filled drops the border", () => {
+  const u = inputsCss("underline");
+  // Three sides transparent — NOT zero-width, which would shrink the box and
+  // reflow the form — and the bottom side never touched, so it keeps the
+  // border axis's width and the palette's colour.
+  for (const side of ["top", "left", "right"]) assert.match(u, new RegExp(`border-${side}-color: transparent`));
+  assert.ok(!u.includes("border-bottom"), "the ruled line itself must not be overridden");
+  assert.match(u, /background-color: transparent/);
+  assert.match(u, /border-radius: 0/);
+  const f = inputsCss("filled");
+  assert.match(f, /background-color: var\(--muted\)/);
+  assert.match(f, /border-color: transparent/);
+  assert.equal(inputsCss("standard"), "", "standard must emit nothing");
+  assert.equal(inputsCss(undefined), "", "absent must emit nothing");
+});
+
+test("glass pills come from the buttons axis now, not the surface block", () => {
+  // End to end unchanged: the shipped glass theme still renders pill buttons.
+  assert.ok(themeCss("glass").includes("border-radius: 9999px"), "glass lost its pills");
+  // And the rule genuinely MOVED — if it creeps back into surfaceCss, every
+  // glass-surfaced theme gets pills whether it asked or not, and the axis is
+  // decoration on top of a hardcode.
+  assert.ok(!surfaceCss({ ...FIXTURE, surface: "glass" }).includes("9999px"),
+    "the surface block still hardcodes pills");
 });
 
 test("the recommended font pair is a real entry in the font shortlist", () => {
@@ -780,6 +1056,11 @@ test("glass is three things at once, or it is invisible", () => {
   // The axis's own claim: translucent tokens + backdrop blur + a canvas. Any
   // one missing renders EXACTLY like solid — measured; that is how the first
   // draft looked before the canvas existed — so each is asserted separately.
+  //
+  // The CANVAS moved to the backdrop axis in the 2026-08-01 redesign, so part
+  // 3 is asserted against the full themeCss of a glass theme that declares
+  // `backdrop: "aurora"` — which the SHIPPED glass does, asserted below, or
+  // the split would quietly strand glass canvasless.
   const glass = surfaceCss({ ...FIXTURE, surface: "glass" });
   // 1. Tokens re-emitted WITH alpha, in both modes.
   for (const block of [/:root \{[^}]+\}/, /\.dark \{[^}]+\}/]) {
@@ -793,9 +1074,11 @@ test("glass is three things at once, or it is invisible", () => {
   assert.match(glass, /\.bg-card, \.bg-popover, \.bg-sidebar \{ backdrop-filter: blur/);
   assert.ok(!/\.bg-background[^-]/.test(glass.split("backdrop-filter")[1] ?? ""), "the page root got blurred");
   // 3. The canvas, in both modes, derived and fixed so panels slide over it.
-  assert.match(glass, /body \{ background-image: radial-gradient/);
-  assert.match(glass, /\.dark body \{ background-image: radial-gradient/);
-  assert.match(glass, /background-attachment: fixed/);
+  const full = themeCss({ ...FIXTURE, surface: "glass", backdrop: "aurora" });
+  assert.match(full, /body \{ background-image: radial-gradient/);
+  assert.match(full, /\.dark body \{ background-image: radial-gradient/);
+  assert.match(full, /background-attachment: fixed/);
+  assert.equal(THEMES.glass?.backdrop, "aurora", "shipped glass no longer declares its canvas");
 });
 
 test("the glass block is emitted LAST, or source order hands the win back", () => {
