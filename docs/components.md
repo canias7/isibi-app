@@ -1,4 +1,4 @@
-# Components (1711 built, 25 to go)
+# Components (1739 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -99,6 +99,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ avatar-name
 ✓ avatar-upload
 ✓ award-badge
+✓ axle-weight
 ✓ back-link
 ✓ back-to-list
 ✓ back-to-top
@@ -114,6 +115,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ bar-list
 ✓ barcode
 ✓ batch-progress
+✓ batch-trace
 ✓ batch-window
 ✓ before-after
 ✓ before-after-upload
@@ -122,6 +124,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ bid-box
 ✓ big-number
 ✓ billing-summary
+✓ bin-location
 ✓ blackout-dates
 ✓ blame-gutter
 ✓ block-list
@@ -294,6 +297,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ consent-gated-note
 ✓ consent-history
 ✓ consent-summary
+✓ consignment-row
 ✓ contact-card
 ✓ contact-card-compact
 ✓ contact-fallback
@@ -351,9 +355,11 @@ A ✓ means it exists and a generated site can import it today.
 ✓ cursor-pagination
 ✓ custom-css-note
 ✓ custom-domain
+✓ customs-note
 ✓ cutoff-time
 ✓ cutover-note
 ✓ cvc-input
+✓ cycle-count-row
 ✓ danger-zone
 ✓ data-freshness
 ✓ data-list
@@ -389,6 +395,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ delivery-status
 ✓ delivery-window
 ✓ delta-pill
+✓ demurrage-note
 ✓ density-preference
 ✓ density-toggle
 ✓ dependent-select
@@ -445,6 +452,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ drawer
 ✓ drawer-stack
 ✓ drawing-revision
+✓ driver-assignment
 ✓ drop-cap
 ✓ drop-indicator
 ✓ drop-rejected
@@ -462,6 +470,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ duration-bar
 ✓ duration-input
 ✓ duration-picker
+✓ dwell-time
 ✓ edge-fade
 ✓ edit-lock
 ✓ editing-lock
@@ -603,6 +612,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ format-hint
 ✓ format-toolbar
 ✓ free-text-followup
+✓ freight-quote
 ✓ frozen-columns
 ✓ frozen-corner
 ✓ full-bleed
@@ -620,6 +630,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ glossary-term
 ✓ goal-definition
 ✓ goal-gauge
+✓ goods-in-row
 ✓ grace-window
 ✓ grazing-plan
 ✓ grid-item
@@ -636,6 +647,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ handover-pack
 ✓ hard-limit-warning
 ✓ harvest-window
+✓ hazard-class
 ✓ header-table
 ✓ heading
 ✓ heading-level
@@ -677,6 +689,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ inbox-list
 ✓ inbox-preview
 ✓ incident-item
+✓ incoterm-note
 ✓ infinite-scroll
 ✓ infinite-sentinel
 ✓ initials
@@ -743,6 +756,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ lead-time-input
 ✓ leave-confirm
 ✓ leave-safe-consent
+✓ leg-list
 ✓ legacy-note
 ✓ legend
 ✓ letterhead
@@ -766,6 +780,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ livestock-row
 ✓ load-error
 ✓ load-more
+✓ load-plan
 ✓ loading-more
 ✓ loading-overlay
 ✓ locale-fallback-chain
@@ -930,6 +945,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ page-title
 ✓ pagination
 ✓ palette-preview
+✓ pallet-count
 ✓ pane-tabs
 ✓ panel
 ✓ panel-group
@@ -973,6 +989,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ phase-bar
 ✓ phone-input
 ✓ photo-required-note
+✓ pick-path
 ✓ pick-remaining
 ✓ pickup-point
 ✓ picture-in-picture
@@ -1039,6 +1056,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ prompt-field
 ✓ prompt-history
 ✓ pronunciation-hint
+✓ proof-of-collection
 ✓ proof-of-delivery
 ✓ proof-upload
 ✓ property-card
@@ -1052,11 +1070,13 @@ A ✓ means it exists and a generated site can import it today.
 ✓ pulse-dot
 ✓ purpose-list
 ✓ push-to-talk
+✓ putaway-task
 ✓ qr-code
 ✓ qr-handoff
 ✓ quality-score
 ✓ quantity-break
 ✓ quantity-input
+✓ quarantine-note
 ✓ quarter-picker
 ✓ query-builder
 ✓ query-chips
@@ -1135,6 +1155,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ reorderable-grid
 ✓ repeatable-field
 ✓ replay-event
+✓ replenish-task
 ✓ reply-box
 ✓ report-problem
 ✓ report-reason
@@ -1191,6 +1212,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ rotate-control
 ✓ rounding-line
 ✓ rounding-note
+✓ route-stop
 ✓ roving-list
 ✓ row-actions
 ✓ row-compare
@@ -1282,6 +1304,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ sentiment-chip
 ✓ seo-jsonld
 ✓ separator
+✓ serial-capture
 ✓ service-area
 ✓ service-area-note
 ✓ service-card
@@ -1316,6 +1339,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ shortcut-sheet
 ✓ shortlist-bar
 ✓ shortlist-tray
+✓ shrink-report
 ✓ shrinkage-note
 ✓ side-by-side
 ✓ side-nav
@@ -1358,6 +1382,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ slippage-note
 ✓ slot-capacity
 ✓ slot-hold
+✓ slotting-note
 ✓ slow-note
 ✓ slug-input
 ✓ small-screen-note
@@ -1435,6 +1460,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ sticky-header
 ✓ sticky-shrink
 ✓ sticky-table
+✓ stock-adjustment
 ✓ stock-badge
 ✓ stock-level
 ✓ stock-move
@@ -1501,6 +1527,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ taxonomy-picker
 ✓ team-grid
 ✓ temperature-input
+✓ temperature-log
 ✓ template-diff
 ✓ template-download
 ✓ template-fill
@@ -1642,6 +1669,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ variant-picker
 ✓ variation-order
 ✓ vehicle-card
+✓ vehicle-check
 ✓ verification-steps
 ✓ verified-badge
 ✓ verified-claim

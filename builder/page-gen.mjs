@@ -708,6 +708,15 @@ export const UI_COMPONENTS = [
   "land-parcel", "crop-stage", "sowing-window", "harvest-window", "yield-note",
   "spray-record", "livestock-row", "herd-count", "grazing-plan", "soil-note",
   "irrigation-note", "traceability-code",
+  // Logistics and freight
+  "consignment-row", "leg-list", "freight-quote", "load-plan", "pallet-count",
+  "customs-note", "incoterm-note", "hazard-class", "temperature-log", "proof-of-collection",
+  "driver-assignment", "vehicle-check", "route-stop", "dwell-time", "demurrage-note",
+  "axle-weight",
+  // Warehousing and inventory ops
+  "bin-location", "putaway-task", "pick-path", "cycle-count-row", "goods-in-row",
+  "quarantine-note", "serial-capture", "batch-trace", "stock-adjustment", "replenish-task",
+  "shrink-report", "slotting-note",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
