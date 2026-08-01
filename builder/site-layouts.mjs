@@ -4,7 +4,7 @@
 // pages carry the grammar every site shares (chrome, states, buttons where
 // decisions happen); this module varies how a site is ARRANGED — the hero
 // pattern, the body rhythm, and which verb leads. The source document is
-// builder/LAYOUTS.md (owner-authored, 24 families); the two are held in
+// builder/LAYOUTS.md (owner-authored, 26 families); the two are held in
 // bijection by test/site-layouts.test.mjs, both directions.
 //
 // A LAYOUT RIDES IN THE USER MESSAGE, NEVER THE SYSTEM BLOCK. The reference
@@ -612,6 +612,54 @@ export const FAMILIES = {
     components: ["prompt-box", "chat-composer", "chat-thread", "chat-message", "suggestion-chips", "streaming-text", "before-after", "code-block", "regenerate-button", "model-picker"],
     variants: {},
     structure: "terminal",
+    ready: true,
+  },
+
+  store: {
+    md: "Store / cart-first",
+    label: "the products are the page and the basket is always in reach; checkout is the destination",
+    cta: ["Add to cart", "Checkout"],
+    shape: [
+      "hero: the current range or one featured product — never a slogan without goods on the same screen",
+      "body: the product grid with price and stock on every card; each card opens the product page",
+      "the basket rides every page (cart-badge in the chrome); checkout is one page, not a tunnel",
+    ],
+    pages: [
+      { file: "index", role: "the shop front — featured, the categories, the grid; every card opens /product" },
+      { file: "product", role: "one product told fully — pictures, options, stock, and the add-to-cart moment" },
+      { file: "checkout", role: "the basket becomes an order — lines, delivery, payment, one place-order bar" },
+    ],
+    kinds: ["ecommerce", "online store", "boutique", "fashion", "jewellery", "homeware", "furniture", "electronics", "bookshop", "gift shop", "pet supplies", "DTC brand", "subscription box"],
+    components: ["product-card", "price-tag", "stock-badge", "add-to-cart", "quantity-input", "cart-badge", "cart-line", "cart-summary", "shipping-options", "payment-picker", "place-order-bar", "category-nav"],
+    variants: {
+      "single-product": "one-product DTC: the whole site sells ONE thing — a long product story down the page, then buy",
+      catalogue: "hundreds of SKUs: search and facets lead and the grid behaves like inventory-first",
+    },
+    structure: "card-grid",
+    ready: true,
+  },
+
+  workspace: {
+    md: "Workspace / records-first",
+    label: "signed-in software rather than a website — a table of records, filters, and one record opened fully",
+    cta: ["Sign in", "New record"],
+    shape: [
+      "logged out is one screen: what the tool does, who it is for, and the sign-in — no marketing site attached",
+      "logged in: a toolbar (search, filters, bulk actions) over the records table; a row opens the record",
+      "the record view is header, fields, and the activity trail — edits happen where the record is read",
+    ],
+    pages: [
+      { file: "index", role: "the door — what this tool is, the proof it works, and the sign-in itself" },
+      { file: "records", role: "the work surface — search, filters, the table, bulk actions on a selection" },
+      { file: "record", role: "one record opened fully — header, status, the fields, the activity trail" },
+    ],
+    kinds: ["CRM", "project management", "help desk", "booking platform", "inventory management", "invoicing", "HR portal", "applicant tracking", "internal tool"],
+    components: ["data-table", "table-search", "filter-bar", "bulk-actions", "record-header", "status-badge", "priority-badge", "assignee-picker", "activity-feed", "kanban-board"],
+    variants: {
+      board: "work that moves through stages — the kanban board replaces the table as the main surface",
+      queue: "help desk: an inbox ordered by priority, oldest unanswered first — reply where you read",
+    },
+    structure: "sidebar",
     ready: true,
   },
 };

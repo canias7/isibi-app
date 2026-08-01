@@ -1,9 +1,9 @@
 # Component gaps — what the layout families need that the kit lacks
 
 Handoff for a build session. Context: `builder/LAYOUTS.md` is the owner's layout
-taxonomy (24 families). The kit at `builder/lovable/template/src/components/ui/`
+taxonomy (26 families). The kit at `builder/lovable/template/src/components/ui/`
 (1,046 components) was audited against every family's signature layout on
-2026-08-01: **21 of 24 families are fully backed today.** The gaps below are the
+2026-08-01: **21 of 24 families were fully backed when surveyed; 25 `store` and 26 `workspace` landed fully backed the same day.** The gaps below are the
 components whose absence makes a family unbuildable or badly approximated.
 
 Checked before listing — these are NOT gaps, so do not rebuild them:

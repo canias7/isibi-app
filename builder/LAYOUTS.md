@@ -307,6 +307,29 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
+## 25. Store / cart-first
+**Shape:** the products are the page and the basket is always in reach. Checkout is the destination.
+**CTA:** Add to cart · Checkout
+
+- Online store — general goods, the plain case
+- Fashion boutique, jewellery, homeware, furniture
+- Electronics, bookshop, gifts, pet supplies
+- Single-product DTC brand — *single-product* variant (one long product story, then buy)
+- Big catalogue — *catalogue* variant (search + facets lead, the grid behaves like inventory)
+
+---
+
+## 26. Workspace / records-first
+**Shape:** signed-in software rather than a website. A table of records, filters, one record opened fully.
+**CTA:** Sign in · New record
+
+- CRM, project management, applicant tracking
+- Help desk — *queue* variant (a priority inbox, reply where you read)
+- Booking platform, inventory management, invoicing, HR portal
+- Stage-driven work — *board* variant (the kanban board replaces the table)
+
+---
+
 ## Cross-cutting: mold-breakers
 
 Two shapes that don't sit inside a single family:
