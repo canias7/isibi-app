@@ -1,4 +1,4 @@
-# Components (1440 built, 25 to go)
+# Components (1462 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -161,6 +161,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ cart-summary
 ✓ cascading-select
 ✓ case-study-card
+✓ catchment-note
 ✓ category-nav
 ✓ category-tile
 ✓ category-tree
@@ -256,6 +257,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ connected-account
 ✓ connection-quality
 ✓ consent-checkbox
+✓ consent-history
+✓ consent-summary
 ✓ contact-card
 ✓ contact-fallback
 ✓ contact-form
@@ -305,6 +308,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ danger-zone
 ✓ data-freshness
 ✓ data-list
+✓ data-request
 ✓ data-table
 ✓ date-badge
 ✓ date-format
@@ -322,6 +326,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ definition
 ✓ degraded-note
 ✓ delegate-approval
+✓ delete-my-data
 ✓ delivery-estimate
 ✓ delivery-eta
 ✓ delivery-slot
@@ -344,6 +349,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ digest-row
 ✓ dimension-input
 ✓ direction
+✓ directions-link
 ✓ directory-list
 ✓ dirty-indicator
 ✓ discount-input
@@ -353,6 +359,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ dispute-note
 ✓ distance-badge
 ✓ distance-input
+✓ distance-note
 ✓ divider-text
 ✓ dock
 ✓ document-meta
@@ -431,6 +438,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ export-button
 ✓ export-format
 ✓ export-history
+✓ export-my-data
 ✓ export-progress
 ✓ export-scope
 ✓ export-settings
@@ -620,6 +628,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ last-synced
 ✓ last-verified
 ✓ latency-badge
+✓ lawful-basis-note
 ✓ layer-list
 ✓ lazy-boundary
 ✓ lazy-section
@@ -651,6 +660,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ loading-more
 ✓ loading-overlay
 ✓ location-card
+✓ location-consent
 ✓ lock-indicator
 ✓ lockout-note
 ✓ log-viewer
@@ -733,6 +743,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ nav-list
 ✓ nav-search
 ✓ navigation-menu
+✓ nearby-list
 ✓ nest-indent
 ✓ nested-list
 ✓ new-in-badge
@@ -762,6 +773,8 @@ A ✓ means it exists and a generated site can import it today.
 ✓ open-now
 ✓ open-question
 ✓ opening-hours
+✓ opening-status
+✓ opt-out-row
 ✓ optimistic-note
 ✓ option-card
 ✓ option-priced-list
@@ -866,6 +879,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ print-range
 ✓ priority-badge
 ✓ priority-inbox
+✓ privacy-choice
 ✓ product-card
 ✓ profile-card
 ✓ progress
@@ -888,6 +902,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ pull-quote
 ✓ pull-to-refresh
 ✓ pulse-dot
+✓ purpose-list
 ✓ qr-code
 ✓ qr-handoff
 ✓ quality-score
@@ -909,6 +924,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ quote-attribution
 ✓ radio-cards
 ✓ radio-group
+✓ radius-input
 ✓ radius-picker
 ✓ radius-slider
 ✓ rail
@@ -948,6 +964,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ refresh-pill
 ✓ refund-line
 ✓ regenerate-button
+✓ region-picker
 ✓ reject-reason
 ✓ related-list
 ✓ related-nav
@@ -979,6 +996,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ result-count
 ✓ result-preview
 ✓ resume-upload
+✓ retention-note
 ✓ retry-budget
 ✓ retry-countdown
 ✓ retry-panel
@@ -1082,6 +1100,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ seo-jsonld
 ✓ separator
 ✓ service-area
+✓ service-area-note
 ✓ service-card
 ✓ session-expiry
 ✓ session-row
@@ -1289,6 +1308,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ theme-picker
 ✓ theme-toggle
 ✓ thinking-indicator
+✓ third-party-list
 ✓ three-col
 ✓ three-line-row
 ✓ threshold-bar
@@ -1334,6 +1354,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tour-dates
 ✓ tour-step
 ✓ tracking-input
+✓ tracking-note
 ✓ trade-off-bar
 ✓ tradeoff-slider
 ✓ transcript-line
@@ -1343,6 +1364,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ transfer-ownership
 ✓ transition-arrow
 ✓ travel-time
+✓ travel-time-note
 ✓ tree-item
 ✓ tree-select
 ✓ tree-table

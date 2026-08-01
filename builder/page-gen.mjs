@@ -613,6 +613,13 @@ export const UI_COMPONENTS = [
   "filter-group", "exclude-filter", "filter-count", "clear-filters", "filter-summary",
   "numeric-filter", "boolean-filter", "multi-select-filter", "filter-drawer", "quick-filters",
   "filter-conflict",
+  // Place, without a provider
+  "radius-input", "distance-note", "directions-link", "opening-status", "travel-time-note",
+  "nearby-list", "region-picker", "location-consent", "service-area-note", "catchment-note",
+  // Consent and privacy
+  "consent-summary", "data-request", "retention-note", "purpose-list", "opt-out-row",
+  "privacy-choice", "tracking-note", "export-my-data", "delete-my-data", "consent-history",
+  "third-party-list", "lawful-basis-note",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
