@@ -518,6 +518,15 @@ export const UI_COMPONENTS = [
   "dimension-input", "weight-input", "temperature-input", "ratio-input", "tolerance-field",
   "min-max-field", "measurement-summary", "size-chart-row", "capacity-input", "distance-input",
   "area-input", "unit-mismatch",
+  // Numbers, comparison and decision aids. Every one shows the working, and none carries its meaning in colour alone.
+  "target-vs-actual", "benchmark-bar", "percentile-note", "confidence-range", "estimate-band",
+  "score-breakdown", "tradeoff-slider", "what-if-toggle", "scenario-tabs", "sensitivity-note",
+  "threshold-marker", "goal-gauge", "streak-counter", "running-total", "variance-note",
+  "break-even-note", "payback-note",
+  // Text, reading and truncation. Folded rather than cut, and the reading aids that actually help.
+  "read-more", "glossary-term", "footnote-ref", "footnote-list", "abbreviation",
+  "quote-attribution", "summary-toggle", "pronunciation-hint", "key-points", "text-scale",
+  "line-focus", "column-reader",
 ];
 
 // Imported, not restated. The generator has to predict exactly what the API will
