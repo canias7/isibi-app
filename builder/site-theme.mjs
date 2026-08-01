@@ -1094,7 +1094,7 @@ const DECOR_LAYERS = {
     // no lines anywhere, which is exactly what a trowel leaves.
     const { paper, ink } = theme[mode];
     const light = mode === "light";
-    return { image: matSvg(460, [
+    return { image: matSvg(690, [
       { freq: "0.006 0.007", seed: 4, tint: mix(paper, ink, 0.42).slice(0, 3), table: light ? "0 0.06 0.18 0.3" : "0 0.06 0.19 0.31" },
       { freq: "0.03 0.035", seed: 7, tint: mix(paper, ink, 0.45).slice(0, 3), table: "0 0 0.12 0.2" },
       { freq: "0.4 0.4", octaves: 2, seed: 11, tint: mix(paper, ink, 0.55).slice(0, 3), kind: "discrete", table: "0 0.09 0 0.12" },
@@ -1107,7 +1107,7 @@ const DECOR_LAYERS = {
     const { paper, ink } = theme[mode];
     const light = mode === "light";
     const pit = deepen(paper, ink, mode, 0.55);
-    const mat = matSvg(460, [
+    const mat = matSvg(690, [
       { freq: "0.006 0.007", seed: 6, tint: mix(paper, ink, 0.42).slice(0, 3), table: light ? "0 0.06 0.18 0.3" : "0 0.06 0.19 0.31" },
       { freq: "0.035 0.04", seed: 9, tint: mix(paper, ink, 0.42).slice(0, 3), table: "0 0 0.12 0.2" },
       { freq: "0.3 0.3", octaves: 2, seed: 13, tint: pit, kind: "discrete", table: "0 0 0 0 0 0 0 0.16 0.2 0.24" },
@@ -1122,10 +1122,12 @@ const DECOR_LAYERS = {
     // crack network, where firing the tails of fractal noise drew
     // disconnected worms (measured on the calibration sheet). A gentle
     // warp then bends the web. In dark mode the veins run LIGHT, the way
-    // dark marble actually figures.
+    // dark marble actually figures. The tile is LARGE (840) because broad
+    // veining shows its repeat seam — a vein cut off mid-stroke reads as an
+    // artifact where fine texture hides its own tiling.
     const { paper, ink } = theme[mode];
     const light = mode === "light";
-    return { image: matSvg(480, [
+    return { image: matSvg(840, [
       { freq: "0.009 0.011", seed: 5, tint: mix(paper, ink, 0.36).slice(0, 3), table: light ? "0 0.02 0.1 0.17" : "0 0.02 0.11 0.18" },
       { type: "turbulence", freq: "0.014 0.03", seed: 9, tint: mix(paper, ink, light ? 0.55 : 0.6).slice(0, 3), kind: "discrete", table: "0.26 0.18 0 0 0 0 0 0 0 0", warp: { freq: "0.008 0.012", seed: 6, scale: 30 } },
     ]) };
