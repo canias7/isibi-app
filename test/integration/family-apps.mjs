@@ -27,12 +27,24 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { FAMILIES, FAMILY_NAMES } from "../../builder/site-layouts.mjs";
+import { THEME_SHORTLIST, resolveTheme } from "../../builder/site-theme-registry.mjs";
 
 const ROOT = path.join(import.meta.dirname, "../..");
 const TEMPLATE = path.join(ROOT, "builder", "lovable", "template");
 const { chromium } = createRequire(path.join(TEMPLATE, "package.json"))("playwright");
 const PORT = 17910;
 const SHOTS = process.env.FAM_SHOTS || "";
+// Optional and OFF by default, so CI keeps testing what it has always tested:
+// that every family's pages build and render at all. `FAM_THEME=auto` gives each
+// family a different theme off the shortlist so a human can look at 26 real
+// sites rather than 26 copies of one palette; `FAM_THEME=<name>` pins one.
+const THEME_MODE = process.env.FAM_THEME || "";
+// Deterministic, not random: the same family gets the same theme every run, so
+// two runs can be compared and a bad pairing can be reported by name.
+const themeFor = (name, i) =>
+  !THEME_MODE ? null
+  : THEME_MODE === "auto" ? THEME_SHORTLIST[i % THEME_SHORTLIST.length]
+  : (resolveTheme(THEME_MODE) ? THEME_MODE : null);
 
 let failed = 0;
 const ok = (label) => console.log("  ok   " + label);
@@ -109,7 +121,7 @@ try {
     const built = await (await fetch(`http://127.0.0.1:${PORT}/build`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ files, slug: "f-" + name, title: name }),
+      body: JSON.stringify({ files, slug: "f-" + name, title: name, theme: themeFor(name, FAMILY_NAMES.indexOf(name)) }),
     })).json();
     if (!built.ok) { bad(`${name} refused at ${built.stage}`, built.error); continue; }
     current = built.files;
@@ -136,7 +148,19 @@ try {
       if (SHOTS) {
         fs.mkdirSync(SHOTS, { recursive: true });
         await page.addStyleTag({ content: "header{position:static !important}" });
-        await page.screenshot({ path: path.join(SHOTS, `fam-${name}--${p.file}.png`), fullPage: true });
+        // VIEWPORT FRAMES, NOT fullPage. A theme with a `backdrop` emits
+        // `background-attachment: fixed`, and a full-page capture paints it
+        // across ONE viewport height and leaves the rest flat — which reads as a
+        // hard band through the middle of the page and looks exactly like a
+        // broken theme. Caught in theme-render.mjs first; same trap here the
+        // moment FAM_THEME is used.
+        await page.screenshot({ path: path.join(SHOTS, `fam-${name}--${p.file}.png`) });
+        for (let n = 1; n <= 2; n++) {
+          await page.evaluate((k) => window.scrollTo(0, k * window.innerHeight), n);
+          await page.waitForTimeout(150);
+          await page.screenshot({ path: path.join(SHOTS, `fam-${name}--${p.file}-${n + 1}.png`) });
+        }
+        await page.evaluate(() => window.scrollTo(0, 0));
       }
     }
   }

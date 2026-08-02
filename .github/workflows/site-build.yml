@@ -54,6 +54,23 @@ jobs:
       # the same failure available to it.
       - run: node test/integration/theme-seam.mjs
 
+      # What a themed site LOOKS like. The seam test proves the CSS reaches the
+      # dist; this proves the page is not blank, nothing throws, and the two
+      # modes actually differ — the checks a picture can be held to.
+      - run: node test/integration/theme-render.mjs
+        env:
+          SHOT_DIR: theme-shots
+
+      # The whole point is that somebody can LOOK. A run that photographs four
+      # themed sites and then bins the pictures is a run that proved nothing
+      # anybody can check.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: theme-shots
+          path: theme-shots
+          if-no-files-found: ignore
+
       # Compiling is not working. This drives the reference page in a real
       # browser against a stub of the data API, so the four list states, the
       # form's success and failure paths, and the toast actually being mounted
