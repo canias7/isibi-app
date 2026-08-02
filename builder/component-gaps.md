@@ -197,3 +197,13 @@ family that fits. These are the components those families need.
 - **`facility-status`** — *facility*. what is free RIGHT NOW and when the next slot is, per activity. A leisure centre's visitor is asking "can I get on today", and every one of these sites answers "we exist"
 - **`admission-prices`** — *attraction*. adult, child, concession and family, with the family ticket's SAVING computed against buying the same people separately — the sum every attraction makes its visitors do and most of them get wrong
 - **`entry-requirements`** — *pet-boarding*. the things that must be in place BEFORE arrival, with the deadline on each and which are law rather than house rules. A kennel cough jab needed fourteen days ahead is useless discovered the night before
+
+## Tier-2 gaps — five more shapes, five more families (2026-08-02)
+
+- **`pitch-types`** — *campsite*. a pitch type with what it PHYSICALLY takes: the size, the longest unit that fits, hookup, hardstanding, and the nightly rate. A family in a 7.5m motorhome is asking one question, and every campsite site answers "we are in a lovely valley"
+- **`house-rules`** — *campsite, bed-and-breakfast*. the arrival and departure WINDOWS at weight, then the conduct rules, each marked firm or flexible. A gate locked at 22:00 is the single thing that strands an arriving guest, and it is always in a PDF
+- **`direct-saving`** — *bed-and-breakfast*. the same stay priced here against the platform, with the saving COMPUTED and the date the platform price was checked. "Best price guaranteed" is a claim; £132 there, £115 here, checked on the 28th, is a number
+- **`counter-services`** — *local-shop*. what you can actually do at the counter, each with its OWN hours where they differ from the shop's. A post office counter shuts at 17:30 while the shop is open until 22:00 and no shop publishes that
+- **`trade-terms`** — *wholesaler*. minimum order, carriage-paid threshold, payment terms, delivery days and whether an account is required — the four facts that decide whether a buyer qualifies, before any product. Every trade site hides them behind a login
+- **`investment-table`** — *franchise-sales*. what it really costs to open: the fee, the equipment, the working capital, TOTALLED, and an explicit list of what the headline figure excludes. "From £14,995" is the franchise fee and the real number is three times it
+- **`territory-list`** — *franchise-sales*. which areas are free, taken or under offer, with the population each covers. The second question every prospect has and the one no franchise site answers until a phone call
