@@ -8,7 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
-  FAMILIES, FAMILY_NAMES, READY_FAMILIES, MOLD_BREAKERS,
+  FAMILIES, FAMILY_NAMES, READY_FAMILIES,
   STRUCTURES, STRUCTURE_NAMES,
   familiesForPrompt, structuresForPrompt, layoutDirective,
 } from "../builder/site-layouts.mjs";
@@ -16,7 +16,11 @@ import {
 const MD = fs.readFileSync(new URL("../builder/LAYOUTS.md", import.meta.url), "utf8");
 const UI_DIR = new URL("../builder/lovable/template/src/components/ui/", import.meta.url);
 const ON_DISK = new Set(fs.readdirSync(UI_DIR).filter((f) => f.endsWith(".tsx")).map((f) => f.slice(0, -4)));
-const ALL = { ...FAMILIES, ...MOLD_BREAKERS };
+// Was `{ ...FAMILIES, ...MOLD_BREAKERS }`. The two mold-breakers are ordinary
+// families now, so every per-family assertion below reaches them by covering
+// FAMILIES — and reaches the checks they never had, because they were only
+// ever in that second object and never in FAMILY_NAMES.
+const ALL = FAMILIES;
 
 test("the module and LAYOUTS.md agree about which families exist — both directions", () => {
   // The md is the owner's document and the module is what runs; a family in one
@@ -32,7 +36,7 @@ test("the module and LAYOUTS.md agree about which families exist — both direct
   assert.equal(new Set(mds).size, mds.length, "two module families claim the same md heading");
 });
 
-test("structures and mold-breakers mirror their md sections the same way", () => {
+test("structures mirror their md section the same way families do", () => {
   const section = (title) => {
     const i = MD.indexOf(title);
     assert.ok(i >= 0, `LAYOUTS.md lost its "${title}" section`);
@@ -47,12 +51,15 @@ test("structures and mold-breakers mirror their md sections the same way", () =>
   for (const n of STRUCTURE_NAMES) {
     assert.ok(variantBullets.includes(STRUCTURES[n].md), `structure "${n}" (md: "${STRUCTURES[n].md}") is not an md bullet`);
   }
-  const moldBullets = [...section("## Cross-cutting: mold-breakers").matchAll(/^- \*\*(.+?)\*\*/gm)]
-    .map((m) => m[1].trim());
-  assert.equal(moldBullets.length, Object.keys(MOLD_BREAKERS).length);
-  for (const [id, m] of Object.entries(MOLD_BREAKERS)) {
-    assert.ok(moldBullets.includes(m.md), `mold-breaker "${id}" (md: "${m.md}") is not an md bullet`);
-  }
+  // The mold-breaker half of this test went with the concept. It asserted that
+  // the md's two bullets matched a SECOND table of shapes — and that second
+  // table was exactly the problem: being outside FAMILIES is what made
+  // marketplace and directory unpickable. They are numbered families in the md
+  // now, so the families mirror test above covers them, and it is the stronger
+  // check — it runs both directions, and every other per-family guard in this
+  // file now runs on them too.
+  assert.ok(!MD.includes("## Cross-cutting: mold-breakers"),
+    "the mold-breakers section is back in LAYOUTS.md — either those shapes are families or this test needs its other half again");
 });
 
 test("every family is complete and enum-safe", () => {
@@ -174,8 +181,7 @@ test("the prompt shortlist offers ready families only, and stays cheap", () => {
 });
 
 test("a directive carries the whole contract, and refuses everything unknown", () => {
-  const READY_MOLDS = Object.keys(MOLD_BREAKERS).filter((n) => MOLD_BREAKERS[n].ready);
-  for (const n of [...READY_FAMILIES, ...READY_MOLDS]) {
+  for (const n of READY_FAMILIES) {
     const f = ALL[n];
     const d = layoutDirective(n);
     assert.ok(d, `${n} produced no directive`);
@@ -193,8 +199,7 @@ test("a directive carries the whole contract, and refuses everything unknown", (
   // promise about the kit, and a wrong one must fail at the call site. DERIVED,
   // not named — the first version hardcoded "institutional", which went stale
   // the day its component landed and everything became ready.
-  const notReady = [...FAMILY_NAMES, ...Object.keys(MOLD_BREAKERS)]
-    .filter((n) => !(FAMILIES[n] ?? MOLD_BREAKERS[n]).ready);
+  const notReady = FAMILY_NAMES.filter((n) => !FAMILIES[n].ready);
   for (const n of notReady) {
     assert.equal(layoutDirective(n), null, `${n} is not ready and must not produce a directive`);
   }

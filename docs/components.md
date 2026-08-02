@@ -1,4 +1,4 @@
-# Components (2085 built, 25 to go)
+# Components (2086 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -1576,6 +1576,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ selection-limit
 ✓ selection-toolbar
 ✓ selection-tray
+✓ seller-card
 ✓ sensitivity-note
 ✓ sentiment-chip
 ✓ seo-jsonld

@@ -670,12 +670,39 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## Cross-cutting: mold-breakers
+## 47. Two-sided marketplace — audience-first
+**Shape:** supply and demand share one page; the toggle above the fold decides which you see.
+**CTA:** Join · List · Find
 
-Two shapes that don't sit inside a single family:
+- Marketplace
+- Craft marketplace
+- Resale site
+- Rental marketplace
+- Services marketplace
+- Trade platform
+- Ticket exchange
+- Swap site
+- Local classifieds
+- Artisan collective
 
-- **Two-sided marketplace** — supply/demand toggle above the fold
-- **Directory** — search bar as the entire homepage
+---
+
+## 48. Directory — search-first
+**Shape:** the search bar is the entire homepage; nothing appears until somebody asks for it.
+**CTA:** Search · Browse
+
+- Directory
+- Business directory
+- Trade directory
+- Venue finder
+- Club finder
+- What's on listing
+- Supplier index
+- Member register
+- Service finder
+- Local guide
+
+---
 
 ## Cross-cutting: structural variants
 

@@ -1307,48 +1307,55 @@ export const FAMILIES = {
     structure: "single-scroll",
     ready: true,
   },
-};
-
-/* -------------------------------------------------------------- mold-breakers */
-
-// Two shapes LAYOUTS.md keeps outside the families. Same fields, same guards.
-export const MOLD_BREAKERS = {
   marketplace: {
-    md: "Two-sided marketplace",
+    md: "Two-sided marketplace — audience-first",
     label: "supply and demand share one page — the toggle above the fold decides which you see",
     cta: ["Join", "List", "Find"],
     shape: [
       "hero: the two-sided switch — I need X / I offer X — and the page rearranges for the answer",
       "body: each side gets its own proof and its own action; neither is the default",
+      "the makers are people, not stock — a seller carries a name, a place and a rating with its count",
     ],
     pages: [
-      { file: "index", role: "one page — the two-sided switch decides everything you see" },
+      { file: "index", role: "the two-sided switch, and both sides answered above the fold" },
+      { file: "browse", role: "what is for sale, filtered, with the maker beside each thing" },
+      { file: "sell", role: "the other side in full — fees, payouts and what it takes to list" },
     ],
-    kinds: ["marketplace"],
-    components: ["audience-switch", "search-input", "steps", "stats-band"],
+    kinds: [
+      "marketplace", "craft marketplace", "resale site", "rental marketplace",
+      "services marketplace", "trade platform", "ticket exchange", "swap site",
+      "local classifieds", "artisan collective",
+    ],
+    components: ["audience-switch", "search-input", "steps", "stats-band", "seller-card", "filter-bar", "result-count"],
     variants: {},
     structure: "split-screen",
     ready: true,
   },
   directory: {
-    md: "Directory",
+    md: "Directory — search-first",
     label: "the search bar is the entire homepage",
     cta: ["Search", "Browse"],
     shape: [
       "hero: one search input, centered, with suggestions under it",
       "body: nothing until asked — recent searches and categories are the only furniture",
+      "a result is a real entry with an address and hours, never a card with a logo and a link",
     ],
     pages: [
-      { file: "index", role: "one page — the search input IS the homepage" },
+      { file: "index", role: "the search input IS the homepage — nothing else above the fold" },
+      { file: "results", role: "what a search returns, counted, filtered and honest when empty" },
+      { file: "listing", role: "one entry in full — who, where, when, and how to reach them" },
     ],
-    kinds: ["directory"],
-    components: ["search-input", "search-suggestions", "recent-searches", "result-count", "category-nav"],
+    kinds: [
+      "directory", "business directory", "trade directory", "venue finder",
+      "club finder", "what's on listing", "supplier index", "member register",
+      "service finder", "local guide",
+    ],
+    components: ["search-input", "search-suggestions", "recent-searches", "result-count", "category-nav", "location-card", "opening-hours"],
     variants: {},
     structure: "single-scroll",
     ready: true,
   },
 };
-
 /* ------------------------------------------------------------------ helpers */
 
 export const FAMILY_NAMES = Object.keys(FAMILIES);
@@ -1376,7 +1383,13 @@ export function structuresForPrompt() {
  * must fail loudly at the call site rather than produce a page that lints red.
  */
 export function layoutDirective(family, { structure, variant } = {}) {
-  const f = FAMILIES[family] ?? MOLD_BREAKERS[family];
+  // The two mold-breakers are ordinary families now, so the fallback that used
+  // to reach a second table is gone. They were ready, produced a directive and
+  // were documented — and lived OUTSIDE the families object, so they were absent
+  // from READY_FAMILIES, from the designer tool's enum and from the prompt. The
+  // model could not pick either one. Seventh instance in this repo of something
+  // built, tested, on disk and reachable by nothing.
+  const f = FAMILIES[family];
   if (!f || !f.ready) return null;
   if (structure !== undefined && !STRUCTURES[structure]) return null;
   if (variant !== undefined && !f.variants[variant]) return null;

@@ -1521,6 +1521,7 @@ export const COMPONENT_API = {
   "selection-limit": "SelectionLimit(selected: number, max?: number, atLimitNote?: string = \"Remove one to choose another.\")",
   "selection-toolbar": "SelectionToolbar(containerRef: React.RefObject<HTMLElement | null>, children?: React.ReactNode)",
   "selection-tray": "SelectionTray(items: { key: string; label: string }[], onRemove: (key: string) => void, onClear?: () => void, max?: number = 8, actions?: React.ReactNode)",
+  "seller-card": "SellerCard(name: string, makes: string, location?: string | null, since?: number | null, rating?: number | null, sales?: number | null, photo?: string | null, note?: string | null, href?: string, action?: React.ReactNode)",
   "sensitivity-note": "SensitivityNote(drivers: { label: string; effect: string }[], max?: number = 3)",
   "sentiment-chip": "SentimentChip(sentiment: Sentiment)",
   "seo-jsonld": "SeoJsonLd(data: Record<string, unknown> | Record<string, un…)",
