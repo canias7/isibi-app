@@ -1,4 +1,4 @@
-# Components (2086 built, 25 to go)
+# Components (2089 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -659,6 +659,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ fair-use-note
 ✓ faq
 ✓ faq-search
+✓ fare-quote
 ✓ feature-grid
 ✓ feature-matrix
 ✓ feature-tour
@@ -848,6 +849,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ input
 ✓ input-group
 ✓ input-otp
+✓ inspection-rating
 ✓ install-command
 ✓ install-prompt
 ✓ instalment-line
@@ -1330,6 +1332,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ range-text
 ✓ range-trim
 ✓ ranking-list
+✓ rate-card
 ✓ rate-limited
 ✓ rate-type
 ✓ rating-changed

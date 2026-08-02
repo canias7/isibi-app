@@ -1341,6 +1341,102 @@ export const FAMILIES = {
     structure: "split-screen",
     ready: true,
   },
+  hire: {
+    md: "Hire by the day — item-and-dates-first",
+    label: "pick the thing, pick the dates, see the price — and the deposit is on the page, not in the small print",
+    cta: ["Check availability", "Reserve"],
+    shape: [
+      "hero: the range with a day rate on each, and the dates asked before anything else",
+      "body: one item in full — what it does, what it costs by period, what is included and what is not",
+      "the deposit, the excess and what counts as damage are stated where the price is, never at collection",
+    ],
+    pages: [
+      { file: "index", role: "the range, day rates, and the dates question" },
+      { file: "item", role: "one item in full — spec, rates by period, what is included" },
+      { file: "book", role: "dates, extras, the deposit and the excess, stated before anybody pays" },
+    ],
+    kinds: [
+      "van hire", "car hire", "tool hire", "plant hire", "marquee hire", "party hire",
+      "skip hire", "trailer hire", "equipment hire", "AV hire",
+    ],
+    components: ["price-list", "safe-image", "gallery", "faq", "location-card", "opening-hours", "trust-strip", "availability-calendar", "rate-card"],
+    variants: {},
+    structure: "card-grid",
+    ready: true,
+  },
+
+  taxi: {
+    md: "Taxi or private hire — fare-first",
+    label: "where from, where to, and a fixed price before anybody rings",
+    cta: ["Get a fare", "Book now"],
+    shape: [
+      "hero: the two address fields and a fixed fare, answered on the page",
+      "body: the fixed prices to the places everybody goes — airports, stations, the hospital",
+      "the 24-hour number leads the header, because half of this trade is somebody standing in the rain",
+    ],
+    pages: [
+      { file: "index", role: "the fare quote and the number" },
+      { file: "fares", role: "fixed prices to the places everybody goes, and what changes them" },
+      { file: "account", role: "the other customer — business accounts, school runs, regular journeys" },
+    ],
+    kinds: [
+      "taxi", "private hire", "minicab", "chauffeur", "airport transfer", "coach hire",
+      "minibus hire", "executive travel", "wheelchair accessible taxi", "courier (same day)",
+    ],
+    components: ["price-list", "service-area", "faq", "testimonial", "trust-strip", "opening-hours", "contact-form", "fare-quote"],
+    variants: {},
+    structure: "split-screen",
+    ready: true,
+  },
+
+  "care-home": {
+    md: "Care home — the place, the fees and the visit",
+    label: "what it is actually like, what it actually costs, and how to come and see it",
+    cta: ["Arrange a visit", "See the fees"],
+    shape: [
+      "hero: the home itself, the inspection rating with its date, and the visit ask",
+      "body: the rooms one by one, then the day, then the fees in full",
+      "the weekly fee is on the page — a sector that hides it is the reason families ring six homes",
+    ],
+    pages: [
+      { file: "index", role: "the home, the rating, and how to come and look" },
+      { file: "rooms", role: "every room type and what is in it" },
+      { file: "fees", role: "the weekly fee, what it includes, and how funding works" },
+    ],
+    kinds: [
+      "care home", "nursing home", "residential care", "dementia care", "supported living",
+      "respite care", "retirement village", "extra care housing", "hospice", "learning disability care",
+    ],
+    components: ["safe-image", "gallery", "price-list", "faq", "location-card", "team-grid", "testimonial", "contact-form", "inspection-rating"],
+    variants: {},
+    structure: "full-bleed-hero",
+    ready: true,
+  },
+
+  "home-care": {
+    md: "Home care — visits-and-rates-first",
+    label: "what a visit actually is, what an hour costs, and who would be coming",
+    cta: ["Arrange an assessment", "See the rates"],
+    shape: [
+      "hero: the hourly rate and the inspection rating, together, above anything about the company",
+      "body: what each kind of visit includes, then the rates by length and by day, then the carers",
+      "the rate is per hour and stated by band — a single headline rate is a quote nobody gets",
+    ],
+    pages: [
+      { file: "index", role: "the rate, the rating, and what a visit is" },
+      { file: "services", role: "each kind of care and what a visit actually includes" },
+      { file: "arrange", role: "the assessment, and how funding works" },
+    ],
+    kinds: [
+      "home care", "domiciliary care", "live-in care", "companionship", "respite at home",
+      "personal care", "dementia care at home", "end of life care", "reablement", "night care",
+    ],
+    components: ["price-list", "service-area", "faq", "testimonial", "team-grid", "trust-strip", "contact-form", "steps", "rate-card", "inspection-rating"],
+    variants: {},
+    structure: "single-scroll",
+    ready: true,
+  },
+
   directory: {
     md: "Directory — search-first",
     label: "the search bar is the entire homepage",

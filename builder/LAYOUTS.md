@@ -704,6 +704,74 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
+## 49. Hire by the day — item-and-dates-first
+**Shape:** pick the thing, pick the dates, see the price — and the deposit is on the page, not in the small print.
+**CTA:** Check availability · Reserve
+
+- Van hire
+- Car hire
+- Tool hire
+- Plant hire
+- Marquee hire
+- Party hire
+- Skip hire
+- Trailer hire
+- Equipment hire
+- AV hire
+
+---
+
+## 50. Taxi or private hire — fare-first
+**Shape:** where from, where to, and a fixed price before anybody rings.
+**CTA:** Get a fare · Book now
+
+- Taxi
+- Private hire
+- Minicab
+- Chauffeur
+- Airport transfer
+- Coach hire
+- Minibus hire
+- Executive travel
+- Wheelchair accessible taxi
+- Same-day courier
+
+---
+
+## 51. Care home — the place, the fees and the visit
+**Shape:** what it is actually like, what it actually costs, and how to come and see it.
+**CTA:** Arrange a visit · See the fees
+
+- Care home
+- Nursing home
+- Residential care
+- Dementia care
+- Supported living
+- Respite care
+- Retirement village
+- Extra care housing
+- Hospice
+- Learning disability care
+
+---
+
+## 52. Home care — visits-and-rates-first
+**Shape:** what a visit actually is, what an hour costs, and who would be coming.
+**CTA:** Arrange an assessment · See the rates
+
+- Home care
+- Domiciliary care
+- Live-in care
+- Companionship
+- Respite at home
+- Personal care
+- Dementia care at home
+- End of life care
+- Reablement
+- Night care
+
+---
+
 ## Cross-cutting: structural variants
 
 Any family above can be expressed through:
