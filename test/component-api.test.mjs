@@ -309,3 +309,109 @@ test("a grid inside a narrow parent is the CALLER's decision, not the viewport's
     .filter((src) => /<TestimonialGrid[^>]*columns=/s.test(src));
   assert.ok(used.length >= 2, "no page constrains the testimonial grid — this guard watches nothing");
 });
+
+test("a deadline derived from a date, and a status that cannot eat the row", () => {
+  // MeetingPapers is the parish-council family's whole reason to exist: an
+  // agenda is due three CLEAR days before a meeting — excluding the day it goes
+  // up and the day of the meeting, which is the bit everyone gets wrong by one
+  // — and a bare date tells a resident nothing about whether they can prepare.
+  //
+  // Derived rather than stored, because a stored due date drifts the moment a
+  // meeting is moved, which is precisely when somebody is relying on it.
+  const UI = path.join(import.meta.dirname, "../builder/lovable/template/src/components/ui");
+  const src = fs.readFileSync(path.join(UI, "meeting-papers.tsx"), "utf8");
+  assert.match(src, /due\.setDate\(due\.getDate\(\) - \(noticeDays \+ 1\)\)/,
+    "the agenda deadline is no longer derived from the meeting date, or the clear-days arithmetic has lost its +1");
+  assert.ok(!/dueBy\?:|agendaDue\?:/.test(src),
+    "a stored due date is back — it will disagree with the meeting date the first time one moves");
+
+  // CLEAR days, evaluated. Three clear days before Tuesday 12th is Friday 8th,
+  // not Saturday 9th: both endpoints are excluded and off-by-one here is a
+  // council telling residents an unlawfully short notice period was fine.
+  const dueFor = (iso, noticeDays = 3) => {
+    const d = new Date(iso);
+    d.setDate(d.getDate() - (noticeDays + 1));
+    return d.toISOString().slice(0, 10);
+  };
+  assert.equal(dueFor("2026-08-11"), "2026-08-07");
+  assert.equal(dueFor("2026-08-05"), "2026-08-01");
+  assert.equal(dueFor("2026-09-01"), "2026-08-28", "it must cross a month boundary correctly");
+  assert.equal(dueFor("2026-03-02"), "2026-02-26", "and a short month");
+
+  // And the overdue state, which is the one the component exists for, must not
+  // be able to consume the row. As a single long string with `shrink-0` it
+  // squeezed the meeting name to a ~130px ribbon — measured on a render, and
+  // invisible to tsc, to vite and to every other check here.
+  assert.match(src, /shrink-0 max-w-\[13rem\] text-right/,
+    "the status column is unbounded again — the widest state decides the whole layout");
+  assert.match(src, /<span className="block text-sm font-medium">Agenda overdue<\/span>/,
+    "the overdue message is one long string again");
+});
+
+test("the holding deposit comes OFF the first month, and three contracts that must not soften", () => {
+  // Every one of these survived a first mutation pass.
+  const UI = path.join(import.meta.dirname, "../builder/lovable/template/src/components/ui");
+  const tenancy = fs.readFileSync(path.join(UI, "tenancy-costs.tsx"), "utf8");
+  const livery = fs.readFileSync(path.join(UI, "livery-packages.tsx"), "utf8");
+  const grades = fs.readFileSync(path.join(UI, "membership-grades.tsx"), "utf8");
+  const papers = fs.readFileSync(path.join(UI, "meeting-papers.tsx"), "utf8");
+
+  // 1. THE ONE ARITHMETIC ERROR THIS COMPONENT EXISTS TO PREVENT. A holding
+  // deposit is set against the first month's rent, not added to it — almost
+  // nobody knows that, so a naive sum of the rows overstates the total by a
+  // week's rent. Adding it back survived the whole suite.
+  assert.match(tenancy, /const total = Math\.round\(\(monthlyRent \+ deposit\) \* 100\) \/ 100;/,
+    "the holding deposit is being added on top of the first month again");
+  const total = (rent, depWeeks) => {
+    const weekly = (rent * 12) / 52;
+    return Math.round((rent + Math.round(weekly * depWeeks * 100) / 100) * 100) / 100;
+  };
+  assert.equal(total(950, 5), 2046.15, "£950 pcm is £219.23 a week, so five weeks is £1,096.15 plus one month");
+  assert.equal(total(1000, 0), 1000, "no deposit means the first month and nothing else");
+
+  // WEEKS, FROM AN ANNUALISED RENT. The caps are in WEEKS and the rent is
+  // quoted MONTHLY, and multiplying the monthly figure by five weeks survived
+  // the evaluated test above — because that test reimplements the right
+  // formula and cannot see the source change. £950 pcm would have shown a
+  // £4,750 deposit instead of £1,096.
+  assert.match(tenancy, /const weekly = \(monthlyRent \* 12\) \/ 52;/,
+    "the weekly rent is no longer annualised — a month is not four weeks and the caps are in weeks");
+  assert.match(tenancy, /const deposit = Math\.round\(weekly \* depositWeeks \* 100\) \/ 100;/,
+    "the deposit is being derived from something other than the weekly rent");
+  assert.match(tenancy, /const holding = Math\.round\(weekly \* holdingWeeks \* 100\) \/ 100;/,
+    "the holding deposit is being derived from something other than the weekly rent");
+
+  // AND THE CAPS ARE CHECKED. A deposit above five weeks and a holding deposit
+  // above one are unlawful in England; an agent typing into a CMS will
+  // eventually type an unlawful number, and rendering it neatly is the worst
+  // outcome available. `overCap = false` killed it and passed.
+  assert.match(tenancy, /const overCap = depositWeeks > 5 \|\| holdingWeeks > 1;/,
+    "the statutory cap check is gone — an unlawful figure now renders as though it were fine");
+  const overCap = (dep, hold) => dep > 5 || hold > 1;
+  assert.equal(overCap(5, 1), false, "the caps themselves are lawful");
+  assert.equal(overCap(6, 1), true);
+  assert.equal(overCap(5, 2), true);
+
+  // 2. THE OVERDUE BRANCH, WIRED. Asserting the strings exist proves nothing
+  // about whether anything can reach them — `const overdue = false` killed the
+  // whole state and passed.
+  assert.match(papers, /const overdue = !m\.agendaHref && !past && due\.getTime\(\) < midnight;/,
+    "the overdue condition is gone or weakened — the late state is unreachable");
+
+  // 3. `excludes` IS REQUIRED and must stay required. An unstated exclusion
+  // reads as included, which is the failure that ends up in a county Facebook
+  // group — full livery at £186 that does not cover bedding is not full livery.
+  assert.match(livery, /\n  excludes: string\[\];/,
+    "excludes has been made optional — an omitted exclusion reads as included");
+
+  // 4. Every optional field on Grade is nullable, derived rather than listed.
+  // A single non-nullable optional among nullable siblings is a trap: a caller
+  // writing `orRequires: null` to mean "no second route" is saying something
+  // true and gets a type error for it.
+  const block = grades.slice(grades.indexOf("export type Grade = {"), grades.indexOf("export function MembershipGrades"));
+  const optional = [...block.matchAll(/^ {2}(\w+)\?: ([^;]+);/gm)];
+  assert.ok(optional.length >= 5, `only found ${optional.length} optional fields on Grade — the scan has broken`);
+  for (const [, name, type] of optional) {
+    assert.ok(/\| null\b/.test(type), `Grade.${name} is optional but not nullable, unlike its siblings`);
+  }
+});

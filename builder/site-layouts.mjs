@@ -1501,7 +1501,7 @@ export const FAMILIES = {
     ],
     kinds: [
       "kennels", "cattery", "dog daycare", "home boarding", "pet sitting",
-      "dog walking", "small animal boarding", "equine livery", "reptile boarding", "aviary boarding",
+      "dog walking", "small animal boarding", "rabbit boarding", "reptile boarding", "aviary boarding",
     ],
     components: ["availability-calendar", "rate-card", "price-list", "gallery", "safe-image", "faq", "location-card", "opening-hours", "team-grid", "entry-requirements"],
     variants: {},
@@ -1671,6 +1671,99 @@ export const FAMILIES = {
     components: ["faq", "contact-form", "testimonial", "timeline", "stats-band", "download-card", "payback-note", "break-even-note", "safe-image", "investment-table", "territory-list"],
     variants: {},
     structure: "single-scroll",
+    ready: true,
+  },
+
+  "lettings-agent": {
+    md: "Lettings agent — what-it-costs-to-move-in-first",
+    label: "the money a tenant actually needs up front, and the landlord fee as a percentage rather than 'competitive'",
+    cta: ["What it costs to move in", "Landlords"],
+    shape: [
+      "hero: the up-front total for a tenant, computed, with the statement that everything else is prohibited by law",
+      "body: the available properties, then the landlord tiers as percentages, then the compliance a landlord actually has to do",
+      "two audiences on one site — a tenant asking what they will be stung for, and a landlord asking what the fee is",
+    ],
+    pages: [
+      { file: "index", role: "what a tenant pays up front, and what is banned" },
+      { file: "landlords", role: "the management tiers as percentages, and what each includes" },
+      { file: "compliance", role: "the certificates a landlord needs, with the deadline on each" },
+    ],
+    kinds: [
+      "letting agent", "student lettings", "HMO management", "block management", "build to rent",
+      "corporate lettings", "holiday let management", "guaranteed rent", "rent to rent", "relocation agent",
+    ],
+    components: ["property-card", "search-facets", "filter-bar", "pricing-table", "entry-requirements", "faq", "location-card", "contact-form", "gallery", "tenancy-costs"],
+    variants: {},
+    structure: "card-grid",
+    ready: true,
+  },
+  "professional-body": {
+    md: "Institute or association — which-grade-am-I-first",
+    label: "the membership ladder with what each grade REQUIRES, so somebody can place themselves in ten seconds",
+    cta: ["Which grade am I?", "Find a member"],
+    shape: [
+      "hero: the grades with their entry requirements, not their benefits",
+      "body: the register, then CPD and what it actually demands a year, then the assessment route",
+      "every institute leads with what membership gives you and buries what it takes to get in",
+    ],
+    pages: [
+      { file: "index", role: "the grades, and what each one requires of you" },
+      { file: "register", role: "find a member — the searchable register that is the body's real product" },
+      { file: "apply", role: "the assessment route, the evidence needed, and how long it takes" },
+    ],
+    kinds: [
+      "professional body", "institute", "trade association", "chartered body", "licensing board",
+      "accreditation scheme", "regulator", "membership organisation", "guild", "learned society",
+    ],
+    components: ["membership-tier-row", "search-input", "search-facets", "result-count", "faq", "timeline", "download-card", "contact-form", "stats-band", "membership-grades"],
+    variants: {},
+    structure: "sidebar",
+    ready: true,
+  },
+  "parish-council": {
+    md: "Parish or town council — next-meeting-first",
+    label: "when the next meeting is, whether the agenda is out yet, and what the precept costs on your band",
+    cta: ["Next meeting", "Papers"],
+    shape: [
+      "hero: the next meeting with the agenda's publication state — an agenda is due three clear days before, and 'not out yet' is information",
+      "body: the papers, then the councillors and their vacancies, then the precept per band",
+      "a resident wants to know whether they can turn up and speak, and every council site answers with a welcome message",
+    ],
+    pages: [
+      { file: "index", role: "the next meeting, the agenda, and how to speak at it" },
+      { file: "papers", role: "agendas and minutes, with the decisions and who is doing what" },
+      { file: "council", role: "councillors, vacancies, and what the precept costs" },
+    ],
+    kinds: [
+      "parish council", "town council", "community council", "residents association", "neighbourhood forum",
+      "school governors", "allotment association", "village hall committee", "civic society", "friends group",
+    ],
+    components: ["minutes-entry", "committee-list", "faq", "location-card", "price-list", "download-card", "announcement-bar", "safe-image", "meeting-papers"],
+    variants: {},
+    structure: "editorial",
+    ready: true,
+  },
+  equestrian: {
+    md: "Livery yard or riding school — is-there-a-space-first",
+    label: "the livery packages by the week, what turnout actually means here, and whether a stable is free",
+    cta: ["Is there a space?", "Book a lesson"],
+    shape: [
+      "hero: the livery packages with the weekly price and whether any are free right now",
+      "body: turnout stated in hours and months rather than as the word 'available', then the arena and the hacking, then lessons",
+      "'turnout available' is on every yard's advert and answers none of the four questions that decide it",
+    ],
+    pages: [
+      { file: "index", role: "the livery packages, the weekly price, and what is free" },
+      { file: "yard", role: "turnout, the arena, the hacking, and the rest of the facilities" },
+      { file: "lessons", role: "riding lessons by level, and what a first one is like" },
+    ],
+    kinds: [
+      "livery yard", "riding school", "equestrian centre", "stud", "pony club centre",
+      "trekking centre", "horse transport", "farrier", "equine therapy", "carriage driving",
+    ],
+    components: ["amenity-list", "rate-card", "gallery", "safe-image", "location-card", "faq", "session-table", "testimonial", "house-rules", "livery-packages"],
+    variants: {},
+    structure: "full-bleed-hero",
     ready: true,
   },
 };

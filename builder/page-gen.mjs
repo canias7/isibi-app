@@ -830,11 +830,12 @@ export const UI_COMPONENTS = [
   "frequency-picker", "impact-stat", "league-table", "lineup-grid", "practitioner-card",
   "admission-prices", "counter-services", "direct-saving", "entry-requirements",
   "facility-status", "fare-quote", "house-rules", "inspection-rating",
-  "investment-table", "pitch-types", "produce-calendar", "quote-calculator",
+  "investment-table", "livery-packages", "meeting-papers", "membership-grades",
+  "pitch-types", "produce-calendar", "quote-calculator",
   "quote-request", "rate-card", "repair-status", "seller-card", "service-times",
   "session-table", "size-guide", "story-lead", "subject-list", "symptom-row",
-  "tap-list", "territory-list", "trade-terms", "triage-banner", "unit-card",
-  "vehicle-lookup",
+  "tap-list", "tenancy-costs", "territory-list", "trade-terms", "triage-banner",
+  "unit-card", "vehicle-lookup",
 ];
 
 // THE COMPONENTS THE MODEL IS SHOWN — the most-used slice of the 2,058.

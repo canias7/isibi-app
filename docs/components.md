@@ -1,4 +1,4 @@
-# Components (2099 built, 25 to go)
+# Components (2103 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -951,6 +951,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ live-badge
 ✓ live-cursor
 ✓ live-region
+✓ livery-packages
 ✓ livestock-row
 ✓ load-error
 ✓ load-more
@@ -1013,9 +1014,11 @@ A ✓ means it exists and a generated site can import it today.
 ✓ media-object
 ✓ media-query-note
 ✓ medication-round
+✓ meeting-papers
 ✓ meeting-poll-grid
 ✓ mega-menu
 ✓ membership-card
+✓ membership-grades
 ✓ membership-tier-row
 ✓ mention-badge
 ✓ mention-chip
@@ -1861,6 +1864,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ template-picker
 ✓ template-preview
 ✓ template-variables
+✓ tenancy-costs
 ✓ tenant-badge
 ✓ tenant-delete
 ✓ tenant-limits

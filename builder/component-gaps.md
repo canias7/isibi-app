@@ -207,3 +207,10 @@ family that fits. These are the components those families need.
 - **`trade-terms`** — *wholesaler*. minimum order, carriage-paid threshold, payment terms, delivery days and whether an account is required — the four facts that decide whether a buyer qualifies, before any product. Every trade site hides them behind a login
 - **`investment-table`** — *franchise-sales*. what it really costs to open: the fee, the equipment, the working capital, TOTALLED, and an explicit list of what the headline figure excludes. "From £14,995" is the franchise fee and the real number is three times it
 - **`territory-list`** — *franchise-sales*. which areas are free, taken or under offer, with the population each covers. The second question every prospect has and the one no franchise site answers until a phone call
+
+## Tier-2 gaps, batch B — four more (2026-08-02)
+
+- **`tenancy-costs`** — *lettings-agent*. the up-front money a tenant actually needs — holding deposit, first month, security deposit — TOTALLED, with the statutory caps checked against the rent and an explicit statement that everything else is prohibited. The Tenant Fees Act banned admin fees in 2019 and tenants still arrive braced to be stung
+- **`membership-grades`** — *professional-body*. the ladder by what each grade REQUIRES (years, qualifications, assessment), not by what it grants. Every institute leads with the benefits and buries the entry criteria, so nobody can place themselves without reading four pages
+- **`meeting-papers`** — *parish-council*. a meeting with its date and whether the agenda is PUBLISHED yet, against the statutory three clear days. "Agenda not out yet, due Friday" is information; a bare date is not, and it is what stops a resident preparing to speak
+- **`livery-packages`** — *equestrian*. DIY / part / full by the week, with what is included, what is explicitly not, and whether a stable is actually free. "Spaces available" on a yard advert is six months old on every yard's website in the country
