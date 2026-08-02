@@ -10845,3 +10845,49 @@ malformed schema.
 
 Unit **709/709**.
 
+---
+## 2026-08-02 — what a build costs, and the three cuts
+Owner asked what a site costs in tokens and whether the fonts trick applies. Measured
+first: **two model calls, and the small one was the expensive one.** The page call carried
+25,207 tokens under `cache_control: ephemeral`; the design call carried ~6,800 with **no
+caching at all**, paid fresh on every single build. Three and a half times smaller and
+nearly three times the cost.
+
+| per build, after the first | design | pages | total |
+|---|---|---|---|
+| before | 6,679 | ~2,521 | **~9,200** |
+| now | ~547 | ~1,765 | **~2,312** |
+
+**~4× cheaper.** In order of what each was worth:
+
+- **Caching the design call — by far the biggest, ~6,100 tokens/build.** `pagesRequest`
+  already did this; `designSiteSchema` sent a plain string `system:` and an uncached tool.
+  Now a block array with `cache_control` on both. Nothing about the content changed.
+- **Themes 500 → 100, ~1,224/build.** The actual fonts move: `site-fonts.mjs` offers 24 of
+  2,096 because naming them all costs ~7,500 tokens, and off-list stays reachable by name.
+  Same bargain here — `resolveTheme` still takes any of the 500 and the route falls back to
+  `body.theme`, so what the shortlist bounds is what the MODEL picks between.
+  **Spread across categories, not the first 100**: the candidates are stored grouped by
+  `cat`, so a flat slice would be every print and tech theme and nothing else — a shortlist
+  that cannot dress a bakery. Round-robin covers all 53 categories; both promoted themes
+  are always included. 1,525 → 312 tokens.
+- **Components 2,058 → 157, ~786/build, and this is the one that costs something.**
+  **Asked for 100; 100 is below the floor** — the 26 families themselves declare 157
+  components their pages need, so a list of 100 would omit 57 and break the layout wiring
+  rather than trim a prompt. Derived from the families' own `components` lists, so it
+  updates itself when a family changes. **The cost is real and worth restating: the model
+  can only import a name it has been given, so the 1,901 left off are ones no generated
+  page will use.** It is also the smallest saving, because `PAGE_RULES` is cached and only
+  about a tenth of the full list's 8,150 tokens was ever being paid. `UI_COMPONENTS` stays
+  whole — it is the lint's allow-list and the drift guard against disk — so a page
+  importing any real component is still accepted.
+- **Rule 3 no longer claims the shortlist is everything.** It said "these exist and nothing
+  else does", which was already wrong about the 882 charts and would now be wrong about
+  1,901 components. A false absolute in the prompt is how a whole tier goes unused, and
+  there is a test on it.
+
+20 wiring assertions now. 3 mutants on this change, all caught: design call uncached again,
+shortlist cut below the family floor, flat slice instead of the category spread.
+
+Unit **717/717**, theme seam 10/10, site-build 33/33, site-runtime 23/23.
+

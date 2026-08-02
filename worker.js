@@ -26,7 +26,7 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
 import { SHORTLIST, resolvePair } from "./builder/site-fonts.mjs";
-import { THEME_IDS } from "./builder/site-theme-registry.mjs";
+import { THEME_SHORTLIST } from "./builder/site-theme-registry.mjs";
 import { FAMILY_NAMES, layoutDirective, familiesForPrompt } from "./builder/site-layouts.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)
@@ -2579,13 +2579,18 @@ const SITE_BUILD_FEE = 2;
 // points at a font that was never bundled, and it renders as the fallback.
 const SITE_FONT_IDS = SHORTLIST.map((f) => f.id);
 
-// Same argument as the fonts enum, and the same measurement behind it. All 500
-// theme names cost ~1,525 tokens on every design call; the same list carrying
-// each theme's one-line label costs ~7,019 — which is the figure the fonts field
-// refused when it declined to name 2,096 Fontsource families. The keys carry
-// their own meaning (`broadsheet`, `bauhaus`, `zine`), so labels buy sharper
-// picking at four and a half times the price, on every build, forever.
-const SITE_THEME_IDS = THEME_IDS;
+// A SHORTLIST, exactly as the fonts enum is one — 100 of the 500, spread across
+// all 53 categories so the list can dress a bakery as well as a SaaS. All 500
+// names cost ~1,525 tokens on every design call and the shortlist costs ~312;
+// the same list carrying each theme's one-line label would cost ~7,019, which is
+// the figure the fonts field refused when it declined to name 2,096 Fontsource
+// families. The names carry their own meaning (`broadsheet`, `bauhaus`, `zine`).
+//
+// The other 400 are NOT lost: `resolveTheme` takes any of the 500, and the route
+// falls back to `body.theme`, so a caller can name one directly. What the
+// shortlist bounds is what the MODEL chooses between — the same bargain fonts
+// made when it left 2,072 families off its own list.
+const SITE_THEME_IDS = THEME_SHORTLIST;
 // Derived, never restated: a family named here that site-layouts.mjs does not
 // declare produces a directive of nothing, and the page prompt silently loses
 // its layout while every test still passes.
@@ -2832,9 +2837,15 @@ async function designSiteSchema(env, brief) {
     body: JSON.stringify({
       model: "claude-sonnet-5",
       max_tokens: SITE_SCHEMA_MAX_TOKENS,
-      tools: [SITE_SCHEMA_TOOL],
+      // CACHED, the way pagesRequest already caches PAGE_RULES. This call carries
+      // ~6,800 input tokens of tool schema and system text that are byte-identical
+      // on every build, and it was paying full price for all of it every time —
+      // while the PAGE call, three and a half times bigger, was a cache read.
+      // The small call was the expensive one. cache_control on the LAST tool
+      // covers the tool block; the system block carries its own.
+      tools: [{ ...SITE_SCHEMA_TOOL, cache_control: { type: "ephemeral" } }],
       tool_choice: { type: "tool", name: "design_schema" },
-      system: "You design the data model behind a small business website. Keep it to the few tables the site actually needs — usually one to four. " +
+      system: [{ type: "text", cache_control: { type: "ephemeral" }, text: "You design the data model behind a small business website. Keep it to the few tables the site actually needs — usually one to four. " +
               "Use 'display' for content the business publishes and visitors read (services, menu items, posts). " +
               "Use 'collect' for anything a visitor submits — bookings, orders, enquiries, signups. Those are write-only on purpose: the visitor sends one in, " +
               "and only the business reads them, so customer names and phone numbers are never served back to the public. " +
@@ -2843,7 +2854,7 @@ async function designSiteSchema(env, brief) {
               "Do NOT invent a signups/members table to hold accounts: the platform stores those itself, so a table for emails and passwords is both unnecessary and unusable. " +
               "Then fill every 'display' table with 3-6 realistic starter rows in `seed`. This is not optional and it is not decoration: " +
               "nothing can write to a display table after the build, so an unseeded table is an empty list forever, and any form field that " +
-              "chooses from it will have nothing to choose. Write content a real business would publish.",
+              "chooses from it will have nothing to choose. Write content a real business would publish." }],
       messages: [{ role: "user", content: brief }],
     }),
     signal: AbortSignal.timeout(60000),

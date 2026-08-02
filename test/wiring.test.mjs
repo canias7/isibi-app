@@ -15,9 +15,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
-import { THEME_IDS, ALL_THEMES, resolveTheme } from "../builder/site-theme-registry.mjs";
+import { THEME_IDS, THEME_SHORTLIST, ALL_THEMES, resolveTheme } from "../builder/site-theme-registry.mjs";
 import { themeCss, THEMES } from "../builder/site-theme.mjs";
-import { FAMILY_NAMES, layoutDirective, familiesForPrompt } from "../builder/site-layouts.mjs";
+import { FAMILY_NAMES, layoutDirective, familiesForPrompt, FAMILIES } from "../builder/site-layouts.mjs";
+import { UI_COMPONENTS, UI_SHORTLIST, PAGE_RULES } from "../builder/page-gen.mjs";
 
 const ROOT = path.join(import.meta.dirname, "..");
 const worker = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
@@ -64,7 +65,7 @@ test("an unknown theme resolves to null rather than throwing", () => {
 test("the designer is OFFERED a theme and a family, both derived", () => {
   // Derived, not restated: a hand-typed list here would drift from the module
   // and offer a name that resolves to nothing.
-  assert.match(worker, /const SITE_THEME_IDS = THEME_IDS;/);
+  assert.match(worker, /const SITE_THEME_IDS = THEME_SHORTLIST;/);
   assert.match(worker, /const SITE_FAMILY_IDS = FAMILY_NAMES;/);
   assert.match(worker, /enum: SITE_THEME_IDS/);
   assert.match(worker, /enum: SITE_FAMILY_IDS/);
@@ -75,6 +76,49 @@ test("and REQUIRED to choose, or every site silently keeps the default look", ()
   assert.ok(req, "could not find design_schema's required list");
   assert.match(req[0], /"theme"/);
   assert.match(req[0], /"family"/);
+});
+
+test("the shortlist is 100, spread over every category, and still all resolve", () => {
+  // A flat first-100 would be every print and tech theme and nothing else — a
+  // shortlist that cannot dress a bakery. The round-robin is what stops that,
+  // and it is invisible unless something checks the spread.
+  assert.equal(THEME_SHORTLIST.length, 100);
+  const allCats = new Set(Object.values(ALL_THEMES).map((t) => t.cat || "shipped"));
+  const listCats = new Set(THEME_SHORTLIST.map((n) => ALL_THEMES[n].cat || "shipped"));
+  assert.equal(listCats.size, allCats.size, `only ${listCats.size} of ${allCats.size} categories are offered`);
+  for (const n of THEME_SHORTLIST) assert.ok(resolveTheme(n), `${n} is offered and does not resolve`);
+  assert.equal(new Set(THEME_SHORTLIST).size, 100, "the shortlist repeats a theme");
+});
+
+test("the promoted themes are always offered", () => {
+  // They are the two whose `needs` are actually built. Losing one because a
+  // category lane filled first would make the best-supported themes the least
+  // likely to be chosen.
+  for (const name of Object.keys(THEMES)) {
+    assert.ok(THEME_SHORTLIST.includes(name), `${name} is promoted and not offered`);
+  }
+});
+
+test("the other 400 are bounded, not lost — any of the 500 still resolves", () => {
+  // The fonts bargain: the shortlist bounds what the MODEL picks between, and a
+  // caller naming one directly on the request body reaches any of them.
+  const offList = THEME_IDS.filter((n) => !THEME_SHORTLIST.includes(n));
+  assert.equal(offList.length, THEME_IDS.length - 100);
+  for (const n of offList) assert.ok(resolveTheme(n), `${n} is unreachable even by name`);
+  assert.match(worker, /theme: \(designed && designed\.theme\) \|\| \(body && body\.theme\)/,
+    "the body fallback is gone, so off-list themes really are unreachable");
+});
+
+test("the DESIGN call is cached, like the page call", () => {
+  // It carries ~6,800 tokens that are byte-identical every build and was paying
+  // full price for all of them, while the page call — three and a half times
+  // bigger — was a cache read. The small call was the expensive one.
+  const i = worker.indexOf("async function designSiteSchema");
+  assert.ok(i > 0, "designSiteSchema moved");
+  const call = worker.slice(i, i + 3500);
+  assert.match(call, /tools: \[\{ \.\.\.SITE_SCHEMA_TOOL, cache_control: \{ type: "ephemeral" \} \}\]/);
+  assert.match(call, /system: \[\{ type: "text", cache_control: \{ type: "ephemeral" \}/,
+    "the system block must be a block array, or cache_control has nowhere to live");
 });
 
 test("the chosen theme reaches the container, by name", () => {
@@ -130,4 +174,36 @@ test("every family the designer may pick produces a real directive", () => {
     assert.ok(typeof d === "string" && d.length > 60, `${name} gives no usable directive`);
     assert.match(d, /LAYOUT —/, `${name}'s directive is not shaped like one`);
   }
+});
+
+test("the component shortlist covers every component a family declares", () => {
+  // The floor. Each of the 26 families names the components its pages need, and
+  // a shortlist missing one breaks that family rather than trimming a prompt —
+  // which is why this is 157 and not the 100 originally asked for.
+  const declared = new Set();
+  for (const fam of Object.values(FAMILIES)) for (const c of fam.components || []) declared.add(c);
+  const offered = new Set(UI_SHORTLIST);
+  for (const c of declared) assert.ok(offered.has(c), `${c} is declared by a family and not offered to the model`);
+});
+
+test("every name in the shortlist is a real component", () => {
+  const real = new Set(UI_COMPONENTS);
+  for (const c of UI_SHORTLIST) assert.ok(real.has(c), `${c} is offered and does not exist`);
+});
+
+test("the LINT still knows all 2,058, so a real import is never refused", () => {
+  // Only the PROMPT was shortened. Narrowing the lint too would turn "a
+  // component the model was not told about" into "a component the pipeline
+  // rejects", which is a much worse failure and a silent one.
+  assert.ok(UI_COMPONENTS.length > 2000, `the lint's allow-list shrank to ${UI_COMPONENTS.length}`);
+  assert.ok(UI_SHORTLIST.length < UI_COMPONENTS.length, "the shortlist is not actually shorter");
+});
+
+test("the rules do not claim the shortlist is everything that exists", () => {
+  // Rule 3 used to say "these exist and nothing else does", which was already
+  // wrong about the 882 charts and would now be wrong about 1,901 components
+  // too. A false absolute in the prompt is how a whole tier goes unused.
+  const i = PAGE_RULES.indexOf("THE KIT FOR EVERY CONTROL");
+  const rule = PAGE_RULES.slice(i, i + 400);
+  assert.ok(!/exist and nothing\s+else does/.test(rule), "rule 3 asserts a falsehood about the kit");
 });
