@@ -27,7 +27,7 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
 import { SHORTLIST, resolvePair } from "./builder/site-fonts.mjs";
 import { THEME_SHORTLIST } from "./builder/site-theme-registry.mjs";
-import { READY_FAMILIES, STRUCTURE_NAMES, layoutDirective, familiesForPrompt, structuresForPrompt } from "./builder/site-layouts.mjs";
+import { READY_FAMILIES, STRUCTURE_NAMES, VARIANT_IDS, layoutDirective, familiesForPrompt, structuresForPrompt, variantsForPrompt, resolveVariant } from "./builder/site-layouts.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)
 // bakes kaplay + a headless Chromium for the smoke test. Runs to zero after idle.
@@ -2835,6 +2835,24 @@ const SITE_SCHEMA_TOOL = {
           "How the pages are ARRANGED — optional. Every family already has a sensible default, so leave this out " +
           "unless the brief asks for a shape that is not the usual one for this kind of site.\n\n" + structuresForPrompt(),
       },
+      // The fourth axis, and it was DECLARED AND UNREACHABLE until 2026-08-02:
+      // twelve families named nineteen variants, `layoutDirective` had accepted
+      // one since it was written, and this field did not exist — so no site the
+      // builder ever made could use one. Eighth instance in this repo of
+      // something built, tested, on disk and reachable by nothing.
+      //
+      // NAMESPACED `family/key` in the enum, because a flat list of bare keys is
+      // one the model can pick from while naming a family that does not declare
+      // it. A mismatch is dropped server-side rather than refused — see
+      // `resolveVariant`.
+      variant: {
+        type: "string",
+        enum: VARIANT_IDS,
+        description:
+          "A named ALTERNATIVE shape of the chosen family — optional, and rare. Only use one when the business is " +
+          "the specific case it names; the family's ordinary shape is right for almost everything. Must belong to " +
+          "the family you picked.\n\n" + variantsForPrompt(),
+      },
     },
     required: ["brand", "slug", "tables", "seed", "description", "fonts", "theme", "family"],
   },
@@ -3462,7 +3480,7 @@ async function fetchSiteFonts(pair) {
 // all? — live in builder/publish-pages.mjs, which takes every side effect as an
 // injected function so they can be driven against fakes in test/publish-pages.test.mjs.
 // This is only the wiring that supplies the real ones.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, family, structure }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, family, structure, variant }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
@@ -3483,7 +3501,14 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // the brief would have gained the literal word "null" and lost its layout,
       // silently. Unreachable while both come from enums, and one hand-passed
       // `body.structure` is all it would take.
-      const directive = family ? layoutDirective(family, structure ? { structure } : {}) : null;
+      // The variant is RESOLVED, not passed through: `layoutDirective` answers
+      // null for one the family does not declare, and a null directive here
+      // means the brief loses its layout entirely. Dropping an optional
+      // refinement is the small loss; losing the family is the large one.
+      const v = family ? resolveVariant(family, variant) : null;
+      const directive = family
+        ? layoutDirective(family, { ...(structure ? { structure } : {}), ...(v ? { variant: v } : {}) })
+        : null;
       const withLayout = directive ? `${brief}\n\n${directive}` : brief;
       if (!fix) return generateSitePages(env, withLayout, spec, brand);
       try { return await generateSitePages(env, withLayout, spec, brand, fix); }
@@ -5787,6 +5812,7 @@ async function handleRequest(request, env, ctx) {
             theme: (designed && designed.theme) || (body && body.theme) || null,
             family: (designed && designed.family) || (body && body.family) || null,
             structure: (designed && designed.structure) || (body && body.structure) || null,
+            variant: (designed && designed.variant) || (body && body.variant) || null,
             auth: request.headers.get("Authorization") || "",
           });
         } catch (e) {

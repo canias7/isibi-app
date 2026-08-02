@@ -17,7 +17,7 @@ import path from "node:path";
 
 import { THEME_IDS, THEME_SHORTLIST, ALL_THEMES, resolveTheme } from "../builder/site-theme-registry.mjs";
 import { themeCss, THEMES } from "../builder/site-theme.mjs";
-import { FAMILY_NAMES, READY_FAMILIES, STRUCTURE_NAMES, STRUCTURES, layoutDirective, familiesForPrompt, structuresForPrompt, FAMILIES } from "../builder/site-layouts.mjs";
+import { FAMILY_NAMES, READY_FAMILIES, STRUCTURE_NAMES, STRUCTURES, VARIANT_IDS, layoutDirective, familiesForPrompt, structuresForPrompt, variantsForPrompt, resolveVariant, FAMILIES } from "../builder/site-layouts.mjs";
 import { UI_COMPONENTS, UI_SHORTLIST, PAGE_RULES } from "../builder/page-gen.mjs";
 
 const ROOT = path.join(import.meta.dirname, "..");
@@ -133,11 +133,86 @@ test("the chosen theme reaches the container, by name", () => {
 });
 
 test("the chosen family reaches the PAGE prompt as a directive, not a name", () => {
-  assert.match(worker, /layoutDirective\(family, structure \? \{ structure \} : \{\}\)/);
+  // Matched on the SHAPE rather than one exact spelling: this asserted the
+  // literal `layoutDirective(family, structure ? { structure } : {})` and went
+  // red the day the variant axis was wired, which is a correct change. What
+  // must hold is that the family arrives as a directive and that structure and
+  // variant ride WITH it as options.
+  assert.match(worker, /layoutDirective\(family, \{[^}]*structure[^}]*\}/s,
+    "layoutDirective is no longer called with the family and its structure");
+  assert.match(worker, /layoutDirective\(family, \{[\s\S]*?variant[\s\S]*?\)/,
+    "the variant no longer rides with the directive");
   assert.ok(
     /generateSitePages\(env, withLayout, spec, brand\)/.test(worker),
     "the page generator is still called with the bare brief",
   );
+});
+
+test("the variant axis is reachable end to end", () => {
+  // NINETEEN VARIANTS WERE DECLARED AND UNREACHABLE until 2026-08-02. Twelve
+  // families named one, `layoutDirective` had accepted one since it was
+  // written, and the designer's tool had no field for it — so no site could
+  // ever use one. Eighth instance in this repo of built-and-unreachable, and
+  // every previous one had most of the links working, which is why this is
+  // asserted as a CHAIN rather than at any single point.
+  const declared = FAMILY_NAMES.flatMap((n) =>
+    Object.keys(FAMILIES[n].variants || {}).map((k) => `${n}/${k}`));
+  assert.ok(declared.length > 0, "no family declares a variant — this guard is watching nothing");
+
+  // 1. the module exposes them — and derives them from READY families, which
+  //    with everything ready cannot be checked by VALUE: a filter and its
+  //    superset agree exactly when nothing is filtered out. Same trap the
+  //    READY_FAMILIES guard hit, so it is checked the same way, on the source.
+  assert.deepEqual([...VARIANT_IDS].sort(), declared.filter((id) => READY_FAMILIES.includes(id.split("/")[0])).sort());
+  const layouts = fs.readFileSync(path.join(ROOT, "builder/site-layouts.mjs"), "utf8");
+  assert.match(layouts, /VARIANT_IDS = READY_FAMILIES\.flatMap\(/,
+    "VARIANT_IDS no longer derives from READY_FAMILIES — a not-ready family's variant would be offered");
+  assert.match(layouts, /function variantsForPrompt\(\)\s*\{[\s\S]*?for \(const n of READY_FAMILIES\)/,
+    "variantsForPrompt no longer walks READY_FAMILIES");
+  // 2. the prompt describes every one, so a name is never offered bare
+  const blurbs = variantsForPrompt();
+  for (const id of VARIANT_IDS) assert.ok(blurbs.includes(id + " —"), `${id} is offered with no description`);
+  // 3. the tool offers them
+  assert.match(worker, /variant: \{\s*\n\s*type: "string",\s*\n\s*enum: VARIANT_IDS,/,
+    "the designer tool has no variant field again");
+  assert.match(worker, /variantsForPrompt\(\)/, "the variant field describes nothing");
+  // 4. it is OPTIONAL — a required variant would force one onto every site
+  const req = worker.match(/required: \[("[a-z]+", ?)+"[a-z]+"\],\s*\n\s*\},\s*\n\};/);
+  assert.ok(req, "the design tool's required list moved — this was matching some other tool's");
+  assert.ok(!req[0].includes("variant"), "variant became required, so every site gets one forced on it");
+  // 5. the route reads it off the designed schema and hands it to the build
+  assert.match(worker, /variant: \(designed && designed\.variant\)/, "the design's variant is dropped at the route");
+  assert.match(worker, /async function buildAndPublishPages\(env, \{[^}]*\bvariant\b[^}]*\}\)/,
+    "the build no longer takes a variant");
+  // 6. it is RESOLVED before use, never passed through
+  assert.match(worker, /resolveVariant\(family, variant\)/, "an unresolved variant reaches layoutDirective");
+  // 7. and it lands in the directive
+  for (const id of VARIANT_IDS) {
+    const [fam, key] = id.split("/");
+    const d = layoutDirective(fam, { variant: key });
+    assert.ok(d && d.includes(`Variant — ${key}:`), `${id} produces no variant line`);
+  }
+});
+
+test("a variant the family does not declare is DROPPED, not passed on", () => {
+  // The load-bearing half. `layoutDirective` answers null for an unrecognised
+  // variant and the call site turns a null directive into NO directive — so one
+  // mismatched variant would cost the site its whole layout, silently. Losing
+  // an optional refinement is the small loss.
+  assert.equal(layoutDirective("store", { variant: "board" }), null, "the null case moved");
+  assert.equal(resolveVariant("store", "crm/board"), null, "another family's variant is accepted");
+  assert.equal(resolveVariant("store", "board"), null, "a bare key from another family is accepted");
+  // THE ONE THAT ACTUALLY TESTS THE PREFIX. Every other cross-family case here
+  // also fails the hasOwn check, so the two guards masked each other and
+  // deleting the prefix check passed the whole suite. Here the key DOES exist
+  // on the named family, so only the prefix can refuse it.
+  assert.ok(Object.hasOwn(FAMILIES.restaurant.variants, "tap-list"), "premise moved: restaurant no longer declares tap-list");
+  assert.equal(resolveVariant("restaurant", "gym/tap-list"), null,
+    "a variant addressed to another family is applied anyway when the key happens to collide");
+  assert.equal(resolveVariant("store", "store/single-product"), "single-product", "the namespaced form is refused");
+  assert.equal(resolveVariant("store", "single-product"), "single-product", "the bare form is refused");
+  assert.equal(resolveVariant("store", 7), null, "a non-string is not rejected");
+  assert.equal(resolveVariant("nope", "single-product"), null, "an unknown family still resolves a variant");
 });
 
 test("a null directive is never interpolated into the brief", () => {

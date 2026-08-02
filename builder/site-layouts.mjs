@@ -1378,6 +1378,58 @@ export function structuresForPrompt() {
 }
 
 /**
+ * Every variant any ready family declares, as `family/key`.
+ *
+ * NINETEEN OF THESE WERE DECLARED, RENDERED BY `layoutDirective` AND REACHABLE
+ * BY NOTHING (found 2026-08-02). Twelve families named a variant, the directive
+ * function had taken one since it was written, and the designer's tool had no
+ * `variant` field at all — so no site the builder has ever made could use one.
+ * Eighth instance in this repo of built, tested, on disk and unreachable.
+ *
+ * They matter because each one is a real business the base family serves badly:
+ * `store/single-product` is a one-product DTC brand, `restaurant/tap-list` is a
+ * bar, `crm/queue` is a help desk, `tradesman/emergency` is a 24-hour trade.
+ * Without them those businesses get the generic shape of their family.
+ *
+ * NAMESPACED `family/key`, NOT the bare key. Two families could name a variant
+ * the same thing, and a flat list of nineteen bare keys is one the model can
+ * pick from while naming a family that does not declare it.
+ */
+export function variantsForPrompt() {
+  const out = [];
+  for (const n of READY_FAMILIES) {
+    for (const [k, text] of Object.entries(FAMILIES[n].variants || {})) out.push(`${n}/${k} — ${text}`);
+  }
+  return out.join("\n");
+}
+
+/** Every `family/key` a build may legitimately ask for. */
+export const VARIANT_IDS = READY_FAMILIES.flatMap((n) =>
+  Object.keys(FAMILIES[n].variants || {}).map((k) => `${n}/${k}`));
+
+/**
+ * The variant a build asked for, or null — and null is the SAFE answer.
+ *
+ * A variant that does not belong to the chosen family must be DROPPED, never
+ * passed on. `layoutDirective` returns null for an unrecognised variant, and
+ * the call site turns a null directive into no directive at all — so one
+ * mismatched variant would cost the site its entire layout, silently, which is
+ * exactly the failure the guard at that call site already warns about. Losing
+ * an optional refinement is the small loss; losing the family is the large one.
+ */
+export function resolveVariant(family, asked) {
+  if (!asked || typeof asked !== "string") return null;
+  const f = FAMILIES[family];
+  if (!f || !f.ready) return null;
+  // Accept the namespaced form the prompt offers, and the bare key a model may
+  // reasonably send back having already named the family in the same tool call.
+  const key = asked.includes("/") ? asked.slice(asked.indexOf("/") + 1) : asked;
+  const prefix = asked.includes("/") ? asked.slice(0, asked.indexOf("/")) : family;
+  if (prefix !== family) return null;
+  return Object.hasOwn(f.variants || {}, key) ? key : null;
+}
+
+/**
  * The text a build puts in the USER message. Null on anything unknown or not
  * ready — a directive is a promise about what the kit can do, so a wrong name
  * must fail loudly at the call site rather than produce a page that lints red.
