@@ -17,7 +17,7 @@ import path from "node:path";
 
 import { THEME_IDS, THEME_SHORTLIST, ALL_THEMES, resolveTheme } from "../builder/site-theme-registry.mjs";
 import { themeCss, THEMES } from "../builder/site-theme.mjs";
-import { FAMILY_NAMES, layoutDirective, familiesForPrompt, FAMILIES } from "../builder/site-layouts.mjs";
+import { FAMILY_NAMES, STRUCTURE_NAMES, STRUCTURES, layoutDirective, familiesForPrompt, structuresForPrompt, FAMILIES } from "../builder/site-layouts.mjs";
 import { UI_COMPONENTS, UI_SHORTLIST, PAGE_RULES } from "../builder/page-gen.mjs";
 
 const ROOT = path.join(import.meta.dirname, "..");
@@ -130,11 +130,54 @@ test("the chosen theme reaches the container, by name", () => {
 });
 
 test("the chosen family reaches the PAGE prompt as a directive, not a name", () => {
-  assert.match(worker, /layoutDirective\(family\)/);
+  assert.match(worker, /layoutDirective\(family, structure \? \{ structure \} : \{\}\)/);
   assert.ok(
     /generateSitePages\(env, withLayout, spec, brand\)/.test(worker),
     "the page generator is still called with the bare brief",
   );
+});
+
+test("a null directive is never interpolated into the brief", () => {
+  // layoutDirective answers null for an unknown family or structure, and this
+  // was `${brief}\n\n${layoutDirective(family)}` — so the brief would have
+  // gained the literal word "null" and lost its layout, silently. Unreachable
+  // while both come from enums; one hand-passed body.structure is all it takes.
+  assert.equal(layoutDirective("store", { structure: "nope" }), null, "the null case moved");
+  assert.match(worker, /const withLayout = directive \? /,
+    "the directive is interpolated unguarded again");
+});
+
+test("the structure axis is offered, optional, and every name works", () => {
+  // Optional on purpose, unlike the other three: every family declares a
+  // sensible default, so a skipped answer is a good answer. The fonts field is
+  // required because skipping it means no typeface at all — skipping this one
+  // means "the shape this kind of site usually takes".
+  assert.match(worker, /const SITE_STRUCTURE_IDS = STRUCTURE_NAMES;/);
+  assert.match(worker, /enum: SITE_STRUCTURE_IDS/);
+  const req = worker.match(/required: \[("[a-z]+", ?)+"[a-z]+"\],\s*\n\s*\},\s*\n\};/);
+  assert.ok(req && !/"structure"/.test(req[0]), "structure is required, so a good default can never apply");
+  for (const st of STRUCTURE_NAMES) {
+    const d = layoutDirective("store", { structure: st });
+    assert.ok(d && d.includes(STRUCTURES[st].text), `${st} is offered and does not reach the directive`);
+  }
+});
+
+test("the structure reaches the route, and the model is told what each one is", () => {
+  assert.match(worker, /structure: \(designed && designed\.structure\) \|\| \(body && body\.structure\)/);
+  assert.match(worker, /async function buildAndPublishPages\(env, \{[^}]*\bstructure\b[^}]*\}\)/);
+  assert.match(worker, /structuresForPrompt\(\)/, "the eight are offered as bare names with no description");
+  const blurbs = structuresForPrompt();
+  for (const st of STRUCTURE_NAMES) assert.ok(blurbs.includes(st + " —"), `${st} is offered undescribed`);
+});
+
+test("omitting the structure keeps the family's own default", () => {
+  // The whole reason it can be optional. If the override leaked in as undefined
+  // and overwrote the default, every site would land on one shape.
+  for (const name of FAMILY_NAMES) {
+    const fam = FAMILIES[name];
+    const d = layoutDirective(name, {});
+    assert.ok(d.includes(STRUCTURES[fam.structure].text), `${name} lost its default structure`);
+  }
 });
 
 test("the container turns that name into real CSS, after the font write", () => {

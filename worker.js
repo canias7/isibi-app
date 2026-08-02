@@ -27,7 +27,7 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
 import { SHORTLIST, resolvePair } from "./builder/site-fonts.mjs";
 import { THEME_SHORTLIST } from "./builder/site-theme-registry.mjs";
-import { FAMILY_NAMES, layoutDirective, familiesForPrompt } from "./builder/site-layouts.mjs";
+import { FAMILY_NAMES, STRUCTURE_NAMES, layoutDirective, familiesForPrompt, structuresForPrompt } from "./builder/site-layouts.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)
 // bakes kaplay + a headless Chromium for the smoke test. Runs to zero after idle.
@@ -2595,6 +2595,9 @@ const SITE_THEME_IDS = THEME_SHORTLIST;
 // declare produces a directive of nothing, and the page prompt silently loses
 // its layout while every test still passes.
 const SITE_FAMILY_IDS = FAMILY_NAMES;
+// The eight page ARRANGEMENTS. Derived like the rest; 8 names and their
+// descriptions together cost ~195 tokens, so there is no shortlist to make.
+const SITE_STRUCTURE_IDS = STRUCTURE_NAMES;
 
 const SITE_SCHEMA_TOOL = {
   name: "design_schema",
@@ -2811,6 +2814,23 @@ const SITE_SCHEMA_TOOL = {
         description:
           "The kind of site this is: it decides what the PAGES are, not what they look like. " +
           "Pick the one whose pages match what this business needs.\n\n" + familiesForPrompt(),
+      },
+      // The third axis: a family says what the PAGES are, a structure says how one
+      // is arranged. `store` on card-grid and `store` on sidebar are the same
+      // pages in genuinely different shapes.
+      //
+      // OPTIONAL, UNLIKE THE OTHER THREE, and deliberately. Every family already
+      // declares a sensible default — a store browses (card-grid), a firm reads
+      // (editorial), a departures board is a terminal — so a skipped answer is a
+      // good answer here. The fonts field is required because skipping it means
+      // no typeface was chosen at all; skipping this one means "the shape this
+      // kind of site usually takes", which is right far more often than not.
+      structure: {
+        type: "string",
+        enum: SITE_STRUCTURE_IDS,
+        description:
+          "How the pages are ARRANGED — optional. Every family already has a sensible default, so leave this out " +
+          "unless the brief asks for a shape that is not the usual one for this kind of site.\n\n" + structuresForPrompt(),
       },
     },
     required: ["brand", "slug", "tables", "seed", "description", "fonts", "theme", "family"],
@@ -3439,7 +3459,7 @@ async function fetchSiteFonts(pair) {
 // all? — live in builder/publish-pages.mjs, which takes every side effect as an
 // injected function so they can be driven against fakes in test/publish-pages.test.mjs.
 // This is only the wiring that supplies the real ones.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, family }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, family, structure }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
@@ -3452,8 +3472,16 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // The family reaches the model as a DIRECTIVE appended to the brief, not
       // as a bare name: `layoutDirective` is where site-layouts.mjs states the
       // hero, the body and the primary action for that family, and a name on
-      // its own would leave the model to guess all three.
-      const withLayout = family ? `${brief}\n\n${layoutDirective(family)}` : brief;
+      // its own would leave the model to guess all three. The structure rides
+      // with it as an override — omitted, the family's own default applies.
+      //
+      // GUARDED, because `layoutDirective` answers null for an unknown family or
+      // structure and this was interpolating it straight into a template string:
+      // the brief would have gained the literal word "null" and lost its layout,
+      // silently. Unreachable while both come from enums, and one hand-passed
+      // `body.structure` is all it would take.
+      const directive = family ? layoutDirective(family, structure ? { structure } : {}) : null;
+      const withLayout = directive ? `${brief}\n\n${directive}` : brief;
       if (!fix) return generateSitePages(env, withLayout, spec, brand);
       try { return await generateSitePages(env, withLayout, spec, brand, fix); }
       catch (e) { console.error("page repair failed:", slug, (e && (e.detail || e.message))); throw e; }
@@ -5755,6 +5783,7 @@ async function handleRequest(request, env, ctx) {
             // strip the site back to the untouched template.
             theme: (designed && designed.theme) || (body && body.theme) || null,
             family: (designed && designed.family) || (body && body.family) || null,
+            structure: (designed && designed.structure) || (body && body.structure) || null,
             auth: request.headers.get("Authorization") || "",
           });
         } catch (e) {
