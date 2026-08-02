@@ -1,7 +1,13 @@
 // institutional — SINGLE-SCROLL as a TASK LIST: the register of the civic
-// web. The audience switch up top, then plain ruled lists of things to DO,
-// dates as a table, no tinted bands and no persuasion — the reader came to
-// finish a task, and the design's job is to get out of the way.
+// web. The audience switch, then plain ruled lists of things to DO, dates as a
+// table, no tinted bands — the reader came to finish a task, and the design's
+// job is to get out of the way.
+//
+// The one thing above the register is the PLACE (added 2026-08-02). That is not
+// persuasion creeping back in: a sixteen-year-old choosing a sixth form is
+// choosing a building they will spend two years in, and "what does it look
+// like" is a task on their list as much as "how do I apply" is. Everything
+// below it is unchanged and still gets out of the way.
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
@@ -9,6 +15,7 @@ import { AnnouncementBar } from "@/components/ui/announcement-bar";
 import { AudienceSwitch } from "@/components/ui/audience-switch";
 import { EventCard } from "@/components/ui/event-card";
 import { Faq } from "@/components/ui/faq";
+import { SafeImage } from "@/components/ui/safe-image";
 export const Route = createFileRoute("/")({ component: P });
 const TASKS: Record<string, { title: string; items: { label: string; note: string; href: string }[] }> = {
   prospective: { title: "Thinking of joining us", items: [
@@ -36,11 +43,27 @@ function P() {
       <SiteChrome name="Rivelin College" tagline="A sixth-form college in the Rivelin valley."
         links={[{ label: "Courses", href: "#/courses" }, { label: "Visit us", href: "#/visit" }, { label: "Term dates", href: "#events" }]}
         action={{ label: "Apply", href: "#/apply" }}>
-        <div className="mx-auto max-w-3xl px-6 py-12">
-          <h1 className="text-3xl font-semibold tracking-tight">Rivelin College</h1>
-          <p className="mt-2 text-muted-foreground">Sixth form · 1,400 students · two buses from Hillsborough every morning</p>
+        {/* The campus, then the register. Added 2026-08-02: a sixteen-year-old
+            choosing a sixth form is choosing a PLACE, and this page had no
+            photograph of it — the audience switch and the task list are the
+            right structure and were doing it on their own. */}
+        <div className="mx-auto max-w-5xl px-6 pt-12">
+          <div className="grid items-end gap-8 md:grid-cols-[1.1fr_1fr]">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Rivelin valley · since 1968</p>
+              <h1 className="mt-3 text-5xl font-semibold tracking-tight">Rivelin College</h1>
+              <p className="mt-4 text-lg text-muted-foreground">Sixth form · 1,400 students · two buses from Hillsborough every morning</p>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <SafeImage src={null} alt="The quad from the science block" ratio="3/4" />
+              <SafeImage src={null} alt="A practical, second period" ratio="3/4" className="mt-6" />
+              <SafeImage src={null} alt="The library at lunchtime" ratio="3/4" />
+            </div>
+          </div>
+        </div>
 
-          <div className="mt-6">
+        <div className="mx-auto max-w-5xl px-6 pb-12 pt-10">
+          <div className="mt-2">
             <AudienceSwitch value={who} onChange={setWho} label="I am"
               audiences={[
                 { key: "prospective", label: "Future student" },

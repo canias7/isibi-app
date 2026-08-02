@@ -1,13 +1,21 @@
 // time-sensitive — TERMINAL structure: monospace, hairline rules, no
-// imagery, no decoration. A box office as a departures board — the state IS
-// the content, so the page is nothing but state, set in the type that says
-// "this updates". Uppercase labels, tabular numbers, zero cards.
+// decoration. A box office as a departures board — the state IS the content,
+// so the board is nothing but state, set in the type that says "this updates".
+// Uppercase labels, tabular numbers, zero cards.
+//
+// Production stills sit BELOW all of that and outside the mono treatment
+// (2026-08-02). The old note said "no imagery" and took it literally to the end
+// of the page, which left a theatre selling tickets on a departures display
+// alone — asking somebody to buy a seat at a show they have not seen a frame
+// of. The board is unchanged and still comes first; nothing decorative gets
+// between a visitor and the on-sale state they arrived for.
 import { createFileRoute } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { Countdown } from "@/components/ui/countdown";
 import { DeadlineBar } from "@/components/ui/deadline-bar";
 import { LiveBadge } from "@/components/ui/live-badge";
 import { ViewerCount } from "@/components/ui/viewer-count";
+import { SafeImage } from "@/components/ui/safe-image";
 export const Route = createFileRoute("/")({ component: P });
 const BOARD = [
   { show: "AN INSPECTOR CALLS — PRESS NIGHT", when: "FRI 19 SEP 19:30", state: "49 SEATS", hot: true, href: "#/event" },
@@ -62,6 +70,22 @@ function P() {
         </div>
 
         <p className="py-5 text-sm">→ <a className="font-medium underline underline-offset-4" href="#/event">Press night: pick seats now</a> · <a className="underline underline-offset-4" href="#/season">full season board</a></p>
+
+        {/* Production stills, BELOW the board and outside the mono treatment.
+            The board is this family's whole discipline and stays exactly as it
+            was — but a theatre selling tickets on a departures display alone is
+            asking somebody to buy a seat at a show they have not seen a frame
+            of. Deliberately last, so nothing decorative gets between a visitor
+            and the on-sale state they came for. */}
+        <section className="border-t border-border py-8 font-sans">
+          <h2 className="text-sm font-medium uppercase tracking-widest text-muted-foreground">In the season</h2>
+          <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <SafeImage src={null} alt="An Inspector Calls — the Birlings' table" ratio="4/3" />
+            <SafeImage src={null} alt="The Winter's Tale — the statue scene" ratio="4/3" />
+            <SafeImage src={null} alt="A Christmas Carol — Marley's entrance" ratio="4/3" />
+            <SafeImage src={null} alt="The auditorium, from the gods" ratio="4/3" />
+          </div>
+        </section>
       </div>
     </SiteChrome>
   );

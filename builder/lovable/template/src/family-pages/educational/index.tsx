@@ -10,6 +10,7 @@ import { ProgressRing } from "@/components/ui/progress-ring";
 import { SidebarLayout } from "@/components/ui/sidebar-layout";
 import { StatsBand } from "@/components/ui/stats-band";
 import { Testimonial } from "@/components/ui/testimonial";
+import { SafeImage } from "@/components/ui/safe-image";
 export const Route = createFileRoute("/")({ component: P });
 function P() {
   return (
@@ -37,6 +38,17 @@ function P() {
           <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Online · six weeks · £79 once</p>
           <h1 className="mt-2 max-w-lg text-4xl font-semibold tracking-tight text-balance">Six weeks to a loaf you'd photograph</h1>
           <p className="mt-3 max-w-lg text-lg text-muted-foreground">One module a week, a real baker on your photos, and a starter that won't die on you. Your starter leads; the schedule follows.</p>
+
+          {/* What six weeks buys, in the only currency this course has. Added
+              2026-08-02: a baking course sold entirely in prose was asking
+              somebody to spend £79 on a promise about how bread would look,
+              without showing them any. */}
+          <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <SafeImage src={null} alt="Week one — the starter, day four" ratio="1/1" />
+            <SafeImage src={null} alt="Week three — the fold that holds" ratio="1/1" />
+            <SafeImage src={null} alt="Week five — an open crumb" ratio="1/1" />
+            <SafeImage src={null} alt="Week six — a loaf you'd photograph" ratio="1/1" />
+          </div>
 
           <StatsBand className="mt-8" items={[
             { value: "2,140", label: "Bakers through" }, { value: "94%", label: "Finish the six weeks" },

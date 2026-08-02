@@ -11,6 +11,7 @@ import { LocationCard } from "@/components/ui/location-card";
 import { OpenNow } from "@/components/ui/open-now";
 import { OpeningHours, type DayHours } from "@/components/ui/opening-hours";
 import { SectionHeader } from "@/components/ui/section-header";
+import { SafeImage } from "@/components/ui/safe-image";
 export const Route = createFileRoute("/")({ component: P });
 const HOURS: DayHours[] = [
   { day: 1, label: "Monday", open: "10:00", close: "17:00" },
@@ -28,15 +29,32 @@ function P() {
       <SiteChrome name="Walkley Library" tagline="Volunteer-run since 2014. Everyone welcome, no card needed to sit."
         links={[{ label: "Hours", href: "#hours" }, { label: "What's on", href: "#/events" }, { label: "Join", href: "#/join" }, { label: "Papers", href: "#docs" }]}>
 
+        {/* Widened and given the building, 2026-08-02. A volunteer library is
+            asking strangers to walk in, and the single most persuasive thing it
+            can show is what walking in looks like — this was a 3xl column of
+            text with no picture at all. */}
         <section className="border-b border-border bg-muted/40">
-          <div className="mx-auto max-w-3xl px-6 py-12">
-            <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="mx-auto max-w-5xl px-6 py-14">
+            <div className="grid items-center gap-10 md:grid-cols-[1.15fr_1fr]">
               <div>
-                <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">South Road, Walkley · community-run</p>
-                <h1 className="mt-2 text-4xl font-semibold tracking-tight">Walkley Library</h1>
-                <p className="mt-3 max-w-md text-lg text-muted-foreground">Books, warmth, printing at cost, and a dragon costume of local renown. Run by forty volunteers since the council couldn't.</p>
+                <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">South Road, Walkley · community-run</p>
+                <h1 className="mt-3 text-5xl font-semibold tracking-tight text-balance">Walkley Library</h1>
+                <p className="mt-5 max-w-md text-lg leading-relaxed text-muted-foreground">
+                  Books, warmth, printing at cost, and a dragon costume of local renown. Run by forty
+                  volunteers since the council couldn't.
+                </p>
+                <div className="mt-6 flex flex-wrap items-center gap-3">
+                  <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/join">Volunteer</a>
+                  <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/events">What's on</a>
+                  <OpenNow hours={HOURS.filter((h) => h.open).map((h) => ({ day: h.day, open: h.open!, close: h.close! }))} />
+                </div>
               </div>
-              <OpenNow hours={HOURS.filter((h) => h.open).map((h) => ({ day: h.day, open: h.open!, close: h.close! }))} />
+              <div className="grid grid-cols-2 gap-4">
+                <SafeImage src={null} alt="The South Road frontage" ratio="1/1" />
+                <SafeImage src={null} alt="The reading room, Tuesday" ratio="1/1" />
+                <SafeImage src={null} alt="Rhyme time, the back corner" ratio="1/1" />
+                <SafeImage src={null} alt="The dragon costume, in use" ratio="1/1" />
+              </div>
             </div>
           </div>
         </section>
@@ -50,7 +68,7 @@ function P() {
         </section>
 
         <section className="border-y border-border bg-muted/40">
-          <div className="mx-auto max-w-3xl px-6 py-12">
+          <div className="mx-auto max-w-5xl px-6 py-12">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <SectionHeader eyebrow="This week" title="On at the library" />
               <a className="text-sm font-medium underline underline-offset-4" href="#/events">The whole month →</a>
@@ -63,7 +81,7 @@ function P() {
         </section>
 
         {/* Documents as a first-class section — the family's tell. */}
-        <section id="docs" className="mx-auto max-w-3xl px-6 py-12">
+        <section id="docs" className="mx-auto max-w-5xl px-6 py-12">
           <SectionHeader eyebrow="Papers" title="The public record" description="Minutes, accounts and forms — published here before anyone has to ask." />
           <FileList className="mt-5" files={[
             { name: "Trustees minutes — July 2026.pdf", size: 182000, href: "#docs" },
@@ -73,7 +91,7 @@ function P() {
         </section>
 
         <section className="border-t border-border bg-muted/40">
-          <div className="mx-auto max-w-3xl px-6 py-12 text-center">
+          <div className="mx-auto max-w-5xl px-6 py-12 text-center">
             <h2 className="text-2xl font-semibold tracking-tight">A card takes five minutes</h2>
             <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">Free, any age, no S6 requirement — and you don't need one just to sit and be warm.</p>
             <a className="mt-5 inline-block rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/join">Get a card</a>
