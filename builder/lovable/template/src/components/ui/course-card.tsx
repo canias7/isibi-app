@@ -16,7 +16,7 @@ export function CourseCard({ title, teacher, lessons, duration, level, price, pr
   return (
     <article className={cn("overflow-hidden rounded-lg border border-border", className)}>
       <div className="aspect-video bg-muted">
-        {image && <SafeImage src={image} alt="" className="size-full object-cover" />}
+        <SafeImage src={image} alt={title} ratio="auto" className="size-full object-cover" />
       </div>
       <div className="space-y-2 p-3">
         <div className="flex items-start justify-between gap-2">

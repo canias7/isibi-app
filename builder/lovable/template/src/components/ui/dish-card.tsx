@@ -15,7 +15,7 @@ export function DishCard({ name, description, price, image, tags, unavailable, c
 }) {
   return (
     <article className={cn("flex gap-3 rounded-lg border border-border p-3", unavailable && "opacity-60", className)}>
-      {image && <SafeImage src={image} alt="" className="size-20 shrink-0 rounded object-cover" />}
+      <SafeImage src={image} alt={name} ratio="1/1" className="size-20 shrink-0 rounded object-cover" />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-3">
           <h3 className="text-sm font-medium">{name}</h3>

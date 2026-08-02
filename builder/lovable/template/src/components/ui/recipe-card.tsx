@@ -16,7 +16,7 @@ export function RecipeCard({ title, image, totalTime, serves, rating, tags, href
   return (
     <article className={cn("overflow-hidden rounded-lg border border-border", className)}>
       <div className="aspect-[4/3] bg-muted">
-        {image && <SafeImage src={image} alt="" className="size-full object-cover" />}
+        <SafeImage src={image} alt={title} ratio="auto" className="size-full object-cover" />
       </div>
       <div className="space-y-1.5 p-3">
         <h3 className="text-sm font-medium">{href ? <a href={href} className="hover:underline">{title}</a> : title}</h3>

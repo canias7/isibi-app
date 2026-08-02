@@ -15,7 +15,7 @@ export function VehicleCard({ title, price, image, specs, badge, href, className
   return (
     <article className={cn("overflow-hidden rounded-lg border border-border", className)}>
       <div className="relative aspect-[4/3] bg-muted">
-        {image && <SafeImage src={image} alt="" className="size-full object-cover" />}
+        <SafeImage src={image} alt={title} ratio="auto" className="size-full object-cover" />
         {badge && <Badge className="absolute left-2 top-2" variant="secondary">{badge}</Badge>}
       </div>
       <div className="p-3">

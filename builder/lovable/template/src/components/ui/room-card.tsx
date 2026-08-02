@@ -16,7 +16,7 @@ export function RoomCard({ name, description, price, per = "night", sleeps, size
   return (
     <article className={cn("overflow-hidden rounded-lg border border-border sm:flex", className)}>
       <div className="aspect-[4/3] bg-muted sm:aspect-auto sm:w-48 sm:shrink-0">
-        {image && <SafeImage src={image} alt="" className="size-full object-cover" />}
+        <SafeImage src={image} alt={name} ratio="auto" className="size-full object-cover" />
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-2 p-4">
         <h3 className="text-sm font-medium">{name}</h3>
