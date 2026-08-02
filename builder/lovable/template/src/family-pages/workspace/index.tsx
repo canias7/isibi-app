@@ -8,17 +8,24 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { SafeImage } from "@/components/ui/safe-image";
 export const Route = createFileRoute("/")({ component: P });
 
 function P() {
   return (
     <main className="grid min-h-screen md:grid-cols-2">
-      {/* The pitch half — three sentences, not a site. */}
+      {/* The pitch half — three sentences and the product, not a site. */}
       <section className="flex flex-col justify-between border-b border-border bg-muted/40 p-10 md:border-b-0 md:border-r">
         <p className="text-lg font-semibold tracking-tight">Brindle</p>
         <div className="max-w-md py-12">
           <h1 className="text-3xl font-semibold tracking-tight text-balance">Every enquiry, quote and job — one table your whole studio reads</h1>
           <p className="mt-4 text-muted-foreground">Brindle is the CRM for five-person firms: enquiries land as records, quotes move through stages, and nothing lives in anyone's inbox.</p>
+          {/* The product, on the page that asks for a password. Added
+              2026-08-02: the pitch half was three sentences and a feature list,
+              which is the one thing a tool cannot be sold on — somebody
+              deciding whether to sign in wants to see the table they are
+              signing in to. */}
+          <SafeImage className="mt-8" src={null} alt="The pipeline, as a table" ratio="16/10" />
           <ul className="mt-8 space-y-4 text-sm">
             <li className="flex items-start gap-3"><StatusBadge state="success">live</StatusBadge><span>The pipeline, as a table or a board — same records either way</span></li>
             <li className="flex items-start gap-3"><StatusBadge state="success">live</StatusBadge><span>Every record carries its own activity trail — who said what, when</span></li>
