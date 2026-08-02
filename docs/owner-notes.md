@@ -10891,3 +10891,37 @@ shortlist cut below the family floor, flat slice instead of the category spread.
 
 Unit **717/717**, theme seam 10/10, site-build 33/33, site-runtime 23/23.
 
+**Structures wired the same day, and a correction to yesterday's note.** I said structures
+were unwired. They were **half** wired: `layoutDirective` already appends the family's own
+default (`store` → card-grid, `evidence-first` → editorial), so every site was getting a
+structure — just never a different one. The gap was the OVERRIDE, and the function was
+built for it: `layoutDirective(family, { structure, variant })` has always taken and
+validated both, and nothing ever passed them.
+
+- **`structure` is OPTIONAL, unlike theme/family/fonts, and that is the point.** Every one
+  of the 26 families declares a sensible default, so a skipped answer is a good answer — a
+  store browses, a firm reads, a departures board is a terminal. The fonts field is
+  required because skipping it means no typeface was chosen at all; skipping this one means
+  "the shape this kind of site usually takes", which is right far more often than not.
+  Guarded both ways: a test fails if it becomes required, and another asserts that omitting
+  it leaves every family's default intact.
+- **`variant` deliberately NOT wired.** 11 families declare 18 variants between them, and
+  the valid set depends on which family was chosen — a flat enum would let the model pick
+  `tap-list` on a `workspace`, `layoutDirective` returns null for that, and the site would
+  lose its ENTIRE layout directive silently. JSON schema cannot express a conditional enum
+  cleanly; this needs a different shape, not a bigger list.
+- **A live hazard in yesterday's own wiring, found while adding this.** `layoutDirective`
+  returns **null** for an unknown family or structure, and the code interpolated it straight
+  into a template string — `${brief}\n\n${layoutDirective(family)}` — so the brief would
+  have gained the literal word "null" and lost its layout, silently. Unreachable while both
+  values come from enums, and one hand-passed `body.structure` is all it would have taken.
+  Guarded, and the guard mutation-checked.
+- **A mutation that reported a false pass, worth recording.** The first run of the null
+  mutant said "0 failures", which reads as a survivor. It was a no-op: the replacement
+  string carried `\n` through a shell quote and never matched the file, so nothing was
+  mutated and nothing failed. **A mutation you did not verify applied is not a mutation
+  test** — re-run against the real line, it fails correctly.
+
+~223 tokens for the enum and its descriptions, on the now-cached design call. Unit
+**721/721**, site-build 33/33, site-runtime 23/23, theme seam 10/10.
+
