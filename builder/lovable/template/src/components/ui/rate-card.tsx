@@ -22,6 +22,14 @@ import { cn } from "@/lib/utils";
  * BANDS ARE OPTIONAL COLUMNS: weekday, weekend, bank holiday. Home care is
  * priced that way and so is party hire, and a component that only does one
  * dimension pushes the second into a footnote nobody reads.
+ *
+ * WHEN EVERY ROW IS ONE UNIT, THE PER-UNIT COLUMN AND THE BADGE BOTH GO. That
+ * is not tidying: with all `units: 1` the derived figure is a character-for-
+ * character copy of the price beside it, and "cheapest per visit" stops meaning
+ * better value and starts meaning cheapest — which, across a list of DIFFERENT
+ * things (a swim, a squash court, the whole sports hall), is a recommendation
+ * the component has no business making. Measured on a real leisure centre page:
+ * the table marked swimming as the best value against hiring a hall.
  */
 export type Rate = {
   /** "A day", "Three days", "A week", "60 minutes". */
@@ -35,13 +43,15 @@ export type Rate = {
   note?: string | null;
 };
 export function RateCard({
-  rates, bands, unit = "day", currency = "GBP", locale = "en-GB", caption, note, className,
+  rates, bands, unit = "day", label = "Hire for", currency = "GBP", locale = "en-GB", caption, note, className,
 }: {
   rates: Rate[];
   /** Column headings after the first: ["Weekday", "Weekend"]. Omit for one price. */
   bands?: string[];
   /** What `units` counts, for the derived line: "day", "hour". */
   unit?: string;
+  /** Heading over the first column. "Hire for" is wrong on anything not hired. */
+  label?: string;
   currency?: string;
   locale?: string;
   caption?: string;
@@ -52,11 +62,14 @@ export function RateCard({
   const money = (n: number) =>
     new Intl.NumberFormat(locale, { style: "currency", currency, maximumFractionDigits: n % 1 ? 2 : 0 }).format(n);
   const perUnit = (r: Rate) => (r.units > 0 ? r.price / r.units : Infinity);
+  // All-one-unit means the derived column is a copy of the price column and the
+  // badge is comparing unlike things. Both go rather than say something false.
+  const blocks = rates.some((r) => r.units !== 1);
   const cheapest = Math.min(...rates.map(perUnit));
   // A genuine tie wins nothing: two rows at the same per-day figure are not a
   // recommendation, and marking both says less than marking neither.
   const winners = rates.filter((r) => perUnit(r) === cheapest);
-  const best = winners.length === 1 ? winners[0] : null;
+  const best = blocks && winners.length === 1 ? winners[0] : null;
   const cols = bands ?? [];
   return (
     <div className={cn("overflow-x-auto", className)}>
@@ -64,12 +77,12 @@ export function RateCard({
         {caption && <caption className="pb-3 text-left text-xs font-medium uppercase tracking-widest text-muted-foreground">{caption}</caption>}
         <thead>
           <tr className="border-b border-border text-left text-xs uppercase tracking-widest text-muted-foreground">
-            <th scope="col" className="py-2 pr-4 font-medium">Hire for</th>
-            <th scope="col" className="py-2 pr-4 text-right font-medium">{cols[0] ?? "Price"}</th>
-            {cols.slice(1).map((b) => (
-              <th key={b} scope="col" className="py-2 pr-4 text-right font-medium">{b}</th>
+            <th scope="col" className="py-2 pr-4 font-medium">{label}</th>
+            <th scope="col" className={cn("py-2 text-right font-medium", (blocks || cols.length > 1) && "pr-4")}>{cols[0] ?? "Price"}</th>
+            {cols.slice(1).map((b, i) => (
+              <th key={b} scope="col" className={cn("py-2 text-right font-medium", (blocks || i < cols.length - 2) && "pr-4")}>{b}</th>
             ))}
-            <th scope="col" className="py-2 text-right font-medium">Per {unit}</th>
+            {blocks && <th scope="col" className="py-2 text-right font-medium">Per {unit}</th>}
           </tr>
         </thead>
         <tbody>
@@ -82,17 +95,19 @@ export function RateCard({
                 )}
                 {r.note && <span className="block text-xs text-muted-foreground">{r.note}</span>}
               </th>
-              <td className={cn("py-3 pr-4 text-right tabular-nums", r === best && "font-semibold")}>{money(r.price)}</td>
+              <td className={cn("py-3 text-right tabular-nums", (blocks || cols.length > 1) && "pr-4", r === best && "font-semibold")}>{money(r.price)}</td>
               {cols.slice(1).map((b, i) => (
-                <td key={b} className="py-3 pr-4 text-right tabular-nums">
+                <td key={b} className={cn("py-3 text-right tabular-nums", (blocks || i < cols.length - 2) && "pr-4")}>
                   {typeof r.more?.[i] === "number"
                     ? money(r.more[i])
                     : <><span aria-hidden="true" className="text-muted-foreground">—</span><span className="sr-only">not available</span></>}
                 </td>
               ))}
-              <td className="py-3 text-right tabular-nums text-muted-foreground">
-                {Number.isFinite(perUnit(r)) ? money(Math.round(perUnit(r) * 100) / 100) : "—"}
-              </td>
+              {blocks && (
+                <td className="py-3 text-right tabular-nums text-muted-foreground">
+                  {Number.isFinite(perUnit(r)) ? money(Math.round(perUnit(r) * 100) / 100) : "—"}
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

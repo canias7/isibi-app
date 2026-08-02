@@ -82,7 +82,7 @@ function P() {
             </div>
             <div>
               <SectionHeader eyebrow="The rates again" title="So you have them here" />
-              <RateCard className="mt-6" unit="hour" bands={["Weekday", "Weekend", "Bank holiday"]} rates={RATES} />
+              <RateCard className="mt-6" label="Visit length" unit="hour" bands={["Weekday", "Weekend", "Bank holiday"]} rates={RATES} />
               <InspectionRating className="mt-8" {...RATING} />
             </div>
           </div>

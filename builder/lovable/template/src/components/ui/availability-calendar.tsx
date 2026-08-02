@@ -37,7 +37,7 @@ export type Night = {
 };
 const WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 export function AvailabilityCalendar({
-  nights, month, onMonth, currency = "GBP", locale = "en-GB", now, className,
+  nights, month, onMonth, currency = "GBP", locale = "en-GB", now, priceNote, className,
 }: {
   nights: Night[];
   /** "2026-08". Controlled when supplied; otherwise it manages its own. */
@@ -47,6 +47,13 @@ export function AvailabilityCalendar({
   locale?: string;
   /** Injectable clock, so a test can fix "today". */
   now?: Date;
+  /**
+   * WHAT THE RATE COVERS. A holiday let prices the whole property; a kennel
+   * prices one animal of a given size, a mooring prices a berth. Baked in, the
+   * legend states something false on every calendar that is not a let — and a
+   * legend that is wrong is worse than none, because it is read as authority.
+   */
+  priceNote?: string;
   className?: string;
 }) {
   const today = now ?? new Date();
@@ -141,7 +148,7 @@ export function AvailabilityCalendar({
       </div>
       <p className="mt-3 text-sm text-muted-foreground">
         Each square is the night beginning on that date, so a Friday-to-Monday stay is the Friday,
-        Saturday and Sunday. Prices are per night for the whole property.
+        Saturday and Sunday. {priceNote ?? "Prices are per night for the whole property."}
       </p>
     </div>
   );

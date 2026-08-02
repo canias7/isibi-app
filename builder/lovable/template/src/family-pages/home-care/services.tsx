@@ -90,7 +90,7 @@ function P() {
             <div>
               <SectionHeader eyebrow="What each costs" title="One rate, by length and by day"
                 description="Every service above is charged at the same rates — what changes is how long and how often, not what kind of care it is. A dementia call is not dearer than any other call." />
-              <RateCard className="mt-6" unit="hour" bands={["Weekday", "Weekend", "Bank holiday"]} rates={RATES} />
+              <RateCard className="mt-6" label="Visit length" unit="hour" bands={["Weekday", "Weekend", "Bank holiday"]} rates={RATES} />
             </div>
             <div>
               <InspectionRating {...RATING} />

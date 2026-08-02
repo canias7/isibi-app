@@ -53,7 +53,7 @@ function P() {
           </p>
           <div className="mt-10 grid items-start gap-10 lg:grid-cols-[1.2fr_1fr]">
             <div id="rates">
-              <RateCard unit="hour" bands={["Weekday", "Weekend", "Bank holiday"]} rates={RATES}
+              <RateCard label="Visit length" unit="hour" bands={["Weekday", "Weekend", "Bank holiday"]} rates={RATES}
                 caption="What a visit costs"
                 note="No call-out charge, no minimum contract, and no charge for the assessment. A 30-minute visit is a real visit — it is enough for medication and a check, and not enough for personal care, which we will say rather than sell you one." />
             </div>

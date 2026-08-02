@@ -1437,6 +1437,102 @@ export const FAMILIES = {
     ready: true,
   },
 
+  facility: {
+    md: "Pay-and-play facility — slot-first",
+    label: "book a slot or turn up, and the price depends on when rather than on who you are",
+    cta: ["Book a slot", "See what's free"],
+    shape: [
+      "hero: what is free right now and what is not, before anything about the building",
+      "body: the slots, then peak and off-peak side by side, then membership against paying as you go",
+      "a visitor's real question is 'can I get on today' — every other page answers 'we exist'",
+    ],
+    pages: [
+      { file: "index", role: "what is free right now, and what a session costs" },
+      { file: "book", role: "pick a slot — the grid, peak and off-peak, and what to bring" },
+      { file: "membership", role: "joining against paying each time, with the break-even stated" },
+    ],
+    kinds: [
+      "golf club", "bowling alley", "climbing wall", "swimming pool", "leisure centre",
+      "snooker club", "ice rink", "tennis courts", "padel club", "driving range",
+    ],
+    components: ["availability-grid", "week-strip", "price-list", "pricing-table", "opening-hours", "location-card", "faq", "rate-card", "facility-status"],
+    variants: {},
+    structure: "single-scroll",
+    ready: true,
+  },
+
+  attraction: {
+    md: "Visitor attraction — plan-your-day-first",
+    label: "what it costs, when it opens, what happens at what time, and how long to allow",
+    cta: ["Plan your visit", "Book tickets"],
+    shape: [
+      "hero: the place, with the price and the opening times inside the first screen",
+      "body: today's timetable — the talks, the feeds, the departures — then how long to allow, then getting here",
+      "a family ticket states what it SAVES against the same people bought separately, because that is the sum everybody gets wrong",
+    ],
+    pages: [
+      { file: "index", role: "prices, times, and what happens when" },
+      { file: "visit", role: "getting here, access, food, and what to bring" },
+      { file: "whats-on", role: "events, seasonal openings, and the school holidays" },
+    ],
+    kinds: [
+      "zoo", "farm park", "steam railway", "castle", "theme park", "aquarium",
+      "stately home", "wildlife park", "adventure park", "show cave",
+    ],
+    components: ["price-list", "opening-hours", "location-card", "gallery", "safe-image", "event-card", "faq", "service-times", "admission-prices"],
+    variants: {},
+    structure: "full-bleed-hero",
+    ready: true,
+  },
+
+  "pet-boarding": {
+    md: "Kennels or cattery — dates-and-requirements-first",
+    label: "the dates, the nightly rate by size, and the vaccinations that must be done weeks in advance",
+    cta: ["Check dates", "Book a stay"],
+    shape: [
+      "hero: the calendar and the nightly rate, with the vaccination deadline beside them",
+      "body: where they actually stay, then the day, then what has to be in place before arrival",
+      "the requirements lead rather than trail — a jab needed fourteen days ahead is useless found the night before",
+    ],
+    pages: [
+      { file: "index", role: "rates, free dates, and what has to be done first" },
+      { file: "stay", role: "where they sleep, what a day is, and who looks after them" },
+      { file: "book", role: "the dates and the requirements checklist, in that order" },
+    ],
+    kinds: [
+      "kennels", "cattery", "dog daycare", "home boarding", "pet sitting",
+      "dog walking", "small animal boarding", "equine livery", "reptile boarding", "aviary boarding",
+    ],
+    components: ["availability-calendar", "rate-card", "price-list", "gallery", "safe-image", "faq", "location-card", "opening-hours", "team-grid", "entry-requirements"],
+    variants: {},
+    structure: "single-scroll",
+    ready: true,
+  },
+
+  entertainer: {
+    md: "An act for hire — see-it-then-check-the-date",
+    label: "watch thirty seconds of it, then find out whether the date is free — in that order",
+    cta: ["Check my date", "Watch"],
+    shape: [
+      "hero: the act itself, playing, with the date box beside it",
+      "body: what you get for what, then where they have played, then the practical questions about space and power",
+      "nobody books an act they have not seen, and nobody watches a clip after filling in a form",
+    ],
+    pages: [
+      { file: "index", role: "see the act, check the date" },
+      { file: "packages", role: "what you get for what — sets, hours, and what is extra" },
+      { file: "book", role: "the date, the venue and the details that decide whether it can happen" },
+    ],
+    kinds: [
+      "DJ", "wedding band", "function band", "magician", "children's entertainer",
+      "tribute act", "caricaturist", "close-up magic", "casino hire", "photo booth",
+    ],
+    components: ["video-embed", "gallery", "safe-image", "testimonial", "price-list", "faq", "date-enquiry", "contact-form"],
+    variants: {},
+    structure: "split-screen",
+    ready: true,
+  },
+
   directory: {
     md: "Directory — search-first",
     label: "the search bar is the entire homepage",

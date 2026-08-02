@@ -1,4 +1,4 @@
-# Components (2089 built, 25 to go)
+# Components (2092 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -29,6 +29,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ address-fields
 ✓ address-summary
 ✓ address-validate
+✓ admission-prices
 ✓ advanced-toggle
 ✓ affordability-note
 ✓ age-gate
@@ -609,6 +610,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ empty
 ✓ empty-cta
 ✓ empty-illustration
+✓ entry-requirements
 ✓ env-badge
 ✓ episode-row
 ✓ error-anchor
@@ -655,6 +657,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ external-link
 ✓ facet-list
 ✓ facet-range
+✓ facility-status
 ✓ failed-delivery
 ✓ fair-use-note
 ✓ faq
@@ -2625,7 +2628,7 @@ terminal-badge
 gate-change-warn
 boarding-group
 baggage-allowance
-entry-requirements
+✓ entry-requirements
 booking-reference
 seat-preference
 meal-preference
