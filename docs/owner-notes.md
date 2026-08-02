@@ -10925,3 +10925,44 @@ validated both, and nothing ever passed them.
 ~223 tokens for the enum and its descriptions, on the now-cached design call. Unit
 **721/721**, site-build 33/33, site-runtime 23/23, theme seam 10/10.
 
+
+## 2026-08-02 — `site build` went red on main, and the reason could only ever show up there
+
+`theme-render.mjs` merged yesterday eighteen lines ABOVE the step that installs the
+browser. It passed the whole free suite here every time, and turned `site build` red the
+moment it landed on main.
+
+- **The cause is this container, not the test.** `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`
+  is pre-populated here, so every browser harness finds a Chromium whether a workflow
+  installed one or not. A GitHub runner has nothing until `npx playwright install` runs.
+  So the ordering mistake is invisible locally **by construction** — there is no amount of
+  care in reading the diff that would have caught it, and no local run that could.
+- **Fixed by moving the install above both browser steps**, where it now covers
+  `theme-render.mjs` and `site-runtime.mjs` alike.
+- **Guarded, derived at both ends** (`test/ci-browser-order.test.mjs`, 5 tests). It carries
+  no list of "the browser tests": it reads each script a workflow runs and asks whether that
+  FILE launches a browser, then requires an install step earlier **in the same job**. A new
+  harness is covered the day it is written. Per-job and not per-file deliberately — every
+  workflow has one job today, so a flat scan agrees on every input and would start lying
+  silently the day somebody splits the steps in two.
+- **Two tests exist only to stop the other three passing vacuously**: one asserts the parser
+  finds steps at all, one asserts something in the repo still matches the launch call. A
+  renamed API would otherwise leave the ordering check with nothing to check and reporting
+  success.
+- **It found a second, unrelated gap on its first run.** `site-build.yml` ran `theme-seam`
+  and `theme-render` while its `paths:` filter named neither — so editing one of those
+  harnesses ran nothing, and they were only ever exercised by an unrelated push. Both added,
+  plus `kit-typecheck.mjs`.
+- **And a bug in the guard itself, in the same run.** The obvious
+  `/paths:\n((?:\s+- .+\n)+)/` stops at the first non-list line, and these workflows
+  EXPLAIN their entries — `neon-e2e.yml` has a three-line comment mid-list, so four of its
+  seven globs were read and the other three reported as missing. A guard failing on correct
+  config. Parsed line by line now, comments and blanks continuing the block.
+- **The false-pass lesson repeated, with a new face.** Four mutants reported "did not
+  apply" because the applied-check was `git diff` — and the file under mutation was
+  UNTRACKED, which `git diff` cannot see. `cmp` against a saved copy is the check that
+  answers the question. 8 mutations, all caught once the check was honest; #8 misorders a
+  workflow the pinned test does not name, which is what proves the derived test is doing
+  work of its own.
+
+Unit **726/726**.

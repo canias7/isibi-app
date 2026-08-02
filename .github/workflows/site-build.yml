@@ -13,6 +13,9 @@ on:
       - 'builder/**'
       - 'test/integration/site-build.mjs'
       - 'test/integration/site-runtime.mjs'
+      - 'test/integration/theme-seam.mjs'
+      - 'test/integration/theme-render.mjs'
+      - 'test/integration/kit-typecheck.mjs'
       - 'test/page-gen.test.mjs'
       - '.github/workflows/site-build.yml'
   workflow_dispatch:
@@ -54,6 +57,13 @@ jobs:
       # the same failure available to it.
       - run: node test/integration/theme-seam.mjs
 
+      # BEFORE both browser steps, not between them. This container has
+      # /opt/pw-browsers pre-populated and a runner does not, so a browser step
+      # placed above this one passes locally and fails only in CI — which is
+      # exactly what theme-render did on its first run on main.
+      - run: npx playwright install --with-deps chromium
+        working-directory: builder/lovable/template
+
       # What a themed site LOOKS like. The seam test proves the CSS reaches the
       # dist; this proves the page is not blank, nothing throws, and the two
       # modes actually differ — the checks a picture can be held to.
@@ -75,7 +85,4 @@ jobs:
       # browser against a stub of the data API, so the four list states, the
       # form's success and failure paths, and the toast actually being mounted
       # are all checked rather than assumed.
-      - run: npx playwright install --with-deps chromium
-        working-directory: builder/lovable/template
-
       - run: node test/integration/site-runtime.mjs
