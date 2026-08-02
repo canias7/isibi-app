@@ -17,6 +17,7 @@ import { COMPONENT_API } from "./component-api.mjs";
 // The chart half, generated from src/components/charts/lib by
 // builder/gen-chart-api.mjs and kept in step by test/chart-api.test.mjs.
 import { CHART_COMPONENTS, CHART_API } from "./chart-api.mjs";
+import { FAMILIES } from "./site-layouts.mjs";
 // One worked call per primitive, mined out of the demos by
 // builder/gen-chart-usage.mjs. This is what the 1,140 demo files are FOR: they
 // are the only place in the repo these APIs are called, and they compile, so
@@ -823,6 +824,38 @@ export const UI_COMPONENTS = [
   "triage-outcome", "referral-row", "waiting-list-note", "consent-to-share", "care-summary",
   "allergy-row", "immunisation-row", "observation-row", "discharge-note", "symptom-row",
 ];
+
+// THE COMPONENTS THE MODEL IS SHOWN — the most-used slice of the 2,058.
+//
+// DERIVED FROM WHAT ASKS FOR THEM, not hand-picked and not "the first N". The 26
+// layout families each declare the components their pages need (`store` names
+// cart-line, place-order-bar, payment-picker…), and the rules themselves cite
+// more by name. That union IS the most-used set, and it updates itself when a
+// family is added — a hand-written 100 would drift from the families the day one
+// changed, and nothing would say so.
+//
+// WHY NOT 100, WHICH IS WHAT WAS ASKED FOR: the families alone declare 157. A
+// list of 100 would omit 57 components a family says its pages need, which
+// breaks the layout wiring rather than trimming a prompt.
+//
+// WHAT THIS COSTS, stated plainly because it is the same failure this repo keeps
+// having: the model can only import a name it has been given, so the components
+// left off are ones no generated page will use. The saving is ~786 tokens a
+// build — PAGE_RULES is cached, so only about a tenth of the full list's 8,150
+// was ever being paid. That is the smallest of the prompt savings available and
+// the only one that costs reach; it is here because the owner asked for it.
+// `UI_COMPONENTS` stays whole — it is the LINT's allow-list and the drift guard
+// against what is on disk, so a page importing any real component still passes.
+export const UI_SHORTLIST = (() => {
+  const wanted = new Set();
+  for (const fam of Object.values(FAMILIES)) for (const c of fam.components || []) wanted.add(c);
+  const real = new Set(UI_COMPONENTS);
+  // A family naming a component that does not exist would silently shrink this
+  // list; the wiring test asserts that never happens, and this keeps the prompt
+  // honest if it ever does.
+  return UI_COMPONENTS.filter((c) => wanted.has(c) && real.has(c));
+})();
+
 
 // Imported, not restated. The generator has to predict exactly what the API will
 // refuse, and when these rules were written out in both files they drifted — the
@@ -1777,9 +1810,9 @@ or an access level — anything not in the schema below does not exist.
      the table names in \`writeRoles\` may write. Anyone else gets 403 with \`code: "role"\`.
 
 3. THE KIT FOR EVERY CONTROL, imported from "@/components/ui/<name>". Never hand-roll a
-   button, input, select, checkbox or dialog. Under that path these exist and nothing
-   else does:
-   ${UI_COMPONENTS.join(", ")}.
+   button, input, select, checkbox or dialog. Build from these — they are what the
+   layouts are made of, and the only names under that path you should use:
+   ${UI_SHORTLIST.join(", ")}.
    There is no "toast" or "use-toast" component — toasts come from \`import { toast } from "sonner"\`.
    The kit does not stop here: ${CHART_NAME_COUNT} chart components live under
    "@/components/charts/lib/<domain>" and are listed in full below. They are part of the
