@@ -822,7 +822,7 @@ export const UI_COMPONENTS = [
   "scene-note", "triage-row", "comms-log", "stand-down",
   // Health records, deeper
   "triage-outcome", "referral-row", "waiting-list-note", "consent-to-share", "care-summary",
-  "allergy-row", "immunisation-row", "observation-row", "discharge-note", "symptom-row",
+  "allergy-row", "immunisation-row", "observation-row", "discharge-note", "quote-request", "symptom-row",
 ];
 
 // THE COMPONENTS THE MODEL IS SHOWN — the most-used slice of the 2,058.

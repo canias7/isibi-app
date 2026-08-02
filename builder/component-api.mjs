@@ -1255,6 +1255,7 @@ export const COMPONENT_API = {
   "quick-switcher": "QuickSwitcher(items: object[], current?: string, recents?: string[] = [], query: string, onQueryChange: (q: string) => void, onPick: (key: string) => void)",
   "quiet-hours": "QuietHours(enabled: boolean, from: string, to: string, onChange: function, exception?: string)",
   "quote-attribution": "QuoteAttribution(name: string, role?: string, href?: string)",
+  "quote-request": "QuoteRequest(trades: string[], onSubmit?: function, sent?: boolean, urgencies?: string[] = [\"Emergency — today\", \"This week\", \"No rush\"])",
   "quote": "Quote(cite?: string, children?: React.ReactNode)",
   "radio-cards": "RadioCards(options: object[], value?: string, onChange: (v: string) => void, columns?: 1 | 2 | 3 = 2)",
   "radius-input": "RadiusInput(value: number | null, unit?: string = \"km\", onChange: function, units?: string[] = [\"km\", \"mi\"], anywhereLabel?: string = \"Anywhere\", id?: string, label?: string = \"Within\")",

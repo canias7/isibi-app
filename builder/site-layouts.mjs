@@ -692,13 +692,12 @@ export const FAMILIES = {
       "glazier",
       "damp specialist",
     ],
-    components: ["before-after", "service-area", "testimonial", "trust-strip", "safe-image", "gallery"],
-    wants: ["quote-request"],
+    components: ["before-after", "service-area", "testimonial", "trust-strip", "safe-image", "gallery", "quote-request"],
     variants: {
       "emergency": "24-hour trades: the out-of-hours number leads and the daytime one is secondary",
     },
     structure: "single-scroll",
-    ready: false,
+    ready: true,
   },
 
   charity: {
