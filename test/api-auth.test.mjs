@@ -265,10 +265,19 @@ test("every tool the model is given is a schema the API will accept", () => {
     // threw a ReferenceError and was silently skipped, so the one tool with a
     // computed schema was covered by nothing.
     const literal = SRC.slice(open, end + 1);
+    // The stub is TRUTHY AND CALLABLE, not just truthy. Bound to `true`, a
+    // schema that CALLS one of these names — `description: "..." +
+    // familiesForPrompt()` — threw "is not a function", which is not the
+    // "is not defined" shape this loop retries on, so the tool went into
+    // `skipped` and design_schema was checked by nothing. Same lesson as the
+    // `setTotp` fake: a stand-in less capable than the real thing hides the
+    // bug rather than the bug hiding from it. A function is truthy, so the
+    // conditional-spread branch this loop was built for is unchanged.
+    const stub = () => "x";
     let schema, names = [];
     for (let attempt = 0; attempt < 12; attempt++) {
       try {
-        schema = new Function(...names, "return (" + literal + ")")(...names.map(() => true));
+        schema = new Function(...names, "return (" + literal + ")")(...names.map(() => stub));
         break;
       } catch (e) {
         const m = /^(\w+) is not defined$/.exec(e.message || "");

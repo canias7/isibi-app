@@ -27,7 +27,7 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
 import { SHORTLIST, resolvePair } from "./builder/site-fonts.mjs";
 import { THEME_IDS } from "./builder/site-theme-registry.mjs";
-import { FAMILY_NAMES, layoutDirective } from "./builder/site-layouts.mjs";
+import { FAMILY_NAMES, layoutDirective, familiesForPrompt } from "./builder/site-layouts.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)
 // bakes kaplay + a headless Chromium for the smoke test. Runs to zero after idle.
@@ -2797,10 +2797,15 @@ const SITE_SCHEMA_TOOL = {
       family: {
         type: "string",
         enum: SITE_FAMILY_IDS,
+        // DERIVED, not a hand-written sample. This described four of the 26 and
+        // left the other 22 to be picked from a bare name — the same
+        // restated-instead-of-derived trap that makes a list drift from the
+        // module it describes. `familiesForPrompt` is site-layouts.mjs's own
+        // one-line-per-family blurb, and each line carries the trades it suits,
+        // which is what actually makes the choice accurate. ~954 tokens.
         description:
-          "The kind of site this is, which decides the page shapes rather than the paint. " +
-          "booking-first is a slot picker; store is a product grid and a basket; workspace is signed-in software; " +
-          "menu-first is a menu and a table. Pick the one whose PAGES match what this business needs.",
+          "The kind of site this is: it decides what the PAGES are, not what they look like. " +
+          "Pick the one whose pages match what this business needs.\n\n" + familiesForPrompt(),
       },
     },
     required: ["brand", "slug", "tables", "seed", "description", "fonts", "theme", "family"],
