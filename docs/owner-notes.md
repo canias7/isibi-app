@@ -10826,3 +10826,22 @@ assertion plus a pointer to the chain.
   behaviour.
 
 Unit **708/708**, theme seam 10/10, site-build 33/33, site-runtime 23/23, kit-typecheck 4/4.
+
+**Follow-up the same day — the family descriptions.** The `family` field described four
+of the 26 by hand ("booking-first is a slot picker; store is a product grid…") and left
+the other 22 to be chosen from a bare name. Replaced with `familiesForPrompt()`, which is
+site-layouts.mjs's own one-line-per-family blurb carrying the trades each suits — derived,
+complete, and it cannot drift the way a hand-written sample does. **Total added to every
+design call: ~2,582 tokens** (theme enum 1,525 · family enum 104 · family descriptions 954).
+
+**And a test whose stub was less capable than the thing it stood in for.** `api-auth`'s
+"every tool is a schema the API will accept" evaluates each tool literal, binding unknown
+identifiers to `true`. A description that CALLS one — `... + familiesForPrompt()` — threw
+"is not a function", which is not the "is not defined" shape its retry loop handles, so
+design_schema went into `skipped` and was checked by nothing. The stub is truthy AND
+callable now. Same lesson as the `setTotp` fake: a stand-in weaker than the real thing
+hides the bug instead of the bug hiding from it. Verified it still fails on a genuinely
+malformed schema.
+
+Unit **709/709**.
+

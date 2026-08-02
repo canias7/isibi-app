@@ -17,7 +17,7 @@ import path from "node:path";
 
 import { THEME_IDS, ALL_THEMES, resolveTheme } from "../builder/site-theme-registry.mjs";
 import { themeCss, THEMES } from "../builder/site-theme.mjs";
-import { FAMILY_NAMES, layoutDirective } from "../builder/site-layouts.mjs";
+import { FAMILY_NAMES, layoutDirective, familiesForPrompt } from "../builder/site-layouts.mjs";
 
 const ROOT = path.join(import.meta.dirname, "..");
 const worker = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
@@ -110,6 +110,17 @@ test("the theme write fails soft — a bad name never costs the site", () => {
   assert.match(body, /if \(!theme\) return \{ applied: false/);
   assert.match(body, /catch/);
   assert.ok(!/throw/.test(body), "writeTheme can throw, which would take the build with it");
+});
+
+test("the designer is told what each family BUILDS, derived from the module", () => {
+  // It described four of the 26 by hand and left the other 22 to be chosen from
+  // a bare name. A hand-written sample is also the shape that drifts: the module
+  // gains a family, the description does not, and nothing says so.
+  assert.match(worker, /familiesForPrompt\(\)/, "the family field no longer carries the descriptions");
+  const blurbs = familiesForPrompt();
+  for (const name of FAMILY_NAMES) {
+    assert.ok(blurbs.includes(name + " —"), `${name} is offered with no description of what it builds`);
+  }
 });
 
 test("every family the designer may pick produces a real directive", () => {
