@@ -144,3 +144,44 @@ primitives carry this family), immersive (14, minus video-hero), transactional
 local & civic (22), personal (23), AI-native (24 — the deepest-covered family
 in the kit), and all 8 structural variants (`bento-grid`, `sidebar-layout`,
 `split-view`, `full-bleed`, `card-grid`, `snap-sections` all exist).
+
+## The second twenty's gaps (2026-08-02)
+
+Twenty families were added on 2026-08-02 and all twenty are `ready: false`
+until the components below land. That is the readiness mechanism working as
+designed, not a backlog: `familiesForPrompt` refuses to offer a family whose
+signature component is missing, so none of these twenty can be chosen by the
+designer yet. Land a component and the suite goes RED until its family's flag
+is flipped and the `wants` entry moved into `components`.
+
+House rules above still hold — prop-driven, guarded media, no new npm
+dependencies, monochrome discipline.
+
+- **`quote-request`** — *tradesman*. a job description with photographs attached — the trade's real intake form, not a contact box
+- **`donation-tiers`** — *charity*. preset amounts with what each buys, one-off beside monthly, and a free-entry field
+- **`impact-stat`** — *charity*. one number with the sentence that makes it mean something — never a number alone
+- **`service-times`** — *church*. this week's meetings with the one-off changes flagged, not a static weekly grid
+- **`fixture-list`** — *sports-club*. next fixture and last result as one scannable block, home/away marked without colour alone
+- **`league-table`** — *sports-club*. position, played, points — with the club's own row marked by weight, not a tint
+- **`lineup-grid`** — *festival*. acts by day and stage, with clashes visible; the one thing a festival page is for
+- **`capacity-table`** — *venue*. the same room at several layouts — seated, standing, cabaret — because the number changes with each
+- **`date-enquiry`** — *venue*. a date and a headcount, answered with free/taken/ask, not a generic contact form
+- **`availability-calendar`** — *holiday-let*. a month of nights with taken ones struck through, and the rate per night on the free ones
+- **`vehicle-lookup`** — *garage*. a registration box that resolves to a vehicle and drives every price after it
+- **`arrangement-steps`** — *funeral-director*. what happens next, in plain sentences, with no euphemism and no progress theatre
+- **`session-table`** — *nursery*. sessions by day with hours and places left; funded hours shown as what they cover, not as a footnote
+- **`fee-table`** — *nursery*. fees by age band and session, with the funded deduction applied rather than explained
+- **`practitioner-card`** — *medical*. name, registration number and what they actually treat — the number is the trust signal
+- **`triage-banner`** — *medical*. the urgent instruction, above everything, unmissable and never dismissible
+- **`exhibition-card`** — *gallery*. one show: title, dates, the room, and whether it is on now, ended or upcoming
+- **`tap-list`** — *brewery*. what is pouring, with ABV and style; a producer's stock changes weekly and that IS the news
+- **`produce-calendar`** — *farm-shop*. the year by month, so February explains itself without an apology
+- **`story-lead`** — *news*. the lead story at lead size — picture, standfirst, byline — distinct from every card below it
+- **`frequency-picker`** — *cleaner*. weekly / fortnightly / monthly priced side by side, because recurring is the product
+- **`seller-card`** — *marketplace*. a seller as a person: what they make, how long, and their own rating
+- **`unit-card`** — *storage*. a size with its price and a live free/taken state, plus what actually fits in it
+- **`size-guide`** — *storage*. volumes expressed in furniture rather than square feet, which nobody can picture
+- **`subject-list`** — *tutor*. subjects by level with the rate on each, since the rate changes with the level
+- **`repair-status`** — *repair-shop*. where a repair is, from its ticket number — received, diagnosed, waiting on a part, ready
+- **`device-picker`** — *repair-shop*. pick the make and model; every price and turnaround after it depends on the answer
+- **`quote-calculator`** — *removals*. rooms times distance times date, answering with a RANGE — the trade's whole friction is that nobody publishes a number

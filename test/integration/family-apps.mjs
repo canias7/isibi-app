@@ -26,7 +26,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { FAMILIES, FAMILY_NAMES } from "../../builder/site-layouts.mjs";
+import { FAMILIES, READY_FAMILIES } from "../../builder/site-layouts.mjs";
 import { THEME_SHORTLIST, resolveTheme } from "../../builder/site-theme-registry.mjs";
 
 const ROOT = path.join(import.meta.dirname, "../..");
@@ -111,7 +111,7 @@ try {
   page.on("pageerror", (e) => pageErrors.push(String(e).slice(0, 200)));
 
   const ONLY = new Set((process.env.FAM_ONLY || "").split(",").map((s) => s.trim()).filter(Boolean));
-  for (const name of FAMILY_NAMES.filter((n) => ONLY.size === 0 || ONLY.has(n))) {
+  for (const name of READY_FAMILIES.filter((n) => ONLY.size === 0 || ONLY.has(n))) {
     const dir = path.join(TEMPLATE, "src/family-pages", name);
     const files = {};
     for (const p of FAMILIES[name].pages) {
@@ -121,7 +121,7 @@ try {
     const built = await (await fetch(`http://127.0.0.1:${PORT}/build`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ files, slug: "f-" + name, title: name, theme: themeFor(name, FAMILY_NAMES.indexOf(name)) }),
+      body: JSON.stringify({ files, slug: "f-" + name, title: name, theme: themeFor(name, READY_FAMILIES.indexOf(name)) }),
     })).json();
     if (!built.ok) { bad(`${name} refused at ${built.stage}`, built.error); continue; }
     current = built.files;

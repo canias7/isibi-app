@@ -12,7 +12,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { FAMILIES, FAMILY_NAMES } from "../builder/site-layouts.mjs";
+import { FAMILIES, READY_FAMILIES } from "../builder/site-layouts.mjs";
 
 const TEMPLATE = path.join(import.meta.dirname, "../builder/lovable/template");
 const DIR = path.join(TEMPLATE, "src/family-pages");
@@ -26,7 +26,7 @@ test("one app per family, named for it — both directions", () => {
   // Named exactly after the family id, so the wiring step can resolve a family
   // to its app with no lookup table to drift. And nothing but folders lives
   // here — a stray loose .tsx would be invisible to every check below.
-  assert.deepEqual(dirs.sort(), [...FAMILY_NAMES].sort());
+  assert.deepEqual(dirs.sort(), [...READY_FAMILIES].sort());
   const loose = fs.readdirSync(DIR, { withFileTypes: true }).filter((d) => !d.isDirectory());
   assert.deepEqual(loose.map((d) => d.name), [], "loose files in src/family-pages");
 });
@@ -36,7 +36,7 @@ test("every app carries EXACTLY its declared page set — both directions", () =
   // linked pages. A declared page with no file is a directive citing a proof
   // that does not exist; a file no family declares is unreachable by every
   // check and every future wiring.
-  for (const name of FAMILY_NAMES) {
+  for (const name of READY_FAMILIES) {
     const declared = FAMILIES[name].pages.map((p) => p.file).sort();
     const onDisk = Object.keys(src[name]).sort();
     assert.deepEqual(onDisk, declared, `${name}: declared [${declared}] but the folder has [${onDisk}]`);
@@ -61,7 +61,7 @@ test("multi-page apps link between their own pages", () => {
   // Hash history is the published-site reality, so the links are "#/book"
   // style; every non-index page must be reachable from somewhere in the app,
   // and every non-index page must offer a way back.
-  for (const name of FAMILY_NAMES) {
+  for (const name of READY_FAMILIES) {
     const pages = src[name];
     const all = Object.values(pages).join("\n");
     for (const p of FAMILIES[name].pages) {
@@ -75,7 +75,7 @@ test("multi-page apps link between their own pages", () => {
 test("every app leans on its OWN family's components", () => {
   // The app is the proof the directive is buildable. One that ignores the
   // family's kit proves nothing — and would teach the model to ignore it too.
-  for (const name of FAMILY_NAMES) {
+  for (const name of READY_FAMILIES) {
     const all = Object.values(src[name]).join("\n");
     const cited = FAMILIES[name].components.filter((c) => all.includes(`@/components/ui/${c}"`));
     assert.ok(cited.length >= 3,
@@ -108,7 +108,7 @@ test("the folder is excluded from BOTH static passes and owned by the harness", 
   assert.ok(buildCfg.includes('"src/family-pages"'), "site builds are paying to typecheck the family pages");
   assert.ok(!kitCfg.includes("family-pages"), "the kit pass claims family-pages and would refuse their routes");
   const harness = fs.readFileSync(path.join(import.meta.dirname, "integration/family-apps.mjs"), "utf8");
-  assert.ok(harness.includes("FAMILY_NAMES") && harness.includes("site-layouts.mjs"),
+  assert.ok(harness.includes("READY_FAMILIES") && harness.includes("site-layouts.mjs"),
     "the family-apps harness no longer derives its coverage from the module");
   assert.ok(harness.includes("FAMILIES[name].pages"),
     "the harness builds some other page list than the declared one");

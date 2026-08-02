@@ -17,7 +17,7 @@ import path from "node:path";
 
 import { THEME_IDS, THEME_SHORTLIST, ALL_THEMES, resolveTheme } from "../builder/site-theme-registry.mjs";
 import { themeCss, THEMES } from "../builder/site-theme.mjs";
-import { FAMILY_NAMES, STRUCTURE_NAMES, STRUCTURES, layoutDirective, familiesForPrompt, structuresForPrompt, FAMILIES } from "../builder/site-layouts.mjs";
+import { FAMILY_NAMES, READY_FAMILIES, STRUCTURE_NAMES, STRUCTURES, layoutDirective, familiesForPrompt, structuresForPrompt, FAMILIES } from "../builder/site-layouts.mjs";
 import { UI_COMPONENTS, UI_SHORTLIST, PAGE_RULES } from "../builder/page-gen.mjs";
 
 const ROOT = path.join(import.meta.dirname, "..");
@@ -66,7 +66,10 @@ test("the designer is OFFERED a theme and a family, both derived", () => {
   // Derived, not restated: a hand-typed list here would drift from the module
   // and offer a name that resolves to nothing.
   assert.match(worker, /const SITE_THEME_IDS = THEME_SHORTLIST;/);
-  assert.match(worker, /const SITE_FAMILY_IDS = FAMILY_NAMES;/);
+  // READY only. The enum used to be every family while familiesForPrompt()
+  // described ready ones alone, so the model could be offered a name it was
+  // told nothing about and whose directive resolves to null.
+  assert.match(worker, /const SITE_FAMILY_IDS = READY_FAMILIES;/);
   assert.match(worker, /enum: SITE_THEME_IDS/);
   assert.match(worker, /enum: SITE_FAMILY_IDS/);
 });
@@ -173,7 +176,7 @@ test("the structure reaches the route, and the model is told what each one is", 
 test("omitting the structure keeps the family's own default", () => {
   // The whole reason it can be optional. If the override leaked in as undefined
   // and overwrote the default, every site would land on one shape.
-  for (const name of FAMILY_NAMES) {
+  for (const name of READY_FAMILIES) {
     const fam = FAMILIES[name];
     const d = layoutDirective(name, {});
     assert.ok(d.includes(STRUCTURES[fam.structure].text), `${name} lost its default structure`);
@@ -205,14 +208,16 @@ test("the designer is told what each family BUILDS, derived from the module", ()
   // gains a family, the description does not, and nothing says so.
   assert.match(worker, /familiesForPrompt\(\)/, "the family field no longer carries the descriptions");
   const blurbs = familiesForPrompt();
-  for (const name of FAMILY_NAMES) {
+  for (const name of READY_FAMILIES) {
     assert.ok(blurbs.includes(name + " —"), `${name} is offered with no description of what it builds`);
   }
 });
 
 test("every family the designer may pick produces a real directive", () => {
-  assert.ok(FAMILY_NAMES.length >= 26, `only ${FAMILY_NAMES.length} families`);
-  for (const name of FAMILY_NAMES) {
+  assert.ok(READY_FAMILIES.length >= 26, `only ${READY_FAMILIES.length} ready families`);
+  assert.ok(FAMILY_NAMES.length > READY_FAMILIES.length,
+    "no not-ready families at all — the readiness mechanism is untested by this suite");
+  for (const name of READY_FAMILIES) {
     const d = layoutDirective(name);
     assert.ok(typeof d === "string" && d.length > 60, `${name} gives no usable directive`);
     assert.match(d, /LAYOUT —/, `${name}'s directive is not shaped like one`);

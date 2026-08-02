@@ -24,7 +24,8 @@ test("the module and LAYOUTS.md agree about which families exist — both direct
   // one. Matched on the heading TEXT, so a renamed family fails here rather
   // than drifting.
   const headings = [...MD.matchAll(/^## \d+\. (.+)$/gm)].map((m) => m[1].trim());
-  assert.equal(headings.length, 26, "LAYOUTS.md no longer has 26 numbered families — re-derive this test");
+  assert.equal(headings.length, FAMILY_NAMES.length,
+    `LAYOUTS.md has ${headings.length} numbered families and the module has ${FAMILY_NAMES.length} — derived, not a literal, because the hard-coded 26 went red on a correct addition`);
   const mds = FAMILY_NAMES.map((n) => FAMILIES[n].md);
   for (const h of headings) assert.ok(mds.includes(h), `LAYOUTS.md family "${h}" has no module entry`);
   for (const m of mds) assert.ok(headings.includes(m), `module family "${m}" is not in LAYOUTS.md`);

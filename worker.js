@@ -27,7 +27,7 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
 import { SHORTLIST, resolvePair } from "./builder/site-fonts.mjs";
 import { THEME_SHORTLIST } from "./builder/site-theme-registry.mjs";
-import { FAMILY_NAMES, STRUCTURE_NAMES, layoutDirective, familiesForPrompt, structuresForPrompt } from "./builder/site-layouts.mjs";
+import { READY_FAMILIES, STRUCTURE_NAMES, layoutDirective, familiesForPrompt, structuresForPrompt } from "./builder/site-layouts.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)
 // bakes kaplay + a headless Chromium for the smoke test. Runs to zero after idle.
@@ -2594,7 +2594,10 @@ const SITE_THEME_IDS = THEME_SHORTLIST;
 // Derived, never restated: a family named here that site-layouts.mjs does not
 // declare produces a directive of nothing, and the page prompt silently loses
 // its layout while every test still passes.
-const SITE_FAMILY_IDS = FAMILY_NAMES;
+// READY only, and it must stay that way: familiesForPrompt() describes ready
+// families alone, so an enum of all of them offers the model a name it is told
+// nothing about and whose layoutDirective resolves to null.
+const SITE_FAMILY_IDS = READY_FAMILIES;
 // The eight page ARRANGEMENTS. Derived like the rest; 8 names and their
 // descriptions together cost ~195 tokens, so there is no shortlist to make.
 const SITE_STRUCTURE_IDS = STRUCTURE_NAMES;

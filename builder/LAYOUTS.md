@@ -330,6 +330,346 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
+## 27. Plumber, electrician or roofer — call-first
+**Shape:** the phone number IS the hero and the proof is photographs of finished work.
+**CTA:** Call now · Get a quote
+
+- Plumber
+- Electrician
+- Roofer
+- Builder
+- Joiner
+- Plasterer
+- Heating engineer
+- Locksmith
+- Glazier
+- Damp specialist
+
+---
+
+## 28. Charity or cause — donate-first
+**Shape:** the ask is the page; everything else is evidence that the money works.
+**CTA:** Donate · Give monthly
+
+- Charity
+- Foundation
+- Food bank
+- Hospice
+- Animal rescue
+- Community fund
+- Appeal
+- Trust
+- Air ambulance
+- Mutual aid
+
+---
+
+## 29. Church or place of worship — times-first
+**Shape:** when we meet and what happens if you have never been, before anything else.
+**CTA:** Plan a visit · Service times
+
+- Church
+- Chapel
+- Mosque
+- Synagogue
+- Temple
+- Meeting house
+- Parish
+- Congregation
+- Cathedral
+- Quaker meeting
+
+---
+
+## 30. Sports club — fixtures-first
+**Shape:** the next fixture and the last result are the news; everything else is the club.
+**CTA:** Join the club · Next fixture
+
+- Football club
+- Cricket club
+- Rugby club
+- Netball
+- Athletics
+- Running club
+- Rowing
+- Hockey
+- Bowls
+- Junior academy
+
+---
+
+## 31. Festival or multi-day event — lineup-first
+**Shape:** the lineup grid is the product; tickets and travel are what it funnels into.
+**CTA:** Buy tickets · See the lineup
+
+- Music festival
+- Food festival
+- Literary festival
+- Arts weekend
+- County show
+- Conference
+- Comic con
+- Pride
+- Carnival
+- Beer festival
+
+---
+
+## 32. A space for hire — capacity-first
+**Shape:** how many it holds, what it costs and whether the date is free.
+**CTA:** Check a date · Request the pack
+
+- Wedding venue
+- Function room
+- Village hall
+- Studio hire
+- Conference centre
+- Gallery hire
+- Photography studio
+- Marquee
+- Barn
+- Theatre hire
+
+---
+
+## 33. One holiday let — availability-first
+**Shape:** one property, one calendar; book direct and skip the platform's cut.
+**CTA:** Check availability · Book direct
+
+- Holiday cottage
+- Cabin
+- Shepherd's hut
+- Apartment
+- Lodge
+- Glamping
+- Narrowboat
+- Annexe
+- Beach house
+- Bothy
+
+---
+
+## 34. Garage or MOT centre — vehicle-first
+**Shape:** you type a registration and the site answers with your car and its prices.
+**CTA:** Book an MOT · Get a price
+
+- Garage
+- MOT centre
+- Tyre fitter
+- Bodyshop
+- Valeting
+- Car servicing
+- Exhaust centre
+- Auto electrician
+- Mobile mechanic
+- Fleet servicing
+
+---
+
+## 35. Funeral director — two-paths
+**Shape:** somebody needing help tonight and somebody planning ahead are different readers, answered separately and immediately.
+**CTA:** Call us now · Plan ahead
+
+- Funeral director
+- Celebrant
+- Crematorium
+- Memorial mason
+- Bereavement service
+- Will writer
+- Probate
+- Estate clearance
+- Florist (funeral)
+- Green burial
+
+---
+
+## 36. Nursery or childcare — sessions-first
+**Shape:** the sessions, the fees and whether there is a place, before anything about the setting.
+**CTA:** Book a visit · Check availability
+
+- Nursery
+- Pre-school
+- Childminder
+- After-school club
+- Holiday club
+- Forest school
+- Creche
+- Playgroup
+- Daycare
+- Tutoring centre
+
+---
+
+## 37. Medical or veterinary practice — register-first
+**Shape:** urgent instructions first, then how to register, then everything else.
+**CTA:** Register · Book an appointment
+
+- GP practice
+- Dental practice
+- Veterinary surgery
+- Physiotherapy
+- Optician
+- Podiatry
+- Chiropractor
+- Audiology
+- Private clinic
+- Osteopath
+
+---
+
+## 38. Gallery or museum — exhibition-first
+**Shape:** what is on right now, at the size the work deserves.
+**CTA:** Plan your visit · What's on
+
+- Art gallery
+- Museum
+- Heritage site
+- Artist studio
+- Sculpture park
+- Archive
+- Craft centre
+- Historic house
+- Exhibition space
+- Open studios
+
+---
+
+## 39. Brewery, winery or distillery — range-first
+**Shape:** the drinks with their strength and style, then the room you can drink them in.
+**CTA:** See the range · Book a tour
+
+- Brewery
+- Winery
+- Distillery
+- Cidery
+- Taproom
+- Roastery
+- Creamery
+- Smokehouse
+- Bakery (wholesale)
+- Kombucha
+
+---
+
+## 40. Farm shop or box scheme — season-first
+**Shape:** what is good this week, which changes every week and is the entire pitch.
+**CTA:** Order a box · What's in season
+
+- Farm shop
+- Veg box
+- CSA
+- Farmers' market
+- Smallholding
+- Pick your own
+- Dairy
+- Orchard
+- Fishmonger
+- Butcher
+
+---
+
+## 41. Local paper or newsroom — lead-first
+**Shape:** one lead story, then sections; a hierarchy of importance rather than a stream.
+**CTA:** Read the story · Subscribe
+
+- Local paper
+- Newsroom
+- Magazine
+- Trade publication
+- Student paper
+- Community news
+- Investigative outlet
+- Sports desk
+- Listings weekly
+- Parish magazine
+
+---
+
+## 42. Cleaning or grounds service — recurring-first
+**Shape:** priced per visit and sold as a standing slot, not a one-off job.
+**CTA:** Get a price · Book a first clean
+
+- Domestic cleaning
+- Commercial cleaning
+- Window cleaner
+- Gardener
+- Grounds maintenance
+- Oven cleaning
+- Carpet cleaning
+- Gutter clearing
+- Pest control
+- Pool maintenance
+
+---
+
+## 43. Removals or man-and-van — quote-first
+**Shape:** the quote is a calculator, and the survey booking is what it converts into.
+**CTA:** Get a quote · Book a survey
+
+- Removals
+- Man and van
+- House clearance
+- Office move
+- Piano moving
+- Storage and removals
+- Packing service
+- International move
+- Student move
+- Courier
+
+---
+
+## 44. Self-storage or unit hire — size-first
+**Shape:** which size you need and whether one is free, answered with prices on the page.
+**CTA:** Reserve a unit · See sizes
+
+- Self storage
+- Container storage
+- Lock-up
+- Workshop unit
+- Studio hire
+- Allotment plot
+- Parking space
+- Locker hire
+- Archive storage
+- Garage rental
+
+---
+
+## 45. Tutor or coach — subject-first
+**Shape:** what you teach, to what level, at what rate — the three questions in that order.
+**CTA:** Book a trial · See rates
+
+- Private tutor
+- Music teacher
+- Driving instructor
+- Language coach
+- Exam prep
+- Business coach
+- Personal trainer
+- Swim teacher
+- Dog trainer
+- Careers coach
+
+---
+
+## 46. Repair shop — device-first
+**Shape:** pick the thing that is broken and the site answers with a price and a turnaround.
+**CTA:** Get a price · Track a repair
+
+- Phone repair
+- Computer repair
+- Watch repair
+- Shoe repair
+- Bike shop
+- Instrument repair
+- Jewellery repair
+- Upholstery
+- Clock repair
+- Tailoring alterations
+
+---
+
 ## Cross-cutting: mold-breakers
 
 Two shapes that don't sit inside a single family:
