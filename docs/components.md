@@ -1,4 +1,4 @@
-# Components (2061 built, 25 to go)
+# Components (2064 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -917,6 +917,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ limit-reached
 ✓ line-focus
 ✓ line-status
+✓ lineup-grid
 ✓ link-card
 ✓ link-editor
 ✓ link-permissions
@@ -1751,6 +1752,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ storage-bar
 ✓ store-badges
 ✓ store-locator
+✓ story-lead
 ✓ streak-counter
 ✓ streaming-text
 ✓ strike-badge
@@ -1811,6 +1813,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ takedown-note
 ✓ takt-note
 ✓ talent-pool
+✓ tap-list
 ✓ target-vs-actual
 ✓ tariff-row
 ✓ tasting-note

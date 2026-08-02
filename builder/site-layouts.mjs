@@ -824,11 +824,10 @@ export const FAMILIES = {
       "carnival",
       "beer festival",
     ],
-    components: ["countdown", "event-card", "price-list", "faq", "gallery", "safe-image", "stats-band"],
-    wants: ["lineup-grid"],
+    components: ["countdown", "event-card", "price-list", "faq", "gallery", "safe-image", "stats-band", "lineup-grid"],
     variants: {},
     structure: "full-bleed-hero",
-    ready: false,
+    ready: true,
   },
 
   venue: {
@@ -1087,11 +1086,10 @@ export const FAMILIES = {
       "bakery (wholesale)",
       "kombucha",
     ],
-    components: ["price-list", "opening-hours", "location-card", "gallery", "safe-image", "testimonial", "event-card"],
-    wants: ["tap-list"],
+    components: ["price-list", "opening-hours", "location-card", "gallery", "safe-image", "testimonial", "event-card", "tap-list"],
     variants: {},
     structure: "single-scroll",
-    ready: false,
+    ready: true,
   },
 
   "farm-shop": {
@@ -1153,11 +1151,10 @@ export const FAMILIES = {
       "listings weekly",
       "parish magazine",
     ],
-    components: ["safe-image", "section-nav", "figure", "email-capture", "tag-list", "testimonial"],
-    wants: ["story-lead"],
+    components: ["safe-image", "section-nav", "figure", "email-capture", "tag-list", "testimonial", "story-lead"],
     variants: {},
     structure: "bento",
-    ready: false,
+    ready: true,
   },
 
   cleaner: {
