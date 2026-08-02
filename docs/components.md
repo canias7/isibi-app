@@ -1,4 +1,4 @@
-# Components (2092 built, 25 to go)
+# Components (2099 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -412,6 +412,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ count-up
 ✓ countdown
 ✓ countdown-ring
+✓ counter-services
 ✓ countersign
 ✓ country-select
 ✓ coupon-input
@@ -518,6 +519,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ digest-row
 ✓ digitisation-status
 ✓ dimension-input
+✓ direct-saving
 ✓ direction
 ✓ directions-link
 ✓ directory-list
@@ -812,6 +814,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ hotkey-badge
 ✓ hotkey-list
 ✓ hours-log
+✓ house-rules
 ✓ hover-card
 ✓ iban-input
 ✓ icon-badge
@@ -864,6 +867,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ interview-slot
 ✓ intro-request
 ✓ invert-selection
+✓ investment-table
 ✓ invite-form
 ✓ invoice-header
 ✓ invoice-lines
@@ -1209,6 +1213,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ pinch-hint
 ✓ pinned-nav
 ✓ pipeline-stage
+✓ pitch-types
 ✓ pivot-table
 ✓ place-order-bar
 ✓ place-search
@@ -1862,6 +1867,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ term-slider
 ✓ terminal-output
 ✓ terms-block
+✓ territory-list
 ✓ test-connection
 ✓ testimonial
 ✓ text
@@ -1933,6 +1939,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tracking-note
 ✓ tracking-plan-row
 ✓ trade-off-bar
+✓ trade-terms
 ✓ tradeoff-slider
 ✓ transcript-line
 ✓ transcript-toggle

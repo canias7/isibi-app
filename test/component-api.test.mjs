@@ -282,3 +282,30 @@ test("a hard-coded legend never states something false about the caller", () => 
   }
   assert.ok(pages.some((p) => /<RateCard[^>]*label=/s.test(p)), "no page overrides the rate-card heading");
 });
+
+test("a grid inside a narrow parent is the CALLER's decision, not the viewport's", () => {
+  // Found by rendering a franchise page, not by any test. TestimonialGrid hard-
+  // coded `sm:grid-cols-2 lg:grid-cols-3`, and Tailwind's breakpoints are the
+  // VIEWPORT's — so dropped into a half-width column on a 1280px screen it
+  // still made three columns, of about 380px each, wrapping every quote to
+  // twelve-character lines. It compiled, it bundled, and it was unreadable.
+  //
+  // The parent knows how much room it has and the CSS cannot, so the caller
+  // says — the same `columns` prop `gallery` has had all along, which is why
+  // that one has never had this problem.
+  const UI = path.join(import.meta.dirname, "../builder/lovable/template/src/components/ui");
+  const t = fs.readFileSync(path.join(UI, "testimonial.tsx"), "utf8");
+  assert.match(t, /columns\?: 1 \| 2 \| 3/, "TestimonialGrid cannot be told how many columns it has");
+  assert.match(t, /\{ 1: "", 2:/, "columns={1} must produce NO grid-cols class — one per row is the whole point");
+  assert.ok(!/className=\{cn\("grid gap-4 sm:grid-cols-2 lg:grid-cols-3"/.test(t),
+    "the viewport breakpoints are hard-coded again");
+
+  // The premise: something actually passes it. A prop nothing uses is a prop
+  // that gets quietly broken, and both the pages that found this are narrow.
+  const PAGES = path.join(import.meta.dirname, "../builder/lovable/template/src/family-pages");
+  const used = fs.readdirSync(PAGES, { recursive: true })
+    .filter((f) => String(f).endsWith(".tsx"))
+    .map((f) => fs.readFileSync(path.join(PAGES, String(f)), "utf8"))
+    .filter((src) => /<TestimonialGrid[^>]*columns=/s.test(src));
+  assert.ok(used.length >= 2, "no page constrains the testimonial grid — this guard watches nothing");
+});

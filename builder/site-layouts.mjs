@@ -1557,6 +1557,122 @@ export const FAMILIES = {
     structure: "single-scroll",
     ready: true,
   },
+
+  campsite: {
+    md: "Campsite or caravan park — will-it-fit-first",
+    label: "which pitch takes what you are arriving in, whether it has hookup, and when the gate is locked",
+    cta: ["Check the pitches", "Book a pitch"],
+    shape: [
+      "hero: the pitch types with their SIZE and what they take, not a photograph of a sunset",
+      "body: free nights, then the facilities including the ones that are shut, then the arrival window",
+      "a family in a 7.5m motorhome is asking one question and every campsite site answers 'we are in a lovely valley'",
+    ],
+    pages: [
+      { file: "index", role: "the pitch types, what fits on each, and the nightly rate" },
+      { file: "book", role: "free nights and the arrival window — the gate is the thing people get caught by" },
+      { file: "site", role: "the facilities, the walk to them, and the rules while you are here" },
+    ],
+    kinds: [
+      "campsite", "caravan park", "touring site", "glamping site", "motorhome stopover",
+      "certificated location", "camping field", "aire", "holiday park", "residential park",
+    ],
+    components: ["availability-calendar", "week-strip", "amenity-list", "gallery", "safe-image", "location-card", "faq", "rate-card", "price-list", "pitch-types", "house-rules"],
+    variants: {},
+    structure: "single-scroll",
+    ready: true,
+  },
+  "bed-and-breakfast": {
+    md: "B&B or guest house — book-direct-first",
+    label: "the rooms, what a single person actually pays, and what booking here saves against the platform",
+    cta: ["Book direct", "See the rooms"],
+    shape: [
+      "hero: the direct saving computed against the platform price, with the date it was checked",
+      "body: the rooms with the SINGLE-occupancy rate stated, then breakfast, then the house rules",
+      "a solo traveller assumes half of the double rate and it is never half — say the number",
+    ],
+    pages: [
+      { file: "index", role: "the rooms, the rates including single occupancy, and the direct saving" },
+      { file: "rooms", role: "each room in full — size, bed, bathroom, what you can see out of it" },
+      { file: "stay", role: "breakfast, arrival, parking, and the rules — the practical half" },
+    ],
+    kinds: [
+      "bed and breakfast", "guest house", "inn with rooms", "farmhouse B&B", "pub with rooms",
+      "boutique guesthouse", "homestay", "airbnb host", "serviced room", "hostel",
+    ],
+    components: ["room-card", "gallery", "safe-image", "location-card", "faq", "rate-card", "testimonial", "week-strip", "availability-calendar", "direct-saving", "house-rules"],
+    variants: {},
+    structure: "editorial",
+    ready: true,
+  },
+  "local-shop": {
+    md: "A shop that does not sell online — counter-first",
+    label: "what you can actually do at the counter, and the hours for each, which are not the shop's hours",
+    cta: ["What we do", "Find us"],
+    shape: [
+      "hero: the counter services with their OWN hours beside the shop's",
+      "body: what is stocked, then where and when, then the things people ring up to ask",
+      "the post office counter shuts at 17:30 while the shop is open until 22:00 and nobody publishes that",
+    ],
+    pages: [
+      { file: "index", role: "what you can do here, when, and where we are" },
+      { file: "shop", role: "what is stocked and what can be ordered in" },
+    ],
+    kinds: [
+      "corner shop", "newsagent", "post office", "off licence", "hardware shop",
+      "pharmacy", "greengrocer", "dry cleaner", "convenience store", "village shop",
+      "key cutting", "parcel shop", "launderette", "tobacconist", "sweet shop",
+    ],
+    components: ["opening-hours", "location-card", "price-list", "faq", "gallery", "safe-image", "announcement-bar", "counter-services"],
+    variants: {},
+    structure: "single-scroll",
+    ready: true,
+  },
+  wholesaler: {
+    md: "Trade supplier — do-I-qualify-first",
+    label: "the minimum order, the carriage-paid line, the delivery days and whether an account is needed — before any product",
+    cta: ["Open an account", "See the terms"],
+    shape: [
+      "hero: the trade terms, because a buyer who does not qualify should find out in ten seconds",
+      "body: the price breaks by case and pallet, then lead times, then the account application",
+      "every trade site hides the minimum order behind a login and wastes both parties' morning",
+    ],
+    pages: [
+      { file: "index", role: "the terms, the minimum, and who we supply" },
+      { file: "range", role: "the products with case and pallet pricing, and the break quantities" },
+      { file: "account", role: "opening a trade account — what is needed and how long it takes" },
+    ],
+    kinds: [
+      "wholesaler", "cash and carry", "trade counter", "trade supplier", "importer",
+      "distributor", "buying group", "catering supplier", "builders merchant", "trade only",
+    ],
+    components: ["bulk-pricing", "quantity-break", "lead-time", "data-table", "spec-row", "download-card", "contact-form", "faq", "stock-level", "trade-terms"],
+    variants: {},
+    structure: "sidebar",
+    ready: true,
+  },
+  "franchise-sales": {
+    md: "Selling a franchise — total-cost-first",
+    label: "what it really costs to open, what is NOT in that figure, and which territories are actually free",
+    cta: ["What it costs", "Which areas are free"],
+    shape: [
+      "hero: the total investment computed from its parts, beside the headline fee everybody quotes",
+      "body: what the fee excludes, then the free territories, then the process and its timescale",
+      "'from £14,995' is the franchise fee and the real number is three times it — add it up on the page",
+    ],
+    pages: [
+      { file: "index", role: "the total cost, computed, and what the headline figure leaves out" },
+      { file: "territories", role: "which areas are free, taken or under offer" },
+      { file: "process", role: "from enquiry to opening — the steps, and how long each really takes" },
+    ],
+    kinds: [
+      "franchise", "franchise opportunity", "master franchise", "licensee scheme", "dealership opportunity",
+      "management franchise", "van franchise", "area development", "partner programme", "business opportunity",
+    ],
+    components: ["faq", "contact-form", "testimonial", "timeline", "stats-band", "download-card", "payback-note", "break-even-note", "safe-image", "investment-table", "territory-list"],
+    variants: {},
+    structure: "single-scroll",
+    ready: true,
+  },
 };
 /* ------------------------------------------------------------------ helpers */
 

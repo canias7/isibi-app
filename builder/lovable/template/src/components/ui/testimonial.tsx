@@ -23,10 +23,23 @@ export function Testimonial({ item, className }: { item: Quote; className?: stri
   );
 }
 
-/** Several of them. */
-export function TestimonialGrid({ items, className }: { items: Quote[]; className?: string }) {
+/**
+ * Several of them.
+ *
+ * `columns` EXISTS BECAUSE THE BREAKPOINTS ARE THE VIEWPORT'S, NOT THE
+ * PARENT'S. Dropped into a half-width column on a wide screen, a fixed
+ * `lg:grid-cols-3` still makes three, and three quotes in a 380px column are
+ * twelve-character lines nobody reads — measured on a real page. The caller
+ * knows how much room it has and the CSS cannot.
+ */
+export function TestimonialGrid({ items, columns = 3, className }: {
+  items: Quote[];
+  columns?: 1 | 2 | 3;
+  className?: string;
+}) {
+  const cols = { 1: "", 2: "sm:grid-cols-2", 3: "sm:grid-cols-2 lg:grid-cols-3" }[columns];
   return (
-    <div className={cn("grid gap-4 sm:grid-cols-2 lg:grid-cols-3", className)}>
+    <div className={cn("grid gap-4", cols, className)}>
       {items.map((q, i) => <Testimonial key={q.name + i} item={q} />)}
     </div>
   );

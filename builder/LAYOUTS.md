@@ -840,6 +840,96 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
+## 57. Campsite or caravan park — will-it-fit-first
+**Shape:** which pitch takes what you are arriving in, whether it has hookup, and when the gate is locked.
+**CTA:** Check the pitches · Book a pitch
+
+- Campsite
+- Caravan park
+- Touring site
+- Glamping site
+- Motorhome stopover
+- Certificated location
+- Camping field
+- Aire
+- Holiday park
+- Residential park
+
+---
+
+## 58. B&B or guest house — book-direct-first
+**Shape:** the rooms, what a single person actually pays, and what booking here saves against the platform.
+**CTA:** Book direct · See the rooms
+
+- Bed and breakfast
+- Guest house
+- Inn with rooms
+- Farmhouse B&B
+- Pub with rooms
+- Boutique guesthouse
+- Homestay
+- Airbnb host
+- Serviced room
+- Hostel
+
+---
+
+## 59. A shop that does not sell online — counter-first
+**Shape:** what you can actually do at the counter, and the hours for each, which are not the shop's hours.
+**CTA:** What we do · Find us
+
+- Corner shop
+- Newsagent
+- Post office
+- Off licence
+- Hardware shop
+- Pharmacy
+- Greengrocer
+- Dry cleaner
+- Convenience store
+- Village shop
+- Key cutting
+- Parcel shop
+- Launderette
+- Tobacconist
+- Sweet shop
+
+---
+
+## 60. Trade supplier — do-I-qualify-first
+**Shape:** the minimum order, the carriage-paid line, the delivery days and whether an account is needed — before any product.
+**CTA:** Open an account · See the terms
+
+- Wholesaler
+- Cash and carry
+- Trade counter
+- Trade supplier
+- Importer
+- Distributor
+- Buying group
+- Catering supplier
+- Builders merchant
+- Trade only
+
+---
+
+## 61. Selling a franchise — total-cost-first
+**Shape:** what it really costs to open, what is NOT in that figure, and which territories are actually free.
+**CTA:** What it costs · Which areas are free
+
+- Franchise
+- Franchise opportunity
+- Master franchise
+- Licensee scheme
+- Dealership opportunity
+- Management franchise
+- Van franchise
+- Area development
+- Partner programme
+- Business opportunity
+
+---
+
 ## Cross-cutting: structural variants
 
 Any family above can be expressed through:
