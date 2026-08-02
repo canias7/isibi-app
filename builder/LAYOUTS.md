@@ -817,7 +817,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 - Pet sitting
 - Dog walking
 - Small animal boarding
-- Equine livery
+- Rabbit boarding
 - Reptile boarding
 - Aviary boarding
 
@@ -927,6 +927,74 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 - Area development
 - Partner programme
 - Business opportunity
+
+---
+
+## 62. Lettings agent — what-it-costs-to-move-in-first
+**Shape:** the money a tenant actually needs up front, and the landlord fee as a percentage rather than "competitive".
+**CTA:** What it costs to move in · Landlords
+
+- Letting agent
+- Student lettings
+- HMO management
+- Block management
+- Build to rent
+- Corporate lettings
+- Holiday let management
+- Guaranteed rent
+- Rent to rent
+- Relocation agent
+
+---
+
+## 63. Institute or association — which-grade-am-I-first
+**Shape:** the membership ladder with what each grade REQUIRES, so somebody can place themselves in ten seconds.
+**CTA:** Which grade am I? · Find a member
+
+- Professional body
+- Institute
+- Trade association
+- Chartered body
+- Licensing board
+- Accreditation scheme
+- Regulator
+- Membership organisation
+- Guild
+- Learned society
+
+---
+
+## 64. Parish or town council — next-meeting-first
+**Shape:** when the next meeting is, whether the agenda is out yet, and what the precept costs on your band.
+**CTA:** Next meeting · Papers
+
+- Parish council
+- Town council
+- Community council
+- Residents association
+- Neighbourhood forum
+- School governors
+- Allotment association
+- Village hall committee
+- Civic society
+- Friends group
+
+---
+
+## 65. Livery yard or riding school — is-there-a-space-first
+**Shape:** the livery packages by the week, what turnout actually means here, and whether a stable is free.
+**CTA:** Is there a space? · Book a lesson
+
+- Livery yard
+- Riding school
+- Equestrian centre
+- Stud
+- Pony club centre
+- Trekking centre
+- Horse transport
+- Farrier
+- Equine therapy
+- Carriage driving
 
 ---
 
