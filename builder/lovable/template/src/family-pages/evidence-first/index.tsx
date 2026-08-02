@@ -20,16 +20,46 @@ function P() {
       links={[{ label: "A recent day", href: "#/project" }, { label: "Pricing", href: "#/pricing" }]}
       action={{ label: "Start a project", href: "#/contact" }}>
 
-      {/* The opening spread — image full, thesis offset left, not centered. */}
-      <SafeImage src={null} alt="Nadia and Tom, first dance, Cressbrook Mill" ratio="21/9" className="rounded-none" />
+      {/* The opening spread. It used to be one 21/9 band above the thesis, and
+          for a PHOTOGRAPHER that was the worst version of the empty-slot
+          problem in the whole set: the first screen of the site was a single
+          picture-shaped hole. Three plates instead — a portrait leading, two
+          stacked beside it — so the opener says "these people take a lot of
+          photographs" whether or not any have been uploaded yet. */}
       <div className="mx-auto max-w-6xl px-6">
-        <div className="grid gap-6 py-16 md:grid-cols-12">
-          <div className="md:col-span-7">
+        <div className="grid items-end gap-8 py-16 md:grid-cols-12">
+          <div className="md:col-span-6">
             <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Documentary wedding photography · est. 2015</p>
             <h1 className="mt-3 text-5xl font-semibold tracking-tight text-balance">Two photographers, one day, no shot list</h1>
+            <p className="mt-6 max-w-md text-base leading-relaxed text-muted-foreground">
+              214 weddings told. Twenty a year, never two in one weekend, first preview inside 48 hours.
+            </p>
+            <div className="mt-7 flex flex-wrap gap-3">
+              <a className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="#/contact">Start a project</a>
+              <a className="rounded-md border border-border px-5 py-2.5 text-sm font-medium" href="#/project">A recent day</a>
+            </div>
           </div>
-          <div className="md:col-span-4 md:col-start-9 md:self-end">
-            <p className="text-base leading-relaxed text-muted-foreground">214 weddings told. Twenty a year, never two in one weekend, first preview inside 48 hours.</p>
+          <div className="grid grid-cols-2 gap-4 md:col-span-6">
+            <SafeImage src={null} alt="Nadia and Tom, first dance, Cressbrook Mill" ratio="3/4" />
+            <div className="flex flex-col gap-4">
+              <SafeImage src={null} alt="Confetti on Fargate" ratio="1/1" />
+              <SafeImage src={null} alt="The third row, mid-speech" ratio="1/1" />
+            </div>
+          </div>
+        </div>
+
+        {/* The contact sheet. A photographer is judged on VOLUME as much as on
+            any one frame — twelve small ones says the thing four large ones
+            cannot. */}
+        <div className="border-t border-border py-14">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <h2 className="text-2xl font-semibold tracking-tight">From the last eleven weddings</h2>
+            <a className="text-sm font-medium underline underline-offset-4" href="#/project">One whole day, start to finish →</a>
+          </div>
+          <div className="mt-8 grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6">
+            {["Getting ready, Cressbrook", "The walk up", "Rings", "Her father, waiting", "The vows", "Confetti",
+              "The long table", "Speeches", "Rain, umbrellas", "First dance", "Sparklers, eleven o'clock", "The last car"]
+              .map((a) => <SafeImage key={a} src={null} alt={a} ratio="1/1" />)}
           </div>
         </div>
 
