@@ -14,17 +14,26 @@ function P() {
   const [rsvp, setRsvp] = useState<Rsvp | null>(null);
   return (
     <div className="min-h-svh bg-background text-foreground">
-      <main className="mx-auto max-w-xl px-6 py-16">
+      {/* The couple, then everything else. Widened from max-w-xl on
+          2026-08-02: a wedding invitation is the one page every guest opens on
+          a laptop at work, and a 576px ribbon down the middle of a 1280px
+          screen wasted both sides of it. The centred masthead stays — that part
+          IS the invitation — and the pictures now sit either side of it. */}
+      <main className="mx-auto max-w-5xl px-6 py-16">
         <div className="text-center">
           <p className="text-xs uppercase tracking-widest text-muted-foreground">12 September 2026 · Wortley Hall</p>
-          <h1 className="mt-3 text-5xl font-semibold tracking-tight">June &amp; Omar</h1>
-          <p className="mt-3 text-muted-foreground">are getting married, and you're invited</p>
-          <div className="mt-5 flex justify-center"><Countdown to="2026-09-12T13:00:00" /></div>
+          <h1 className="mt-3 text-6xl font-semibold tracking-tight">June &amp; Omar</h1>
+          <p className="mt-3 text-lg text-muted-foreground">are getting married, and you're invited</p>
+          <div className="mt-6 flex justify-center"><Countdown to="2026-09-12T13:00:00" /></div>
         </div>
 
-        <SafeImage className="mt-10" src={null} alt="Us, halfway up Win Hill, the day of the question" ratio="3/2" />
+        <div className="mt-12 grid gap-4 sm:grid-cols-3">
+          <SafeImage src={null} alt="The allotment in June — the month and the person" ratio="3/4" />
+          <SafeImage src={null} alt="Us, halfway up Win Hill, the day of the question" ratio="3/4" className="sm:mt-8" />
+          <SafeImage src={null} alt="Wortley Hall, where you'll be" ratio="3/4" />
+        </div>
 
-        <section className="mt-12">
+        <section className="mt-16">
           <h2 className="text-lg font-medium">How we got here</h2>
           <Timeline className="mt-4" items={[
             { title: "The 52 bus", when: "2019", description: "June had headphones in. Omar asked anyway. She says the song wasn't even good." },
@@ -49,10 +58,9 @@ function P() {
         <section className="mt-12">
           <h2 className="text-lg font-medium">A few of us</h2>
           <Gallery className="mt-4" columns={3} items={[
-            { src: null, alt: "Us, Win Hill, soaked" },
-            { src: null, alt: "The allotment in June — the month and the person" },
-            { src: null, alt: "Wortley Hall, where you'll be" },
             { src: null, alt: "The rhubarb, thriving" },
+            { src: null, alt: "The 52 bus, still running" },
+            { src: null, alt: "Half a plot, then the whole thing" },
             { src: null, alt: "First photo together, 2019" },
             { src: null, alt: "The ring, eventually dry" }]} />
         </section>
