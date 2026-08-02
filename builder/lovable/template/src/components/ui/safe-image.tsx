@@ -41,7 +41,7 @@ function seed(text: string) {
 }
 
 export function SafeImage({
-  src, alt = "", className, ratio = "4/3", fallback,
+  src, alt = "", className, ratio = "4/3", fallback, fallbackSeed,
 }: {
   src?: string | null;
   alt?: string;
@@ -49,10 +49,17 @@ export function SafeImage({
   /** CSS aspect-ratio, e.g. "16/9". Keeps layout stable before the image loads. */
   ratio?: string;
   fallback?: React.ReactNode;
+  /**
+   * What the placeholder's angle and colours are derived from, when the alt is
+   * not the right thing to vary on — a decorative backdrop takes `alt=""` so a
+   * screen reader does not announce it, and every empty alt would then paint an
+   * identical panel.
+   */
+  fallbackSeed?: string;
 }) {
   const box = cn("overflow-hidden rounded-lg bg-muted", className);
   if (!src) {
-    const s = seed(alt);
+    const s = seed(fallbackSeed || alt);
     // A hard-edged diagonal band rather than a soft wash. Deliberate: the soft
     // version read as an out-of-focus PHOTOGRAPH, which is the one thing a
     // reserved space must not look like — a visitor reads it as a broken
@@ -64,8 +71,12 @@ export function SafeImage({
       <div className={box} style={{ aspectRatio: ratio }}>
         {fallback ?? (
           <div
-            role="img"
-            aria-label={alt || "Image to come"}
+            // An empty alt is HTML's own way of saying "decorative", so it is
+            // honoured as one here: no glyph, no caption, and hidden from the
+            // accessibility tree. Not a special case — it is what the attribute
+            // MEANS, and without it a backdrop painted a centred image icon
+            // straight through the headline sitting on top of it.
+            {...(alt ? { role: "img", "aria-label": alt } : { "aria-hidden": true })}
             className="relative size-full"
             style={{
               background:
@@ -86,7 +97,7 @@ export function SafeImage({
             {/* A hairline inset, so the tile has a drawn edge of its own and
                 does not dissolve into whatever band it is sitting on. */}
             <div aria-hidden="true" className="absolute inset-[5px] rounded-[3px] border border-foreground/10" />
-            <ImageIcon aria-hidden="true" className="absolute left-1/2 top-1/2 size-7 -translate-x-1/2 -translate-y-1/2 text-foreground/30" />
+            {alt && <ImageIcon aria-hidden="true" className="absolute left-1/2 top-1/2 size-7 -translate-x-1/2 -translate-y-1/2 text-foreground/30" />}
             {alt && (
               // A solid bar, not a gradient scrim. The scrim version was
               // unreadable on every theme it was tried against, because the

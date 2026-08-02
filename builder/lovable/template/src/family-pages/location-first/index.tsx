@@ -5,8 +5,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { FeatureGrid } from "@/components/ui/feature-grid";
+import { Gallery } from "@/components/ui/gallery";
 import { OpenNow } from "@/components/ui/open-now";
 import { PricingTable } from "@/components/ui/pricing-table";
+import { SafeImage } from "@/components/ui/safe-image";
 import { StatsBand } from "@/components/ui/stats-band";
 import { StoreLocator } from "@/components/ui/store-locator";
 import { Testimonial } from "@/components/ui/testimonial";
@@ -41,6 +43,13 @@ function P() {
 
         {/* RIGHT — everything else, scrolling past the pinned answer. */}
         <div className="grid gap-10">
+          {/* The floors, because nobody joins a gym they have not seen inside.
+              Added 2026-08-02: this column was four text blocks and a price
+              table, which is a leaflet rather than a website. */}
+          <div className="grid grid-cols-2 gap-4">
+            <SafeImage src={null} alt="The platforms at Kelham" ratio="4/3" />
+            <SafeImage src={null} alt="The pool at Hillsborough" ratio="4/3" />
+          </div>
           <StatsBand items={[
             { value: "4", label: "Gyms, one card" },
             { value: "6,200", label: "Members" },
@@ -61,6 +70,17 @@ function P() {
               { name: "Off-peak", price: "£17.99", period: "month", features: ["Weekdays 9–4 + weekends", "All four gyms"], action: { label: "Join off-peak", href: "#/memberships" } },
               { name: "Anytime", price: "£24.99", period: "month", featured: true, features: ["Every hour we're open", "Guests on Sundays"], action: { label: "Join anytime", href: "#/memberships" } }]} />
             <p className="mt-3 text-sm"><a className="font-medium underline underline-offset-4" href="#/memberships">The fine print, as a table →</a></p>
+          </div>
+          <div>
+            <h2 className="text-lg font-medium">Inside the four</h2>
+            <Gallery className="mt-4" columns={3} items={[
+              { alt: "Kelham, the strength floor", caption: "Kelham — strength-led" },
+              { alt: "Heeley's studio between classes", caption: "Heeley — biggest timetable" },
+              { alt: "The pool at Hillsborough", caption: "Hillsborough — the pool" },
+              { alt: "Crystal Peaks, the free weights", caption: "Crystal Peaks" },
+              { alt: "A class mid-session", caption: "Every class, every plan" },
+              { alt: "The changing rooms at Kelham", caption: "Six in the morning" },
+            ]} />
           </div>
         </div>
       </div>
