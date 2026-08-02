@@ -15,11 +15,22 @@ import { cn } from "@/lib/utils";
  * grey box saying "No image yet" made every fresh page read as broken
  * furniture (measured across theme renders: ten grey boxes on the reference
  * home were the loudest reason a themed page still looked unfinished). So: a
- * quiet duotone wash built from the THEME'S OWN tokens — every theme colours
- * its own placeholders — angled deterministically from the alt text so a
- * gallery of six is six different tiles, a ghosted glyph, and the alt as a
- * visible caption, because the alt describes what will BE here, which is
- * content rather than chrome.
+ * duotone wash built from the THEME'S OWN tokens — every theme colours its own
+ * placeholders — angled deterministically from the alt text so a gallery of six
+ * is six different tiles, a ghosted glyph, and the alt as a visible caption,
+ * because the alt describes what will BE here, which is content rather than
+ * chrome.
+ *
+ * THE MIX WAS RAISED FROM 9-13% TO 22-34% ON 2026-08-02, and the reason is that
+ * the first version was invisible. At 13% primary over `bg-muted` every
+ * placeholder rendered as the same flat grey rectangle it was written to
+ * replace — the design was in the file and not on the screen, which is this
+ * repo's most repeated failure and, as usual, only findable by LOOKING at a
+ * render. Two tones now (primary and accent, which most themes set apart) so
+ * the wash has a direction rather than a single haze, and the hatch and glyph
+ * were lifted with it. Bounded deliberately: this must read as a reserved
+ * space, never as a photograph, or a page of them competes with the real
+ * pictures the owner uploads next to it.
  */
 
 /** Small stable hash so the variation is per-image, not per-render. */
@@ -42,8 +53,13 @@ export function SafeImage({
   const box = cn("overflow-hidden rounded-lg bg-muted", className);
   if (!src) {
     const s = seed(alt);
-    const angle = 25 + (s % 8) * 40;
-    const x = 18 + (s % 5) * 16;
+    // A hard-edged diagonal band rather than a soft wash. Deliberate: the soft
+    // version read as an out-of-focus PHOTOGRAPH, which is the one thing a
+    // reserved space must not look like — a visitor reads it as a broken
+    // picture and the owner reads it as a bug. A crisp geometric split cannot
+    // be mistaken for a failed image.
+    const angle = 100 + (s % 4) * 25;
+    const stop = 38 + (s % 5) * 7;
     return (
       <div className={box} style={{ aspectRatio: ratio }}>
         {fallback ?? (
@@ -53,8 +69,10 @@ export function SafeImage({
             className="relative size-full"
             style={{
               background:
-                `radial-gradient(90% 90% at ${x}% 8%, color-mix(in oklch, var(--primary) 13%, transparent), transparent 60%), ` +
-                `linear-gradient(${angle}deg, color-mix(in oklch, var(--primary) 9%, var(--muted)), var(--muted) 70%)`,
+                `linear-gradient(${angle}deg, ` +
+                `color-mix(in oklch, var(--primary) 26%, var(--muted)) 0 ${stop}%, ` +
+                `color-mix(in oklch, var(--accent) 30%, var(--muted)) ${stop}% ${stop + 16}%, ` +
+                `color-mix(in oklch, var(--primary) 11%, var(--muted)) ${stop + 16}% 100%)`,
             }}
           >
             <div
@@ -62,12 +80,18 @@ export function SafeImage({
               className="absolute inset-0"
               style={{
                 background:
-                  "repeating-linear-gradient(-45deg, color-mix(in oklch, var(--foreground) 3.5%, transparent) 0 1px, transparent 1px 9px)",
+                  "repeating-linear-gradient(-45deg, color-mix(in oklch, var(--foreground) 6%, transparent) 0 1px, transparent 1px 10px)",
               }}
             />
-            <ImageIcon aria-hidden="true" className="absolute left-1/2 top-1/2 size-6 -translate-x-1/2 -translate-y-1/2 text-foreground/15" />
+            {/* A hairline inset, so the tile has a drawn edge of its own and
+                does not dissolve into whatever band it is sitting on. */}
+            <div aria-hidden="true" className="absolute inset-[5px] rounded-[3px] border border-foreground/10" />
+            <ImageIcon aria-hidden="true" className="absolute left-1/2 top-1/2 size-7 -translate-x-1/2 -translate-y-1/2 text-foreground/30" />
             {alt && (
-              <span className="absolute inset-x-0 bottom-0 line-clamp-2 px-3 pb-2 text-left text-[11px] leading-snug text-muted-foreground">
+              // A solid bar, not a gradient scrim. The scrim version was
+              // unreadable on every theme it was tried against, because the
+              // text sat on whatever the band underneath happened to be.
+              <span className="absolute inset-x-0 bottom-0 line-clamp-2 bg-background/85 px-2.5 py-1.5 text-left text-[11px] font-medium leading-snug text-foreground/80">
                 {alt}
               </span>
             )}
