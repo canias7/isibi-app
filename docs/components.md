@@ -1,4 +1,4 @@
-# Components (2059 built, 25 to go)
+# Components (2061 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -1570,6 +1570,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ service-card
 ✓ service-history
 ✓ service-standard
+✓ service-times
 ✓ session-expiry
 ✓ session-row
 ✓ setlist-row
@@ -1977,6 +1978,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ variation-order
 ✓ vehicle-card
 ✓ vehicle-check
+✓ vehicle-lookup
 ✓ vendor-note
 ✓ venue-allocation
 ✓ verification-steps

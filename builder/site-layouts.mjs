@@ -759,11 +759,10 @@ export const FAMILIES = {
       "cathedral",
       "quaker meeting",
     ],
-    components: ["opening-hours", "event-card", "location-card", "faq", "safe-image", "testimonial"],
-    wants: ["service-times"],
+    components: ["opening-hours", "event-card", "location-card", "faq", "safe-image", "testimonial", "service-times"],
     variants: {},
     structure: "single-scroll",
-    ready: false,
+    ready: true,
   },
 
   "sports-club": {
@@ -924,11 +923,10 @@ export const FAMILIES = {
       "mobile mechanic",
       "fleet servicing",
     ],
-    components: ["price-list", "availability-grid", "opening-hours", "location-card", "trust-strip", "testimonial"],
-    wants: ["vehicle-lookup"],
+    components: ["price-list", "availability-grid", "opening-hours", "location-card", "trust-strip", "testimonial", "vehicle-lookup"],
     variants: {},
     structure: "single-scroll",
-    ready: false,
+    ready: true,
   },
 
   "funeral-director": {
