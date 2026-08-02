@@ -1,4 +1,4 @@
-# Components (2068 built, 25 to go)
+# Components (2073 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -90,6 +90,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ approver-list
 ✓ approx-note
 ✓ area-input
+✓ arrangement-steps
 ✓ arrears-note
 ✓ article-card
 ✓ article-header
@@ -657,6 +658,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ feature-matrix
 ✓ feature-tour
 ✓ fee-line
+✓ fee-table
 ✓ feedback-widget
 ✓ field
 ✓ field-array
@@ -1219,6 +1221,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ post-meta
 ✓ postcode-input
 ✓ poster-picker
+✓ practitioner-card
 ✓ precision-toggle
 ✓ preference-group
 ✓ preference-weights
@@ -1578,6 +1581,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ service-times
 ✓ session-expiry
 ✓ session-row
+✓ session-table
 ✓ setlist-row
 ✓ setting-item
 ✓ settings-nav
@@ -1928,6 +1932,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tree-table
 ✓ tree-view
 ✓ trend-arrow
+✓ triage-banner
 ✓ triage-outcome
 ✓ triage-row
 ✓ trial-balance-row
@@ -2519,7 +2524,7 @@ dose-schedule
 refill-reminder
 allergy-list
 vitals-strip
-practitioner-card
+✓ practitioner-card
 referral-form
 follow-up-picker
 test-result

@@ -822,7 +822,13 @@ export const UI_COMPONENTS = [
   "scene-note", "triage-row", "comms-log", "stand-down",
   // Health records, deeper
   "triage-outcome", "referral-row", "waiting-list-note", "consent-to-share", "care-summary",
-  "allergy-row", "immunisation-row", "observation-row", "discharge-note", "donation-tiers", "fixture-list", "impact-stat", "league-table", "lineup-grid", "quote-request", "service-times", "story-lead", "symptom-row", "tap-list", "vehicle-lookup",
+  "allergy-row", "immunisation-row", "observation-row", "discharge-note",
+  // Written for the family reference pages, kept alphabetical so a new one has
+  // one obvious place to go.
+  "arrangement-steps", "donation-tiers", "fee-table", "fixture-list", "impact-stat",
+  "league-table", "lineup-grid", "practitioner-card", "quote-request", "service-times",
+  "session-table", "story-lead", "symptom-row", "tap-list", "triage-banner",
+  "vehicle-lookup",
 ];
 
 // THE COMPONENTS THE MODEL IS SHOWN — the most-used slice of the 2,058.

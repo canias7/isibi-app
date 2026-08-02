@@ -952,11 +952,10 @@ export const FAMILIES = {
       "florist (funeral)",
       "green burial",
     ],
-    components: ["price-list", "faq", "contact-form", "location-card", "opening-hours", "testimonial"],
-    wants: ["arrangement-steps"],
+    components: ["price-list", "faq", "contact-form", "location-card", "opening-hours", "testimonial", "arrangement-steps"],
     variants: {},
     structure: "single-scroll",
-    ready: false,
+    ready: true,
   },
 
   nursery: {
@@ -985,11 +984,10 @@ export const FAMILIES = {
       "daycare",
       "tutoring centre",
     ],
-    components: ["opening-hours", "team-grid", "faq", "safe-image", "gallery", "contact-form", "testimonial"],
-    wants: ["session-table", "fee-table"],
+    components: ["opening-hours", "team-grid", "faq", "safe-image", "gallery", "contact-form", "testimonial", "session-table", "fee-table"],
     variants: {},
     structure: "single-scroll",
-    ready: false,
+    ready: true,
   },
 
   medical: {
@@ -1018,11 +1016,10 @@ export const FAMILIES = {
       "private clinic",
       "osteopath",
     ],
-    components: ["team-grid", "price-list", "opening-hours", "location-card", "faq", "contact-form"],
-    wants: ["practitioner-card", "triage-banner"],
+    components: ["team-grid", "price-list", "opening-hours", "location-card", "faq", "contact-form", "practitioner-card", "triage-banner"],
     variants: {},
     structure: "single-scroll",
-    ready: false,
+    ready: true,
   },
 
   gallery: {
