@@ -726,11 +726,10 @@ export const FAMILIES = {
       "air ambulance",
       "mutual aid",
     ],
-    components: ["stats-band", "testimonial", "cta-band", "progress-ring", "faq"],
-    wants: ["donation-tiers", "impact-stat"],
+    components: ["stats-band", "testimonial", "cta-band", "progress-ring", "faq", "donation-tiers", "impact-stat"],
     variants: {},
     structure: "single-scroll",
-    ready: false,
+    ready: true,
   },
 
   church: {
@@ -791,11 +790,10 @@ export const FAMILIES = {
       "bowls",
       "junior academy",
     ],
-    components: ["stats-band", "event-card", "team-grid", "location-card", "safe-image", "price-list"],
-    wants: ["fixture-list", "league-table"],
+    components: ["stats-band", "event-card", "team-grid", "location-card", "safe-image", "price-list", "fixture-list", "league-table"],
     variants: {},
     structure: "single-scroll",
-    ready: false,
+    ready: true,
   },
 
   festival: {

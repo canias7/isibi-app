@@ -1,4 +1,4 @@
-# Components (2064 built, 25 to go)
+# Components (2068 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -537,6 +537,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ document-outline
 ✓ domain-verify
 ✓ donation-card
+✓ donation-tiers
 ✓ donor-credit
 ✓ donut-mini
 ✓ door-event
@@ -696,6 +697,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ first-value-note
 ✓ fit-to-width
 ✓ fix-suggestion
+✓ fixture-list
 ✓ fixture-postponed
 ✓ fixture-row
 ✓ flight-leg
@@ -816,6 +818,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ image-zoom
 ✓ immunisation-row
 ✓ impact-note
+✓ impact-stat
 ✓ import-preview
 ✓ import-settings
 ✓ import-summary
@@ -902,6 +905,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ lead
 ✓ lead-time
 ✓ lead-time-input
+✓ league-table
 ✓ league-table-row
 ✓ leave-confirm
 ✓ leave-safe-consent
