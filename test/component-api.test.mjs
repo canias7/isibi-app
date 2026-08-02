@@ -119,3 +119,35 @@ test("the four APIs that were actually got wrong are now stated", () => {
   assert.match(COMPONENT_API["storage-bar"], /used: number, total: number/);        // guessed `cap`/`tier`
   assert.match(COMPONENT_API["comment-thread"], /root: React\.ReactNode/);          // guessed `comments`
 });
+
+test("a number price is FORMATTED as money, never concatenated", () => {
+  // Found by looking at a farm shop, not by any test: `currency + r.price`
+  // rendered 3.2 as "£3.2" and 4200 as "£4200". Wrong on every site this kit
+  // has ever built, on the component its own header calls "the single most
+  // common shape on a site this platform builds" — and invisible to tsc, to
+  // vite, to the lint and to every other check here, because a wrong money
+  // format compiles perfectly.
+  //
+  // Asserted on the SOURCE rather than by rendering, because the failure was a
+  // string concatenation and that is exactly what a source read can see.
+  const src = fs.readFileSync(
+    path.join(import.meta.dirname, "../builder/lovable/template/src/components/ui/price-list.tsx"), "utf8");
+  assert.ok(!/currency\s*\+\s*r\.price/.test(src),
+    "PriceList concatenates a raw number onto the symbol again — 3.2 renders as £3.2");
+  assert.match(src, /toLocaleString\(/, "PriceList no longer formats its number at all");
+  assert.match(src, /Number\.isInteger\(n\)\s*\?\s*0\s*:\s*2/,
+    "the whole-vs-fractional rule is gone: a menu wants £12, and £3.2 is not a price");
+  // The rule itself, evaluated rather than restated — a regex over the source
+  // proves the code is there and not that it is right.
+  const fmt = (n, currency = "£", locale = "en-GB") =>
+    currency + n.toLocaleString(locale, {
+      minimumFractionDigits: Number.isInteger(n) ? 0 : 2,
+      maximumFractionDigits: 2,
+    });
+  assert.equal(fmt(12), "£12");
+  assert.equal(fmt(3.2), "£3.20");
+  assert.equal(fmt(1.95), "£1.95");
+  assert.equal(fmt(4200), "£4,200");
+  assert.equal(fmt(1234.5), "£1,234.50");
+  assert.equal(fmt(0), "£0");
+});

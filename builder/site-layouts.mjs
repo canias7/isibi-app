@@ -1110,11 +1110,10 @@ export const FAMILIES = {
       "fishmonger",
       "butcher",
     ],
-    components: ["price-list", "opening-hours", "location-card", "gallery", "safe-image", "testimonial", "menu-section"],
-    wants: ["produce-calendar"],
+    components: ["price-list", "opening-hours", "location-card", "gallery", "safe-image", "testimonial", "menu-section", "produce-calendar"],
     variants: {},
     structure: "single-scroll",
-    ready: false,
+    ready: true,
   },
 
   news: {
@@ -1175,11 +1174,10 @@ export const FAMILIES = {
       "pest control",
       "pool maintenance",
     ],
-    components: ["price-list", "service-area", "testimonial", "trust-strip", "faq", "contact-form", "before-after"],
-    wants: ["frequency-picker"],
+    components: ["price-list", "service-area", "testimonial", "trust-strip", "faq", "contact-form", "before-after", "frequency-picker"],
     variants: {},
     structure: "single-scroll",
-    ready: false,
+    ready: true,
   },
 
   removals: {
@@ -1208,11 +1206,10 @@ export const FAMILIES = {
       "student move",
       "courier",
     ],
-    components: ["price-list", "steps", "faq", "testimonial", "trust-strip", "contact-form", "service-area"],
-    wants: ["quote-calculator"],
+    components: ["price-list", "steps", "faq", "testimonial", "trust-strip", "contact-form", "service-area", "quote-calculator"],
     variants: {},
     structure: "single-scroll",
-    ready: false,
+    ready: true,
   },
 
   storage: {
@@ -1241,11 +1238,10 @@ export const FAMILIES = {
       "archive storage",
       "garage rental",
     ],
-    components: ["price-list", "opening-hours", "location-card", "faq", "trust-strip", "contact-form"],
-    wants: ["unit-card", "size-guide"],
+    components: ["price-list", "opening-hours", "location-card", "faq", "trust-strip", "contact-form", "unit-card", "size-guide"],
     variants: {},
     structure: "card-grid",
-    ready: false,
+    ready: true,
   },
 
   tutor: {
@@ -1274,11 +1270,10 @@ export const FAMILIES = {
       "dog trainer",
       "careers coach",
     ],
-    components: ["price-list", "availability-grid", "testimonial", "faq", "safe-image", "contact-form"],
-    wants: ["subject-list"],
+    components: ["price-list", "availability-grid", "testimonial", "faq", "safe-image", "contact-form", "subject-list"],
     variants: {},
     structure: "single-scroll",
-    ready: false,
+    ready: true,
   },
 
   "repair-shop": {
@@ -1307,11 +1302,10 @@ export const FAMILIES = {
       "clock repair",
       "tailoring alterations",
     ],
-    components: ["price-list", "opening-hours", "location-card", "faq", "trust-strip", "before-after"],
-    wants: ["repair-status", "device-picker"],
+    components: ["price-list", "opening-hours", "location-card", "faq", "trust-strip", "before-after", "repair-status", "device-picker"],
     variants: {},
     structure: "single-scroll",
-    ready: false,
+    ready: true,
   },
 };
 

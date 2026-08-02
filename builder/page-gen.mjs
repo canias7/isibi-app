@@ -826,10 +826,11 @@ export const UI_COMPONENTS = [
   // Written for the family reference pages, kept alphabetical so a new one has
   // one obvious place to go.
   "arrangement-steps", "availability-calendar", "capacity-table", "date-enquiry",
-  "donation-tiers", "exhibition-card", "fee-table", "fixture-list", "impact-stat",
-  "league-table", "lineup-grid", "practitioner-card", "quote-request", "service-times",
-  "session-table", "story-lead", "symptom-row", "tap-list", "triage-banner",
-  "vehicle-lookup",
+  "device-picker", "donation-tiers", "exhibition-card", "fee-table", "fixture-list",
+  "frequency-picker", "impact-stat", "league-table", "lineup-grid", "practitioner-card",
+  "produce-calendar", "quote-calculator", "quote-request", "repair-status",
+  "service-times", "session-table", "size-guide", "story-lead", "subject-list",
+  "symptom-row", "tap-list", "triage-banner", "unit-card", "vehicle-lookup",
 ];
 
 // THE COMPONENTS THE MODEL IS SHOWN — the most-used slice of the 2,058.

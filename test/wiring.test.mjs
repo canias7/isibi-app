@@ -213,10 +213,30 @@ test("the designer is told what each family BUILDS, derived from the module", ()
   }
 });
 
+test("the readiness gate is a real filter, not an alias", () => {
+  // THIS ASSERTION USED TO DEMAND AT LEAST ONE NOT-READY FAMILY, on the ground
+  // that with none the gate is never observed doing anything. True, and it made
+  // the guard depend on the repo staying incomplete — it went red the day the
+  // last family landed, which is the one day it should have been celebrating.
+  //
+  // Checking it against VALUES cannot work once every family is ready: an alias
+  // and a filter agree exactly when nothing is filtered out. So it is checked
+  // against the SOURCE instead, which is what stays true either way. Restore a
+  // not-ready family tomorrow and this still holds.
+  const layouts = fs.readFileSync(path.join(ROOT, "builder/site-layouts.mjs"), "utf8");
+  assert.match(layouts, /READY_FAMILIES\s*=\s*FAMILY_NAMES\.filter\(\s*\(\s*\w+\s*\)\s*=>\s*FAMILIES\[\w+\]\.ready\s*\)/,
+    "READY_FAMILIES no longer derives from the ready flag — a not-ready family would be offered to the designer");
+  assert.match(layouts, /function familiesForPrompt\(\)\s*\{\s*return READY_FAMILIES/,
+    "familiesForPrompt no longer reads READY_FAMILIES, so the gate has stopped applying to the prompt");
+  // And the flag has to mean something: a family carrying `wants` is one the
+  // gate exists for, so it may never also be ready.
+  for (const [id, f] of Object.entries(FAMILIES)) {
+    if (f.wants?.length) assert.equal(f.ready, false, `${id} wants components AND is offered to the designer`);
+  }
+});
+
 test("every family the designer may pick produces a real directive", () => {
   assert.ok(READY_FAMILIES.length >= 26, `only ${READY_FAMILIES.length} ready families`);
-  assert.ok(FAMILY_NAMES.length > READY_FAMILIES.length,
-    "no not-ready families at all — the readiness mechanism is untested by this suite");
   for (const name of READY_FAMILIES) {
     const d = layoutDirective(name);
     assert.ok(typeof d === "string" && d.length > 60, `${name} gives no usable directive`);

@@ -1,4 +1,4 @@
-# Components (2077 built, 25 to go)
+# Components (2085 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -505,6 +505,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ description-list
 ✓ detail-panel
 ✓ device-list
+✓ device-picker
 ✓ device-unsupported
 ✓ diagnostic-bundle
 ✓ dialog
@@ -743,6 +744,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ free-text-followup
 ✓ freezer-location
 ✓ freight-quote
+✓ frequency-picker
 ✓ frozen-columns
 ✓ frozen-corner
 ✓ fuel-log
@@ -1256,6 +1258,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ priority-inbox
 ✓ priority-picker
 ✓ privacy-choice
+✓ produce-calendar
 ✓ product-card
 ✓ production-run
 ✓ profile-card
@@ -1313,6 +1316,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ quiet-hours
 ✓ quote
 ✓ quote-attribution
+✓ quote-calculator
 ✓ quote-request
 ✓ radio-cards
 ✓ radio-group
@@ -1395,6 +1399,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ reorder-list
 ✓ reorder-point
 ✓ reorderable-grid
+✓ repair-status
 ✓ repayment-preview
 ✓ repeat-request
 ✓ repeatable-field
@@ -1650,6 +1655,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ site-picker
 ✓ sitemap-list
 ✓ size-chart-row
+✓ size-guide
 ✓ size-picker
 ✓ skeleton
 ✓ skeleton-card
@@ -1771,6 +1777,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ string-context
 ✓ study-arm
 ✓ subdomain-field
+✓ subject-list
 ✓ subscribe-toggle
 ✓ subscription-arrears
 ✓ substitution-pref
@@ -1958,6 +1965,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ undo-stack
 ✓ undo-toast
 ✓ uniqueness-check
+✓ unit-card
 ✓ unit-convert
 ✓ unit-input
 ✓ unit-mismatch
@@ -3158,7 +3166,7 @@ meet-point
 ### Cleaners and home services
 
 room-count-picker
-frequency-picker
+✓ frequency-picker
 supplies-choice
 key-handover
 
