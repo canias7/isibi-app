@@ -191,3 +191,94 @@ test("a currency SYMBOL never crashes the page", () => {
     "no component defaults currency to a symbol any more — if the kit is now ISO-only, say so and this guard can go");
   assert.ok(bodies.filter((b) => /<Money/.test(b)).length > 1, "nothing forwards to Money — this guard is watching nothing");
 });
+
+test("a column whose every cell is identical is DROPPED, not printed", () => {
+  // Found by rendering a leisure centre and a farm park, not by any test.
+  //
+  // RateCard prices one thing by BLOCK — a day, three days, a week — and derives
+  // a per-unit column plus a "cheapest per day" badge from it. Handed rows that
+  // are all `units: 1` (a swim, a squash court, the whole sports hall) the
+  // derived column is a character-for-character copy of the price beside it,
+  // and the badge stops meaning better value and starts meaning cheapest —
+  // marking swimming as better value than hiring a hall. Measured live.
+  //
+  // ServiceTimes is the same shape one component along: an attraction's daily
+  // timetable is eleven rows all saying "Every day" down the left, a constant
+  // dressed as a field taking a quarter of the width, under a heading that has
+  // already said it.
+  //
+  // Both compile, bundle, lint and pass every other check in this repo.
+  const UI = path.join(import.meta.dirname, "../builder/lovable/template/src/components/ui");
+  const rate = fs.readFileSync(path.join(UI, "rate-card.tsx"), "utf8");
+  const times = fs.readFileSync(path.join(UI, "service-times.tsx"), "utf8");
+  assert.match(rate, /rates\.some\(\(r\) => r\.units !== 1\)/,
+    "RateCard no longer asks whether its rows are blocks — the duplicate column is back");
+  assert.match(rate, /blocks && winners\.length === 1/,
+    "the badge is no longer gated on block pricing: it will call the cheapest ACTIVITY the best value");
+  assert.match(times, /meetings\.some\(\(m\) => m\.day !== meetings\[0\]\.day\)/,
+    "ServiceTimes no longer asks whether its rows span days");
+
+  // ASKING IS NOT ACTING, and this half is where three mutants walked through
+  // the first draft of this test. Each decision has to gate BOTH the heading
+  // and the cells — an ungated header over gated cells is a column of nothing,
+  // which is worse than the duplicate it was meant to remove.
+  assert.match(rate, /\{blocks && <th [^>]*>Per \{unit\}<\/th>\}/,
+    "the per-unit HEADING is printed unconditionally — a header with no cells under it");
+  assert.match(rate, /\{blocks && \(\s*<td/,
+    "the per-unit CELL is printed unconditionally");
+  assert.match(times, /\{manyDays && <span [^>]*>\{m\.day\}<\/span>\}/,
+    "the day cell is printed unconditionally again");
+
+  // The rules themselves, EVALUATED. A regex proves the code is there and not
+  // that it decides correctly — and the direction that matters is the SECOND
+  // one each time: dropping a column that carries real information is the
+  // expensive failure, not keeping a redundant one.
+  const blocks = (rates) => rates.some((r) => r.units !== 1);
+  assert.equal(blocks([{ units: 1 }, { units: 1 }, { units: 1 }]), false);
+  assert.equal(blocks([{ units: 1 }, { units: 3 }, { units: 7 }]), true);
+  assert.equal(blocks([{ units: 1 }, { units: 10 }]), true, "one genuine block is enough to keep the column");
+  assert.equal(blocks([{ units: 0.5 }, { units: 1 }]), true, "half an hour is a block too");
+  assert.equal(blocks([]), false);
+
+  const manyDays = (ms) => ms.some((m) => m.day !== ms[0].day);
+  assert.equal(manyDays([{ day: "Every day" }, { day: "Every day" }]), false);
+  assert.equal(manyDays([{ day: "Sunday" }, { day: "Sunday" }, { day: "Wednesday" }]), true,
+    "a church's week must keep its day column");
+  assert.equal(manyDays([{ day: "Today" }]), false);
+});
+
+test("a hard-coded legend never states something false about the caller", () => {
+  // AvailabilityCalendar's legend ended "Prices are per night for the whole
+  // property" — true of a holiday let, false of a kennel pricing one animal by
+  // size, of a mooring pricing a berth, of a stable pricing a stall. A legend
+  // that is wrong is worse than none, because it is read as authority: the
+  // grid was correct and the sentence under it contradicted the table beside
+  // it. Same class as the "Hire for" heading on RateCard, over a leisure
+  // centre's list of activities, which are not hired.
+  const UI = path.join(import.meta.dirname, "../builder/lovable/template/src/components/ui");
+  const cal = fs.readFileSync(path.join(UI, "availability-calendar.tsx"), "utf8");
+  const rate = fs.readFileSync(path.join(UI, "rate-card.tsx"), "utf8");
+  assert.match(cal, /priceNote\?: string/, "AvailabilityCalendar cannot be told what the rate covers");
+  assert.match(cal, /\{priceNote \?\? "Prices are per night for the whole property\."\}/,
+    "the let-specific sentence is hard-coded again, or the default has silently changed for every existing caller");
+  assert.match(rate, /label = "Hire for"/, "RateCard's first-column heading is hard-coded again");
+  assert.match(rate, /className="py-2 pr-4 font-medium">\{label\}</,
+    "the label prop exists but the heading does not use it");
+
+  // And the premise: these two only matter while something actually overrides
+  // them. A prop nothing passes is a prop that can be quietly broken.
+  const PAGES = path.join(import.meta.dirname, "../builder/lovable/template/src/family-pages");
+  const pages = fs.readdirSync(PAGES, { recursive: true })
+    .filter((f) => String(f).endsWith(".tsx"))
+    .map((f) => fs.readFileSync(path.join(PAGES, String(f)), "utf8"));
+  assert.ok(pages.some((p) => /priceNote=/.test(p)), "no page overrides the calendar legend — this guard watches nothing");
+  // Named, because "somebody somewhere overrides it" passes while the app the
+  // default is FALSE for quietly goes back to saying "the whole property".
+  for (const f of fs.readdirSync(path.join(PAGES, "pet-boarding"))) {
+    const src = fs.readFileSync(path.join(PAGES, "pet-boarding", f), "utf8");
+    if (!/<AvailabilityCalendar/.test(src)) continue;
+    assert.match(src, /priceNote=/,
+      `pet-boarding/${f} shows a calendar with no priceNote — its legend now prices "the whole property" for a dog`);
+  }
+  assert.ok(pages.some((p) => /<RateCard[^>]*label=/s.test(p)), "no page overrides the rate-card heading");
+});

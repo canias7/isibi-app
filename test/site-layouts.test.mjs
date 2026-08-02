@@ -167,16 +167,25 @@ test("the prompt shortlist offers ready families only, and stays cheap", () => {
   for (const n of FAMILY_NAMES.filter((x) => !FAMILIES[x].ready)) {
     assert.ok(!list.includes(n + " — "), `${n} is not ready and must not be offered`);
   }
-  // 4200 was the ceiling when 26 families were ready and it fired the moment
-  // the 27th landed — a budget guard that freezes the thing it is budgeting for
-  // is the wrong shape. This list rides in the design call's `cache_control:
-  // ephemeral` block, so after the first build of a deploy it is a CACHE READ
-  // rather than fresh input; the guard's job is to catch a runaway (a label
-  // growing to a paragraph, kinds growing to twenty) and not to cap the count.
-  // 6,600 is all 46 families at today's per-family cost plus a little slack.
-  assert.ok(list.length < 6600, `the shortlist is ${list.length} chars`);
+  // THE ABSOLUTE CEILING IS NOW DERIVED, because a literal one has gone stale
+  // on a CORRECT addition three times: 4,200 fired when the 27th family landed,
+  // 6,600 when the 49th did. A budget guard that freezes the thing it is
+  // budgeting for is the wrong shape, and raising the number each time is not a
+  // guard, it is a ritual.
+  //
+  // What actually needs watching is the cost PER FAMILY — a label growing into
+  // a paragraph, a kinds list growing to twenty. That is the runaway, and the
+  // count is not: this list rides in the design call's `cache_control:
+  // ephemeral` block, so after the first build of a deploy it is a cache read
+  // rather than fresh input, and one more family is one more line.
   const perFamily = list.length / READY_FAMILIES.length;
   assert.ok(perFamily < 145, `${Math.round(perFamily)} chars per family — a label or a kinds list has run away`);
+  assert.ok(list.length < READY_FAMILIES.length * 145,
+    `the shortlist is ${list.length} chars for ${READY_FAMILIES.length} families`);
+  // A backstop on the WHOLE block, not on the count. Cached or not, a shortlist
+  // this size would be a different conversation about what belongs in a tool
+  // description — it is here to force that conversation, not to cap growth.
+  assert.ok(list.length < 20000, `the shortlist is ${list.length} chars — time to reconsider the shape, not the number`);
   assert.ok(structuresForPrompt().split("\n").length === STRUCTURE_NAMES.length);
 });
 

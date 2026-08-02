@@ -105,7 +105,8 @@ export const FAMILIES = {
       { file: "manage", role: "an existing appointment, reached from its claim link — view, move, cancel" },
       { file: "work", role: "the work itself — a gallery of finished sets, because nails are a visual trade" },
     ],
-    kinds: ["salon", "spa", "nail studio", "clinic", "dental", "therapy", "tattoo studio", "home services", "fitness studio", "yoga"],
+    kinds: ["salon", "spa", "nail studio", "clinic", "dental", "therapy", "tattoo studio", "home services", "fitness studio", "yoga",
+      "hairdresser", "barber", "beautician", "massage", "piercing", "waxing", "aesthetics", "dog groomer",],
     components: ["availability-grid", "week-strip", "day-schedule", "price-list", "team-grid", "open-now", "opening-hours", "booking-summary"],
     variants: {
       "call-now": "home services: the phone IS the booking channel — a tel: link leads, the form is the fallback",
@@ -153,7 +154,8 @@ export const FAMILIES = {
       { file: "contact", role: "the enquiry — dates, place, one form; the destination the whole site points at" },
       { file: "pricing", role: "the packages, priced in the open — the question every enquiry asks first" },
     ],
-    kinds: ["agency", "consultancy", "law firm", "architecture", "interior design", "photographer", "videographer", "wedding vendor"],
+    kinds: ["agency", "consultancy", "law firm", "architecture", "interior design", "photographer", "videographer", "wedding vendor",
+      "IT support", "managed service provider", "web design", "SEO agency", "copywriter", "translation", "virtual assistant", "branding", "PR agency", "market research",],
     components: ["gallery", "masonry", "case-study-card", "before-after", "lightbox", "press-quote", "testimonial", "logo-cloud"],
     variants: {},
     structure: "editorial",
@@ -242,7 +244,8 @@ export const FAMILIES = {
       { file: "contact", role: "the consultation form, with who answers it and how fast" },
       { file: "about", role: "the firm itself — history, regulation, how it charges; the page trust is checked against" },
     ],
-    kinds: ["accounting", "tax", "bookkeeping", "insurance broker", "financial advisor", "medical specialist", "childcare", "eldercare", "tutoring", "veterinary"],
+    kinds: ["accounting", "tax", "bookkeeping", "insurance broker", "financial advisor", "medical specialist", "childcare", "eldercare", "tutoring", "veterinary",
+      "payroll", "mortgage broker", "estate planning", "wills and probate", "auditor", "VAT specialist",],
     components: ["trust-strip", "profile-card", "verified-badge", "award-badge", "testimonial", "press-quote", "faq", "contact-form"],
     variants: {
       "booking-hybrid": "veterinary and clinics: the slot picker appears after trust is established, not before",
@@ -287,7 +290,8 @@ export const FAMILIES = {
       { file: "location", role: "one branch's own page — hours, timetable, how to join" },
       { file: "memberships", role: "the plans compared — one price everywhere is the chain's whole pitch, so say it" },
     ],
-    kinds: ["franchise", "gym chain", "coworking", "dispensary", "pharmacy", "hotel group", "retail with pickup"],
+    kinds: ["franchise", "gym chain", "coworking", "dispensary", "pharmacy", "hotel group", "retail with pickup",
+      "leisure operator", "climbing centre", "swim school",],
     components: ["store-locator", "map-embed", "location-card", "open-now", "distance-badge", "pickup-point", "stock-badge"],
     variants: {
       "property-switcher": "hotel group: switch between properties rather than search for one",
@@ -311,7 +315,8 @@ export const FAMILIES = {
       { file: "press", role: "the press kit — a bio at three lengths, photos, quotes ready to lift" },
       { file: "music", role: "the work itself — releases with players; a musician's site without the music is a CV" },
     ],
-    kinds: ["résumé", "speaker", "author", "coach", "consultant", "campaign", "artist", "musician"],
+    kinds: ["résumé", "speaker", "author", "coach", "consultant", "campaign", "artist", "musician",
+      "DJ", "band", "magician", "life coach",],
     components: ["profile-card", "timeline", "quote", "press-quote", "event-card", "tour-dates", "gallery", "social-links"],
     variants: {
       "donate-volunteer-split": "campaign: two primary actions of equal weight, donate and volunteer",
@@ -525,7 +530,8 @@ export const FAMILIES = {
       { file: "role", role: "one role in full — the work, the pay, the apply form" },
       { file: "life", role: "the culture proof, shown not claimed — the week, the room, the benefits as facts" },
     ],
-    kinds: ["careers site", "staffing agency", "talent marketplace", "internship", "bootcamp"],
+    kinds: ["careers site", "staffing agency", "talent marketplace", "internship", "bootcamp",
+      "recruitment agency", "apprenticeships", "graduate scheme", "outplacement",],
     components: ["job-card", "filter-bar", "search-input", "team-grid", "stats-band", "steps", "faq"],
     variants: {
       "dual-audience": "staffing: employers and seekers get two entry paths of equal weight",
@@ -629,7 +635,8 @@ export const FAMILIES = {
       { file: "product", role: "one product told fully — pictures, options, stock, and the add-to-cart moment" },
       { file: "checkout", role: "the basket becomes an order — lines, delivery, payment, one place-order bar" },
     ],
-    kinds: ["ecommerce", "online store", "boutique", "fashion", "jewellery", "homeware", "furniture", "electronics", "bookshop", "gift shop", "pet supplies", "DTC brand", "subscription box"],
+    kinds: ["ecommerce", "online store", "boutique", "fashion", "jewellery", "homeware", "furniture", "electronics", "bookshop", "gift shop", "pet supplies", "DTC brand", "subscription box",
+      "toy shop", "pet shop", "carpet shop", "flooring shop", "blinds and curtains", "antiques", "garden centre", "hardware shop", "sports shop", "cycle shop",],
     components: ["product-card", "price-tag", "stock-badge", "add-to-cart", "quantity-input", "cart-badge", "cart-line", "cart-summary", "shipping-options", "payment-picker", "place-order-bar", "category-nav"],
     variants: {
       "single-product": "one-product DTC: the whole site sells ONE thing — a long product story down the page, then buy",
@@ -691,6 +698,7 @@ export const FAMILIES = {
       "locksmith",
       "glazier",
       "damp specialist",
+      "tree surgeon", "chimney sweep", "scaffolding", "drain clearance", "asbestos removal", "alarm installer", "CCTV installer", "fire safety", "flooring fitter", "kitchen fitter", "bathroom fitter", "tiler", "decorator", "fencing", "driveways", "guttering", "handyman",
     ],
     components: ["before-after", "service-area", "testimonial", "trust-strip", "safe-image", "gallery", "quote-request"],
     variants: {
@@ -1013,6 +1021,7 @@ export const FAMILIES = {
       "audiology",
       "private clinic",
       "osteopath",
+      "vets", "counselling", "acupuncture", "hearing aids", "sports therapy", "nutritionist", "speech therapy", "occupational health",
     ],
     components: ["team-grid", "price-list", "opening-hours", "location-card", "faq", "contact-form", "practitioner-card", "triage-banner"],
     variants: {},
@@ -1173,6 +1182,7 @@ export const FAMILIES = {
       "gutter clearing",
       "pest control",
       "pool maintenance",
+      "laundry service", "dry cleaner", "car valeting", "jet washing", "end of tenancy",
     ],
     components: ["price-list", "service-area", "testimonial", "trust-strip", "faq", "contact-form", "before-after", "frequency-picker"],
     variants: {},
@@ -1331,6 +1341,198 @@ export const FAMILIES = {
     structure: "split-screen",
     ready: true,
   },
+  hire: {
+    md: "Hire by the day — item-and-dates-first",
+    label: "pick the thing, pick the dates, see the price — and the deposit is on the page, not in the small print",
+    cta: ["Check availability", "Reserve"],
+    shape: [
+      "hero: the range with a day rate on each, and the dates asked before anything else",
+      "body: one item in full — what it does, what it costs by period, what is included and what is not",
+      "the deposit, the excess and what counts as damage are stated where the price is, never at collection",
+    ],
+    pages: [
+      { file: "index", role: "the range, day rates, and the dates question" },
+      { file: "item", role: "one item in full — spec, rates by period, what is included" },
+      { file: "book", role: "dates, extras, the deposit and the excess, stated before anybody pays" },
+    ],
+    kinds: [
+      "van hire", "car hire", "tool hire", "plant hire", "marquee hire", "party hire",
+      "skip hire", "trailer hire", "equipment hire", "AV hire",
+    ],
+    components: ["price-list", "safe-image", "gallery", "faq", "location-card", "opening-hours", "trust-strip", "availability-calendar", "rate-card"],
+    variants: {},
+    structure: "card-grid",
+    ready: true,
+  },
+
+  taxi: {
+    md: "Taxi or private hire — fare-first",
+    label: "where from, where to, and a fixed price before anybody rings",
+    cta: ["Get a fare", "Book now"],
+    shape: [
+      "hero: the two address fields and a fixed fare, answered on the page",
+      "body: the fixed prices to the places everybody goes — airports, stations, the hospital",
+      "the 24-hour number leads the header, because half of this trade is somebody standing in the rain",
+    ],
+    pages: [
+      { file: "index", role: "the fare quote and the number" },
+      { file: "fares", role: "fixed prices to the places everybody goes, and what changes them" },
+      { file: "account", role: "the other customer — business accounts, school runs, regular journeys" },
+    ],
+    kinds: [
+      "taxi", "private hire", "minicab", "chauffeur", "airport transfer", "coach hire",
+      "minibus hire", "executive travel", "wheelchair accessible taxi", "courier (same day)",
+    ],
+    components: ["price-list", "service-area", "faq", "testimonial", "trust-strip", "opening-hours", "contact-form", "fare-quote"],
+    variants: {},
+    structure: "split-screen",
+    ready: true,
+  },
+
+  "care-home": {
+    md: "Care home — the place, the fees and the visit",
+    label: "what it is actually like, what it actually costs, and how to come and see it",
+    cta: ["Arrange a visit", "See the fees"],
+    shape: [
+      "hero: the home itself, the inspection rating with its date, and the visit ask",
+      "body: the rooms one by one, then the day, then the fees in full",
+      "the weekly fee is on the page — a sector that hides it is the reason families ring six homes",
+    ],
+    pages: [
+      { file: "index", role: "the home, the rating, and how to come and look" },
+      { file: "rooms", role: "every room type and what is in it" },
+      { file: "fees", role: "the weekly fee, what it includes, and how funding works" },
+    ],
+    kinds: [
+      "care home", "nursing home", "residential care", "dementia care", "supported living",
+      "respite care", "retirement village", "extra care housing", "hospice", "learning disability care",
+    ],
+    components: ["safe-image", "gallery", "price-list", "faq", "location-card", "team-grid", "testimonial", "contact-form", "inspection-rating"],
+    variants: {},
+    structure: "full-bleed-hero",
+    ready: true,
+  },
+
+  "home-care": {
+    md: "Home care — visits-and-rates-first",
+    label: "what a visit actually is, what an hour costs, and who would be coming",
+    cta: ["Arrange an assessment", "See the rates"],
+    shape: [
+      "hero: the hourly rate and the inspection rating, together, above anything about the company",
+      "body: what each kind of visit includes, then the rates by length and by day, then the carers",
+      "the rate is per hour and stated by band — a single headline rate is a quote nobody gets",
+    ],
+    pages: [
+      { file: "index", role: "the rate, the rating, and what a visit is" },
+      { file: "services", role: "each kind of care and what a visit actually includes" },
+      { file: "arrange", role: "the assessment, and how funding works" },
+    ],
+    kinds: [
+      "home care", "domiciliary care", "live-in care", "companionship", "respite at home",
+      "personal care", "dementia care at home", "end of life care", "reablement", "night care",
+    ],
+    components: ["price-list", "service-area", "faq", "testimonial", "team-grid", "trust-strip", "contact-form", "steps", "rate-card", "inspection-rating"],
+    variants: {},
+    structure: "single-scroll",
+    ready: true,
+  },
+
+  facility: {
+    md: "Pay-and-play facility — slot-first",
+    label: "book a slot or turn up, and the price depends on when rather than on who you are",
+    cta: ["Book a slot", "See what's free"],
+    shape: [
+      "hero: what is free right now and what is not, before anything about the building",
+      "body: the slots, then peak and off-peak side by side, then membership against paying as you go",
+      "a visitor's real question is 'can I get on today' — every other page answers 'we exist'",
+    ],
+    pages: [
+      { file: "index", role: "what is free right now, and what a session costs" },
+      { file: "book", role: "pick a slot — the grid, peak and off-peak, and what to bring" },
+      { file: "membership", role: "joining against paying each time, with the break-even stated" },
+    ],
+    kinds: [
+      "golf club", "bowling alley", "climbing wall", "swimming pool", "leisure centre",
+      "snooker club", "ice rink", "tennis courts", "padel club", "driving range",
+    ],
+    components: ["availability-grid", "week-strip", "price-list", "pricing-table", "opening-hours", "location-card", "faq", "rate-card", "facility-status"],
+    variants: {},
+    structure: "single-scroll",
+    ready: true,
+  },
+
+  attraction: {
+    md: "Visitor attraction — plan-your-day-first",
+    label: "what it costs, when it opens, what happens at what time, and how long to allow",
+    cta: ["Plan your visit", "Book tickets"],
+    shape: [
+      "hero: the place, with the price and the opening times inside the first screen",
+      "body: today's timetable — the talks, the feeds, the departures — then how long to allow, then getting here",
+      "a family ticket states what it SAVES against the same people bought separately, because that is the sum everybody gets wrong",
+    ],
+    pages: [
+      { file: "index", role: "prices, times, and what happens when" },
+      { file: "visit", role: "getting here, access, food, and what to bring" },
+      { file: "whats-on", role: "events, seasonal openings, and the school holidays" },
+    ],
+    kinds: [
+      "zoo", "farm park", "steam railway", "castle", "theme park", "aquarium",
+      "stately home", "wildlife park", "adventure park", "show cave",
+    ],
+    components: ["price-list", "opening-hours", "location-card", "gallery", "safe-image", "event-card", "faq", "service-times", "admission-prices"],
+    variants: {},
+    structure: "full-bleed-hero",
+    ready: true,
+  },
+
+  "pet-boarding": {
+    md: "Kennels or cattery — dates-and-requirements-first",
+    label: "the dates, the nightly rate by size, and the vaccinations that must be done weeks in advance",
+    cta: ["Check dates", "Book a stay"],
+    shape: [
+      "hero: the calendar and the nightly rate, with the vaccination deadline beside them",
+      "body: where they actually stay, then the day, then what has to be in place before arrival",
+      "the requirements lead rather than trail — a jab needed fourteen days ahead is useless found the night before",
+    ],
+    pages: [
+      { file: "index", role: "rates, free dates, and what has to be done first" },
+      { file: "stay", role: "where they sleep, what a day is, and who looks after them" },
+      { file: "book", role: "the dates and the requirements checklist, in that order" },
+    ],
+    kinds: [
+      "kennels", "cattery", "dog daycare", "home boarding", "pet sitting",
+      "dog walking", "small animal boarding", "equine livery", "reptile boarding", "aviary boarding",
+    ],
+    components: ["availability-calendar", "rate-card", "price-list", "gallery", "safe-image", "faq", "location-card", "opening-hours", "team-grid", "entry-requirements"],
+    variants: {},
+    structure: "single-scroll",
+    ready: true,
+  },
+
+  entertainer: {
+    md: "An act for hire — see-it-then-check-the-date",
+    label: "watch thirty seconds of it, then find out whether the date is free — in that order",
+    cta: ["Check my date", "Watch"],
+    shape: [
+      "hero: the act itself, playing, with the date box beside it",
+      "body: what you get for what, then where they have played, then the practical questions about space and power",
+      "nobody books an act they have not seen, and nobody watches a clip after filling in a form",
+    ],
+    pages: [
+      { file: "index", role: "see the act, check the date" },
+      { file: "packages", role: "what you get for what — sets, hours, and what is extra" },
+      { file: "book", role: "the date, the venue and the details that decide whether it can happen" },
+    ],
+    kinds: [
+      "DJ", "wedding band", "function band", "magician", "children's entertainer",
+      "tribute act", "caricaturist", "close-up magic", "casino hire", "photo booth",
+    ],
+    components: ["video-embed", "gallery", "safe-image", "testimonial", "price-list", "faq", "date-enquiry", "contact-form"],
+    variants: {},
+    structure: "split-screen",
+    ready: true,
+  },
+
   directory: {
     md: "Directory — search-first",
     label: "the search bar is the entire homepage",

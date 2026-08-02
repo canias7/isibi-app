@@ -185,3 +185,15 @@ dependencies, monochrome discipline.
 - **`repair-status`** — *repair-shop*. where a repair is, from its ticket number — received, diagnosed, waiting on a part, ready
 - **`device-picker`** — *repair-shop*. pick the make and model; every price and turnaround after it depends on the answer
 - **`quote-calculator`** — *removals*. rooms times distance times date, answering with a RANGE — the trade's whole friction is that nobody publishes a number
+
+## Tier-1 gaps — the shapes no family fitted (2026-08-02)
+
+A gap audit against common UK business types found six business SHAPES with no
+family that fits. These are the components those families need.
+
+- **`rate-card`** — *hire, home-care*. the same thing priced by PERIOD rather than once — a day, three days, a week, a month — optionally across bands (weekday / weekend / bank holiday). A single headline rate is a quote nobody ever gets, and the break-even between periods is the thing customers work out wrong
+- **`fare-quote`** — *taxi*. from and to, answered with a FIXED price on the page — what is included (waiting time, luggage, the meet-and-greet) and what would change it, before anybody rings
+- **`inspection-rating`** — *care-home, home-care*. a regulator's rating with the DATE it was given and a link to the report — CQC, Ofsted, food hygiene. A rating with no date is a rating from any year at all
+- **`facility-status`** — *facility*. what is free RIGHT NOW and when the next slot is, per activity. A leisure centre's visitor is asking "can I get on today", and every one of these sites answers "we exist"
+- **`admission-prices`** — *attraction*. adult, child, concession and family, with the family ticket's SAVING computed against buying the same people separately — the sum every attraction makes its visitors do and most of them get wrong
+- **`entry-requirements`** — *pet-boarding*. the things that must be in place BEFORE arrival, with the deadline on each and which are law rather than house rules. A kennel cough jab needed fourteen days ahead is useless discovered the night before
