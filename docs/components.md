@@ -1,4 +1,4 @@
-# Components (2073 built, 25 to go)
+# Components (2077 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -122,6 +122,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ autofill-note
 ✓ autoplay-note
 ✓ autosave-history
+✓ availability-calendar
 ✓ availability-grid
 ✓ availability-legend
 ✓ availability-overlap
@@ -222,6 +223,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ canned-reply
 ✓ capacity-bar
 ✓ capacity-input
+✓ capacity-table
 ✓ caption-toggle
 ✓ caption-track
 ✓ capture-hint
@@ -460,6 +462,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ data-saver-note
 ✓ data-table
 ✓ date-badge
+✓ date-enquiry
 ✓ date-format
 ✓ date-format-preview
 ✓ date-nav
@@ -632,6 +635,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ exchange-rate-note
 ✓ exclude-filter
 ✓ exclusion-list
+✓ exhibition-card
 ✓ exhibition-row
 ✓ exit-survey
 ✓ expandable-row

@@ -825,7 +825,8 @@ export const UI_COMPONENTS = [
   "allergy-row", "immunisation-row", "observation-row", "discharge-note",
   // Written for the family reference pages, kept alphabetical so a new one has
   // one obvious place to go.
-  "arrangement-steps", "donation-tiers", "fee-table", "fixture-list", "impact-stat",
+  "arrangement-steps", "availability-calendar", "capacity-table", "date-enquiry",
+  "donation-tiers", "exhibition-card", "fee-table", "fixture-list", "impact-stat",
   "league-table", "lineup-grid", "practitioner-card", "quote-request", "service-times",
   "session-table", "story-lead", "symptom-row", "tap-list", "triage-banner",
   "vehicle-lookup",

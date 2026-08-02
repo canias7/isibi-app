@@ -854,11 +854,10 @@ export const FAMILIES = {
       "barn",
       "theatre hire",
     ],
-    components: ["gallery", "safe-image", "price-list", "contact-form", "faq", "location-card", "stats-band"],
-    wants: ["capacity-table", "date-enquiry"],
+    components: ["gallery", "safe-image", "price-list", "contact-form", "faq", "location-card", "stats-band", "capacity-table", "date-enquiry"],
     variants: {},
     structure: "split-screen",
-    ready: false,
+    ready: true,
   },
 
   "holiday-let": {
@@ -887,11 +886,10 @@ export const FAMILIES = {
       "beach house",
       "bothy",
     ],
-    components: ["gallery", "safe-image", "location-card", "faq", "price-list", "testimonial", "week-strip"],
-    wants: ["availability-calendar"],
+    components: ["gallery", "safe-image", "location-card", "faq", "price-list", "testimonial", "week-strip", "availability-calendar"],
     variants: {},
     structure: "full-bleed-hero",
-    ready: false,
+    ready: true,
   },
 
   garage: {
@@ -1048,11 +1046,10 @@ export const FAMILIES = {
       "exhibition space",
       "open studios",
     ],
-    components: ["gallery", "safe-image", "event-card", "opening-hours", "location-card", "figure", "masonry"],
-    wants: ["exhibition-card"],
+    components: ["gallery", "safe-image", "event-card", "opening-hours", "location-card", "figure", "masonry", "exhibition-card"],
     variants: {},
     structure: "full-bleed-hero",
-    ready: false,
+    ready: true,
   },
 
   brewery: {
