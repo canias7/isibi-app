@@ -10966,3 +10966,39 @@ moment it landed on main.
   work of its own.
 
 Unit **726/726**.
+
+## 2026-08-02 — the 26 families are named by BUSINESS now, not by layout strategy
+
+Owner's call: *"instead of just docs first, should be by type of business, for
+example like the one called store."*
+
+- **`store` was the only one already right, and it is the whole rule.** It is
+  called `store` and covers boutique, fashion, jewellery and homeware — nobody
+  had to call it "cart-first" to know what it was, because the KEY names the
+  clearest example and the `kinds` list carries the breadth. Every other family
+  was named after its layout strategy, which is a fact about the page rather
+  than about the person buying one.
+- **The strategy is not lost, it MOVED.** It is in `md`, which the designer sees
+  beside the name: `menu-first` → `restaurant`, labelled
+  "Restaurant or café — menu-first". Both halves still reach the prompt.
+- The map: restaurant · salon · store · gym · estate-agent · accountant ·
+  agency · manufacturer · software · documentation · crm · research · library ·
+  college · course · box-office · hotel · licensed-trade · careers ·
+  personal-brand · podcast · paid-newsletter · wedding · campaign · portal ·
+  ai-tool.
+- **Why this is worth doing at all:** the family enum is what the designer model
+  picks from on every build. `menu-first` asks it to translate a brief about a
+  café into a layout noun; `restaurant` does not. A name the model has to
+  decode is a name it can decode wrongly.
+- **Contained, and the guards proved it.** Only four files outside the page
+  directories named a family, and two tests failed the moment the rename landed
+  — the LAYOUTS.md/module both-directions check and the directive contract test.
+  That is what those guards are for; a rename that passed silently would have
+  meant the doc and the module were free to disagree.
+- **82 page-file header comments were renamed too**, matched on `^// <name>`
+  only. A global replace would have been wrong: `time-sensitive` is also an
+  ordinary English phrase and appears in four unrelated components.
+- No migration: `family` is chosen by the designer per build and never stored,
+  and a revise re-derives it.
+
+726 unit, family apps all green.

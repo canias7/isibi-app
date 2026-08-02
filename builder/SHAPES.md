@@ -13,7 +13,7 @@ appointment. What differs is wording and pictures, which is content, not shape.
 No sector is claimed twice and none is missed. Re-run the check if this file or
 `SECTORS.md` changes.
 
-There is deliberately **no personal single-page shape**. Every one of the 500 is
+There is deliberately **no wedding single-page shape**. Every one of the 500 is
 a business, so the wedding-website / memorial / link-in-bio cluster has no
 members here — it lives in `BUSINESSES.md` and would need a sector of its own
 to come back.
@@ -23,37 +23,37 @@ to come back.
 Every shape resolves to a layout family in `builder/site-layouts.mjs`, so a
 store renders like a store rather than as a generic landing page. 21 of the 23
 already had a true home in the owner's taxonomy — the variant column is where
-`LAYOUTS.md` itself places the trade (home services are booking-first's
+`LAYOUTS.md` itself places the trade (home services are salon's
 *call-now*, gyms its *class-schedule*). The two that had no home at all —
 **Online store** (77 sectors, the second-largest shape) and **Internal tool**
 (CRM, booking platforms) — got new families the same day: `store` and
-`workspace`, families 25 and 26, each with a rendered three-page reference app.
+`crm`, families 25 and 26, each with a rendered three-page reference app.
 
 | Shape | Family | Variant / note |
 |---|---|---|
-| Appointment booking | `booking-first` | |
+| Appointment booking | `salon` | |
 | Online store | **`store`** (new) | *single-product* and *catalogue* variants |
-| Enquiry-led professional | `trust-first` | |
-| Local trade callout | `booking-first` | *call-now* — the phone IS the booking channel |
-| Menu & reserve | `menu-first` | |
-| Courses & enrolment | `educational` | |
-| Timetable & membership | `booking-first` | *class-schedule*; a chain → `location-first` |
-| Listings & search | `inventory-first` | |
-| Regulated & gated | `regulated` | |
-| Portfolio & commission | `evidence-first` | |
-| Events & ticketing | `time-sensitive` | |
-| Bar & nightlife venue | `menu-first` | an event-led nightclub → `time-sensitive` |
-| Industrial spec & quote | `industrial` | |
-| Stays & accommodation | `immersive` | bookable rooms → `inventory-first` *date-picker* |
-| Care & residential | `trust-first` | |
-| Internal tool | **`workspace`** (new) | *board* and *queue* variants |
-| SaaS product | `product-first` | |
-| Vehicle sales & service | `inventory-first` | a repair garage → `booking-first` *call-now* |
-| Publication & feed | `feed-first` | |
-| Nonprofit & donate | `conversion-single` | |
-| Civic & information | `local-civic` | |
-| Developer & documentation | `docs-first` | |
-| Community & membership | `membership-gated` | |
+| Enquiry-led professional | `accountant` | |
+| Local trade callout | `salon` | *call-now* — the phone IS the booking channel |
+| Menu & reserve | `restaurant` | |
+| Courses & enrolment | `course` | |
+| Timetable & membership | `salon` | *class-schedule*; a chain → `gym` |
+| Listings & search | `estate-agent` | |
+| Regulated & gated | `licensed-trade` | |
+| Portfolio & commission | `agency` | |
+| Events & ticketing | `box-office` | |
+| Bar & nightlife venue | `restaurant` | an event-led nightclub → `box-office` |
+| Industrial spec & quote | `manufacturer` | |
+| Stays & accommodation | `hotel` | bookable rooms → `estate-agent` *date-picker* |
+| Care & residential | `accountant` | |
+| Internal tool | **`crm`** (new) | *board* and *queue* variants |
+| SaaS product | `software` | |
+| Vehicle sales & service | `estate-agent` | a repair garage → `salon` *call-now* |
+| Publication & feed | `podcast` | |
+| Nonprofit & donate | `campaign` | |
+| Civic & information | `library` | |
+| Developer & documentation | `documentation` | |
+| Community & membership | `paid-newsletter` | |
 
 ---
 
@@ -125,7 +125,7 @@ Tables: courses (display) · enrolments (collect)
 
 Sectors: 24, 50–53, 456–471, 473–476, 478
 
-24. Childcare · 50. Schools · 51. Universities · 52. Tutoring · 53. Online courses · 456. Primary schools · 457. Secondary schools · 458. Independent schools · 459. International schools · 460. Sixth form colleges · 461. Business schools · 462. Nurseries & preschools · 463. Childminders · 464. After-school clubs · 465. Holiday camps · 466. Exam preparation · 467. Special educational needs · 468. Language schools · 469. Music lessons · 470. Art classes · 471. Drama schools · 473. Vocational training · 474. Apprenticeships · 475. Coding bootcamps · 476. E-learning platforms · 478. Educational publishing
+24. Childcare · 50. Schools · 51. Universities · 52. Tutoring · 53. Online courses · 456. Primary schools · 457. Secondary schools · 458. Independent schools · 459. International schools · 460. Sixth form colleges · 461. Business schools · 462. Nurseries & preschools · 463. Childminders · 464. After-school clubs · 465. Holiday camps · 466. Exam preparation · 467. Special course needs · 468. Language schools · 469. Music lessons · 470. Art classes · 471. Drama schools · 473. Vocational training · 474. Apprenticeships · 475. Coding bootcamps · 476. E-learning platforms · 478. Educational publishing
 
 ## Listings & search
 

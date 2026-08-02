@@ -106,8 +106,8 @@ test("page counts DIFFER by family — the flat budget is gone", () => {
   // — any uniform count — recreates the every-site-is-the-same-depth failure.
   const counts = FAMILY_NAMES.map((n) => FAMILIES[n].pages.length);
   assert.ok(new Set(counts).size >= 3, `page counts collapsed to ${[...new Set(counts)]}`);
-  assert.ok(counts.includes(1), "no single-page family left — conversion-single's definition IS one page");
-  assert.ok(counts.some((c) => c >= 4), "no deep family left — docs-first is four linked pages");
+  assert.ok(counts.includes(1), "no single-page family left — campaign's definition IS one page");
+  assert.ok(counts.some((c) => c >= 4), "no deep family left — documentation is four linked pages");
 });
 
 test("every component a family cites exists in the kit", () => {
@@ -189,12 +189,12 @@ test("a directive carries the whole contract, and refuses everything unknown", (
     assert.equal(layoutDirective(n), null, `${n} is not ready and must not produce a directive`);
   }
   assert.equal(layoutDirective("no-such-family"), null);
-  assert.equal(layoutDirective("menu-first", { structure: "no-such-structure" }), null);
-  assert.equal(layoutDirective("menu-first", { variant: "no-such-variant" }), null);
+  assert.equal(layoutDirective("restaurant", { structure: "no-such-structure" }), null);
+  assert.equal(layoutDirective("restaurant", { variant: "no-such-variant" }), null);
   // And the two optional axes really do land in the text.
-  const d = layoutDirective("menu-first", { structure: "single-scroll", variant: "tap-list" });
+  const d = layoutDirective("restaurant", { structure: "single-scroll", variant: "tap-list" });
   assert.ok(d.includes(STRUCTURES["single-scroll"].text));
-  assert.ok(d.includes(FAMILIES["menu-first"].variants["tap-list"]));
+  assert.ok(d.includes(FAMILIES["restaurant"].variants["tap-list"]));
 });
 
 test("this IS wired now, and the chain is guarded next door", () => {

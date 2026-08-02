@@ -90,8 +90,8 @@ export const STRUCTURES = {
  * file (`book` → /book).
  */
 export const FAMILIES = {
-  "booking-first": {
-    md: "Booking-first",
+  salon: {
+    md: "Salon, barber or clinic — booking-first",
     label: "the slot picker is the hero; everything else supports the appointment",
     cta: ["Book now", "Check availability"],
     shape: [
@@ -115,8 +115,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  "inventory-first": {
-    md: "Inventory / search-first",
+  "estate-agent": {
+    md: "Estate agent, dealer or any big listing — search-first",
     label: "filter rail beside a result grid; the search bar sits above or replaces the hero",
     cta: ["View listing", "Save", "Inquire"],
     shape: [
@@ -138,8 +138,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  "evidence-first": {
-    md: "Evidence-first",
+  agency: {
+    md: "Agency, studio or practice — the work as evidence",
     label: "the work speaks — large imagery, minimal copy, contact is the destination",
     cta: ["Start a project", "Inquire"],
     shape: [
@@ -160,8 +160,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  "feed-first": {
-    md: "Feed / archive-first",
+  podcast: {
+    md: "Podcast, blog or newsletter — the feed is the page",
     label: "reverse-chronological stream; the newest thing on top, nav secondary",
     cta: ["Read", "Subscribe"],
     shape: [
@@ -185,8 +185,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  "product-first": {
-    md: "Product-first",
+  software: {
+    md: "Software product — product-first",
     label: "the thing itself is the hero — screenshot, render, or trailer",
     cta: ["Sign up", "Buy", "Download"],
     shape: [
@@ -208,8 +208,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  "conversion-single": {
-    md: "Conversion-single-purpose",
+  campaign: {
+    md: "One page, one ask — a fundraiser, launch or event",
     label: "one page, one action; everything is subordinate to a single button",
     cta: ["Donate", "Register", "Enroll", "Join"],
     shape: [
@@ -227,8 +227,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  "trust-first": {
-    md: "Trust-first",
+  accountant: {
+    md: "Accountant, solicitor or adviser — trust-first",
     label: "credentials, licensing and proof before any pitch; conservative typography",
     cta: ["Free consultation", "Get a quote"],
     shape: [
@@ -251,8 +251,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  "menu-first": {
-    md: "Menu-first",
+  restaurant: {
+    md: "Restaurant or café — menu-first",
     label: "the list of things IS the page; often single-scroll, sometimes no nav at all",
     cta: ["Order", "Reserve", "Directions"],
     shape: [
@@ -274,8 +274,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  "location-first": {
-    md: "Location-first",
+  gym: {
+    md: "Gym or any multi-branch business — location-first",
     label: "the locator is load-bearing; nearest-to-you is the first answer",
     cta: ["Find nearest", "Get directions"],
     shape: [
@@ -297,8 +297,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  "narrative-first": {
-    md: "Credential / narrative-first",
+  "personal-brand": {
+    md: "One person's name as the brand — narrative-first",
     label: "one person is the product — portrait, story, then proof of authority",
     cta: ["Book me", "Apply", "Follow"],
     shape: [
@@ -320,8 +320,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  "docs-first": {
-    md: "Documentation-first",
+  documentation: {
+    md: "Developer documentation — reference-first",
     label: "persistent sidebar, dense internal linking, search always visible",
     cta: ["Copy install command", "Get started"],
     shape: [
@@ -343,8 +343,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  "data-first": {
-    md: "Data-first",
+  research: {
+    md: "Research, figures or a comparison — data-first",
     label: "the numbers, or the interface showing them, are the hero",
     cta: ["Try it", "Download report", "Compare"],
     shape: [
@@ -364,8 +364,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  institutional: {
-    md: "Institutional",
+  college: {
+    md: "College, council or hospital — a task register",
     label: "audience-split navigation; several unrelated journeys share one homepage",
     cta: ["Apply", "Find", "Pay", "Visit"],
     shape: [
@@ -385,8 +385,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  immersive: {
-    md: "Media-heavy / immersive",
+  hotel: {
+    md: "Hotel, retreat or destination — media-heavy",
     label: "full-bleed imagery or video, minimal chrome, sparse type, scroll as choreography",
     cta: ["Explore", "Configure", "Shop"],
     shape: [
@@ -406,8 +406,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  transactional: {
-    md: "Transactional utility",
+  portal: {
+    md: "A customer portal or utility — finish the task, leave",
     label: "no marketing — form, state, confirmation; layout discipline over expression",
     cta: ["Submit", "Continue", "Pay"],
     shape: [
@@ -428,8 +428,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  regulated: {
-    md: "Regulated / disclosure-heavy",
+  "licensed-trade": {
+    md: "Licensed trade or regulated seller — disclosure-heavy",
     label: "compliance blocks are structural, not footnotes; gates and disclaimers shape the page",
     cta: ["Open account", "Verify age", "View rates"],
     shape: [
@@ -449,8 +449,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  "time-sensitive": {
-    md: "Time-sensitive",
+  "box-office": {
+    md: "Box office, auction or drop — the clock is the content",
     label: "live state is the content — countdowns, ends-in timers, freshness shown",
     cta: ["Bid", "Buy now", "Refresh"],
     shape: [
@@ -469,8 +469,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  "membership-gated": {
-    md: "Membership-gated",
+  "paid-newsletter": {
+    md: "Paid publication or private community — membership-gated",
     label: "two different sites — logged-out is a pitch, logged-in is a product",
     cta: ["Subscribe", "Log in", "Join"],
     shape: [
@@ -491,8 +491,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  industrial: {
-    md: "Industrial / B2B non-SaaS",
+  manufacturer: {
+    md: "Manufacturer, wholesaler or trade supplier — spec-first",
     label: "specs, downloads and quote paths; pricing often behind auth",
     cta: ["Request quote", "Download spec", "Find distributor"],
     shape: [
@@ -512,8 +512,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  "recruiting-first": {
-    md: "Recruiting-first",
+  careers: {
+    md: "A careers site — roles-first",
     label: "filtered role list plus culture proof; sometimes dual-audience",
     cta: ["Apply", "Submit résumé", "Post a job"],
     shape: [
@@ -534,8 +534,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  educational: {
-    md: "Educational",
+  course: {
+    md: "A course you sell — curriculum-first",
     label: "curriculum tree or practice surface; progress is a visible element",
     cta: ["Enroll", "Start lesson", "Practice"],
     shape: [
@@ -555,8 +555,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  "local-civic": {
-    md: "Local & civic",
+  library: {
+    md: "Library, community group or small charity — utility-first",
     label: "hours, address, contact, documents — utility over polish",
     cta: ["Visit", "Contact", "Download"],
     shape: [
@@ -576,8 +576,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  personal: {
-    md: "Personal / niche web",
+  wedding: {
+    md: "A wedding, party or personal occasion — one voice, one ask",
     label: "intimate scale, one narrative, often single-page",
     cta: ["RSVP", "Read", "Give"],
     shape: [
@@ -596,8 +596,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  "ai-native": {
-    md: "Emerging / AI-native",
+  "ai-tool": {
+    md: "An AI tool — the prompt is the interface",
     label: "the input is the hero — try before signup, the output is the proof",
     cta: ["Generate", "Try it", "Run"],
     shape: [
@@ -616,7 +616,7 @@ export const FAMILIES = {
   },
 
   store: {
-    md: "Store / cart-first",
+    md: "Store — cart-first",
     label: "the products are the page and the basket is always in reach; checkout is the destination",
     cta: ["Add to cart", "Checkout"],
     shape: [
@@ -639,8 +639,8 @@ export const FAMILIES = {
     ready: true,
   },
 
-  workspace: {
-    md: "Workspace / records-first",
+  crm: {
+    md: "An internal tool — records-first, behind a sign-in",
     label: "signed-in software rather than a website — a table of records, filters, and one record opened fully",
     cta: ["Sign in", "New record"],
     shape: [

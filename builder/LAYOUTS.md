@@ -21,7 +21,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 1. Booking-first
+## 1. Salon, barber or clinic — booking-first
 **Shape:** calendar / slot picker is the hero. Everything else supports the appointment.
 **CTA:** Book now · Check availability
 
@@ -33,7 +33,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 2. Inventory / search-first
+## 2. Estate agent, dealer or any big listing — search-first
 **Shape:** filter rail + result grid. Search bar sits above or replaces the hero.
 **CTA:** View listing · Save · Inquire
 
@@ -45,7 +45,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 3. Evidence-first
+## 3. Agency, studio or practice — the work as evidence
 **Shape:** the work speaks. Large imagery, minimal copy, contact is the destination.
 **CTA:** Start a project · Inquire
 
@@ -57,7 +57,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 4. Feed / archive-first
+## 4. Podcast, blog or newsletter — the feed is the page
 **Shape:** reverse-chronological stream. Newest thing on top, nav is secondary.
 **CTA:** Read · Subscribe
 
@@ -68,7 +68,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 5. Product-first
+## 5. Software product — product-first
 **Shape:** the thing itself is the hero — screenshot, render, or trailer.
 **CTA:** Sign up · Buy · Download
 
@@ -80,7 +80,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 6. Conversion-single-purpose
+## 6. One page, one ask — a fundraiser, launch or event
 **Shape:** one page, one action. Everything is subordinate to a single button.
 **CTA:** Donate · Register · Enroll · Join
 
@@ -92,7 +92,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 7. Trust-first
+## 7. Accountant, solicitor or adviser — trust-first
 **Shape:** credentials, licensing, and proof before any pitch. Conservative typography.
 **CTA:** Free consultation · Get a quote
 
@@ -105,7 +105,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 8. Menu-first
+## 8. Restaurant or café — menu-first
 **Shape:** the list of things IS the page. Often single-scroll, sometimes no nav at all.
 **CTA:** Order · Reserve · Directions
 
@@ -116,7 +116,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 9. Location-first
+## 9. Gym or any multi-branch business — location-first
 **Shape:** map is load-bearing. Locator or property switcher near the top.
 **CTA:** Find nearest · Get directions
 
@@ -128,7 +128,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 10. Credential / narrative-first
+## 10. One person's name as the brand — narrative-first
 **Shape:** one person is the product. Portrait, story, then proof of authority.
 **CTA:** Book me · Apply · Follow
 
@@ -140,7 +140,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 11. Documentation-first
+## 11. Developer documentation — reference-first
 **Shape:** persistent sidebar, dense internal linking, search always visible.
 **CTA:** Copy install command · Get started
 
@@ -151,7 +151,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 12. Data-first
+## 12. Research, figures or a comparison — data-first
 **Shape:** numbers or the interface showing numbers is the hero.
 **CTA:** Try it · Download report · Compare
 
@@ -163,7 +163,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 13. Institutional
+## 13. College, council or hospital — a task register
 **Shape:** audience-split navigation. Multiple unrelated user journeys share one homepage.
 **CTA:** Apply · Find · Pay · Visit
 
@@ -175,7 +175,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 14. Media-heavy / immersive
+## 14. Hotel, retreat or destination — media-heavy
 **Shape:** full-bleed imagery or video, minimal chrome, sparse type, scroll as choreography.
 **CTA:** Explore · Configure · Shop
 
@@ -187,7 +187,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 15. Transactional utility
+## 15. A customer portal or utility — finish the task, leave
 **Shape:** no marketing. Form, state, confirmation. Layout discipline over expression.
 **CTA:** Submit · Continue · Pay
 
@@ -199,7 +199,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 16. Regulated / disclosure-heavy
+## 16. Licensed trade or regulated seller — disclosure-heavy
 **Shape:** compliance blocks are structural, not footnotes. Gates and disclaimers shape the page.
 **CTA:** Open account · Verify age · View rates
 
@@ -211,7 +211,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 17. Time-sensitive
+## 17. Box office, auction or drop — the clock is the content
 **Shape:** live state is the content. Countdowns, auto-refresh, ends-in timers.
 **CTA:** Bid · Buy now · Refresh
 
@@ -223,7 +223,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 18. Membership-gated
+## 18. Paid publication or private community — membership-gated
 **Shape:** two different sites — logged-out is a pitch, logged-in is a product.
 **CTA:** Subscribe · Log in · Join
 
@@ -235,7 +235,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 19. Industrial / B2B non-SaaS
+## 19. Manufacturer, wholesaler or trade supplier — spec-first
 **Shape:** specs, downloads, and quote paths. Pricing often behind auth.
 **CTA:** Request quote · Download spec · Find distributor
 
@@ -247,7 +247,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 20. Recruiting-first
+## 20. A careers site — roles-first
 **Shape:** filtered role list plus culture proof. Sometimes dual-audience.
 **CTA:** Apply · Submit résumé · Post a job
 
@@ -258,7 +258,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 21. Educational
+## 21. A course you sell — curriculum-first
 **Shape:** curriculum tree or practice surface. Progress is a visible element.
 **CTA:** Enroll · Start lesson · Practice
 
@@ -270,7 +270,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 22. Local & civic
+## 22. Library, community group or small charity — utility-first
 **Shape:** hours, address, contact, documents. Utility over polish.
 **CTA:** Visit · Contact · Download
 
@@ -282,7 +282,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 23. Personal / niche web
+## 23. A wedding, party or personal occasion — one voice, one ask
 **Shape:** intimate scale, one narrative, often single-page.
 **CTA:** RSVP · Read · Give
 
@@ -295,7 +295,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 24. Emerging / AI-native
+## 24. An AI tool — the prompt is the interface
 **Shape:** the input is the hero. Try-before-signup, no auth wall, output is the proof.
 **CTA:** Generate · Try it · Run
 
@@ -307,7 +307,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 25. Store / cart-first
+## 25. Store — cart-first
 **Shape:** the products are the page and the basket is always in reach. Checkout is the destination.
 **CTA:** Add to cart · Checkout
 
@@ -319,7 +319,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
-## 26. Workspace / records-first
+## 26. An internal tool — records-first, behind a sign-in
 **Shape:** signed-in software rather than a website. A table of records, filters, one record opened fully.
 **CTA:** Sign in · New record
 
