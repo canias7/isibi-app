@@ -8,6 +8,7 @@ import { SiteChrome } from "@/components/ui/site-chrome";
 import { AgeGate } from "@/components/ui/age-gate";
 import { ConsentCheckbox } from "@/components/ui/consent-checkbox";
 import { PriceList } from "@/components/ui/price-list";
+import { SafeImage } from "@/components/ui/safe-image";
 import { SectionHeader } from "@/components/ui/section-header";
 import { TermsBlock } from "@/components/ui/terms-block";
 import { Testimonial } from "@/components/ui/testimonial";
@@ -18,15 +19,32 @@ function P() {
     <SiteChrome name="The Dram Room" tagline="Independent whisky, Abbeydale Road."
       links={[{ label: "The shelf", href: "#/" }, { label: "Tastings", href: "#/tastings" }, { label: "Terms of sale", href: "#/terms" }]}>
 
+      {/* Widened from 2xl and given the shelf itself, 2026-08-02. The
+          disclosure discipline of this family is about what you may SAY before
+          the age answer — it was never a reason for the shop to be a 672px
+          column of grey text with no picture of a bottle in it. Nothing here
+          crosses the gate: a shopfront and a room are legal to show, and the
+          shelf stays behind AgeGate exactly as before. */}
       <section className="border-b border-border bg-muted/40">
-        <div className="mx-auto max-w-2xl px-6 py-12">
-          <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">412 Abbeydale Road · licence 22/03412</p>
-          <h1 className="mt-2 text-4xl font-semibold tracking-tight">Whisky worth the walk up Abbeydale Road</h1>
-          <p className="mt-3 max-w-lg text-lg text-muted-foreground">Two hundred bottles, a third of them from casks we chose ourselves. Order online, collect in person, ID every time.</p>
+        <div className="mx-auto max-w-5xl px-6 py-14">
+          <div className="grid items-center gap-10 md:grid-cols-[1.2fr_1fr]">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">412 Abbeydale Road · licence 22/03412</p>
+              <h1 className="mt-3 text-5xl font-semibold tracking-tight text-balance">Whisky worth the walk up Abbeydale Road</h1>
+              <p className="mt-5 max-w-lg text-lg leading-relaxed text-muted-foreground">
+                Two hundred bottles, a third of them from casks we chose ourselves. Order online, collect in
+                person, ID every time.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <SafeImage src={null} alt="The shop from Abbeydale Road" ratio="1/1" />
+              <SafeImage src={null} alt="The back wall, independents only" ratio="1/1" />
+            </div>
+          </div>
         </div>
       </section>
 
-      <div className="mx-auto max-w-2xl px-6 py-12">
+      <div className="mx-auto max-w-5xl px-6 py-12">
         {/* The gate wraps the CONTENT, not the whole site — the name and the
             terms are legal to show; the shelf is not until the answer. */}
         <AgeGate minAge={18} what="The shelf" storageKey="dram-room-age">

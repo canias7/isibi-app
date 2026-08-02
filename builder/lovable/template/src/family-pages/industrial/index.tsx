@@ -7,6 +7,7 @@ import { SiteChrome } from "@/components/ui/site-chrome";
 import { DownloadCard } from "@/components/ui/download-card";
 import { LogoCloud } from "@/components/ui/logo-cloud";
 import { SpecRow } from "@/components/ui/spec-row";
+import { SafeImage } from "@/components/ui/safe-image";
 import { StatsBand } from "@/components/ui/stats-band";
 export const Route = createFileRoute("/")({ component: P });
 function P() {
@@ -33,6 +34,15 @@ function P() {
 
         {/* RIGHT — the evidence, scrolling. */}
         <div className="grid gap-10">
+          {/* The product and the floor it comes off. A manufacturer's site with
+              no photograph of the part reads as a catalogue entry rather than a
+              supplier — added 2026-08-02, when this column was six spec rows,
+              a stats band and three PDF links. */}
+          <div className="grid grid-cols-3 gap-4">
+            <SafeImage src={null} alt="M12 × 60, class 12.9, head marking visible" ratio="1/1" />
+            <SafeImage src={null} alt="The forging line, second shift" ratio="1/1" />
+            <SafeImage src={null} alt="Cartons ready for the 4:30 collection" ratio="1/1" />
+          </div>
           <div>
             <h2 className="text-lg font-medium">What we forge</h2>
             <div className="mt-3 rounded-xl border bg-card">
