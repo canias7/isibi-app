@@ -70,7 +70,13 @@ test("every excluded directory is checked by something", () => {
   // own files, so the honest check is a real per-family build. Owned by
   // test/integration/family-apps.mjs — asserted to exist and to derive its
   // coverage from site-layouts.mjs in test/family-pages.test.mjs.
-  const HARNESSED = new Map([["src/family-pages", "test/integration/family-apps.mjs"]]);
+  // src/variant-pages is the same case for the same reason: a variant app is
+  // the family's declared pages arranged differently, so its routes exist only
+  // in a tree generated from its own files. Same harness owns both.
+  const HARNESSED = new Map([
+    ["src/family-pages", "test/integration/family-apps.mjs"],
+    ["src/variant-pages", "test/integration/family-apps.mjs"],
+  ]);
   const covered = (dir) => kit.include.some((g) => g.replace(/\/\*\*.*$/, "").startsWith(dir));
   for (const dir of base.exclude) {
     if (HARNESSED.has(dir)) {

@@ -110,6 +110,57 @@ test("the folder is excluded from BOTH static passes and owned by the harness", 
   const harness = fs.readFileSync(path.join(import.meta.dirname, "integration/family-apps.mjs"), "utf8");
   assert.ok(harness.includes("READY_FAMILIES") && harness.includes("site-layouts.mjs"),
     "the family-apps harness no longer derives its coverage from the module");
-  assert.ok(harness.includes("FAMILIES[name].pages"),
+  // Was `FAMILIES[name].pages`. The harness builds variant apps too now, and a
+  // variant carries its FAMILY's pages rather than its own — so the lookup is
+  // by family. What must hold is unchanged: the page list comes from the
+  // module, not from a list the harness remembers.
+  assert.ok(/FAMILIES\[(name|app\.family)\]\.pages/.test(harness),
     "the harness builds some other page list than the declared one");
+});
+
+// ---------------------------------------------------------------- variants
+// A variant app is the SAME family's declared pages, arranged the way that
+// variant says. They live apart from src/family-pages because that folder is
+// asserted to be exactly the families and nothing else — a variant folder in
+// there would break the one-app-per-family guard, which is the guard worth
+// keeping. Named `<family>__<key>` with a double underscore, because both
+// halves may contain hyphens and a single separator would be ambiguous.
+const VDIR = path.join(TEMPLATE, "src/variant-pages");
+const vdirs = fs.existsSync(VDIR)
+  ? fs.readdirSync(VDIR, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name) : [];
+
+test("every variant app names a variant that exists, and carries its family's pages", () => {
+  const declared = new Set(READY_FAMILIES.flatMap((n) =>
+    Object.keys(FAMILIES[n].variants || {}).map((k) => `${n}__${k}`)));
+  assert.ok(declared.size > 0, "no family declares a variant — this guard is watching nothing");
+  for (const d of vdirs) {
+    assert.ok(declared.has(d), `${d} is not a declared variant — nothing can ever reach it`);
+    const fam = d.slice(0, d.indexOf("__"));
+    const key = d.slice(d.indexOf("__") + 2);
+    assert.ok(FAMILIES[fam].variants[key], `${d} names a variant ${fam} does not declare`);
+    // Same page set as the family: a variant rearranges the pages, it does not
+    // add or remove them. A file the family never declared is unreachable by
+    // the directive and by every check here.
+    const onDisk = fs.readdirSync(path.join(VDIR, d)).filter((f) => f.endsWith(".tsx"))
+      .map((f) => f.slice(0, -4)).sort();
+    assert.deepEqual(onDisk, FAMILIES[fam].pages.map((p) => p.file).sort(),
+      `${d} carries [${onDisk}] and ${fam} declares [${FAMILIES[fam].pages.map((p) => p.file)}]`);
+  }
+  const loose = fs.existsSync(VDIR)
+    ? fs.readdirSync(VDIR, { withFileTypes: true }).filter((d) => !d.isDirectory()) : [];
+  assert.deepEqual(loose.map((d) => d.name), [], "loose files in src/variant-pages");
+});
+
+test("the variant apps are built by the same harness, not by nothing", () => {
+  // src/variant-pages is excluded from the build tsconfig for the same reason
+  // src/family-pages is — their routes exist only in a per-app tree — so the
+  // integration harness is the only thing that can check them. Excluded and
+  // unharnessed is how a directory becomes invisible.
+  const strip = (t) => t.replace(/\/\/[^\n]*/g, "");
+  const buildCfg = strip(fs.readFileSync(path.join(TEMPLATE, "tsconfig.json"), "utf8"));
+  const kitCfg = strip(fs.readFileSync(path.join(TEMPLATE, "tsconfig.kit.json"), "utf8"));
+  assert.ok(buildCfg.includes('"src/variant-pages"'), "site builds are paying to typecheck the variant pages");
+  assert.ok(!kitCfg.includes("variant-pages"), "the kit pass claims variant-pages and would refuse their routes");
+  const harness = fs.readFileSync(path.join(import.meta.dirname, "integration/family-apps.mjs"), "utf8");
+  assert.ok(harness.includes("variant-pages"), "the harness does not build the variant apps at all");
 });

@@ -151,3 +151,43 @@ test("a number price is FORMATTED as money, never concatenated", () => {
   assert.equal(fmt(1234.5), "£1,234.50");
   assert.equal(fmt(0), "£0");
 });
+
+test("a currency SYMBOL never crashes the page", () => {
+  // Intl.NumberFormat's currency style demands an ISO 4217 code and THROWS a
+  // RangeError on anything else. `Money` passed `currency` straight in, so
+  // `currency="£"` took the whole page down through React's error boundary —
+  // eight nodes and an apology where a checkout should have been.
+  //
+  // Reachable from an ordinary caller because the kit runs two conventions:
+  // most components default to "GBP" and nine to "£" (PriceList, PriceTag,
+  // CartLine, CartSummary, MenuSection among them). Anybody passing the symbol
+  // those want into any of the two dozen that forward to Money hit it.
+  const UI = path.join(import.meta.dirname, "../builder/lovable/template/src/components/ui");
+  const money = fs.readFileSync(path.join(UI, "money.tsx"), "utf8");
+  assert.match(money, /try \{[\s\S]*Intl\.NumberFormat[\s\S]*\} catch/,
+    "Money formats without a guard again — one symbol takes the page down");
+
+  // The rule itself, EVALUATED — a regex proves the code is there, not that it
+  // is right. Same discipline as the PriceList guard above.
+  const fmt = (amount, currency = "GBP") => {
+    try { return new Intl.NumberFormat("en-GB", { style: "currency", currency }).format(amount); }
+    catch {
+      return currency + amount.toLocaleString("en-GB", {
+        minimumFractionDigits: Number.isInteger(amount) ? 0 : 2, maximumFractionDigits: 2 });
+    }
+  };
+  assert.equal(fmt(6, "GBP"), "£6.00");
+  assert.equal(fmt(6, "£"), "£6");
+  assert.equal(fmt(6.5, "£"), "£6.50");
+  assert.equal(fmt(1234.5, "£"), "£1,234.50");
+  assert.doesNotThrow(() => fmt(6, "€"));
+  assert.doesNotThrow(() => fmt(6, "not a currency"));
+
+  // And the premise: this only matters while both conventions are in the kit.
+  const files = fs.readdirSync(UI).filter((f) => f.endsWith(".tsx"));
+  const bodies = files.map((f) => fs.readFileSync(path.join(UI, f), "utf8"));
+  const symbolDefaults = bodies.filter((b) => /currency = "[^A-Z]"/.test(b)).length;
+  assert.ok(symbolDefaults > 0,
+    "no component defaults currency to a symbol any more — if the kit is now ISO-only, say so and this guard can go");
+  assert.ok(bodies.filter((b) => /<Money/.test(b)).length > 1, "nothing forwards to Money — this guard is watching nothing");
+});
