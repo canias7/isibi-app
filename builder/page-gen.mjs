@@ -868,6 +868,14 @@ export const UI_COMPONENTS = [
   // than passed, so it cannot drift from the rates beside it, and `setAt` is
   // required because a rate with no timestamp is a claim.
   "rate-board",
+  // `waiting-list-place` because THREE components say "waiting" and they answer
+  // different questions. `queue-position` is minutes deep; `waiting-list-note`
+  // is a CLINICAL list and refuses to print a rank, correctly, since people are
+  // added ahead on urgency; this is an ORDERED list months or years deep where
+  // you join the bottom and only move up, and on that kind hiding the position
+  // is the dishonest choice. Caught live: the clinical one was used on an
+  // allotment page and its own footnote contradicted the headline above it.
+  "waiting-list-place",
 ];
 
 // THE COMPONENTS THE MODEL IS SHOWN — the most-used slice of the 2,058.

@@ -1984,6 +1984,7 @@ export const COMPONENT_API = {
   "vote-bar": "VoteBar(a: { label: string; votes: number }, b: { label: string; votes: number }, smallBelow?: number = 10)",
   "vote-buttons": "VoteButtons(score?: number = 0, vote?: 1 | -1 | null, onVote: (v: 1 | -1 | null) => void)",
   "waiting-list-note": "WaitingListNote(forWhat: string, weeksWaited?: number, serviceSaid?: string, shortNoticeAvailable?: boolean, tellUsIf?: string[] = [], listPaused?: boolean, pausedNote?: string, contact?: string)",
+  "waiting-list-place": "WaitingListPlace(forWhat: string, ahead: number, freedLastYear?: number, total?: number, joinedOn?: string, movers?: QueueMover[] = [], paused?: boolean, pausedNote?: string, contact?: string)",
   "waiting-on": "WaitingOn(who?: string, needs?: string, since?: string, isYou?: boolean)",
   "waitlist-form": "WaitlistForm(onSubmit: (email: string) => void, busy?: boolean, note?: string = \"We'll email you if something frees up.\")",
   "walk-in-note": "WalkInNote(accepted: \"yes\" | \"not-now\" | \"no\", waitFrom?: number, waitTo?: number, reason?: string, action?: React.ReactNode)",

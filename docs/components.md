@@ -1,4 +1,4 @@
-# Components (2111 built, 25 to go)
+# Components (2112 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -2058,6 +2058,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ vote-bar
 ✓ vote-buttons
 ✓ waiting-list-note
+✓ waiting-list-place
 ✓ waiting-on
 ✓ waitlist-form
 ✓ walk-in-note

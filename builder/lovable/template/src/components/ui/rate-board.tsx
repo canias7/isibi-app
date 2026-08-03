@@ -59,9 +59,19 @@ export function RateBoard({
   className?: string;
 }) {
   if (!rates.length) return null;
-  // Four decimals throughout: a rate rounded to two is visibly not the rate
-  // that gets applied to £800, which is the first thing queried at the counter.
-  const n = (v: number) => v.toFixed(4);
+  // PRECISION IS RELATIVE, NOT ABSOLUTE, and the first draft of this got it
+  // wrong in a way only a render could show. Four decimals on 1.1420 is right —
+  // that fourth digit is worth about 0.01% of the transaction and it is what an
+  // argument at the counter turns on. The SAME four decimals on a rate of
+  // 30,150 dong printed "30150.0000", which is not how any bureau on earth
+  // writes a rate and which makes the column unreadable down its length. So the
+  // significant figures are held constant instead: five, capped at four
+  // decimals, grouped, which lands on 1.1420 · 41.200 · 182.40 · 30,150.
+  const n = (v: number) => {
+    const digits = v > 0 ? Math.floor(Math.log10(v)) + 1 : 1;
+    const dp = Math.min(4, Math.max(0, 5 - digits));
+    return v.toLocaleString("en-GB", { minimumFractionDigits: dp, maximumFractionDigits: dp });
+  };
   const spread = (r: BoardRate) => {
     if (r.buy == null || r.buy <= 0 || r.sell <= 0) return null;
     const mid = (r.buy + r.sell) / 2;

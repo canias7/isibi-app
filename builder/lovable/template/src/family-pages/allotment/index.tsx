@@ -11,7 +11,7 @@
 // week in May.
 import { createFileRoute } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
-import { WaitingListNote } from "@/components/ui/waiting-list-note";
+import { WaitingListPlace } from "@/components/ui/waiting-list-place";
 import { WaitlistForm } from "@/components/ui/waitlist-form";
 import { FeeTable } from "@/components/ui/fee-table";
 import { ProduceCalendar } from "@/components/ui/produce-calendar";
@@ -35,24 +35,26 @@ function P() {
       <section className="border-b border-border">
         <div className="mx-auto max-w-5xl px-6 py-14">
           <h1 className="max-w-3xl text-5xl font-semibold tracking-tight text-balance">
-            Fourteen months, and there are 31 people ahead of you
+            Twenty months, and there are 31 people ahead of you
           </h1>
           <p className="mt-5 max-w-2xl text-lg leading-relaxed text-muted-foreground">
             That is the honest answer rather than "there is a waiting list", which is what most
             associations say and which tells nobody whether to bother. Nineteen plots came up last
-            year and the list has been between 25 and 40 for a decade.
+            year and the list has been between 25 and 40 for a decade — twenty months is those two
+            numbers divided, not a feeling.
           </p>
 
           <div className="mt-10 grid items-start gap-10 lg:grid-cols-[1.1fr_1fr]">
-            <WaitingListNote
+            <WaitingListPlace
               forWhat="A full or half plot at Hollin Busk"
-              weeksWaited={0}
-              serviceSaid="About 14 months from joining to being offered one, based on the last three years"
-              shortNoticeAvailable
-              tellUsIf={[
-                "You would take a half plot as well as a full one — it roughly halves the wait",
-                "You would take an overgrown plot, which several people will not",
-                "You can start at short notice in autumn, when most plots are given up",
+              ahead={31}
+              total={44}
+              freedLastYear={19}
+              movers={[
+                { what: "Take a half plot as well as a full one", effect: "Roughly halves it" },
+                { what: "Take an overgrown plot", effect: "Several people will not" },
+                { what: "Start at short notice in autumn", effect: "When most are given up" },
+                { what: "Live in Stocksbridge or Deepcar", effect: "The parish lease, not us" },
               ]}
               contact="secretary@hollinbuskallotments.org.uk, or Ray on 0114 288 4419"
             />

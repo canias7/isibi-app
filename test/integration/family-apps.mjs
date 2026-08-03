@@ -55,6 +55,13 @@ const MEASURE = process.env.FAM_MEASURE === "1";
 // family a different theme off the shortlist so a human can look at 26 real
 // sites rather than 26 copies of one palette; `FAM_THEME=<name>` pins one.
 const THEME_MODE = process.env.FAM_THEME || "";
+// The screenshot width. 880 by default, and that default is deliberate — see the
+// note above the measure pass. But a SIDEBAR family collapses to one column
+// below Tailwind's lg breakpoint, so at 880 the first shot of every such page is
+// the rail alone and the layout the family is FOR cannot be looked at. FAM_WIDTH
+// is how a human sees it. It does not touch the measure pass, which pins 1280 of
+// its own accord for a different reason.
+const SHOT_WIDTH = Number(process.env.FAM_WIDTH) || 880;
 // Deterministic, not random: the same family gets the same theme every run, so
 // two runs can be compared and a bad pairing can be reported by name.
 const themeFor = (name, i) =>
@@ -122,7 +129,7 @@ try {
 
   const exe = findChromium();
   browser = await chromium.launch(exe ? { executablePath: exe } : {});
-  const page = await (await browser.newContext({ viewport: { width: 880, height: 800 } })).newPage();
+  const page = await (await browser.newContext({ viewport: { width: SHOT_WIDTH, height: 800 } })).newPage();
   const pageErrors = [];
   page.on("pageerror", (e) => pageErrors.push(String(e).slice(0, 200)));
 
@@ -256,7 +263,7 @@ try {
           }
           return out;
         });
-        await page.setViewportSize({ width: 880, height: 800 });
+        await page.setViewportSize({ width: SHOT_WIDTH, height: 800 });
         for (const c of m.cramped) console.log(`  cramped  ${label}  ${c.w}px · ${c.chars} chars · ~${c.lines} lines — ${JSON.stringify(c.text)}`);
         for (const c of m.spilling) console.log(`  spilling ${label}  ${c.w}px box, ${c.need}px content — ${JSON.stringify(c.text)}`);
       }

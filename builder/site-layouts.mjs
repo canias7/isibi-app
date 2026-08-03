@@ -2359,7 +2359,11 @@ export const FAMILIES = {
       { file: "rules", role: "the tenancy in plain words — cultivation, sheds, bonfires, dogs and hens" },
     ],
     kinds: ["allotment association", "community garden", "orchard group", "community farm", "growing project", "meanwhile space"],
-    components: ["waitlist-form", "waiting-list-note", "fee-table", "house-rules", "produce-calendar", "committee-list", "section-header"],
+    // `waiting-list-place`, NOT `waiting-list-note`: that one is a CLINICAL
+    // list and hard-codes "there is no position number here on purpose, lists
+    // are not queues". An allotment list IS a queue — you join the bottom and
+    // only move up — so its own footnote contradicted this family's headline.
+    components: ["waitlist-form", "waiting-list-place", "fee-table", "house-rules", "produce-calendar", "committee-list", "section-header"],
     structure: "single-scroll",
     ready: true,
   },
