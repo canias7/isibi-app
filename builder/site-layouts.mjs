@@ -2103,6 +2103,106 @@ export const FAMILIES = {
     structure: "editorial",
     ready: true,
   },
+
+  "golf-club": {
+    md: "Golf or members' club — membership-and-tee-times",
+    label: "a grid: what joining costs, whether a visitor may play, and the next free tee time",
+    cta: ["Book a tee time", "Join"],
+    shape: [
+      "bento: the membership ladder, the visitor answer, the next tee times and the dress code as four tiles",
+      "body: the categories in full with their joining fees and whether each has a waiting list",
+      "the visitor question is answered first because most traffic is somebody asking it, not a prospective member",
+    ],
+    pages: [
+      { file: "index", role: "join, visit, book, and what the club expects of you" },
+      { file: "membership", role: "every category with its fee, waiting list and voting rights" },
+      { file: "visitors", role: "green fees, when a visitor may play, and the dress code in plain terms" },
+    ],
+    kinds: ["golf club", "members club", "bowls club", "sailing club", "shooting ground", "tennis club", "country club", "angling club"],
+    components: ["bento-grid", "membership-tier-row", "availability-grid", "house-rules", "opening-hours", "faq", "section-header"],
+    structure: "bento",
+    ready: true,
+  },
+
+  band: {
+    md: "Band or touring artist — tour-dates-first",
+    label: "the next date and the ticket link above everything; the music is one click, the tour is not",
+    cta: ["Get tickets", "Listen"],
+    shape: [
+      "full-bleed: one image and the next date over it, with the ticket link in the first screen",
+      "body: the dates in full including the sold-out ones, then something to listen to, then the merch",
+      "a cancelled or sold-out date stays listed and says which, because a fan checking is asking exactly that",
+    ],
+    pages: [
+      { file: "index", role: "the next date, the tour, and one thing to listen to" },
+      { file: "tour", role: "every date including sold out and cancelled, with the on-sale times" },
+      { file: "listen", role: "the records, where to hear them, and the set as it is currently played" },
+    ],
+    kinds: ["band", "musician", "touring artist", "DJ", "orchestra", "comedian", "theatre company", "spoken word"],
+    components: ["tour-dates", "setlist-row", "audio-player", "ticket-tiers", "press-quote", "faq", "section-header"],
+    structure: "full-bleed-hero",
+    ready: true,
+  },
+
+  "game-studio": {
+    md: "A game — trailer-first",
+    label: "the trailer fills the screen, then the platforms, then one button that buys or wishlists it",
+    cta: ["Wishlist", "Buy now"],
+    shape: [
+      "full-bleed: the trailer, playing on its own terms, with the platforms directly under it",
+      "body: what the game actually is in three sentences, then the press, then the studio",
+      "the platform list says which are confirmed and which are hoped for, because a wrong assumption is a refund",
+    ],
+    pages: [
+      { file: "index", role: "the trailer, the platforms, and the one button" },
+      { file: "about", role: "what the game is, how long it takes, and what it is not" },
+      { file: "press", role: "the kit — screenshots, logos, the fact sheet and who to contact" },
+    ],
+    kinds: ["game", "indie game", "mobile app", "software launch", "hardware product", "board game", "kickstarter"],
+    components: ["video-embed", "device-picker", "wishlist-button", "press-quote", "media-object", "faq", "section-header"],
+    structure: "full-bleed-hero",
+    ready: true,
+  },
+
+  film: {
+    md: "A film or production — screenings-first",
+    label: "the trailer, then where it is actually showing, which is what a release page is for",
+    cta: ["Find a screening", "Watch the trailer"],
+    shape: [
+      "full-bleed: the trailer, then the next screening near the reader rather than a list of festivals",
+      "body: the screenings in full with the Q&A dates marked, then the film itself, then the credits",
+      "a past screening is kept and marked, since a run is the evidence a distributor and a venue both want",
+    ],
+    pages: [
+      { file: "index", role: "the trailer and the next screenings, with the Q&A dates marked" },
+      { file: "screenings", role: "every date, past and future, and how to request one" },
+      { file: "about", role: "the film, the runtime, the certificate and who made it" },
+    ],
+    kinds: ["film", "documentary", "short film", "theatre production", "festival premiere", "screening tour", "independent cinema"],
+    components: ["video-embed", "tour-dates", "ticket-tiers", "press-quote", "safe-image", "faq", "section-header"],
+    structure: "full-bleed-hero",
+    ready: true,
+  },
+
+  solar: {
+    md: "Solar or retrofit installer — savings-calculator-first",
+    label: "an honest estimate from the roof and the bill, with the payback stated in years",
+    cta: ["Estimate my saving", "Book a survey"],
+    shape: [
+      "split: a calculator on one side taking roof size and current bill, the range it produces on the other",
+      "body: what the install actually involves, then the grants, then what would make us say no",
+      "the estimate is a BAND rather than a figure, because a single number implies a precision no survey has",
+    ],
+    pages: [
+      { file: "index", role: "the calculator, the payback band, and what the figures assume" },
+      { file: "how-it-works", role: "the install week by week, the grants, and the roofs we turn down" },
+      { file: "survey", role: "booking the survey — free, no obligation, and what it measures" },
+    ],
+    kinds: ["solar installer", "heat pump", "battery storage", "EV charger", "insulation", "retrofit", "renewable energy"],
+    components: ["calculator-card", "estimate-band", "arrangement-steps", "quote-request", "price-list", "faq", "section-header"],
+    structure: "split-screen",
+    ready: true,
+  },
 };
 /* ------------------------------------------------------------------ helpers */
 

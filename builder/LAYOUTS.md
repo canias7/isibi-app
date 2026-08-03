@@ -1283,6 +1283,78 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
+## 86. Golf or members' club — membership-and-tee-times
+**Shape:** joining, visiting, the next tee time and the dress code as four tiles; visitors answered first.
+**CTA:** Book a tee time · Join
+
+- Golf club
+- Members club
+- Bowls club
+- Sailing club
+- Shooting ground
+- Tennis club
+- Country club
+- Angling club
+
+---
+
+## 87. Band or touring artist — tour-dates-first
+**Shape:** the next date and the ticket link in the first screen; sold-out and cancelled dates stay listed.
+**CTA:** Get tickets · Listen
+
+- Band
+- Musician
+- Touring artist
+- DJ
+- Orchestra
+- Comedian
+- Theatre company
+- Spoken word
+
+---
+
+## 88. A game — trailer-first
+**Shape:** the trailer full width, then the platforms with confirmed and hoped-for distinguished.
+**CTA:** Wishlist · Buy now
+
+- Game
+- Indie game
+- Mobile app
+- Software launch
+- Hardware product
+- Board game
+- Kickstarter
+
+---
+
+## 89. A film or production — screenings-first
+**Shape:** the trailer, then where it is actually showing, with Q&A dates marked and past runs kept.
+**CTA:** Find a screening · Watch the trailer
+
+- Film
+- Documentary
+- Short film
+- Theatre production
+- Festival premiere
+- Screening tour
+- Independent cinema
+
+---
+
+## 90. Solar or retrofit installer — savings-calculator-first
+**Shape:** a calculator from roof size and current bill, producing a payback BAND rather than a figure.
+**CTA:** Estimate my saving · Book a survey
+
+- Solar installer
+- Heat pump
+- Battery storage
+- EV charger
+- Insulation
+- Retrofit
+- Renewable energy
+
+---
+
 ## Cross-cutting: structural variants
 
 Any family above can be expressed through:
