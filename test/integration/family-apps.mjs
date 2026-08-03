@@ -17,6 +17,20 @@
 // LOOKED at, which is how the grey charts and the white-glow shadows were
 // caught after every typecheck in the repo passed.
 //
+// FAM_MEASURE=1 adds a second pass that MEASURES the render rather than
+// looking at it, and it exists because one bug class was found by eye three
+// separate times in one session and never by anything automatic: a component
+// that grids to three columns inside a half-width parent, because Tailwind's
+// breakpoints are the VIEWPORT's and the CSS is therefore correct. It reports
+// two things — a grid child too narrow for the sentence in it, and content
+// wider than a box that nothing clips, which is the one that rendered two real
+// figures as a third that did not exist.
+//
+// It runs at 1280 rather than at this harness's 880, and that is load bearing:
+// 880 is BELOW the lg breakpoint, so every two-column layout collapses to one
+// full-width column and the bug cannot occur there at all. Measuring at 880
+// reports a clean sweep on a page that is visibly broken at 1280.
+//
 // $0: no model call, no Neon project. One build server, one sequential build
 // per family. FAM_ONLY=store,workspace scopes the run while iterating on one
 // family's pages; unset, every family builds, which is what CI does.
@@ -34,6 +48,8 @@ const TEMPLATE = path.join(ROOT, "builder", "lovable", "template");
 const { chromium } = createRequire(path.join(TEMPLATE, "package.json"))("playwright");
 const PORT = 17910;
 const SHOTS = process.env.FAM_SHOTS || "";
+// Off by default while it is being calibrated: it REPORTS, it does not fail.
+const MEASURE = process.env.FAM_MEASURE === "1";
 // Optional and OFF by default, so CI keeps testing what it has always tested:
 // that every family's pages build and render at all. `FAM_THEME=auto` gives each
 // family a different theme off the shortlist so a human can look at 26 real
@@ -161,6 +177,64 @@ try {
       else if (d.boundary) bad(`${label} tripped the error boundary`);
       else if (pageErrors.length) bad(`${label} threw`, pageErrors.join(" | "));
       else ok(`${label} — ${d.nodes} nodes`);
+      if (MEASURE) {
+        // A SECOND, WIDER VIEWPORT — and this is the whole reason the measure
+        // is a separate pass rather than a field on the check above. The
+        // harness renders at 880, which is BELOW Tailwind's lg breakpoint, so
+        // every `lg:grid-cols-[1.15fr_1fr]` two-column layout collapses to one
+        // full-width column. The narrow-column bug cannot occur at 880 — the
+        // parent is never narrow — so measuring there reports a clean sweep on
+        // a page that is visibly broken at 1280.
+        await page.setViewportSize({ width: 1280, height: 900 });
+        await page.waitForTimeout(150);
+        const m = await page.evaluate(() => {
+          const out = { cramped: [], spilling: [] };
+          // Each rule narrows with a CHEAP DOM predicate before reading any
+          // style: getComputedStyle over every node costs about twenty seconds
+          // a page, which turns a sweep of 290 pages into two hours. Grid
+          // containers are found by class (Tailwind always writes `grid`), and
+          // a spill is ruled out by scrollWidth before an ancestor is read.
+          //
+          // CRAMPED: a grid child a hundred-odd pixels wide holding a whole
+          // sentence. Tailwind's breakpoints are the VIEWPORT's, so
+          // `lg:grid-cols-3` still makes three columns inside a half-width
+          // parent — the CSS is correct and the result is four-word lines.
+          for (const el of document.querySelectorAll("#root [class*=grid]")) {
+            const cs = getComputedStyle(el);
+            if (cs.display !== "grid") continue;
+            if (cs.gridTemplateColumns.split(" ").filter(Boolean).length < 2) continue;
+            for (const kid of el.children) {
+              const kw = kid.getBoundingClientRect().width;
+              const text = (kid.textContent || "").trim();
+              if (kw > 0 && kw < 160 && text.length >= 30) {
+                out.cramped.push({ w: Math.round(kw), chars: text.length, text: text.slice(0, 48) });
+              }
+            }
+          }
+          // SPILLING: content wider than its box with NOTHING between it and
+          // the root that clips or scrolls. Inside a clipping ancestor the
+          // result is truncation, which is deliberate and visible; with no
+          // clipping ancestor it is painted across whatever sits beside it,
+          // which is the failure that rendered two real figures as a third.
+          for (const el of document.querySelectorAll("#root *")) {
+            if (el.children.length || !el.textContent.trim()) continue;
+            const w = el.clientWidth;
+            if (!w || el.scrollWidth <= w + 2) continue;
+            let contained = false;
+            for (let a = el; a && a.id !== "root"; a = a.parentElement) {
+              const acs = getComputedStyle(a);
+              if (acs.overflowX !== "visible" || acs.overflowY !== "visible") { contained = true; break; }
+            }
+            if (!contained) {
+              out.spilling.push({ w, need: el.scrollWidth, text: el.textContent.trim().slice(0, 48) });
+            }
+          }
+          return out;
+        });
+        await page.setViewportSize({ width: 880, height: 800 });
+        for (const c of m.cramped) console.log(`  cramped  ${label}  ${c.w}px for ${c.chars} chars — ${JSON.stringify(c.text)}`);
+        for (const c of m.spilling) console.log(`  spilling ${label}  ${c.w}px box, ${c.need}px content — ${JSON.stringify(c.text)}`);
+      }
       if (SHOTS) {
         fs.mkdirSync(SHOTS, { recursive: true });
         await page.addStyleTag({ content: "header{position:static !important}" });
