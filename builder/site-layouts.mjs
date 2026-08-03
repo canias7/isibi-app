@@ -2003,6 +2003,106 @@ export const FAMILIES = {
     structure: "bento",
     ready: true,
   },
+
+  optician: {
+    md: "Optician or hearing centre — test-then-frames",
+    label: "an appointment and a shop on one page, kept visibly apart because they are different visits",
+    cta: ["Book an eye test", "Browse frames"],
+    shape: [
+      "split: the test on one side as a bookable appointment, the shop on the other as browsable stock",
+      "body: what a test actually involves and how long it takes, then lenses priced as options rather than as a range",
+      "the NHS entitlement is stated plainly, because most people who qualify do not know they do",
+    ],
+    pages: [
+      { file: "index", role: "book a test on one side, browse frames on the other, entitlement stated" },
+      { file: "eye-test", role: "what happens in the 30 minutes, who is free, and who gets one free" },
+      { file: "frames", role: "the stock, and lenses priced as options so a total can be worked out" },
+    ],
+    kinds: ["optician", "optometrist", "hearing centre", "audiologist", "eyewear", "contact lenses", "dispensing optician"],
+    components: ["availability-grid", "option-priced-list", "price-list", "practitioner-card", "opening-hours", "faq", "section-header"],
+    structure: "split-screen",
+    ready: true,
+  },
+
+  pharmacy: {
+    md: "Pharmacy or dispensary — prescriptions-and-services-first",
+    label: "repeats and the things needing no appointment, as a grid of doors rather than a shop",
+    cta: ["Order a repeat", "See services"],
+    shape: [
+      "bento: ordering a repeat, the NHS services, the counter, and when the pharmacist is actually in",
+      "body: what can be treated here without seeing a GP, which is far more than most people think",
+      "the out-of-hours and urgent route is stated, because a pharmacy is where people go when the surgery is shut",
+    ],
+    pages: [
+      { file: "index", role: "the four doors, and when the pharmacist is on the premises" },
+      { file: "services", role: "what can be treated here without a GP, and which are free" },
+      { file: "repeat", role: "ordering a repeat, how long it takes, and what to do when an item is out of stock" },
+    ],
+    kinds: ["pharmacy", "chemist", "dispensary", "travel clinic", "vaccination service", "community pharmacy"],
+    components: ["bento-grid", "prescription-row", "counter-services", "triage-banner", "opening-hours", "faq", "section-header"],
+    structure: "bento",
+    ready: true,
+  },
+
+  "bike-shop": {
+    md: "Bike or equipment shop — buy-and-service",
+    label: "two businesses on one page — stock to browse and a workshop to book — kept visibly apart",
+    cta: ["Book a service", "See what is in"],
+    shape: [
+      "card-grid: what is actually in stock, in sizes, because a bike you cannot ride is not stock",
+      "body: the workshop as a bookable diary with a real turnaround, then what each service includes",
+      "the workshop wait is stated in weeks, since in March it is six and that is the answer somebody needs",
+    ],
+    pages: [
+      { file: "index", role: "what is in, in which sizes, and how far out the workshop is" },
+      { file: "bikes", role: "the stock with sizes and what fits whom, rather than a catalogue" },
+      { file: "workshop", role: "the services, what each includes, and booking one" },
+    ],
+    kinds: ["bike shop", "cycle shop", "ski hire", "outdoor shop", "golf shop", "music shop", "camera shop", "equipment retailer"],
+    components: ["product-card", "spec-row", "price-list", "availability-grid", "service-history", "faq", "section-header"],
+    structure: "card-grid",
+    ready: true,
+  },
+
+  "garden-centre": {
+    md: "Garden centre or plant nursery — what's-good-now-first",
+    label: "what is worth planting this month leads; a site that does not change with the season is wrong",
+    cta: ["What's in now", "Plan a visit"],
+    shape: [
+      "editorial: the month's planting, written as advice rather than as a product list",
+      "body: what is actually in stock now, then the practical visit facts — parking, the cafe, the dog rule",
+      "anything out of season says so rather than being quietly listed, because selling somebody a doomed plant loses them",
+    ],
+    pages: [
+      { file: "index", role: "what to plant this month, and what of it is in stock" },
+      { file: "plants", role: "the stock by season, with what will not survive being planted now" },
+      { file: "visit", role: "opening hours, parking, the cafe, dogs, and accessibility" },
+    ],
+    kinds: ["garden centre", "plant nursery", "seed merchant", "florist", "landscaping supplier", "allotment shop", "farm nursery"],
+    components: ["season-picker", "product-card", "price-list", "opening-hours", "location-card", "faq", "section-header"],
+    structure: "editorial",
+    ready: true,
+  },
+
+  antiques: {
+    md: "Antiques or one-of-a-kind dealer — each-piece-unique",
+    label: "one of everything, so a sold piece stays on the page marked sold rather than vanishing",
+    cta: ["Enquire", "See the stock"],
+    shape: [
+      "editorial: each piece gets its own measure — a grid of thumbnails is how a unique object stops being one",
+      "body: provenance and condition given as much room as the photograph, because that is what the price rests on",
+      "a sold piece remains, marked sold, since it is the record of what this dealer handles",
+    ],
+    pages: [
+      { file: "index", role: "the current stock, with the sold pieces kept and marked" },
+      { file: "piece", role: "one object in full — provenance, condition, measurements, the price" },
+      { file: "selling", role: "for somebody with something to sell — valuation, commission and probate" },
+    ],
+    kinds: ["antiques", "art dealer", "vintage", "rare books", "coins and medals", "classic cars", "salvage", "auction consignment"],
+    components: ["lot-card", "provenance-note", "condition-report", "gallery", "safe-image", "faq", "section-header"],
+    structure: "editorial",
+    ready: true,
+  },
 };
 /* ------------------------------------------------------------------ helpers */
 

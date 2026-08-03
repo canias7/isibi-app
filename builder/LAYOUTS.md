@@ -1212,6 +1212,77 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
+## 81. Optician or hearing centre — test-then-frames
+**Shape:** an appointment on one side and a shop on the other, with the NHS entitlement stated.
+**CTA:** Book an eye test · Browse frames
+
+- Optician
+- Optometrist
+- Hearing centre
+- Audiologist
+- Eyewear
+- Contact lenses
+- Dispensing optician
+
+---
+
+## 82. Pharmacy or dispensary — prescriptions-and-services-first
+**Shape:** repeats and no-appointment services as a grid, with when the pharmacist is actually in.
+**CTA:** Order a repeat · See services
+
+- Pharmacy
+- Chemist
+- Dispensary
+- Travel clinic
+- Vaccination service
+- Community pharmacy
+
+---
+
+## 83. Bike or equipment shop — buy-and-service
+**Shape:** what is in stock in which sizes, and how many weeks out the workshop is.
+**CTA:** Book a service · See what is in
+
+- Bike shop
+- Cycle shop
+- Ski hire
+- Outdoor shop
+- Golf shop
+- Music shop
+- Camera shop
+- Equipment retailer
+
+---
+
+## 84. Garden centre or plant nursery — what's-good-now-first
+**Shape:** this month's planting as advice, then what of it is in stock, then the visit facts.
+**CTA:** What's in now · Plan a visit
+
+- Garden centre
+- Plant nursery
+- Seed merchant
+- Florist
+- Landscaping supplier
+- Allotment shop
+- Farm nursery
+
+---
+
+## 85. Antiques or one-of-a-kind dealer — each-piece-unique
+**Shape:** each piece its own measure, provenance and condition given room, sold pieces kept and marked.
+**CTA:** Enquire · See the stock
+
+- Antiques
+- Art dealer
+- Vintage
+- Rare books
+- Coins and medals
+- Classic cars
+- Salvage
+- Auction consignment
+
+---
+
 ## Cross-cutting: structural variants
 
 Any family above can be expressed through:
