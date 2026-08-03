@@ -100,7 +100,7 @@ function P() {
 
         <section className="mt-14">
           <SectionHeader eyebrow="On paper" title="What your policy summary will look like" />
-          <div className="mt-6">
+          <ul className="mt-6">
             <PolicySummaryRow
               product="Complete — lifetime pet cover"
               insures="Nell, border collie, born March 2021"
@@ -113,7 +113,7 @@ function P() {
               autoRenews
               documentNote="The full wording, the schedule and the IPID are posted on purchase and are in your account within an hour."
             />
-          </div>
+          </ul>
         </section>
 
         <section className="mt-14">

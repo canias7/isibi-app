@@ -104,7 +104,7 @@ function P() {
             title="What each one costs"
             description="The price after the offer ends is beside the offer price, not below the fold. It is the number you will pay for most of the contract."
           />
-          <div className="mt-8 grid gap-4">
+          <ul className="mt-8 grid gap-4">
             <BundleRow
               name="Full fibre 900"
               parts={[
@@ -137,7 +137,7 @@ function P() {
               contractMonths={12}
               upfrontCost={0}
             />
-          </div>
+          </ul>
           <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
             There is no line rental on top and no activation fee. The engineer visit is free
             whether or not you go ahead afterwards — if the survey says the run is not possible we

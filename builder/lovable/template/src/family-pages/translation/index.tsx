@@ -101,7 +101,7 @@ function P() {
             </div>
             <div>
               <SectionHeader eyebrow="What we are certified for" title="Four things, with the references" />
-              <div className="mt-6 space-y-3">
+              <ul className="mt-6 space-y-3">
                 <CertificationRow
                   standard="ITI corporate membership"
                   scope="All nine pairs"
@@ -132,7 +132,7 @@ function P() {
                   state="valid"
                   validUntil="2027-09-30"
                 />
-              </div>
+              </ul>
             </div>
           </div>
         </div>

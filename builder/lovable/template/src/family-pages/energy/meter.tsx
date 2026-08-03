@@ -11,6 +11,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { MeterReading } from "@/components/ui/meter-reading";
 import { SmartMeterNote } from "@/components/ui/smart-meter-note";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -100,6 +101,25 @@ function P() {
             title="Four kinds of meter, and what to ignore on each"
             description="Nearly every wrong reading is a red decimal digit or the second register on a meter that has one."
           />
+          {/* THIS IS THE ONE PAGE ON AN ENERGY SITE WHERE A PICTURE IS THE
+              ANSWER AND PROSE IS NOT. "Ignore the red digits" is a sentence
+              somebody reads standing in a cellar with a torch, holding a phone,
+              looking at a dial they have never looked at before. A photograph
+              of each meter with the digits to read circled ends the question in
+              one second, and it is why nearly every wrong reading is the same
+              two mistakes. */}
+          <div className="mt-8">
+            <MediaGrid
+              columns={4}
+              ratio="4/3"
+              items={[
+                { src: null, alt: "A digital meter close up, five black digits, one red digit after them", caption: "Digital. Five black digits. The red one is tenths — leave it out." },
+                { src: null, alt: "A dial meter, six clock faces, alternate ones running backwards", caption: "Dials. Left to right, take the lower number, and alternate dials run backwards." },
+                { src: null, alt: "An Economy 7 meter showing two registers labelled low and normal", caption: "Economy 7. Two registers, and we need both — this is the commonest miss." },
+                { src: null, alt: "A smart meter in-home display showing today's usage in pounds", caption: "Smart. If you have this, you never need to read anything." },
+              ]}
+            />
+          </div>
           <ul className="mt-8 divide-y divide-border border-y border-border">
             {TYPES.map((t) => (
               <li key={t.what} className="grid gap-2 py-5 md:grid-cols-[minmax(0,15rem)_1fr] md:gap-8">

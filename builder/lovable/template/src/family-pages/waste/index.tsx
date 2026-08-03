@@ -13,6 +13,7 @@ import { SiteChrome } from "@/components/ui/site-chrome";
 import { SizeGuide } from "@/components/ui/size-guide";
 import { BinType } from "@/components/ui/bin-type";
 import { CollectionDay } from "@/components/ui/collection-day";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -85,6 +86,27 @@ function P() {
       </section>
 
       {/* THE PROHIBITED LIST, ABOVE THE BOOKING RATHER THAN IN THE TERMS. */}
+      {/* SKIP SIZES ARE THE ONE THING NOBODY CAN PICTURE, and getting it
+          wrong costs a second skip and a second delivery charge. A yard is a
+          unit of volume almost no customer has ever used, so every picture
+          here has a person or a wheelie bin in it for scale. The surcharge
+          photograph is the other half: one mattress is £95, and a picture of
+          the load it was found in is worth more than a line of terms. */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-6 py-10">
+          <MediaGrid
+            columns={4}
+            ratio="4/3"
+            items={[
+              { src: null, alt: "A 4-yard mini skip on a drive with a wheelie bin beside it for scale", caption: "4 yard. About 40 bin bags — that is a normal wheelie bin next to it." },
+              { src: null, alt: "An 8-yard builders skip with a person standing at the end", caption: "8 yard. The commonest one, and it is chest height on most people." },
+              { src: null, alt: "A 12-yard skip on a verge, clearly longer than a car", caption: "12 yard. Bulky and light only — soil in one of these is over weight." },
+              { src: null, alt: "A mixed load at the transfer station with a mattress on top", caption: "This mattress is £95. They cannot be shredded, and the tip charges us by the item." },
+            ]}
+          />
+        </div>
+      </section>
+
       <section className="border-b border-border">
         <div className="mx-auto max-w-5xl px-6 py-14">
           <SectionHeader

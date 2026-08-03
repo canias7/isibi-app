@@ -66,7 +66,7 @@ function P() {
               </div>
             </div>
 
-            <div className="grid gap-4">
+            <ul className="grid gap-4">
               <TariffRow
                 name="Valley Fixed 24"
                 unitRates={[{ id: "e", label: "Electricity", pencePerUnit: 24.1 }]}
@@ -93,7 +93,7 @@ function P() {
                 estimateAt={2700}
                 estimateAnnual={798}
               />
-            </div>
+            </ul>
           </div>
         </div>
       </section>

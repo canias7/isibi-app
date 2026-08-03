@@ -14,6 +14,7 @@ import { SiteChrome } from "@/components/ui/site-chrome";
 import { BentoGrid } from "@/components/ui/bento-grid";
 import { TriageBanner } from "@/components/ui/triage-banner";
 import { ContactCard } from "@/components/ui/contact-card";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -110,6 +111,27 @@ function P() {
               ]}
             />
           </div>
+        </div>
+      </section>
+
+      {/* THE HOMES, AND A FINISHED REPAIR. A social landlord photographing
+          only its new-build showpiece is telling its existing tenants that
+          their block is not the part it is proud of. So: the 1960s block as
+          well as the new terrace, and a completed damp job — because damp is
+          the repair this sector is judged on and a photograph of one done
+          properly is worth more than a policy page about it. */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-6 py-10">
+          <MediaGrid
+            columns={4}
+            ratio="4/3"
+            items={[
+              { src: null, alt: "The Wisewood low-rise blocks from the green, balconies and drying lines", caption: "Wisewood, 1964. 212 flats — the largest thing we own." },
+              { src: null, alt: "New terraced houses on Loxley Road, brick and grey window frames", caption: "Loxley Road, finished 2024. Eighteen homes, all social rent." },
+              { src: null, alt: "A bedroom wall after damp work — replastered, repainted, furniture back", caption: "A completed damp job. Two visits, eleven days, and the tenant stayed in." },
+              { src: null, alt: "A van and two operatives outside a block, ladders on the roof rack", caption: "Nine of our own trades. About 70% of repairs never go to a contractor." },
+            ]}
+          />
         </div>
       </section>
 

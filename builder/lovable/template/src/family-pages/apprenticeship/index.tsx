@@ -10,6 +10,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { EligibilityCheck } from "@/components/ui/eligibility-check";
 import { CohortPicker } from "@/components/ui/cohort-picker";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -99,6 +100,27 @@ function P() {
               applyNote="Checking costs nothing and takes ten minutes on the phone. We would rather tell you no today than in six weeks."
             />
           </div>
+        </div>
+      </section>
+
+      {/* THE WORKSHOP, BECAUSE "APPRENTICESHIP" MEANS TWENTY DIFFERENT THINGS.
+          A picture of the actual bay, the actual machines and the actual
+          people settles whether this is a well-equipped training centre or a
+          room with laptops, which is a real and unspoken worry — and it shows
+          an applicant somebody who looks like them, which is most of why
+          engineering intakes stay 4% female. */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-6 py-10">
+          <MediaGrid
+            columns={4}
+            ratio="4/3"
+            items={[
+              { src: null, alt: "The machining bay — six lathes and two CNC mills, learners at four of them", caption: "Six manual lathes, two CNC. Twelve on a cohort, so nobody queues." },
+              { src: null, alt: "An electrical installation bay, stud walls wired up for testing", caption: "The 2365 rig. Every learner wires and tests a full installation." },
+              { src: null, alt: "Two apprentices in a workshop looking at a drawing on a bench", caption: "One day a week here, four with the employer. That is the standard." },
+              { src: null, alt: "A framed group photograph of last year's completers on the wall", caption: "2025 cohort. 31 started, 28 completed, 26 stayed with the employer." },
+            ]}
+          />
         </div>
       </section>
 

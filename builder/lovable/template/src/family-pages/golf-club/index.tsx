@@ -16,6 +16,7 @@ import { SiteChrome } from "@/components/ui/site-chrome";
 import { BentoGrid } from "@/components/ui/bento-grid";
 import { AvailabilityGrid } from "@/components/ui/availability-grid";
 import { OpeningHours } from "@/components/ui/opening-hours";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -53,6 +54,26 @@ function P() {
       ]}
       action={{ label: "Book a tee time", href: "#tee" }}
     >
+      {/* THE COURSE IS THE PRODUCT AND EVERY GOLF CLUB SITE FORGETS IT. Nine
+          paragraphs about green fees answer a question the pictures answer
+          faster: is this a flat municipal, or is it moorland with a view.
+          Each caption is the hole and the yardage rather than a mood, so
+          somebody who plays can read the course off four frames. */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-6 pt-10">
+          <MediaGrid
+            columns={4}
+            ratio="4/3"
+            items={[
+              { src: null, alt: "The 7th from the tee, dropping into the valley with the crags behind", caption: "7th · 412 yards · stroke index 2" },
+              { src: null, alt: "The 12th green in low autumn sun, bunkers front left and right", caption: "12th · the green that decides most medals" },
+              { src: null, alt: "Heather and gorse either side of the 3rd fairway", caption: "Moorland. It drains, and it plays all year." },
+              { src: null, alt: "The clubhouse veranda at six, half a dozen people, bags against the rail", caption: "The veranda. Nobody is moved on." },
+            ]}
+          />
+        </div>
+      </section>
+
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-12">
           <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-balance">

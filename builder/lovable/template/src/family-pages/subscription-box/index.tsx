@@ -13,6 +13,7 @@ import { FrequencyPicker } from "@/components/ui/frequency-picker";
 import { CancelPolicy } from "@/components/ui/cancel-policy";
 import { CutoffTime } from "@/components/ui/cutoff-time";
 import { DeliveryEstimate } from "@/components/ui/delivery-estimate";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -92,6 +93,26 @@ function P() {
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* THE BOX, OPEN, WITH EVERYTHING OUT OF IT. A subscription is bought
+          on one question — is it worth £28 — and the answer is a photograph of
+          the contents beside something for scale, not a styled flat-lay with
+          three artfully scattered beans. The captions say the MONTH, so
+          somebody can see we do not reuse one shot all year. */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-6 py-10">
+          <MediaGrid
+            columns={4}
+            ratio="1/1"
+            items={[
+              { src: null, alt: "August's box open on a table, all six bags out beside it, a mug for scale", caption: "August. Six 250g bags — that mug is a normal mug." },
+              { src: null, alt: "The roastery on a Tuesday, the drum going, sacks stacked behind", caption: "Roasted Tuesday, posted Wednesday, drunk by the weekend." },
+              { src: null, alt: "The box flat-packed beside a bin — plain card, paper tape, no plastic", caption: "Card, paper tape, and a compostable valve bag. All of it goes in the recycling." },
+              { src: null, alt: "Last month's box next to this one, different bags, same size", caption: "July beside August. Nothing repeats inside six months." },
+            ]}
+          />
         </div>
       </section>
 

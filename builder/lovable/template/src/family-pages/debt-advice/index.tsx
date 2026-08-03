@@ -166,6 +166,62 @@ function P() {
         </div>
       </section>
 
+      {/* WHAT HAPPENS ON THE CALL, MINUTE BY MINUTE. The reason people do not
+          ring is not that they lack the number — it is that they do not know
+          what they are agreeing to, and they are braced for judgement, a sales
+          pitch, or being told to sell their car. Describing the call removes
+          the last obstacle, and it is the cheapest thing an advice service can
+          publish. */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-4xl px-6 py-14">
+          <SectionHeader
+            eyebrow="If you ring"
+            title="What actually happens, so nothing is a surprise"
+            description="About forty minutes the first time. You can stop at any point, and you can ring back and ask for the same adviser."
+          />
+          <ol className="mt-8 divide-y divide-border border-y border-border">
+            {[
+              { t: "First two minutes", d: "Your name and a phone number, and that is all. No address, no date of birth, no reference number. If you would rather not give a name, we will still talk to you." },
+              { t: "Then about ten minutes", d: "You talk and we listen. There is no form being filled in yet. Most people have never said any of this out loud and that part on its own is worth the call." },
+              { t: "The middle twenty", d: "We go through what is coming in and what has to go out — rent, council tax, energy, food, travel. This is the bit people dread and it is arithmetic, not judgement. Nobody is asked to justify anything." },
+              { t: "The last ten", d: "What can actually be done, in order, with what each one costs you afterwards. You decide nothing on the call. We post or email it and you think about it." },
+              { t: "Afterwards", d: "We will write to creditors on your behalf the same week if you want us to, and most stop contacting you once we do. That letter is free and it is the single most useful thing we send." },
+            ].map((s, i) => (
+              <li key={s.t} className="grid gap-2 py-5 md:grid-cols-[minmax(0,12rem)_1fr] md:gap-8">
+                <p className="font-medium">
+                  <span className="mr-2 text-sm tabular-nums text-muted-foreground">{i + 1}</span>
+                  {s.t}
+                </p>
+                <p className="text-sm leading-relaxed text-muted-foreground">{s.d}</p>
+              </li>
+            ))}
+          </ol>
+          <div className="mt-8 grid gap-6 md:grid-cols-3">
+            <div className="rounded-lg border border-border p-5">
+              <p className="text-sm font-medium">We will never charge you</p>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                Not for the call, not for the letters, not for a debt relief order application. If
+                anybody has asked you for a fee for any of this, they were not us.
+              </p>
+            </div>
+            <div className="rounded-lg border border-border p-5">
+              <p className="text-sm font-medium">We do not tell anybody</p>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                Not your employer, not your landlord, not your family, and not your creditors unless
+                you ask us to. Nothing goes on your credit file because you rang us.
+              </p>
+            </div>
+            <div className="rounded-lg border border-border p-5">
+              <p className="text-sm font-medium">Nobody is beyond helping</p>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                We have never once told somebody there was nothing to be done. The worst case is
+                usually a debt relief order, and that is a fresh start rather than a punishment.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section>
         <div className="mx-auto max-w-3xl px-6 py-14">
           <SectionHeader title="What people ask before ringing" />

@@ -36,7 +36,7 @@ function P() {
           not a detail.
         </p>
 
-        <section className="mt-12 space-y-4">
+        <ul className="mt-12 space-y-4">
           <MembershipTierRow
             name="Full"
             forWhom="Unrestricted play, seven days"
@@ -91,7 +91,7 @@ function P() {
             grants={["Clubhouse, bar and events", "Guest at any social function"]}
             closed
           />
-        </section>
+        </ul>
 
         <section className="mt-14">
           <SectionHeader

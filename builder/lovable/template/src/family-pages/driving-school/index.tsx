@@ -14,6 +14,7 @@ import { SiteChrome } from "@/components/ui/site-chrome";
 import { PriceList } from "@/components/ui/price-list";
 import { RatingSummary } from "@/components/ui/rating-summary";
 import { PractitionerCard } from "@/components/ui/practitioner-card";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -82,6 +83,26 @@ function P() {
               Prices and blocks
             </a>
           </div>
+        </div>
+      </section>
+
+      {/* THE CAR, WHICH IS A REAL QUESTION AND NOT A VANITY ONE. Learners ask
+          what car before they ask almost anything else, because a first lesson
+          in something enormous is genuinely frightening and because a manual
+          licence and an automatic one are different licences. The dual
+          controls are the other half — a parent paying for lessons wants to
+          see them. */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-6 py-10">
+          <MediaGrid
+            columns={3}
+            ratio="4/3"
+            items={[
+              { src: null, alt: "The Corsa on a residential street, roof box off, school sign on the door", caption: "A 1.2 Corsa. Small, light, and forgiving of a first clutch." },
+              { src: null, alt: "The passenger footwell showing the dual clutch and brake pedals", caption: "Dual controls, checked every service. Nobody is ever alone with it." },
+              { src: null, alt: "The Sheffield test centre car park at Handsworth, three cars waiting", caption: "Handsworth. We do the last four lessons on the actual test routes." },
+            ]}
+          />
         </div>
       </section>
 

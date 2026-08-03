@@ -13,6 +13,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { SeasonPicker } from "@/components/ui/season-picker";
 import { ProductCard } from "@/components/ui/product-card";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -39,6 +40,27 @@ function P() {
       ]}
       action={{ label: "Plan a visit", href: "#/visit" }}
     >
+      {/* WHAT IS GOOD NOW, PHOTOGRAPHED NOW. This is the one trade where a
+          stock photograph is actively dishonest: a picture of a full bench of
+          bedding in a week when there is none brings people in for something
+          we have not got. Dated captions are the whole discipline — if the
+          picture is three weeks old, that is worth knowing before driving
+          out. */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-6 pt-10">
+          <MediaGrid
+            columns={4}
+            ratio="4/3"
+            items={[
+              { src: null, alt: "The bench of late-summer perennials, rudbeckia and echinacea in flower", caption: "Taken Monday. What is actually in flower on the bench today." },
+              { src: null, alt: "Bare-root hedging heeled into sand under the netting, labels visible", caption: "Bare-root season starts November. This is what it looks like." },
+              { src: null, alt: "The polytunnel with the propagation benches, seed trays coming on", caption: "About 60% of what we sell is grown here, not bought in." },
+              { src: null, alt: "The yard — bags of compost, aggregate bays, a trolley", caption: "Compost, bark and aggregate by the bag or the tonne." },
+            ]}
+          />
+        </div>
+      </section>
+
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-20">
           <div className="grid gap-16 lg:grid-cols-[1.1fr_1fr]">

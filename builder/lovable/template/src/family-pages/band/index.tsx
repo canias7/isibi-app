@@ -14,6 +14,7 @@ import { SiteChrome } from "@/components/ui/site-chrome";
 import { TourDates } from "@/components/ui/tour-dates";
 import { AudioPlayer } from "@/components/ui/audio-player";
 import { PressQuote } from "@/components/ui/press-quote";
+import { SafeImage } from "@/components/ui/safe-image";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -61,6 +62,26 @@ function P() {
               Hear something first
             </a>
           </div>
+        </div>
+      </section>
+
+      {/* A BAND PAGE WITH NO PICTURE OF THE BAND. A promoter deciding whether
+          to book and a person deciding whether to buy a ticket want the same
+          two things — what it looks like on a stage, and how many people were
+          in the room — and neither survives being described. The captions
+          carry the venue and the month, which is what turns a press shot into
+          evidence. */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-6 py-10">
+          <div className="grid gap-px bg-border sm:grid-cols-[1.5fr_1fr_1fr]">
+            <SafeImage src={null} alt="The four of them mid-set at the Leadmill, one spotlight, no smoke" ratio="4/3" className="rounded-none" />
+            <SafeImage src={null} alt="The room from the desk — full to the back wall, hands up" ratio="4/3" className="rounded-none" />
+            <SafeImage src={null} alt="Load-in at half four, flight cases on a wet pavement" ratio="4/3" className="rounded-none" />
+          </div>
+          <p className="mt-3 text-sm text-muted-foreground">
+            The Leadmill, March. These are ours and promoters can use them without asking — they
+            ask every week, and we would far rather they took these than made something up.
+          </p>
         </div>
       </section>
 

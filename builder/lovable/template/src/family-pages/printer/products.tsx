@@ -15,6 +15,7 @@ import { SizeGuide } from "@/components/ui/size-guide";
 import { PriceList } from "@/components/ui/price-list";
 import { SpecList, SpecRow } from "@/components/ui/spec-row";
 import { TurnaroundNote } from "@/components/ui/turnaround-note";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -69,6 +70,24 @@ function P() {
             outside a print room can picture and describing a poster over the phone with your hands
             is how half our enquiries used to go.
           </p>
+
+          {/* WHAT THE STOCK LOOKS LIKE, WHICH IS THE ONLY THING A WEIGHT IN
+              GSM CANNOT SAY. "400gsm matt" is a number nobody outside a print
+              room can feel; a photograph of the edge of the card next to a
+              350gsm one is the same fact in a form a customer can use. Every
+              caption here is a fact rather than a mood, for the same reason. */}
+          <section className="mt-10">
+            <MediaGrid
+              columns={4}
+              ratio="4/3"
+              items={[
+                { src: null, alt: "Four card stocks fanned on the bench, edges toward the camera", caption: "350 · 400 · 450 soft-touch · 540 duplex, edge on." },
+                { src: null, alt: "A5 flyers coming off the guillotine in a lift", caption: "170gsm silk. The commonest job in the building." },
+                { src: null, alt: "A roller banner stood up in the unit against a white wall", caption: "800 × 2000mm, cassette base, panel replaceable." },
+                { src: null, alt: "A transit van half-liveried, vinyl squeegee mid-stroke", caption: "Cut vinyl on a plain van. One day in the unit." },
+              ]}
+            />
+          </section>
 
           {/* SIZES AS FURNITURE. The one thing a millimetre table cannot do. */}
           <section id="posters" className="mt-12">

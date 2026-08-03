@@ -604,7 +604,7 @@ export const COMPONENT_API = {
   "escalation-ladder": "EscalationLadder(rungs: { who: string; after: string }[], currentIndex: number)",
   "escalation-note": "EscalationNote(to: string, from?: string, at?: string | number | Date, reason?: string)",
   "escort-note": "EscortNote(visitor: string, escort?: string, escortPresent?: boolean = true, since?: string, areas?: string[] = [], handovers?: { at: string; from: string; to: string }[] = [])",
-  "estimate-band": "EstimateBand(low: number, high: number, value?: number, min: number, max: number, label?: string, unit?: string = \"\")",
+  "estimate-band": "EstimateBand(low: number, high: number, value?: number, min: number, max: number, label?: string, unit?: string = \"\", suffix?: string = \"\")",
   "estimated-vs-actual": "EstimatedVsActual(periodLabel?: string, estimatedUnits: number, actualUnits: number, unit?: string = \"kWh\", amount?: number, currency?: string = \"GBP\", locale?: string = \"en-GB\", spreadOffered?: boolean)",
   "eta-band": "EtaBand(from: string, to: string, confidence?: string, late?: boolean)",
   "ethics-approval": "EthicsApproval(committee: string, reference?: string, approvedOn?: string, expiresOn?: string, expired?: boolean, approvedVersion?: string, currentVersion?: string, conditions?: string[] = [], amendmentsPending?: number)",

@@ -30,7 +30,7 @@ function P() {
             title="Electricity"
             description="Estimates assume 2,700 kWh a year, the Ofgem medium household. Your own figure is on the last page of your bill."
           />
-          <div className="mt-8 grid gap-4">
+          <ul className="mt-8 grid gap-4">
             <TariffRow
               name="Valley Fixed 24 — two years"
               unitRates={[{ id: "e", pencePerUnit: 24.1 }]}
@@ -66,14 +66,14 @@ function P() {
               estimateAt={2700}
               estimateAnnual={798}
             />
-          </div>
+          </ul>
         </div>
       </section>
 
       <section className="border-b border-border">
         <div className="mx-auto max-w-5xl px-6 py-14">
           <SectionHeader eyebrow="Open to new members" title="Gas" />
-          <div className="mt-8 grid gap-4">
+          <ul className="mt-8 grid gap-4">
             <TariffRow
               name="Valley Fixed Gas"
               unitRates={[{ id: "g", pencePerUnit: 6.1 }]}
@@ -92,7 +92,7 @@ function P() {
               estimateAnnual={848}
               unit="kWh"
             />
-          </div>
+          </ul>
         </div>
       </section>
 
@@ -130,7 +130,7 @@ function P() {
             title="Still here for the people on them"
             description="If you are on one of these, nothing changes unless you ask. Moving to a current tariff is free and there is no exit fee on any closed rate."
           />
-          <div className="mt-8 grid gap-4">
+          <ul className="mt-8 grid gap-4">
             <TariffRow
               name="Founder Fixed (closed 2024)"
               unitRates={[{ id: "e", pencePerUnit: 21.4 }]}
@@ -145,7 +145,7 @@ function P() {
               estimateAt={2700}
               estimateAnnual={774}
             />
-          </div>
+          </ul>
         </div>
       </section>
 

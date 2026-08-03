@@ -104,7 +104,7 @@ function P() {
             </div>
             <div>
               <SectionHeader eyebrow="What you get back" title="A named translator and a signed statement" />
-              <div className="mt-6 space-y-3">
+              <ul className="mt-6 space-y-3">
                 <CertificationRow
                   standard="Certificate of accuracy"
                   scope="Signed, dated, on letterhead, with the translator named"
@@ -119,7 +119,7 @@ function P() {
                   state="valid"
                   validUntil="2028-01-14"
                 />
-              </div>
+              </ul>
               <p className="mt-5 max-w-lg text-sm leading-relaxed text-muted-foreground">
                 A PDF the same day it is finished and a signed hard copy in the post at no extra
                 charge. Extra copies are £12 each and worth ordering up front — reprinting later

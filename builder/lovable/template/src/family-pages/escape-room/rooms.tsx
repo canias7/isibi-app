@@ -7,6 +7,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { DaySchedule } from "@/components/ui/day-schedule";
 import { RatingSummary } from "@/components/ui/rating-summary";
+import { SafeImage } from "@/components/ui/safe-image";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -15,6 +16,8 @@ export const Route = createFileRoute("/rooms")({ component: P });
 const ROOMS = [
   {
     name: "Cutlery Patent 1913",
+    shot: "The cutler's bench in daylight — files, a vice, a half-finished handle",
+    shot2: "The patent drawings pinned above the bench, 1913 dates visible",
     rate: "67%",
     mins: 45,
     who: "Your first room, or anybody you are trying to convince",
@@ -24,6 +27,8 @@ const ROOMS = [
   },
   {
     name: "The Flood",
+    shot: "The dam keeper's desk at 11pm, oil lamp burning, the ledger open",
+    shot2: "Water marks up the plaster, a stopped clock at 12 minutes past midnight",
     rate: "48%",
     mins: 60,
     who: "Your first or second. The best all-round room here",
@@ -33,6 +38,8 @@ const ROOMS = [
   },
   {
     name: "The Grinding Hull",
+    shot: "The grinding trough by one bulb, water still running on the stone",
+    shot2: "The crawl — a low brick arch with the next room lit beyond it",
     rate: "31%",
     mins: 60,
     who: "Your third or fourth room. Physical and dark",
@@ -42,6 +49,8 @@ const ROOMS = [
   },
   {
     name: "The Nightwatchman",
+    shot: "The watchman's hut, four minutes to midnight, keys on the hook",
+    shot2: "The board of forty numbered keys, three of them missing",
     rate: "12%",
     mins: 75,
     who: "Only if you have done about ten of these",
@@ -71,7 +80,16 @@ function P() {
 
         <section className="mt-12 space-y-8">
           {ROOMS.map((r) => (
-            <article key={r.name} className="rounded-xl border border-border p-6">
+            <article key={r.name} className="overflow-hidden rounded-xl border border-border">
+              {/* TWO PICTURES, NOT ONE. The wide shot answers "is it built or
+                  is it a shed"; the detail answers "how dark is it, really" —
+                  which is the question behind almost every phone call and the
+                  one a difficulty rating cannot touch. */}
+              <div className="grid gap-px bg-border sm:grid-cols-[1.6fr_1fr]">
+                <SafeImage src={null} alt={r.shot} ratio="16/9" className="rounded-none" />
+                <SafeImage src={null} alt={r.shot2} ratio="16/9" className="rounded-none" />
+              </div>
+              <div className="p-6">
               <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                 <h2 className="text-xl font-semibold">{r.name}</h2>
                 <p className="text-sm tabular-nums text-muted-foreground">{r.rate} escape · {r.mins} minutes</p>
@@ -85,6 +103,7 @@ function P() {
                 <span className="font-medium">Access. </span>
                 <span className="text-muted-foreground">{r.access}</span>
               </p>
+              </div>
             </article>
           ))}
         </section>

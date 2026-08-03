@@ -11,6 +11,7 @@ import { SiteChrome } from "@/components/ui/site-chrome";
 import { AnnouncementBar } from "@/components/ui/announcement-bar";
 import { TermDates } from "@/components/ui/term-dates";
 import { ContactCard } from "@/components/ui/contact-card";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -85,6 +86,25 @@ function P() {
               Sickness or diarrhoea means 48 hours clear before returning. That is a UKHSA rule
               rather than ours and we cannot waive it.
             </p>
+          </section>
+
+          {/* PHOTOGRAPHS BELOW THE ABSENCE LINE, NEVER ABOVE IT. A school home
+              page is read at 08:40 by a parent with a poorly child, and every
+              school site in the country puts a carousel of smiling children
+              above the one number that person needs. Underneath, the same
+              pictures do real work: they answer what the building is like for
+              a family thinking of moving here. */}
+          <section className="mt-12">
+            <MediaGrid
+              columns={4}
+              ratio="4/3"
+              items={[
+                { src: null, alt: "The Victorian frontage from the lane, gate open, two classrooms lit", caption: "1878, and a 2019 extension at the back. 94 children in four classes." },
+                { src: null, alt: "A Year 3 classroom mid-morning, tables of four, work on the walls", caption: "Mixed Year 3 and 4. The classes are 24 and 23." },
+                { src: null, alt: "The field and the wooded corner, den-building materials stacked", caption: "The field and the wood. Forest school is every Friday afternoon, all year." },
+                { src: null, alt: "The hall laid for lunch, hot meals being served at the hatch", caption: "Hot meals cooked on site. Free for every child up to Year 2." },
+              ]}
+            />
           </section>
 
           <section className="mt-12" id="week">

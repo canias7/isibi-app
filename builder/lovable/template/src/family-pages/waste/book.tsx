@@ -57,7 +57,7 @@ function P() {
             title="Five working days, and we cannot speed it up"
             description="A permit is a council decision. We apply, we pay the £42 and pass it on at cost, and the timescale is theirs entirely."
           />
-          <div className="mt-8 max-w-3xl">
+          <ul className="mt-8 max-w-3xl">
             <PermitRow
               kind="Skip permit — highway"
               reference="SCC-SKP-2026-11482"
@@ -73,7 +73,7 @@ function P() {
                 "Extension needs a new application. It is not automatic.",
               ]}
             />
-          </div>
+          </ul>
           <p className="mt-5 max-w-2xl text-sm leading-relaxed text-muted-foreground">
             On your own drive none of this applies and there is no permit, no lamps and no wait. If
             you can fit it on the drive, do.

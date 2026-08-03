@@ -44,7 +44,7 @@ function P() {
             <h2 className="text-sm font-medium uppercase tracking-widest text-muted-foreground">
               What was decided on 14 July
             </h2>
-            <div className="mt-4 space-y-5">
+            <ul className="mt-4 space-y-5">
               <MinutesEntry item="Play area — the annual inspection report"
                 discussion="The RoSPA report rates two items high risk: the swing frame bearings and the gate latch. Three quotes were tabled, ranging from £1,140 to £2,380."
                 decision="Accept the middle quote from Peak Play at £1,620. Work to be done in the school holidays."
@@ -65,7 +65,7 @@ function P() {
                 discussion="Within the grants budget, which stands at £4,000 with £1,350 already committed."
                 decision="Approved in full. Cllr Naylor declared an interest as a club member and left the room for the vote."
                 actionBy="Angela Firth, clerk" actionDueOn="2026-07-31" />
-            </div>
+            </ul>
             <p className="mt-5 text-sm leading-relaxed text-muted-foreground">
               Five items, five names, five dates. An item carried forward stays visible with the
               reason — the bus shelter has now been carried three times and it says so, because

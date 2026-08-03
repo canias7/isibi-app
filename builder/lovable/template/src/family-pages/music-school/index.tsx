@@ -14,6 +14,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { SubjectList } from "@/components/ui/subject-list";
 import { PractitionerCard } from "@/components/ui/practitioner-card";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -110,6 +111,25 @@ function P() {
             what a term costs. Fees are per TERM, because that is how you will be billed; the
             hourly figures below are what they work out at.
           </p>
+
+          {/* THE ROOMS, AND WHAT IS IN THEM. A parent choosing between two
+              music schools is choosing between two buildings they have never
+              seen, and the questions are practical: is there a real piano or a
+              keyboard, is there anywhere to sit and wait, is the drum room
+              soundproofed or is it a cupboard. Each caption answers one of
+              them with a fact rather than an adjective. */}
+          <section className="mt-10">
+            <MediaGrid
+              columns={4}
+              ratio="4/3"
+              items={[
+                { src: null, alt: "The main room with the Yamaha upright, two chairs and a stand", caption: "Two acoustic uprights, tuned twice a year. Not keyboards." },
+                { src: null, alt: "The drum room, kit set up, foam panels on three walls", caption: "Properly treated. The room next door can still teach through it." },
+                { src: null, alt: "The waiting area — six chairs, a kettle, a noticeboard of concert dates", caption: "Somewhere to sit for half an hour. Parents wait here every week." },
+                { src: null, alt: "The summer concert at the Methodist hall, about eighty in the audience", caption: "Two concerts a year, and everybody plays whether they are ready or not." },
+              ]}
+            />
+          </section>
 
           <section className="mt-12" id="strings">
             <SectionHeader

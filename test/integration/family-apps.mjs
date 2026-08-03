@@ -184,7 +184,26 @@ try {
         await page.setViewportSize({ width: 1280, height: 900 });
         await page.waitForTimeout(150);
         const m = await page.evaluate(() => {
-          const out = { cramped: [], spilling: [] };
+          const out = { cramped: [], spilling: [], orphans: [] };
+          // ORPHANED LIST ITEMS. A kit component whose root is an <li> reads as
+          // a "row" — BundleRow, and it is not the only one — so it gets
+          // dropped into a `<div className="grid gap-4">`, which is invalid
+          // HTML and paints the browser's default bullet and indent on every
+          // one of them. Measured: broadband's package table rendered as a
+          // bulleted list and looked like unstyled markup.
+          //
+          // NOTHING ELSE IN THIS REPO CAN SEE IT. tsc has no opinion about
+          // where JSX lands, vite bundles it, the page renders and does not
+          // throw, and at 880 it reads as merely a bit odd rather than wrong.
+          // Same family as the cramped and spilling rules: correct code, wrong
+          // picture, and only the DOM knows.
+          for (const li of document.querySelectorAll("#root li")) {
+            const p = li.parentElement;
+            if (!p) continue;
+            const t = p.tagName;
+            if (t === "UL" || t === "OL" || t === "MENU") continue;
+            out.orphans.push({ parent: t, text: (li.textContent || "").trim().slice(0, 48) });
+          }
           // Each rule narrows with a CHEAP DOM predicate before reading any
           // style: getComputedStyle over every node costs about twenty seconds
           // a page, which turns a sweep of 290 pages into two hours. Grid
@@ -266,6 +285,7 @@ try {
         await page.setViewportSize({ width: SHOT_WIDTH, height: 800 });
         for (const c of m.cramped) console.log(`  cramped  ${label}  ${c.w}px · ${c.chars} chars · ~${c.lines} lines — ${JSON.stringify(c.text)}`);
         for (const c of m.spilling) console.log(`  spilling ${label}  ${c.w}px box, ${c.need}px content — ${JSON.stringify(c.text)}`);
+        for (const c of m.orphans) console.log(`  orphan   ${label}  <li> inside <${c.parent}> — ${JSON.stringify(c.text)}`);
       }
       if (SHOTS) {
         fs.mkdirSync(SHOTS, { recursive: true });

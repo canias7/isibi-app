@@ -119,7 +119,7 @@ function P() {
                 four-hour shift counts you — you do not have to commit to a year, and nobody will
                 ring you about becoming a trustee.
               </p>
-              <div className="mt-6 space-y-3">
+              <ul className="mt-6 space-y-3">
                 <ShiftSignup role="Door knocking, Sedgley ward" when="Saturday 16 August, 10:00 to 13:00"
                   where="Meet at the Baths steps" filled={9} needed={14}
                   requirements={["Outside whatever the weather", "About two miles of walking", "In pairs, always"]}
@@ -141,7 +141,7 @@ function P() {
                   requirements={["Heavy lifting", "Dusty and dark", "Steel toecaps needed and we have spares"]}
                   signedUp={taken.includes("boiler")}
                   onSignUp={() => toggle("boiler")} onWithdraw={() => toggle("boiler")} />
-              </div>
+              </ul>
               <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
                 Withdrawing is one click and nobody minds. A shift you drop a week out gets filled;
                 one you do not turn up to does not.

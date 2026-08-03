@@ -9,6 +9,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { SessionTable } from "@/components/ui/session-table";
 import { HouseRules } from "@/components/ui/house-rules";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -44,6 +45,24 @@ function P() {
 
         <section className="mt-12">
           <SectionHeader eyebrow="The six" title="And who each one is genuinely for" />
+          {/* The caption carries the LIMIT, not a mood. A picture of the crag
+              beside "35-120kg, harness rating" is the same fact in two
+              registers, and the second is the one somebody remembers on the
+              drive up. */}
+          <div className="mt-8">
+            <MediaGrid
+              columns={3}
+              ratio="4/3"
+              items={[
+                { src: null, alt: "Two boats at the sheltered end, an instructor waist-deep beside them", caption: "Kayaking · 8+, no weight limit" },
+                { src: null, alt: "The buoyed course at first light, one swimmer, marker buoy in the foreground", caption: "Open water · 16+, or 12 with an adult in" },
+                { src: null, alt: "The crag from below — the easy line on the left, chalked", caption: "Climbing · 8+, 35-120kg harness rating" },
+                { src: null, alt: "The high ropes platform in the trees, ladder start visible", caption: "High ropes · 10+ and 1.4m, shut above 25mph" },
+                { src: null, alt: "Three boards on flat water, nobody upright", caption: "Paddleboarding · 10+, 110kg a board" },
+                { src: null, alt: "A fire lit in the plantation, kettle over it, tarps behind", caption: "Bushcraft · 4+, fully accessible" },
+              ]}
+            />
+          </div>
           <ul className="mt-8 divide-y divide-border border-y border-border">
             {LIMITS.map((l) => (
               <li key={l.what} className="py-5">

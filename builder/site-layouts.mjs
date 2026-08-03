@@ -1743,6 +1743,9 @@ export const FAMILIES = {
   },
 
   bank: {
+    // NO IMAGERY, DELIBERATELY. The rate table is the product. Retail finance
+    // is the worst offender for photographs of couples on sofas, and they are
+    // always on the page where the APR is not.
     md: "Bank, lender or credit union — rates-first",
     label: "every rate with its conditions in the same row, because the conditions are the product",
     cta: ["Apply to join", "See rates"],
@@ -1764,6 +1767,9 @@ export const FAMILIES = {
   },
 
   insurance: {
+    // NO IMAGERY, DELIBERATELY. Cover levels and exclusions are the product,
+    // and a family in a sunlit kitchen is how this trade avoids printing what
+    // is not covered.
     md: "Insurance or protection — cover-levels-first",
     label: "levels side by side with what each refuses — the exclusions decide it",
     cta: ["Get a quote", "Compare cover"],
@@ -1784,6 +1790,11 @@ export const FAMILIES = {
   },
 
   "debt-advice": {
+    // NO IMAGERY, DELIBERATELY, and this is the one where it matters most.
+    // The reader is frightened and often ashamed, and a stock photograph of a
+    // smiling adviser reads as a sales page — which is exactly what somebody
+    // in that state is braced for. A phone number and a priority order is
+    // kinder than anything a picture could do here.
     md: "Free advice service — urgent-help-first",
     label: "no form before the phone number, and the priority order above everything",
     cta: ["Talk to an adviser", "Start with the checklist"],
@@ -2265,6 +2276,9 @@ export const FAMILIES = {
   },
 
   translation: {
+    // NO IMAGERY, DELIBERATELY. A language pair, a rate and a certification
+    // reference are the whole product — and stock photography of a headset is
+    // what every agency in this trade publishes INSTEAD of its rates.
     md: "Translation or interpreting — language-pair-first",
     label: "the pair and the turnaround set the price; no imagery, just the rates and the queue",
     cta: ["Get a quote", "Send a document"],
@@ -2285,6 +2299,9 @@ export const FAMILIES = {
   },
 
   timetable: {
+    // NO IMAGERY, DELIBERATELY. Read in a shelter, in daylight, sometimes
+    // printed and taped to a noticeboard. A photograph of a happy passenger
+    // costs a departure row and buys nothing.
     md: "Scheduled transport — departures-first",
     label: "the next departures as a board, because a timetable is the entire product",
     cta: ["Next departures", "Full timetable"],
@@ -2393,6 +2410,9 @@ export const FAMILIES = {
   },
 
   bureau: {
+    // NO IMAGERY, DELIBERATELY. Terminal structure means monospace type and
+    // hairline rules; a photograph of a smiling couple holding euros is the
+    // decoration this whole family is defined against. The board is the page.
     md: "Currency or bullion dealer — live-rates-first",
     label: "the rate board, when it was set, and the spread stated rather than hidden",
     cta: ["Today's rates", "Reserve currency"],

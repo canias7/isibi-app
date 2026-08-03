@@ -10,6 +10,7 @@ import { SiteChrome } from "@/components/ui/site-chrome";
 import { AdmissionPrices } from "@/components/ui/admission-prices";
 import { OpeningHours } from "@/components/ui/opening-hours";
 import { HouseRules } from "@/components/ui/house-rules";
+import { Figure } from "@/components/ui/figure";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -112,6 +113,25 @@ function P() {
               </li>
             ))}
           </ul>
+          {/* A PICTURE OF THE ACTUAL PATH, which is the one thing an access
+              statement cannot do. "Step-free" is a claim; a photograph of the
+              surface, the width and the gradient is something a wheelchair
+              user can judge for themselves — and judging for themselves is the
+              entire point of publishing this at all. */}
+          <div className="mt-8 grid gap-6 sm:grid-cols-2">
+            <Figure
+              src={null}
+              ratio="16/9"
+              alt="The compacted path into the plantation, taken at chair height"
+              caption="The bushcraft path. 1.4m wide, compacted stone, no gradient over 1:20 — measured, not estimated."
+            />
+            <Figure
+              src={null}
+              ratio="16/9"
+              alt="The pontoon transfer bench beside a kayak, hoist point above"
+              caption="The kayak transfer. Two staff, a supported seat and a bench at boat height. We do this most weeks."
+            />
+          </div>
           <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
             Ring 0114 285 3310 and ask for Ruth. She will tell you honestly what will work rather
             than what sounds welcoming, and she would far rather have that conversation than watch

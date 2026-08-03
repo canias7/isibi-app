@@ -61,7 +61,7 @@ function P() {
             title="Stops and times, not just a destination"
             description="'Sheffield to Blackpool' is not a route. Four pick-ups across the city adds well over an hour, and that is what turns a one-driver day into a two-driver one."
           />
-          <div className="mt-8 space-y-3">
+          <ul className="mt-8 space-y-3">
             <RouteStop
               sequence={1}
               name="Hillsborough Corner"
@@ -95,7 +95,7 @@ function P() {
               willBeLate
               access="Arrival window is optimistic on a summer Saturday — the M55 is the variable and we would rather say so now."
             />
-          </div>
+          </ul>
         </section>
 
         <section className="mt-14">

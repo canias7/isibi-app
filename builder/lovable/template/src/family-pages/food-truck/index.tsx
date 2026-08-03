@@ -15,6 +15,7 @@ import { TradingDiary } from "@/components/ui/trading-diary";
 import { MenuSection } from "@/components/ui/menu-section";
 import { LocationCard } from "@/components/ui/location-card";
 import { OpenNow } from "@/components/ui/open-now";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -89,6 +90,27 @@ function P() {
               The rest of the month
             </a>
           </div>
+        </div>
+      </section>
+
+      {/* THE FOOD, AND THE VAN, WHICH ARE TWO DIFFERENT ANSWERS. A picture of
+          the food is the product; a picture of the VAN is how somebody finds
+          us in a field of thirty other traders — and that second one is what
+          street food sites never publish. Portion size is the other thing a
+          menu line cannot say, and it is the commonest complaint in this
+          trade. */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-6 py-10">
+          <MediaGrid
+            columns={4}
+            ratio="1/1"
+            items={[
+              { src: null, alt: "The van from twenty feet — orange, hatch up, board out front", caption: "What to look for. Orange, and the only one with a hatch this side." },
+              { src: null, alt: "A box of the brisket, held in one hand for scale", caption: "The brisket box. That is one hand — it is a meal, not a snack." },
+              { src: null, alt: "The griddle at eleven, onions going on, nothing plated yet", caption: "Everything is cooked when you order it. That is the four minutes." },
+              { src: null, alt: "The queue at Kelham on a Friday, about nine people deep", caption: "Friday at Kelham, half past twelve. Come at one and there is nobody." },
+            ]}
+          />
         </div>
       </section>
 

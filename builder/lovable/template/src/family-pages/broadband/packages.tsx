@@ -28,7 +28,7 @@ function P() {
             title="Four packages, no bundles you did not ask for"
             description="No television, no mobile, no insurance attached to the bill. A connection is what we sell."
           />
-          <div className="mt-8 grid gap-4">
+          <ul className="mt-8 grid gap-4">
             <BundleRow
               name="Full fibre 900"
               parts={[
@@ -61,7 +61,7 @@ function P() {
               monthlyPrice={26}
               contractMonths={12}
             />
-          </div>
+          </ul>
         </div>
       </section>
 
@@ -104,7 +104,7 @@ function P() {
             title="Two packages we closed, kept here for the people on them"
             description="If you are on one of these you can stay. Nothing changes unless you ask, and moving to a current package is free."
           />
-          <div className="mt-8 grid gap-4">
+          <ul className="mt-8 grid gap-4">
             <BundleRow
               name="Fibre 300 (closed March 2025)"
               parts={[{ id: "l", what: "300 Mb down, 50 Mb up" }]}
@@ -117,7 +117,7 @@ function P() {
               monthlyPrice={22}
               contractMonths={0}
             />
-          </div>
+          </ul>
         </div>
       </section>
 

@@ -12,6 +12,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { ProductCard } from "@/components/ui/product-card";
 import { PriceList } from "@/components/ui/price-list";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -47,6 +48,27 @@ function P() {
       ]}
       action={{ label: "Book a service", href: "#/workshop" }}
     >
+      {/* A BIKE SHOP WITH NO PICTURE OF A BIKE, WHICH IS MOST OF THEM. The
+          two questions in the doorway are "what sort of shop is this" and "can
+          you fix mine" — a wall of hybrids and a workshop bench answer both in
+          a second, and four paragraphs of prose answer neither. The workshop
+          picture is the one that matters: it is the difference between a shop
+          that sells bikes and a shop that keeps yours going. */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-6 pt-10">
+          <MediaGrid
+            columns={4}
+            ratio="4/3"
+            items={[
+              { src: null, alt: "The shop floor from the door — hybrids and gravel bikes on a rail, no road bikes", caption: "What we stock. Commuters, gravel and kids', not carbon race bikes." },
+              { src: null, alt: "The workshop bench, a wheel in the truing stand, tools on a magnetic strip", caption: "Two mechanics, five days a week. Most jobs are same-week." },
+              { src: null, alt: "A rack of second-hand bikes outside under the awning, prices chalked on", caption: "Second-hand from £120, all serviced, all with a three-month warranty." },
+              { src: null, alt: "A child being measured against a 24-inch wheel bike, feet down", caption: "Kids' bikes are fitted, not guessed. Bring the child." },
+            ]}
+          />
+        </div>
+      </section>
+
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-12">
           <div className="grid items-start gap-10 lg:grid-cols-[1.3fr_1fr]">

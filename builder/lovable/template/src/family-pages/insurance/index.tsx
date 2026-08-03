@@ -131,6 +131,62 @@ function P() {
         </div>
       </section>
 
+      {/* THE CLAIMS RECORD, WHICH IS THE ONLY QUESTION THAT MATTERS AND THE
+          ONE NOBODY ANSWERS. An insurer is a promise to pay later, so the only
+          evidence worth anything is how it paid last year: how many claims,
+          how fast, how many refused, and — the number that never appears
+          anywhere — what the refusals were FOR. This is what belongs where
+          most insurers put a photograph of a family in a kitchen. */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-4xl px-6 py-14">
+          <SectionHeader
+            eyebrow="Last year, audited"
+            title="What we actually paid, and what we did not"
+            description="Twelve months to 31 March 2026. These are the FCA figures we file anyway, printed here rather than left in a return nobody reads."
+          />
+          <div className="mt-8 grid gap-6 sm:grid-cols-4">
+            <div className="border-t border-foreground pt-4">
+              <p className="text-3xl font-semibold tabular-nums">4,118</p>
+              <p className="mt-1 text-sm text-muted-foreground">claims received</p>
+            </div>
+            <div className="border-t border-foreground pt-4">
+              <p className="text-3xl font-semibold tabular-nums">93.4%</p>
+              <p className="mt-1 text-sm text-muted-foreground">paid in full</p>
+            </div>
+            <div className="border-t border-foreground pt-4">
+              <p className="text-3xl font-semibold tabular-nums">6 days</p>
+              <p className="mt-1 text-sm text-muted-foreground">median, claim to payment</p>
+            </div>
+            <div className="border-t border-foreground pt-4">
+              <p className="text-3xl font-semibold tabular-nums">£1,240</p>
+              <p className="mt-1 text-sm text-muted-foreground">median amount paid</p>
+            </div>
+          </div>
+
+          <p className="mt-10 text-sm font-medium">The 272 we refused, by reason</p>
+          <ul className="mt-3 divide-y divide-border border-y border-border">
+            {[
+              { n: 164, why: "Pre-existing condition", note: "Symptoms recorded by a vet before the policy started or inside the 14-day wait. This is 60% of every refusal and it is why the vet history question matters." },
+              { n: 48, why: "No dental check-up in the previous year", note: "Clause 4.9. Avoidable, and a dated check-up from any vet lifts it — we now write to remind people at ten months." },
+              { n: 31, why: "Routine or preventative treatment", note: "Vaccination, worming, neutering. Never covered on any policy we sell and it is on the first page of the summary." },
+              { n: 19, why: "Claim made after the 90-day window", note: "The one we most often overturn on appeal. If you are late, ring us — nine of these nineteen were paid in the end." },
+              { n: 10, why: "Policy not in force on the date of treatment", note: "A lapsed direct debit, almost always. We write three times before a policy lapses." },
+            ].map((r) => (
+              <li key={r.why} className="grid gap-1 py-4 md:grid-cols-[4rem_minmax(0,16rem)_1fr] md:gap-6">
+                <p className="text-lg font-semibold tabular-nums">{r.n}</p>
+                <p className="text-sm font-medium">{r.why}</p>
+                <p className="text-sm leading-relaxed text-muted-foreground">{r.note}</p>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+            Fourteen went to the Financial Ombudsman. Nine were decided in our favour, four against,
+            one is open. We publish the four we lost because an insurer that has never lost a case
+            is either perfect or is not counting.
+          </p>
+        </div>
+      </section>
+
       <section className="border-b border-border">
         <div className="mx-auto max-w-4xl px-6 py-14">
           <SectionHeader

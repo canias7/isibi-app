@@ -14,6 +14,7 @@ import { BentoGrid } from "@/components/ui/bento-grid";
 import { TriageBanner } from "@/components/ui/triage-banner";
 import { OpeningHours } from "@/components/ui/opening-hours";
 import { CounterServices } from "@/components/ui/counter-services";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -136,6 +137,25 @@ function P() {
               ]}
             />
           </div>
+        </div>
+      </section>
+
+      {/* THE CONSULTING ROOM, WHICH IS THE WHOLE CLAIM. "We have a private
+          consultation room" is on every pharmacy's website and it can mean a
+          curtained corner. A photograph of a door that shuts is the difference
+          between somebody asking about a contraceptive or a mental health
+          referral and somebody deciding not to at the counter, in a queue. */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-6 py-10">
+          <MediaGrid
+            columns={3}
+            ratio="4/3"
+            items={[
+              { src: null, alt: "The consultation room with the door open — a desk, two chairs, a sink", caption: "A room with a door that shuts. Not a curtain, not a corner." },
+              { src: null, alt: "The dispensary from the counter, robot and shelving behind", caption: "Where your prescription actually is. Usually 20 minutes, never 'come back tomorrow'." },
+              { src: null, alt: "The shop front on a wet evening, lit, open sign showing", caption: "Open until seven, and until one on Saturday. The rota is on the door." },
+            ]}
+          />
         </div>
       </section>
 

@@ -12,6 +12,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { CalculatorCard } from "@/components/ui/calculator-card";
 import { EstimateBand } from "@/components/ui/estimate-band";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -79,10 +80,31 @@ function P() {
                 min={0}
                 max={Math.round(annual * 1.8)}
                 label="Where it realistically lands"
-                unit="£ a year"
+                unit="£"
+                suffix="a year"
               />
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* A REAL ROOF IN THIS CITY, NOT A RENDER OF A VILLA. Almost every
+          solar site uses stock photography of a detached house in California,
+          and the customer's actual question is whether it will look wrong on a
+          Victorian terrace in Walkley. Naming the STREET is what makes it
+          checkable — somebody can go and look at it, and several people have. */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-6 py-10">
+          <MediaGrid
+            columns={4}
+            ratio="4/3"
+            items={[
+              { src: null, alt: "A Walkley terrace roof with ten all-black panels, viewed from the street", caption: "Walkley, 4.0 kWp. Taken from the pavement, not from a drone." },
+              { src: null, alt: "The same roof from the back garden, panels flush to the slate", caption: "In-roof on the rear slope. Flush, because the slate came off anyway." },
+              { src: null, alt: "An inverter and battery mounted in a garage, cables trunked and labelled", caption: "The inverter and a 5kWh battery. This is where it all ends up." },
+              { src: null, alt: "A shaded roof with a chimney and a dormer, panels avoiding both", caption: "The awkward one. A chimney is why a survey beats a satellite photo." },
+            ]}
+          />
         </div>
       </section>
 

@@ -15,6 +15,7 @@ import { SiteChrome } from "@/components/ui/site-chrome";
 import { useChunkedUpload, ChunkedUploadBar } from "@/components/ui/chunked-upload";
 import { TurnaroundNote } from "@/components/ui/turnaround-note";
 import { SpecList, SpecRow } from "@/components/ui/spec-row";
+import { Figure } from "@/components/ui/figure";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -186,6 +187,31 @@ function P() {
                 </li>
               ))}
             </ul>
+            {/* BLEED IS A VISUAL PROBLEM AND A PARAGRAPH CANNOT SHOW IT. Six
+                explanations of a white hairline down one edge are worth less
+                than one photograph of a stack where it happened, which is why
+                this sits inside the requirements section rather than beside
+                it. */}
+            <div className="mt-8 grid gap-6 sm:grid-cols-3">
+              <Figure
+                src={null}
+                ratio="4/3"
+                alt="A stack of cards with a white hairline down one edge, raking light"
+                caption="No bleed. The guillotine drifts half a millimetre and a third of the run looks like this."
+              />
+              <Figure
+                src={null}
+                ratio="4/3"
+                alt="The same card with the background run 3mm past the trim, crop marks visible"
+                caption="With bleed. Same artwork, one export setting, and we add it free anyway."
+              />
+              <Figure
+                src={null}
+                ratio="4/3"
+                alt="A logo pulled off a website printed at A2, blocky at the edges"
+                caption="72dpi at A2. Nobody can repair this — the detail is not in the file."
+              />
+            </div>
             <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
               The two we cannot fix are both about information that is not in the file. A 400-pixel
               logo does not contain the detail a poster needs, and no amount of upscaling invents

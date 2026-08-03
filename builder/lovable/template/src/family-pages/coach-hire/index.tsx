@@ -12,6 +12,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { FareQuote } from "@/components/ui/fare-quote";
 import { CapacityTable } from "@/components/ui/capacity-table";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -75,6 +76,27 @@ function P() {
               includes={INCLUDED}
             />
           </div>
+        </div>
+      </section>
+
+      {/* BELOW THE QUOTE, NEVER ABOVE IT — this page's own rule is that a
+          53-seater on a sunny motorway decides nothing. But the INSIDE does:
+          legroom, whether there is a toilet, and whether the luggage actually
+          fits are the three things people ring to ask, and they are the three
+          things no fleet photograph on a coach company's home page ever
+          shows. */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-6 py-10">
+          <MediaGrid
+            columns={4}
+            ratio="4/3"
+            items={[
+              { src: null, alt: "The 16-seater interior from the front, seats and the aisle", caption: "16-seater. No toilet, no luggage hold — bags go on the back seats." },
+              { src: null, alt: "The 33-seater interior, luggage racks overhead", caption: "33-seater. Overhead racks, no toilet. The one most schools book." },
+              { src: null, alt: "The 53-seater interior looking back, toilet door at the rear", caption: "53-seater. Toilet, hold underneath, and reclining seats." },
+              { src: null, alt: "The hold open on the 53, cases loaded two deep", caption: "The hold. A week's luggage for 53 people fits; ski bags do not." },
+            ]}
+          />
         </div>
       </section>
 

@@ -12,16 +12,23 @@ import { createFileRoute } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { AvailabilityGrid } from "@/components/ui/availability-grid";
 import { RatingSummary } from "@/components/ui/rating-summary";
+import { SafeImage } from "@/components/ui/safe-image";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
 export const Route = createFileRoute("/")({ component: P });
 
+// `shot` IS THE ROOM, NOT A LOGO. A picture of a set is the only way to answer
+// "how dark is it", "is it a shed or is it built", and "will my mother enjoy
+// this" — which are the three things people actually want and which no
+// difficulty rating can say. Written as art direction rather than as a label,
+// because the placeholder prints the alt and the alt is what a photographer
+// would be handed.
 const ROOMS = [
-  { name: "The Grinding Hull", difficulty: "Hard", rate: "31% escape", best: "4 to 6", worst: "Poor with two — too many locks for one pair of hands", mins: 60, note: "1890s cutlery works. The most physical room and the one with the crawl." },
-  { name: "The Flood", difficulty: "Medium", rate: "48% escape", best: "3 to 5", worst: "Fine with two, tight with six", mins: 60, note: "1864, the night the dam went. Our most popular and the best first room." },
-  { name: "Cutlery Patent 1913", difficulty: "Easy", rate: "67% escape", best: "2 to 4", worst: "Six is too many — people stand about", mins: 45, note: "The one to bring somebody who has never done this. Genuinely fun to fail." },
-  { name: "The Nightwatchman", difficulty: "Very hard", rate: "12% escape", best: "5 to 6", worst: "Do not attempt with fewer than four", mins: 75, note: "Built for people who have done ten of these. Most groups do not get out and that is the point." },
+  { name: "The Grinding Hull", difficulty: "Hard", rate: "31% escape", best: "4 to 6", worst: "Poor with two — too many locks for one pair of hands", mins: 60, note: "1890s cutlery works. The most physical room and the one with the crawl.", shot: "The grinding trough, lit by one bulb, water still on the stone" },
+  { name: "The Flood", difficulty: "Medium", rate: "48% escape", best: "3 to 5", worst: "Fine with two, tight with six", mins: 60, note: "1864, the night the dam went. Our most popular and the best first room.", shot: "The dam keeper's desk at 11pm, lamp burning, the ledger open" },
+  { name: "Cutlery Patent 1913", difficulty: "Easy", rate: "67% escape", best: "2 to 4", worst: "Six is too many — people stand about", mins: 45, note: "The one to bring somebody who has never done this. Genuinely fun to fail.", shot: "The cutler's bench in daylight — bright, warm, nothing hidden" },
+  { name: "The Nightwatchman", difficulty: "Very hard", rate: "12% escape", best: "5 to 6", worst: "Do not attempt with fewer than four", mins: 75, note: "Built for people who have done ten of these. Most groups do not get out and that is the point.", shot: "The watchman's hut, four minutes to midnight, keys on the hook" },
 ];
 
 function P() {
@@ -49,7 +56,9 @@ function P() {
 
           <div className="mt-10 grid gap-6 sm:grid-cols-2">
             {ROOMS.map((r) => (
-              <article key={r.name} className="rounded-xl border border-border p-6">
+              <article key={r.name} className="overflow-hidden rounded-xl border border-border">
+                <SafeImage src={null} alt={r.shot} ratio="16/9" className="rounded-none" />
+                <div className="p-6">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                   <h2 className="text-lg font-semibold">{r.name}</h2>
                   <span className="text-sm tabular-nums text-muted-foreground">{r.mins} minutes</span>
@@ -70,6 +79,7 @@ function P() {
                   </div>
                 </dl>
                 <p className="mt-4 text-sm leading-relaxed text-muted-foreground">{r.worst}</p>
+                </div>
               </article>
             ))}
           </div>

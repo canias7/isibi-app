@@ -11,6 +11,7 @@ import { SiteChrome } from "@/components/ui/site-chrome";
 import { AvailabilityGrid } from "@/components/ui/availability-grid";
 import { PriceList } from "@/components/ui/price-list";
 import { OpeningHours } from "@/components/ui/opening-hours";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -59,6 +60,27 @@ function P() {
       ]}
       action={{ label: "Book an eye test", href: "#book" }}
     >
+      {/* THE TEST ROOM FIRST, THE FRAMES SECOND, and that order is the whole
+          family. Every optician's website leads with a wall of frames, which
+          sells the accessory and hides the clinical half — and the clinical
+          half is what an OCT scan is, what it costs, and why it matters. A
+          photograph of the actual equipment is the only way to show that this
+          is a health appointment rather than a shopping trip. */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-6 pt-10">
+          <MediaGrid
+            columns={4}
+            ratio="4/3"
+            items={[
+              { src: null, alt: "The test room with the chart and the phoropter, chair empty, lights up", caption: "Thirty minutes with an optometrist. Not fifteen." },
+              { src: null, alt: "The OCT scanner, screen showing a cross-section of a retina", caption: "OCT, £25. It sees under the retina — this is the one worth paying for." },
+              { src: null, alt: "The frame wall, about two hundred frames, price bands marked on the shelf edge", caption: "About 200 frames, and the price band is on the shelf, not hidden inside." },
+              { src: null, alt: "The glazing bench at the back, a lens in the edger", caption: "Single vision glazed here, usually same day." },
+            ]}
+          />
+        </div>
+      </section>
+
       <section className="border-b border-border">
         <div className="mx-auto max-w-6xl px-6 py-16">
           <div className="grid items-start gap-14 lg:grid-cols-2">

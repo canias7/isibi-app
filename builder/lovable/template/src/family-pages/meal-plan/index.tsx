@@ -14,6 +14,7 @@ import { CutoffTime } from "@/components/ui/cutoff-time";
 import { MenuSection } from "@/components/ui/menu-section";
 import { PlanCard } from "@/components/ui/plan-card";
 import { DeliverySlot } from "@/components/ui/delivery-slot";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -88,6 +89,26 @@ function P() {
             always twelve to pick from by the weekend.{" "}
             <a className="underline underline-offset-4" href="#/menu">Next week is already published.</a>
           </p>
+        </div>
+      </section>
+
+      {/* THIS WEEK'S FOOD, PHOTOGRAPHED THIS WEEK. Every recipe box on earth
+          reuses the same twelve studio shots all year, which is why the
+          delivered box never looks like the website. These carry the week
+          number so a repeat customer can tell whether the picture is current —
+          and if it is not, that is worth knowing too. */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-6 py-10">
+          <MediaGrid
+            columns={4}
+            ratio="1/1"
+            items={[
+              { src: null, alt: "The harissa chicken traybake, straight from the oven in the dish", caption: "Week 32 · in the dish, not styled" },
+              { src: null, alt: "The lentil and squash bowl, one portion in a bowl on a wooden board", caption: "Week 32 · this is one portion" },
+              { src: null, alt: "An open box on a kitchen table, everything laid out beside it", caption: "What actually arrives. Paper bags, one ice pack, no plastic trays." },
+              { src: null, alt: "The recipe card propped against a chopping board, splashed", caption: "The card. Six steps, one pan, and it survives being cooked from." },
+            ]}
+          />
         </div>
       </section>
 

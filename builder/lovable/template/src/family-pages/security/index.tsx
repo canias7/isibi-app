@@ -14,6 +14,7 @@ import { SiteChrome } from "@/components/ui/site-chrome";
 import { SlaClock } from "@/components/ui/sla-clock";
 import { AlarmState } from "@/components/ui/alarm-state";
 import { PriceList } from "@/components/ui/price-list";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -100,6 +101,26 @@ function P() {
               What monitoring actually means
             </a>
           </div>
+        </div>
+      </section>
+
+      {/* THE ONE PICTURE THIS TRADE NEVER PUBLISHES: WHAT THE CAMERA ACTUALLY
+          SEES AT NIGHT. Every security company shows a product shot of a
+          camera, which tells a customer nothing — the question is whether the
+          footage would identify anybody at two in the morning in the rain, and
+          most systems sold on "4K" would not. Showing a real still at a real
+          hour is the same discipline as printing the attendance figure. */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-6 py-10">
+          <MediaGrid
+            columns={3}
+            ratio="16/9"
+            items={[
+              { src: null, alt: "A yard at 02:10, camera still, a figure recognisable at fifteen metres", caption: "02:10, no floodlight. A face at 15m — this is the test that matters." },
+              { src: null, alt: "The same yard from a cheaper camera, the figure a grey smear", caption: "The same yard, a £90 camera. Also '4K'. Useless to the police." },
+              { src: null, alt: "The monitoring room, four operators, walls of screens", caption: "Monitored here in Attercliffe, not offshore. Two operators overnight." },
+            ]}
+          />
         </div>
       </section>
 

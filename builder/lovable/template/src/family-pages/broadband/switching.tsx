@@ -8,6 +8,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { ContractEnd } from "@/components/ui/contract-end";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -78,6 +79,26 @@ function P() {
               exitFee={0}
             />
           </div>
+        </div>
+      </section>
+
+      {/* "WILL YOU DRILL MY WALL" IS THE REAL QUESTION ABOUT FULL FIBRE, and
+          no provider answers it. An engineer with a drill is the single reason
+          people put off switching, particularly renters and particularly
+          anybody in a listed or stone-fronted house here. Three photographs of
+          a finished install answer it better than a paragraph promising to be
+          careful. */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-6 py-10">
+          <MediaGrid
+            columns={3}
+            ratio="4/3"
+            items={[
+              { src: null, alt: "An 8mm hole through a stone lintel, cable clipped neatly along the course", caption: "One 8mm hole, and we follow the mortar course, not the stone." },
+              { src: null, alt: "The white fibre box on a skirting board beside a socket", caption: "What is left inside: a box about the size of a paperback." },
+              { src: null, alt: "The engineer's van and a fibre spool at a pole outside a terrace", caption: "About 90 minutes. Somebody needs to be in, and it is one visit." },
+            ]}
+          />
         </div>
       </section>
 

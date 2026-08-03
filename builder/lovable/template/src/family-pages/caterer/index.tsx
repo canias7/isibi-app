@@ -13,6 +13,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { PriceList } from "@/components/ui/price-list";
 import { DateEnquiry } from "@/components/ui/date-enquiry";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -88,6 +89,26 @@ function P() {
               </p>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* THE PICTURE A CATERER NEEDS IS THE ROOM AT SCALE, not a plate. What
+          somebody booking a hundred people is frightened of is that it looks
+          like a hundred portions of the same thing under a heat lamp, and one
+          photograph of a real service settles it in a way no menu can. Each
+          caption carries the HEADCOUNT, because a beautiful table of twelve
+          proves nothing about a wedding of a hundred and forty. */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-6 py-10">
+          <MediaGrid
+            columns={3}
+            ratio="4/3"
+            items={[
+              { src: null, alt: "A long trestle laid down the middle of a barn, sharing plates end to end", caption: "140, Whirlow Barn, June. Sharing, on the table, no service line." },
+              { src: null, alt: "Two of the kitchen team plating in a marquee, twenty covers going out", caption: "60, plated, in a marquee with a generator and no gas." },
+              { src: null, alt: "The van tailgate at seven in the morning, crates of prep stacked", caption: "Everything is made in the unit at Neepsend and driven out. No third-party kitchens." },
+            ]}
+          />
         </div>
       </section>
 

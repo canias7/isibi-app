@@ -14,6 +14,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { SizeGuide } from "@/components/ui/size-guide";
 import { SpecList, SpecRow } from "@/components/ui/spec-row";
+import { MediaGrid } from "@/components/ui/media-grid";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -37,6 +38,24 @@ function P() {
           the number every association publishes and it is why people take a full plot and hand it
           back in September.
         </p>
+
+        {/* THE SITE, HONESTLY, INCLUDING FEBRUARY. Every allotment page that
+            has a photograph has one from late July, and that picture is why
+            people take a plot in March and hand it back in September. Four
+            months, four pictures, is the fair version — and the mud is the one
+            that stops somebody being surprised by their own first winter. */}
+        <section className="mt-10">
+          <MediaGrid
+            columns={4}
+            ratio="4/3"
+            items={[
+              { src: null, alt: "The top path in February — bare beds, standing water in the ruts", caption: "February. This is four months of the year and nobody photographs it." },
+              { src: null, alt: "Broad beans and rhubarb coming through, the sheds behind", caption: "April. The month it turns, and the month the work starts." },
+              { src: null, alt: "Runner beans up canes, courgettes sprawling, everything at once", caption: "July. What every allotment website shows, all year round." },
+              { src: null, alt: "Leeks and purple sprouting under a low sun, netting over the brassicas", caption: "November. Still feeding you, and about an hour a fortnight." },
+            ]}
+          />
+        </section>
 
         <section className="mt-12">
           <SizeGuide

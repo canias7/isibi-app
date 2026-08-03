@@ -71,11 +71,11 @@ function P() {
             title="What we are actually playing this autumn"
             description="Bands are strangely private about this. Somebody deciding whether to come is asking whether we play the one they know, and it costs nothing to answer."
           />
-          <div className="mt-8 max-w-3xl divide-y divide-border border-y border-border">
+          <ul className="mt-8 max-w-3xl divide-y divide-border border-y border-border">
             {SET.map((s) => (
               <SetlistRow key={s.title} {...s} slotSeconds={4200} />
             ))}
-          </div>
+          </ul>
           <p className="mt-5 max-w-2xl text-sm leading-relaxed text-muted-foreground">
             About seventy minutes with the gaps, which is the other thing nobody publishes. Loxley
             Common goes first when a curfew is tight, and there is usually one more after The Ship

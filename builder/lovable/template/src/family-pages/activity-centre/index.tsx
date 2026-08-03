@@ -10,6 +10,7 @@ import { SiteChrome } from "@/components/ui/site-chrome";
 import { FacilityStatus } from "@/components/ui/facility-status";
 import { AdmissionPrices } from "@/components/ui/admission-prices";
 import { OpeningHours } from "@/components/ui/opening-hours";
+import { SafeImage } from "@/components/ui/safe-image";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Faq } from "@/components/ui/faq";
 
@@ -71,6 +72,26 @@ function P() {
             Updated by a person at 08:40 and again at midday. If something closes after you have
             booked we ring you, and if you are already on the way we refund in full without being
             asked.
+          </p>
+        </div>
+      </section>
+
+      {/* THE PHOTOGRAPH SITS BELOW THE CONDITIONS, AND THAT ORDER IS THE WHOLE
+          FAMILY. Every outdoor centre opens with a picture of somebody
+          abseiling in sunshine, which is a photograph of a different day. Put
+          underneath, with a time on it, the same picture stops being a mood and
+          starts being evidence: this is what the water looked like at 08:40,
+          taken by the person who wrote the sentence above it. */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-6 py-10">
+          <div className="grid gap-px bg-border sm:grid-cols-3">
+            <SafeImage src={null} alt="The buoyed swim course from the hut, 08:40 today — flat at the sheltered end" ratio="4/3" className="rounded-none" />
+            <SafeImage src={null} alt="White caps across the open water, taken from the high ropes platform" ratio="4/3" className="rounded-none" />
+            <SafeImage src={null} alt="The plantation, sheltered whatever the wind does — bushcraft runs in this" ratio="4/3" className="rounded-none" />
+          </div>
+          <p className="mt-3 text-sm text-muted-foreground">
+            Taken this morning by whoever opened up, and replaced every day. A photograph of a
+            sunny Tuesday in June tells you nothing about whether to set off today.
           </p>
         </div>
       </section>
