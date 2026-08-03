@@ -836,6 +836,15 @@ export const UI_COMPONENTS = [
   "session-table", "size-guide", "story-lead", "subject-list", "symptom-row",
   "tap-list", "tenancy-costs", "territory-list", "trade-terms", "triage-banner",
   "unit-card", "vehicle-lookup",
+  // Added 2026-08-03 with the second thirty-five families. `service-availability`
+  // is the answer a utility or collection service exists to give and prints the
+  // address it is about; `priority-debts` is the ordering that IS free debt
+  // advice — which creditor can take your home, ahead of whichever one is
+  // ringing you.
+  // `interest-rates` because the two "rate" components already here are a hire
+  // rate card and a LIBRARY loan row — a lender had nothing, and the conditions
+  // attached to a savings rate are the product rather than a footnote.
+  "interest-rates", "priority-debts", "service-availability",
 ];
 
 // THE COMPONENTS THE MODEL IS SHOWN — the most-used slice of the 2,058.

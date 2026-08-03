@@ -998,6 +998,77 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
+## 66. Broadband or network provider — can-I-get-it-first
+**Shape:** the address checker is the hero; every package below it is conditional on the answer.
+**CTA:** Check my address · See packages
+
+- Broadband
+- ISP
+- Full fibre
+- Network operator
+- Mobile network
+- Satellite internet
+- Altnet
+- Business connectivity
+
+---
+
+## 67. Energy or metered supplier — tariff-first
+**Shape:** the tariffs side by side with the standing charge shown, then how to read and send a meter.
+**CTA:** Compare tariffs · Send a reading
+
+- Energy supplier
+- Gas
+- Electricity
+- Water
+- Heat network
+- Metered service
+- Community energy
+
+---
+
+## 68. Bank, lender or credit union — rates-first
+**Shape:** every rate with its conditions in the same row, who may join, and what repayment looks like.
+**CTA:** Apply to join · See rates
+
+- Credit union
+- Building society
+- Community lender
+- Savings provider
+- Mutual
+- Friendly society
+
+---
+
+## 69. Insurance or protection — cover-levels-first
+**Shape:** levels as parallel columns with the exclusions and the excess beside the cover they apply to.
+**CTA:** Get a quote · Compare cover
+
+- Insurance
+- Protection
+- Warranty
+- Pet insurance
+- Travel insurance
+- Insurance broker
+- Breakdown cover
+- Home emergency
+
+---
+
+## 70. Free advice service — urgent-help-first
+**Shape:** how to reach a person today, then which debts to deal with first and why.
+**CTA:** Talk to an adviser · Start with the checklist
+
+- Debt advice
+- Money advice
+- Welfare rights
+- Law centre
+- Citizens advice
+- Advice service
+- Hardship fund
+
+---
+
 ## Cross-cutting: structural variants
 
 Any family above can be expressed through:

@@ -1689,6 +1689,118 @@ export const FAMILIES = {
     structure: "full-bleed-hero",
     ready: true,
   },
+
+  /* --------------------------------------------- 66-100, added 2026-08-03.
+   *
+   * THE SECOND THIRTY-FIVE (owner's call). The first sixty-five covered the
+   * businesses a high street has; these cover the shapes they did not — a
+   * service that must ask WHERE YOU LIVE before it can say anything, a price
+   * that is a function of quantity, a rate board that is the whole product,
+   * and a page whose reader is frightened.
+   *
+   * The test that matters most for this block is the structure spread: adding
+   * thirty-five single-scrolls would have been faster and would have recreated
+   * the sameness the axis exists to break. */
+
+  broadband: {
+    md: "Broadband or network provider — can-I-get-it-first",
+    label: "the address checker IS the hero; no package below it means anything until it is answered",
+    cta: ["Check my address", "See packages"],
+    shape: [
+      "hero: a postcode field and nothing competing with it — every figure on the page is conditional on the answer",
+      "body: the packages available AT THAT ADDRESS, then the contract length and what happens when it ends",
+      "an unavailable service stays on the page saying why, because 'why not me' is the question that generates the call",
+    ],
+    pages: [
+      { file: "index", role: "the address check, then what this address can actually have" },
+      { file: "packages", role: "the speeds and prices in full, with the after-offer price beside the offer one" },
+      { file: "switching", role: "moving house or moving provider — the dates, the overlap and the exit fee" },
+    ],
+    kinds: ["broadband", "isp", "full fibre", "network operator", "mobile network", "satellite internet", "altnet", "business connectivity"],
+    components: ["postcode-input", "service-availability", "bundle-row", "contract-end", "plan-card", "faq", "section-header"],
+    structure: "split-screen",
+    ready: true,
+  },
+
+  energy: {
+    md: "Energy or metered supplier — tariff-first",
+    label: "the tariff table is the page, because a bill is the only thing the visitor is really comparing",
+    cta: ["Compare tariffs", "Send a reading"],
+    shape: [
+      "hero: the tariffs side by side with the standing charge shown, not folded into an annual estimate",
+      "body: how to read a meter and send one, then what happens when a fixed term ends",
+      "every estimate states the usage it assumes, or it is a number pretending to be a fact",
+    ],
+    pages: [
+      { file: "index", role: "the tariffs, the standing charges and what a typical year costs on each" },
+      { file: "tariffs", role: "the full table including the ones closing, with exit fees and end dates" },
+      { file: "meter", role: "sending a reading — the form, and what the digits on each meter type mean" },
+    ],
+    kinds: ["energy supplier", "gas", "electricity", "water", "heat network", "metered service", "community energy"],
+    components: ["tariff-row", "meter-reading", "smart-meter-note", "contract-end", "faq", "section-header", "announcement-bar"],
+    structure: "split-screen",
+    ready: true,
+  },
+
+  bank: {
+    md: "Bank, lender or credit union — rates-first",
+    label: "every rate on one page with its conditions in the same row, because the conditions are the product",
+    cta: ["Apply to join", "See rates"],
+    shape: [
+      "hero: what you can borrow and what you can earn, as two rate tables, no imagery between them",
+      "body: who may join, what it costs to repay, and the checks before applying",
+      "a representative APR says so in words — half of applicants may be offered worse and no table shows that otherwise",
+    ],
+    pages: [
+      { file: "index", role: "the headline rates for saving and borrowing, and who may join" },
+      { file: "borrow", role: "the loans in full — a repayment preview and what happens if a payment is missed" },
+      { file: "save", role: "the savings accounts, each with its withdrawal limits stated in the row" },
+      { file: "join", role: "the eligibility check and the documents to bring, before any form" },
+    ],
+    kinds: ["credit union", "building society", "community lender", "savings provider", "mutual", "friendly society"],
+    components: ["interest-rates", "repayment-preview", "eligibility-check", "checklist-dot", "faq", "contact-card", "section-header"],
+    structure: "sidebar",
+    ready: true,
+  },
+
+  insurance: {
+    md: "Insurance or protection — cover-levels-first",
+    label: "levels side by side with what each one refuses, because the exclusions are what decide it",
+    cta: ["Get a quote", "Compare cover"],
+    shape: [
+      "hero: the levels of cover as parallel columns, differing lines called out rather than left to be spotted",
+      "body: the exclusions in plain words, the excess, then what claiming actually looks like",
+      "the excess appears next to the cover it applies to — a single figure in a footer is how a claim becomes a complaint",
+    ],
+    pages: [
+      { file: "index", role: "the cover levels compared, and the exclusions that apply to all of them" },
+      { file: "cover", role: "one level in full — every limit, the excess for each claim type, the wording" },
+      { file: "claim", role: "how a claim runs, stage by stage, with what is needed at each" },
+    ],
+    kinds: ["insurance", "protection", "warranty", "pet insurance", "travel insurance", "insurance broker", "breakdown cover", "home emergency"],
+    components: ["cover-level", "exclusion-list", "excess-note", "policy-summary-row", "claim-timeline", "faq", "section-header"],
+    structure: "card-grid",
+    ready: true,
+  },
+
+  "debt-advice": {
+    md: "Free advice service — urgent-help-first",
+    label: "one page, no form before the phone number, and the priority order above everything else",
+    cta: ["Talk to an adviser", "Start with the checklist"],
+    shape: [
+      "hero: how to reach a person today, and the sentence saying it is free and confidential",
+      "body: which debts to deal with first and why, then what an adviser will ask you to bring",
+      "nothing on this page asks for a detail before it has given something — a form ahead of the help is a door",
+    ],
+    pages: [
+      { file: "index", role: "how to reach someone now, and the priority order that IS the advice" },
+      { file: "options", role: "what can actually be arranged, each with what it costs you afterwards" },
+    ],
+    kinds: ["debt advice", "money advice", "welfare rights", "law centre", "citizens advice", "advice service", "hardship fund"],
+    components: ["priority-debts", "triage-banner", "checklist-dot", "contact-card", "faq", "section-header", "site-chrome"],
+    structure: "single-scroll",
+    ready: true,
+  },
 };
 /* ------------------------------------------------------------------ helpers */
 

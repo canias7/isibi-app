@@ -1,4 +1,4 @@
-# Components (2103 built, 25 to go)
+# Components (2106 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -863,6 +863,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ instrument-booking
 ✓ integration-log
 ✓ interaction-warning
+✓ interest-rates
 ✓ interval-picker
 ✓ interview-slot
 ✓ intro-request
@@ -1268,6 +1269,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ print-range
 ✓ print-run
 ✓ priority-badge
+✓ priority-debts
 ✓ priority-inbox
 ✓ priority-picker
 ✓ privacy-choice
@@ -1599,6 +1601,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ serial-row
 ✓ service-area
 ✓ service-area-note
+✓ service-availability
 ✓ service-card
 ✓ service-history
 ✓ service-standard
