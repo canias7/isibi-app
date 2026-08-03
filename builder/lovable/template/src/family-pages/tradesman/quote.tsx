@@ -20,7 +20,7 @@ function P() {
           <QuoteRequest sent={sent} onSubmit={() => setSent(true)}
             trades={["Leak or burst", "Boiler or heating", "Bathroom", "Radiators", "Blocked drain", "Something else"]} />
           <aside className="space-y-6">
-            <TrustStrip items={[
+            <TrustStrip columns={1} items={[
               { title: "No charge to look", description: "We do not bill for coming out to quote" },
               { title: "Fixed before we start", description: "Written on the day, and it is the price" },
               { title: "Gas Safe 512204", description: "Check it on the register — please do" },

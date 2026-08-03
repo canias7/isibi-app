@@ -1895,7 +1895,7 @@ export const COMPONENT_API = {
   "truncate-middle": "TruncateMiddle(text: string, max?: number = 28)",
   "trust-level": "TrustLevel(levels: string[], current: number, nextBenefit?: string, action?: React.ReactNode)",
   "trust-score": "TrustScore(tier: TrustTier, facts: { label: string; value: React.ReactNode }[])",
-  "trust-strip": "TrustStrip(items: object[])",
+  "trust-strip": "TrustStrip(items: object[], columns?: 1 | 2 | 3 = 3)",
   "try-it-panel": "TryItPanel(title?: string = \"Try it\", safeNote?: string = \"Nothing is sent and nobody is charged.\", children?: React.ReactNode, onReset?: () => void, realAction?: object)",
   "turnaround-note": "TurnaroundNote(from: number, to?: number, unit?: string = \"working days\", busyNote?: string)",
   "two-col": "TwoCol(aside: React.ReactNode, asideFirst?: boolean, ratio?: \"1/1\" | \"2/1\" | \"3/1\" = \"2/1\", gap?: 4 | 6 | 8 | 10 = 8, children?: React.ReactNode)",

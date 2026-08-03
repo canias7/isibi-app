@@ -308,6 +308,31 @@ test("a grid inside a narrow parent is the CALLER's decision, not the viewport's
     .map((f) => fs.readFileSync(path.join(PAGES, String(f)), "utf8"))
     .filter((src) => /<TestimonialGrid[^>]*columns=/s.test(src));
   assert.ok(used.length >= 2, "no page constrains the testimonial grid — this guard watches nothing");
+
+  // THE SAME FLAW, IN A THIRD COMPONENT. `trust-strip` had it too and was
+  // found the same way — three ~100px columns in an <aside>, wrapping
+  // "Checkable on the register" to five words a line. Three components now
+  // share this contract; a fourth that grids without a `columns` prop is the
+  // one to catch next.
+  const strip = fs.readFileSync(path.join(UI, "trust-strip.tsx"), "utf8");
+  assert.match(strip, /columns\?: 1 \| 2 \| 3/, "TrustStrip cannot be told how many columns it has");
+  assert.match(strip, /\{ 1: "", 2: "sm:grid-cols-2", 3: "sm:grid-cols-3" \}/,
+    "columns={1} must produce NO grid-cols class");
+  assert.ok(!/grid gap-6 border-y py-6 sm:grid-cols-3"/.test(strip),
+    "the viewport breakpoint is hard-coded on TrustStrip again");
+
+  // An <aside> IS a rail, by definition. Every TrustStrip inside one must say
+  // so — a syntactic test, so it cannot rot the way "I looked at that page
+  // once" does.
+  for (const f of fs.readdirSync(PAGES, { recursive: true }).filter((x) => String(x).endsWith(".tsx"))) {
+    const src = fs.readFileSync(path.join(PAGES, String(f)), "utf8");
+    for (const m of src.matchAll(/<TrustStrip\b[^>]*/gs)) {
+      const before = src.slice(0, m.index);
+      if (before.split("<aside").length <= before.split("</aside>").length) continue;
+      assert.match(m[0], /columns=\{1\}/,
+        `${f}: a TrustStrip in an <aside> still grids to three — that is a ~100px column`);
+    }
+  }
 });
 
 test("a deadline derived from a date, and a status that cannot eat the row", () => {
