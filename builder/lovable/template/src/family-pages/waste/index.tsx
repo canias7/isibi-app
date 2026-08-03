@@ -52,7 +52,7 @@ function P() {
                     { name: "2-yard mini", area: 2, areaLabel: "2 yd³", like: "About 25 bin bags", alsoFits: ["A small bathroom rip-out", "Garden clearance, one afternoon"], price: "£125" },
                     { name: "4-yard midi", area: 4, areaLabel: "4 yd³", like: "About 45 bin bags", alsoFits: ["A kitchen", "A large loft clear"], price: "£185" },
                     { name: "6-yard builder's", area: 6, areaLabel: "6 yd³", like: "About 65 bin bags", alsoFits: ["Soil and rubble — the heavy one", "A full house clearance"], price: "£240" },
-                    { name: "8-yard builder's", area: 8, areaLabel: "8 yd³", like: "About 85 bin bags", alsoFits: ["A extension strip-out"], price: "£290" },
+                    { name: "8-yard builder's", area: 8, areaLabel: "8 yd³", like: "About 85 bin bags", alsoFits: ["An extension strip-out"], price: "£290" },
                     { name: "12-yard maxi", area: 12, areaLabel: "12 yd³", like: "About 130 bin bags", alsoFits: ["Light bulky waste only", "NOT soil or rubble — too heavy to lift"], price: "£380" },
                   ]}
                 />

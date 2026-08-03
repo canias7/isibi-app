@@ -46,7 +46,10 @@ import { THEME_SHORTLIST, resolveTheme } from "../../builder/site-theme-registry
 const ROOT = path.join(import.meta.dirname, "../..");
 const TEMPLATE = path.join(ROOT, "builder", "lovable", "template");
 const { chromium } = createRequire(path.join(TEMPLATE, "package.json"))("playwright");
-const PORT = 17910;
+// Overridable so a screenshot run can happen while a long measure sweep is
+// still going. Two runs each mkdtemp their own sandbox and collide on nothing
+// but the two ports.
+const PORT = Number(process.env.FAM_PORT) || 17910;
 const SHOTS = process.env.FAM_SHOTS || "";
 // Off by default while it is being calibrated: it REPORTS, it does not fail.
 const MEASURE = process.env.FAM_MEASURE === "1";
