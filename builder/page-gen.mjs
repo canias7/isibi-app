@@ -848,6 +848,14 @@ export const UI_COMPONENTS = [
   // `trading-diary` for a mobile trader: today marked, because where the van is
   // NOW is the one perishable fact, and a cancelled pitch stays on the list.
   "trading-diary",
+  // `term-dates` because the closure days ARE the content: a term stated as one
+  // range hides the INSET days and half-term inside it, which is exactly what a
+  // working parent has to arrange childcare around.
+  // `repair-job` because `repair-status` is a device on a bench — its stages end
+  // at "ready to collect". A home repair is attended, not collected, and the
+  // fact a tenant needs is the appointment window and whether the promised date
+  // has already gone.
+  "term-dates", "repair-job",
 ];
 
 // THE COMPONENTS THE MODEL IS SHOWN — the most-used slice of the 2,058.

@@ -1,4 +1,4 @@
-# Components (2107 built, 25 to go)
+# Components (2109 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -1415,6 +1415,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ reorder-list
 ✓ reorder-point
 ✓ reorderable-grid
+✓ repair-job
 ✓ repair-status
 ✓ repayment-preview
 ✓ repeat-request
@@ -1871,6 +1872,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tenant-badge
 ✓ tenant-delete
 ✓ tenant-limits
+✓ term-dates
 ✓ term-slider
 ✓ terminal-output
 ✓ terms-block
@@ -3198,7 +3200,7 @@ age-group-picker
 staff-ratio
 collection-password
 daily-report
-term-dates
+✓ term-dates
 allergy-plan
 
 ### Analytics, campaigns and the rest

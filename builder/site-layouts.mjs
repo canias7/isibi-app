@@ -1704,7 +1704,7 @@ export const FAMILIES = {
 
   broadband: {
     md: "Broadband or network provider — can-I-get-it-first",
-    label: "the address checker IS the hero; no package below it means anything until it is answered",
+    label: "the address checker IS the hero; nothing below it means anything yet",
     cta: ["Check my address", "See packages"],
     shape: [
       "hero: a postcode field and nothing competing with it — every figure on the page is conditional on the answer",
@@ -1724,7 +1724,7 @@ export const FAMILIES = {
 
   energy: {
     md: "Energy or metered supplier — tariff-first",
-    label: "the tariff table is the page, because a bill is the only thing the visitor is really comparing",
+    label: "the tariff table is the page; a bill is the only thing being compared",
     cta: ["Compare tariffs", "Send a reading"],
     shape: [
       "hero: the tariffs side by side with the standing charge shown, not folded into an annual estimate",
@@ -1744,7 +1744,7 @@ export const FAMILIES = {
 
   bank: {
     md: "Bank, lender or credit union — rates-first",
-    label: "every rate on one page with its conditions in the same row, because the conditions are the product",
+    label: "every rate with its conditions in the same row, because the conditions are the product",
     cta: ["Apply to join", "See rates"],
     shape: [
       "hero: what you can borrow and what you can earn, as two rate tables, no imagery between them",
@@ -1765,7 +1765,7 @@ export const FAMILIES = {
 
   insurance: {
     md: "Insurance or protection — cover-levels-first",
-    label: "levels side by side with what each one refuses, because the exclusions are what decide it",
+    label: "levels side by side with what each refuses — the exclusions decide it",
     cta: ["Get a quote", "Compare cover"],
     shape: [
       "hero: the levels of cover as parallel columns, differing lines called out rather than left to be spotted",
@@ -1785,7 +1785,7 @@ export const FAMILIES = {
 
   "debt-advice": {
     md: "Free advice service — urgent-help-first",
-    label: "one page, no form before the phone number, and the priority order above everything else",
+    label: "no form before the phone number, and the priority order above everything",
     cta: ["Talk to an adviser", "Start with the checklist"],
     shape: [
       "hero: how to reach a person today, and the sentence saying it is free and confidential",
@@ -1804,7 +1804,7 @@ export const FAMILIES = {
 
   "subscription-box": {
     md: "A subscription — plan-and-frequency-first",
-    label: "size and how often come before payment, and the pause and cancel terms sit beside them",
+    label: "size and frequency chosen before payment, with the cancel terms beside them",
     cta: ["Start a box", "See the plans"],
     shape: [
       "hero: the sizes as a choice and the frequency beside it — two decisions, made together, before any card details",
@@ -1824,7 +1824,7 @@ export const FAMILIES = {
 
   "meal-plan": {
     md: "Meal plan or recipe box — this-week's-menu-first",
-    label: "this week's food leads and the plan is chosen after it, because nobody subscribes to a box of unknowns",
+    label: "this week's food leads; nobody subscribes to a box of unknowns",
     cta: ["See this week", "Choose a plan"],
     shape: [
       "hero: the dishes available this week as cards, with the ordering cut-off stated above them",
@@ -1844,7 +1844,7 @@ export const FAMILIES = {
 
   "food-truck": {
     md: "Street food or mobile trader — where-today-first",
-    label: "where the van is TODAY, above everything, because it is the only fact on the site that expires",
+    label: "where the van is TODAY, above all — the only fact on the site that expires",
     cta: ["Where we are today", "Book us"],
     shape: [
       "hero: today's pitch and its hours, large, with the rest of the week directly beneath it",
@@ -1864,7 +1864,7 @@ export const FAMILIES = {
 
   "coach-hire": {
     md: "Coach or minibus hire — route-and-date-first",
-    label: "seats, date and route decide the price; photographs of the fleet decide nothing at all",
+    label: "seats, date and route set the price; photographs of the fleet set nothing",
     cta: ["Get a quote", "Check a date"],
     shape: [
       "hero: the three questions that set the price — how many, where to, which day — and nothing else",
@@ -1899,6 +1899,108 @@ export const FAMILIES = {
     kinds: ["caterer", "event catering", "wedding catering", "buffet", "hog roast", "corporate catering", "canapes", "grazing table"],
     components: ["price-list", "menu-section", "allergen-matrix", "date-enquiry", "capacity-table", "faq", "section-header"],
     structure: "editorial",
+    ready: true,
+  },
+
+  "driving-school": {
+    md: "Driving school or instructor — pass-rate-first",
+    label: "the pass rate and the wait for a test, plainly — both are what people ring to ask",
+    cta: ["Book a first lesson", "Check availability"],
+    shape: [
+      "hero: the pass rate as a real figure with the sample size beside it, and how far out the diary is",
+      "body: what a lesson costs and what a block costs, then the instructor as a person rather than a logo",
+      "the test-centre waiting time is stated because it is the constraint nobody warns a learner about",
+    ],
+    pages: [
+      { file: "index", role: "the pass rate, the wait, the prices and who is teaching" },
+      { file: "lessons", role: "hourly, block and intensive, with what each actually suits" },
+      { file: "book", role: "the first lesson — pick-up, licence check and what happens in the first hour" },
+    ],
+    kinds: ["driving school", "driving instructor", "intensive course", "motorcycle training", "hgv training", "pass plus", "refresher lessons"],
+    components: ["price-list", "week-strip", "availability-grid", "rating-summary", "practitioner-card", "faq", "section-header"],
+    structure: "single-scroll",
+    ready: true,
+  },
+
+  "music-school": {
+    md: "Music or arts school — instrument-and-grade-first",
+    label: "pick the instrument then the stage; timetable and fees follow from those two",
+    cta: ["Book a taster", "See the timetable"],
+    shape: [
+      "sidebar: the instruments as the rail, because that is the first thing a parent narrows by",
+      "body: the teacher, the grades and what a term costs — one page per instrument, not one page for everything",
+      "the fee is per TERM and says so, since an hourly figure on a school that bills termly is a wrong number",
+    ],
+    pages: [
+      { file: "index", role: "the instruments, the grades taught and how a term is priced" },
+      { file: "lessons", role: "one-to-one, group and ensemble — who each suits and at what stage" },
+      { file: "timetable", role: "the week, by instrument and room, with the spaces still free" },
+      { file: "fees", role: "per term, with the bursary and the instrument-loan scheme stated" },
+    ],
+    kinds: ["music school", "music teacher", "drama school", "dance school", "art class", "stage school", "peripatetic teaching"],
+    components: ["subject-list", "session-table", "fee-table", "practitioner-card", "time-lane-grid", "faq", "section-header"],
+    structure: "sidebar",
+    ready: true,
+  },
+
+  school: {
+    md: "Primary or secondary school — parents-first",
+    label: "term dates, absence and the newsletter above anything about the school's values",
+    cta: ["Report an absence", "Term dates"],
+    shape: [
+      "sidebar: the parent's rail — term dates, absence, uniform, the newsletter — not a prospectus menu",
+      "body: what is happening this week, then admissions, then the governors and the inspection report",
+      "the closure days appear INSIDE each term, because a term stated as one range hides the days school is shut",
+    ],
+    pages: [
+      { file: "index", role: "this week, the absence line, and the next dates that affect a family" },
+      { file: "admissions", role: "how to apply, the catchment, and what the oversubscription criteria really mean" },
+      { file: "term-dates", role: "the year with every INSET day and closure inside its term" },
+      { file: "news", role: "the newsletter and the letters home, kept where a parent can find one again" },
+    ],
+    kinds: ["primary school", "secondary school", "academy", "sixth form", "special school", "independent school", "nursery school", "pupil referral unit"],
+    components: ["term-dates", "announcement-bar", "committee-list", "inspection-rating", "contact-card", "faq", "section-header"],
+    structure: "sidebar",
+    ready: true,
+  },
+
+  apprenticeship: {
+    md: "Training provider — am-I-eligible-first",
+    label: "each course states who may take it and who pays, before what it covers",
+    cta: ["Check eligibility", "Apply"],
+    shape: [
+      "hero: the eligibility question, because funding rules decide more applications than interest does",
+      "body: the courses as a grid with entry requirements and the funding route on every card",
+      "who pays is named — the employer, the levy, the adult skills fund or the learner — never left implied",
+    ],
+    pages: [
+      { file: "index", role: "who we can take, how it is funded, and the courses running now" },
+      { file: "courses", role: "every course with its entry requirements, length and awarding body" },
+      { file: "apply", role: "the steps, the documents and what happens between applying and starting" },
+    ],
+    kinds: ["training provider", "apprenticeship", "adult education", "skills bootcamp", "further education", "vocational training", "employability programme"],
+    components: ["eligibility-check", "entry-requirements", "fee-table", "cohort-picker", "checklist-dot", "faq", "section-header"],
+    structure: "card-grid",
+    ready: true,
+  },
+
+  "housing-association": {
+    md: "Housing association or social landlord — report-a-repair-first",
+    label: "the four things tenants come for as tiles, repairs first, none more than a click deep",
+    cta: ["Report a repair", "Pay rent"],
+    shape: [
+      "bento: repairs, rent, the emergency number and how to complain, as tiles rather than a prospectus",
+      "body: what counts as an emergency and what the response times actually are, in writing",
+      "the complaints route is given equal weight to everything else, because burying it is what generates ombudsman cases",
+    ],
+    pages: [
+      { file: "index", role: "the four tenant doors as a grid, with the out-of-hours number always visible" },
+      { file: "repairs", role: "what is an emergency, the response times, and tracking one already reported" },
+      { file: "tenancy", role: "rent, arrears help, ending a tenancy, and how to complain properly" },
+    ],
+    kinds: ["housing association", "social landlord", "council housing", "almshouse", "tenant management", "co-operative housing", "supported housing"],
+    components: ["bento-grid", "repair-job", "triage-banner", "arrears-note", "contact-card", "faq", "section-header"],
+    structure: "bento",
     ready: true,
   },
 };

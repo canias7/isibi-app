@@ -1141,6 +1141,77 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
+## 76. Driving school or instructor — pass-rate-first
+**Shape:** the pass rate with its sample size, how far out the diary is, and the test-centre wait.
+**CTA:** Book a first lesson · Check availability
+
+- Driving school
+- Driving instructor
+- Intensive course
+- Motorcycle training
+- HGV training
+- Pass Plus
+- Refresher lessons
+
+---
+
+## 77. Music or arts school — instrument-and-grade-first
+**Shape:** the instruments as the rail; the timetable and the termly fee follow from instrument and stage.
+**CTA:** Book a taster · See the timetable
+
+- Music school
+- Music teacher
+- Drama school
+- Dance school
+- Art class
+- Stage school
+- Peripatetic teaching
+
+---
+
+## 78. Primary or secondary school — parents-first
+**Shape:** term dates, absence and the newsletter first; closure days sit inside each term.
+**CTA:** Report an absence · Term dates
+
+- Primary school
+- Secondary school
+- Academy
+- Sixth form
+- Special school
+- Independent school
+- Nursery school
+- Pupil referral unit
+
+---
+
+## 79. Training provider — am-I-eligible-first
+**Shape:** eligibility leads; every course card names its entry requirements and who pays.
+**CTA:** Check eligibility · Apply
+
+- Training provider
+- Apprenticeship
+- Adult education
+- Skills bootcamp
+- Further education
+- Vocational training
+- Employability programme
+
+---
+
+## 80. Housing association or social landlord — report-a-repair-first
+**Shape:** a grid of the four tenant doors, repairs first, with response times and complaints in writing.
+**CTA:** Report a repair · Pay rent
+
+- Housing association
+- Social landlord
+- Council housing
+- Almshouse
+- Tenant management
+- Co-operative housing
+- Supported housing
+
+---
+
 ## Cross-cutting: structural variants
 
 Any family above can be expressed through:
