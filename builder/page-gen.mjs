@@ -861,6 +861,13 @@ export const UI_COMPONENTS = [
   // lets somebody go and buy a coffee, the other makes them stand there — and a
   // cancelled service stays on the board rather than vanishing.
   "departure-board",
+  // `rate-board` because a bureau's whole product is a board, and the only
+  // number on it that matters is the one nobody prints: the SPREAD. Every
+  // bureau advertises "0% commission", which is true and is not the price —
+  // the charge is the gap between the two rates. It is derived here rather
+  // than passed, so it cannot drift from the rates beside it, and `setAt` is
+  // required because a rate with no timestamp is a claim.
+  "rate-board",
 ];
 
 // THE COMPONENTS THE MODEL IS SHOWN — the most-used slice of the 2,058.

@@ -1,4 +1,4 @@
-# Components (2110 built, 25 to go)
+# Components (2111 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -1346,6 +1346,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ range-text
 ✓ range-trim
 ✓ ranking-list
+✓ rate-board
 ✓ rate-card
 ✓ rate-limited
 ✓ rate-type

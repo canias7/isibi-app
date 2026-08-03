@@ -2303,6 +2303,110 @@ export const FAMILIES = {
     structure: "terminal",
     ready: true,
   },
+
+  "escape-room": {
+    md: "Escape room or timed activity — pick-a-slot-first",
+    label: "rooms as cards with difficulty and group size, then tonight's free times",
+    cta: ["Book a slot", "See the rooms"],
+    shape: [
+      "card-grid: each room a card carrying its difficulty, its group size and its escape rate",
+      "body: what actually happens in the hour, then the times left today, then the house rules",
+      "the minimum group size is on the card, because a couple arriving for a four-person room is the commonest disappointment",
+    ],
+    pages: [
+      { file: "index", role: "the rooms with difficulty and group size, and tonight's free slots" },
+      { file: "rooms", role: "each room in full — the theme, the escape rate and who it suits" },
+      { file: "book", role: "picking a time, what to bring, and the rules that actually matter" },
+    ],
+    kinds: ["escape room", "axe throwing", "crazy golf", "laser tag", "immersive experience", "bowling", "climbing wall", "VR arcade"],
+    components: ["availability-grid", "ticket-tiers", "house-rules", "rating-summary", "day-schedule", "faq", "section-header"],
+    structure: "card-grid",
+    ready: true,
+  },
+
+  "activity-centre": {
+    md: "Outdoor activity centre — conditions-and-tickets-first",
+    label: "today's conditions decide whether anybody comes, so they lead",
+    cta: ["Book a session", "Today's conditions"],
+    shape: [
+      "full-bleed: what is running today and what is not, before any photograph of somebody abseiling",
+      "body: the activities with their real age and weight limits, then prices, then getting here",
+      "a closed activity says why and when it reopens — 'subject to conditions' is not information",
+    ],
+    pages: [
+      { file: "index", role: "what is running today, and the sessions still free" },
+      { file: "activities", role: "each activity with its age, weight and ability limits stated" },
+      { file: "visit", role: "prices, what to bring, parking and the accessibility answer" },
+    ],
+    kinds: ["activity centre", "outdoor pursuits", "water sports", "climbing centre", "high ropes", "kayaking", "coasteering", "forest school"],
+    components: ["facility-status", "admission-prices", "session-table", "house-rules", "opening-hours", "faq", "section-header"],
+    structure: "full-bleed-hero",
+    ready: true,
+  },
+
+  allotment: {
+    md: "Allotment or community land — plot-availability-first",
+    label: "how long the wait really is, and what a plot costs and demands",
+    cta: ["Join the waiting list", "See the rules"],
+    shape: [
+      "hero: the wait in months, honestly, with how many are ahead of you and how many came up last year",
+      "body: what a plot costs, what the tenancy requires, and how much work it genuinely is",
+      "the cultivation rule is stated plainly, because a plot lost for neglect is the commonest unhappy ending",
+    ],
+    pages: [
+      { file: "index", role: "the real wait, the annual rent, and what the tenancy asks of you" },
+      { file: "plots", role: "the sizes, what each takes in hours a week, and the site's conditions" },
+      { file: "rules", role: "the tenancy in plain words — cultivation, sheds, bonfires, dogs and hens" },
+    ],
+    kinds: ["allotment association", "community garden", "orchard group", "community farm", "growing project", "meanwhile space"],
+    components: ["waitlist-form", "waiting-list-note", "fee-table", "house-rules", "produce-calendar", "committee-list", "section-header"],
+    structure: "single-scroll",
+    ready: true,
+  },
+
+  printer: {
+    md: "Print or sign shop — spec-and-quantity-first",
+    label: "price is a function of quantity and stock, so the break table is the page",
+    cta: ["Get a price", "Send artwork"],
+    shape: [
+      "sidebar: the product rail, because somebody arrives knowing whether they want cards or a banner",
+      "body: the quantity breaks as a real table, then the artwork requirements, then the turnaround",
+      "bleed and resolution are explained rather than assumed, since a rejected file is what delays every job",
+    ],
+    pages: [
+      { file: "index", role: "the products, and how quantity moves the price on each" },
+      { file: "products", role: "every item with its stocks, finishes and the price breaks" },
+      { file: "quote", role: "sending artwork — the file requirements, bleed, and what we will fix free" },
+    ],
+    kinds: ["printers", "sign shop", "copy shop", "vehicle graphics", "banner printing", "wide format", "embroidery", "screen printing"],
+    // `bulk-pricing`, NOT `rate-card`: a rate card prices one thing by PERIOD
+    // (a day, a week) and a printer prices one thing by QUANTITY, which is a
+    // different table with a different persuasive line — "add 250 more and they
+    // are 6p each" is the whole reason a print shop publishes breaks at all.
+    components: ["bulk-pricing", "turnaround-note", "size-guide", "price-list", "chunked-upload", "faq", "section-header"],
+    structure: "sidebar",
+    ready: true,
+  },
+
+  bureau: {
+    md: "Currency or bullion dealer — live-rates-first",
+    label: "the rate board, when it was set, and the spread stated rather than hidden",
+    cta: ["Today's rates", "Reserve currency"],
+    shape: [
+      "terminal: a rate board, monospace, with the time it was set — a rate with no timestamp is a claim",
+      "body: buy and sell shown together so the spread is visible, then reserving, then the ID rules",
+      "'no commission' is addressed directly, because the spread IS the commission and everybody advertises the phrase",
+    ],
+    pages: [
+      { file: "index", role: "the board, the spread, and when it was last set" },
+      { file: "rates", role: "every currency both ways, with the spread shown as a percentage" },
+      { file: "reserve", role: "reserving at today's rate, the ID needed, and the buy-back terms" },
+    ],
+    kinds: ["bureau de change", "currency exchange", "bullion dealer", "coin dealer", "money transfer", "travel money"],
+    components: ["rate-board", "exchange-rate-note", "currency-amount", "price-list", "opening-hours", "location-card", "faq", "section-header"],
+    structure: "terminal",
+    ready: true,
+  },
 };
 /* ------------------------------------------------------------------ helpers */
 

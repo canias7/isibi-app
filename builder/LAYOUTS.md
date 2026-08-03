@@ -1424,6 +1424,77 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
+## 96. Escape room or timed activity — pick-a-slot-first
+**Shape:** rooms as cards with difficulty, group size and escape rate, then tonight's free times.
+**CTA:** Book a slot · See the rooms
+
+- Escape room
+- Axe throwing
+- Crazy golf
+- Laser tag
+- Immersive experience
+- Bowling
+- Climbing wall
+- VR arcade
+
+---
+
+## 97. Outdoor activity centre — conditions-and-tickets-first
+**Shape:** what is running today above everything; each activity states its real age and weight limits.
+**CTA:** Book a session · Today's conditions
+
+- Activity centre
+- Outdoor pursuits
+- Water sports
+- Climbing centre
+- High ropes
+- Kayaking
+- Coasteering
+- Forest school
+
+---
+
+## 98. Allotment or community land — plot-availability-first
+**Shape:** the wait in months with how many are ahead, the rent, and what the tenancy demands.
+**CTA:** Join the waiting list · See the rules
+
+- Allotment association
+- Community garden
+- Orchard group
+- Community farm
+- Growing project
+- Meanwhile space
+
+---
+
+## 99. Print or sign shop — spec-and-quantity-first
+**Shape:** a product rail, the quantity price breaks as a real table, then the artwork requirements.
+**CTA:** Get a price · Send artwork
+
+- Printers
+- Sign shop
+- Copy shop
+- Vehicle graphics
+- Banner printing
+- Wide format
+- Embroidery
+- Screen printing
+
+---
+
+## 100. Currency or bullion dealer — live-rates-first
+**Shape:** a rate board with the time it was set, buy and sell together so the spread is visible.
+**CTA:** Today's rates · Reserve currency
+
+- Bureau de change
+- Currency exchange
+- Bullion dealer
+- Coin dealer
+- Money transfer
+- Travel money
+
+---
+
 ## Cross-cutting: structural variants
 
 Any family above can be expressed through:

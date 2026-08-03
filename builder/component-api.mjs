@@ -1300,6 +1300,7 @@ export const COMPONENT_API = {
   "range-text": "RangeText(from?: string | null, to?: string | null, fromWord?: string = \"from\", toWord?: string = \"up to\", emptyNote?: string)",
   "range-trim": "RangeTrim(duration: number, start: number, end: number, onChange: (v: { start: number; end: number }) => void, step?: number = 0.1)",
   "ranking-list": "RankingList(items: string[], onChange: (next: string[]) => void, topLabel?: string = \"Most important first\")",
+  "rate-board": "RateBoard(rates: BoardRate[], setAt: string, base?: string = \"GBP\", baseSymbol?: string = \"£\", note?: string)",
   "rate-card": "RateCard(rates: Rate[], bands?: string[], unit?: string = \"day\", label?: string = \"Hire for\", currency?: string = \"GBP\", locale?: string = \"en-GB\", caption?: string, note?: string)",
   "rate-limited": "RateLimited(seconds: number, onRetry?: () => void, message?: string)",
   "rate-type": "RateType(kind: \"fixed\" | \"variable\" | \"tracker\" | \"capped\"…, ratePercent: number, fixedUntil?: string, revertRatePercent?: number, revertPayment?: number, currentPayment?: number, follows?: string, capPercent?: number, currency?: string = \"GBP\", locale?: string = \"en-GB\")",
