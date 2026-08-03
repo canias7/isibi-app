@@ -17,7 +17,8 @@ export function CapacityBar({ used, capacity, unit = "hrs", label, className }: 
       <div className="flex items-baseline justify-between gap-3 text-xs">
         {label && <span className="truncate">{label}</span>}
         <span className={cn("tabular-nums", over ? "text-destructive" : "text-muted-foreground")}>
-          {used}/{capacity} {unit}{over && ` · ${(used - capacity).toFixed(used % 1 ? 1 : 0)} over`}
+          {used.toLocaleString()}/{capacity.toLocaleString()} {unit}
+          {over && ` · ${Number((used - capacity).toFixed(used % 1 ? 1 : 0)).toLocaleString()} over`}
         </span>
       </div>
       <div className="flex h-2 overflow-hidden rounded-full bg-muted">

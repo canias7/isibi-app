@@ -333,6 +333,34 @@ test("a grid inside a narrow parent is the CALLER's decision, not the viewport's
         `${f}: a TrustStrip in an <aside> still grids to three — that is a ~100px column`);
     }
   }
+
+  // AND A FOURTH, which is the one that proves this is a pattern rather than
+  // two coincidences — and it failed harder than either. ImpactStats grids to
+  // three, and its value is 48px type with nothing bounding it, so in a ~120px
+  // cell "£60,000" ran straight out of its own box and across the stat beside
+  // it: two real figures rendered as "£60,0001,340", a fourth number that does
+  // not exist. Narrow columns are unreadable; collided ones are WRONG.
+  const impact = fs.readFileSync(path.join(UI, "impact-stat.tsx"), "utf8");
+  assert.match(impact, /columns\?: 1 \| 2 \| 3/, "ImpactStats cannot be told how many columns it has");
+  assert.match(impact, /\{ 1: "", 2: "sm:grid-cols-2", 3: "sm:grid-cols-2 lg:grid-cols-3" \}/,
+    "columns={1} must produce NO grid-cols class");
+  assert.ok(!/cn\("grid gap-8 sm:grid-cols-2 lg:grid-cols-3"/.test(impact),
+    "the viewport breakpoints are hard-coded on ImpactStats again");
+  // The two that stop the collision specifically. Either alone leaves it: a
+  // grid item defaults to min-width:auto and will not shrink below its content,
+  // so `break-words` on the value does nothing until the cell may narrow.
+  assert.match(impact, /className="min-w-0 border-t/,
+    "the grid cell can no longer shrink below its content — a long value pushes the cell wide and overlaps");
+  assert.match(impact, /text-4xl font-semibold tracking-tight tabular-nums break-words/,
+    "the value no longer wraps — a six-figure number overflows a narrow cell");
+
+  // The premise, as above: something passes it, in a genuinely narrow place.
+  const VARIANTS = path.join(import.meta.dirname, "../builder/lovable/template/src/variant-pages");
+  const constrained = [PAGES, VARIANTS].flatMap((root) => fs.readdirSync(root, { recursive: true })
+    .filter((f) => String(f).endsWith(".tsx"))
+    .map((f) => fs.readFileSync(path.join(root, String(f)), "utf8")))
+    .filter((src) => /<ImpactStats[^>]*columns=/s.test(src));
+  assert.ok(constrained.length >= 1, "no page constrains ImpactStats — this guard watches nothing");
 });
 
 test("a deadline derived from a date, and a status that cannot eat the row", () => {
@@ -439,4 +467,162 @@ test("the holding deposit comes OFF the first month, and three contracts that mu
   for (const [, name, type] of optional) {
     assert.ok(/\| null\b/.test(type), `Grade.${name} is optional but not nullable, unlike its siblings`);
   }
+});
+
+test("text drawn inside a ring is bounded by the ring, not by hope", () => {
+  // Found by rendering the campaign variant. GoalGauge drew its value and its
+  // percentage as ordinary HTML pulled up over the SVG by a negative margin,
+  // so neither was bounded by anything. "62% of £180,000" is wider than a
+  // 132px ring and ran straight across the near-black 8px stroke, where its
+  // first and last characters became invisible AGAINST it.
+  //
+  // The reader saw "2% of £180,00". Not a clipped number anybody would query —
+  // a different and entirely plausible one, on a fundraiser, understating the
+  // total by a factor of thirty. It compiled, it bundled, it linted, and every
+  // test in this repo passed.
+  //
+  // Two things fix it and this pins both: the percentage moved OUT of the ring
+  // where its width is nobody's problem, and the value became an SVG <text>
+  // sized from its own LENGTH so it scales with the ring at any `size`.
+  const UI = path.join(import.meta.dirname, "../builder/lovable/template/src/components/ui");
+  const src = fs.readFileSync(path.join(UI, "goal-gauge.tsx"), "utf8");
+
+  // The percentage is below the ring. Compared by position rather than by
+  // absence, because the string exists either way — inside the svg is exactly
+  // the bug, and "it is mentioned somewhere" cannot tell the two apart.
+  const closeSvg = src.indexOf("</svg>");
+  const pctLine = src.indexOf("% of {unit}{goal.toLocaleString()}");
+  assert.ok(closeSvg > 0 && pctLine > 0, "the gauge no longer has an svg or a percentage line — this guard is watching nothing");
+  assert.ok(pctLine > closeSvg, "the percentage is back inside the ring, where it renders across the stroke");
+
+  // The value is inside the ring, and its size comes from the string.
+  const fsExpr = src.match(/const fs = Math\.min\((\d+(?:\.\d+)?), (\d+(?:\.\d+)?) \/ \((\d?\.\d+) \* Math\.max\(middle\.length, 1\)\)\)/);
+  assert.ok(fsExpr, "the centre text is no longer sized from its own length — a long value can reach the stroke again");
+  const [, capStr, budgetStr, perCharStr] = fsExpr;
+  const cap = Number(capStr), budget = Number(budgetStr), perChar = Number(perCharStr);
+  assert.match(src, /<text[^>]*fontSize=\{fs\}/s, "fs is computed and not applied to the text");
+
+  // And the geometry, computed from the constants the file actually carries so
+  // that widening either one is visible here. 0.6961 is the WIDEST advance
+  // measured in a real browser across £, digits and commas at semibold; the
+  // room available is the chord at the text's own height inside the ring's
+  // inner radius of 40, never the full diameter of 80 — which is precisely
+  // what the first attempt at this fix got wrong.
+  const WIDEST_ADVANCE = 0.6961, INNER_R = 40;
+  const chord = (h) => 2 * Math.sqrt(INNER_R ** 2 - (h / 2) ** 2);
+  for (const sample of ["42", "£8,400", "1,340", "£112,400", "£1,420,000", "£999,999,999"]) {
+    const size = Math.min(cap, budget / (perChar * Math.max(sample.length, 1)));
+    const width = WIDEST_ADVANCE * sample.length * size;
+    assert.ok(width <= chord(size),
+      `"${sample}" renders ${width.toFixed(1)} units wide inside a ${chord(size).toFixed(1)} chord — it touches the stroke`);
+  }
+
+  // The number lives in an svg that is hidden from the accessibility tree, so
+  // something else has to say it. Without this the fix would have made the
+  // gauge's whole point unreadable to a screen reader while looking correct.
+  assert.match(src, /<svg[^>]*aria-hidden="true"/s, "the svg is exposed to the accessibility tree, so the ring is read as well as the number");
+  const sr = src.match(/className="sr-only">([\s\S]*?)<\/span>/);
+  assert.ok(sr, "no sr-only sentence — the value is inside an aria-hidden svg and is now said nowhere");
+  assert.match(sr[1], /\{middle\}/, "the sr-only sentence does not carry the value itself");
+  assert.match(sr[1], /goal\.toLocaleString\(\)/, "the sr-only sentence does not carry the goal");
+
+  // The premise: a caller passing a value long enough for any of this to
+  // matter. A guard over geometry nothing exercises is a guard over nothing.
+  const roots = ["family-pages", "variant-pages"].map((d) => path.join(import.meta.dirname, "../builder/lovable/template/src", d));
+  const pages = roots.flatMap((r) => fs.readdirSync(r, { recursive: true })
+    .filter((f) => String(f).endsWith(".tsx"))
+    .map((f) => fs.readFileSync(path.join(r, String(f)), "utf8")));
+  const calls = pages.flatMap((p) => [...p.matchAll(/<GoalGauge[^>]*value=\{(\d+)\}/gs)].map((m) => Number(m[1])));
+  assert.ok(calls.some((v) => v >= 100000), `no page renders a gauge over 100,000 — the overflow this guards cannot occur (largest: ${Math.max(0, ...calls)})`);
+});
+
+test("an allowance says 168,400 and not 168400", () => {
+  // Same class as the price concatenation above, on the meter family. Found by
+  // rendering a developer tool's pricing page: UsageMeter interpolated `{used}`
+  // and `{total}` straight into text and printed "168400 events of 250000
+  // events" — while `token-meter`, which does the same job and whose own header
+  // quotes "18,400 of …", had been formatting correctly all along. One of a
+  // pair being right is what makes this the kind of thing nobody looks for.
+  //
+  // Derived, not listed: the check is that a component whose whole subject is a
+  // COUNT AGAINST AN ALLOWANCE formats both sides. `toLocaleString` is a no-op
+  // on a small number, so there is no reading where the raw form was better.
+  const UI = path.join(import.meta.dirname, "../builder/lovable/template/src/components/ui");
+  const METERS = ["usage-meter", "token-meter", "capacity-bar", "seat-usage", "progress-stack"];
+  for (const name of METERS) {
+    const src = fs.readFileSync(path.join(UI, name + ".tsx"), "utf8");
+    // Strip the doc comment first: several of these DESCRIBE the bug, and prose
+    // quoting "168400" would otherwise read as the code doing it. Blanked
+    // rather than removed, so any offset stays valid against the real text.
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, (m) => " ".repeat(m.length));
+    const raw = [...code.matchAll(/\{(?:[a-z]\.)?(used|total|limit|capacity|value)\}/g)].map((m) => m[1]);
+    assert.deepEqual(raw, [],
+      `${name} interpolates ${raw.join(", ")} raw — a six-figure allowance renders without separators`);
+    assert.match(code, /\.toLocaleString\(\)/,
+      `${name} no longer formats any of its numbers`);
+  }
+
+  // stock-level is deliberately NOT in that list and this says so, because a
+  // silent omission and a decision look identical in a year. It prints a count
+  // only when it is at or below `lowAt` — scarcity, so always a small number —
+  // and its own comment says "never the full figure".
+  const stock = fs.readFileSync(path.join(UI, "stock-level.tsx"), "utf8");
+  assert.match(stock, /count <= lowAt \? `Only \$\{count\} left`/,
+    "stock-level's count is no longer gated on scarcity — if it can now print a full figure it belongs in METERS above");
+
+  // And the rule, evaluated, so the assertions above are about a real problem.
+  assert.equal((168400).toLocaleString("en-GB"), "168,400");
+  assert.equal((12).toLocaleString("en-GB"), "12", "formatting must be a no-op on a small number, or this fix costs something");
+});
+
+test("a 90-day strip distinguishes its states as well as a 7-day one", () => {
+  // Found by rendering a developer tool's support page. UptimeStrip drew its
+  // four states as filled / hatched / hollow / dashed — every one of which is a
+  // HORIZONTAL distinction, and at 90 days in a normal column a segment is
+  // about four pixels wide. Measured at 7, 30 and 90: at 7 all four were
+  // obvious, at 30 the hatch was marginal, and at 90 the hatch was
+  // indistinguishable from solid, the hollow outline read as solid, and the
+  // dashed "unknown" vanished completely.
+  //
+  // So the component's stated guarantee — "a partial day is drawn differently
+  // from a down day" — was true at every density except the one every status
+  // page actually uses. And an unknown day rendering as nothing undid the OTHER
+  // decision in that file: no-data is drawn as absent precisely so it is not
+  // silently counted as up, which an invisible segment achieves anyway.
+  const UI = path.join(import.meta.dirname, "../builder/lovable/template/src/components/ui");
+  const src = fs.readFileSync(path.join(UI, "uptime-strip.tsx"), "utf8");
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, (m) => " ".repeat(m.length));
+
+  // No state may be carried by a device that needs width. Named individually,
+  // because "the file changed" is not the invariant — "these four ways of
+  // drawing a segment are unusable at four pixels" is.
+  for (const [device, pattern] of [
+    ["a diagonal hatch", /repeating-linear-gradient/],
+    ["a hollow outline", /border border-foreground/],
+    ["a dashed outline", /border-dashed/],
+  ]) {
+    assert.ok(!pattern.test(code), `uptime-strip distinguishes a state with ${device} again — invisible at 90 days`);
+  }
+
+  // And the states are on the vertical axis, which is never squeezed: up fills
+  // the segment, partial the bottom half, down a foot, unknown nothing.
+  assert.match(code, /d\.state === "up" &&[\s\S]{0,80}inset-0/, "an up day no longer fills its segment");
+  assert.match(code, /d\.state === "partial" &&[\s\S]{0,120}h-1\/2/, "a partial day is no longer a half-height fill");
+  assert.match(code, /d\.state === "down" &&[\s\S]{0,120}h-\[3px\]/, "a down day no longer has its foot");
+  assert.ok(!/d\.state === "unknown" &&/.test(code),
+    "unknown has been given a mark of its own — it is the bare track, which is what makes it read as absent rather than as up");
+
+  // Every state still says itself in words. The strip is aria-hidden, so this
+  // sentence is the whole of it for anybody not looking at the picture.
+  assert.match(code, /className="sr-only"[\s\S]{0,160}d\.state/, "the sr-only history no longer carries the per-day state");
+
+  // The premise: a caller passing enough days for any of this to matter. The
+  // old drawing was perfectly fine at seven.
+  const roots = ["family-pages", "variant-pages"].map((d) => path.join(import.meta.dirname, "../builder/lovable/template/src", d));
+  const pages = roots.flatMap((r) => fs.readdirSync(r, { recursive: true })
+    .filter((f) => String(f).endsWith(".tsx"))
+    .map((f) => fs.readFileSync(path.join(r, String(f)), "utf8")));
+  const long = pages.some((p) => /<UptimeStrip/.test(p) && /length:\s*(\d{2,})/.test(p) &&
+    Number(p.match(/length:\s*(\d{2,})/)[1]) >= 60);
+  assert.ok(long, "no page renders a strip of 60+ days — the density this guards never occurs");
 });

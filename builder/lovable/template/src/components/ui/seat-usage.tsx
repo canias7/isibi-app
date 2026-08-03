@@ -17,13 +17,13 @@ export function SeatUsage({ used, total, onAdd, className }: {
     <div className={cn("space-y-2", className)}>
       <div className="flex items-baseline justify-between gap-3">
         <p className="text-sm">
-          <strong className="tabular-nums">{used}</strong>
-          <span className="text-muted-foreground"> of {total} seats used</span>
+          <strong className="tabular-nums">{used.toLocaleString()}</strong>
+          <span className="text-muted-foreground"> of {total.toLocaleString()} seats used</span>
         </p>
         {onAdd && <Button size="sm" variant="outline" onClick={onAdd}>Add seats</Button>}
       </div>
       <Progress value={Math.min(100, pct)} className="h-1.5" />
-      {over && <p className="text-xs text-destructive">Over the limit — {used - total} more than this plan allows.</p>}
+      {over && <p className="text-xs text-destructive">Over the limit — {(used - total).toLocaleString()} more than this plan allows.</p>}
     </div>
   );
 }
