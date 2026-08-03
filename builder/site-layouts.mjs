@@ -2203,6 +2203,106 @@ export const FAMILIES = {
     structure: "split-screen",
     ready: true,
   },
+
+  waste: {
+    md: "Skip hire or waste collection — size-and-date-first",
+    label: "which size, which day, and whether a permit is needed — the three things that stop a booking",
+    cta: ["Book a skip", "Check permits"],
+    shape: [
+      "hero: the sizes compared against something a person can picture, and the date it can land",
+      "body: what may not go in, then the permit question, which is a council matter and takes days",
+      "the prohibited list is prominent, because one mattress in a mixed skip is a charge nobody expects",
+    ],
+    pages: [
+      { file: "index", role: "sizes, the next available date, and what cannot go in" },
+      { file: "sizes", role: "every size against a real comparison, with what each realistically holds" },
+      { file: "book", role: "the booking — access, the permit, and the collection window" },
+    ],
+    kinds: ["skip hire", "waste collection", "house clearance", "grab hire", "man and van waste", "recycling", "scrap metal"],
+    components: ["size-guide", "bin-type", "permit-row", "collection-day", "price-list", "faq", "section-header"],
+    structure: "single-scroll",
+    ready: true,
+  },
+
+  security: {
+    md: "Alarm, CCTV or guarding — response-first",
+    label: "how fast somebody actually attends, in writing, ahead of any equipment specification",
+    cta: ["Book a survey", "Talk to us"],
+    shape: [
+      "hero: the response time as a contractual figure with last quarter's actual beside it",
+      "body: what is monitored and by whom, then the systems, then what happens on an activation",
+      "false alarms are addressed openly, since they are the real cost of a system and nobody advertises them",
+    ],
+    pages: [
+      { file: "index", role: "the response time, what monitoring means, and what an activation looks like" },
+      { file: "systems", role: "alarms, cameras and access control, with what each does and does not do" },
+      { file: "monitoring", role: "the receiving centre, police response levels, and the false-alarm policy" },
+    ],
+    kinds: ["alarm installer", "CCTV", "security guarding", "keyholding", "access control", "monitoring centre", "mobile patrol"],
+    components: ["alarm-state", "patrol-log", "sla-clock", "incident-report", "price-list", "faq", "section-header"],
+    structure: "single-scroll",
+    ready: true,
+  },
+
+  memorial: {
+    md: "Memorial mason — regulations-and-choosing",
+    label: "the cemetery's rules constrain everything, so they come before the catalogue, gently",
+    cta: ["Talk to us", "See memorials"],
+    shape: [
+      "editorial: quiet, unhurried, one measure — a grid of headstones is the wrong register entirely",
+      "body: what the burial authority permits where you are, then the choosing, then the timescale",
+      "the six-month wait for the ground to settle is stated early, because it is the thing nobody is told",
+    ],
+    pages: [
+      { file: "index", role: "the regulations that constrain the choice, and the honest timescale" },
+      { file: "memorials", role: "the work, with materials and what each costs to maintain" },
+      { file: "guidance", role: "inscriptions, permits, and adding to an existing memorial later" },
+    ],
+    kinds: ["memorial mason", "monumental mason", "headstones", "cremation memorials", "renovation and re-lettering", "cemetery works"],
+    components: ["compliance-checklist", "arrangement-steps", "price-list", "gallery", "safe-image", "faq", "section-header"],
+    structure: "editorial",
+    ready: true,
+  },
+
+  translation: {
+    md: "Translation or interpreting — language-pair-first",
+    label: "the pair and the turnaround set the price; no imagery, just the rates and the queue",
+    cta: ["Get a quote", "Send a document"],
+    shape: [
+      "terminal: monospace, hairline rules, no photography — the product is words and a deadline",
+      "body: the pairs with a rate each, then the turnaround, then which documents need certifying",
+      "certified, sworn and notarised are three different things and the page says which yours needs",
+    ],
+    pages: [
+      { file: "index", role: "the pairs, the per-word rate and the current turnaround" },
+      { file: "rates", role: "every pair and document type, including the certifying surcharges" },
+      { file: "quote", role: "sending a document — word count, deadline and what we need to know" },
+    ],
+    kinds: ["translation", "interpreting", "transcription", "subtitling", "localisation", "certified translation", "sign language"],
+    components: ["rate-card", "turnaround-note", "word-count", "certification-row", "price-list", "faq", "section-header"],
+    structure: "terminal",
+    ready: true,
+  },
+
+  timetable: {
+    md: "Scheduled transport — departures-first",
+    label: "the next departures as a board, because a timetable is the entire product",
+    cta: ["Next departures", "Full timetable"],
+    shape: [
+      "terminal: a departure board at the top, monospace, readable from across a shelter",
+      "body: the full timetable, then fares, then what happens when a service cannot run",
+      "a cancelled service stays on the board — removing it is how somebody waits for one that was never coming",
+    ],
+    pages: [
+      { file: "index", role: "the next departures, live, with the expected times rather than 'delayed'" },
+      { file: "timetable", role: "the full printed timetable, both directions, with the school-day variations" },
+      { file: "fares", role: "single, return, day and season, plus who travels free" },
+    ],
+    kinds: ["bus service", "community transport", "ferry", "park and ride", "shuttle", "dial-a-ride", "heritage railway"],
+    components: ["departure-board", "service-times", "fare-quote", "location-card", "faq", "section-header"],
+    structure: "terminal",
+    ready: true,
+  },
 };
 /* ------------------------------------------------------------------ helpers */
 

@@ -1,4 +1,4 @@
-# Components (2109 built, 25 to go)
+# Components (2110 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -498,6 +498,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ demurrage-note
 ✓ density-preference
 ✓ density-toggle
+✓ departure-board
 ✓ dependent-select
 ✓ deposit-hold
 ✓ deposit-line

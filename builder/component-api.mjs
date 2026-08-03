@@ -482,6 +482,7 @@ export const COMPONENT_API = {
   "demurrage-note": "DemurrageNote(container?: string, kind?: \"demurrage\" | \"detention\" = \"demurrage\", freeUntil?: string, daysCharged?: number, currentRate?: string, nextRate?: string, nextRateFrom?: string, accrued?: string)",
   "density-preference": "DensityPreference(value?: \"comfortable\" | \"compact\" = \"comfortable\", onChange: (v: \"comfortable\" | \"compact\") => void)",
   "density-toggle": "DensityToggle(value: Density, onChange: (d: Density) => void)",
+  "departure-board": "DepartureBoard(departures: Departure[], from: string, updatedAt?: string)",
   "dependent-select": "DependentSelect(parentLabel: string, childLabel: string, parentOptions: { value: string; label: string }[], childOptions: function, parent: string, child: string, onChange: (v: { parent: string; child: string }) => void, id?: string = \"dep\")",
   "deposit-hold": "DepositHold(amount: number, taken?: boolean, releasedOn?: string, bankDays?: string = \"3–5 working days\", deductions?: object[] = [], currency?: string = \"GBP\", locale?: string = \"en-GB\")",
   "deposit-line": "DepositLine(deposit: number, balance?: number, dueWhen?: string, refundable?: boolean, condition?: string, currency?: string = \"GBP\")",

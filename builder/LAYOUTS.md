@@ -1355,6 +1355,75 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
+## 91. Skip hire or waste collection — size-and-date-first
+**Shape:** sizes against something you can picture, the next date, and the permit question.
+**CTA:** Book a skip · Check permits
+
+- Skip hire
+- Waste collection
+- House clearance
+- Grab hire
+- Man and van waste
+- Recycling
+- Scrap metal
+
+---
+
+## 92. Alarm, CCTV or guarding — response-first
+**Shape:** the contractual response time with last quarter's actual beside it, then the systems.
+**CTA:** Book a survey · Talk to us
+
+- Alarm installer
+- CCTV
+- Security guarding
+- Keyholding
+- Access control
+- Monitoring centre
+- Mobile patrol
+
+---
+
+## 93. Memorial mason — regulations-and-choosing
+**Shape:** the burial authority's rules first, quietly, then the choosing and the honest timescale.
+**CTA:** Talk to us · See memorials
+
+- Memorial mason
+- Monumental mason
+- Headstones
+- Cremation memorials
+- Renovation and re-lettering
+- Cemetery works
+
+---
+
+## 94. Translation or interpreting — language-pair-first
+**Shape:** monospace, no imagery — the pairs, the per-word rate and the turnaround.
+**CTA:** Get a quote · Send a document
+
+- Translation
+- Interpreting
+- Transcription
+- Subtitling
+- Localisation
+- Certified translation
+- Sign language
+
+---
+
+## 95. Scheduled transport — departures-first
+**Shape:** a departure board at the top with expected times rather than "delayed"; cancellations stay listed.
+**CTA:** Next departures · Full timetable
+
+- Bus service
+- Community transport
+- Ferry
+- Park and ride
+- Shuttle
+- Dial-a-ride
+- Heritage railway
+
+---
+
 ## Cross-cutting: structural variants
 
 Any family above can be expressed through:

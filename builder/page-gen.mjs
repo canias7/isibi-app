@@ -856,6 +856,11 @@ export const UI_COMPONENTS = [
   // fact a tenant needs is the appointment window and whether the promised date
   // has already gone.
   "term-dates", "repair-job",
+  // `departure-board` because for a bus, a ferry or a park-and-ride the
+  // timetable IS the product. An expected TIME beats the word "delayed" — one
+  // lets somebody go and buy a coffee, the other makes them stand there — and a
+  // cancelled service stays on the board rather than vanishing.
+  "departure-board",
 ];
 
 // THE COMPONENTS THE MODEL IS SHOWN — the most-used slice of the 2,058.
