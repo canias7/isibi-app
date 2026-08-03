@@ -83,7 +83,7 @@ function P() {
           </div>
 
           <div>
-            <TradeTerms {...TERMS} heading="What you are signing up to"
+            <TradeTerms {...TERMS} columns={2} heading="What you are signing up to"
               note="No annual fee, no rebate scheme, no minimum spend over a year and no notice to close. If we stop being useful, stop ordering." />
 
             <div className="mt-8">

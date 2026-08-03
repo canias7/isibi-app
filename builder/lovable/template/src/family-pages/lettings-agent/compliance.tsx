@@ -95,7 +95,7 @@ function P() {
           <div>
             <SectionHeader eyebrow="Who does it" title="Depends on your tier"
               description="Worth being blunt about, because 'we handle compliance' means three different things at three different price points." />
-            <PricingTable className="mt-6" tiers={[
+            <PricingTable className="mt-6" columns={1} tiers={[
               {
                 name: "Let only", price: "Yours", period: "all of it",
                 description: "We check the certificates exist before we advertise and will not market a property without them. After that it is your calendar.",

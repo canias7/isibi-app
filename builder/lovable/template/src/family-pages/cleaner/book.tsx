@@ -69,7 +69,7 @@ function P() {
                 description="Chrissy reads these. She will come round for ten minutes first, free, so you can meet whoever would be coming and agree the list." />
               <ContactForm className="mt-6" askPhone onSubmit={() => {}} />
               <h3 className="mt-10 text-sm font-medium uppercase tracking-widest text-muted-foreground">How it starts</h3>
-              <Steps className="mt-4" items={[
+              <Steps className="mt-4" columns={1} items={[
                 { title: "A ten-minute visit", description: "Chrissy comes round, looks at the house, and agrees the list with you. Free, no obligation." },
                 { title: "You meet your cleaner", description: "Before the first visit, not on the day. If it is not a fit, say so and we send somebody else." },
                 { title: "The slot is yours", description: "Same person, same day, same time. First visit is often longer and we tell you before, not after." },

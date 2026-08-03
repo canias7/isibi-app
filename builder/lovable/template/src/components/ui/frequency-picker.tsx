@@ -41,10 +41,10 @@ export type Frequency = {
   /** The one the business would like picked. Exactly one, or none. */
   suggested?: boolean;
 };
+const COLS = { 1: "", 2: "sm:grid-cols-2", 3: "sm:grid-cols-3", 4: "sm:grid-cols-2 lg:grid-cols-4" } as const;
 export function FrequencyPicker({
   options, value, defaultValue, onChange, onBook,
-  currency = "GBP", locale = "en-GB", className,
-}: {
+  currency = "GBP", locale = "en-GB", className, columns = 4, }: {
   options: Frequency[];
   /** Controlled when supplied; otherwise it manages its own. */
   value?: string;
@@ -53,6 +53,8 @@ export function FrequencyPicker({
   onBook?: (f: Frequency) => void;
   currency?: string;
   locale?: string;
+  /** How many across at the widest. The parent knows its room; the CSS cannot. */
+  columns?: 1 | 2 | 3 | 4;
   className?: string;
 }) {
   const [own, setOwn] = React.useState(defaultValue ?? options.find((o) => o.suggested)?.label ?? options[0]?.label ?? "");
@@ -67,7 +69,7 @@ export function FrequencyPicker({
     <div className={cn("", className)}>
       <fieldset>
         <legend className="sr-only">How often</legend>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className={cn("grid gap-4", COLS[columns])}>
           {options.map((o) => {
             const on = o.label === picked;
             // 52/12, never 4. Four weeks a month is eleven months a year, and

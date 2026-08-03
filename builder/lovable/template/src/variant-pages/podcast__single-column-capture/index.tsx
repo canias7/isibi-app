@@ -132,7 +132,9 @@ function P() {
         </section>
 
         <section className="mt-14 border-t border-border pt-10">
-          <StatsBand items={[
+          {/* columns={2}: this page is max-w-2xl, so four across is 155px a
+              stat and every label wraps to six lines. Measured, not guessed. */}
+          <StatsBand columns={2} items={[
             { value: "148", label: "Issues, none missed" },
             { value: "Thursday", label: "Every one of them, about seven" },
             { value: "1,400", label: "Words, give or take three hundred" },

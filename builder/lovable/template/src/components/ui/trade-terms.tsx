@@ -29,10 +29,10 @@ import { cn } from "@/lib/utils";
  * reads as "none" and "no minimum order" is a very different claim from "we
  * have not said".
  */
+const COLS = { 1: "", 2: "sm:grid-cols-2", 3: "sm:grid-cols-2 lg:grid-cols-3" } as const;
 export function TradeTerms({
   minimumOrder, carriagePaid, paymentTerms, accountRequired, deliveryDays,
-  currency = "GBP", locale = "en-GB", heading = "Trade terms", note, className,
-}: {
+  currency = "GBP", locale = "en-GB", heading = "Trade terms", note, className, columns = 3, }: {
   minimumOrder?: number | null;
   /** Order value above which delivery is free. The number buyers plan around. */
   carriagePaid?: number | null;
@@ -46,6 +46,8 @@ export function TradeTerms({
   locale?: string;
   heading?: string;
   note?: string;
+  /** How many across at the widest. The parent knows its room; the CSS cannot. */
+  columns?: 1 | 2 | 3;
   className?: string;
 }) {
   const money = (n: number) =>
@@ -84,7 +86,7 @@ export function TradeTerms({
   return (
     <div className={cn("rounded-lg border border-border p-6", className)}>
       <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">{heading}</h2>
-      <dl className="mt-4 grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
+      <dl className={cn("mt-4 grid gap-x-8 gap-y-5", COLS[columns])}>
         {items.map((i) => (
           <div key={i.label}>
             <dt className="text-sm text-muted-foreground">{i.label}</dt>

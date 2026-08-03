@@ -68,7 +68,11 @@ function P() {
               {LATEST.map(([sec, head, when]) => (
                 <li key={head}>
                   <a href="#/story" className="group flex flex-wrap items-baseline gap-x-4 gap-y-1 py-4">
-                    <span className="w-24 shrink-0 text-xs font-medium uppercase tracking-widest text-muted-foreground">{sec}</span>
+                    {/* min-w-fit: a fixed 96px column keeps the headlines aligned, and
+                        "ENVIRONMENT" at this tracking needs 103 — it painted seven
+                        pixels of itself into the headline beside it. Now short
+                        sections still sit at 96 and only the long one nudges. */}
+                    <span className="w-24 min-w-fit shrink-0 text-xs font-medium uppercase tracking-widest text-muted-foreground">{sec}</span>
                     <span className="min-w-0 flex-1 text-base font-medium group-hover:underline">{head}</span>
                     <span className="shrink-0 text-sm tabular-nums text-muted-foreground">{when}</span>
                   </a>

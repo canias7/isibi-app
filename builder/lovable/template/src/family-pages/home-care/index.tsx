@@ -111,7 +111,7 @@ function P() {
           <div>
             <SectionHeader eyebrow="Who comes" title="Sixty-one carers, all employed by us"
               description="Average time with us is four years. Sector turnover is around 28% a year; ours was 11% last year, and it is the number that decides whether you get the same face." />
-            <TeamGrid className="mt-6" items={[
+            <TeamGrid className="mt-6" columns={2} items={[
               { name: "Angela Dyson", role: "Registered manager, since 2009" },
               { name: "Foday Kamara", role: "Care coordinator" },
               { name: "Sinead Whelan", role: "Senior carer, 9 years" },

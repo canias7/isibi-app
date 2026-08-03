@@ -385,10 +385,24 @@ test("a grid inside a narrow parent is the CALLER's decision, not the viewport's
   // starts at 2 and never offered 1, because two photographs side by side in a
   // rail are still legible where two quotes are not. What every one of them has
   // to have is the prop, so that the decision belongs to the parent at all.
+  //
+  // NINE now, and the last four were found by MEASUREMENT rather than by eye:
+  // every page of every reference app rendered at 1280 and inspected for a grid
+  // child too narrow for the text in it. That sweep reported 42 findings across
+  // 11 apps — PricingTable putting three tiers over FORTY lines in a 151px
+  // rail, FrequencyPicker over fourteen, Steps over ten, StatsBand over nine.
+  // Four rounds of catching this by looking found four; one round of measuring
+  // found five more.
+  //
+  // StatsBand is the one worth remembering: it had no breakpoint at all, an
+  // inline `repeat(min(items.length, 4), 1fr)`, so it never collapsed at ANY
+  // width. A hard-coded viewport breakpoint at least yields on a phone.
   for (const [file, symbol] of [
     ["gallery.tsx", "Gallery"], ["testimonial.tsx", "TestimonialGrid"],
     ["trust-strip.tsx", "TrustStrip"], ["impact-stat.tsx", "ImpactStats"],
-    ["team-grid.tsx", "TeamGrid"],
+    ["team-grid.tsx", "TeamGrid"], ["steps.tsx", "Steps"],
+    ["pricing-table.tsx", "PricingTable"], ["frequency-picker.tsx", "FrequencyPicker"],
+    ["trade-terms.tsx", "TradeTerms"],
   ]) {
     const src = fs.readFileSync(path.join(UI, file), "utf8");
     assert.match(src, /columns\?: \d(?: \| \d)+;/,
@@ -396,6 +410,17 @@ test("a grid inside a narrow parent is the CALLER's decision, not the viewport's
     assert.ok(!/sm:grid-cols-\d[^"]*"\s*,\s*className/.test(src.replace(/\s+/g, " ")),
       `${symbol} has a viewport breakpoint baked into its container class again`);
   }
+
+  // StatsBand is in the contract but not in that loop: it has no breakpoint to
+  // check for, because its grid is an inline template. Its prop is optional
+  // with NO default — `columns ?? items.length` — so the pre-existing renders
+  // are unchanged, and that fallback is the thing to hold.
+  const band = fs.readFileSync(path.join(UI, "stats-band.tsx"), "utf8");
+  assert.match(band, /columns\?: 1 \| 2 \| 3 \| 4/, "StatsBand cannot be told how many across");
+  assert.match(band, /Math\.min\(columns \?\? items\.length, 4\)/,
+    "StatsBand's default is no longer one-per-stat-up-to-four — every existing band just changed shape");
+  assert.match(band, /className="flex min-w-0 flex-col/,
+    "the cell can no longer shrink below its content");
 });
 
 test("a deadline derived from a date, and a status that cannot eat the row", () => {

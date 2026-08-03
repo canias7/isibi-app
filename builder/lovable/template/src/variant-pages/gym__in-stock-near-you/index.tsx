@@ -135,7 +135,7 @@ function P() {
             </SpecList>
           </div>
 
-          <StatsBand items={[
+          <StatsBand columns={2} items={[
             { value: `${total}`, label: "In stock across four shops" },
             { value: "£68", label: "Same everywhere, always" },
             { value: "15 min", label: "How often these counts refresh" },

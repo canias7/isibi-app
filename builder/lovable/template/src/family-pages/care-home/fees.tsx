@@ -98,7 +98,7 @@ function P() {
           <div className="grid gap-12 lg:grid-cols-[1fr_1fr]">
             <div>
               <SectionHeader eyebrow="How it works" title="From the first visit to moving in" />
-              <Steps className="mt-6" items={[
+              <Steps className="mt-6" columns={1} items={[
                 { title: "Come and look", description: "No appointment. Stay for lunch. Ask the residents." },
                 { title: "A needs assessment", description: "Free, an hour, at home or in hospital. It decides whether we are the right home — sometimes the answer is no." },
                 { title: "Two-week trial", description: "At the weekly fee, no obligation, notice on either side. About a third of people do this." },

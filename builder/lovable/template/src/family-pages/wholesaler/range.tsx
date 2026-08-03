@@ -90,7 +90,7 @@ function P() {
             </div>
           </div>
           <div>
-            <TradeTerms {...TERMS} heading="Reminder of the terms"
+            <TradeTerms {...TERMS} columns={1} heading="Reminder of the terms"
               note="Every price on this page assumes an approved account. Collection is the same price with no minimum." />
 
             <h2 className="mt-8 text-sm font-medium uppercase tracking-widest text-muted-foreground">How ordering works</h2>

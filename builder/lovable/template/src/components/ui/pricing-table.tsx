@@ -15,9 +15,21 @@ export type Tier = {
 };
 
 /** Tiered pricing. One tier may be `featured`, which is the only visual emphasis. */
-export function PricingTable({ tiers, className }: { tiers: Tier[]; className?: string }) {
+export function PricingTable({ tiers, columns, className }: {
+  tiers: Tier[];
+  /**
+   * How many across. Defaults to what the tier count implied before this prop
+   * existed. Three tiers in a 151px rail rendered each one over FORTY lines —
+   * measured, on two real pages, after every check in this repo passed.
+   */
+  columns?: 1 | 2 | 3;
+  className?: string;
+}) {
+  const cols = columns
+    ? { 1: "", 2: "sm:grid-cols-2", 3: "lg:grid-cols-3" }[columns]
+    : (tiers.length > 2 ? "lg:grid-cols-3" : "sm:grid-cols-2");
   return (
-    <div className={cn("grid gap-4", tiers.length > 2 ? "lg:grid-cols-3" : "sm:grid-cols-2", className)}>
+    <div className={cn("grid gap-4", cols, className)}>
       {tiers.map((t) => (
         <Card key={t.name} className={cn("flex flex-col", t.featured && "border-foreground shadow-sm")}>
           <CardHeader>

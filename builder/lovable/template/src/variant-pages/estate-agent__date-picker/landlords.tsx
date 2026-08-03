@@ -79,7 +79,7 @@ function P() {
 
           <div>
             <SectionHeader eyebrow="What we do" title="Three levels, and most people want the middle" />
-            <PricingTable className="mt-6" tiers={[
+            <PricingTable className="mt-6" columns={1} tiers={[
               {
                 name: "Marketing only", price: "9%", period: "of gross bookings",
                 description: "We fill the diary and you do everything else. For owners who live nearby and have a cleaner.",

@@ -33,7 +33,7 @@ function P() {
             <SectionHeader eyebrow="How often" title="Most people get it wrong the first time"
               description="Two bags a fortnight sounds right and is usually too much. Start with one bag every three weeks and change it — it takes one click and there is no penalty." />
             <div className="mt-6 max-w-lg">
-              <FrequencyPicker defaultValue="Every three weeks" options={[
+              <FrequencyPicker defaultValue="Every three weeks" columns={1} options={[
                 { label: "Every week", perYear: 52, pricePerVisit: 8.55, note: "Two people, one coffee each a day. Rare, and they know who they are" },
                 { label: "Every two weeks", perYear: 26, pricePerVisit: 8.55, note: "What most people choose first, and about a third then slow down" },
                 { label: "Every three weeks", perYear: 17, pricePerVisit: 8.55, suggested: true, note: "The one to start on. Move it up if you run out; nothing is lost either way" },

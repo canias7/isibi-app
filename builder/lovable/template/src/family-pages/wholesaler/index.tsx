@@ -48,7 +48,7 @@ function P() {
             </div>
             {/* THE FOUR FACTS. A buyer who does not qualify should find out in
                 ten seconds, not after an approval queue. */}
-            <TradeTerms {...TERMS}
+            <TradeTerms {...TERMS} columns={1}
               note="Prices on this site are trade, before VAT, and they are the prices — there is no tier system and no negotiation, which means the small kitchen pays what the chain pays. First order is pro forma while credit is checked; after that, thirty days." />
           </div>
         </div>

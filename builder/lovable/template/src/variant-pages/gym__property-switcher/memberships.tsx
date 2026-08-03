@@ -67,7 +67,7 @@ function P() {
               instead="What direct always buys is the room we would actually put you in rather than the one an algorithm allocates, and a phone call to a person who has stood in it." />
 
             <div className="mt-8">
-              <StatsBand items={[
+              <StatsBand columns={2} items={[
                 { value: "£110", label: "Cheapest room in the group" },
                 { value: "15%", label: "Typical direct saving" },
                 { value: "113", label: "Rooms across the four" },
