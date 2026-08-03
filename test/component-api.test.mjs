@@ -355,12 +355,12 @@ test("a grid inside a narrow parent is the CALLER's decision, not the viewport's
     "the value no longer wraps — a six-figure number overflows a narrow cell");
 
   // The premise, as above: something passes it, in a genuinely narrow place.
-  // PREMISE GONE, RECORDED RATHER THAN DELETED. This used to assert that some
-  // page really passed it — a guard over a case nothing exercises is a guard
-  // over nothing. The only callers were variant reference apps, removed
-  // 2026-08-03 with the variant axis, so the corpus no longer renders this at
-  // all. The source assertions above still stop the component regressing; what
-  // is missing is the render that would prove it. Restore with:
+  // PREMISE STILL GONE, and the reason narrowed rather than went away. The
+  // variant axis came back on 2026-08-03 as ALT PAGES inside each family app —
+  // but only the alternative HOME of each came back, not the other 37 pages, and
+  // this behaviour was exercised by one of those. The source assertions above
+  // still stop the component regressing; the render that proves the behaviour
+  // matters does not exist. Restore the page it lived on with:
   //   git checkout 11211ec -- builder/lovable/template/src/variant-pages
 
   // A FIFTH, and this one was PREDICTED. The paragraph above used to end "a
@@ -589,13 +589,15 @@ test("text drawn inside a ring is bounded by the ring, not by hope", () => {
 
   // The premise: a caller passing a value long enough for any of this to
   // matter. A guard over geometry nothing exercises is a guard over nothing.
-  // PREMISE GONE, RECORDED RATHER THAN DELETED. This used to assert that some
-  // page really passed it — a guard over a case nothing exercises is a guard
-  // over nothing. The only callers were variant reference apps, removed
-  // 2026-08-03 with the variant axis, so the corpus no longer renders this at
-  // all. The source assertions above still stop the component regressing; what
-  // is missing is the render that would prove it. Restore with:
-  //   git checkout 11211ec -- builder/lovable/template/src/variant-pages
+  // The premise, alive again: personal-brand's campaign alt page raises a gauge
+  // over £100,000, which is where the overflow this guards actually occurs.
+  const PAGES_ROOT = path.join(import.meta.dirname, "../builder/lovable/template/src/family-pages");
+  const famSrc = fs.readdirSync(PAGES_ROOT, { recursive: true })
+    .filter((f) => String(f).endsWith(".tsx"))
+    .map((f) => fs.readFileSync(path.join(PAGES_ROOT, String(f)), "utf8"));
+  const calls = famSrc.flatMap((t) => [...t.matchAll(/<GoalGauge[^>]*value=\{(\d+)\}/gs)].map((m) => Number(m[1])));
+  assert.ok(calls.some((v) => v >= 100000),
+    `no page renders a gauge over 100,000 — the overflow this guards cannot occur (largest: ${Math.max(0, ...calls)})`);
 });
 
 test("an allowance says 168,400 and not 168400", () => {
@@ -680,12 +682,12 @@ test("a 90-day strip distinguishes its states as well as a 7-day one", () => {
 
   // The premise: a caller passing enough days for any of this to matter. The
   // old drawing was perfectly fine at seven.
-  // PREMISE GONE, RECORDED RATHER THAN DELETED. This used to assert that some
-  // page really passed it — a guard over a case nothing exercises is a guard
-  // over nothing. The only callers were variant reference apps, removed
-  // 2026-08-03 with the variant axis, so the corpus no longer renders this at
-  // all. The source assertions above still stop the component regressing; what
-  // is missing is the render that would prove it. Restore with:
+  // PREMISE STILL GONE, and the reason narrowed rather than went away. The
+  // variant axis came back on 2026-08-03 as ALT PAGES inside each family app —
+  // but only the alternative HOME of each came back, not the other 37 pages, and
+  // this behaviour was exercised by one of those. The source assertions above
+  // still stop the component regressing; the render that proves the behaviour
+  // matters does not exist. Restore the page it lived on with:
   //   git checkout 11211ec -- builder/lovable/template/src/variant-pages
 });
 
@@ -716,13 +718,15 @@ test("a block in a lane truncates, and the lane can be told how tall to be", () 
     "the block no longer clips at all, so a tall label now overflows its lane");
 
   // The premise: a caller with labels tall enough for any of this to matter.
-  // PREMISE GONE, RECORDED RATHER THAN DELETED. This used to assert that some
-  // page really passed it — a guard over a case nothing exercises is a guard
-  // over nothing. The only callers were variant reference apps, removed
-  // 2026-08-03 with the variant axis, so the corpus no longer renders this at
-  // all. The source assertions above still stop the component regressing; what
-  // is missing is the render that would prove it. Restore with:
-  //   git checkout 11211ec -- builder/lovable/template/src/variant-pages
+  // The premise, alive again: salon's class-schedule alt page is the timetable
+  // whose four-line labels needed the taller lane in the first place.
+  const PAGES_ROOT = path.join(import.meta.dirname, "../builder/lovable/template/src/family-pages");
+  const famSrc = fs.readdirSync(PAGES_ROOT, { recursive: true })
+    .filter((f) => String(f).endsWith(".tsx"))
+    .map((f) => fs.readFileSync(path.join(PAGES_ROOT, String(f)), "utf8"));
+  assert.ok(famSrc.some((t) => /<TimeLaneGrid[^>]*laneHeight=\{(\d+)\}/s.test(t) &&
+    Number(t.match(/<TimeLaneGrid[^>]*laneHeight=\{(\d+)\}/s)[1]) > 48),
+    "no page raises the lane height — the multi-line label this guards never occurs");
 });
 
 test("two different destinations never get the same icon", () => {

@@ -66,6 +66,13 @@ test("multi-page apps link between their own pages", () => {
     const all = Object.values(pages).join("\n");
     for (const p of FAMILIES[name].pages) {
       if (p.file === "index") continue;
+      // An ALT page is an alternative HOME, so nothing links to it and nothing
+      // should: linking it from the real index would put demo scaffolding into
+      // the one page most likely to be shipped as reference material. It is not
+      // an orphan either — it is declared in the module, built by the harness
+      // and rendered like every other page, which is what the anti-orphan rule
+      // is actually protecting. The assertion that it exists is below.
+      if (p.alt) continue;
       assert.ok(all.includes(`"#/${p.file}"`), `${name}: nothing links to #/${p.file}`);
       assert.ok(pages[p.file].includes('"#/'), `${name}/${p.file}.tsx has no way back into the app`);
     }

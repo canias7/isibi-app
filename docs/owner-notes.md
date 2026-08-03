@@ -10,7 +10,44 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
-## 2026-08-03 — THE VARIANT AXIS IS REMOVED (owner's call)
+## 2026-08-03 — VARIANTS ARE ALT PAGES INSIDE THE FAMILY APP (owner's call)
+
+**"I think the variants should be pages inside the app reference."** The axis
+was removed earlier the same day (entry below); this brings back the part that
+was worth keeping, in the shape the owner asked for. `src/variant-pages/` is
+gone for good. Each family's folder now carries its alternatives as **declared
+pages**: `salon/call-now.tsx`, `salon/class-schedule.tsx`, `restaurant/tap-list.tsx`
+— 19 of them across 12 families, each a real route in that family's reference
+app, compiled and rendered by the same harness as every other page.
+
+**56 pages became 19, which was the point.** The old variant apps each carried
+their family's whole page set because the harness demanded it — so showing one
+different first screen cost a whole second business. The actual delta was always
+the index. The other 37 pages are in git and were not restored.
+
+**One thing had to be handled or this would have shipped a bug.**
+`FAMILIES[x].pages` is TWO things: the reference app's manifest AND the
+instruction telling a generated site what to build. Declaring alternatives
+there would have told every customer's salon to ship a `/call-now` route. They
+carry `alt: true` and `layoutDirective` filters them out — asserted both ways,
+so a leak into the directive fails the suite.
+
+**Three guards had to learn the difference between declared and shipped:** the
+page-count cap (1–5 SHIPPED, or a family with two alternatives looks like a
+seven-page site), the directive contract, and the cross-link rule — an alt page
+is an alternative HOME, so nothing links to it and nothing should. Linking it
+from the real index would put demo scaffolding into the page most likely to be
+shipped as reference material.
+
+**Two of the four dead premises came back to life** (`GoalGauge` over 100,000
+on the campaign page, `TimeLaneGrid laneHeight` on the class timetable) and are
+mutation-checked. Two are still dead — `ImpactStats columns` and `UptimeStrip`
+at 60+ days lived on non-index pages that were not restored — and say so in
+place.
+
+---
+
+## 2026-08-03 — the variant axis, removed (superseded by the entry above)
 
 **"I don't really like this variants stuff."** Gone: the 19 declarations across
 12 families, `VARIANT_IDS`, `variantsForPrompt`, `resolveVariant`,

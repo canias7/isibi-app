@@ -104,6 +104,8 @@ export const FAMILIES = {
       { file: "book", role: "the booking form itself; it arrives knowing the service when a price row sent it" },
       { file: "manage", role: "an existing appointment, reached from its claim link — view, move, cancel" },
       { file: "work", role: "the work itself — a gallery of finished sets, because nails are a visual trade" },
+      { file: "call-now", alt: true, role: "an ALTERNATIVE home for a mobile trade — the phone is the booking surface, because a grid cannot know the room" },
+      { file: "class-schedule", alt: true, role: "an ALTERNATIVE home for a class studio — the week's timetable leads, because the question spans seven days" },
     ],
     kinds: ["salon", "spa", "nail studio", "clinic", "dental", "therapy", "tattoo studio", "home services", "fitness studio", "yoga",
       "hairdresser", "barber", "beautician", "massage", "piercing", "waxing", "aesthetics", "dog groomer",],
@@ -125,6 +127,7 @@ export const FAMILIES = {
       { file: "index", role: "search, the filter rail, the results — browsing starts immediately" },
       { file: "listing", role: "one property told fully — the gallery, the facts, the viewing enquiry" },
       { file: "landlords", role: "the OTHER audience — what managing costs, what it includes, the valuation ask" },
+      { file: "date-picker", alt: true, role: "an ALTERNATIVE home for travel and hotels — dates and party size come before any result" },
     ],
     kinds: ["real estate", "car dealership", "job board", "rentals", "travel", "hotel"],
     components: ["search-input", "search-facets", "filter-bar", "facet-range", "sort-select", "result-count", "property-card", "vehicle-card", "pagination"],
@@ -168,6 +171,8 @@ export const FAMILIES = {
       { file: "episode", role: "one entry in full — the player, the notes, who was in it" },
       { file: "archive", role: "everything ever published in one dense list, filterable" },
       { file: "about", role: "who makes it, how it's made, how to pitch or sponsor — the page other media checks" },
+      { file: "single-column-capture", alt: true, role: "an ALTERNATIVE home for a newsletter — the subscribe form is the hero, the archive its evidence" },
+      { file: "link-hub", alt: true, role: "an ALTERNATIVE home for a creator — one narrow stack of link-cards and nothing else" },
     ],
     kinds: ["publication", "blog", "magazine", "podcast", "newsletter", "creator", "personal brand"],
     components: ["article-card", "author-byline", "reading-time", "post-meta", "tag-list", "audio-player", "episode-row", "email-capture", "pagination"],
@@ -188,6 +193,7 @@ export const FAMILIES = {
       { file: "index", role: "the pitch — the product working, proof in descending strength, one signup path" },
       { file: "pricing", role: "the plans side by side, what each includes, the objections answered" },
       { file: "support", role: "help that actually helps — the common fixes, then a human; app stores require this page" },
+      { file: "docs-sidebar", alt: true, role: "an ALTERNATIVE home for a developer tool — the install command and docs nav sit high" },
     ],
     kinds: ["SaaS", "mobile app", "hardware", "game", "developer tool", "API"],
     components: ["hero-split", "feature-grid", "pricing-table", "plan-card", "logo-cloud", "comparison-table", "faq", "video-embed", "store-badges", "changelog-entry"],
@@ -227,6 +233,7 @@ export const FAMILIES = {
       { file: "services", role: "each practice area stated plainly — what it covers, what it costs to start" },
       { file: "contact", role: "the consultation form, with who answers it and how fast" },
       { file: "about", role: "the firm itself — history, regulation, how it charges; the page trust is checked against" },
+      { file: "booking-hybrid", alt: true, role: "an ALTERNATIVE home for vets and clinics — the slot picker appears after trust, not before" },
     ],
     kinds: ["accounting", "tax", "bookkeeping", "insurance broker", "financial advisor", "medical specialist", "childcare", "eldercare", "tutoring", "veterinary",
       "payroll", "mortgage broker", "estate planning", "wills and probate", "auditor", "VAT specialist",],
@@ -246,6 +253,9 @@ export const FAMILIES = {
     ],
     pages: [
       { file: "index", role: "the ONLY page — the menu IS the site; hours and directions ride within one scroll" },
+      { file: "order-form", alt: true, role: "an ALTERNATIVE home for a bakery or caterer — a collect form rides beside the menu" },
+      { file: "order-widget", alt: true, role: "an ALTERNATIVE home for delivery-native food — the order path sits above everything else" },
+      { file: "tap-list", alt: true, role: "an ALTERNATIVE home for a bar or brewery — what is pouring NOW leads, in dense rows" },
     ],
     kinds: ["café", "deli", "food truck", "bakery", "catering", "bar", "brewery", "ghost kitchen"],
     components: ["menu-section", "price-list", "dish-card", "open-now", "opening-hours", "location-card"],
@@ -265,6 +275,8 @@ export const FAMILIES = {
       { file: "index", role: "the locator — postcode in, nearest branch out" },
       { file: "location", role: "one branch's own page — hours, timetable, how to join" },
       { file: "memberships", role: "the plans compared — one price everywhere is the chain's whole pitch, so say it" },
+      { file: "property-switcher", alt: true, role: "an ALTERNATIVE home for a hotel group — switch between properties rather than search for one" },
+      { file: "in-stock-near-you", alt: true, role: "an ALTERNATIVE home for multi-branch retail — the stock answer per branch is the point" },
     ],
     kinds: ["franchise", "gym chain", "coworking", "dispensary", "pharmacy", "hotel group", "retail with pickup",
       "leisure operator", "climbing centre", "swim school",],
@@ -286,6 +298,7 @@ export const FAMILIES = {
       { file: "index", role: "the portrait, the story, the proof — in that order" },
       { file: "press", role: "the press kit — a bio at three lengths, photos, quotes ready to lift" },
       { file: "music", role: "the work itself — releases with players; a musician's site without the music is a CV" },
+      { file: "donate-volunteer-split", alt: true, role: "an ALTERNATIVE home for a campaign — two primary actions of equal weight" },
     ],
     kinds: ["résumé", "speaker", "author", "coach", "consultant", "campaign", "artist", "musician",
       "DJ", "band", "magician", "life coach",],
@@ -489,6 +502,7 @@ export const FAMILIES = {
       { file: "index", role: "the open roles, filterable, above the culture proof" },
       { file: "role", role: "one role in full — the work, the pay, the apply form" },
       { file: "life", role: "the culture proof, shown not claimed — the week, the room, the benefits as facts" },
+      { file: "dual-audience", alt: true, role: "an ALTERNATIVE home for staffing — two entry paths of equal weight" },
     ],
     kinds: ["careers site", "staffing agency", "talent marketplace", "internship", "bootcamp",
       "recruitment agency", "apprenticeships", "graduate scheme", "outplacement",],
@@ -587,6 +601,8 @@ export const FAMILIES = {
       { file: "index", role: "the shop front — featured, the categories, the grid; every card opens /product" },
       { file: "product", role: "one product told fully — pictures, options, stock, and the add-to-cart moment" },
       { file: "checkout", role: "the basket becomes an order — lines, delivery, payment, one place-order bar" },
+      { file: "single-product", alt: true, role: "an ALTERNATIVE home for one-product DTC — a long product story down the page, then buy" },
+      { file: "catalogue", alt: true, role: "an ALTERNATIVE home for hundreds of SKUs — search and facets lead, the grid behaves like inventory" },
     ],
     kinds: ["ecommerce", "online store", "boutique", "fashion", "jewellery", "homeware", "furniture", "electronics", "bookshop", "gift shop", "pet supplies", "DTC brand", "subscription box",
       "toy shop", "pet shop", "carpet shop", "flooring shop", "blinds and curtains", "antiques", "garden centre", "hardware shop", "sports shop", "cycle shop",],
@@ -608,6 +624,8 @@ export const FAMILIES = {
       { file: "index", role: "the door — what this tool is, the proof it works, and the sign-in itself" },
       { file: "records", role: "the work surface — search, filters, the table, bulk actions on a selection" },
       { file: "record", role: "one record opened fully — header, status, the fields, the activity trail" },
+      { file: "board", alt: true, role: "an ALTERNATIVE home for stage-driven work — the kanban board replaces the table" },
+      { file: "queue", alt: true, role: "an ALTERNATIVE home for a help desk — a priority inbox, and you reply where you read" },
     ],
     kinds: ["CRM", "project management", "help desk", "booking platform", "inventory management", "invoicing", "HR portal", "applicant tracking", "internal tool"],
     components: ["data-table", "table-search", "filter-bar", "bulk-actions", "record-header", "status-badge", "priority-badge", "assignee-picker", "activity-feed", "kanban-board"],
@@ -631,6 +649,7 @@ export const FAMILIES = {
       { file: "index", role: "the number, the area, the work and the reviews" },
       { file: "quote", role: "describe the job, send photographs" },
       { file: "work", role: "before and after, job by job" },
+      { file: "emergency", alt: true, role: "an ALTERNATIVE home for a 24-hour trade — the out-of-hours number leads" },
     ],
     kinds: [
       "plumber",
@@ -1714,6 +1733,7 @@ export function layoutDirective(family, { structure } = {}) {
   // eight explicitly.
   const chosen = structure ?? f.structure;
 
+  const shipped = f.pages.filter((p) => !p.alt);
   const lines = [
     `LAYOUT — ${f.md}: ${f.label}.`,
     ...f.shape.map((s) => `- ${s}`),
@@ -1723,8 +1743,14 @@ export function layoutDirective(family, { structure } = {}) {
     // scroll and a docs site is four linked pages. The names are the
     // archetype's — keep the count and the division of labour, and rename the
     // routes for the business at hand where that reads better.
-    `This family ships ${f.pages.length} page${f.pages.length === 1 ? "" : "s"}:`,
-    ...f.pages.map((p) => `- ${p.file === "index" ? "/" : "/" + p.file} — ${p.role}`),
+    // ALT PAGES ARE EXCLUDED, and this is the line that makes declaring them
+    // safe. `pages` is two things at once: the reference app's manifest AND
+    // the instruction telling a generated site what to build. An alternative
+    // home is a real page of the REFERENCE app — it compiles, renders and is
+    // guarded like any other — but a customer's salon must not be told to ship
+    // a /call-now route. Without this filter every generated site would.
+    `This family ships ${shipped.length} page${shipped.length === 1 ? "" : "s"}:`,
+    ...shipped.map((p) => `- ${p.file === "index" ? "/" : "/" + p.file} — ${p.role}`),
   ];
   if (chosen) lines.push(`Structure — ${chosen}: ${STRUCTURES[chosen].text}.`);
   return lines.join("\n");

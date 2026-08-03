@@ -76,7 +76,15 @@ test("every family is complete and enum-safe", () => {
     // The page set: index first, flat enum-safe route files, each with a real
     // role sentence. 1–5 because zero pages is no site and past five the
     // family should be questioning itself.
-    assert.ok(Array.isArray(f.pages) && f.pages.length >= 1 && f.pages.length <= 5, `${id} pages`);
+    // 1–5 SHIPPED pages. `pages` also carries the reference app's alternative
+    // homes, which are marked `alt` and are not part of what a site ships —
+    // counting them here would make a family with two alternatives look like a
+    // seven-page site and would cap how many alternatives it may keep.
+    const shipped = f.pages.filter((x) => !x.alt);
+    assert.ok(Array.isArray(f.pages) && shipped.length >= 1 && shipped.length <= 5, `${id} pages`);
+    for (const a of f.pages.filter((x) => x.alt)) {
+      assert.notEqual(a.file, "index", `${id}: an alt page cannot be the index`);
+    }
     assert.equal(f.pages[0].file, "index", `${id}'s first page must be index`);
     const files = f.pages.map((p) => p.file);
     assert.equal(new Set(files).size, files.length, `${id} declares a page twice`);
@@ -194,9 +202,16 @@ test("a directive carries the whole contract, and refuses everything unknown", (
     for (const line of f.shape) assert.ok(d.includes(line), `${n}: shape line missing`);
     for (const c of f.cta) assert.ok(d.includes(`"${c}"`), `${n}: cta ${c} missing`);
     for (const c of f.components) assert.ok(d.includes(c), `${n}: component ${c} missing`);
-    assert.ok(d.includes(`ships ${f.pages.length} page`), `${n}: page count missing`);
+    // SHIPPED, not declared. The directive deliberately omits alt pages — a
+    // customer's salon must not be told to build a /call-now route — so this
+    // asserting the raw length would demand the exact bug the flag prevents.
+    const shipped = f.pages.filter((p) => !p.alt);
+    assert.ok(d.includes(`ships ${shipped.length} page`), `${n}: page count missing`);
+    for (const a of f.pages.filter((p) => p.alt)) {
+      assert.ok(!d.includes(`/${a.file} —`), `${n}: alt page ${a.file} leaked into the directive`);
+    }
     assert.ok(d.includes(`Structure — ${f.structure}:`), `${n}: default structure missing from directive`);
-    for (const p of f.pages) {
+    for (const p of shipped) {
       assert.ok(d.includes(`${p.file === "index" ? "/" : "/" + p.file} — ${p.role}`), `${n}: page ${p.file} missing`);
     }
   }
