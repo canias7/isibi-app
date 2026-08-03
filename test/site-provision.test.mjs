@@ -408,3 +408,54 @@ test("enableNeonAuth treats an already-enabled project as done", async () => {
   // The wait, for the same reason every other Neon step has one.
   assert.match(fn[0], /await waitForProject\(env, projectId\)/, "enabling auth is an async project operation");
 });
+
+// EVERY DEP THE PROVISIONER READS MUST BE ONE worker.js SUPPLIES.
+//
+// This is the guard that was missing, and its absence had a cost. `enableDataApi`
+// was written, documented "FATAL, like enableNeonAuth", covered by its own source
+// test above — and never called, because worker.js's deps object simply had no
+// `enableData` key. site-provision.mjs guards each optional step with
+// `if (deps.enableData)`, so the whole Data API block was skipped SILENTLY on
+// every build: no error, no log, a green build, and a published site whose every
+// list and every form answered 501 because nothing ever wrote `_meta.data_api`.
+//
+// DERIVED AT BOTH ENDS, deliberately. A hand-written list of dep names would have
+// to be remembered on the day somebody adds the next optional step, which is the
+// same failure one level up. So: scan the provisioner for what it READS, scan the
+// worker's call site for what it SUPPLIES, and diff.
+test("worker.js supplies every dep site-provision.mjs reads", () => {
+  const prov = fs.readFileSync(new URL("../site-provision.mjs", import.meta.url), "utf8");
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+
+  // Comments describe deps that do not exist yet; only real reads count.
+  const body = prov.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const read = new Set([...body.matchAll(/\bdeps\.(\w+)/g)].map((m) => m[1]));
+  assert.ok(read.size >= 10, `only found ${read.size} deps — the scan stopped working`);
+
+  // The one call site, taken as a balanced brace region so a later object cannot
+  // leak into it and make a missing key look supplied.
+  const at = worker.indexOf("ensureSiteBackendPure({");
+  assert.ok(at > 0, "worker.js no longer calls ensureSiteBackendPure — retarget this test");
+  let depth = 0, end = at;
+  for (let i = worker.indexOf("{", at); i < worker.length; i++) {
+    if (worker[i] === "{") depth++;
+    else if (worker[i] === "}" && --depth === 0) { end = i; break; }
+  }
+  const site = worker.slice(at, end);
+  const supplied = new Set([...site.matchAll(/^\s*(\w+):/gm)].map((m) => m[1]));
+
+  const missing = [...read].filter((d) => !supplied.has(d));
+  assert.deepEqual(missing, [], `site-provision reads deps worker.js never supplies: ${missing.join(", ")}`);
+});
+
+// The key is spelled in two files and they have to agree, or the build writes a
+// row the reader never looks at. Exactly the shape of the original bug, one layer
+// down: `saveDataInfo` could store `_meta.data_api_url` and every check above
+// would still pass while every site stayed dead.
+test("what provisioning WRITES is what the proxy READS", () => {
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  for (const key of ["auth_info", "data_api"]) {
+    assert.match(worker, new RegExp(`VALUES \\('${key}',`), `nothing writes _meta.${key}`);
+    assert.match(worker, new RegExp(`siteServiceBase\\(db, "${key}"\\)`), `nothing reads _meta.${key}`);
+  }
+});

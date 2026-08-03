@@ -13,7 +13,7 @@ import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { injectMeta } from "./site-meta.mjs";
 import { drainTeardown } from "./site-teardown.mjs";
-import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
+import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
@@ -3094,6 +3094,28 @@ async function ensureSiteBackend(env, slug, uid, brief) {
       const conn = connForDatabase((await lookupProject(slug)).conn, dbName);
       await sqlQuery(conn, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
       await sqlQuery(conn, "INSERT INTO _meta (k,v) VALUES ('auth_info', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
+        [JSON.stringify(info).slice(0, 20000)]);
+    },
+    // THE DATA API, AND IT WAS THE HALF THAT WAS NEVER PLUGGED IN. `enableDataApi`
+    // was written, documented "FATAL, like enableNeonAuth", and had ZERO callers;
+    // site-provision.mjs was already shaped for it and guards with
+    // `if (deps.enableData)`, so a missing dep was a SILENT skip — a green build
+    // every time. The consequence ran all the way to the visitor: nothing wrote
+    // `_meta.data_api`, so `siteDataBase` resolved null and every read and every
+    // form on every generated site answered 501 no_backend. With the Worker's own
+    // row routes deleted this IS the site's backend, so the site was a shell.
+    //
+    // Eighth instance in this repo of built-tested-on-disk-and-reachable-by-
+    // nothing, and the first one where the guard existed and the dep did not.
+    enableData: (proj) => enableDataApi(env, proj.neon_project, proj.neon_branch),
+    // Same store and same reasoning as the auth endpoint: per-site, read only on
+    // a request that already holds that connection, and gone when the site is.
+    // The KEY is what `siteDataBase` reads — `siteServiceBase(db, "data_api")` —
+    // so it is spelled once here and once there and a test holds them together.
+    saveDataInfo: async (dbName, info) => {
+      const conn = connForDatabase((await lookupProject(slug)).conn, dbName);
+      await sqlQuery(conn, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
+      await sqlQuery(conn, "INSERT INTO _meta (k,v) VALUES ('data_api', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
         [JSON.stringify(info).slice(0, 20000)]);
     },
     dropProject: async (id) => {
