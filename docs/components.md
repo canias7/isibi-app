@@ -1,4 +1,4 @@
-# Components (2103 built, 25 to go)
+# Components (2112 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -498,6 +498,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ demurrage-note
 ✓ density-preference
 ✓ density-toggle
+✓ departure-board
 ✓ dependent-select
 ✓ deposit-hold
 ✓ deposit-line
@@ -863,6 +864,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ instrument-booking
 ✓ integration-log
 ✓ interaction-warning
+✓ interest-rates
 ✓ interval-picker
 ✓ interview-slot
 ✓ intro-request
@@ -1268,6 +1270,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ print-range
 ✓ print-run
 ✓ priority-badge
+✓ priority-debts
 ✓ priority-inbox
 ✓ priority-picker
 ✓ privacy-choice
@@ -1343,6 +1346,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ range-text
 ✓ range-trim
 ✓ ranking-list
+✓ rate-board
 ✓ rate-card
 ✓ rate-limited
 ✓ rate-type
@@ -1413,6 +1417,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ reorder-list
 ✓ reorder-point
 ✓ reorderable-grid
+✓ repair-job
 ✓ repair-status
 ✓ repayment-preview
 ✓ repeat-request
@@ -1599,6 +1604,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ serial-row
 ✓ service-area
 ✓ service-area-note
+✓ service-availability
 ✓ service-card
 ✓ service-history
 ✓ service-standard
@@ -1868,6 +1874,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ tenant-badge
 ✓ tenant-delete
 ✓ tenant-limits
+✓ term-dates
 ✓ term-slider
 ✓ terminal-output
 ✓ terms-block
@@ -1945,6 +1952,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ trade-off-bar
 ✓ trade-terms
 ✓ tradeoff-slider
+✓ trading-diary
 ✓ transcript-line
 ✓ transcript-toggle
 ✓ transcript-view
@@ -2050,6 +2058,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ vote-bar
 ✓ vote-buttons
 ✓ waiting-list-note
+✓ waiting-list-place
 ✓ waiting-on
 ✓ waitlist-form
 ✓ walk-in-note
@@ -3194,7 +3203,7 @@ age-group-picker
 staff-ratio
 collection-password
 daily-report
-term-dates
+✓ term-dates
 allergy-plan
 
 ### Analytics, campaigns and the rest

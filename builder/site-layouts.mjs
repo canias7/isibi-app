@@ -1689,6 +1689,748 @@ export const FAMILIES = {
     structure: "full-bleed-hero",
     ready: true,
   },
+
+  /* --------------------------------------------- 66-100, added 2026-08-03.
+   *
+   * THE SECOND THIRTY-FIVE (owner's call). The first sixty-five covered the
+   * businesses a high street has; these cover the shapes they did not — a
+   * service that must ask WHERE YOU LIVE before it can say anything, a price
+   * that is a function of quantity, a rate board that is the whole product,
+   * and a page whose reader is frightened.
+   *
+   * The test that matters most for this block is the structure spread: adding
+   * thirty-five single-scrolls would have been faster and would have recreated
+   * the sameness the axis exists to break. */
+
+  broadband: {
+    md: "Broadband or network provider — can-I-get-it-first",
+    label: "the address checker IS the hero; nothing below it means anything yet",
+    cta: ["Check my address", "See packages"],
+    shape: [
+      "hero: a postcode field and nothing competing with it — every figure on the page is conditional on the answer",
+      "body: the packages available AT THAT ADDRESS, then the contract length and what happens when it ends",
+      "an unavailable service stays on the page saying why, because 'why not me' is the question that generates the call",
+    ],
+    pages: [
+      { file: "index", role: "the address check, then what this address can actually have" },
+      { file: "packages", role: "the speeds and prices in full, with the after-offer price beside the offer one" },
+      { file: "switching", role: "moving house or moving provider — the dates, the overlap and the exit fee" },
+    ],
+    kinds: ["broadband", "isp", "full fibre", "network operator", "mobile network", "satellite internet", "altnet", "business connectivity"],
+    components: ["postcode-input", "service-availability", "bundle-row", "contract-end", "plan-card", "faq", "section-header"],
+    structure: "split-screen",
+    ready: true,
+  },
+
+  energy: {
+    md: "Energy or metered supplier — tariff-first",
+    label: "the tariff table is the page; a bill is the only thing being compared",
+    cta: ["Compare tariffs", "Send a reading"],
+    shape: [
+      "hero: the tariffs side by side with the standing charge shown, not folded into an annual estimate",
+      "body: how to read a meter and send one, then what happens when a fixed term ends",
+      "every estimate states the usage it assumes, or it is a number pretending to be a fact",
+    ],
+    pages: [
+      { file: "index", role: "the tariffs, the standing charges and what a typical year costs on each" },
+      { file: "tariffs", role: "the full table including the ones closing, with exit fees and end dates" },
+      { file: "meter", role: "sending a reading — the form, and what the digits on each meter type mean" },
+    ],
+    kinds: ["energy supplier", "gas", "electricity", "water", "heat network", "metered service", "community energy"],
+    components: ["tariff-row", "meter-reading", "smart-meter-note", "contract-end", "faq", "section-header", "announcement-bar"],
+    structure: "split-screen",
+    ready: true,
+  },
+
+  bank: {
+    // NO IMAGERY, DELIBERATELY. The rate table is the product. Retail finance
+    // is the worst offender for photographs of couples on sofas, and they are
+    // always on the page where the APR is not.
+    md: "Bank, lender or credit union — rates-first",
+    label: "every rate with its conditions in the same row, because the conditions are the product",
+    cta: ["Apply to join", "See rates"],
+    shape: [
+      "hero: what you can borrow and what you can earn, as two rate tables, no imagery between them",
+      "body: who may join, what it costs to repay, and the checks before applying",
+      "a representative APR says so in words — half of applicants may be offered worse and no table shows that otherwise",
+    ],
+    pages: [
+      { file: "index", role: "the headline rates for saving and borrowing, and who may join" },
+      { file: "borrow", role: "the loans in full — a repayment preview and what happens if a payment is missed" },
+      { file: "save", role: "the savings accounts, each with its withdrawal limits stated in the row" },
+      { file: "join", role: "the eligibility check and the documents to bring, before any form" },
+    ],
+    kinds: ["credit union", "building society", "community lender", "savings provider", "mutual", "friendly society"],
+    components: ["interest-rates", "repayment-preview", "eligibility-check", "checklist-dot", "faq", "contact-card", "section-header"],
+    structure: "sidebar",
+    ready: true,
+  },
+
+  insurance: {
+    // NO IMAGERY, DELIBERATELY. Cover levels and exclusions are the product,
+    // and a family in a sunlit kitchen is how this trade avoids printing what
+    // is not covered.
+    md: "Insurance or protection — cover-levels-first",
+    label: "levels side by side with what each refuses — the exclusions decide it",
+    cta: ["Get a quote", "Compare cover"],
+    shape: [
+      "hero: the levels of cover as parallel columns, differing lines called out rather than left to be spotted",
+      "body: the exclusions in plain words, the excess, then what claiming actually looks like",
+      "the excess appears next to the cover it applies to — a single figure in a footer is how a claim becomes a complaint",
+    ],
+    pages: [
+      { file: "index", role: "the cover levels compared, and the exclusions that apply to all of them" },
+      { file: "cover", role: "one level in full — every limit, the excess for each claim type, the wording" },
+      { file: "claim", role: "how a claim runs, stage by stage, with what is needed at each" },
+    ],
+    kinds: ["insurance", "protection", "warranty", "pet insurance", "travel insurance", "insurance broker", "breakdown cover", "home emergency"],
+    components: ["cover-level", "exclusion-list", "excess-note", "policy-summary-row", "claim-timeline", "faq", "section-header"],
+    structure: "card-grid",
+    ready: true,
+  },
+
+  "debt-advice": {
+    // NO IMAGERY, DELIBERATELY, and this is the one where it matters most.
+    // The reader is frightened and often ashamed, and a stock photograph of a
+    // smiling adviser reads as a sales page — which is exactly what somebody
+    // in that state is braced for. A phone number and a priority order is
+    // kinder than anything a picture could do here.
+    md: "Free advice service — urgent-help-first",
+    label: "no form before the phone number, and the priority order above everything",
+    cta: ["Talk to an adviser", "Start with the checklist"],
+    shape: [
+      "hero: how to reach a person today, and the sentence saying it is free and confidential",
+      "body: which debts to deal with first and why, then what an adviser will ask you to bring",
+      "nothing on this page asks for a detail before it has given something — a form ahead of the help is a door",
+    ],
+    pages: [
+      { file: "index", role: "how to reach someone now, and the priority order that IS the advice" },
+      { file: "options", role: "what can actually be arranged, each with what it costs you afterwards" },
+    ],
+    kinds: ["debt advice", "money advice", "welfare rights", "law centre", "citizens advice", "advice service", "hardship fund"],
+    components: ["priority-debts", "triage-banner", "checklist-dot", "contact-card", "faq", "section-header", "site-chrome"],
+    structure: "single-scroll",
+    ready: true,
+  },
+
+  "subscription-box": {
+    md: "A subscription — plan-and-frequency-first",
+    label: "size and frequency chosen before payment, with the cancel terms beside them",
+    cta: ["Start a box", "See the plans"],
+    shape: [
+      "hero: the sizes as a choice and the frequency beside it — two decisions, made together, before any card details",
+      "body: what turns up, when the cut-off is, and how to skip a delivery without ringing anybody",
+      "cancelling is described where somebody is deciding to subscribe, not filed under terms",
+    ],
+    pages: [
+      { file: "index", role: "the sizes and frequencies, with the cancel terms next to them" },
+      { file: "plans", role: "every plan priced, including the ones that only make sense for a household" },
+      { file: "manage", role: "skipping, pausing, changing frequency and stopping — reached from the account link" },
+    ],
+    kinds: ["subscription box", "coffee subscription", "wine club", "book club", "pet box", "razor subscription", "flower subscription"],
+    components: ["frequency-picker", "recurring-picker", "cutoff-time", "cancel-policy", "delivery-estimate", "plan-card", "faq"],
+    structure: "split-screen",
+    ready: true,
+  },
+
+  "meal-plan": {
+    md: "Meal plan or recipe box — this-week's-menu-first",
+    label: "this week's food leads; nobody subscribes to a box of unknowns",
+    cta: ["See this week", "Choose a plan"],
+    shape: [
+      "hero: the dishes available this week as cards, with the ordering cut-off stated above them",
+      "body: the plans and portion sizes, then the allergens as a full matrix rather than a disclaimer",
+      "the cut-off appears on every page — it is the only thing on the site that expires",
+    ],
+    pages: [
+      { file: "index", role: "this week's dishes and the cut-off, then the plans underneath" },
+      { file: "menu", role: "the full week including next week's, with the allergen matrix" },
+      { file: "plans", role: "portions, frequency and price per serving, which is the honest comparison" },
+    ],
+    kinds: ["recipe box", "meal plan", "meal prep", "veg box", "food subscription", "diet plan", "prepared meals"],
+    components: ["cutoff-time", "menu-section", "allergen-matrix", "frequency-picker", "delivery-slot", "plan-card", "faq"],
+    structure: "card-grid",
+    ready: true,
+  },
+
+  "food-truck": {
+    md: "Street food or mobile trader — where-today-first",
+    label: "where the van is TODAY, above all — the only fact on the site that expires",
+    cta: ["Where we are today", "Book us"],
+    shape: [
+      "hero: today's pitch and its hours, large, with the rest of the week directly beneath it",
+      "body: what is on, then hiring the van for a private event, which is the other half of the business",
+      "a cancelled pitch stays in the diary marked cancelled — a regular finds out by driving there otherwise",
+    ],
+    pages: [
+      { file: "index", role: "where we are today and this week, then what is on the menu" },
+      { file: "diary", role: "the full trading diary — markets, regular pitches and the winter gaps" },
+      { file: "hire", role: "hiring the van for a wedding, a party or a works do" },
+    ],
+    kinds: ["food truck", "street food", "mobile catering", "market stall", "coffee van", "mobile trader", "pop-up kitchen", "ice cream van"],
+    components: ["trading-diary", "menu-section", "location-card", "open-now", "date-enquiry", "faq", "section-header"],
+    structure: "full-bleed-hero",
+    ready: true,
+  },
+
+  "coach-hire": {
+    md: "Coach or minibus hire — route-and-date-first",
+    label: "seats, date and route set the price; photographs of the fleet set nothing",
+    cta: ["Get a quote", "Check a date"],
+    shape: [
+      "hero: the three questions that set the price — how many, where to, which day — and nothing else",
+      "body: the fleet by capacity rather than by prettiness, then what the quote does and does not include",
+      "driver hours are a legal limit, not a preference, so a long day is priced as two drivers and says so",
+    ],
+    pages: [
+      { file: "index", role: "the three questions, an indicative price, and what is included" },
+      { file: "fleet", role: "every vehicle by seats, with access and luggage stated" },
+      { file: "quote", role: "the enquiry form — route, date, times and the extras that change the figure" },
+    ],
+    kinds: ["coach hire", "minibus hire", "school transport", "airport transfer", "wedding transport", "private hire", "day trips"],
+    components: ["vehicle-card", "capacity-table", "fare-quote", "route-stop", "date-enquiry", "faq", "section-header"],
+    structure: "split-screen",
+    ready: true,
+  },
+
+  caterer: {
+    md: "Caterer or event supplier — headcount-first",
+    label: "the number of people is the first question and every figure on the page moves with it",
+    cta: ["Get a quote", "See the menus"],
+    shape: [
+      "hero: a headcount and a date, with a per-head figure that changes as the number does",
+      "body: the menus at each price point, then what a quote covers — staff, hire, travel, VAT",
+      "the minimum spend is stated in the hero, because it is the fact that ends half of these enquiries",
+    ],
+    pages: [
+      { file: "index", role: "headcount, date, the per-head bands and the minimum spend" },
+      { file: "menus", role: "the menus at each band, with the allergen matrix rather than a disclaimer" },
+      { file: "quote", role: "the enquiry — venue, timings, dietary needs and what we need to know about the kitchen" },
+    ],
+    kinds: ["caterer", "event catering", "wedding catering", "buffet", "hog roast", "corporate catering", "canapes", "grazing table"],
+    components: ["price-list", "menu-section", "allergen-matrix", "date-enquiry", "capacity-table", "faq", "section-header"],
+    structure: "editorial",
+    ready: true,
+  },
+
+  "driving-school": {
+    md: "Driving school or instructor — pass-rate-first",
+    label: "the pass rate and the wait for a test, plainly — both are what people ring to ask",
+    cta: ["Book a first lesson", "Check availability"],
+    shape: [
+      "hero: the pass rate as a real figure with the sample size beside it, and how far out the diary is",
+      "body: what a lesson costs and what a block costs, then the instructor as a person rather than a logo",
+      "the test-centre waiting time is stated because it is the constraint nobody warns a learner about",
+    ],
+    pages: [
+      { file: "index", role: "the pass rate, the wait, the prices and who is teaching" },
+      { file: "lessons", role: "hourly, block and intensive, with what each actually suits" },
+      { file: "book", role: "the first lesson — pick-up, licence check and what happens in the first hour" },
+    ],
+    kinds: ["driving school", "driving instructor", "intensive course", "motorcycle training", "hgv training", "pass plus", "refresher lessons"],
+    components: ["price-list", "week-strip", "availability-grid", "rating-summary", "practitioner-card", "faq", "section-header"],
+    structure: "single-scroll",
+    ready: true,
+  },
+
+  "music-school": {
+    md: "Music or arts school — instrument-and-grade-first",
+    label: "pick the instrument then the stage; timetable and fees follow from those two",
+    cta: ["Book a taster", "See the timetable"],
+    shape: [
+      "sidebar: the instruments as the rail, because that is the first thing a parent narrows by",
+      "body: the teacher, the grades and what a term costs — one page per instrument, not one page for everything",
+      "the fee is per TERM and says so, since an hourly figure on a school that bills termly is a wrong number",
+    ],
+    pages: [
+      { file: "index", role: "the instruments, the grades taught and how a term is priced" },
+      { file: "lessons", role: "one-to-one, group and ensemble — who each suits and at what stage" },
+      { file: "timetable", role: "the week, by instrument and room, with the spaces still free" },
+      { file: "fees", role: "per term, with the bursary and the instrument-loan scheme stated" },
+    ],
+    kinds: ["music school", "music teacher", "drama school", "dance school", "art class", "stage school", "peripatetic teaching"],
+    components: ["subject-list", "session-table", "fee-table", "practitioner-card", "time-lane-grid", "faq", "section-header"],
+    structure: "sidebar",
+    ready: true,
+  },
+
+  school: {
+    md: "Primary or secondary school — parents-first",
+    label: "term dates, absence and the newsletter above anything about the school's values",
+    cta: ["Report an absence", "Term dates"],
+    shape: [
+      "sidebar: the parent's rail — term dates, absence, uniform, the newsletter — not a prospectus menu",
+      "body: what is happening this week, then admissions, then the governors and the inspection report",
+      "the closure days appear INSIDE each term, because a term stated as one range hides the days school is shut",
+    ],
+    pages: [
+      { file: "index", role: "this week, the absence line, and the next dates that affect a family" },
+      { file: "admissions", role: "how to apply, the catchment, and what the oversubscription criteria really mean" },
+      { file: "term-dates", role: "the year with every INSET day and closure inside its term" },
+      { file: "news", role: "the newsletter and the letters home, kept where a parent can find one again" },
+    ],
+    kinds: ["primary school", "secondary school", "academy", "sixth form", "special school", "independent school", "nursery school", "pupil referral unit"],
+    components: ["term-dates", "announcement-bar", "committee-list", "inspection-rating", "contact-card", "faq", "section-header"],
+    structure: "sidebar",
+    ready: true,
+  },
+
+  apprenticeship: {
+    md: "Training provider — am-I-eligible-first",
+    label: "each course states who may take it and who pays, before what it covers",
+    cta: ["Check eligibility", "Apply"],
+    shape: [
+      "hero: the eligibility question, because funding rules decide more applications than interest does",
+      "body: the courses as a grid with entry requirements and the funding route on every card",
+      "who pays is named — the employer, the levy, the adult skills fund or the learner — never left implied",
+    ],
+    pages: [
+      { file: "index", role: "who we can take, how it is funded, and the courses running now" },
+      { file: "courses", role: "every course with its entry requirements, length and awarding body" },
+      { file: "apply", role: "the steps, the documents and what happens between applying and starting" },
+    ],
+    kinds: ["training provider", "apprenticeship", "adult education", "skills bootcamp", "further education", "vocational training", "employability programme"],
+    components: ["eligibility-check", "entry-requirements", "fee-table", "cohort-picker", "checklist-dot", "faq", "section-header"],
+    structure: "card-grid",
+    ready: true,
+  },
+
+  "housing-association": {
+    md: "Housing association or social landlord — report-a-repair-first",
+    label: "the four things tenants come for as tiles, repairs first, none more than a click deep",
+    cta: ["Report a repair", "Pay rent"],
+    shape: [
+      "bento: repairs, rent, the emergency number and how to complain, as tiles rather than a prospectus",
+      "body: what counts as an emergency and what the response times actually are, in writing",
+      "the complaints route is given equal weight to everything else, because burying it is what generates ombudsman cases",
+    ],
+    pages: [
+      { file: "index", role: "the four tenant doors as a grid, with the out-of-hours number always visible" },
+      { file: "repairs", role: "what is an emergency, the response times, and tracking one already reported" },
+      { file: "tenancy", role: "rent, arrears help, ending a tenancy, and how to complain properly" },
+    ],
+    kinds: ["housing association", "social landlord", "council housing", "almshouse", "tenant management", "co-operative housing", "supported housing"],
+    components: ["bento-grid", "repair-job", "triage-banner", "arrears-note", "contact-card", "faq", "section-header"],
+    structure: "bento",
+    ready: true,
+  },
+
+  optician: {
+    md: "Optician or hearing centre — test-then-frames",
+    label: "an appointment and a shop on one page, kept visibly apart because they are different visits",
+    cta: ["Book an eye test", "Browse frames"],
+    shape: [
+      "split: the test on one side as a bookable appointment, the shop on the other as browsable stock",
+      "body: what a test actually involves and how long it takes, then lenses priced as options rather than as a range",
+      "the NHS entitlement is stated plainly, because most people who qualify do not know they do",
+    ],
+    pages: [
+      { file: "index", role: "book a test on one side, browse frames on the other, entitlement stated" },
+      { file: "eye-test", role: "what happens in the 30 minutes, who is free, and who gets one free" },
+      { file: "frames", role: "the stock, and lenses priced as options so a total can be worked out" },
+    ],
+    kinds: ["optician", "optometrist", "hearing centre", "audiologist", "eyewear", "contact lenses", "dispensing optician"],
+    components: ["availability-grid", "option-priced-list", "price-list", "practitioner-card", "opening-hours", "faq", "section-header"],
+    structure: "split-screen",
+    ready: true,
+  },
+
+  pharmacy: {
+    md: "Pharmacy or dispensary — prescriptions-and-services-first",
+    label: "repeats and the things needing no appointment, as a grid of doors rather than a shop",
+    cta: ["Order a repeat", "See services"],
+    shape: [
+      "bento: ordering a repeat, the NHS services, the counter, and when the pharmacist is actually in",
+      "body: what can be treated here without seeing a GP, which is far more than most people think",
+      "the out-of-hours and urgent route is stated, because a pharmacy is where people go when the surgery is shut",
+    ],
+    pages: [
+      { file: "index", role: "the four doors, and when the pharmacist is on the premises" },
+      { file: "services", role: "what can be treated here without a GP, and which are free" },
+      { file: "repeat", role: "ordering a repeat, how long it takes, and what to do when an item is out of stock" },
+    ],
+    kinds: ["pharmacy", "chemist", "dispensary", "travel clinic", "vaccination service", "community pharmacy"],
+    components: ["bento-grid", "prescription-row", "counter-services", "triage-banner", "opening-hours", "faq", "section-header"],
+    structure: "bento",
+    ready: true,
+  },
+
+  "bike-shop": {
+    md: "Bike or equipment shop — buy-and-service",
+    label: "two businesses on one page — stock to browse and a workshop to book — kept visibly apart",
+    cta: ["Book a service", "See what is in"],
+    shape: [
+      "card-grid: what is actually in stock, in sizes, because a bike you cannot ride is not stock",
+      "body: the workshop as a bookable diary with a real turnaround, then what each service includes",
+      "the workshop wait is stated in weeks, since in March it is six and that is the answer somebody needs",
+    ],
+    pages: [
+      { file: "index", role: "what is in, in which sizes, and how far out the workshop is" },
+      { file: "bikes", role: "the stock with sizes and what fits whom, rather than a catalogue" },
+      { file: "workshop", role: "the services, what each includes, and booking one" },
+    ],
+    kinds: ["bike shop", "cycle shop", "ski hire", "outdoor shop", "golf shop", "music shop", "camera shop", "equipment retailer"],
+    components: ["product-card", "spec-row", "price-list", "availability-grid", "service-history", "faq", "section-header"],
+    structure: "card-grid",
+    ready: true,
+  },
+
+  "garden-centre": {
+    md: "Garden centre or plant nursery — what's-good-now-first",
+    label: "what is worth planting this month leads; a site that does not change with the season is wrong",
+    cta: ["What's in now", "Plan a visit"],
+    shape: [
+      "editorial: the month's planting, written as advice rather than as a product list",
+      "body: what is actually in stock now, then the practical visit facts — parking, the cafe, the dog rule",
+      "anything out of season says so rather than being quietly listed, because selling somebody a doomed plant loses them",
+    ],
+    pages: [
+      { file: "index", role: "what to plant this month, and what of it is in stock" },
+      { file: "plants", role: "the stock by season, with what will not survive being planted now" },
+      { file: "visit", role: "opening hours, parking, the cafe, dogs, and accessibility" },
+    ],
+    kinds: ["garden centre", "plant nursery", "seed merchant", "florist", "landscaping supplier", "allotment shop", "farm nursery"],
+    components: ["season-picker", "product-card", "price-list", "opening-hours", "location-card", "faq", "section-header"],
+    structure: "editorial",
+    ready: true,
+  },
+
+  antiques: {
+    md: "Antiques or one-of-a-kind dealer — each-piece-unique",
+    label: "one of everything, so a sold piece stays on the page marked sold rather than vanishing",
+    cta: ["Enquire", "See the stock"],
+    shape: [
+      "editorial: each piece gets its own measure — a grid of thumbnails is how a unique object stops being one",
+      "body: provenance and condition given as much room as the photograph, because that is what the price rests on",
+      "a sold piece remains, marked sold, since it is the record of what this dealer handles",
+    ],
+    pages: [
+      { file: "index", role: "the current stock, with the sold pieces kept and marked" },
+      { file: "piece", role: "one object in full — provenance, condition, measurements, the price" },
+      { file: "selling", role: "for somebody with something to sell — valuation, commission and probate" },
+    ],
+    kinds: ["antiques", "art dealer", "vintage", "rare books", "coins and medals", "classic cars", "salvage", "auction consignment"],
+    components: ["lot-card", "provenance-note", "condition-report", "gallery", "safe-image", "faq", "section-header"],
+    structure: "editorial",
+    ready: true,
+  },
+
+  "golf-club": {
+    md: "Golf or members' club — membership-and-tee-times",
+    label: "a grid: what joining costs, whether a visitor may play, and the next free tee time",
+    cta: ["Book a tee time", "Join"],
+    shape: [
+      "bento: the membership ladder, the visitor answer, the next tee times and the dress code as four tiles",
+      "body: the categories in full with their joining fees and whether each has a waiting list",
+      "the visitor question is answered first because most traffic is somebody asking it, not a prospective member",
+    ],
+    pages: [
+      { file: "index", role: "join, visit, book, and what the club expects of you" },
+      { file: "membership", role: "every category with its fee, waiting list and voting rights" },
+      { file: "visitors", role: "green fees, when a visitor may play, and the dress code in plain terms" },
+    ],
+    kinds: ["golf club", "members club", "bowls club", "sailing club", "shooting ground", "tennis club", "country club", "angling club"],
+    components: ["bento-grid", "membership-tier-row", "availability-grid", "house-rules", "opening-hours", "faq", "section-header"],
+    structure: "bento",
+    ready: true,
+  },
+
+  band: {
+    md: "Band or touring artist — tour-dates-first",
+    label: "the next date and the ticket link above everything; the music is one click, the tour is not",
+    cta: ["Get tickets", "Listen"],
+    shape: [
+      "full-bleed: one image and the next date over it, with the ticket link in the first screen",
+      "body: the dates in full including the sold-out ones, then something to listen to, then the merch",
+      "a cancelled or sold-out date stays listed and says which, because a fan checking is asking exactly that",
+    ],
+    pages: [
+      { file: "index", role: "the next date, the tour, and one thing to listen to" },
+      { file: "tour", role: "every date including sold out and cancelled, with the on-sale times" },
+      { file: "listen", role: "the records, where to hear them, and the set as it is currently played" },
+    ],
+    kinds: ["band", "musician", "touring artist", "DJ", "orchestra", "comedian", "theatre company", "spoken word"],
+    components: ["tour-dates", "setlist-row", "audio-player", "ticket-tiers", "press-quote", "faq", "section-header"],
+    structure: "full-bleed-hero",
+    ready: true,
+  },
+
+  "game-studio": {
+    md: "A game — trailer-first",
+    label: "the trailer fills the screen, then the platforms, then one button that buys or wishlists it",
+    cta: ["Wishlist", "Buy now"],
+    shape: [
+      "full-bleed: the trailer, playing on its own terms, with the platforms directly under it",
+      "body: what the game actually is in three sentences, then the press, then the studio",
+      "the platform list says which are confirmed and which are hoped for, because a wrong assumption is a refund",
+    ],
+    pages: [
+      { file: "index", role: "the trailer, the platforms, and the one button" },
+      { file: "about", role: "what the game is, how long it takes, and what it is not" },
+      { file: "press", role: "the kit — screenshots, logos, the fact sheet and who to contact" },
+    ],
+    kinds: ["game", "indie game", "mobile app", "software launch", "hardware product", "board game", "kickstarter"],
+    components: ["video-embed", "device-picker", "wishlist-button", "press-quote", "media-object", "faq", "section-header"],
+    structure: "full-bleed-hero",
+    ready: true,
+  },
+
+  film: {
+    md: "A film or production — screenings-first",
+    label: "the trailer, then where it is actually showing, which is what a release page is for",
+    cta: ["Find a screening", "Watch the trailer"],
+    shape: [
+      "full-bleed: the trailer, then the next screening near the reader rather than a list of festivals",
+      "body: the screenings in full with the Q&A dates marked, then the film itself, then the credits",
+      "a past screening is kept and marked, since a run is the evidence a distributor and a venue both want",
+    ],
+    pages: [
+      { file: "index", role: "the trailer and the next screenings, with the Q&A dates marked" },
+      { file: "screenings", role: "every date, past and future, and how to request one" },
+      { file: "about", role: "the film, the runtime, the certificate and who made it" },
+    ],
+    kinds: ["film", "documentary", "short film", "theatre production", "festival premiere", "screening tour", "independent cinema"],
+    components: ["video-embed", "tour-dates", "ticket-tiers", "press-quote", "safe-image", "faq", "section-header"],
+    structure: "full-bleed-hero",
+    ready: true,
+  },
+
+  solar: {
+    md: "Solar or retrofit installer — savings-calculator-first",
+    label: "an honest estimate from the roof and the bill, with the payback stated in years",
+    cta: ["Estimate my saving", "Book a survey"],
+    shape: [
+      "split: a calculator on one side taking roof size and current bill, the range it produces on the other",
+      "body: what the install actually involves, then the grants, then what would make us say no",
+      "the estimate is a BAND rather than a figure, because a single number implies a precision no survey has",
+    ],
+    pages: [
+      { file: "index", role: "the calculator, the payback band, and what the figures assume" },
+      { file: "how-it-works", role: "the install week by week, the grants, and the roofs we turn down" },
+      { file: "survey", role: "booking the survey — free, no obligation, and what it measures" },
+    ],
+    kinds: ["solar installer", "heat pump", "battery storage", "EV charger", "insulation", "retrofit", "renewable energy"],
+    components: ["calculator-card", "estimate-band", "arrangement-steps", "quote-request", "price-list", "faq", "section-header"],
+    structure: "split-screen",
+    ready: true,
+  },
+
+  waste: {
+    md: "Skip hire or waste collection — size-and-date-first",
+    label: "which size, which day, and whether a permit is needed — the three things that stop a booking",
+    cta: ["Book a skip", "Check permits"],
+    shape: [
+      "hero: the sizes compared against something a person can picture, and the date it can land",
+      "body: what may not go in, then the permit question, which is a council matter and takes days",
+      "the prohibited list is prominent, because one mattress in a mixed skip is a charge nobody expects",
+    ],
+    pages: [
+      { file: "index", role: "sizes, the next available date, and what cannot go in" },
+      { file: "sizes", role: "every size against a real comparison, with what each realistically holds" },
+      { file: "book", role: "the booking — access, the permit, and the collection window" },
+    ],
+    kinds: ["skip hire", "waste collection", "house clearance", "grab hire", "man and van waste", "recycling", "scrap metal"],
+    components: ["size-guide", "bin-type", "permit-row", "collection-day", "price-list", "faq", "section-header"],
+    structure: "single-scroll",
+    ready: true,
+  },
+
+  security: {
+    md: "Alarm, CCTV or guarding — response-first",
+    label: "how fast somebody actually attends, in writing, ahead of any equipment specification",
+    cta: ["Book a survey", "Talk to us"],
+    shape: [
+      "hero: the response time as a contractual figure with last quarter's actual beside it",
+      "body: what is monitored and by whom, then the systems, then what happens on an activation",
+      "false alarms are addressed openly, since they are the real cost of a system and nobody advertises them",
+    ],
+    pages: [
+      { file: "index", role: "the response time, what monitoring means, and what an activation looks like" },
+      { file: "systems", role: "alarms, cameras and access control, with what each does and does not do" },
+      { file: "monitoring", role: "the receiving centre, police response levels, and the false-alarm policy" },
+    ],
+    kinds: ["alarm installer", "CCTV", "security guarding", "keyholding", "access control", "monitoring centre", "mobile patrol"],
+    components: ["alarm-state", "patrol-log", "sla-clock", "incident-report", "price-list", "faq", "section-header"],
+    structure: "single-scroll",
+    ready: true,
+  },
+
+  memorial: {
+    md: "Memorial mason — regulations-and-choosing",
+    label: "the cemetery's rules constrain everything, so they come before the catalogue, gently",
+    cta: ["Talk to us", "See memorials"],
+    shape: [
+      "editorial: quiet, unhurried, one measure — a grid of headstones is the wrong register entirely",
+      "body: what the burial authority permits where you are, then the choosing, then the timescale",
+      "the six-month wait for the ground to settle is stated early, because it is the thing nobody is told",
+    ],
+    pages: [
+      { file: "index", role: "the regulations that constrain the choice, and the honest timescale" },
+      { file: "memorials", role: "the work, with materials and what each costs to maintain" },
+      { file: "guidance", role: "inscriptions, permits, and adding to an existing memorial later" },
+    ],
+    kinds: ["memorial mason", "monumental mason", "headstones", "cremation memorials", "renovation and re-lettering", "cemetery works"],
+    components: ["compliance-checklist", "arrangement-steps", "price-list", "gallery", "safe-image", "faq", "section-header"],
+    structure: "editorial",
+    ready: true,
+  },
+
+  translation: {
+    // NO IMAGERY, DELIBERATELY. A language pair, a rate and a certification
+    // reference are the whole product — and stock photography of a headset is
+    // what every agency in this trade publishes INSTEAD of its rates.
+    md: "Translation or interpreting — language-pair-first",
+    label: "the pair and the turnaround set the price; no imagery, just the rates and the queue",
+    cta: ["Get a quote", "Send a document"],
+    shape: [
+      "terminal: monospace, hairline rules, no photography — the product is words and a deadline",
+      "body: the pairs with a rate each, then the turnaround, then which documents need certifying",
+      "certified, sworn and notarised are three different things and the page says which yours needs",
+    ],
+    pages: [
+      { file: "index", role: "the pairs, the per-word rate and the current turnaround" },
+      { file: "rates", role: "every pair and document type, including the certifying surcharges" },
+      { file: "quote", role: "sending a document — word count, deadline and what we need to know" },
+    ],
+    kinds: ["translation", "interpreting", "transcription", "subtitling", "localisation", "certified translation", "sign language"],
+    components: ["rate-card", "turnaround-note", "word-count", "certification-row", "price-list", "faq", "section-header"],
+    structure: "terminal",
+    ready: true,
+  },
+
+  timetable: {
+    // NO IMAGERY, DELIBERATELY. Read in a shelter, in daylight, sometimes
+    // printed and taped to a noticeboard. A photograph of a happy passenger
+    // costs a departure row and buys nothing.
+    md: "Scheduled transport — departures-first",
+    label: "the next departures as a board, because a timetable is the entire product",
+    cta: ["Next departures", "Full timetable"],
+    shape: [
+      "terminal: a departure board at the top, monospace, readable from across a shelter",
+      "body: the full timetable, then fares, then what happens when a service cannot run",
+      "a cancelled service stays on the board — removing it is how somebody waits for one that was never coming",
+    ],
+    pages: [
+      { file: "index", role: "the next departures, live, with the expected times rather than 'delayed'" },
+      { file: "timetable", role: "the full printed timetable, both directions, with the school-day variations" },
+      { file: "fares", role: "single, return, day and season, plus who travels free" },
+    ],
+    kinds: ["bus service", "community transport", "ferry", "park and ride", "shuttle", "dial-a-ride", "heritage railway"],
+    components: ["departure-board", "service-times", "fare-quote", "location-card", "faq", "section-header"],
+    structure: "terminal",
+    ready: true,
+  },
+
+  "escape-room": {
+    md: "Escape room or timed activity — pick-a-slot-first",
+    label: "rooms as cards with difficulty and group size, then tonight's free times",
+    cta: ["Book a slot", "See the rooms"],
+    shape: [
+      "card-grid: each room a card carrying its difficulty, its group size and its escape rate",
+      "body: what actually happens in the hour, then the times left today, then the house rules",
+      "the minimum group size is on the card, because a couple arriving for a four-person room is the commonest disappointment",
+    ],
+    pages: [
+      { file: "index", role: "the rooms with difficulty and group size, and tonight's free slots" },
+      { file: "rooms", role: "each room in full — the theme, the escape rate and who it suits" },
+      { file: "book", role: "picking a time, what to bring, and the rules that actually matter" },
+    ],
+    kinds: ["escape room", "axe throwing", "crazy golf", "laser tag", "immersive experience", "bowling", "climbing wall", "VR arcade"],
+    components: ["availability-grid", "ticket-tiers", "house-rules", "rating-summary", "day-schedule", "faq", "section-header"],
+    structure: "card-grid",
+    ready: true,
+  },
+
+  "activity-centre": {
+    md: "Outdoor activity centre — conditions-and-tickets-first",
+    label: "today's conditions decide whether anybody comes, so they lead",
+    cta: ["Book a session", "Today's conditions"],
+    shape: [
+      "full-bleed: what is running today and what is not, before any photograph of somebody abseiling",
+      "body: the activities with their real age and weight limits, then prices, then getting here",
+      "a closed activity says why and when it reopens — 'subject to conditions' is not information",
+    ],
+    pages: [
+      { file: "index", role: "what is running today, and the sessions still free" },
+      { file: "activities", role: "each activity with its age, weight and ability limits stated" },
+      { file: "visit", role: "prices, what to bring, parking and the accessibility answer" },
+    ],
+    kinds: ["activity centre", "outdoor pursuits", "water sports", "climbing centre", "high ropes", "kayaking", "coasteering", "forest school"],
+    components: ["facility-status", "admission-prices", "session-table", "house-rules", "opening-hours", "faq", "section-header"],
+    structure: "full-bleed-hero",
+    ready: true,
+  },
+
+  allotment: {
+    md: "Allotment or community land — plot-availability-first",
+    label: "how long the wait really is, and what a plot costs and demands",
+    cta: ["Join the waiting list", "See the rules"],
+    shape: [
+      "hero: the wait in months, honestly, with how many are ahead of you and how many came up last year",
+      "body: what a plot costs, what the tenancy requires, and how much work it genuinely is",
+      "the cultivation rule is stated plainly, because a plot lost for neglect is the commonest unhappy ending",
+    ],
+    pages: [
+      { file: "index", role: "the real wait, the annual rent, and what the tenancy asks of you" },
+      { file: "plots", role: "the sizes, what each takes in hours a week, and the site's conditions" },
+      { file: "rules", role: "the tenancy in plain words — cultivation, sheds, bonfires, dogs and hens" },
+    ],
+    kinds: ["allotment association", "community garden", "orchard group", "community farm", "growing project", "meanwhile space"],
+    // `waiting-list-place`, NOT `waiting-list-note`: that one is a CLINICAL
+    // list and hard-codes "there is no position number here on purpose, lists
+    // are not queues". An allotment list IS a queue — you join the bottom and
+    // only move up — so its own footnote contradicted this family's headline.
+    components: ["waitlist-form", "waiting-list-place", "fee-table", "house-rules", "produce-calendar", "committee-list", "section-header"],
+    structure: "single-scroll",
+    ready: true,
+  },
+
+  printer: {
+    md: "Print or sign shop — spec-and-quantity-first",
+    label: "price is a function of quantity and stock, so the break table is the page",
+    cta: ["Get a price", "Send artwork"],
+    shape: [
+      "sidebar: the product rail, because somebody arrives knowing whether they want cards or a banner",
+      "body: the quantity breaks as a real table, then the artwork requirements, then the turnaround",
+      "bleed and resolution are explained rather than assumed, since a rejected file is what delays every job",
+    ],
+    pages: [
+      { file: "index", role: "the products, and how quantity moves the price on each" },
+      { file: "products", role: "every item with its stocks, finishes and the price breaks" },
+      { file: "quote", role: "sending artwork — the file requirements, bleed, and what we will fix free" },
+    ],
+    kinds: ["printers", "sign shop", "copy shop", "vehicle graphics", "banner printing", "wide format", "embroidery", "screen printing"],
+    // `bulk-pricing`, NOT `rate-card`: a rate card prices one thing by PERIOD
+    // (a day, a week) and a printer prices one thing by QUANTITY, which is a
+    // different table with a different persuasive line — "add 250 more and they
+    // are 6p each" is the whole reason a print shop publishes breaks at all.
+    components: ["bulk-pricing", "turnaround-note", "size-guide", "price-list", "chunked-upload", "faq", "section-header"],
+    structure: "sidebar",
+    ready: true,
+  },
+
+  bureau: {
+    // NO IMAGERY, DELIBERATELY. Terminal structure means monospace type and
+    // hairline rules; a photograph of a smiling couple holding euros is the
+    // decoration this whole family is defined against. The board is the page.
+    md: "Currency or bullion dealer — live-rates-first",
+    label: "the rate board, when it was set, and the spread stated rather than hidden",
+    cta: ["Today's rates", "Reserve currency"],
+    shape: [
+      "terminal: a rate board, monospace, with the time it was set — a rate with no timestamp is a claim",
+      "body: buy and sell shown together so the spread is visible, then reserving, then the ID rules",
+      "'no commission' is addressed directly, because the spread IS the commission and everybody advertises the phrase",
+    ],
+    pages: [
+      { file: "index", role: "the board, the spread, and when it was last set" },
+      { file: "rates", role: "every currency both ways, with the spread shown as a percentage" },
+      { file: "reserve", role: "reserving at today's rate, the ID needed, and the buy-back terms" },
+    ],
+    kinds: ["bureau de change", "currency exchange", "bullion dealer", "coin dealer", "money transfer", "travel money"],
+    components: ["rate-board", "exchange-rate-note", "currency-amount", "price-list", "opening-hours", "location-card", "faq", "section-header"],
+    structure: "terminal",
+    ready: true,
+  },
 };
 /* ------------------------------------------------------------------ helpers */
 

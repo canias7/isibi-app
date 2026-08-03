@@ -11083,3 +11083,153 @@ example like the one called store."*
   and a revise re-derives it.
 
 726 unit, family apps all green.
+
+## 2026-08-03 — 65 families to 100, and nine components written to get there
+
+Owner's call: *"i need more app references , i need to hit 100 we only have 65"*,
+then *"if we dont have the components for it, make them too"*. Both done. The
+axis is **100 families · 860 distinct business kinds · 8 structures**, and every
+one has a real reference app — 324 pages, all built and rendered in the harness.
+
+**The first sixty-five covered the businesses a high street has.** These
+thirty-five cover the shapes they did not: a service that must ask WHERE YOU
+LIVE before it can say anything, a price that is a function of quantity, a rate
+board that is the whole product, and a page whose reader is frightened.
+
+- **Nine new components**, each written because the thing it does was being
+  rebuilt inline and getting worse each time: `service-availability` ·
+  `priority-debts` · `interest-rates` · `trading-diary` · `term-dates` ·
+  `repair-job` · `departure-board` · `rate-board` · `waiting-list-place`.
+- **THE LESSON OF THE WHOLE BATCH, hit eight separate times: a component's name
+  does not tell you its contract.** `RepairStatus` is a device on a bench, not a
+  boiler in a flat. `RateCard` prices one thing by PERIOD, not by quantity.
+  `FeeTable.funding` is a nursery's funded-hours column. `OptionPricedList`
+  takes a `delta` in minor units and has no `note`. `ProduceCalendar` is
+  `{months, stored}` — picked here versus out of the shed — and has no notion of
+  sowing. Two of the eight were caught by reading the file first; five surfaced
+  as typecheck failures; **one survived every check in the repo and was found by
+  looking at a screenshot** (below).
+- **A real structural hazard behind it: duplicate type names across modules.**
+  `DayHours` is exported by BOTH `working-hours-input` (`{key, open: boolean,
+  from, to}`) and `opening-hours` (`{day: number, label, open, close}`), and
+  `Rate` by both `rate-card` and `interest-rates`, with incompatible shapes. So
+  `grep -rln 'DayHours' | head -1` silently hands back the wrong contract, which
+  is exactly how that one got written. Read the file the page will import, not
+  the first file that matches the name.
+
+**The two bugs that no check could catch, both found by opening a PNG.** The
+100-family harness had just reported 324 pages green with both of them live.
+
+- **`rate-board` printed `30150.0000`.** Four decimals is correct on 1.1420 —
+  that digit is worth about 0.01% of the transaction and it is what an argument
+  at a counter turns on. The same four decimals on 30,150 dong is noise that
+  makes the column unreadable. **Precision is relative, not absolute**: five
+  significant figures, capped at four decimals, grouped.
+- **The allotment page contradicted itself three inches apart.** Headline: "there
+  are 31 people ahead of you". The component beneath it: "there is no position
+  number here on purpose — lists are not queues." Both sentences correct, one in
+  the wrong place. `waiting-list-note` is a CLINICAL list, where people are added
+  ahead on urgency and a rank goes backwards; an allotment list is the opposite
+  and hiding the position is the dishonest choice there. So `waiting-list-place`
+  is its deliberate mirror, and **three components now say "waiting"** — the
+  header of each names which list it is for, because that is the confusion that
+  caused this.
+
+**`waiting-list-place` earns its keep on the way in.** The wait is DERIVED: 31
+ahead ÷ 19 freed last year is twenty months, arithmetic rather than an opinion.
+The page's hand-written headline had said fourteen — the optimistic number,
+which is the number every association in the country quotes and which its own
+two figures contradict. The component computing it is what caught that.
+
+**`FAM_WIDTH` on the family-apps harness.** It shoots at 880, which is below
+Tailwind's `lg` breakpoint, so the first screenshot of every SIDEBAR family is
+the rail alone and the layout the family exists for cannot be looked at.
+`FAM_WIDTH=1280` is how a human sees it; the measure pass still pins 1280 of its
+own accord for an unrelated reason.
+
+**The prompt budget held without being raised.** The guard is 145 chars per
+family and 100 families read 145.0, so thirteen labels were shortened rather
+than moving the number — it is 144.1 now. No structure is the default for more
+than 35 of the 100 (single-scroll), against a ceiling of half.
+
+739 unit tests, 114 layout/component guards, family apps 100/100 · 324/324.
+
+## 2026-08-03 — the pictures, and thirteen price tables rendering as bullet lists
+
+Owner: *"look at them , they prob need to be richer , if some of the new ones
+dont have images at all maybe put some."* Both true and measurable: the 35 new
+families ran a median 576 nodes against the old 65's 677, and **31 of them had
+no images at all**.
+
+**LOOKING AT THEM FOUND A BUG NOTHING IN THIS REPO COULD SEE.** A kit component
+whose root element is an `<li>` reads as a "row" — `BundleRow`, `TariffRow`,
+`MembershipTierRow`, `PolicySummaryRow`, `RouteStop`, `CertificationRow`,
+`MinutesEntry`, `ShiftSignup`, `PermitRow`, `SetlistRow` — so it gets dropped
+into a `<div className="grid gap-4">`. That is invalid HTML and the browser
+paints its own bullet and indent on every one. **Broadband's package table
+looked like unstyled markup.** 13 pages across 9 families, **two of them in OLD
+families** (`parish-council`, `personal-brand`) shipping that way since those
+pages were written.
+
+- `tsc` has no opinion about where JSX lands, vite bundles it, the page renders
+  and does not throw, and at the harness's 880px it reads as merely a bit odd.
+  The measure pass checks it now: any `<li>` whose parent is not a list, with
+  the parent tag named. Verified against a known-bad page and a fixed one.
+- **187 components in the kit have an `<li>` root.** So this is not a one-off —
+  it is a standing trap, which is why the check belongs in the harness rather
+  than in a fix.
+
+**THE RULE FOR ADDING A PICTURE: it has to be the ANSWER to something.** Not
+decoration, not mood. 25 of the 35 got images on that test.
+
+- `waste` — skip sizes with a wheelie bin in frame, because a "yard" is a unit
+  no customer has ever used and guessing wrong costs a second delivery. Plus
+  the mattress that is a £95 surcharge.
+- `security` — what the camera actually sees at 02:10, beside what a £90 camera
+  sees at 02:10. That trade publishes a product shot of a camera instead.
+- `energy /meter` — the four meter faces with the digits to read. It is read in
+  a cellar with a torch; "ignore the red digit" is a sentence where a
+  photograph is simply better.
+- `broadband /switching` — an 8mm hole and a box on a skirting board. "Will you
+  drill my wall" is the real reason people put off full fibre and no provider
+  answers it.
+- `pharmacy` — the consulting room with a door that shuts. "We have a private
+  room" can mean a curtain, and the difference decides whether somebody asks
+  about contraception at a counter.
+- `activity-centre` — taken this morning, time in the caption, so the picture is
+  evidence rather than a sunny Tuesday in June.
+- `garden-centre`, `allotment` — dated, including February and the mud. Both
+  trades photograph late July all year round.
+- `school` — below the absence line, never above it. That page is read at 08:40
+  by a parent with a poorly child.
+- `coach-hire` — the INSIDE of each vehicle. That family's own header says a
+  53-seater on a sunny motorway decides nothing, and it is right; legroom and
+  whether the luggage fits are what people ring to ask.
+
+**SIX FAMILIES GET NO PICTURES AND THE REASON IS NOW IN THE FILE**, because "we
+forgot" and "we decided against it" look identical in a year. `bureau`,
+`timetable`, `translation` are terminal structure — defined against exactly that
+decoration. `bank` and `insurance` are rate and cover tables, and retail finance
+photographs couples on sofas precisely where the APR is not. **`debt-advice`
+matters most**: the reader is frightened and often ashamed, and a smiling stock
+adviser reads as the sales page they are braced for.
+
+**I WROTE TWO SECTIONS AND THEN DELETED THEM**, and that is the more useful half
+of the "richer" instruction. A rate card on `translation`'s index and a fare
+table on `timetable`'s — both duplicating those sites' own `/rates` and `/fares`
+pages. **A copy of a dedicated page is not a richer site, it is a worse one**,
+and node count is the wrong thing to optimise against. Kept only where the
+content was genuinely absent: `insurance`'s audited claims record (93.4% paid,
+the 272 refusals broken down by reason, the four ombudsman cases lost) and
+`debt-advice`'s minute-by-minute account of what happens if you ring.
+
+**`EstimateBand` had one ambiguous `unit` slot, written in FRONT of the number.**
+Solar passed `unit="£ a year"` and every figure read **"£ a year928"**. Money
+goes before and a quantity goes after; a single slot guarantees one of the two
+is wrong. It has `suffix` now.
+
+**`FAM_WIDTH` on the family-apps harness.** It shoots at 880, below Tailwind's
+`lg` breakpoint, so the first screenshot of every SIDEBAR family is the rail
+alone and the layout the family exists for cannot be looked at.
+
+739 unit tests. Every touched family built and rendered.

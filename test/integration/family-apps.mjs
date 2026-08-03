@@ -46,7 +46,10 @@ import { THEME_SHORTLIST, resolveTheme } from "../../builder/site-theme-registry
 const ROOT = path.join(import.meta.dirname, "../..");
 const TEMPLATE = path.join(ROOT, "builder", "lovable", "template");
 const { chromium } = createRequire(path.join(TEMPLATE, "package.json"))("playwright");
-const PORT = 17910;
+// Overridable so a screenshot run can happen while a long measure sweep is
+// still going. Two runs each mkdtemp their own sandbox and collide on nothing
+// but the two ports.
+const PORT = Number(process.env.FAM_PORT) || 17910;
 const SHOTS = process.env.FAM_SHOTS || "";
 // Off by default while it is being calibrated: it REPORTS, it does not fail.
 const MEASURE = process.env.FAM_MEASURE === "1";
@@ -55,6 +58,13 @@ const MEASURE = process.env.FAM_MEASURE === "1";
 // family a different theme off the shortlist so a human can look at 26 real
 // sites rather than 26 copies of one palette; `FAM_THEME=<name>` pins one.
 const THEME_MODE = process.env.FAM_THEME || "";
+// The screenshot width. 880 by default, and that default is deliberate — see the
+// note above the measure pass. But a SIDEBAR family collapses to one column
+// below Tailwind's lg breakpoint, so at 880 the first shot of every such page is
+// the rail alone and the layout the family is FOR cannot be looked at. FAM_WIDTH
+// is how a human sees it. It does not touch the measure pass, which pins 1280 of
+// its own accord for a different reason.
+const SHOT_WIDTH = Number(process.env.FAM_WIDTH) || 880;
 // Deterministic, not random: the same family gets the same theme every run, so
 // two runs can be compared and a bad pairing can be reported by name.
 const themeFor = (name, i) =>
@@ -122,7 +132,7 @@ try {
 
   const exe = findChromium();
   browser = await chromium.launch(exe ? { executablePath: exe } : {});
-  const page = await (await browser.newContext({ viewport: { width: 880, height: 800 } })).newPage();
+  const page = await (await browser.newContext({ viewport: { width: SHOT_WIDTH, height: 800 } })).newPage();
   const pageErrors = [];
   page.on("pageerror", (e) => pageErrors.push(String(e).slice(0, 200)));
 
@@ -177,7 +187,26 @@ try {
         await page.setViewportSize({ width: 1280, height: 900 });
         await page.waitForTimeout(150);
         const m = await page.evaluate(() => {
-          const out = { cramped: [], spilling: [] };
+          const out = { cramped: [], spilling: [], orphans: [] };
+          // ORPHANED LIST ITEMS. A kit component whose root is an <li> reads as
+          // a "row" — BundleRow, and it is not the only one — so it gets
+          // dropped into a `<div className="grid gap-4">`, which is invalid
+          // HTML and paints the browser's default bullet and indent on every
+          // one of them. Measured: broadband's package table rendered as a
+          // bulleted list and looked like unstyled markup.
+          //
+          // NOTHING ELSE IN THIS REPO CAN SEE IT. tsc has no opinion about
+          // where JSX lands, vite bundles it, the page renders and does not
+          // throw, and at 880 it reads as merely a bit odd rather than wrong.
+          // Same family as the cramped and spilling rules: correct code, wrong
+          // picture, and only the DOM knows.
+          for (const li of document.querySelectorAll("#root li")) {
+            const p = li.parentElement;
+            if (!p) continue;
+            const t = p.tagName;
+            if (t === "UL" || t === "OL" || t === "MENU") continue;
+            out.orphans.push({ parent: t, text: (li.textContent || "").trim().slice(0, 48) });
+          }
           // Each rule narrows with a CHEAP DOM predicate before reading any
           // style: getComputedStyle over every node costs about twenty seconds
           // a page, which turns a sweep of 290 pages into two hours. Grid
@@ -256,9 +285,10 @@ try {
           }
           return out;
         });
-        await page.setViewportSize({ width: 880, height: 800 });
+        await page.setViewportSize({ width: SHOT_WIDTH, height: 800 });
         for (const c of m.cramped) console.log(`  cramped  ${label}  ${c.w}px · ${c.chars} chars · ~${c.lines} lines — ${JSON.stringify(c.text)}`);
         for (const c of m.spilling) console.log(`  spilling ${label}  ${c.w}px box, ${c.need}px content — ${JSON.stringify(c.text)}`);
+        for (const c of m.orphans) console.log(`  orphan   ${label}  <li> inside <${c.parent}> — ${JSON.stringify(c.text)}`);
       }
       if (SHOTS) {
         fs.mkdirSync(SHOTS, { recursive: true });

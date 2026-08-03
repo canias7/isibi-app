@@ -998,6 +998,503 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
+## 66. Broadband or network provider — can-I-get-it-first
+**Shape:** the address checker is the hero; every package below it is conditional on the answer.
+**CTA:** Check my address · See packages
+
+- Broadband
+- ISP
+- Full fibre
+- Network operator
+- Mobile network
+- Satellite internet
+- Altnet
+- Business connectivity
+
+---
+
+## 67. Energy or metered supplier — tariff-first
+**Shape:** the tariffs side by side with the standing charge shown, then how to read and send a meter.
+**CTA:** Compare tariffs · Send a reading
+
+- Energy supplier
+- Gas
+- Electricity
+- Water
+- Heat network
+- Metered service
+- Community energy
+
+---
+
+## 68. Bank, lender or credit union — rates-first
+**Shape:** every rate with its conditions in the same row, who may join, and what repayment looks like.
+**CTA:** Apply to join · See rates
+
+- Credit union
+- Building society
+- Community lender
+- Savings provider
+- Mutual
+- Friendly society
+
+---
+
+## 69. Insurance or protection — cover-levels-first
+**Shape:** levels as parallel columns with the exclusions and the excess beside the cover they apply to.
+**CTA:** Get a quote · Compare cover
+
+- Insurance
+- Protection
+- Warranty
+- Pet insurance
+- Travel insurance
+- Insurance broker
+- Breakdown cover
+- Home emergency
+
+---
+
+## 70. Free advice service — urgent-help-first
+**Shape:** how to reach a person today, then which debts to deal with first and why.
+**CTA:** Talk to an adviser · Start with the checklist
+
+- Debt advice
+- Money advice
+- Welfare rights
+- Law centre
+- Citizens advice
+- Advice service
+- Hardship fund
+
+---
+
+## 71. A subscription — plan-and-frequency-first
+**Shape:** size and frequency chosen together before payment, with pause and cancel beside them.
+**CTA:** Start a box · See the plans
+
+- Subscription box
+- Coffee subscription
+- Wine club
+- Book club
+- Pet box
+- Razor subscription
+- Flower subscription
+
+---
+
+## 72. Meal plan or recipe box — this-week's-menu-first
+**Shape:** this week's dishes and the cut-off lead; the plan is chosen after the food.
+**CTA:** See this week · Choose a plan
+
+- Recipe box
+- Meal plan
+- Meal prep
+- Veg box
+- Food subscription
+- Diet plan
+- Prepared meals
+
+---
+
+## 73. Street food or mobile trader — where-today-first
+**Shape:** today's pitch and hours above everything, then the week, then hiring the van.
+**CTA:** Where we are today · Book us
+
+- Food truck
+- Street food
+- Mobile catering
+- Market stall
+- Coffee van
+- Mobile trader
+- Pop-up kitchen
+- Ice cream van
+
+---
+
+## 74. Coach or minibus hire — route-and-date-first
+**Shape:** seats, date and route set the price; the fleet is listed by capacity, not prettiness.
+**CTA:** Get a quote · Check a date
+
+- Coach hire
+- Minibus hire
+- School transport
+- Airport transfer
+- Wedding transport
+- Private hire
+- Day trips
+
+---
+
+## 75. Caterer or event supplier — headcount-first
+**Shape:** a headcount and a date drive every figure, and the minimum spend is in the hero.
+**CTA:** Get a quote · See the menus
+
+- Caterer
+- Event catering
+- Wedding catering
+- Buffet
+- Hog roast
+- Corporate catering
+- Canapes
+- Grazing table
+
+---
+
+## 76. Driving school or instructor — pass-rate-first
+**Shape:** the pass rate with its sample size, how far out the diary is, and the test-centre wait.
+**CTA:** Book a first lesson · Check availability
+
+- Driving school
+- Driving instructor
+- Intensive course
+- Motorcycle training
+- HGV training
+- Pass Plus
+- Refresher lessons
+
+---
+
+## 77. Music or arts school — instrument-and-grade-first
+**Shape:** the instruments as the rail; the timetable and the termly fee follow from instrument and stage.
+**CTA:** Book a taster · See the timetable
+
+- Music school
+- Music teacher
+- Drama school
+- Dance school
+- Art class
+- Stage school
+- Peripatetic teaching
+
+---
+
+## 78. Primary or secondary school — parents-first
+**Shape:** term dates, absence and the newsletter first; closure days sit inside each term.
+**CTA:** Report an absence · Term dates
+
+- Primary school
+- Secondary school
+- Academy
+- Sixth form
+- Special school
+- Independent school
+- Nursery school
+- Pupil referral unit
+
+---
+
+## 79. Training provider — am-I-eligible-first
+**Shape:** eligibility leads; every course card names its entry requirements and who pays.
+**CTA:** Check eligibility · Apply
+
+- Training provider
+- Apprenticeship
+- Adult education
+- Skills bootcamp
+- Further education
+- Vocational training
+- Employability programme
+
+---
+
+## 80. Housing association or social landlord — report-a-repair-first
+**Shape:** a grid of the four tenant doors, repairs first, with response times and complaints in writing.
+**CTA:** Report a repair · Pay rent
+
+- Housing association
+- Social landlord
+- Council housing
+- Almshouse
+- Tenant management
+- Co-operative housing
+- Supported housing
+
+---
+
+## 81. Optician or hearing centre — test-then-frames
+**Shape:** an appointment on one side and a shop on the other, with the NHS entitlement stated.
+**CTA:** Book an eye test · Browse frames
+
+- Optician
+- Optometrist
+- Hearing centre
+- Audiologist
+- Eyewear
+- Contact lenses
+- Dispensing optician
+
+---
+
+## 82. Pharmacy or dispensary — prescriptions-and-services-first
+**Shape:** repeats and no-appointment services as a grid, with when the pharmacist is actually in.
+**CTA:** Order a repeat · See services
+
+- Pharmacy
+- Chemist
+- Dispensary
+- Travel clinic
+- Vaccination service
+- Community pharmacy
+
+---
+
+## 83. Bike or equipment shop — buy-and-service
+**Shape:** what is in stock in which sizes, and how many weeks out the workshop is.
+**CTA:** Book a service · See what is in
+
+- Bike shop
+- Cycle shop
+- Ski hire
+- Outdoor shop
+- Golf shop
+- Music shop
+- Camera shop
+- Equipment retailer
+
+---
+
+## 84. Garden centre or plant nursery — what's-good-now-first
+**Shape:** this month's planting as advice, then what of it is in stock, then the visit facts.
+**CTA:** What's in now · Plan a visit
+
+- Garden centre
+- Plant nursery
+- Seed merchant
+- Florist
+- Landscaping supplier
+- Allotment shop
+- Farm nursery
+
+---
+
+## 85. Antiques or one-of-a-kind dealer — each-piece-unique
+**Shape:** each piece its own measure, provenance and condition given room, sold pieces kept and marked.
+**CTA:** Enquire · See the stock
+
+- Antiques
+- Art dealer
+- Vintage
+- Rare books
+- Coins and medals
+- Classic cars
+- Salvage
+- Auction consignment
+
+---
+
+## 86. Golf or members' club — membership-and-tee-times
+**Shape:** joining, visiting, the next tee time and the dress code as four tiles; visitors answered first.
+**CTA:** Book a tee time · Join
+
+- Golf club
+- Members club
+- Bowls club
+- Sailing club
+- Shooting ground
+- Tennis club
+- Country club
+- Angling club
+
+---
+
+## 87. Band or touring artist — tour-dates-first
+**Shape:** the next date and the ticket link in the first screen; sold-out and cancelled dates stay listed.
+**CTA:** Get tickets · Listen
+
+- Band
+- Musician
+- Touring artist
+- DJ
+- Orchestra
+- Comedian
+- Theatre company
+- Spoken word
+
+---
+
+## 88. A game — trailer-first
+**Shape:** the trailer full width, then the platforms with confirmed and hoped-for distinguished.
+**CTA:** Wishlist · Buy now
+
+- Game
+- Indie game
+- Mobile app
+- Software launch
+- Hardware product
+- Board game
+- Kickstarter
+
+---
+
+## 89. A film or production — screenings-first
+**Shape:** the trailer, then where it is actually showing, with Q&A dates marked and past runs kept.
+**CTA:** Find a screening · Watch the trailer
+
+- Film
+- Documentary
+- Short film
+- Theatre production
+- Festival premiere
+- Screening tour
+- Independent cinema
+
+---
+
+## 90. Solar or retrofit installer — savings-calculator-first
+**Shape:** a calculator from roof size and current bill, producing a payback BAND rather than a figure.
+**CTA:** Estimate my saving · Book a survey
+
+- Solar installer
+- Heat pump
+- Battery storage
+- EV charger
+- Insulation
+- Retrofit
+- Renewable energy
+
+---
+
+## 91. Skip hire or waste collection — size-and-date-first
+**Shape:** sizes against something you can picture, the next date, and the permit question.
+**CTA:** Book a skip · Check permits
+
+- Skip hire
+- Waste collection
+- House clearance
+- Grab hire
+- Man and van waste
+- Recycling
+- Scrap metal
+
+---
+
+## 92. Alarm, CCTV or guarding — response-first
+**Shape:** the contractual response time with last quarter's actual beside it, then the systems.
+**CTA:** Book a survey · Talk to us
+
+- Alarm installer
+- CCTV
+- Security guarding
+- Keyholding
+- Access control
+- Monitoring centre
+- Mobile patrol
+
+---
+
+## 93. Memorial mason — regulations-and-choosing
+**Shape:** the burial authority's rules first, quietly, then the choosing and the honest timescale.
+**CTA:** Talk to us · See memorials
+
+- Memorial mason
+- Monumental mason
+- Headstones
+- Cremation memorials
+- Renovation and re-lettering
+- Cemetery works
+
+---
+
+## 94. Translation or interpreting — language-pair-first
+**Shape:** monospace, no imagery — the pairs, the per-word rate and the turnaround.
+**CTA:** Get a quote · Send a document
+
+- Translation
+- Interpreting
+- Transcription
+- Subtitling
+- Localisation
+- Certified translation
+- Sign language
+
+---
+
+## 95. Scheduled transport — departures-first
+**Shape:** a departure board at the top with expected times rather than "delayed"; cancellations stay listed.
+**CTA:** Next departures · Full timetable
+
+- Bus service
+- Community transport
+- Ferry
+- Park and ride
+- Shuttle
+- Dial-a-ride
+- Heritage railway
+
+---
+
+## 96. Escape room or timed activity — pick-a-slot-first
+**Shape:** rooms as cards with difficulty, group size and escape rate, then tonight's free times.
+**CTA:** Book a slot · See the rooms
+
+- Escape room
+- Axe throwing
+- Crazy golf
+- Laser tag
+- Immersive experience
+- Bowling
+- Climbing wall
+- VR arcade
+
+---
+
+## 97. Outdoor activity centre — conditions-and-tickets-first
+**Shape:** what is running today above everything; each activity states its real age and weight limits.
+**CTA:** Book a session · Today's conditions
+
+- Activity centre
+- Outdoor pursuits
+- Water sports
+- Climbing centre
+- High ropes
+- Kayaking
+- Coasteering
+- Forest school
+
+---
+
+## 98. Allotment or community land — plot-availability-first
+**Shape:** the wait in months with how many are ahead, the rent, and what the tenancy demands.
+**CTA:** Join the waiting list · See the rules
+
+- Allotment association
+- Community garden
+- Orchard group
+- Community farm
+- Growing project
+- Meanwhile space
+
+---
+
+## 99. Print or sign shop — spec-and-quantity-first
+**Shape:** a product rail, the quantity price breaks as a real table, then the artwork requirements.
+**CTA:** Get a price · Send artwork
+
+- Printers
+- Sign shop
+- Copy shop
+- Vehicle graphics
+- Banner printing
+- Wide format
+- Embroidery
+- Screen printing
+
+---
+
+## 100. Currency or bullion dealer — live-rates-first
+**Shape:** a rate board with the time it was set, buy and sell together so the spread is visible.
+**CTA:** Today's rates · Reserve currency
+
+- Bureau de change
+- Currency exchange
+- Bullion dealer
+- Coin dealer
+- Money transfer
+- Travel money
+
+---
+
 ## Cross-cutting: structural variants
 
 Any family above can be expressed through:

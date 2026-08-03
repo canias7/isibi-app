@@ -836,6 +836,46 @@ export const UI_COMPONENTS = [
   "session-table", "size-guide", "story-lead", "subject-list", "symptom-row",
   "tap-list", "tenancy-costs", "territory-list", "trade-terms", "triage-banner",
   "unit-card", "vehicle-lookup",
+  // Added 2026-08-03 with the second thirty-five families. `service-availability`
+  // is the answer a utility or collection service exists to give and prints the
+  // address it is about; `priority-debts` is the ordering that IS free debt
+  // advice — which creditor can take your home, ahead of whichever one is
+  // ringing you.
+  // `interest-rates` because the two "rate" components already here are a hire
+  // rate card and a LIBRARY loan row — a lender had nothing, and the conditions
+  // attached to a savings rate are the product rather than a footnote.
+  "interest-rates", "priority-debts", "service-availability",
+  // `trading-diary` for a mobile trader: today marked, because where the van is
+  // NOW is the one perishable fact, and a cancelled pitch stays on the list.
+  "trading-diary",
+  // `term-dates` because the closure days ARE the content: a term stated as one
+  // range hides the INSET days and half-term inside it, which is exactly what a
+  // working parent has to arrange childcare around.
+  // `repair-job` because `repair-status` is a device on a bench — its stages end
+  // at "ready to collect". A home repair is attended, not collected, and the
+  // fact a tenant needs is the appointment window and whether the promised date
+  // has already gone.
+  "term-dates", "repair-job",
+  // `departure-board` because for a bus, a ferry or a park-and-ride the
+  // timetable IS the product. An expected TIME beats the word "delayed" — one
+  // lets somebody go and buy a coffee, the other makes them stand there — and a
+  // cancelled service stays on the board rather than vanishing.
+  "departure-board",
+  // `rate-board` because a bureau's whole product is a board, and the only
+  // number on it that matters is the one nobody prints: the SPREAD. Every
+  // bureau advertises "0% commission", which is true and is not the price —
+  // the charge is the gap between the two rates. It is derived here rather
+  // than passed, so it cannot drift from the rates beside it, and `setAt` is
+  // required because a rate with no timestamp is a claim.
+  "rate-board",
+  // `waiting-list-place` because THREE components say "waiting" and they answer
+  // different questions. `queue-position` is minutes deep; `waiting-list-note`
+  // is a CLINICAL list and refuses to print a rank, correctly, since people are
+  // added ahead on urgency; this is an ORDERED list months or years deep where
+  // you join the bottom and only move up, and on that kind hiding the position
+  // is the dishonest choice. Caught live: the clinical one was used on an
+  // allotment page and its own footnote contradicted the headline above it.
+  "waiting-list-place",
 ];
 
 // THE COMPONENTS THE MODEL IS SHOWN — the most-used slice of the 2,058.
