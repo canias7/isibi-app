@@ -20,6 +20,15 @@ to come back.
 
 ## Where each shape lands (mapped 2026-08-01)
 
+> **The variant axis was removed 2026-08-03 (owner's call).** The column below
+> and every *italic* variant name in this file are a record of how the taxonomy
+> looked, not of how it works now. Each of those businesses resolves to its
+> family and nothing else. The reason: a variant reached the model as ONE
+> SENTENCE (~29 tokens) appended to a prompt that already carries ~8,400 tokens
+> of worked reference pages showing a different shape — so the lever could never
+> win against the example it argued with. And the list was underivable: `salon`
+> had two because somebody wrote two, `hotel` none because nobody did.
+
 Every shape resolves to a layout family in `builder/site-layouts.mjs`, so a
 store renders like a store rather than as a generic landing page. 21 of the 23
 already had a true home in the owner's taxonomy — the variant column is where

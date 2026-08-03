@@ -32,7 +32,7 @@
 
 /* ------------------------------------------------------------- structures */
 
-// The eight cross-cutting variants from LAYOUTS.md — any family can be
+// The eight cross-cutting structures from LAYOUTS.md — any family can be
 // expressed through any of these. `md` is the bullet text in the source doc,
 // held in bijection by the test.
 export const STRUCTURES = {
@@ -108,10 +108,6 @@ export const FAMILIES = {
     kinds: ["salon", "spa", "nail studio", "clinic", "dental", "therapy", "tattoo studio", "home services", "fitness studio", "yoga",
       "hairdresser", "barber", "beautician", "massage", "piercing", "waxing", "aesthetics", "dog groomer",],
     components: ["availability-grid", "week-strip", "day-schedule", "price-list", "team-grid", "open-now", "opening-hours", "booking-summary"],
-    variants: {
-      "call-now": "home services: the phone IS the booking channel — a tel: link leads, the form is the fallback",
-      "class-schedule": "fitness: the weekly timetable replaces the slot picker as the hero",
-    },
     structure: "single-scroll",
     ready: true,
   },
@@ -132,9 +128,6 @@ export const FAMILIES = {
     ],
     kinds: ["real estate", "car dealership", "job board", "rentals", "travel", "hotel"],
     components: ["search-input", "search-facets", "filter-bar", "facet-range", "sort-select", "result-count", "property-card", "vehicle-card", "pagination"],
-    variants: {
-      "date-picker": "travel and hotel: dates and party size come before any results (date-range-picker)",
-    },
     structure: "card-grid",
     ready: true,
   },
@@ -157,7 +150,6 @@ export const FAMILIES = {
     kinds: ["agency", "consultancy", "law firm", "architecture", "interior design", "photographer", "videographer", "wedding vendor",
       "IT support", "managed service provider", "web design", "SEO agency", "copywriter", "translation", "virtual assistant", "branding", "PR agency", "market research",],
     components: ["gallery", "masonry", "case-study-card", "before-after", "lightbox", "press-quote", "testimonial", "logo-cloud"],
-    variants: {},
     structure: "editorial",
     ready: true,
   },
@@ -179,10 +171,6 @@ export const FAMILIES = {
     ],
     kinds: ["publication", "blog", "magazine", "podcast", "newsletter", "creator", "personal brand"],
     components: ["article-card", "author-byline", "reading-time", "post-meta", "tag-list", "audio-player", "episode-row", "email-capture", "pagination"],
-    variants: {
-      "single-column-capture": "newsletter: the subscribe form is the hero and the archive is the proof below it",
-      "link-hub": "creator: a thumb-width vertical stack of link-cards, nothing else",
-    },
     structure: "single-scroll",
     ready: true,
   },
@@ -203,9 +191,6 @@ export const FAMILIES = {
     ],
     kinds: ["SaaS", "mobile app", "hardware", "game", "developer tool", "API"],
     components: ["hero-split", "feature-grid", "pricing-table", "plan-card", "logo-cloud", "comparison-table", "faq", "video-embed", "store-badges", "changelog-entry"],
-    variants: {
-      "docs-sidebar": "developer tool: the install command and docs nav sit high (sdk-tabs, code-block)",
-    },
     structure: "bento",
     ready: true,
   },
@@ -224,7 +209,6 @@ export const FAMILIES = {
     ],
     kinds: ["nonprofit", "event", "conference", "course cohort", "community", "membership", "coming soon"],
     components: ["cta-band", "countdown", "ticket-tiers", "donation-card", "event-card", "agenda-list", "steps", "stats-band", "waitlist-form", "faq"],
-    variants: {},
     structure: "full-bleed-hero",
     ready: true,
   },
@@ -247,9 +231,6 @@ export const FAMILIES = {
     kinds: ["accounting", "tax", "bookkeeping", "insurance broker", "financial advisor", "medical specialist", "childcare", "eldercare", "tutoring", "veterinary",
       "payroll", "mortgage broker", "estate planning", "wills and probate", "auditor", "VAT specialist",],
     components: ["trust-strip", "profile-card", "verified-badge", "award-badge", "testimonial", "press-quote", "faq", "contact-form"],
-    variants: {
-      "booking-hybrid": "veterinary and clinics: the slot picker appears after trust is established, not before",
-    },
     structure: "single-scroll",
     ready: true,
   },
@@ -268,11 +249,6 @@ export const FAMILIES = {
     ],
     kinds: ["café", "deli", "food truck", "bakery", "catering", "bar", "brewery", "ghost kitchen"],
     components: ["menu-section", "price-list", "dish-card", "open-now", "opening-hours", "location-card"],
-    variants: {
-      "order-form": "bakery and catering: a collect form rides beside the menu",
-      "tap-list": "bar and brewery: what is pouring NOW leads, dense price-list rows",
-      "order-widget": "delivery-native: the order path sits above everything else",
-    },
     structure: "single-scroll",
     ready: true,
   },
@@ -293,10 +269,6 @@ export const FAMILIES = {
     kinds: ["franchise", "gym chain", "coworking", "dispensary", "pharmacy", "hotel group", "retail with pickup",
       "leisure operator", "climbing centre", "swim school",],
     components: ["store-locator", "map-embed", "location-card", "open-now", "distance-badge", "pickup-point", "stock-badge"],
-    variants: {
-      "property-switcher": "hotel group: switch between properties rather than search for one",
-      "in-stock-near-you": "retail: the stock answer per branch is the point of the page",
-    },
     structure: "split-screen",
     ready: true,
   },
@@ -318,9 +290,6 @@ export const FAMILIES = {
     kinds: ["résumé", "speaker", "author", "coach", "consultant", "campaign", "artist", "musician",
       "DJ", "band", "magician", "life coach",],
     components: ["profile-card", "timeline", "quote", "press-quote", "event-card", "tour-dates", "gallery", "social-links"],
-    variants: {
-      "donate-volunteer-split": "campaign: two primary actions of equal weight, donate and volunteer",
-    },
     structure: "editorial",
     ready: true,
   },
@@ -343,7 +312,6 @@ export const FAMILIES = {
     ],
     kinds: ["API reference", "SDK docs", "open source project", "help center", "knowledge base", "changelog", "status page"],
     components: ["install-command", "side-nav", "table-of-contents", "search-input", "code-block", "copy-button", "curl-example", "sdk-tabs", "prev-next", "anchor-heading", "changelog-entry"],
-    variants: {},
     structure: "sidebar",
     ready: true,
   },
@@ -364,7 +332,6 @@ export const FAMILIES = {
     ],
     kinds: ["dashboard product", "analytics", "BI tool", "pricing calculator", "comparison site", "research report"],
     components: ["big-number", "stats-band", "sparkline", "metric-delta", "gauge", "data-table", "comparison-table", "calculator-card", "donut-mini"],
-    variants: {},
     structure: "bento",
     ready: true,
   },
@@ -385,7 +352,6 @@ export const FAMILIES = {
     ],
     kinds: ["university", "school", "government", "municipal", "hospital system", "museum", "gallery", "church"],
     components: ["audience-switch", "category-nav", "search-header", "event-card", "faq", "steps", "download-card"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -406,7 +372,6 @@ export const FAMILIES = {
     ],
     kinds: ["fashion brand", "car manufacturer", "luxury hospitality", "film", "show", "design studio"],
     components: ["video-hero", "gallery", "lightbox", "before-after", "marquee", "parallax", "snap-sections", "full-bleed", "progressive-image"],
-    variants: {},
     structure: "full-bleed-hero",
     ready: true,
   },
@@ -428,7 +393,6 @@ export const FAMILIES = {
     ],
     kinds: ["customer portal", "billing", "support ticket", "confirmation page", "checkout", "waitlist"],
     components: ["multi-step-form", "form-progress", "form-section", "steps", "order-summary", "receipt", "success-panel", "not-found", "maintenance-page"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -449,7 +413,6 @@ export const FAMILIES = {
     ],
     kinds: ["bank", "credit union", "crypto exchange", "pharma", "cannabis retail", "gambling", "sportsbook"],
     components: ["age-gate", "terms-block", "consent-checkbox", "data-table", "pricing-table", "faq"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -469,7 +432,6 @@ export const FAMILIES = {
     ],
     kinds: ["ticketing", "box office", "auction", "flash sale", "drop", "live results", "status board"],
     components: ["countdown", "countdown-ring", "deadline-bar", "live-badge", "refresh-pill", "time-until", "seat-map", "bid-box", "big-number", "viewer-count"],
-    variants: {},
     structure: "terminal",
     ready: true,
   },
@@ -491,7 +453,6 @@ export const FAMILIES = {
     ],
     kinds: ["paywalled publication", "private community", "alumni portal", "fan club", "B2B customer portal"],
     components: ["paywall", "login-form", "signup-form", "membership-card", "plan-card", "pricing-table", "upgrade-badge"],
-    variants: {},
     structure: "editorial",
     ready: true,
   },
@@ -512,7 +473,6 @@ export const FAMILIES = {
     ],
     kinds: ["manufacturer", "logistics", "freight", "construction", "wholesale", "distributor", "lab", "testing services"],
     components: ["spec-row", "feature-matrix", "data-table", "download-card", "file-list", "store-locator", "tracking-input", "contact-form"],
-    variants: {},
     structure: "split-screen",
     ready: true,
   },
@@ -533,9 +493,6 @@ export const FAMILIES = {
     kinds: ["careers site", "staffing agency", "talent marketplace", "internship", "bootcamp",
       "recruitment agency", "apprenticeships", "graduate scheme", "outplacement",],
     components: ["job-card", "filter-bar", "search-input", "team-grid", "stats-band", "steps", "faq"],
-    variants: {
-      "dual-audience": "staffing: employers and seekers get two entry paths of equal weight",
-    },
     structure: "bento",
     ready: true,
   },
@@ -556,7 +513,6 @@ export const FAMILIES = {
     ],
     kinds: ["course platform", "interactive tutorial", "LMS", "practice tool", "library", "archive"],
     components: ["course-card", "curriculum-path", "chapter-list", "steps", "progress-ring", "completion-ring", "stats-band", "faq"],
-    variants: {},
     structure: "sidebar",
     ready: true,
   },
@@ -577,7 +533,6 @@ export const FAMILIES = {
     ],
     kinds: ["HOA", "neighborhood", "library branch", "nonprofit chapter", "small-town municipal"],
     components: ["opening-hours", "open-now", "location-card", "contact-form", "download-card", "file-list", "faq", "announcement-bar"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -597,7 +552,6 @@ export const FAMILIES = {
     ],
     kinds: ["wedding", "memorial", "baby registry", "single-page résumé", "digital garden", "link-in-bio"],
     components: ["rsvp-buttons", "event-card", "countdown", "gallery", "timeline", "quote", "social-links", "link-card"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -616,7 +570,6 @@ export const FAMILIES = {
     ],
     kinds: ["chat-as-homepage", "agent builder", "workflow builder", "prompt gallery", "playground", "generative tool"],
     components: ["prompt-box", "chat-composer", "chat-thread", "chat-message", "suggestion-chips", "streaming-text", "before-after", "code-block", "regenerate-button", "model-picker"],
-    variants: {},
     structure: "terminal",
     ready: true,
   },
@@ -638,10 +591,6 @@ export const FAMILIES = {
     kinds: ["ecommerce", "online store", "boutique", "fashion", "jewellery", "homeware", "furniture", "electronics", "bookshop", "gift shop", "pet supplies", "DTC brand", "subscription box",
       "toy shop", "pet shop", "carpet shop", "flooring shop", "blinds and curtains", "antiques", "garden centre", "hardware shop", "sports shop", "cycle shop",],
     components: ["product-card", "price-tag", "stock-badge", "add-to-cart", "quantity-input", "cart-badge", "cart-line", "cart-summary", "shipping-options", "payment-picker", "place-order-bar", "category-nav"],
-    variants: {
-      "single-product": "one-product DTC: the whole site sells ONE thing — a long product story down the page, then buy",
-      catalogue: "hundreds of SKUs: search and facets lead and the grid behaves like inventory-first",
-    },
     structure: "card-grid",
     ready: true,
   },
@@ -662,10 +611,6 @@ export const FAMILIES = {
     ],
     kinds: ["CRM", "project management", "help desk", "booking platform", "inventory management", "invoicing", "HR portal", "applicant tracking", "internal tool"],
     components: ["data-table", "table-search", "filter-bar", "bulk-actions", "record-header", "status-badge", "priority-badge", "assignee-picker", "activity-feed", "kanban-board"],
-    variants: {
-      board: "work that moves through stages — the kanban board replaces the table as the main surface",
-      queue: "help desk: an inbox ordered by priority, oldest unanswered first — reply where you read",
-    },
     structure: "sidebar",
     ready: true,
   },
@@ -701,9 +646,6 @@ export const FAMILIES = {
       "tree surgeon", "chimney sweep", "scaffolding", "drain clearance", "asbestos removal", "alarm installer", "CCTV installer", "fire safety", "flooring fitter", "kitchen fitter", "bathroom fitter", "tiler", "decorator", "fencing", "driveways", "guttering", "handyman",
     ],
     components: ["before-after", "service-area", "testimonial", "trust-strip", "safe-image", "gallery", "quote-request"],
-    variants: {
-      "emergency": "24-hour trades: the out-of-hours number leads and the daytime one is secondary",
-    },
     structure: "single-scroll",
     ready: true,
   },
@@ -735,7 +677,6 @@ export const FAMILIES = {
       "mutual aid",
     ],
     components: ["stats-band", "testimonial", "cta-band", "progress-ring", "faq", "donation-tiers", "impact-stat"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -767,7 +708,6 @@ export const FAMILIES = {
       "quaker meeting",
     ],
     components: ["opening-hours", "event-card", "location-card", "faq", "safe-image", "testimonial", "service-times"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -799,7 +739,6 @@ export const FAMILIES = {
       "junior academy",
     ],
     components: ["stats-band", "event-card", "team-grid", "location-card", "safe-image", "price-list", "fixture-list", "league-table"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -831,7 +770,6 @@ export const FAMILIES = {
       "beer festival",
     ],
     components: ["countdown", "event-card", "price-list", "faq", "gallery", "safe-image", "stats-band", "lineup-grid"],
-    variants: {},
     structure: "full-bleed-hero",
     ready: true,
   },
@@ -863,7 +801,6 @@ export const FAMILIES = {
       "theatre hire",
     ],
     components: ["gallery", "safe-image", "price-list", "contact-form", "faq", "location-card", "stats-band", "capacity-table", "date-enquiry"],
-    variants: {},
     structure: "split-screen",
     ready: true,
   },
@@ -895,7 +832,6 @@ export const FAMILIES = {
       "bothy",
     ],
     components: ["gallery", "safe-image", "location-card", "faq", "price-list", "testimonial", "week-strip", "availability-calendar"],
-    variants: {},
     structure: "full-bleed-hero",
     ready: true,
   },
@@ -927,7 +863,6 @@ export const FAMILIES = {
       "fleet servicing",
     ],
     components: ["price-list", "availability-grid", "opening-hours", "location-card", "trust-strip", "testimonial", "vehicle-lookup"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -959,7 +894,6 @@ export const FAMILIES = {
       "green burial",
     ],
     components: ["price-list", "faq", "contact-form", "location-card", "opening-hours", "testimonial", "arrangement-steps"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -991,7 +925,6 @@ export const FAMILIES = {
       "tutoring centre",
     ],
     components: ["opening-hours", "team-grid", "faq", "safe-image", "gallery", "contact-form", "testimonial", "session-table", "fee-table"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -1024,7 +957,6 @@ export const FAMILIES = {
       "vets", "counselling", "acupuncture", "hearing aids", "sports therapy", "nutritionist", "speech therapy", "occupational health",
     ],
     components: ["team-grid", "price-list", "opening-hours", "location-card", "faq", "contact-form", "practitioner-card", "triage-banner"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -1056,7 +988,6 @@ export const FAMILIES = {
       "open studios",
     ],
     components: ["gallery", "safe-image", "event-card", "opening-hours", "location-card", "figure", "masonry", "exhibition-card"],
-    variants: {},
     structure: "full-bleed-hero",
     ready: true,
   },
@@ -1088,7 +1019,6 @@ export const FAMILIES = {
       "kombucha",
     ],
     components: ["price-list", "opening-hours", "location-card", "gallery", "safe-image", "testimonial", "event-card", "tap-list"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -1120,7 +1050,6 @@ export const FAMILIES = {
       "butcher",
     ],
     components: ["price-list", "opening-hours", "location-card", "gallery", "safe-image", "testimonial", "menu-section", "produce-calendar"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -1152,7 +1081,6 @@ export const FAMILIES = {
       "parish magazine",
     ],
     components: ["safe-image", "section-nav", "figure", "email-capture", "tag-list", "testimonial", "story-lead"],
-    variants: {},
     structure: "bento",
     ready: true,
   },
@@ -1185,7 +1113,6 @@ export const FAMILIES = {
       "laundry service", "dry cleaner", "car valeting", "jet washing", "end of tenancy",
     ],
     components: ["price-list", "service-area", "testimonial", "trust-strip", "faq", "contact-form", "before-after", "frequency-picker"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -1217,7 +1144,6 @@ export const FAMILIES = {
       "courier",
     ],
     components: ["price-list", "steps", "faq", "testimonial", "trust-strip", "contact-form", "service-area", "quote-calculator"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -1249,7 +1175,6 @@ export const FAMILIES = {
       "garage rental",
     ],
     components: ["price-list", "opening-hours", "location-card", "faq", "trust-strip", "contact-form", "unit-card", "size-guide"],
-    variants: {},
     structure: "card-grid",
     ready: true,
   },
@@ -1281,7 +1206,6 @@ export const FAMILIES = {
       "careers coach",
     ],
     components: ["price-list", "availability-grid", "testimonial", "faq", "safe-image", "contact-form", "subject-list"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -1313,7 +1237,6 @@ export const FAMILIES = {
       "tailoring alterations",
     ],
     components: ["price-list", "opening-hours", "location-card", "faq", "trust-strip", "before-after", "repair-status", "device-picker"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -1337,7 +1260,6 @@ export const FAMILIES = {
       "local classifieds", "artisan collective",
     ],
     components: ["audience-switch", "search-input", "steps", "stats-band", "seller-card", "filter-bar", "result-count"],
-    variants: {},
     structure: "split-screen",
     ready: true,
   },
@@ -1360,7 +1282,6 @@ export const FAMILIES = {
       "skip hire", "trailer hire", "equipment hire", "AV hire",
     ],
     components: ["price-list", "safe-image", "gallery", "faq", "location-card", "opening-hours", "trust-strip", "availability-calendar", "rate-card"],
-    variants: {},
     structure: "card-grid",
     ready: true,
   },
@@ -1384,7 +1305,6 @@ export const FAMILIES = {
       "minibus hire", "executive travel", "wheelchair accessible taxi", "courier (same day)",
     ],
     components: ["price-list", "service-area", "faq", "testimonial", "trust-strip", "opening-hours", "contact-form", "fare-quote"],
-    variants: {},
     structure: "split-screen",
     ready: true,
   },
@@ -1408,7 +1328,6 @@ export const FAMILIES = {
       "respite care", "retirement village", "extra care housing", "hospice", "learning disability care",
     ],
     components: ["safe-image", "gallery", "price-list", "faq", "location-card", "team-grid", "testimonial", "contact-form", "inspection-rating"],
-    variants: {},
     structure: "full-bleed-hero",
     ready: true,
   },
@@ -1432,7 +1351,6 @@ export const FAMILIES = {
       "personal care", "dementia care at home", "end of life care", "reablement", "night care",
     ],
     components: ["price-list", "service-area", "faq", "testimonial", "team-grid", "trust-strip", "contact-form", "steps", "rate-card", "inspection-rating"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -1456,7 +1374,6 @@ export const FAMILIES = {
       "snooker club", "ice rink", "tennis courts", "padel club", "driving range",
     ],
     components: ["availability-grid", "week-strip", "price-list", "pricing-table", "opening-hours", "location-card", "faq", "rate-card", "facility-status"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -1480,7 +1397,6 @@ export const FAMILIES = {
       "stately home", "wildlife park", "adventure park", "show cave",
     ],
     components: ["price-list", "opening-hours", "location-card", "gallery", "safe-image", "event-card", "faq", "service-times", "admission-prices"],
-    variants: {},
     structure: "full-bleed-hero",
     ready: true,
   },
@@ -1504,7 +1420,6 @@ export const FAMILIES = {
       "dog walking", "small animal boarding", "rabbit boarding", "reptile boarding", "aviary boarding",
     ],
     components: ["availability-calendar", "rate-card", "price-list", "gallery", "safe-image", "faq", "location-card", "opening-hours", "team-grid", "entry-requirements"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -1528,7 +1443,6 @@ export const FAMILIES = {
       "tribute act", "caricaturist", "close-up magic", "casino hire", "photo booth",
     ],
     components: ["video-embed", "gallery", "safe-image", "testimonial", "price-list", "faq", "date-enquiry", "contact-form"],
-    variants: {},
     structure: "split-screen",
     ready: true,
   },
@@ -1553,7 +1467,6 @@ export const FAMILIES = {
       "service finder", "local guide",
     ],
     components: ["search-input", "search-suggestions", "recent-searches", "result-count", "category-nav", "location-card", "opening-hours"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -1577,7 +1490,6 @@ export const FAMILIES = {
       "certificated location", "camping field", "aire", "holiday park", "residential park",
     ],
     components: ["availability-calendar", "week-strip", "amenity-list", "gallery", "safe-image", "location-card", "faq", "rate-card", "price-list", "pitch-types", "house-rules"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -1600,7 +1512,6 @@ export const FAMILIES = {
       "boutique guesthouse", "homestay", "airbnb host", "serviced room", "hostel",
     ],
     components: ["room-card", "gallery", "safe-image", "location-card", "faq", "rate-card", "testimonial", "week-strip", "availability-calendar", "direct-saving", "house-rules"],
-    variants: {},
     structure: "editorial",
     ready: true,
   },
@@ -1623,7 +1534,6 @@ export const FAMILIES = {
       "key cutting", "parcel shop", "launderette", "tobacconist", "sweet shop",
     ],
     components: ["opening-hours", "location-card", "price-list", "faq", "gallery", "safe-image", "announcement-bar", "counter-services"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -1646,7 +1556,6 @@ export const FAMILIES = {
       "distributor", "buying group", "catering supplier", "builders merchant", "trade only",
     ],
     components: ["bulk-pricing", "quantity-break", "lead-time", "data-table", "spec-row", "download-card", "contact-form", "faq", "stock-level", "trade-terms"],
-    variants: {},
     structure: "sidebar",
     ready: true,
   },
@@ -1669,7 +1578,6 @@ export const FAMILIES = {
       "management franchise", "van franchise", "area development", "partner programme", "business opportunity",
     ],
     components: ["faq", "contact-form", "testimonial", "timeline", "stats-band", "download-card", "payback-note", "break-even-note", "safe-image", "investment-table", "territory-list"],
-    variants: {},
     structure: "single-scroll",
     ready: true,
   },
@@ -1693,7 +1601,6 @@ export const FAMILIES = {
       "corporate lettings", "holiday let management", "guaranteed rent", "rent to rent", "relocation agent",
     ],
     components: ["property-card", "search-facets", "filter-bar", "pricing-table", "entry-requirements", "faq", "location-card", "contact-form", "gallery", "tenancy-costs"],
-    variants: {},
     structure: "card-grid",
     ready: true,
   },
@@ -1716,7 +1623,6 @@ export const FAMILIES = {
       "accreditation scheme", "regulator", "membership organisation", "guild", "learned society",
     ],
     components: ["membership-tier-row", "search-input", "search-facets", "result-count", "faq", "timeline", "download-card", "contact-form", "stats-band", "membership-grades"],
-    variants: {},
     structure: "sidebar",
     ready: true,
   },
@@ -1739,7 +1645,6 @@ export const FAMILIES = {
       "school governors", "allotment association", "village hall committee", "civic society", "friends group",
     ],
     components: ["minutes-entry", "committee-list", "faq", "location-card", "price-list", "download-card", "announcement-bar", "safe-image", "meeting-papers"],
-    variants: {},
     structure: "editorial",
     ready: true,
   },
@@ -1762,7 +1667,6 @@ export const FAMILIES = {
       "trekking centre", "horse transport", "farrier", "equine therapy", "carriage driving",
     ],
     components: ["amenity-list", "rate-card", "gallery", "safe-image", "location-card", "faq", "session-table", "testimonial", "house-rules", "livery-packages"],
-    variants: {},
     structure: "full-bleed-hero",
     ready: true,
   },
@@ -1789,63 +1693,11 @@ export function structuresForPrompt() {
 }
 
 /**
- * Every variant any ready family declares, as `family/key`.
- *
- * NINETEEN OF THESE WERE DECLARED, RENDERED BY `layoutDirective` AND REACHABLE
- * BY NOTHING (found 2026-08-02). Twelve families named a variant, the directive
- * function had taken one since it was written, and the designer's tool had no
- * `variant` field at all — so no site the builder has ever made could use one.
- * Eighth instance in this repo of built, tested, on disk and unreachable.
- *
- * They matter because each one is a real business the base family serves badly:
- * `store/single-product` is a one-product DTC brand, `restaurant/tap-list` is a
- * bar, `crm/queue` is a help desk, `tradesman/emergency` is a 24-hour trade.
- * Without them those businesses get the generic shape of their family.
- *
- * NAMESPACED `family/key`, NOT the bare key. Two families could name a variant
- * the same thing, and a flat list of nineteen bare keys is one the model can
- * pick from while naming a family that does not declare it.
- */
-export function variantsForPrompt() {
-  const out = [];
-  for (const n of READY_FAMILIES) {
-    for (const [k, text] of Object.entries(FAMILIES[n].variants || {})) out.push(`${n}/${k} — ${text}`);
-  }
-  return out.join("\n");
-}
-
-/** Every `family/key` a build may legitimately ask for. */
-export const VARIANT_IDS = READY_FAMILIES.flatMap((n) =>
-  Object.keys(FAMILIES[n].variants || {}).map((k) => `${n}/${k}`));
-
-/**
- * The variant a build asked for, or null — and null is the SAFE answer.
- *
- * A variant that does not belong to the chosen family must be DROPPED, never
- * passed on. `layoutDirective` returns null for an unrecognised variant, and
- * the call site turns a null directive into no directive at all — so one
- * mismatched variant would cost the site its entire layout, silently, which is
- * exactly the failure the guard at that call site already warns about. Losing
- * an optional refinement is the small loss; losing the family is the large one.
- */
-export function resolveVariant(family, asked) {
-  if (!asked || typeof asked !== "string") return null;
-  const f = FAMILIES[family];
-  if (!f || !f.ready) return null;
-  // Accept the namespaced form the prompt offers, and the bare key a model may
-  // reasonably send back having already named the family in the same tool call.
-  const key = asked.includes("/") ? asked.slice(asked.indexOf("/") + 1) : asked;
-  const prefix = asked.includes("/") ? asked.slice(0, asked.indexOf("/")) : family;
-  if (prefix !== family) return null;
-  return Object.hasOwn(f.variants || {}, key) ? key : null;
-}
-
-/**
  * The text a build puts in the USER message. Null on anything unknown or not
  * ready — a directive is a promise about what the kit can do, so a wrong name
  * must fail loudly at the call site rather than produce a page that lints red.
  */
-export function layoutDirective(family, { structure, variant } = {}) {
+export function layoutDirective(family, { structure } = {}) {
   // The two mold-breakers are ordinary families now, so the fallback that used
   // to reach a second table is gone. They were ready, produced a directive and
   // were documented — and lived OUTSIDE the families object, so they were absent
@@ -1855,7 +1707,6 @@ export function layoutDirective(family, { structure, variant } = {}) {
   const f = FAMILIES[family];
   if (!f || !f.ready) return null;
   if (structure !== undefined && !STRUCTURES[structure]) return null;
-  if (variant !== undefined && !f.variants[variant]) return null;
   // The SKELETON is a family property with a per-build override. Every family
   // declares a default structure — a store browses (card-grid), a firm reads
   // (single column), a departures board is a terminal — so two families stop
@@ -1875,7 +1726,6 @@ export function layoutDirective(family, { structure, variant } = {}) {
     `This family ships ${f.pages.length} page${f.pages.length === 1 ? "" : "s"}:`,
     ...f.pages.map((p) => `- ${p.file === "index" ? "/" : "/" + p.file} — ${p.role}`),
   ];
-  if (variant) lines.push(`Variant — ${variant}: ${f.variants[variant]}.`);
   if (chosen) lines.push(`Structure — ${chosen}: ${STRUCTURES[chosen].text}.`);
   return lines.join("\n");
 }

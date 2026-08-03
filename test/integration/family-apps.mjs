@@ -126,20 +126,9 @@ try {
   const pageErrors = [];
   page.on("pageerror", (e) => pageErrors.push(String(e).slice(0, 200)));
 
-  // The families, then whichever VARIANT apps exist. A variant is the same
-  // family's declared pages arranged differently, so it builds identically —
-  // only the folder and the slug differ. Discovered from disk rather than from
-  // the module, because a variant app is optional: nineteen are declarable and
-  // they land a few at a time.
-  const VDIR = path.join(TEMPLATE, "src/variant-pages");
-  const variantApps = fs.existsSync(VDIR)
-    ? fs.readdirSync(VDIR, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name) : [];
-  const APPS = [
-    ...READY_FAMILIES.map((n) => ({ id: n, family: n, dir: path.join(TEMPLATE, "src/family-pages", n) })),
-    ...variantApps.map((d) => ({
-      id: d, family: d.slice(0, d.indexOf("__")), dir: path.join(VDIR, d),
-    })),
-  ];
+  const APPS = READY_FAMILIES.map((n) => ({
+    id: n, family: n, dir: path.join(TEMPLATE, "src/family-pages", n),
+  }));
 
   const ONLY = new Set((process.env.FAM_ONLY || "").split(",").map((s) => s.trim()).filter(Boolean));
   for (const app of APPS.filter((a) => ONLY.size === 0 || ONLY.has(a.id))) {

@@ -71,10 +71,6 @@ test("every family is complete and enum-safe", () => {
       `${id} shape must be 2-4 lines, has ${f.shape?.length}`);
     for (const line of f.shape) assert.ok(line.length > 10 && line.length < 220, `${id} shape line length`);
     assert.ok(f.kinds.length >= 1, `${id} names nobody it is for`);
-    for (const [v, text] of Object.entries(f.variants)) {
-      assert.match(v, /^[a-z][a-z0-9-]*$/, `${id} variant ${v}`);
-      assert.ok(text.length > 15, `${id} variant ${v} says nothing`);
-    }
     // The skeleton: every family declares a structure the table offers.
     assert.ok(STRUCTURES[f.structure], `${id} declares structure "${f.structure}", which is not one of the eight`);
     // The page set: index first, flat enum-safe route files, each with a real
@@ -214,11 +210,9 @@ test("a directive carries the whole contract, and refuses everything unknown", (
   }
   assert.equal(layoutDirective("no-such-family"), null);
   assert.equal(layoutDirective("restaurant", { structure: "no-such-structure" }), null);
-  assert.equal(layoutDirective("restaurant", { variant: "no-such-variant" }), null);
   // And the two optional axes really do land in the text.
-  const d = layoutDirective("restaurant", { structure: "single-scroll", variant: "tap-list" });
+  const d = layoutDirective("restaurant", { structure: "single-scroll" });
   assert.ok(d.includes(STRUCTURES["single-scroll"].text));
-  assert.ok(d.includes(FAMILIES["restaurant"].variants["tap-list"]));
 });
 
 test("this IS wired now, and the chain is guarded next door", () => {

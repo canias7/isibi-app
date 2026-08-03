@@ -28,8 +28,8 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 - Salon, spa, nail studio
 - Clinic, dental, therapy
 - Tattoo studio
-- Home services (plumber, electrician, HVAC) — *call-now* variant
-- Fitness studio / yoga — *class-schedule* variant
+- Home services (plumber, electrician, HVAC)
+- Fitness studio / yoga
 
 ---
 
@@ -41,7 +41,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 - Car dealership
 - Job board
 - Rentals (equipment, venues, gear)
-- Travel + hotel — *date-picker* variant
+- Travel + hotel
 
 ---
 
@@ -63,8 +63,8 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 - Publication, blog, magazine
 - Podcast (episode list + player)
-- Newsletter — *single-column capture* variant
-- Creator / personal brand — *link-hub* variant
+- Newsletter
+- Creator / personal brand
 
 ---
 
@@ -76,7 +76,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 - Mobile app — screenshot carousel + store badges
 - Hardware — hero shot + specs + buy
 - Game — trailer video takeover
-- Developer tool / API — *docs-sidebar* variant
+- Developer tool / API
 
 ---
 
@@ -110,8 +110,8 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 **CTA:** Order · Reserve · Directions
 
 - Café, deli, food truck
-- Bakery / catering — *order-form* variant
-- Bar / brewery — *hours + tap list* variant
+- Bakery / catering
+- Bar / brewery
 - Delivery-native (ghost kitchen) — order widget above everything
 
 ---
@@ -123,7 +123,7 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 - Multi-location franchise → store locator
 - Gym chain, coworking spaces
 - Dispensary, pharmacy
-- Hotel group / resort — *property switcher* variant
+- Hotel group / resort
 - Retail with pickup — *in-stock near you*
 
 ---
@@ -314,8 +314,8 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 - Online store — general goods, the plain case
 - Fashion boutique, jewellery, homeware, furniture
 - Electronics, bookshop, gifts, pet supplies
-- Single-product DTC brand — *single-product* variant (one long product story, then buy)
-- Big catalogue — *catalogue* variant (search + facets lead, the grid behaves like inventory)
+- Single-product DTC brand
+- Big catalogue
 
 ---
 
@@ -324,9 +324,9 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 **CTA:** Sign in · New record
 
 - CRM, project management, applicant tracking
-- Help desk — *queue* variant (a priority inbox, reply where you read)
+- Help desk
 - Booking platform, inventory management, invoicing, HR portal
-- Stage-driven work — *board* variant (the kanban board replaces the table)
+- Stage-driven work
 
 ---
 

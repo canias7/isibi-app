@@ -10,6 +10,50 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-08-03 — THE VARIANT AXIS IS REMOVED (owner's call)
+
+**"I don't really like this variants stuff."** Gone: the 19 declarations across
+12 families, `VARIANT_IDS`, `variantsForPrompt`, `resolveVariant`,
+`layoutDirective`'s variant branch, the designer tool's `variant` field, the
+worker plumbing, the tests, and all 19 reference apps under
+`src/variant-pages/` (56 files, 8,362 lines). A generated site now has three
+axes — theme, family, structure — not four. 739 tests green, kit typecheck
+clean, harness re-run.
+
+**Why, in the owner's own reasoning:** *"if so then we need a bunch of different
+variants per family."* That is the reductio. 19 across 65 families was
+underivable — `salon` had two because somebody wrote two, `hotel` none because
+nobody did — and completing it means a taxonomy nobody can maintain. Same shape
+as the ~30 named schema features, 11 of which were undeclarable and dead, which
+is why that direction changed to *"make the substrate expressive, not add a
+verb."*
+
+**And the measurement that settled it.** A variant reached the model as ONE
+SENTENCE — 29 tokens — appended to a prompt already carrying ~8,400 tokens of
+worked reference pages (`REFERENCE_PAGES`, the template's own barber shop) that
+show a *different* shape. The lever could never win against the example it was
+arguing with. The 19 reference apps were never read by the generator at all;
+`grep` for `variant-pages` across the builder and worker returns nothing.
+
+**The idea that replaces it, owner's, not yet built:** a reference page PER
+FAMILY rather than one frozen set for everybody. The assets already exist — 65
+family apps, ~2,000 tokens each. The caching objection dissolves with a second
+`cache_control` breakpoint: constant rules cache globally and hit every build,
+the family's page caches per family. Worth running `page-gen-eval` before and
+after to see whether output actually improves.
+
+**Recovering any of it:** `git checkout 11211ec -- builder/lovable/template/src/variant-pages`
+for the apps, or revert the removal commit for the whole axis.
+
+**Cost recorded honestly:** four component guards lost their premise — the
+deleted apps were the only callers exercising `ImpactStats columns`,
+`GoalGauge` over 100,000, `UptimeStrip` at 60+ days and `TimeLaneGrid
+laneHeight`. Their source assertions still hold; the render that proved them
+does not. Marked as such in `test/component-api.test.mjs` rather than deleted
+quietly.
+
+---
+
 ## 2026-07-23 — Builder upgrades #8 (smart repair routing) + #11 (capability bundles) — dormant libraries
 Finished the owner's #6→#8→#11 queue. Both are pure worker-safe libraries (built + tested, not yet wired — adoption
 is the next step for each).

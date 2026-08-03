@@ -355,12 +355,13 @@ test("a grid inside a narrow parent is the CALLER's decision, not the viewport's
     "the value no longer wraps — a six-figure number overflows a narrow cell");
 
   // The premise, as above: something passes it, in a genuinely narrow place.
-  const VARIANTS = path.join(import.meta.dirname, "../builder/lovable/template/src/variant-pages");
-  const constrained = [PAGES, VARIANTS].flatMap((root) => fs.readdirSync(root, { recursive: true })
-    .filter((f) => String(f).endsWith(".tsx"))
-    .map((f) => fs.readFileSync(path.join(root, String(f)), "utf8")))
-    .filter((src) => /<ImpactStats[^>]*columns=/s.test(src));
-  assert.ok(constrained.length >= 1, "no page constrains ImpactStats — this guard watches nothing");
+  // PREMISE GONE, RECORDED RATHER THAN DELETED. This used to assert that some
+  // page really passed it — a guard over a case nothing exercises is a guard
+  // over nothing. The only callers were variant reference apps, removed
+  // 2026-08-03 with the variant axis, so the corpus no longer renders this at
+  // all. The source assertions above still stop the component regressing; what
+  // is missing is the render that would prove it. Restore with:
+  //   git checkout 11211ec -- builder/lovable/template/src/variant-pages
 
   // A FIFTH, and this one was PREDICTED. The paragraph above used to end "a
   // fourth that grids without a `columns` prop is the one to catch next", and
@@ -588,12 +589,13 @@ test("text drawn inside a ring is bounded by the ring, not by hope", () => {
 
   // The premise: a caller passing a value long enough for any of this to
   // matter. A guard over geometry nothing exercises is a guard over nothing.
-  const roots = ["family-pages", "variant-pages"].map((d) => path.join(import.meta.dirname, "../builder/lovable/template/src", d));
-  const pages = roots.flatMap((r) => fs.readdirSync(r, { recursive: true })
-    .filter((f) => String(f).endsWith(".tsx"))
-    .map((f) => fs.readFileSync(path.join(r, String(f)), "utf8")));
-  const calls = pages.flatMap((p) => [...p.matchAll(/<GoalGauge[^>]*value=\{(\d+)\}/gs)].map((m) => Number(m[1])));
-  assert.ok(calls.some((v) => v >= 100000), `no page renders a gauge over 100,000 — the overflow this guards cannot occur (largest: ${Math.max(0, ...calls)})`);
+  // PREMISE GONE, RECORDED RATHER THAN DELETED. This used to assert that some
+  // page really passed it — a guard over a case nothing exercises is a guard
+  // over nothing. The only callers were variant reference apps, removed
+  // 2026-08-03 with the variant axis, so the corpus no longer renders this at
+  // all. The source assertions above still stop the component regressing; what
+  // is missing is the render that would prove it. Restore with:
+  //   git checkout 11211ec -- builder/lovable/template/src/variant-pages
 });
 
 test("an allowance says 168,400 and not 168400", () => {
@@ -678,13 +680,13 @@ test("a 90-day strip distinguishes its states as well as a 7-day one", () => {
 
   // The premise: a caller passing enough days for any of this to matter. The
   // old drawing was perfectly fine at seven.
-  const roots = ["family-pages", "variant-pages"].map((d) => path.join(import.meta.dirname, "../builder/lovable/template/src", d));
-  const pages = roots.flatMap((r) => fs.readdirSync(r, { recursive: true })
-    .filter((f) => String(f).endsWith(".tsx"))
-    .map((f) => fs.readFileSync(path.join(r, String(f)), "utf8")));
-  const long = pages.some((p) => /<UptimeStrip/.test(p) && /length:\s*(\d{2,})/.test(p) &&
-    Number(p.match(/length:\s*(\d{2,})/)[1]) >= 60);
-  assert.ok(long, "no page renders a strip of 60+ days — the density this guards never occurs");
+  // PREMISE GONE, RECORDED RATHER THAN DELETED. This used to assert that some
+  // page really passed it — a guard over a case nothing exercises is a guard
+  // over nothing. The only callers were variant reference apps, removed
+  // 2026-08-03 with the variant axis, so the corpus no longer renders this at
+  // all. The source assertions above still stop the component regressing; what
+  // is missing is the render that would prove it. Restore with:
+  //   git checkout 11211ec -- builder/lovable/template/src/variant-pages
 });
 
 test("a block in a lane truncates, and the lane can be told how tall to be", () => {
@@ -714,13 +716,13 @@ test("a block in a lane truncates, and the lane can be told how tall to be", () 
     "the block no longer clips at all, so a tall label now overflows its lane");
 
   // The premise: a caller with labels tall enough for any of this to matter.
-  const VARIANTS = path.join(import.meta.dirname, "../builder/lovable/template/src/variant-pages");
-  const pages = fs.readdirSync(VARIANTS, { recursive: true })
-    .filter((f) => String(f).endsWith(".tsx"))
-    .map((f) => fs.readFileSync(path.join(VARIANTS, String(f)), "utf8"));
-  assert.ok(pages.some((p) => /<TimeLaneGrid[^>]*laneHeight=\{(\d+)\}/s.test(p) &&
-    Number(p.match(/<TimeLaneGrid[^>]*laneHeight=\{(\d+)\}/s)[1]) > 48),
-    "no page raises the lane height — the multi-line label this guards never occurs");
+  // PREMISE GONE, RECORDED RATHER THAN DELETED. This used to assert that some
+  // page really passed it — a guard over a case nothing exercises is a guard
+  // over nothing. The only callers were variant reference apps, removed
+  // 2026-08-03 with the variant axis, so the corpus no longer renders this at
+  // all. The source assertions above still stop the component regressing; what
+  // is missing is the render that would prove it. Restore with:
+  //   git checkout 11211ec -- builder/lovable/template/src/variant-pages
 });
 
 test("two different destinations never get the same icon", () => {
