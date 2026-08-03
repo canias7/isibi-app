@@ -18,6 +18,18 @@ import { cn } from "@/lib/utils";
  * measuring; the window is a prop because a barber opens at 9 and a bar at 6,
  * and rendering midnight-to-midnight wastes two thirds of the screen.
  *
+ * THE LANE HEIGHT IS THE CALLER'S, because the label is a ReactNode and this
+ * component cannot know how tall one is. It was fixed at 48px, and a weekly
+ * class timetable — name, time, teacher, places left — is four lines once the
+ * block is narrow enough to wrap the name. `overflow-hidden` then clipped at
+ * the PIXEL, so the last line came out sliced through the middle of the
+ * letters: not truncation anybody would read as truncation, but something that
+ * looks like a rendering fault.
+ *
+ * So `laneHeight` exists, and a clipped block now fades out at its bottom edge
+ * rather than ending mid-glyph — when a caller does under-size it the result
+ * reads as "there is more" instead of as broken.
+ *
  * `day-schedule` is one day as a LIST — no time axis, no overlap, no lanes.
  */
 export type LaneBlock = { id: string; lane: string; start: number; end: number; label: React.ReactNode };
@@ -36,12 +48,17 @@ function cluster(blocks: LaneBlock[]) {
   return out;
 }
 
-export function TimeLaneGrid({ lanes, blocks, from = 8, to = 20, onPick, className }: {
+export function TimeLaneGrid({ lanes, blocks, from = 8, to = 20, laneHeight = 48, onPick, className }: {
   lanes: { key: string; label: React.ReactNode }[];
   /** start/end in hours, e.g. 9.5 = 09:30 */
   blocks: LaneBlock[];
   from?: number;
   to?: number;
+  /**
+   * Pixels. 48 fits a one-line label; a three-line one in a narrow block needs
+   * about 72. The label is yours, so its height has to be too.
+   */
+  laneHeight?: number;
   onPick?: (id: string) => void;
   className?: string;
 }) {
@@ -67,7 +84,8 @@ export function TimeLaneGrid({ lanes, blocks, from = 8, to = 20, onPick, classNa
           return (
             <div key={lane.key} className="flex items-stretch">
               <span className="w-24 shrink-0 truncate pr-2">{lane.label}</span>
-              <div className="relative h-12 flex-1 rounded border border-border bg-muted/40">
+              <div className="relative flex-1 rounded border border-border bg-muted/40"
+                style={{ height: laneHeight }}>
                 {hours.map((h) => (
                   <span key={h} aria-hidden className="absolute inset-y-0 border-l border-border/60"
                     style={{ left: `${pct(h)}%` }} />
@@ -75,7 +93,11 @@ export function TimeLaneGrid({ lanes, blocks, from = 8, to = 20, onPick, classNa
                 {groups.flatMap((group) =>
                   group.map((b, i) => (
                     <button key={b.id} type="button" onClick={() => onPick?.(b.id)}
-                      className={cn("absolute overflow-hidden rounded border border-foreground bg-background px-1 text-left text-[10px] leading-tight",
+                      className={cn(
+                        "absolute overflow-hidden rounded border border-foreground bg-background px-1 text-left text-[10px] leading-tight",
+                        // Fades the last 5px so an under-sized lane truncates
+                        // instead of slicing a line of text in half.
+                        "[mask-image:linear-gradient(to_bottom,#000_calc(100%-5px),transparent)]",
                         onPick && "cursor-pointer hover:bg-muted")}
                       style={{
                         left: `${pct(b.start)}%`,

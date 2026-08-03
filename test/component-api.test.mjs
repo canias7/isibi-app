@@ -361,6 +361,41 @@ test("a grid inside a narrow parent is the CALLER's decision, not the viewport's
     .map((f) => fs.readFileSync(path.join(root, String(f)), "utf8")))
     .filter((src) => /<ImpactStats[^>]*columns=/s.test(src));
   assert.ok(constrained.length >= 1, "no page constrains ImpactStats — this guard watches nothing");
+
+  // A FIFTH, and this one was PREDICTED. The paragraph above used to end "a
+  // fourth that grids without a `columns` prop is the one to catch next", and
+  // TeamGrid was it — found by dropping it into the narrow half of a two-column
+  // section and looking: four ~95px cards, every name on two lines and every
+  // role on four. Its default stays 4, which is what every existing caller
+  // renders, so adding the prop changed no page that already worked.
+  const team = fs.readFileSync(path.join(UI, "team-grid.tsx"), "utf8");
+  assert.match(team, /columns\?: 1 \| 2 \| 3 \| 4/, "TeamGrid cannot be told how many columns it has");
+  assert.match(team, /columns = 4/, "TeamGrid's default is no longer 4 — every existing caller's layout just changed");
+  assert.match(team, /1: "",/, "columns={1} must produce NO grid-cols class");
+  assert.ok(!/cn\("grid gap-6 sm:grid-cols-2 lg:grid-cols-4"/.test(team),
+    "the viewport breakpoints are hard-coded on TeamGrid again");
+  assert.match(team, /className="flex min-w-0 flex-col/,
+    "the cell can no longer shrink below its content, so a long role widens the column instead of wrapping");
+
+  // Now FIVE components share this contract, which makes it a rule rather than
+  // a run of coincidences. Stated as one list so the next person adding a grid
+  // component to this kit finds it — and asserted, so the list cannot rot.
+  //
+  // The union differs on purpose and is checked per component above: Gallery
+  // starts at 2 and never offered 1, because two photographs side by side in a
+  // rail are still legible where two quotes are not. What every one of them has
+  // to have is the prop, so that the decision belongs to the parent at all.
+  for (const [file, symbol] of [
+    ["gallery.tsx", "Gallery"], ["testimonial.tsx", "TestimonialGrid"],
+    ["trust-strip.tsx", "TrustStrip"], ["impact-stat.tsx", "ImpactStats"],
+    ["team-grid.tsx", "TeamGrid"],
+  ]) {
+    const src = fs.readFileSync(path.join(UI, file), "utf8");
+    assert.match(src, /columns\?: \d(?: \| \d)+;/,
+      `${symbol} has lost its columns prop — the parent can no longer say how much room it has`);
+    assert.ok(!/sm:grid-cols-\d[^"]*"\s*,\s*className/.test(src.replace(/\s+/g, " ")),
+      `${symbol} has a viewport breakpoint baked into its container class again`);
+  }
 });
 
 test("a deadline derived from a date, and a status that cannot eat the row", () => {
@@ -625,4 +660,76 @@ test("a 90-day strip distinguishes its states as well as a 7-day one", () => {
   const long = pages.some((p) => /<UptimeStrip/.test(p) && /length:\s*(\d{2,})/.test(p) &&
     Number(p.match(/length:\s*(\d{2,})/)[1]) >= 60);
   assert.ok(long, "no page renders a strip of 60+ days — the density this guards never occurs");
+});
+
+test("a block in a lane truncates, and the lane can be told how tall to be", () => {
+  // Found by rendering a class timetable. TimeLaneGrid's lane was a fixed
+  // `h-12` and its block is `overflow-hidden`, which clips at the PIXEL — so a
+  // four-line label in a narrow block came out with its last line sliced
+  // horizontally through the letters. Not truncation anybody reads as
+  // truncation: it looks like the renderer broke.
+  //
+  // The label is a ReactNode, so the component cannot know how tall one is —
+  // which makes the height the caller's to state, exactly like `columns` on
+  // the five grid components above. The fade is the second half: when a caller
+  // does under-size it, the clip has to read as "there is more".
+  const UI = path.join(import.meta.dirname, "../builder/lovable/template/src/components/ui");
+  const src = fs.readFileSync(path.join(UI, "time-lane-grid.tsx"), "utf8");
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, (m) => " ".repeat(m.length));
+
+  assert.match(code, /laneHeight = 48/, "the lane height is no longer the caller's, or its default has moved off 48 — every existing rota just changed height");
+  assert.match(code, /laneHeight\?: number/, "laneHeight is used but not declared");
+  assert.match(code, /style=\{\{ height: laneHeight \}\}/, "the lane is not actually sized by laneHeight");
+  assert.ok(!/relative h-12 flex-1/.test(code), "the lane is back to a hard-coded h-12");
+  assert.match(code, /mask-image:linear-gradient\(to_bottom,#000_calc\(100%-5px\),transparent\)/,
+    "a clipped block no longer fades — an under-sized lane slices a line of text in half again");
+  // The fade only means anything while the block still clips; without
+  // overflow-hidden the label would simply spill over the lane below it.
+  assert.match(code, /absolute overflow-hidden rounded border border-foreground/,
+    "the block no longer clips at all, so a tall label now overflows its lane");
+
+  // The premise: a caller with labels tall enough for any of this to matter.
+  const VARIANTS = path.join(import.meta.dirname, "../builder/lovable/template/src/variant-pages");
+  const pages = fs.readdirSync(VARIANTS, { recursive: true })
+    .filter((f) => String(f).endsWith(".tsx"))
+    .map((f) => fs.readFileSync(path.join(VARIANTS, String(f)), "utf8"));
+  assert.ok(pages.some((p) => /<TimeLaneGrid[^>]*laneHeight=\{(\d+)\}/s.test(p) &&
+    Number(p.match(/<TimeLaneGrid[^>]*laneHeight=\{(\d+)\}/s)[1]) > 48),
+    "no page raises the lane height — the multi-line label this guards never occurs");
+});
+
+test("two different destinations never get the same icon", () => {
+  // Found by rendering a link hub: "Instagram · Website · Email" came out as
+  // an Instagram mark and TWO IDENTICAL GLOBES. `email` was not in the map, so
+  // it took the fallback — and the fallback was `Globe`, which is exactly what
+  // `website` is. Nothing failed: the row rendered, the count was right, the
+  // links worked, and the only thing that did not work was telling them apart.
+  //
+  // Two assertions, and the second is the general one: a fallback that
+  // collides with a declared entry makes "we do not recognise this" look
+  // identical to a specific answer.
+  const UI = path.join(import.meta.dirname, "../builder/lovable/template/src/components/ui");
+  const src = fs.readFileSync(path.join(UI, "social-links.tsx"), "utf8");
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, (m) => " ".repeat(m.length));
+
+  const map = code.match(/const ICONS[^=]*=\s*\{([\s\S]*?)\n\};/);
+  assert.ok(map, "the icon map has changed shape and this guard can no longer read it");
+  const entries = [...map[1].matchAll(/(\w+):\s*(\w+)/g)].map(([, k, v]) => [k, v]);
+  assert.ok(entries.length >= 8, `only ${entries.length} networks mapped — the scan has broken`);
+
+  const byKey = Object.fromEntries(entries);
+  for (const k of ["email", "phone", "website", "instagram"]) {
+    assert.ok(byKey[k], `${k} is no longer in the map — it falls through to the fallback`);
+  }
+  assert.notEqual(byKey.email, byKey.website, "email and website share an icon again");
+
+  const fallback = code.match(/ICONS\[l\.network\.toLowerCase\(\)\] \|\| (\w+)/);
+  assert.ok(fallback, "the fallback is gone or has moved");
+  const used = new Set(entries.map(([, v]) => v));
+  assert.ok(!used.has(fallback[1]),
+    `the fallback is ${fallback[1]}, which a declared network also uses — an unknown network is indistinguishable from that one`);
+
+  // And it has to be imported, or the page throws rather than rendering.
+  assert.match(code, new RegExp(`^import \\{[^}]*\\b${fallback[1]}\\b`, "m"),
+    `${fallback[1]} is used as the fallback and never imported`);
 });
