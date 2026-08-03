@@ -205,10 +205,46 @@ try {
             if (cs.gridTemplateColumns.split(" ").filter(Boolean).length < 2) continue;
             for (const kid of el.children) {
               const kw = kid.getBoundingClientRect().width;
-              const text = (kid.textContent || "").trim();
-              if (kw > 0 && kw < 160 && text.length >= 30) {
-                out.cramped.push({ w: Math.round(kw), chars: text.length, text: text.slice(0, 48) });
-              }
+              if (!(kw > 0 && kw < 160)) continue;
+              // FLOW TEXT ONLY — absolutely-positioned subtrees are skipped.
+              // An overlay caption, badge or ribbon sits ON the child rather
+              // than wrapping inside it, so it is no part of the problem this
+              // rule looks for. Without this the first four findings of a
+              // 290-page sweep were all one artifact: SafeImage's placeholder
+              // paints the alt as an overlay caption, so a card reading
+              // "Theo Marsh / Design lead" counted as
+              // "Theo MarshTheo MarshDesign lead" — 31 characters where 21 are
+              // real, and a real photograph would have had none of them.
+              //
+              // Computed only for children already known to be narrow, so the
+              // per-node getComputedStyle stays off the hot path.
+              let text = "";
+              (function walk(n) {
+                for (const c of n.childNodes) {
+                  if (c.nodeType === 3) { text += c.nodeValue; continue; }
+                  if (c.nodeType !== 1) continue;
+                  const pos = getComputedStyle(c).position;
+                  if (pos === "absolute" || pos === "fixed") continue;
+                  walk(c);
+                }
+              })(kid);
+              text = text.trim().replace(/\s+/g, " ");
+              if (text.length < 30) continue;
+              // How many lines it actually wraps to, which is what decides
+              // legibility: 154px over three lines is a card, 110px over
+              // seven is the bug. Width alone cannot tell those apart, which
+              // is why the first threshold flagged a SpecRow that renders
+              // perfectly well.
+              const lh = parseFloat(getComputedStyle(kid).lineHeight) || 20;
+              const lines = Math.round(kid.getBoundingClientRect().height / lh);
+              // FOUR, and the number is calibrated against renders rather than
+              // chosen. A SpecRow value in a 154px card wraps to three and is
+              // perfectly legible — I looked. All four of the bugs this rule
+              // exists for were more: TrustStrip put "Checkable on the
+              // register" over five lines in ~100px, and TeamGrid put a name
+              // on two and a role on four.
+              if (lines < 4) continue;
+              out.cramped.push({ w: Math.round(kw), chars: text.length, lines, text: text.slice(0, 48) });
             }
           }
           // SPILLING: content wider than its box with NOTHING between it and
@@ -232,7 +268,7 @@ try {
           return out;
         });
         await page.setViewportSize({ width: 880, height: 800 });
-        for (const c of m.cramped) console.log(`  cramped  ${label}  ${c.w}px for ${c.chars} chars — ${JSON.stringify(c.text)}`);
+        for (const c of m.cramped) console.log(`  cramped  ${label}  ${c.w}px · ${c.chars} chars · ~${c.lines} lines — ${JSON.stringify(c.text)}`);
         for (const c of m.spilling) console.log(`  spilling ${label}  ${c.w}px box, ${c.need}px content — ${JSON.stringify(c.text)}`);
       }
       if (SHOTS) {
