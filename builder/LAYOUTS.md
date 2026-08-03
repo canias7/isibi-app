@@ -1069,6 +1069,78 @@ Each family shares a hero pattern, a body rhythm, and a primary CTA.
 
 ---
 
+## 71. A subscription — plan-and-frequency-first
+**Shape:** size and frequency chosen together before payment, with pause and cancel beside them.
+**CTA:** Start a box · See the plans
+
+- Subscription box
+- Coffee subscription
+- Wine club
+- Book club
+- Pet box
+- Razor subscription
+- Flower subscription
+
+---
+
+## 72. Meal plan or recipe box — this-week's-menu-first
+**Shape:** this week's dishes and the cut-off lead; the plan is chosen after the food.
+**CTA:** See this week · Choose a plan
+
+- Recipe box
+- Meal plan
+- Meal prep
+- Veg box
+- Food subscription
+- Diet plan
+- Prepared meals
+
+---
+
+## 73. Street food or mobile trader — where-today-first
+**Shape:** today's pitch and hours above everything, then the week, then hiring the van.
+**CTA:** Where we are today · Book us
+
+- Food truck
+- Street food
+- Mobile catering
+- Market stall
+- Coffee van
+- Mobile trader
+- Pop-up kitchen
+- Ice cream van
+
+---
+
+## 74. Coach or minibus hire — route-and-date-first
+**Shape:** seats, date and route set the price; the fleet is listed by capacity, not prettiness.
+**CTA:** Get a quote · Check a date
+
+- Coach hire
+- Minibus hire
+- School transport
+- Airport transfer
+- Wedding transport
+- Private hire
+- Day trips
+
+---
+
+## 75. Caterer or event supplier — headcount-first
+**Shape:** a headcount and a date drive every figure, and the minimum spend is in the hero.
+**CTA:** Get a quote · See the menus
+
+- Caterer
+- Event catering
+- Wedding catering
+- Buffet
+- Hog roast
+- Corporate catering
+- Canapes
+- Grazing table
+
+---
+
 ## Cross-cutting: structural variants
 
 Any family above can be expressed through:

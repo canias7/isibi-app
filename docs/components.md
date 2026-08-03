@@ -1,4 +1,4 @@
-# Components (2106 built, 25 to go)
+# Components (2107 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -1948,6 +1948,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ trade-off-bar
 ✓ trade-terms
 ✓ tradeoff-slider
+✓ trading-diary
 ✓ transcript-line
 ✓ transcript-toggle
 ✓ transcript-view

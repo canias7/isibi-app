@@ -845,6 +845,9 @@ export const UI_COMPONENTS = [
   // rate card and a LIBRARY loan row — a lender had nothing, and the conditions
   // attached to a savings rate are the product rather than a footnote.
   "interest-rates", "priority-debts", "service-availability",
+  // `trading-diary` for a mobile trader: today marked, because where the van is
+  // NOW is the one perishable fact, and a cancelled pitch stays on the list.
+  "trading-diary",
 ];
 
 // THE COMPONENTS THE MODEL IS SHOWN — the most-used slice of the 2,058.

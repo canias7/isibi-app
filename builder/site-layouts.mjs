@@ -1801,6 +1801,106 @@ export const FAMILIES = {
     structure: "single-scroll",
     ready: true,
   },
+
+  "subscription-box": {
+    md: "A subscription — plan-and-frequency-first",
+    label: "size and how often come before payment, and the pause and cancel terms sit beside them",
+    cta: ["Start a box", "See the plans"],
+    shape: [
+      "hero: the sizes as a choice and the frequency beside it — two decisions, made together, before any card details",
+      "body: what turns up, when the cut-off is, and how to skip a delivery without ringing anybody",
+      "cancelling is described where somebody is deciding to subscribe, not filed under terms",
+    ],
+    pages: [
+      { file: "index", role: "the sizes and frequencies, with the cancel terms next to them" },
+      { file: "plans", role: "every plan priced, including the ones that only make sense for a household" },
+      { file: "manage", role: "skipping, pausing, changing frequency and stopping — reached from the account link" },
+    ],
+    kinds: ["subscription box", "coffee subscription", "wine club", "book club", "pet box", "razor subscription", "flower subscription"],
+    components: ["frequency-picker", "recurring-picker", "cutoff-time", "cancel-policy", "delivery-estimate", "plan-card", "faq"],
+    structure: "split-screen",
+    ready: true,
+  },
+
+  "meal-plan": {
+    md: "Meal plan or recipe box — this-week's-menu-first",
+    label: "this week's food leads and the plan is chosen after it, because nobody subscribes to a box of unknowns",
+    cta: ["See this week", "Choose a plan"],
+    shape: [
+      "hero: the dishes available this week as cards, with the ordering cut-off stated above them",
+      "body: the plans and portion sizes, then the allergens as a full matrix rather than a disclaimer",
+      "the cut-off appears on every page — it is the only thing on the site that expires",
+    ],
+    pages: [
+      { file: "index", role: "this week's dishes and the cut-off, then the plans underneath" },
+      { file: "menu", role: "the full week including next week's, with the allergen matrix" },
+      { file: "plans", role: "portions, frequency and price per serving, which is the honest comparison" },
+    ],
+    kinds: ["recipe box", "meal plan", "meal prep", "veg box", "food subscription", "diet plan", "prepared meals"],
+    components: ["cutoff-time", "menu-section", "allergen-matrix", "frequency-picker", "delivery-slot", "plan-card", "faq"],
+    structure: "card-grid",
+    ready: true,
+  },
+
+  "food-truck": {
+    md: "Street food or mobile trader — where-today-first",
+    label: "where the van is TODAY, above everything, because it is the only fact on the site that expires",
+    cta: ["Where we are today", "Book us"],
+    shape: [
+      "hero: today's pitch and its hours, large, with the rest of the week directly beneath it",
+      "body: what is on, then hiring the van for a private event, which is the other half of the business",
+      "a cancelled pitch stays in the diary marked cancelled — a regular finds out by driving there otherwise",
+    ],
+    pages: [
+      { file: "index", role: "where we are today and this week, then what is on the menu" },
+      { file: "diary", role: "the full trading diary — markets, regular pitches and the winter gaps" },
+      { file: "hire", role: "hiring the van for a wedding, a party or a works do" },
+    ],
+    kinds: ["food truck", "street food", "mobile catering", "market stall", "coffee van", "mobile trader", "pop-up kitchen", "ice cream van"],
+    components: ["trading-diary", "menu-section", "location-card", "open-now", "date-enquiry", "faq", "section-header"],
+    structure: "full-bleed-hero",
+    ready: true,
+  },
+
+  "coach-hire": {
+    md: "Coach or minibus hire — route-and-date-first",
+    label: "seats, date and route decide the price; photographs of the fleet decide nothing at all",
+    cta: ["Get a quote", "Check a date"],
+    shape: [
+      "hero: the three questions that set the price — how many, where to, which day — and nothing else",
+      "body: the fleet by capacity rather than by prettiness, then what the quote does and does not include",
+      "driver hours are a legal limit, not a preference, so a long day is priced as two drivers and says so",
+    ],
+    pages: [
+      { file: "index", role: "the three questions, an indicative price, and what is included" },
+      { file: "fleet", role: "every vehicle by seats, with access and luggage stated" },
+      { file: "quote", role: "the enquiry form — route, date, times and the extras that change the figure" },
+    ],
+    kinds: ["coach hire", "minibus hire", "school transport", "airport transfer", "wedding transport", "private hire", "day trips"],
+    components: ["vehicle-card", "capacity-table", "fare-quote", "route-stop", "date-enquiry", "faq", "section-header"],
+    structure: "split-screen",
+    ready: true,
+  },
+
+  caterer: {
+    md: "Caterer or event supplier — headcount-first",
+    label: "the number of people is the first question and every figure on the page moves with it",
+    cta: ["Get a quote", "See the menus"],
+    shape: [
+      "hero: a headcount and a date, with a per-head figure that changes as the number does",
+      "body: the menus at each price point, then what a quote covers — staff, hire, travel, VAT",
+      "the minimum spend is stated in the hero, because it is the fact that ends half of these enquiries",
+    ],
+    pages: [
+      { file: "index", role: "headcount, date, the per-head bands and the minimum spend" },
+      { file: "menus", role: "the menus at each band, with the allergen matrix rather than a disclaimer" },
+      { file: "quote", role: "the enquiry — venue, timings, dietary needs and what we need to know about the kitchen" },
+    ],
+    kinds: ["caterer", "event catering", "wedding catering", "buffet", "hog roast", "corporate catering", "canapes", "grazing table"],
+    components: ["price-list", "menu-section", "allergen-matrix", "date-enquiry", "capacity-table", "faq", "section-header"],
+    structure: "editorial",
+    ready: true,
+  },
 };
 /* ------------------------------------------------------------------ helpers */
 

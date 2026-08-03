@@ -1874,6 +1874,7 @@ export const COMPONENT_API = {
   "trade-off-bar": "TradeOffBar(steps: object[], value: number, onChange: (index: number) => void, leftLabel: React.ReactNode, rightLabel: React.ReactNode, label?: string)",
   "trade-terms": "TradeTerms(minimumOrder?: number | null, carriagePaid?: number | null, paymentTerms?: string | null, accountRequired?: boolean, deliveryDays?: string[], currency?: string = \"GBP\", locale?: string = \"en-GB\", heading?: string = \"Trade terms\", note?: string, columns?: 1 | 2 | 3 = 3)",
   "tradeoff-slider": "TradeoffSlider(value: number, onChange: (v: number) => void, min?: number = 0, max?: number = 100, step?: number = 1, left: string, right: string, outcome: string, label: string, id?: string)",
+  "trading-diary": "TradingDiary(pitches: Pitch[], todayIndex: number)",
   "transcript-line": "TranscriptLine(at: number, speaker?: React.ReactNode, showSpeaker?: boolean = true, active?: boolean, onSeek?: (seconds: number) => void, children: React.ReactNode)",
   "transcript-toggle": "TranscriptToggle(text?: string, children?: React.ReactNode)",
   "transcript-view": "TranscriptView(children: React.ReactNode, deps?: React.DependencyList = [])",
