@@ -62,23 +62,31 @@ function P() {
                 target="45 minutes to attend, from the receiving centre's call"
                 remaining="38 minutes average, quarter to June"
               />
+              {/* A STAT LABEL IS A LABEL, NOT A SENTENCE. These three sit in
+                  the narrow half of a two-column row, so each tile is about
+                  150px — and "Worst single attendance. It was snow on the
+                  A616" wrapped to four lines in it. The measure pass caught
+                  it; the fix is the writing rather than the grid, because the
+                  anecdote was never label text. It reads better underneath
+                  anyway. */}
               <div className="mt-6 grid gap-6 sm:grid-cols-3">
                 <div>
                   <p className="text-3xl font-semibold tabular-nums">38 min</p>
-                  <p className="mt-1 text-sm text-muted-foreground">Average attendance, last quarter</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Average, last quarter</p>
                 </div>
                 <div>
                   <p className="text-3xl font-semibold tabular-nums">96%</p>
-                  <p className="mt-1 text-sm text-muted-foreground">Inside the 45-minute commitment</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Inside 45 minutes</p>
                 </div>
                 <div>
                   <p className="text-3xl font-semibold tabular-nums">2h 11m</p>
-                  <p className="mt-1 text-sm text-muted-foreground">Worst single attendance. It was snow on the A616</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Worst single call</p>
                 </div>
               </div>
               <p className="mt-5 max-w-lg text-sm leading-relaxed text-muted-foreground">
-                The worst figure is published too. A company showing only its average is showing you
-                the half of the distribution that flatters it.
+                The worst one was snow on the A616 in January, and it is published for the same
+                reason the average is: a company showing only its mean is showing you the half of
+                the distribution that flatters it.
               </p>
             </div>
             <div>
