@@ -1953,6 +1953,14 @@ or an access level — anything not in the schema below does not exist.
     figures to this site's visitors. Import the primitive and pass it the site's own rows.
     The ${CHART_DOMAIN_COUNT} domain modules and everything they export are listed below.
 
+13. NO EXPLANATORY COMMENTS IN THE PAGES YOU WRITE. The examples above are commented
+    because they are teaching you; the files you return are a customer's website and
+    nobody reads its source. Output costs five times what input costs, and comments are
+    27% of the example set — so a comment is the single most expensive thing here, and
+    it is bought for a reader who does not exist. Write the code. The one exception is a
+    line that stops the next person breaking something non-obvious ("cancelled bookings
+    still hold the slot"); if it only restates what the line under it does, leave it out.
+
 ## Reading rows
 
 \`useRows<T>(table, params)\` → a TanStack Query result whose \`.data\` is the rows.

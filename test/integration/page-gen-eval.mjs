@@ -66,10 +66,27 @@ async function generate(fix) {
   });
   if (!r.ok) throw new Error("anthropic " + r.status + " " + (await r.text().catch(() => "")).slice(0, 200));
   const j = await r.json();
-  if (j.stop_reason === "max_tokens") return { input: null, truncated: true };
+  // USAGE IS THE POINT OF HALF OF THIS FILE NOW AND IT WAS BEING THROWN AWAY.
+  // Output is ~96% of what a build costs, so "does it compile" was measuring the
+  // cheaper half. `cache_read` and `cache_creation` are read as well because the
+  // Anthropic API reports them SEPARATELY from `input_tokens` — the same fact
+  // that makes worker.js under-count what a build really costs.
+  const u = j.usage || {};
+  const usage = {
+    out: u.output_tokens || 0,
+    in: u.input_tokens || 0,
+    cacheRead: u.cache_read_input_tokens || 0,
+    cacheWrite: u.cache_creation_input_tokens || 0,
+  };
+  if (j.stop_reason === "max_tokens") return { input: null, truncated: true, usage };
   const use = (Array.isArray(j.content) ? j.content : []).find((b) => b && b.type === "tool_use");
-  return { input: (use && use.input) || null };
+  return { input: (use && use.input) || null, usage };
 }
+
+// $3/M in, $15/M out, cache write 1.25x, cache read 0.1x — Sonnet 5's list price.
+const dollars = (u) =>
+  (u.in * 3e-6) + (u.out * 15e-6) + (u.cacheWrite * 3.75e-6) + (u.cacheRead * 0.30e-6);
+const COMMENT_RE = /\/\*[\s\S]*?\*\/|^[ \t]*\/\/.*$/gm;
 
 // ── the build service, set up the way the container image is ──────────────────
 let server = null, sandbox = null;
@@ -137,6 +154,7 @@ try {
     const row = { n, stage: "?", files: [], problems: [], errors: [], repaired: false };
     try {
       const gen = await generate();
+      if (gen.usage) { row.usage = gen.usage; }
       if (gen.truncated) { row.stage = "truncated"; console.log(`  ${n}. TRUNCATED at max_tokens`); results.push(row); continue; }
       let v = validatePages(gen.input);
       if (!v.pages.length) { row.stage = "no-pages"; row.problems = v.problems; console.log(`  ${n}. NO PAGES  ${v.problems.join(" | ") || "(nothing usable)"}`); results.push(row); continue; }
@@ -202,6 +220,30 @@ const firstTry = compiled.filter((r) => !r.repaired).length;
 const clean = compiled.filter((r) => !r.problems.length).length;
 
 console.log(`\n${compiled.length}/${results.length} compiled (${firstTry} first try) · ${clean} with no lint problems`);
+
+// WHAT IT COST, AND HOW MUCH OF THE OUTPUT WAS COMMENTS. The second number is
+// here because rule 13 asks the model not to write them and an unmeasured rule
+// is a wish: comments were 27% of the example set, output is 5x the price of
+// input, so this is the largest single lever on what a build costs.
+const withUsage = results.filter((r) => r.usage);
+if (withUsage.length) {
+  const avg = (f) => withUsage.reduce((a, r) => a + f(r.usage), 0) / withUsage.length;
+  const src = results.filter((r) => r.files && r.files.length);
+  let all = 0, cmt = 0;
+  for (const r of src) for (const f of r.files) {
+    const t = typeof f === "string" ? f : (f.source || "");
+    all += t.length;
+    cmt += (t.match(COMMENT_RE) || []).reduce((a, m) => a + m.length, 0);
+  }
+  console.log(
+    `\noutput ${Math.round(avg((u) => u.out)).toLocaleString()} tok/sample · ` +
+    `fresh in ${Math.round(avg((u) => u.in)).toLocaleString()} · ` +
+    `cache read ${Math.round(avg((u) => u.cacheRead)).toLocaleString()} · ` +
+    `write ${Math.round(avg((u) => u.cacheWrite)).toLocaleString()}`
+  );
+  console.log(`$${avg(dollars).toFixed(4)} a sample at list price` +
+    (all ? ` · comments are ${(cmt / all * 100).toFixed(1)}% of the source written` : ""));
+}
 if (errorCounts.size) {
   console.log("\ndistinct compile errors, most frequent first:");
   for (const [shape, count] of [...errorCounts].sort((a, b) => b[1] - a[1])) console.log(`  ${String(count).padStart(2)}×  ${shape}`);

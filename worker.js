@@ -2936,7 +2936,21 @@ async function generateSitePages(env, brief, spec, brand, fix) {
   }
   const j = await r.json();
   const usage = j.usage || {};
-  const used = { usedIn: usage.input_tokens || 0, usedOut: usage.output_tokens || 0 };
+  // CACHED TOKENS ARE REPORTED SEPARATELY AND WERE NOT BEING COUNTED. The
+  // Anthropic API excludes cache hits from `input_tokens` and returns them as
+  // `cache_read_input_tokens` / `cache_creation_input_tokens` — and PAGE_RULES,
+  // the thing cache_control exists for, is ~18,300 tokens. So the meter saw a few
+  // hundred input tokens on a call that really carried nineteen thousand, and on
+  // a COLD cache the creation tokens bill at 1.25x and were invisible.
+  //
+  // Counted at face value rather than reweighted: a credit is 1/8000 of a dollar
+  // of MODEL spend, and pretending a cache read costs a tenth would mean the
+  // ledger tracks a different number from the invoice. Reweighting belongs in the
+  // rate, not in the token count, and today the rate is one number.
+  const used = {
+    usedIn: (usage.input_tokens || 0) + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0),
+    usedOut: usage.output_tokens || 0,
+  };
   // A tool_use block cut off at max_tokens carries half-written JSON, which parses
   // into a page whose last file is truncated. Treat it as a failed generation
   // rather than shipping a file that ends mid-expression.
