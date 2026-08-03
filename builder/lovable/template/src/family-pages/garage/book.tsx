@@ -48,7 +48,7 @@ function P() {
             </div>
           </div>
           <aside className="space-y-6">
-            <TrustStrip items={[
+            <TrustStrip columns={1} items={[
               { title: "Courtesy car", description: "Free, two available, ask when you book" },
               { title: "We ring first", description: "Nothing extra without a number and a yes" },
               { title: "Free retest", description: "Within ten working days if we do the work" },
