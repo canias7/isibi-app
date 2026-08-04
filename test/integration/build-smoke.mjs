@@ -13,7 +13,7 @@
 // or locally with those in the environment.
 import fs from "node:fs";
 import path from "node:path";
-import { dropUserProject } from "../../site-db.mjs";
+import { dropUserProject, connForDatabase, dbNameForSite, sqlQuery } from "../../site-db.mjs";
 
 // Use whatever Chromium is already on the machine — same reasoning as
 // site-runtime.mjs: the pinned playwright version and a pre-installed browser
@@ -161,10 +161,46 @@ try {
   // asserted against a table this design stopped writing, and failed on a build
   // that had provisioned perfectly. The cleanup below drops whatever project it
   // finds, so reading the wrong table also leaked one project per run.
-  const p = await fetch(`${SUPABASE_URL}/rest/v1/site_project?slug=eq.${slug}&select=neon_project`, { headers: svc() });
+  const p = await fetch(`${SUPABASE_URL}/rest/v1/site_project?slug=eq.${slug}&select=neon_project,neon_conn`, { headers: svc() });
   const projs = await p.json().catch(() => []);
   projectId = projs && projs[0] && projs[0].neon_project;
   ok("a Neon project was provisioned for this site", !!projectId, JSON.stringify(projs));
+
+  // WHAT `_meta` ACTUALLY CONTAINS — asserted, not inferred.
+  //
+  // The 501s below say `siteDataBase` resolved null, and from outside that has
+  // two indistinguishable causes: the row was never written, or it was written
+  // and cannot be parsed. A day was spent reasoning between them, and two
+  // theories were wrong (the field name; a cached null — `makeCache` refuses to
+  // cache absence, so that one was never possible). This reads the row.
+  //
+  // `data_api` is what every list and every form on the published site goes
+  // through, and `auth_info` is every sign-in — with the Worker's own row routes
+  // deleted, a site missing them is a shell.
+  const proj0 = projs && projs[0];
+  if (proj0 && proj0.neon_conn) {
+    try {
+      const siteConn = connForDatabase(proj0.neon_conn, dbNameForSite(slug));
+      const meta = await sqlQuery(siteConn, "SELECT k, length(v) AS n FROM _meta ORDER BY k");
+      const keys = meta.map((r) => `${r.k}(${r.n})`).join(", ") || "(empty)";
+      console.log("   _meta holds: " + keys);
+      const has = (k) => meta.some((r) => r.k === k && Number(r.n) > 0);
+      ok("_meta records the Data API endpoint", has("data_api"), keys);
+      ok("_meta records the auth endpoint", has("auth_info"), keys);
+      // Parsed, not just present: a stored blob the resolver cannot read is the
+      // same 501 from a visitor's side, and telling them apart is the point.
+      const row = meta.find((r) => r.k === "data_api");
+      if (row) {
+        const v = await sqlQuery(siteConn, "SELECT v FROM _meta WHERE k='data_api'");
+        let url = null;
+        try { url = JSON.parse(v[0].v).url; } catch { /* reported below */ }
+        ok("the recorded Data API endpoint is an https url", /^https:\/\//.test(String(url || "")), String(url).slice(0, 120));
+      }
+    } catch (e) {
+      console.log("   FAIL could not read the site's _meta -> " + String(e && e.message).slice(0, 200));
+      failed++;
+    }
+  }
 
   // --- the published page -------------------------------------------------
   // `page` says which of the two things was published. The generated app is the

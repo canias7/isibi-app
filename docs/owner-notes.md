@@ -11656,3 +11656,46 @@ string literals**, the same trap the `_users` sweep hit.
 767 unit tests. 5 mutants across the three fixes, all caught, including restoring
 the live `.conn` bug and a half-fix where only one of the two savers was
 corrected.
+
+---
+
+## Two wrong theories, and a smoke test that now states the fact (2026-08-04)
+
+Fixing `.conn` → `.neon_conn` did NOT clear the 501s, and I had predicted it
+would. Recording that because the prediction was the most confident one of the
+day and it was wrong. `build smoke` is 23/27 now — the project-row fix landed and
+the container diagnosis works — but every read and every form on a generated site
+still answers **501 no_backend**.
+
+**Two theories, both disproved by reading rather than by shipping.**
+
+- **The field name.** The standing note said the response field was "the one
+  thing not measured against a real project". Neon answers `{"url": "https://…"}`
+  and `siteServiceBase` tries `url` FIRST, then recurses for any https string. It
+  would have found it. Red herring.
+- **A cached null.** `siteDataBase` is memoized for 600s, so a probe before the
+  row landed would have poisoned it. **`makeCache.set` opens with `if (value ==
+  null) return value;` and the comment "Never cache absence".** Never possible.
+  Checked before acting on it, which is the only reason it cost nothing.
+
+**So the row genuinely is not there, and a day went on inference.** The smoke
+deletes its site in `finally`, so nothing survived to look at — which is what made
+this guesswork instead of a measurement. It now reads the site's own `_meta`
+before cleanup (it already has `site_project.neon_conn`, so the connection costs
+one extra selected column) and asserts:
+
+- `_meta` records the Data API endpoint
+- `_meta` records the auth endpoint
+- the recorded endpoint PARSES as an https url
+
+That last one matters because "never written" and "written but unreadable" are
+the same 501 from a visitor's side, and telling them apart is the entire question.
+The key list is printed either way, so a run says what is there rather than what
+is missing.
+
+**The lesson, and it is the same one three times today**: `detail: "{}"`,
+`upstream: null`, `no JSON` — and now this. Every one was a place where the
+system knew something and threw it away, and every one turned a minute into
+hours. A diagnostic that costs one query is cheaper than one wrong theory.
+
+767 unit tests still green; this change is to the integration harness.
