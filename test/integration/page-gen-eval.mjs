@@ -7,16 +7,21 @@
 //
 // This is the same generation call with everything else stripped away: no
 // database, no container image, no publish, no isibi account. A fixed schema
-// goes in, N samples come back, each is validated, linted, compiled, and — when
-// it fails — repaired ONCE exactly as production does. The distinct errors are
-// then counted by shape, which turns "it varies" into a ranked list of what
-// actually breaks.
+// goes in, N samples come back, each is validated, linted and compiled. The
+// distinct errors are then counted by shape, which turns "it varies" into a
+// ranked list of what actually breaks.
+//
+// ONE CALL A SAMPLE, because production makes one call a build — the repair
+// pass was removed 2026-08-04. This harness mirrors the pipeline rather than
+// improving on it: a repair here would report a compile rate the platform does
+// not deliver, which is worse than not measuring. FIRST TRY IS THE ONLY RATE
+// NOW, and a failure column is a bill for the kit or the rules to settle once.
 //
 // It issues the request through `pagesRequest`, the same function worker.js
 // uses, so this cannot quietly drift into tuning a different prompt.
 //
-// Needs ANTHROPIC_API_KEY and the template's node_modules. Costs one generation
-// call per sample, plus one more for each sample that needs a repair.
+// Needs ANTHROPIC_API_KEY and the template's node_modules. Costs exactly one
+// generation call per sample.
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -180,38 +185,22 @@ try {
   console.log(`sampling the page generator ${SAMPLES}×, fixed schema, no database\n`);
 
   for (let n = 1; n <= SAMPLES; n++) {
-    const row = { n, stage: "?", files: [], problems: [], errors: [], repaired: false };
+    const row = { n, stage: "?", files: [], problems: [], errors: [] };
     try {
       const gen = await generate();
       if (gen.usage) { row.usage = gen.usage; }
       if (gen.truncated) { row.stage = "truncated"; console.log(`  ${n}. TRUNCATED at max_tokens`); results.push(row); continue; }
-      let v = validatePages(gen.input);
+      const v = validatePages(gen.input);
       if (!v.pages.length) { row.stage = "no-pages"; row.problems = v.problems; console.log(`  ${n}. NO PAGES  ${v.problems.join(" | ") || "(nothing usable)"}`); results.push(row); continue; }
 
-      let problems = v.problems.concat(lintPages(v.pages, SPEC));
-      let built = await compile(v.pages);
-
-      // One repair, on a compile failure OR a lint problem — exactly the rule
-      // publish-pages.mjs follows, so this measures what production measures.
-      if (!built.ok || problems.length) {
-        const why = (built.ok ? [] : [String(built.error || "").split("\n").filter((l) => /error TS/.test(l)).slice(0, 8).join("\n")]).concat(problems);
-        let retry = null;
-        try { retry = await generate({ pages: v.pages, problems: why }); } catch { /* the first attempt stands */ }
-        if (retry && retry.input) {
-          const v2 = validatePages(retry.input);
-          if (v2.pages.length) {
-            const p2 = v2.problems.concat(lintPages(v2.pages, SPEC));
-            const b2 = await compile(v2.pages);
-            if (b2.ok && (!built.ok || p2.length < problems.length)) { v = v2; problems = p2; built = b2; row.repaired = true; }
-          }
-        }
-      }
+      const problems = v.problems.concat(lintPages(v.pages, SPEC));
+      const built = await compile(v.pages);
 
       row.files = v.pages.map((p) => p.path);
       row.problems = problems;
       if (built.ok) {
         row.stage = "ok";
-        console.log(`  ${n}. OK${row.repaired ? " (after repair)" : "          "}  ${row.files.length} files${problems.length ? `, ${problems.length} lint problem(s)` : ""}`);
+        console.log(`  ${n}. OK  ${row.files.length} files${problems.length ? `, ${problems.length} lint problem(s)` : ""}`);
       } else {
         row.stage = built.stage || "compile";
         row.errors = String(built.error || "").split("\n").filter((l) => /error TS/.test(l));
@@ -257,10 +246,12 @@ try {
 }
 
 const compiled = results.filter((r) => r.stage === "ok");
-const firstTry = compiled.filter((r) => !r.repaired).length;
 const clean = compiled.filter((r) => !r.problems.length).length;
 
-console.log(`\n${compiled.length}/${results.length} compiled (${firstTry} first try) · ${clean} with no lint problems`);
+// No "first try" column any more: with the repair pass gone every sample IS a
+// first try, and a second number saying the same thing invites reading it as a
+// second chance that exists.
+console.log(`\n${compiled.length}/${results.length} compiled · ${clean} with no lint problems`);
 
 // WHAT IT COST, AND HOW MUCH OF THE OUTPUT WAS COMMENTS. The second number is
 // here because rule 13 asks the model not to write them and an unmeasured rule
@@ -299,8 +290,9 @@ try {
   fs.mkdirSync(out, { recursive: true });
   const lines = [
     "# Page generator — compile rate", "",
-    `**${compiled.length}/${results.length} compiled** (${firstTry} first try, ${clean} with no lint problems).`, "",
+    `**${compiled.length}/${results.length} compiled**, ${clean} with no lint problems.`, "",
     "One fixed schema, no database and no publish — this measures the GENERATOR, not the build path around it.",
+    "One call a sample, because a build makes one call: there is no repair pass, so this rate IS what the platform ships.",
     "A single failure is variance; a column of the same error is a mismatch worth fixing.", "",
   ];
   if (errorCounts.size) {
@@ -315,7 +307,7 @@ try {
   }
   lines.push("## Samples", "");
   for (const r of results) {
-    lines.push(`- **${r.n}. ${r.stage}${r.repaired ? " (after repair)" : ""}** — ${r.files.length ? r.files.join(", ") : "(no files)"}`);
+    lines.push(`- **${r.n}. ${r.stage}** — ${r.files.length ? r.files.join(", ") : "(no files)"}`);
     for (const e of r.errors.slice(0, 4)) lines.push(`  - \`${e}\``);
     for (const p of r.problems.slice(0, 4)) lines.push(`  - lint: ${p}`);
   }

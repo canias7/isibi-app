@@ -11233,3 +11233,88 @@ is wrong. It has `suffix` now.
 alone and the layout the family exists for cannot be looked at.
 
 739 unit tests. Every touched family built and rendered.
+
+---
+
+## The eval measured, then the repair pass went (2026-08-04)
+
+**`page gen eval` ran against a live key for the first time and scored 0/3 —
+with every one of the eleven errors being the SAME component call.** Not
+variance, not three separate misses: `<Empty title="…" description="…" />`,
+eleven times across three samples. shadcn's `Empty` is compound-only
+(`EmptyHeader`/`EmptyTitle`/`EmptyDescription`), so it is a TS2322 and the page
+is refused — **three sites in a row published as the placeholder over an empty
+state.**
+
+**The model was not guessing wildly, which is the part that decided the fix.**
+`DataList` takes `empty={{title, description}}`, so carrying that shape onto the
+component underneath is what a reasonable caller assumes. Same call as the
+button sizes: a missing prop, not a fork in the design system. `Empty` takes
+`title`/`description`/`icon` ADDITIVELY now and the compound form — still what
+`DataList` renders — is untouched.
+
+**`title` had to be RE-TYPED, not merely added.** A div already has an HTML
+`title`, so the tempting half-fix compiles cleanly and renders the heading as a
+browser tooltip: invisible, and worse than the error it replaced. The guard
+reads the bundle for `empty-title` for exactly that reason, and the mutant
+proves it — the half-fix passes "it compiles" and fails this.
+
+**Proved by replaying the three failing samples' REAL source**, saved by the
+eval, against the fixed template: 0/3 → 3/3, compiled and bundled. Then
+rendered, because compiling is not working.
+
+### What a build actually costs, measured rather than estimated
+
+```
+output      10,974 tok/sample   (5 pages, ~2,195 a page)
+fresh in       780
+cached prompt 27,171            (sample 1 writes it, the rest read)
+$0.2063 a sample at list price  — 80% of it is output
+comments are 0.0% of the source written
+```
+
+**Rule 13 worked completely.** Comments were 27% of the example set and the
+model now writes none. My per-page estimate was right and my page COUNT was
+wrong — I assumed three, the schema drives five, which is the whole gap between
+the $0.1295 I had been quoting and the real number.
+
+### So the repair pass is gone (owner's call)
+
+A repair is a second WHOLE generation — it does not amend a file, it rewrites
+every page. So a failing build cost ~2x a working one, at a moment when a
+working one is already about break-even against the 22 credits charged for it.
+
+**The measurement is what made it defensible rather than just cheap.** All
+eleven errors were one component call, which is not what a repair is for: a
+systematic mismatch is paid for ONCE, in the kit or in the rules, and a repair
+pass paying for it again on every build is the expensive way to not fix it.
+**First-try is now the only rate there is** — if it falls, the answer is
+whatever the eval's error column names.
+
+**What it costs, so it stays a decision and not a regression:** a generator miss
+is a placeholder immediately. The backend is still live and a revise re-runs
+everything, so the recovery is the customer sending it again.
+
+**Removing it exposed a pre-existing hole: `validatePages` only FLAGS a missing
+`index.tsx`.** It cannot know which of five pages should be home, so it never
+fixed one — the repair merely made the case rare. Publishing anyway ships a site
+whose root URL, the one address a customer shares, renders nothing. It is
+refused to the placeholder now. **The old code had the same hole**: if the retry
+was no better, the first attempt was published exactly as it was.
+
+**`repairPrompt`, `importedComponentApi`, `importedChartUsage`, `COMPONENT_API`,
+`CHART_API` and `CHART_USAGE` are now unreachable.** Kept — they are one
+decision away from mattering again — but SAID SO at the top of `repairPrompt`,
+because the difference between this and the five features that were dead at N
+layers is that this one is written down and a test asserts no caller exists.
+The standing "if we are not using it, it goes" rule would delete them; that is
+the owner's call, not mine.
+
+**A fake of mine nearly hid the whole thing.** The publish-pages harness wrapped
+`generate: (fix) => …(fix)`, which manufactures an `undefined` argument the
+caller never passed — so "generate is called with nothing" could not have been
+asserted through it. Same shape as the `setTotp` fake that was more capable than
+the real thing. It spreads now.
+
+740 unit tests, site-build 36/36, 4 mutants on the one-call and home-page
+guards, all caught.

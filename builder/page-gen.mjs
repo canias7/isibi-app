@@ -2523,6 +2523,25 @@ export function importedChartUsage(pages) {
   return out.length ? out.join("\n\n") : null;
 }
 
+/**
+ * UNREACHABLE FROM PRODUCTION SINCE 2026-08-04. Nothing calls this: the repair
+ * pass was removed from `publish-pages.mjs` and `pagesRequest` no longer has a
+ * `fix` branch, so a build makes exactly one model call.
+ *
+ * Said out loud because this codebase's most expensive recurring bug is code
+ * that LOOKS reachable and is not — `roundRobin`, `sla`, `maskFields`,
+ * `teamScope` at five separate layers. The difference here is that it is
+ * written down, and a test asserts no production caller exists rather than
+ * trusting this comment.
+ *
+ * Kept rather than deleted because it is one decision away from mattering
+ * again: if the eval's first-try rate turns out to be poor, the repair comes
+ * back and this is what it needs. `importedComponentApi` and
+ * `importedChartUsage` are here on the same terms, along with the generated
+ * `COMPONENT_API`, `CHART_API` and `CHART_USAGE` they read. The owner's
+ * standing rule is that unused code goes; this is a deliberate hold on that,
+ * not an oversight, and it is theirs to call.
+ */
 export function repairPrompt(brief, spec, pages, problems, brand) {
   const files = pages.map((p) => "=== src/routes/" + p.path + " ===\n" + p.source).join("\n\n");
   const api = importedComponentApi(pages);
@@ -2590,26 +2609,22 @@ export const SITE_PAGES_MAX_TOKENS = 30000;
  *
  * Measured: input goes 7,523 -> 1,148 tokens per build in the steady state, an
  * 85% cut. The first call in a cache window pays a 1.25x write premium (9,294),
- * so it breaks even on the second build. The repair pass re-sends this exact
- * block within the same build, which makes it a guaranteed hit.
+ * so it breaks even on the second build. That break-even used to be reached
+ * inside a single build, because the repair pass re-sent this exact block; with
+ * the repair gone it takes a second BUILD in the cache window.
  *
  * The consequence to know about: a cache entry is keyed on the bytes, so ANY
  * edit to PAGE_RULES — including adding a component name — invalidates it and
  * the next call pays the write premium again. That is once per deploy that
  * touches the rules, against a saving on every build in between.
  */
-export function pagesRequest({ brief, spec, brand, fix } = {}) {
+export function pagesRequest({ brief, spec, brand } = {}) {
   return {
     model: "claude-sonnet-5",
     max_tokens: SITE_PAGES_MAX_TOKENS,
     tools: [SITE_PAGES_TOOL],
     tool_choice: { type: "tool", name: "write_pages" },
     system: [{ type: "text", text: PAGE_RULES, cache_control: { type: "ephemeral" } }],
-    messages: [{
-      role: "user",
-      content: fix
-        ? repairPrompt(brief, spec, fix.pages, fix.problems, brand)
-        : pagesPrompt(brief, spec, brand),
-    }],
+    messages: [{ role: "user", content: pagesPrompt(brief, spec, brand) }],
   };
 }
