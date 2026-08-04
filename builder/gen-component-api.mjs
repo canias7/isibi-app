@@ -41,6 +41,18 @@ function tidy(s) {
  */
 function shortType(t) {
   const s = tidy(t).replace(/;$/, "");
+  // A UNION OF STRING LITERALS IS NEVER TRUNCATED. Those values are the whole
+  // contract — a caller has to write one of them EXACTLY — and a trimmed union
+  // is worse than no note at all: it reads as authoritative while hiding the
+  // member you needed. Measured live 2026-08-04, `StatusBadge` came out as
+  // `"success" | "warning" | "danger" | "neutral…` and the generator wrote
+  // `"error"`, which is a reasonable guess at what the ellipsis was covering and
+  // is not one of the values. TS2322, page refused, whole site a placeholder.
+  //
+  // They are cheap to keep whole: the longest in the kit is a few dozen
+  // characters, against ~9,000 tokens for the entire shortlist, and it rides in
+  // the cached block.
+  if (/^(?:"[^"]*"\s*\|\s*)+"[^"]*"$/.test(s)) return s;
   if (s.length <= 46) return s;
   if (/^\{[\s\S]*\}\[\]$/.test(s)) return "object[]";
   if (/^\{/.test(s)) return "object";

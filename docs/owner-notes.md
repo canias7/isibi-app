@@ -12892,3 +12892,55 @@ them inside `tables`. The build response now carries `functions` and
 `if`. Anchored to a whole line now.
 
 845 unit tests. **22 mutants across this change, all caught.**
+
+## The two generator problems the eval named (2026-08-04)
+
+`page gen eval` scored **1/3**, and the two failures had distinct systematic
+causes rather than variance. Both fixed; neither was caused by the day's other
+changes.
+
+### A link to a page that does not exist is a dead build
+
+The model wrote **seven** pages, `MAX_PAGES` kept six, and the one dropped —
+`/account` — was the one two other pages linked to. TanStack generates a UNION of
+the routes that exist, so `<Link to="/account">` became `TS2322`, the compile
+failed, and the **whole site published as the placeholder**. One href cost every
+page.
+
+**A cap that removes a page while leaving links to it is a guaranteed failure,
+not a risk.** Fixed BROADER than the cap on purpose: a model that writes three
+pages and links to a fourth it never wrote fails identically, with no truncation
+involved at all. `validatePages` now rewrites any `to="/x"` or `to: "/x"` whose
+route was not kept to `"/"` — home always exists, it is asserted two lines above
+— and reports which ones it moved, so the rewrite is visible rather than silent.
+Covers `navigate({to})` as well as `<Link>`, which is a separate mutant.
+
+### 282 component names and no props
+
+The CRM sample failed four times over with **one root cause**: a `badge` prop
+that does not exist, a `subtitle` that is really `description`, an `id` on a row
+type that has none, and `"error"` for a state whose values are
+success/warning/danger/neutral/quiet. The model was given names and left to guess
+the rest.
+
+**The signatures now ride in the prompt — and the thing that makes it affordable
+is measured, not assumed.** ~9,000 tokens, in the CACHED system block: a real
+build reported `cacheRead 27,716`, so this is a cache read at 0.1x, about **$0.003
+on a build that costs $0.22**. It was rejected before on the assumption it would
+be fresh input every time. PAGE_RULES 16,952 → **26,849 tokens, all cached**.
+
+**A half-shown enum is worse than none, and that is what shipped.** `shortType`
+capped every type at 46 characters, so `StatusBadge` arrived as
+`"success" | "warning" | "danger" | "neutral…` — and the generator wrote
+`"error"`, a reasonable guess at what the ellipsis was hiding and not a member. A
+string-literal union is never truncated now: those values ARE the contract, and a
+trimmed one reads as authoritative while hiding the member you needed.
+
+**The honest gap, stated rather than closed:** the kit is 2,112 components, the
+documented set is 282, and `page-header` — the one the CRM got wrong — is in that
+gap. The rules now say plainly that these are the components whose props are
+stated and anything else is being called blind. **Deliberately NOT enforced by the
+lint**: which of the 2,112 are usable is the owner's call, not a side effect of a
+prompt change.
+
+854 unit tests, 7 mutants across the two fixes, all caught.

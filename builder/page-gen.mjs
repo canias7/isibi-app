@@ -900,6 +900,31 @@ export const UI_COMPONENTS = [
 // the only one that costs reach; it is here because the owner asked for it.
 // `UI_COMPONENTS` stays whole — it is the LINT's allow-list and the drift guard
 // against what is on disk, so a page importing any real component still passes.
+// EVERY SHORTLISTED COMPONENT WITH ITS SIGNATURE.
+//
+// The model was given 282 NAMES and no props, and guessing them is the single
+// largest cause of a refused page. Measured 2026-08-04, one CRM sample: a `badge`
+// prop that does not exist, a `subtitle` that is called `description`, an `id` on
+// a row type that has none, and `"error"` for a state whose values are
+// success/warning/danger/neutral/quiet. Four errors, one root cause, whole site a
+// placeholder.
+//
+// ~9,000 tokens, and they ride in the CACHED system block — measured at
+// `cacheRead 27,716` on a real build, so this is a cache read at 0.1x, roughly
+// $0.003 on a build that costs $0.22. The reason it was not affordable before was
+// the assumption it would be fresh input on every build. It is not.
+//
+// Names alone stay in rule 3; this is the reference the model checks a call
+// against, which is why it is a separate block rather than a longer rule.
+export const UI_SHORTLIST_API = () => {
+  const lines = [];
+  for (const n of UI_SHORTLIST) {
+    const sig = COMPONENT_API[n];
+    if (sig) lines.push("  " + n + " — " + sig);
+  }
+  return lines.join("\n");
+};
+
 export const UI_SHORTLIST = (() => {
   const wanted = new Set();
   for (const fam of Object.values(FAMILIES)) for (const c of fam.components || []) wanted.add(c);
@@ -1881,6 +1906,18 @@ or an access level — anything not in the schema below does not exist.
    button, input, select, checkbox or dialog. Build from these — they are what the
    layouts are made of, and the only names under that path you should use:
    ${UI_SHORTLIST.join(", ")}.
+
+   THEIR EXACT PROPS — check every call against this rather than guessing. A prop
+   that does not exist, or a state value outside the union shown, is a compile error
+   and the whole site falls back to its data model. Where a type is a NAME
+   (\`Row[]\`, \`Activity[]\`), hand it the rows a hook gave you and do not invent
+   fields on it.
+   **These are the components whose props are stated. The kit under that path is
+   larger, and anything not listed here you would be calling blind — prefer one of
+   these, and if you do reach for another, keep the call to \`children\` and
+   \`className\`, which every component in the kit accepts.**
+${UI_SHORTLIST_API()}
+
    There is no "toast" or "use-toast" component — toasts come from \`import { toast } from "sonner"\`.
    The kit does not stop here: ${CHART_NAME_COUNT} chart components live under
    "@/components/charts/lib/<domain>" and are listed in full below. They are part of the
@@ -2368,6 +2405,39 @@ export function validatePages(input) {
     pages.push({ path, source });
   }
   if (pages.length && !seen.has("index.tsx")) problems.push("There is no index.tsx, so the site has no home page.");
+
+  // ── A LINK TO A PAGE THAT DOES NOT EXIST IS A DEAD BUILD ──────────────────
+  //
+  // TanStack generates a UNION of the routes that exist, so `<Link to="/account">`
+  // where no account.tsx was kept is `TS2322`, the compile fails, and the whole
+  // site publishes as the placeholder. Measured live 2026-08-04: the model wrote
+  // SEVEN pages, the cap kept six, `/account` was the one dropped — and the two
+  // pages linking to it took the build down with them. A cap that silently drops
+  // a page while leaving links to it is a guaranteed failure, not a risk.
+  //
+  // Deliberately broader than the cap, because the cap is only one way to get
+  // here: a model that writes three pages and links to a fourth it never wrote
+  // fails identically, and that needs no truncation at all.
+  //
+  // Rewritten to "/" rather than refused. Home always exists (asserted above),
+  // so the site builds and one link goes somewhere sensible instead of nowhere —
+  // which beats losing every page over a single href. The rewrite is reported,
+  // so it is visible rather than silent.
+  const routeOf = (path) => (path === "index.tsx" ? "/" : "/" + path.replace(/\.tsx$/, ""));
+  const live = new Set(pages.map((p) => routeOf(p.path)));
+  const dangling = new Set();
+  for (const p of pages) {
+    p.source = p.source.replace(/(\bto\s*[=:]\s*)(["'])(\/[A-Za-z0-9/_-]*)\2/g, (m, lead, quote, target) => {
+      if (live.has(target)) return m;
+      dangling.add(target);
+      return lead + quote + "/" + quote;
+    });
+  }
+  if (dangling.size) {
+    problems.push("These pages were linked to and do not exist, so the links were pointed at the home page instead: " +
+      [...dangling].slice(0, 6).join(", ") + ".");
+  }
+
   const notes = (input && typeof input.notes === "string") ? input.notes.trim().slice(0, 600) : "";
   return { pages, notes, problems };
 }
