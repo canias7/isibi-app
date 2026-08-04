@@ -1,0 +1,126 @@
+// Declared database functions, asserted as a CHAIN.
+//
+// Four client hooks — useRpc, useRpcAction, useClaimedRow, useCancelClaim — take
+// a function NAME, and until 2026-08-04 nothing could declare one: the designer's
+// tool offered no such field and the engine emitted CREATE FUNCTION only for its
+// own triggers. So the whole RPC tier, the claim flow and manage.tsx were
+// unreachable on every site the builder ever made.
+//
+// This feature class has died at five separate layers before, each time with the
+// other four links intact, so every link is asserted separately.
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import { normalizeSchema } from "../site-schema.mjs";
+import { functionSql } from "../site-rls.mjs";
+import { schemaDigest, lintPages, PAGE_RULES } from "../builder/page-gen.mjs";
+
+const page = (src) => [{ path: "index.tsx", source: 'import { useRpc } from "@/lib/rows";\n' + src }];
+const SPEC = {
+  tables: [{ name: "bookings", access: "collect", columns: [{ name: "claim_token", type: "uuid" }] }],
+  functions: [{ name: "booking_by_claim", args: [{ name: "tok", type: "uuid" }], returns: "setof bookings", body: "SELECT * FROM bookings WHERE claim_token = tok" }],
+};
+
+test("1. the DESIGNER can declare one", () => {
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const i = w.indexOf("const SITE_SCHEMA_TOOL = {");
+  const tool = w.slice(i, w.indexOf("\n};", i));
+  assert.ok(tool.includes("functions: {"), "the tool offers no way to declare a function");
+  assert.ok(/claim_token/.test(tool), "the tool never names the case functions exist for");
+});
+
+test("2. the NORMALISER keeps it — the layer that silently drops things", () => {
+  // coerceTable builds its output field by field, so anything nobody added to
+  // that literal is dropped on every build with no error. teamScope died here.
+  const n = normalizeSchema(SPEC);
+  assert.equal(n.functions.length, 1);
+  assert.deepEqual(n.functions[0].args, [{ name: "tok", type: "uuid" }]);
+  assert.equal(n.functions[0].returns, "setof bookings");
+  assert.equal(n.functions[0].definer, true, "a claim read must reach past RLS or it returns nothing");
+});
+
+test("2b. and it REFUSES what would break the apply or the site", () => {
+  const bad = normalizeSchema({
+    tables: SPEC.tables,
+    functions: [
+      { name: "app_user_id", returns: "uuid", body: "SELECT null::uuid" },     // shadows the RLS helper
+      { name: "_secret", returns: "void", body: "SELECT 1" },                   // reserved prefix
+      { name: "ok_one", returns: "setof nosuchtable", body: "SELECT 1" },       // undeclared table
+      { name: "ok_two", returns: "text", body: "" },                            // no body
+      { name: "BAD NAME", returns: "text", body: "SELECT 1" },                  // not an identifier
+    ],
+  });
+  assert.equal(bad.functions, undefined, JSON.stringify(bad.functions));
+  // Redefining app_user_id would rewrite the access rules of every table on the
+  // site from inside a page's data model — the single most dangerous name here.
+});
+
+test("3. the ENGINE creates it and grants EXECUTE", () => {
+  // ASSERTED ON THE EMITTED SQL, not on whether this repo's source mentions a
+  // phrase. The first version was four regexes over site-schema.mjs and FOUR
+  // MUTANTS SURVIVED IT: commenting the GRANT out still matched, so did changing
+  // the opening $isibi$ to $$, so did deleting SECURITY DEFINER — that last one
+  // matched the words inside a COMMENT explaining why it is needed.
+  const [create, g1, g2] = functionSql({
+    name: "booking_by_claim", args: [{ name: "tok", type: "uuid" }],
+    returns: "setof appointments", body: "SELECT * FROM appointments WHERE claim_token = tok",
+    language: "sql", definer: true,
+  });
+  assert.match(create, /^CREATE OR REPLACE FUNCTION "booking_by_claim"\("tok" uuid\) RETURNS SETOF "appointments"/);
+  // Without this a claim read returns NOTHING: collect has no read policy, so a
+  // function running as the caller sees exactly what the caller sees.
+  assert.ok(create.includes(" SECURITY DEFINER "), create);
+  // BOTH delimiters, or a half-renamed pair passes while the body breaks.
+  assert.equal((create.match(/\$isibi\$/g) || []).length, 2, create);
+  assert.ok(!create.includes("$" + "$"), "a model-written body containing a dollar-quote would end the literal early");
+  // A function nobody may EXECUTE exists and answers 404 — publicView, one object over.
+  assert.equal(g1, 'GRANT EXECUTE ON FUNCTION "booking_by_claim"(uuid) TO anonymous');
+  assert.equal(g2, 'GRANT EXECUTE ON FUNCTION "booking_by_claim"(uuid) TO authenticated');
+
+  // …and the engine RUNS them rather than merely building them.
+  const src = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  assert.match(src, /for \(const stmt of functionSql\(f\)\) await sqlQuery\(uuid, stmt\)/,
+    "the DDL is built and never executed");
+});
+
+test("3b. definer:false is invoker-rights, and nothing else changes", () => {
+  const [create] = functionSql({ name: "f", args: [], returns: "void", body: "SELECT 1", language: "sql", definer: false });
+  assert.ok(!create.includes("SECURITY DEFINER"), create);
+  assert.match(create, /LANGUAGE sql/);
+});
+
+test("4. the MODEL is told which exist", () => {
+  const d = schemaDigest(SPEC);
+  assert.match(d, /FUNCTIONS this schema declares/);
+  assert.match(d, /booking_by_claim\(tok: uuid\) -> setof bookings/, "a name alone does not say what to pass");
+  assert.ok(!/FUNCTIONS this schema declares/.test(schemaDigest({ tables: SPEC.tables })),
+    "a site with none must not be told it has some");
+});
+
+test("5. the LINT refuses a function that does not exist", () => {
+  assert.equal(lintPages(page('useClaimedRow("booking_by_claim", t);'), SPEC).length, 0);
+  const bad = lintPages(page('useClaimedRow("nope", t);'), SPEC);
+  assert.ok(bad.some((x) => /"nope".*does not declare/.test(x)), JSON.stringify(bad));
+  for (const hook of ["useRpc", "useRpcAction", "useCancelClaim"]) {
+    const p = lintPages(page(`${hook}("ghost");`), SPEC);
+    assert.ok(p.some((x) => /ghost/.test(x)), `${hook} is not checked`);
+  }
+});
+
+test("6. only functions that REALLY got created are advertised", () => {
+  // A body the model wrote can fail to compile. Recording it anyway would point
+  // the generator at a 404 on the next revise.
+  const src = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  // THE GUARD'S CONDITION IS PART OF THE ASSERTION. Without it, putting
+  // `if (false)` in front of this line left the statement present and the check
+  // green — a mutant that survived the first version of this test.
+  assert.match(src, /if \(fnsMade\.length\) metaOut\.functions = \(spec\.functions \|\| \[\]\)\.filter\(\(f\) => fnsMade\.includes\(f\.name\)\)/);
+  assert.match(src, /fnErrors\.push/, "a failed function is swallowed with no way to see it");
+  assert.match(src, /made\.functions = fnsMade/, "the caller is never told which functions exist");
+});
+
+test("7. the RULES point at something that now exists", () => {
+  // Written for the booking fix an hour before functions were declarable, so it
+  // pointed the model at an impossible thing — the very bug being fixed.
+  assert.match(PAGE_RULES, /useRpcAction/, "the claim route is no longer described");
+});

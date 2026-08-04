@@ -12794,3 +12794,62 @@ ends. 7 mutants, all caught.
 on a current image.
 
 838 unit tests, site-build 38/38.
+
+## Sites can declare database functions (2026-08-04)
+
+**Four client hooks took a function NAME and nothing could ever declare one.**
+`useRpc`, `useRpcAction`, `useClaimedRow`, `useCancelClaim` — plus `manage.tsx`,
+a whole reference page for the flow — were unreachable on every site the builder
+has ever made. The designer's tool offered `tables` and eight cosmetic keys; the
+schema engine emitted `CREATE FUNCTION` only for its own triggers. `rows.ts`
+calls `useRpc` *"the interesting half of moving to the Data API"*, and nothing
+could reach it.
+
+This is the sixth time this repo has found a tier that looks available and is
+reachable by nothing — and **I added to it an hour earlier**: the rule written
+for the booking-form fix told the model to get a claim token via `useRpcAction`,
+which no schema could declare. Same class, introduced while fixing the class.
+
+**Built as the substrate becoming expressive, not as another named verb** — the
+direction stated at the top of this file, and what the claim-links note always
+described: *"ten lines of SQL the generator can emit per site, where
+`site-claim.mjs` was a hand-built verb."*
+
+- The designer declares `functions: [{name, args, returns, body}]`.
+- `normalizeSchema` keeps them — **the layer that silently drops things**, where
+  `teamScope` died. It refuses: a name that shadows `app_user_id` (redefining it
+  would rewrite the access rules of every table on the site from inside a page's
+  data model), a `_`-prefix, `setof` a table the schema never declared, an empty
+  body, a non-identifier name. Capped at 8, body at 4000 chars.
+- `functionSql` in `site-rls.mjs` emits `CREATE OR REPLACE … SECURITY DEFINER`
+  plus `GRANT EXECUTE` to both roles. **A function nobody may execute is a 404** —
+  publicView, one object over. `SECURITY DEFINER` IS the feature: a `collect`
+  table has no read policy, so only a function running as its owner can hand one
+  row back to the person who submitted it.
+- **`$isibi$`, never `$$`** — the body is model-written and a `$$` inside it would
+  end the literal early and turn the rest into top-level syntax.
+- Non-fatal: tables, policies and grants are already applied by then, so a broken
+  function loses a function rather than the site. Only functions that REALLY got
+  created are recorded, or the next revise is pointed at a 404.
+- `schemaDigest` prints the exact signature — a name alone does not say what to
+  pass — and says nothing when a site declares none.
+- `lintPages` refuses a call to an undeclared function, the same class as naming
+  a table that does not exist.
+
+**The reference-page lint guard immediately refused `manage.tsx`**, which is
+exactly right: it had been calling two functions no schema declared. The
+reference spec declares them now.
+
+**Four mutants survived the first sweep and all four were my own source-regex
+assertions** — commenting out the GRANT still matched `/GRANT EXECUTE/`, half-
+renaming the delimiter still matched `/\$isibi\$/`, `if (false)` in front of a
+statement still matched it, and deleting `SECURITY DEFINER` matched **the words
+inside a comment explaining why it is needed**. Sixth time a guard here has
+matched its own prose. Fixed by extracting `functionSql` so the DDL is asserted
+as emitted SQL rather than as a phrase in a file.
+
+`test/site-functions.test.mjs` (9 tests, one per link). **19 mutants, all caught.**
+846 unit tests, site-build 38/38.
+
+**Not proven against real Postgres yet** — `neon e2e` should apply a schema with a
+function and check the claim read actually returns the row.

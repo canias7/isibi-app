@@ -2164,7 +2164,24 @@ export const ACCESS_NOTE = {
 export function schemaDigest(spec) {
   const tables = (spec && Array.isArray(spec.tables) ? spec.tables : []).filter((t) => t && t.name);
   if (!tables.length) return "(the schema declares no tables)";
-  return tables.map((t) => {
+  // DECLARED FUNCTIONS, STATED. `useRpc`, `useRpcAction`, `useClaimedRow` and
+  // `useCancelClaim` all take a function NAME, and the model has no way to
+  // discover one — it can only be told. Not saying is how the whole tier stayed
+  // dead: exactly the `publicView` failure, where a rule was conditioned on a
+  // fact the digest never supplied.
+  //
+  // Printed with the exact signature, because a name alone does not say what to
+  // pass. An ABSENT section reads as "this site declared none", which is the
+  // honest answer and the common one.
+  const fns = (spec && Array.isArray(spec.functions) ? spec.functions : []).filter((f) => f && f.name);
+  const fnLines = fns.length
+    ? "\n\nFUNCTIONS this schema declares — call these by NAME with useRpc / useRpcAction / useClaimedRow / useCancelClaim, and NO others:\n" +
+      fns.map((f) => {
+        const args = (Array.isArray(f.args) ? f.args : []).map((a2) => a2.name + ": " + a2.type).join(", ");
+        return "  " + f.name + "(" + args + ") -> " + (f.returns || "void");
+      }).join("\n")
+    : "";
+  const tableLines = tables.map((t) => {
     const access = String(t.access || "collect").toLowerCase();
     // Columns arrive in two shapes and BOTH must work. normalizeSchema produces
     // rich objects ({name, type, notnull, ref}); the schema persisted in a
@@ -2215,6 +2232,7 @@ export function schemaDigest(spec) {
     }
     return lines.join("\n");
   }).join("\n\n");
+  return tableLines + fnLines;
 }
 
 /**
@@ -2361,6 +2379,8 @@ export function validatePages(input) {
 export function lintPages(pages, spec) {
   const problems = [];
   const tables = new Map();
+  // Declared function names, for the RPC check below.
+  const fns = new Set((spec && Array.isArray(spec.functions) ? spec.functions : []).map((f) => String(f && f.name || "").toLowerCase()).filter(Boolean));
   for (const t of (spec && Array.isArray(spec.tables) ? spec.tables : [])) {
     if (t && t.name) tables.set(String(t.name).toLowerCase(), t);
   }
@@ -2533,6 +2553,17 @@ export function lintPages(pages, spec) {
         say(path, 'reads one row of "' + m[1] + '" (access "' + t.access + '") without useMember(). Signed out that returns 401.');
       } else if (t && !canReadAccess(t.access) && !needsMember(t.access)) {
         say(path, 'reads one row of "' + m[1] + '", which is access "' + t.access + '" — reading it returns 403: ' + whyNotReadable(t.access) + '.');
+      }
+    }
+    // A FUNCTION THE SCHEMA NEVER DECLARED IS A 404, and until 2026-08-04 no
+    // schema could declare one at all — so `useRpc`, `useRpcAction`,
+    // `useClaimedRow` and `useCancelClaim` were four hooks nothing could reach.
+    // Now that they can be declared, calling an undeclared one is the same class
+    // as naming a table that does not exist, and is caught the same way.
+    for (const m of code.matchAll(/\buse(?:Rpc|RpcAction|ClaimedRow|CancelClaim)\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
+      if (!fns.has(m[1].toLowerCase())) {
+        say(path, 'calls the database function "' + m[1] + '", which this schema does not declare — the request is a 404. ' +
+          (fns.size ? "Declared: " + [...fns].join(", ") + "." : "This schema declares no functions at all."));
       }
     }
     for (const m of code.matchAll(/\buseCreateRow\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {

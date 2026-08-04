@@ -74,6 +74,18 @@ const REFERENCE_SPEC = {
     },
     { name: "profiles", access: "user", columns: [{ name: "nickname", type: "text" }] },
   ],
+  // THE TWO FUNCTIONS manage.tsx CALLS. Until 2026-08-04 no schema could declare
+  // one, so that reference page demonstrated a flow no generated site could have
+  // — and the moment the lint learned to check function names it correctly
+  // refused the reference page itself, which is the guard doing exactly its job.
+  // Declared here, this is what a barber shop with a "manage your booking" link
+  // actually has.
+  functions: [
+    { name: "booking_by_claim", args: [{ name: "tok", type: "uuid" }], returns: "setof appointments",
+      body: "SELECT * FROM appointments WHERE claim_token = tok" },
+    { name: "cancel_booking_by_claim", args: [{ name: "tok", type: "uuid" }], returns: "void",
+      body: "DELETE FROM appointments WHERE claim_token = tok" },
+  ],
 };
 
 const page = (source, p = "index.tsx") => [{ path: p, source }];

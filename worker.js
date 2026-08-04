@@ -2611,6 +2611,37 @@ const SITE_SCHEMA_TOOL = {
     properties: {
       brand: { type: "string", description: "Short display name for the site." },
       slug: { type: "string", description: "url-safe-name, lowercase, hyphens only." },
+      functions: {
+        type: "array",
+        description:
+          "OPTIONAL Postgres functions this site needs, called from a page by name. Use one ONLY when a page must do " +
+          "something a table's access level cannot express. THE CASE THIS EXISTS FOR: a `collect` table is write-only, so " +
+          "the customer who booked can never see their booking again. Declare a `claim_token` column of type uuid on it " +
+          "with default gen_random_uuid(), plus a function taking that token and returning exactly the matching row — then " +
+          "the site can offer a link back to it. Declare a second to cancel by the same token. Skip this entirely for a " +
+          "plain contact form, which nobody returns to. Bodies are plain SQL over this site's own tables.",
+        items: {
+          type: "object",
+          required: ["name", "returns", "body"],
+          properties: {
+            name: { type: "string", description: "lowercase identifier, e.g. booking_by_claim" },
+            args: {
+              type: "array",
+              description: "Arguments. A claim lookup takes one: {name:'tok', type:'uuid'}.",
+              items: {
+                type: "object",
+                required: ["name", "type"],
+                properties: {
+                  name: { type: "string" },
+                  type: { type: "string", enum: ["text", "int", "bigint", "numeric", "boolean", "uuid", "date", "timestamptz", "json", "jsonb"] },
+                },
+              },
+            },
+            returns: { type: "string", description: "'setof <table>' for rows of a table this schema declares, else one of void/text/int/bigint/numeric/boolean/uuid/date/timestamptz/json/jsonb." },
+            body: { type: "string", description: "The SQL body only — no CREATE FUNCTION, no $$ wrapper. e.g. SELECT * FROM bookings WHERE claim_token = tok" },
+          },
+        },
+      },
       tables: {
         type: "array",
         items: {
