@@ -192,7 +192,77 @@ test("the build route returns the upstream status, not just a sentence", () => {
   const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   const i = src.indexOf('"could not provision the database"');
   assert.ok(i > 0, "the provisioning failure branch must still exist");
-  const branch = src.slice(i - 400, i + 400);
+  // Windowed to the whole Response.json rather than a guessed character count:
+  // adding one field pushed `scrubSecrets` outside a 400-char window and failed
+  // a correct change. An assertion sized by luck is one that goes red for the
+  // wrong reason — the third time that has happened in this repo.
+  const branch = src.slice(i, src.indexOf("}, { status: 502 })", i));
+  assert.ok(branch.length > 0 && branch.length < 2000, `the branch did not close cleanly (${branch.length} chars)`);
   assert.match(branch, /upstream:\s*\(e && e\.status\)/, "a 401, a 403 and a 500 are indistinguishable without it");
   assert.match(branch, /scrubSecrets\(/, "and the detail is scrubbed before it leaves the Worker");
+});
+
+// ── the two enable endpoints ────────────────────────────────────────────────
+//
+// Every build on the platform failed with Neon answering "this route does not
+// exist", for the whole of 2026-08-04. `enableDataApi` posted to `/data_api`
+// with an underscore and no database name; Neon's endpoint is
+// `/data-api/{database}`. `neon e2e` provisions a REAL project and never called
+// either enable function, so it was green throughout — that gap is closed there,
+// and these hold the shape at $0 between runs.
+
+test("the Data API endpoint names the database, with a hyphen", () => {
+  const src = fs.readFileSync(new URL("../site-db.mjs", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
+  const fn = src.slice(src.indexOf("export async function enableDataApi"));
+  const body = fn.slice(0, fn.indexOf("\n}"));
+  assert.match(body, /branches\/\$\{branchId\}\/data-api\//, "the path must be /data-api/<database>");
+  assert.ok(!/data_api/.test(body), "an underscore here is the 404 that broke every build");
+  assert.match(body, /encodeURIComponent\(dbName\)/, "the database name reaches a URL and must be encoded");
+});
+
+test("enableDataApi refuses to call Neon without a database name", async () => {
+  // Fails BEFORE the network, or the failure is a confusing 404 from Neon
+  // rather than a clear one from us. A fetch that runs here is the bug.
+  const db = await import("../site-db.mjs");
+  let called = false;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => { called = true; throw new Error("should not be reached"); };
+  try {
+    await assert.rejects(() => db.enableDataApi({ NEON_API_KEY: "k" }, "p", "b"), /database name/);
+    assert.equal(called, false, "it called Neon with no database in the path");
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test("both enable calls carry the database name from the caller", () => {
+  // Derived at the seam: site-db can only build the right URL if provisioning
+  // hands the name over, and worker.js is what wires the dep.
+  const prov = fs.readFileSync(new URL("../site-provision.mjs", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
+  assert.match(prov, /deps\.enableAuth\(proj, dbName\)/, "auth must be told which database");
+  assert.match(prov, /deps\.enableData\(proj, dbName\)/, "so must the Data API");
+
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
+  assert.match(worker, /enableData:\s*\(proj, dbName\)\s*=>\s*enableDataApi\([^)]*dbName\)/,
+    "the worker drops the database name before it reaches site-db");
+});
+
+test("a provisioning failure carries its status and its stage out", () => {
+  // `upstream: null` on a real failure is what made this take a day: the wrappers
+  // kept `detail` and dropped `status`, so a 404 (wrong path), a 401 (dead key)
+  // and a 5xx read identically — and the route dropped `stage`, so the two
+  // different Neon endpoints were indistinguishable.
+  const prov = fs.readFileSync(new URL("../site-provision.mjs", import.meta.url), "utf8");
+  for (const stage of ["enable_auth", "enable_data_api"]) {
+    const i = prov.indexOf(`stage: "${stage}"`);
+    assert.ok(i > 0, `${stage} no longer stamps a stage`);
+    assert.match(prov.slice(i - 260, i), /status: e && e\.status/, `${stage} drops the HTTP status`);
+  }
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const j = worker.indexOf('"could not provision the database"');
+  assert.ok(j > 0);
+  const branch = worker.slice(j, j + 500);
+  assert.match(branch, /upstream:/, "the route must report the upstream status");
+  assert.match(branch, /stage:/, "and which provisioning step failed");
 });

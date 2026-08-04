@@ -11538,3 +11538,50 @@ with the same flat `RATE_IN` shape, twice in `worker.js`. Different subsystem,
 and whether it even uses caching was not checked.
 
 758 unit tests. 5 mutants, all caught — including restoring the original bug.
+
+---
+
+## Every build was dying on one hyphen (2026-08-04)
+
+**`build smoke` had been red all day at `could not provision the database`.** The
+diagnosis fix shipped a few hours earlier turned `detail: "{}"` into
+`detail: "this route does not exist"` — Neon saying the URL is wrong.
+
+**`enableDataApi` posted to `/projects/{p}/branches/{b}/data_api`. Neon's
+endpoint is `/projects/{p}/branches/{b}/data-api/{database_name}`** — underscore
+for hyphen, and the database name missing entirely. `enableNeonAuth`'s path was
+correct; only the Data API was wrong. Confirmed against Neon's own API reference,
+not guessed.
+
+The signature never took a database name, even though **the ordering comment in
+`site-provision.mjs` already said the call "has to NAME it: a site's project
+holds two databases and Neon refuses to guess between them."** The reasoning was
+written down and the parameter was never added.
+
+**`neon e2e` PROVISIONS A REAL PROJECT AND CALLED NEITHER ENABLE FUNCTION.** That
+is the gap that let this ship, and it is the whole lesson: the e2e was green for
+the entire time production was completely broken, because it exercised
+create-project → create-database → apply-schema and stopped. Both enable calls
+are asserted there now, plus that calling each TWICE is not an error — a retried
+build re-runs both against a project that already has them, which is the normal
+path rather than an edge case. It costs nothing: the project is already up.
+
+**Two things made this take a day rather than a minute.** The wrappers in
+`site-provision.mjs` kept `detail` and dropped `status`, so the response said
+`upstream: null` and a 404 (wrong path), a 401 (dead key) and a 5xx read
+identically. And the route dropped `stage`, which every one of those throws
+stamps — so `enable_auth` and `enable_data_api`, two different endpoints, were
+reported the same. Both carried through now.
+
+**The `dbName` guard fails BEFORE the network on purpose.** Called without one,
+the old code would build an incomplete URL and get a confusing 404 from Neon
+instead of a clear refusal from us. Mutation-tested by asserting `fetch` is never
+reached.
+
+**A guard of mine went red for a correct change, third time in this repo.** It
+sliced 400 characters around a marker, and adding one field pushed the thing it
+checks outside the window. It is windowed to the actual `Response.json` now. An
+assertion sized by a guessed character count is one that fails for the wrong
+reason.
+
+762 unit tests. 6 mutants, all caught, including restoring the live bug.

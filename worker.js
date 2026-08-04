@@ -3143,7 +3143,7 @@ async function ensureSiteBackend(env, slug, uid, brief) {
     //
     // Eighth instance in this repo of built-tested-on-disk-and-reachable-by-
     // nothing, and the first one where the guard existed and the dep did not.
-    enableData: (proj) => enableDataApi(env, proj.neon_project, proj.neon_branch),
+    enableData: (proj, dbName) => enableDataApi(env, proj.neon_project, proj.neon_branch, dbName),
     // Same store and same reasoning as the auth endpoint: per-site, read only on
     // a request that already holds that connection, and gone when the site is.
     // The KEY is what `siteDataBase` reads — `siteServiceBase(db, "data_api")` —
@@ -5762,6 +5762,11 @@ async function handleRequest(request, env, ctx) {
           ok: false,
           error: "could not provision the database",
           upstream: (e && e.status) || null,
+          // WHICH call failed. site-provision.mjs stamps a stage on every one of
+          // its throws and this dropped it, so "enable_auth" and
+          // "enable_data_api" — two different Neon endpoints — were reported
+          // identically.
+          stage: (e && e.stage) || null,
           detail: scrubSecrets(String((e && (e.detail || e.message)) || "")).slice(0, 300),
         }, { status: 502 });
       }

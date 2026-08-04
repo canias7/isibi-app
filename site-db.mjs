@@ -285,11 +285,18 @@ export async function enableNeonAuth(env, projectId, branchId, dbName) {
  * retried build reuses the project and enabling only once would leave a site
  * permanently without a data layer while every retry reported success.
  */
-export async function enableDataApi(env, projectId, branchId) {
+export async function enableDataApi(env, projectId, branchId, dbName) {
   if (!projectId || !branchId) throw Object.assign(new Error("data api: need a project and a branch"), { bad: true });
+  // THE DATABASE NAME IS PART OF THE PATH. Measured live 2026-08-04: every build
+  // died with Neon answering "this route does not exist", because this was
+  // `/data_api` with an underscore and no database. A site's project holds more
+  // than one database and Neon will not guess between them — which is what the
+  // ordering comment in site-provision.mjs already said the call needed, and
+  // this signature never took.
+  if (!dbName) throw Object.assign(new Error("data api: need the database name"), { bad: true });
   let info = null;
   try {
-    info = await neonApi(env, `/projects/${projectId}/branches/${branchId}/data_api`, { method: "POST", body: "{}" });
+    info = await neonApi(env, `/projects/${projectId}/branches/${branchId}/data-api/${encodeURIComponent(dbName)}`, { method: "POST", body: "{}" });
   } catch (e) {
     const already = e && (e.status === 409 || /already/i.test(String(e.detail || e.message || "")));
     if (!already) {

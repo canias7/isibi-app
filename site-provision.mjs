@@ -117,8 +117,13 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
   if (deps.enableAuth) {
     try { authInfo = (await deps.enableAuth(proj, dbName)) || null; }
     catch (e) {
+      // STATUS CARRIED THROUGH. Both of these wrappers kept `detail` and dropped
+      // `status`, so a build that died here reported `upstream: null` and the
+      // caller could not tell a 404 (wrong path) from a 401 (dead key) from a
+      // 5xx. That is the whole reason the status was surfaced one layer up.
       throw Object.assign(new Error("could not enable Neon Auth for this site"), {
         detail: String((e && (e.detail || e.message)) || "").slice(0, 300),
+        status: e && e.status,
         stage: "enable_auth",
       });
     }
@@ -133,10 +138,11 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
   // caller can retry a failure, not a success.
   if (deps.enableData) {
     let dataInfo = null;
-    try { dataInfo = (await deps.enableData(proj)) || null; }
+    try { dataInfo = (await deps.enableData(proj, dbName)) || null; }
     catch (e) {
       throw Object.assign(new Error("could not enable the Neon Data API for this site"), {
         detail: String((e && (e.detail || e.message)) || "").slice(0, 400),
+        status: e && e.status,
         stage: "enable_data_api",
       });
     }

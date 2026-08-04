@@ -7,7 +7,7 @@
 //
 // Needs NEON_API_KEY. Run: node test/integration/neon-e2e.mjs
 import {
-  createUserProject, createSiteDatabase, dropUserProject,
+  createUserProject, createSiteDatabase, dropUserProject, enableNeonAuth, enableDataApi,
   connForDatabase, sqlQuery, sqlExec, neonConfigured,
 } from "../../site-db.mjs";
 import { applySiteSchema, normalizeSchema } from "../../site-schema.mjs";
@@ -77,6 +77,35 @@ try {
   const dbName = await createSiteDatabase(env, project.projectId, project.branchId, project.roleName, "e2e" + stamp);
   const db = connForDatabase(project.conn, dbName);
   ok("create database inside the project", !!dbName);
+
+  // ── the two enable calls, which nothing tested and which broke every build ──
+  //
+  // THIS IS THE GAP THAT LET IT SHIP. This file provisions a REAL project and
+  // then never called either of them, so `neon e2e` was green the whole time
+  // build smoke was dying on them. Measured 2026-08-04: every build answered
+  // "could not provision the database" because the Data API path was
+  // `/data_api` with an underscore and no database name, where Neon's is
+  // `/data-api/{database}`. A wrong URL is exactly what an e2e is for, and it
+  // costs nothing extra here — the project is already up and already paid for.
+  //
+  // FATAL in production, so asserted rather than tolerated: a site without auth
+  // is one nobody can sign in to, and without the Data API every list is empty
+  // and every form fails.
+  console.log("enabling Neon Auth…");
+  const auth = await enableNeonAuth(env, project.projectId, project.branchId, dbName);
+  ok("Neon Auth enables", !!(auth && auth.enabled), JSON.stringify(auth).slice(0, 300));
+
+  console.log("enabling the Data API…");
+  const dataApi = await enableDataApi(env, project.projectId, project.branchId, dbName);
+  ok("the Data API enables", !!(dataApi && dataApi.enabled), JSON.stringify(dataApi).slice(0, 300));
+
+  // Idempotent, because a retried build re-runs both against a project that
+  // already has them — that is the NORMAL path, not an edge case, and treating
+  // "already enabled" as a failure would break every rebuild.
+  const dataApiAgain = await enableDataApi(env, project.projectId, project.branchId, dbName);
+  ok("enabling the Data API twice is not an error", !!(dataApiAgain && dataApiAgain.enabled), JSON.stringify(dataApiAgain).slice(0, 200));
+  const authAgain = await enableNeonAuth(env, project.projectId, project.branchId, dbName);
+  ok("enabling Neon Auth twice is not an error", !!(authAgain && authAgain.enabled), JSON.stringify(authAgain).slice(0, 200));
 
   console.log("applying the schema…");
   const made = await applySiteSchema(db, SCHEMA);
