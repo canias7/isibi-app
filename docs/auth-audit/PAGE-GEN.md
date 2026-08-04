@@ -8,8 +8,8 @@ A single failure is variance; a column of the same error is a mismatch worth fix
 ## Samples
 
 - **1. threw** — (no files)
-  - lint: anthropic 400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."},"request_i
+  - lint: fetch failed
 - **2. threw** — (no files)
-  - lint: anthropic 400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."},"request_i
+  - lint: fetch failed
 - **3. threw** — (no files)
-  - lint: anthropic 400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."},"request_i
+  - lint: fetch failed
