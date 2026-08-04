@@ -6150,6 +6150,11 @@ async function handleRequest(request, env, ctx) {
       const levels = (pageSpec.tables || spec.tables || []).map((t) => ({ name: t.name, access: t.access }));
       return Response.json({
         ok: true, slug, url: "/s/" + slug + "/", backend: true, brand, tables: made, schema: levels,
+        // Read off the array explicitly: JSON.stringify would drop them from
+        // `tables`, which is how a site could declare a function, have it fail,
+        // and report success.
+        functions: (made.functions && made.functions.length) ? made.functions : undefined,
+        functionErrors: made.functionErrors || undefined,
         // Rows per display table. An empty object means the site published with
         // empty lists — which reads as a working build and is not one.
         seeded: (seeded && seeded.seeded) || {},

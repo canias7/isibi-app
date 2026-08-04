@@ -12853,3 +12853,42 @@ as emitted SQL rather than as a phrase in a file.
 
 **Not proven against real Postgres yet** — `neon e2e` should apply a schema with a
 function and check the claim read actually returns the row.
+
+### Proven against real Postgres, and it found dead code of mine (2026-08-04)
+
+`neon e2e` now applies a schema with a `collect` table and two declared
+functions, then checks the thing only a database can settle — **`SECURITY
+DEFINER` actually reaching past the grants.** Every layer above was asserted
+without one, and all five would pass on a function that returns nothing at
+runtime.
+
+What it asserts, on a throwaway project it destroys in a `finally`:
+
+- both functions exist and **both are `prosecdef`** — without it a claim read
+  runs as the caller and sees exactly what the caller sees, which is nothing
+- `anonymous` and `authenticated` may **EXECUTE** it — a function nobody may
+  execute exists and answers 404, which is publicView one object over
+- `anonymous` may **INSERT** into the table and may **NOT SELECT** it. That pair
+  is the whole feature: the table stays shut, and exactly one row is reachable
+  through a token
+- an inserted row mints a `claim_token`, the function returns exactly that row,
+  a **wrong token returns EMPTY rather than erroring** (a bad link and a
+  cancelled booking must look identical, or the response is an oracle for which
+  tokens exist), and cancelling by the same token removes it
+
+**Writing it found dead code I had shipped two commits earlier.**
+`made.functions = fnsMade` sat behind `if (!Array.isArray(made))` — and `made`
+is ALWAYS an array, so it could never run. A source-reading test asserting the
+line exists passed the whole time. Exactly the failure this session has been
+about, in my own work, caught only by trying to use the value.
+
+The fix also had to survive `JSON.stringify`, which drops properties hung off an
+array — so the route reads `made.functions` explicitly rather than expecting
+them inside `tables`. The build response now carries `functions` and
+`functionErrors`.
+
+**And the guard that let it through survived its first mutation**:
+`/made\.functions = fnsMade/` matches happily when the statement sits behind an
+`if`. Anchored to a whole line now.
+
+845 unit tests. **22 mutants across this change, all caught.**

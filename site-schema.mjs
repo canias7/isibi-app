@@ -643,10 +643,15 @@ export async function applySiteSchema(uuid, spec) {
   await sqlQuery(uuid, "INSERT INTO _meta (k,v) VALUES ('schema', ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", [JSON.stringify(metaOut)]);
   // The spec on disk just changed; anything this isolate remembered is stale.
   invalidateSiteSchema(uuid);
-  if (made && typeof made === "object" && !Array.isArray(made)) {
-    made.functions = fnsMade;
-    if (fnErrors.length) made.functionErrors = fnErrors;
-  }
+  // ATTACHED TO THE ARRAY, and the guard that used to wrap this said
+  // `!Array.isArray(made)` — which `made` always is, so the whole block was dead
+  // and a source-reading test asserting the line exists passed anyway. Found by
+  // writing the e2e; the same shape as everything else fixed today.
+  //
+  // Note for callers: JSON.stringify drops properties hung off an array, so the
+  // route reads these BEFORE serialising rather than expecting them in `tables`.
+  made.functions = fnsMade;
+  if (fnErrors.length) made.functionErrors = fnErrors;
   return made;
 }
 // Load the persisted access rules for a site's tables (from its own _meta.schema).

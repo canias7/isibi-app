@@ -107,6 +107,25 @@ const SCHEMA = normalizeSchema({
       enforceRefs: true,  // BEFORE INSERT/UPDATE guard triggers
       maxRows: 5,         // BEFORE INSERT row-cap trigger
     },
+    // THE CLAIM CASE, against real Postgres. A `collect` table is write-only —
+    // an INSERT grant and no SELECT anywhere — so the customer who booked can
+    // never read their own booking back. The only way to hand them one row is a
+    // SECURITY DEFINER function that takes a token and returns exactly that row.
+    {
+      name: "bookings",
+      access: "collect",
+      columns: [
+        { name: "customer_name", type: "text" },
+        { name: "slot", type: "text" },
+        { name: "claim_token", type: "uuid", default: "gen_random_uuid()" },
+      ],
+    },
+  ],
+  functions: [
+    { name: "booking_by_claim", args: [{ name: "tok", type: "uuid" }], returns: "setof bookings",
+      body: "SELECT * FROM bookings WHERE claim_token = tok" },
+    { name: "cancel_booking_by_claim", args: [{ name: "tok", type: "uuid" }], returns: "void",
+      body: "DELETE FROM bookings WHERE claim_token = tok" },
   ],
 });
 
@@ -329,6 +348,60 @@ try {
     `${again.length} of ${SCHEMA.tables.length}`);
   const stillOne = await sqlQuery(db, 'SELECT COUNT(*)::int AS n FROM "posts" WHERE "title"=?', ["Hello edited"]);
   ok("re-apply did not destroy existing rows", stillOne[0].n === 1);
+
+  // ── the claim flow, against a real database ──────────────────────────────
+  //
+  // The one thing only Postgres can settle: SECURITY DEFINER actually reaching
+  // past the grants. Every layer above was asserted without a database — the
+  // designer can declare it, the normaliser keeps it, the DDL is emitted, the
+  // model is told, the lint checks the name — and all five would pass on a
+  // function that returns nothing at runtime.
+  console.log("\nthe claim flow…");
+  ok("applySiteSchema reports which functions it made", Array.isArray(made.functions) && made.functions.length === 2,
+    JSON.stringify(made.functions || null));
+  ok("and reports no failures", !made.functionErrors, JSON.stringify(made.functionErrors || null));
+
+  const fnRows = await sqlQuery(db,
+    "SELECT p.proname, p.prosecdef FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace " +
+    "WHERE n.nspname='public' AND p.proname IN ('booking_by_claim','cancel_booking_by_claim') ORDER BY p.proname");
+  ok("both declared functions exist in the database", fnRows.length === 2, JSON.stringify(fnRows));
+  ok("and both are SECURITY DEFINER — without it a claim read sees nothing",
+    fnRows.every((r) => r.prosecdef === true), JSON.stringify(fnRows));
+
+  // EXECUTE has to be granted or the function exists and the Data API answers
+  // 404 to it — the publicView failure, one object over.
+  const canExec = await sqlQuery(db,
+    "SELECT has_function_privilege('anonymous', 'booking_by_claim(uuid)', 'EXECUTE') AS anon, " +
+    "has_function_privilege('authenticated', 'booking_by_claim(uuid)', 'EXECUTE') AS auth");
+  ok("a signed-out visitor may EXECUTE it", canExec[0].anon === true, JSON.stringify(canExec[0]));
+  ok("and so may a member", canExec[0].auth === true, JSON.stringify(canExec[0]));
+
+  // …while the TABLE stays shut. This is the pair that makes the feature a
+  // narrow hole rather than a read policy: no SELECT for anyone, and exactly one
+  // row reachable through a token.
+  const canRead = await sqlQuery(db,
+    "SELECT has_table_privilege('anonymous', 'bookings', 'SELECT') AS sel, " +
+    "has_table_privilege('anonymous', 'bookings', 'INSERT') AS ins");
+  ok("but may NOT select the table it reads from", canRead[0].sel === false, JSON.stringify(canRead[0]));
+  ok("and may still submit the form", canRead[0].ins === true, JSON.stringify(canRead[0]));
+
+  await sqlQuery(db, 'INSERT INTO "bookings" ("customer_name","slot") VALUES (?,?)', ["Ada", "10:30"]);
+  const mine = await sqlQuery(db, 'SELECT claim_token FROM "bookings" WHERE customer_name=?', ["Ada"]);
+  const tok = mine[0] && mine[0].claim_token;
+  ok("the collect row minted a claim token", !!tok, JSON.stringify(mine[0] || {}));
+
+  const got = await sqlQuery(db, "SELECT * FROM booking_by_claim(?)", [tok]);
+  ok("the claim function returns exactly that row", got.length === 1 && got[0].customer_name === "Ada",
+    JSON.stringify(got).slice(0, 200));
+
+  // A wrong token is EMPTY, never an error: a bad link and a cancelled booking
+  // must look the same, or the response is an oracle for which tokens exist.
+  const wrongTok = await sqlQuery(db, "SELECT * FROM booking_by_claim('00000000-0000-0000-0000-000000000000')");
+  ok("a wrong token returns nothing rather than erroring", wrongTok.length === 0, JSON.stringify(wrongTok));
+
+  await sqlQuery(db, "SELECT cancel_booking_by_claim(?)", [tok]);
+  const after = await sqlQuery(db, "SELECT * FROM booking_by_claim(?)", [tok]);
+  ok("cancelling by the same token removes it", after.length === 0, JSON.stringify(after));
 
 } catch (e) {
   failed++;

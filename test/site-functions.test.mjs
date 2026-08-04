@@ -116,7 +116,20 @@ test("6. only functions that REALLY got created are advertised", () => {
   // green — a mutant that survived the first version of this test.
   assert.match(src, /if \(fnsMade\.length\) metaOut\.functions = \(spec\.functions \|\| \[\]\)\.filter\(\(f\) => fnsMade\.includes\(f\.name\)\)/);
   assert.match(src, /fnErrors\.push/, "a failed function is swallowed with no way to see it");
-  assert.match(src, /made\.functions = fnsMade/, "the caller is never told which functions exist");
+  // ANCHORED TO A WHOLE LINE. `/made\.functions = fnsMade/` matched happily when
+  // the statement sat behind `if (!Array.isArray(made))` — and `made` always IS
+  // an array, so the assignment could never run while this check stayed green.
+  // That is the dead-code shape this whole file exists to prevent, and it got
+  // past the first version of this very test.
+  assert.match(src, /^\s*made\.functions = fnsMade;$/m,
+    "the assignment is conditional again, so the caller may never be told");
+  // The route has to read them BEFORE serialising: JSON.stringify drops
+  // properties hung off an array, so they would vanish from `tables`.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /functions: \(made\.functions && made\.functions\.length\)/,
+    "the build response never says which functions were created");
+  assert.match(w, /functionErrors: made\.functionErrors/,
+    "a function that failed to create is invisible to the caller");
 });
 
 test("7. the RULES point at something that now exists", () => {
