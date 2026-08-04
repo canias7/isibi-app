@@ -46,7 +46,7 @@ RUN mkdir -p /app/.routes-base \
 # anything being added here. `test/dockerfile.test.mjs` walks the imports from
 # build-server.mjs and fails if one is not copied, so the warning is enforced
 # rather than written down.
-COPY build-server.mjs site-fonts.mjs font-index.json site-theme.mjs site-theme-registry.mjs ./
+COPY build-server.mjs exit-reason.mjs site-fonts.mjs font-index.json site-theme.mjs site-theme-registry.mjs ./
 COPY theme-candidates/ ./theme-candidates/
 
 ENV NODE_ENV=production

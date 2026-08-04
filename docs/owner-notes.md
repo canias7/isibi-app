@@ -11980,3 +11980,62 @@ message, and only one of them is systemic. The citation added earlier today will
 say which on the next build — that is what it is for.
 
 783 unit tests, site-build 36/36, site-runtime 23/23.
+
+## `error: "build failed"` — the least useful sentence we produce (2026-08-04)
+
+The interface fix worked: `build smoke`'s typecheck now passes and it got to
+`vite build`, which is further than it had reached. It then failed with:
+
+```
+page=placeholder stage=build error=build failed problems=[]
+```
+
+**`"build failed"` is the `|| ` fallback in `build-server.mjs`** — it fires when a
+step exits non-zero having written to NEITHER stream. And `run()` was resolving
+`{code, out, err}` and **throwing the signal away**. A killed process closes with
+`code: null` plus the signal that killed it; `null !== 0` reads as an ordinary
+failure, so a SIGKILL arrived as a build that failed for no stated reason.
+
+Same family as `detail: "{}"`, `upstream: null`, `no JSON` and the swallowed
+`catch {}` — four times today the system knew something and discarded it.
+
+**One hypothesis was tested and killed before writing anything.** `--logLevel
+warn` does NOT swallow bundler errors: a deliberate unresolvable import printed
+1,025 bytes to stderr and exited 1. So a silent non-zero exit is a killed
+process, not a quiet one.
+
+**And the obvious cause is the weaker one.** The first draft of the message said
+"usually means the container ran out of memory". Measured instead of assumed: the
+container is `standard-1` — **4 GiB, half a vCPU, 8 GB disk** — and `vite build`
+on this template peaks at **618 MiB** across all node processes in 10.3s, about
+6x under the limit. The 34,330 ms the failing build took is roughly 2x the local
+tsc+vite time, which is what half a vCPU predicts for a run that went nearly to
+completion. So the instance being stopped underneath a running build is the first
+thing to look at, and the message now names both without asserting either.
+
+`exitReason` is a **leaf module** (`builder/exit-reason.mjs`), because
+`build-server.mjs` listens on a port at import time — the first test that
+imported it hung the runner. Same split `site-errors.mjs` has. All three failing
+steps go through it, so a silent `tsc` or `tsr generate` cannot happen either.
+
+**The Dockerfile guard from this morning caught the new module within hours.**
+`exit-reason.mjs` was not in the COPY line, and the transitive import walk failed
+with exactly the message it was written for — on my own change. That is the test
+doing the job the prose comment could not.
+
+`test/exit-reason.test.mjs` drives a REAL killed child rather than a hand-written
+`{code:null, signal:"SIGKILL"}`: the whole bug was a wrong belief about what node
+reports when a child dies, and a fabricated object would have asserted the belief
+instead of testing it. 5 mutants on the behaviour, all caught.
+
+**The derived guard had to be narrowed, not obeyed.** Its first draft demanded
+every `ok:false` go through `exitReason` and flagged two that report no
+subprocess at all — "build produced no index.html" and the catch-all, whose
+messages are already the whole answer. It now derives the subprocess names from
+`run()`'s own call sites and checks only failures built from one of them, with
+string literals blanked first so `"vite build"` does not read as a use of the
+variable `build`.
+
+**Still open:** what is killing the container. The next failing build will say.
+
+789 unit tests, site-build 36/36.

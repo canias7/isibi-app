@@ -23,6 +23,7 @@ import path from "node:path";
 import { resolvePair, fontCss, fontImports } from "./site-fonts.mjs";
 import { themeCss } from "./site-theme.mjs";
 import { resolveTheme } from "./site-theme-registry.mjs";
+import { exitReason } from "./exit-reason.mjs";
 
 const APP = process.env.APP_DIR || "/app";
 const ROUTES = path.join(APP, "src", "routes");
@@ -149,11 +150,16 @@ function run(cmd, args, env) {
     let err = "", out = "";
     child.stdout.on("data", (d) => { out += d; });
     child.stderr.on("data", (d) => { err += d; });
-    const to = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} resolve({ code: -1, out, err: "timed out after " + Math.round(STEP_TIMEOUT / 1000) + "s" }); }, STEP_TIMEOUT);
-    child.on("close", (code) => { clearTimeout(to); resolve({ code, out, err }); });
-    child.on("error", (e) => { clearTimeout(to); resolve({ code: -1, out, err: String((e && e.message) || e) }); });
+    const to = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} resolve({ code: -1, signal: null, out, err: "timed out after " + Math.round(STEP_TIMEOUT / 1000) + "s" }); }, STEP_TIMEOUT);
+    // THE SIGNAL, not just the code. A killed process closes with `code: null`
+    // and the signal that killed it — and `null !== 0` reads as an ordinary
+    // failure, so a SIGKILL was reported as a build that failed for no stated
+    // reason. See `exitReason` for what that cost.
+    child.on("close", (code, signal) => { clearTimeout(to); resolve({ code, signal, out, err }); });
+    child.on("error", (e) => { clearTimeout(to); resolve({ code: -1, signal: null, out, err: String((e && e.message) || e) }); });
   });
 }
+
 
 function collectDist(dir = DIST, base = "") {
   const out = {};
@@ -263,19 +269,19 @@ const server = http.createServer((req, res) => {
 
       const gen = await run("npx", ["tsr", "generate"], buildEnv);
       if (gen.code !== 0 || !fs.existsSync(GEN)) {
-        return send(res, 200, { ok: false, stage: "routes", error: ((gen.err || "") + "\n" + (gen.out || "")).trim().slice(0, 4000) || "could not generate the route tree", ms: Date.now() - t0 });
+        return send(res, 200, { ok: false, stage: "routes", error: exitReason("tsr generate", gen).slice(0, 4000), ms: Date.now() - t0 });
       }
 
       const tsc = await run("npx", ["tsc", "--noEmit"], buildEnv);
       if (tsc.code !== 0) {
         // tsc reports on stdout; keep the first errors, which are the causes —
         // the tail is usually the same mistake echoed through the tree.
-        return send(res, 200, { ok: false, stage: "typecheck", error: ((tsc.out || "") + "\n" + (tsc.err || "")).trim().slice(0, 6000), ms: Date.now() - t0 });
+        return send(res, 200, { ok: false, stage: "typecheck", error: exitReason("tsc", tsc, { stdoutFirst: true }).slice(0, 6000), ms: Date.now() - t0 });
       }
 
       const build = await run("npx", ["vite", "build", "--logLevel", "warn"], buildEnv);
       if (build.code !== 0) {
-        return send(res, 200, { ok: false, stage: "build", error: ((build.err || "") + "\n" + (build.out || "")).trim().slice(0, 4000) || "build failed", ms: Date.now() - t0 });
+        return send(res, 200, { ok: false, stage: "build", error: exitReason("vite build", build).slice(0, 4000), ms: Date.now() - t0 });
       }
 
       const dist = collectDist();
