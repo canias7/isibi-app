@@ -267,9 +267,15 @@ const shapeOf = (line) => String(line)
  * Never throws: a build that ran and cost money must not be lost because the
  * disk write failed, and the numbers are already in hand by this point.
  */
+let wiped = false;
 function saveSample(key, n, stage, pages, errors) {
   try {
-    const dir = path.join(ROOT, "docs", "auth-audit", "pages", key + "-" + n);
+    const root = path.join(ROOT, "docs", "auth-audit", "pages");
+    if (!wiped) {
+      wiped = true;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+    const dir = path.join(root, key + "-" + n);
     // Wiped first, or a run that writes FEWER pages than the last one leaves the
     // previous run's extra route sitting there looking like part of this site —
     // the same leak `src/routes` is reset for on every container build.
@@ -280,6 +286,10 @@ function saveSample(key, n, stage, pages, errors) {
   } catch (e) { console.error(`could not save sample ${key}-${n}:`, e && e.message); }
 }
 
+// DID WE EVER GET AN ANSWER? A run that could not ask the model has measured
+// nothing, and must not be reported as a compile rate of zero.
+let reachedModel = false;
+
 const results = [];
 const errorCounts = new Map();
 const lintCounts = new Map();
@@ -288,12 +298,15 @@ try {
   if (!(await startServer())) { console.error("the build service did not come up"); process.exit(1); }
   console.log(`sampling the page generator ${SAMPLES}× across ${SCENARIOS.length} site shapes (${SCENARIOS.map((x) => x.key).join(", ")}), fixed schemas, no database\n`);
 
-  // WIPED ONCE, BEFORE ANY SAMPLE. Per-sample would leave sample 4 and 5 behind
-  // when the count drops from five to three, and a stale site sitting beside
-  // this run's is indistinguishable from part of it — the same reason the build
-  // container resets src/routes rather than overwriting into it.
-  try { fs.rmSync(path.join(ROOT, "docs", "auth-audit", "pages"), { recursive: true, force: true }); }
-  catch (e) { console.error("could not clear the previous run's pages:", e && e.message); }
+  // WIPED ONCE, and LAZILY — on the first sample that actually has pages to
+  // write, not before the run starts.
+  //
+  // Wiping up front is right for the case it was written for (a run producing
+  // FEWER samples than the last leaves stale ones looking like part of it). It
+  // is wrong for a run that never reaches the model at all: on 2026-08-04 the
+  // Anthropic account ran out of credit, every sample threw a 400 before a
+  // single token, and the eval deleted the last real measurement and replaced it
+  // with zeroes. An outage should not be able to destroy the evidence.
 
   for (const sc of SCENARIOS) {
    console.log(`— ${sc.key} (${sc.family})`);
@@ -301,6 +314,7 @@ try {
     const row = { key: sc.key, n, stage: "?", files: [], problems: [], errors: [] };
     try {
       const gen = await generate(sc);
+      reachedModel = true;
       if (gen.usage) { row.usage = gen.usage; }
       if (gen.truncated) { row.stage = "truncated"; console.log(`  ${sc.key} ${n}. TRUNCATED at max_tokens`); results.push(row); continue; }
       const v = validatePages(gen.input);
@@ -358,6 +372,25 @@ try {
 } finally {
   if (server) server.kill();
   if (sandbox) { try { fs.rmSync(sandbox, { recursive: true, force: true }); } catch { /* a temp dir */ } }
+}
+
+// A TOTAL OUTAGE IS NOT A SCORE OF ZERO.
+//
+// Measured 2026-08-04: the Anthropic account ran out of credit, all three
+// samples threw `400 credit balance is too low`, and the report published
+// "**0/3 compiled**" — which reads, permanently and in the repo, as "the
+// generator cannot build any of these". It is the same failure the Worker
+// already learned one layer down, where a provider outage and a model writing an
+// unusable page came back indistinguishable.
+//
+// So: if nothing ever reached the model, say what happened and leave the last
+// real measurement where it is.
+if (!reachedModel) {
+  const why = (results.find((r) => r.problems && r.problems[0]) || {}).problems || ["no reason recorded"];
+  console.error("\nTHE RUN NEVER REACHED THE MODEL — nothing was measured and nothing was billed.");
+  console.error("  " + String(why[0]).slice(0, 300));
+  console.error("\nPAGE-GEN.md is left as it was: a run that could not ask is not a compile rate of zero.");
+  process.exit(1);
 }
 
 const compiled = results.filter((r) => r.stage === "ok");
