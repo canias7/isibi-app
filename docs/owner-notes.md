@@ -12039,3 +12039,180 @@ variable `build`.
 **Still open:** what is killing the container. The next failing build will say.
 
 789 unit tests, site-build 36/36.
+
+## `publicView` was advertised at two layers and created by nothing (2026-08-04)
+
+`build smoke` published a real app for the first time — 29/30 → **45/50**, and
+the browser half of the suite ran at all. Three of the five failures were one
+read:
+
+```
+GET /data/bookings?select=*&order=id.desc&appointment_date=eq.2026-08-04 → 403
+```
+
+**`publicView` appeared in `site-schema.mjs` in exactly four places: two
+comments, the parser, and the `_meta` copy. No DDL. No grant. No object in the
+database.** Meanwhile the designer tool said *"USE THIS WITH A BOOKING TABLE so
+the page can grey out slots that are already taken"* and `schemaDigest` said
+*"usePublicRows: YES — anyone may read appointment_date, appointment_time"*. The
+model did exactly what four layers told it to and its own database refused it.
+
+It is visible in the screenshot: *"Today's chairs — Slots load on the booking
+page"* is the availability panel's fallback, not a design choice.
+
+The gap was already written down when the data API was deleted — *"a site now
+needs a declared VIEW or function for which slots are taken"* — and the two
+places that advertise the feature were never told.
+
+**Now it is a real view.** `publicViewSql` in `site-rls.mjs` emits
+`CREATE VIEW <table>_public WITH (security_invoker = false, security_barrier =
+true) AS SELECT <declared columns> FROM <table> WHERE <declared filters>`, plus
+a GRANT to `anonymous` and `authenticated`. It has to be a view: the table
+underneath is `collect`, so a stranger has no SELECT policy on it — by design,
+and that IS the feature. Publish WHEN somebody booked, never WHO.
+
+Decisions worth keeping:
+
+- **`security_invoker = false` is the whole mechanism**, and it is stated rather
+  than left to the default. True instead, and the feature silently returns zero
+  rows on every site — it compiles, it grants, it 200s, the list is always empty.
+- **ALL OR NOTHING.** A filter that will not compile, or a column the table does
+  not have, means no view at all. Publishing a subset of columns is a smaller
+  answer; publishing without one of the filters is a WRONG one — `status:ne:cancelled`
+  dropped is a view that also publishes the cancellations. It fails outward.
+- **The DROP always runs**, even for a table with no publicView, or a revise that
+  removed one leaves the old view standing and still published.
+- **The declared `limit` is deliberately not compiled in.** A LIMIT inside a view
+  applies BEFORE the caller's filter, so a date filter against a 500-row view
+  silently misses bookings — wrong, not smaller. Asserted, so the absence reads
+  as a decision rather than an oversight.
+- **`pgQuery` defaulted to `order=id.desc` and a projection has no `id`** — the
+  schema engine refuses it. That is the exact URL the smoke logged. It only bit
+  when the caller passed params, which the taken-slots call always does.
+
+**Two of my own guards fired on my own code, and both were right.** The
+one-question guard caught `publicViewSql` restating `Array.isArray(pv.columns)`
+instead of calling `hasPublicView` — the drift it exists to prevent, on the very
+change that proves why. And a mutation survived: my chain test asserted
+`publicViewSql(` was *called*, so stripping `.concat(pubSql)` left the call
+standing with its result discarded. The live bug wearing a fix, the same shape as
+the invite-code guard. It now checks the DDL reaches the loop that runs SQL.
+
+**A raw NUL byte got into `site-rls.mjs`** from my own heredoc, and `grep`
+immediately called the file binary — the exact failure this repo documented for
+three other files. Rewritten as the two-character escape. Then I did it a second
+time, in the sentence you are reading, while describing it.
+
+**The other two failures were the TEST, not the product.** `pg.$("form")` ran on
+the home page only, so it asserted a one-page site; this barber shop put its
+booking form on `/book` and linked it from three places, which is where it
+belongs. The smoke now walks the routes the build itself reported. The router is
+`createHashHistory`, so a route is `/s/<slug>/#/book` — `/s/<slug>/book` ignores
+the path and renders home, a mistake already made once in this repo and invisible
+when it happens, so a fingerprint check refuses a page identical to home.
+
+Proven against a real Postgres in `neon e2e`, not just as strings: the view
+exists with exactly the declared columns, the WHERE excluded the cancelled row,
+there is no `id` and no customer name, and `has_table_privilege` says `anonymous`
+may read the view and may **not** read the table underneath.
+
+802 unit tests, site-build 36/36, site-runtime 23/23, template typechecks clean.
+9 mutants, all caught.
+
+## The backend sweep: every declarable feature, audited (2026-08-04)
+
+`publicView` was the sixth time this repo shipped the same bug — a schema feature
+declared, advertised, and enforced by nothing. So rather than fix another one, I
+audited **all of them** and made the class fail a test.
+
+**What the designer can declare, and what keeps the promise:**
+
+| declarable | enforced by |
+|---|---|
+| name · access · columns · timestamps · fts | DDL |
+| unique · uniqueCI · maxRows | indexes + triggers |
+| noOverlap | `EXCLUDE USING gist` |
+| teamScope | `team_id UUID` + the RLS read policy |
+| publicView | the view, as of this morning |
+| **mask** | **nothing** |
+
+### `mask` is REMOVED, not implemented — and that is the decision
+
+`maskFields()` was called from `site-data.mjs`'s read path. That file was deleted
+2026-07-30 when reads moved to Neon's Data API, so **the Worker is no longer on
+the read path and has nothing to redact on the way out**. The function survived
+with zero callers and the tool went on offering the guarantee: *"Roles that DO
+see the full value... Everyone else sees it redacted."* A table declaring it
+served the raw value to every reader.
+
+It cannot move into the database as specified. `mask` names OUR application roles
+("staff"); Postgres knows `anonymous` and `authenticated`. Column-level GRANTs
+express that coarser split and **break `select=*`**, which is what every read
+this platform makes sends. Rewriting reads to enumerate columns is a real option
+and a much larger change than a sweep should smuggle in.
+
+So: a feature that lies, or no feature. Same call, same reasoning, that pulled
+`teamRead` and `teamScope` out of the tool when their enforcement went. Both the
+tool property and `maskFields()` are gone, each replaced by a comment saying it
+is not a gap to fill back in.
+
+### `test/declarable-enforced.test.mjs` — the class, not the instance
+
+It reads the `design_schema` tool out of `worker.js`, takes every table property
+it offers, and requires each to be READ somewhere in `site-schema.mjs` or
+`site-rls.mjs` — **with the parser's `out.push({…})` and the normaliser's
+`norm.push({…})` cut out**, because appearing only in those is precisely what
+parsed-and-inert looks like.
+
+Two things had to be got right:
+
+- **The cut is asserted**, or the guard is a no-op that passes: if those two
+  expressions were not removed, every property reads as enforced.
+- **A property READ, not a mention.** The first draft matched the bare name and a
+  mutation walked through it — renaming the real `t.noOverlap` left the word in a
+  neighbouring string, and "enforced" was satisfied by a coincidence. All six
+  features are now individually mutation-checked.
+
+The opposite direction is deliberately NOT asserted: implemented-and-undeclarable
+is dead weight, not a lie. No site can be broken by a feature it cannot ask for.
+
+### The owner is told about a booking again
+
+`notifyOwnerOfSubmission` had **zero callers** since `site-data.mjs` went. A
+barber shop took an appointment and the only way to find out was to log into
+isibi and look.
+
+The note left behind said re-wiring needed *"a Postgres trigger writing to a
+queue table plus the existing 2-minute cron, because there is no `http` extension
+to call out from Neon"*. **That was wrong, and usefully so**: it assumed the
+Worker had left the write path. It has not — `proxySiteService` forwards every
+insert a published site makes, so the hook is one branch in the proxy. No
+trigger, no queue table, no cron.
+
+- Gated on a POST that **succeeded** — a refused booking (a duplicate slot, a
+  failed constraint) must not email the owner about a row that does not exist.
+- The access level comes from the site's own schema, never the request. Taken
+  from anything the caller controls, any write could be made to look like a
+  submission and mail the owner on demand — the mail bomb the cooldown exists to
+  prevent, aimed by hand.
+- **The request body is read exactly once.** A Request body can only be consumed
+  once; reading it in the hook would send an empty body upstream and every
+  submission on the platform would silently write a blank row. Asserted by count.
+- Detached under `ctx.waitUntil`, which the dispatch now passes — without it the
+  promise is cancelled when the response returns, which is how the audit log lost
+  most of its rows.
+
+`test/notify-wiring.test.mjs` asserts REACHABILITY rather than behaviour: the
+behaviour was 18 green tests the whole time it was doing nothing.
+
+**Still open, and stated rather than quietly skipped:** the ~17 features that are
+parsed and inert but which the designer cannot declare (`transitions`, `sla`,
+`roundRobin`, `assignBy`, `webhooks`, `geo`, `currency`, `formulas`,
+`searchWeights`, `jsonShapes`, `checks`, `computed`, `defaultSort`, `fieldRoles`,
+`teamRead`, `approval`, `sequence`). None can break a site, because nothing can
+ask for them — they are dead code to delete under the "if we are not using it, I
+don't want it on the code" rule, which is a deletion worth doing deliberately
+rather than folding into this.
+
+813 unit tests, site-build 36/36, site-runtime 23/23, template typechecks clean.
+13 mutants, all caught.

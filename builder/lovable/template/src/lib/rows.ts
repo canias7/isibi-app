@@ -87,7 +87,7 @@ export function siteSlug(): string {
 const base = (table: string) => `/api/db/${siteSlug()}/data/${table}`;
 
 /** PostgREST's equality filter, and the query shape a list read accepts. */
-function pgQuery(params?: RowQuery): string {
+function pgQuery(params?: RowQuery, opts?: { noDefaultOrder?: boolean }): string {
   const sp = new URLSearchParams();
   sp.set("select", "*");
   if (!params) return "?" + sp.toString();
@@ -96,7 +96,16 @@ function pgQuery(params?: RowQuery): string {
   if (offset !== undefined) sp.set("offset", String(offset));
   // Newest first by default: these are usually submissions or posts, and the
   // useful one is the latest.
-  sp.set("order", `${order ?? "id"}.${dir === "asc" ? "asc" : "desc"}`);
+  //
+  // `noDefaultOrder` is for a public projection, which HAS NO `id` — the schema
+  // engine refuses id and owner_id in one. Defaulting to `id.desc` there asks
+  // Postgres to order by a column the view does not have, which is a 400 rather
+  // than a smaller answer. It only bit when a caller passed params at all: with
+  // none this function returns before reaching here, so the taken-slots call —
+  // the one case that always passes a date filter — was the one that broke.
+  if (order !== undefined || !opts?.noDefaultOrder) {
+    sp.set("order", `${order ?? "id"}.${dir === "asc" ? "asc" : "desc"}`);
+  }
   // Full-text search, when the table declared it. `fts` is the generated tsvector
   // column the schema engine creates.
   if (q) sp.set("_fts", `fts.${q}`);
@@ -527,10 +536,24 @@ export function useUploadFile(table: string) {
  * by name. Rows have no `id`: publishing a sequential id from an owner-scoped
  * table tells a stranger how many bookings exist. Key on a published column.
  */
-export function usePublicRows<T = PublicRow>(view: string, params?: RowQuery) {
+export function usePublicRows<T = PublicRow>(table: string, params?: RowQuery) {
+  // THE ARGUMENT IS THE TABLE; THE REQUEST GOES TO THE VIEW.
+  //
+  // A projection cannot be served from the table — the table is `collect` or
+  // `user`, so RLS gives a stranger no SELECT policy on it, which is the whole
+  // point. The schema engine creates `<table>_public` beside it and grants that.
+  //
+  // This hook used to fetch the table verbatim, back when nothing created the
+  // view at all: measured live 2026-08-04, a generated barber shop asked its own
+  // database for today's bookings on its own home page and got 403.
+  //
+  // The suffix is duplicated from `site-access.mjs`'s `publicViewName` because
+  // this is a separate bundle and cannot import it. A test reads both files and
+  // fails if they ever disagree — a disagreement is a 403 on a published site.
+  const view = table + "_public";
   return useQuery<T[]>({
     queryKey: ["public", siteSlug(), view, params ?? {}],
-    queryFn: () => send<T[]>(base(view) + pgQuery(params)),
+    queryFn: () => send<T[]>(base(view) + pgQuery(params, { noDefaultOrder: true })),
   });
 }
 

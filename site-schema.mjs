@@ -15,7 +15,7 @@
 //
 // `db` throughout is a Neon connection string (see ./site-db.mjs).
 import { sqlQuery, sqlQuery as realSqlQuery } from "./site-db.mjs";
-import { policiesFor, grantsFor, SESSION_JWT_EXT, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK } from "./site-rls.mjs";
+import { policiesFor, grantsFor, publicViewSql, SESSION_JWT_EXT, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK } from "./site-rls.mjs";
 import { isManagedColumn } from "./site-access.mjs";
 import { makeCache } from "./ttl-cache.mjs";
 
@@ -56,35 +56,15 @@ function slugify(s) {
   return String(s == null ? "" : s).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
 }
 
-/**
- * Redact the columns a role may not see in full.
- *
- * Written when the schema engine was, and called by NOTHING until 2026-07-29 —
- * so every site that declared `mask` served the raw value to everyone. It is
- * exported now because site-data.mjs applies it on the read path; keeping it
- * private was what let it sit dead without anything noticing.
- *
- * `admin` sees everything. An anonymous visitor is `public`, which is the case
- * that matters most: a public directory showing "••••1234" rather than a phone
- * number. Mutates in place — the rows have just been read and belong to nobody.
- */
-export function maskFields(def, rows, role) {
-  const mk = def && def.mask;
-  if (!mk || !Array.isArray(rows) || !rows.length) return rows;
-  const r = String(role || "public").toLowerCase();
-  if (r === "admin") return rows;
-  for (const [col, cfg] of Object.entries(mk)) {
-    if ((cfg.roles || []).includes(r)) continue; // allowed to see the full value
-    const keep = cfg.keep || 0, ch = cfg.char || "•";
-    for (const row of rows) {
-      if (!row || row[col] == null || row[col] === "") continue;
-      const s = String(row[col]);
-      const tail = keep > 0 ? s.slice(-keep) : "";
-      row[col] = ch.repeat(Math.min(Math.max(0, s.length - tail.length), 32)) + tail;
-    }
-  }
-  return rows;
-}
+// `maskFields()` LIVED HERE and was deleted 2026-08-04 along with `mask` in the
+// designer tool. Not a gap to fill back in — see the note at the tool for why it
+// cannot be enforced from here any more: the Worker left the read path when
+// `site-data.mjs` went on 2026-07-30, and the roles `mask` names are ours rather
+// than Postgres's. It sat with zero callers in between, while the tool went on
+// promising redaction, so a table declaring it served the raw value to everyone.
+//
+// Restoring it means building the enforcement first;
+// test/declarable-enforced.test.mjs fails if the declaration comes back alone.
 
 export function normalizeSchema(spec) {
   if (!spec || typeof spec !== "object") return { tables: [] };
@@ -534,7 +514,13 @@ export async function applySiteSchema(uuid, spec) {
     // Policies first, then the grants that make the table reachable at all. In the
     // other order there is a window — however short — where a role can ask and no
     // policy has decided what it may see.
-    for (const stmt of policiesFor({ ...t, access }).concat(grantsFor({ ...t, access }))) {
+    // And LAST the public projection, which is a view over the table this loop
+    // has just finished building — so it needs `colNames`, the columns that were
+    // really created, rather than the ones the spec asked for. After the grants
+    // for the same reason the grants come after the policies: the object is only
+    // reachable once the thing it reads from is settled.
+    const pubSql = publicViewSql({ ...t, access }, colNames, new Set((spec.tables || []).map((x) => String(x && x.name))));
+    for (const stmt of policiesFor({ ...t, access }).concat(grantsFor({ ...t, access })).concat(pubSql)) {
       try { await sqlQuery(uuid, stmt); }
       catch (e) { console.error("rls failed:", t.name, stmt.slice(0, 80), e && (e.detail || e.message)); }
     }
