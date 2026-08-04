@@ -3253,6 +3253,44 @@ const DATA_PROXY_PER_MIN = 300;
  */
 const _siteAuthBase = makeCache({ ttlMs: 600_000, max: 500 });
 const siteAuthBase = memoize(_siteAuthBase, async (db) => siteServiceBase(db, "auth_info"));
+/**
+ * A short-lived anonymous token for the site's Data API.
+ *
+ * Neon Auth mints it (`GET <auth base>/token/anonymous`), so there is no signing
+ * key here and nothing to rotate. Cached well inside its lifetime: these are
+ * deliberately short-lived, and a stale one is a 401 on a visitor's first read.
+ *
+ * NEVER CACHES A FAILURE — `makeCache.set` refuses null — so a site whose auth
+ * server was briefly unreachable is slow rather than broken for the whole TTL.
+ * The reason is logged, because a missing token is invisible from outside: the
+ * request simply goes out bare and Neon answers 400, which is the failure this
+ * whole function exists to stop.
+ */
+const _siteAnonToken = makeCache({ ttlMs: 120_000, max: 500 });
+const siteAnonToken = memoize(_siteAnonToken, async (db) => {
+  const base = await siteAuthBase(db);
+  if (!base) return null;
+  const r = await fetch(base + "/token/anonymous", {
+    headers: { accept: "application/json" },
+    signal: AbortSignal.timeout(8000),
+  });
+  const text = await r.text().catch(() => "");
+  if (!r.ok) {
+    console.error("anon token: " + r.status + " " + text.slice(0, 200));
+    return null;
+  }
+  let j = null;
+  try { j = JSON.parse(text); } catch { /* reported below */ }
+  // The field name is the one thing here not measured against a real project, so
+  // the plausible names are tried and then any JWT-shaped string in the body.
+  const tok = j && (j.token || j.access_token || j.accessToken || j.jwt);
+  if (typeof tok === "string" && tok) return tok;
+  const found = /\b(ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/.exec(text);
+  if (found) return found[1];
+  console.error("anon token: no token in the response: " + text.slice(0, 200));
+  return null;
+});
+
 const _siteDataBase = makeCache({ ttlMs: 600_000, max: 500 });
 const siteDataBase = memoize(_siteDataBase, async (db) => siteServiceBase(db, "data_api"));
 
@@ -3311,6 +3349,21 @@ async function proxySiteService(env, request, url, slug, path, which) {
   for (const h of ["content-type", "authorization", "accept", "prefer"]) {
     const v = request.headers.get(h);
     if (v) headers.set(h, v);
+  }
+  // A VISITOR HAS NO TOKEN, AND NEON WILL NOT SERVE A REQUEST WITHOUT ONE.
+  //
+  // Measured 2026-08-04: every public read answered
+  // `400 missing authentication credentials: required authorization bearer token
+  // in JWT format`. Neon's Data API always runs a request as a Postgres role
+  // chosen from the JWT, and the unauthenticated role — `anonymous` — "still
+  // uses a JWT, but no user sign-in is required". There is no no-header path.
+  //
+  // Nothing is signed here: Neon Auth issues the token, so this needs no key and
+  // no rotation. It is fetched only for the DATA proxy and only when the caller
+  // sent nothing, so a signed-in member's own token is never replaced.
+  if (which === "data" && !headers.has("authorization")) {
+    const anon = await siteAnonToken(db).catch(() => null);
+    if (anon) headers.set("authorization", "Bearer " + anon);
   }
   try {
     const r = await fetch(target, {

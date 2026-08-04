@@ -11780,3 +11780,63 @@ for a plain GET — but two theories today (the field name, a cached null) were
 plausible, cheap to state, and both wrong. The body will say it.
 
 Score 25/27, from 6/18 when this started.
+
+---
+
+## Public reads: the token AND the grants (2026-08-04)
+
+The error body named it in one line, which is the whole argument for printing
+bodies: **`400 missing authentication credentials: required authorization bearer
+token in JWT format`**.
+
+### There is no unauthenticated path, and we do not have to build one
+
+Neon's Data API always runs a request as a Postgres role chosen from the JWT.
+The unauthenticated role — `anonymous` — **"still uses a JWT, but no user sign-in
+is required"**. So the config-only option does not exist.
+
+But minting one ourselves does not either: **Neon Auth issues it**, `GET <auth
+base>/token/anonymous`. No signing key, no rotation, no crypto commitment — which
+is why checking both was worth more than picking one. The proxy fetches one only
+for the DATA path and only when the caller sent no `authorization`, so a
+signed-in member's own token is never replaced. Cached 2 minutes: these are
+short-lived and a stale one is a 401 on a visitor's first read.
+
+**Caveat kept on purpose:** Neon's access-control page also says "unauthenticated
+requests → `anonymous` role", which contradicts the 400 we measured. Where a doc
+and a measurement disagree, the measurement wins — a doc summary had already sent
+me to POST-instead-of-PATCH earlier the same day.
+
+### The second half, which the token alone would not have fixed
+
+```
+GRANT SELECT ON "services" TO anon, authenticated;
+```
+
+**`anon` is Supabase's role name. Neon's is `anonymous`, and no role called `anon`
+exists.** Postgres refuses a GRANT naming a role that is not there — and because
+both roles sat in ONE statement, `authenticated` lost its grant too. So every
+grant on every table had been failing since the Data API landed, and **even a
+signed-in member would have got nothing**. The apply loop logs and carries on by
+design, so it was silent.
+
+One statement per role now, so a future bad name costs one role instead of both.
+
+**Same shape as this morning's `.conn` bug — a correct-looking fix standing in
+front of a second one.** Fixing only the token would have moved the failure from
+400 to an empty result and looked like progress. Checking both is what surfaced
+it.
+
+### A bug caught by reading, in my own new code
+
+`memoize` keys on its FIRST argument, and I wrote `siteAnonToken(env, db)` — which
+would have keyed every site to one cache entry and handed `env` to the fetcher in
+place of the database. Caught before it ran; the guard now asserts the call shape.
+
+An existing grant test pinned the old spelling in a `deepEqual`. Its invariants
+were right and only the literal moved — the same "assertion pins the spelling of
+correct code" pattern as the other five today. Its `!/anon/` check also happened
+to keep working only because `anon` is a substring of `anonymous`; it is
+`\banonymous\b` now, true by meaning rather than by luck.
+
+772 unit tests, 5 mutants, all caught against a clean baseline.

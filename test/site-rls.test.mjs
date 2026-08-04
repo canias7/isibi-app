@@ -216,13 +216,23 @@ test("policies are applied BEFORE the grants that make a table reachable", () =>
 });
 
 test("a grant never gives more than the level allows", () => {
-  assert.deepEqual(grantsFor(T({ access: "display" })), ['GRANT SELECT ON "things" TO anon, authenticated;']);
+  // ONE STATEMENT PER ROLE, and the role is `anonymous` — Neon has no `anon`.
+  // Both changed on 2026-08-04: the old spelling named a role that does not
+  // exist, and Postgres refuses the whole statement, so pairing them meant
+  // `authenticated` lost its grant too and no table was reachable by anybody.
+  assert.deepEqual(grantsFor(T({ access: "display" })), [
+    'GRANT SELECT ON "things" TO anonymous;',
+    'GRANT SELECT ON "things" TO authenticated;',
+  ]);
   // The important one: a collect table must never be granted SELECT.
   const collect = grantsFor(T({ access: "collect" })).join("");
   assert.match(collect, /GRANT INSERT/);
   assert.ok(!/SELECT/.test(collect), "a booking form must not be readable: " + collect);
-  // And a member table is never granted to anon.
+  // And a member table is never granted to the anonymous role. Matched as a
+  // whole word: `/anon/` also matches inside `anonymous`, which happens to be
+  // right here but is true by accident rather than by the assertion meaning it.
   for (const access of ["user", "feed", "admin"]) {
-    assert.ok(!/anon/.test(grantsFor(T({ access })).join("")), access + " must not be granted to anon");
+    assert.ok(!/\banonymous\b/.test(grantsFor(T({ access })).join("")),
+      access + " must not be granted to the anonymous role");
   }
 });

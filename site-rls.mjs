@@ -165,14 +165,27 @@ export function policiesFor(t) {
  * Policies decide what a role MAY see; a GRANT decides whether it can ask. Both
  * are needed, and they are deliberately separate calls: enabling RLS and writing
  * policies changes nothing for anyone, while granting is the step that makes a
- * table reachable over Neon's Data API. Nothing calls this yet, and when
- * something does it should be per-site and off by default.
+ * table reachable over Neon's Data API.
+ *
+ * `anonymous`, NOT `anon`. Neon's Data API runs a request as `authenticated` or
+ * as `anonymous`, and **there is no role called `anon`** — that is Supabase's
+ * name for it. Postgres refuses a GRANT naming a role that does not exist, and
+ * the apply loop logs the failure and carries on, so every grant on every table
+ * had been failing silently since the Data API landed. Measured 2026-08-04.
+ *
+ * ONE STATEMENT PER ROLE, which is the half that made it total rather than
+ * partial: `TO anon, authenticated` is a single statement, so the bad name took
+ * `authenticated` down with it and even a signed-in member got nothing. Split,
+ * a future bad name costs one role instead of both.
  */
+export const DATA_API_ROLES = { anon: "anonymous", user: "authenticated" };
+
 export function grantsFor(t) {
   const access = String((t && t.access) || "collect").toLowerCase();
   const tn = q(t.name);
-  if (access === "display") return [`GRANT SELECT ON ${tn} TO anon, authenticated;`];
-  if (access === "collect") return [`GRANT INSERT ON ${tn} TO anon, authenticated;`];
-  if (access === "admin") return [`GRANT SELECT ON ${tn} TO authenticated;`];
-  return [`GRANT SELECT, INSERT, UPDATE, DELETE ON ${tn} TO authenticated;`];
+  const { anon, user } = DATA_API_ROLES;
+  if (access === "display") return [`GRANT SELECT ON ${tn} TO ${anon};`, `GRANT SELECT ON ${tn} TO ${user};`];
+  if (access === "collect") return [`GRANT INSERT ON ${tn} TO ${anon};`, `GRANT INSERT ON ${tn} TO ${user};`];
+  if (access === "admin") return [`GRANT SELECT ON ${tn} TO ${user};`];
+  return [`GRANT SELECT, INSERT, UPDATE, DELETE ON ${tn} TO ${user};`];
 }

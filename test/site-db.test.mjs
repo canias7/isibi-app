@@ -427,3 +427,73 @@ test("every function ensureSiteBackend calls is actually declared", () => {
   assert.deepEqual([...missing], [],
     `called but never declared — a ReferenceError at runtime: ${[...missing].join(", ")}`);
 });
+
+// ── the Data API needs a token even for a visitor ──────────────────────────
+//
+// Measured 2026-08-04: every public read answered `400 missing authentication
+// credentials: required authorization bearer token in JWT format`. Neon always
+// runs a request as a Postgres role chosen from the JWT, and the unauthenticated
+// role — `anonymous` — still needs one. There is no no-header path.
+
+test("grants name Neon's roles, not Supabase's", async () => {
+  // `anon` does not exist on Neon; the role is `anonymous`. Postgres refuses a
+  // GRANT naming a role that does not exist, and the apply loop logs and carries
+  // on, so every grant on every table failed silently since the Data API landed.
+  const rls = await import("../site-rls.mjs");
+  assert.equal(rls.DATA_API_ROLES.anon, "anonymous");
+  assert.equal(rls.DATA_API_ROLES.user, "authenticated");
+  for (const access of ["display", "collect", "admin", "user"]) {
+    for (const stmt of rls.grantsFor({ name: "services", access })) {
+      assert.ok(!/\bTO anon\b/.test(stmt), `grants to a role that does not exist: ${stmt}`);
+      assert.match(stmt, /TO (anonymous|authenticated);$/, stmt);
+    }
+  }
+});
+
+test("each grant names ONE role, so a bad name cannot take the other down", () => {
+  // The half that made it total rather than partial. `TO anon, authenticated` is
+  // a single statement, so the bad name took `authenticated` with it and even a
+  // signed-in member got nothing.
+  return import("../site-rls.mjs").then((rls) => {
+    for (const access of ["display", "collect", "admin", "user"]) {
+      for (const stmt of rls.grantsFor({ name: "services", access })) {
+        assert.ok(!/TO [a-z]+, /.test(stmt), `two roles in one statement: ${stmt}`);
+      }
+    }
+    // display and collect must still reach BOTH roles, across two statements.
+    for (const access of ["display", "collect"]) {
+      const all = rls.grantsFor({ name: "services", access }).join(" ");
+      assert.match(all, /TO anonymous;/, `${access} is unreachable by a visitor`);
+      assert.match(all, /TO authenticated;/, `${access} is unreachable by a member`);
+    }
+  });
+});
+
+test("the data proxy attaches an anonymous token when the caller has none", () => {
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = src.indexOf("async function proxySiteService");
+  assert.ok(at > 0, "the proxy is gone");
+  const body = src.slice(at, src.indexOf("\n}", src.indexOf("couldn't reach that just now", at)));
+
+  assert.match(body, /which === "data" && !headers\.has\("authorization"\)/,
+    "the token must be added only for DATA, and only when the caller sent none — a member's own token must never be replaced");
+  assert.match(body, /Bearer " \+ anon/, "the token has to actually go out as a bearer");
+  // Keyed on the connection. memoize uses its FIRST argument as the cache key,
+  // so passing env first would key every site to one entry and hand `env` to the
+  // fetcher in place of the database.
+  assert.match(body, /siteAnonToken\(db\)/, "the token cache must be keyed on the site, not on env");
+});
+
+test("an anonymous token is never cached as a failure, and says why", () => {
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = src.indexOf("const siteAnonToken = memoize(");
+  assert.ok(at > 0, "the token fetcher is gone");
+  const body = src.slice(at, src.indexOf("\n});", at));
+  // makeCache refuses null, so returning null on failure is what keeps a brief
+  // outage from breaking the site for the whole TTL.
+  assert.match(body, /return null/, "a failure must return null so it is not cached");
+  assert.match(body, /console\.error/, "a missing token is invisible from outside — the request just goes out bare");
+  // Short: these tokens are short-lived and a stale one is a 401 on a first read.
+  const ttl = /makeCache\(\{ ttlMs: (\d+)/.exec(src.slice(src.indexOf("_siteAnonToken")));
+  assert.ok(ttl && Number(ttl[1]) <= 300_000, `anon token TTL is ${ttl && ttl[1]}ms — too long for a short-lived token`);
+});
