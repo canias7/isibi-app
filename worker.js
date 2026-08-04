@@ -3116,9 +3116,19 @@ async function ensureSiteBackend(env, slug, uid, brief) {
     // project or database that nothing recorded.
     return r.ok ? { ok: true } : { ok: false, detail: (await r.text().catch(() => "")).slice(0, 300) };
   };
+  // A REAL BINDING, not just a property on the deps object.
+  //
+  // `saveAuthInfo` and `saveDataInfo` call `lookupProject(slug)` in their
+  // bodies, and it existed ONLY as a key in the literal below — so the bare
+  // identifier was a ReferenceError on the first line of both, on every build of
+  // every site, caught by the best-effort catch around them and silent. That is
+  // why `_meta` held nothing but `schema`, and why fixing `.conn` on the NEXT
+  // line changed nothing: the line was never reached. Measured 2026-08-04 by
+  // making build smoke read the row instead of reasoning about it.
+  const lookupProject = (s2) => siteNeonProject(env, s2);
   const conn = await ensureSiteBackendPure({
     lookupSite: (s2) => siteBackendRowFresh(env, s2),
-    lookupProject: (s2) => siteNeonProject(env, s2),
+    lookupProject,
     // Where a swallowed best-effort failure goes. Without it a site can be a
     // shell and nothing anywhere says why.
     warn: (m) => console.error(m),

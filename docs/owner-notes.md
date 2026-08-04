@@ -11699,3 +11699,51 @@ system knew something and threw it away, and every one turned a minute into
 hours. A diagnostic that costs one query is cheaper than one wrong theory.
 
 767 unit tests still green; this change is to the integration harness.
+
+---
+
+## `lookupProject` was a property, not a binding (2026-08-04)
+
+**The diagnostic answered it in one line: `_meta holds: schema(2090)`.** Only the
+schema. Neither endpoint had ever been written — which is what a day of theories
+could not establish and one query did.
+
+**The cause: `saveAuthInfo` and `saveDataInfo` call `lookupProject(slug)` in
+their bodies, and `lookupProject` existed ONLY as a key in the deps literal they
+are declared inside.** A bare identifier that names a sibling property is not a
+binding — it is a **ReferenceError**, thrown on the first line of both savers, on
+every build of every site, and swallowed by the best-effort catch around them.
+
+**This is why fixing `.conn` -> `.neon_conn` changed nothing: that was the NEXT
+line, and it was never reached.** The `.conn` bug was real and is still fixed;
+it was simply behind a bug that made it unreachable. Worth remembering as its own
+lesson — *a correct fix that changes nothing is evidence of something in front of
+it*, and I read that as "the fix was wrong" for a whole round instead.
+
+`lookupProject` is a real `const` before the literal now, passed by shorthand.
+
+**`node --check` cannot see this. It is valid syntax.** There is no linter here
+and no devDependencies at all, so adding one is a bigger change than the bug. The
+guard is the narrow version instead: it takes `ensureSiteBackend`'s body, collects
+every identifier that is CALLED, and asserts each resolves to an import, a
+declaration or a known global. Derived at both ends, scoped to the function that
+had the bug. 3 mutants, all caught — including restoring the exact live form.
+
+**Writing that guard reproduced two of the day's own mistakes, immediately.** It
+first flagged `async` (a keyword) and `_meta` (inside the SQL string
+`CREATE TABLE IF NOT EXISTS _meta (…)`) — because it scanned code without
+removing its **string literals**, the same shape as the comment-stripper that ate
+an anchor containing `//`. Blank comments AND strings, blank rather than delete,
+before any source scan. Third time in one session.
+
+**And one existing guard went red on a correct change**, for the fifth time
+today: "worker.js supplies every dep site-provision.mjs reads" matched `name:`
+only, so a shorthand `lookupProject,` read as a missing dep. It understands both
+forms now. The pattern across all five is identical — an assertion that pins the
+SPELLING of correct code rather than its meaning.
+
+**Still open:** the container. `Failed to start container: The container is not
+running, consider calling start()` — Cloudflare's runtime, not our build code,
+and not something the repo can fix by itself.
+
+768 unit tests.

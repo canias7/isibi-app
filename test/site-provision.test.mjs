@@ -442,7 +442,15 @@ test("worker.js supplies every dep site-provision.mjs reads", () => {
     else if (worker[i] === "}" && --depth === 0) { end = i; break; }
   }
   const site = worker.slice(at, end);
-  const supplied = new Set([...site.matchAll(/^\s*(\w+):/gm)].map((m) => m[1]));
+  // `name:` AND shorthand `name,` — both are a supplied dep. Matching only the
+  // colon form made a correct change look like a missing dep: `lookupProject`
+  // was hoisted to a real binding (it was being called as a bare identifier
+  // inside this literal, which is a ReferenceError) and passed by shorthand,
+  // and this went red on code that supplies it perfectly well.
+  const supplied = new Set([
+    ...[...site.matchAll(/^\s*(\w+):/gm)].map((m) => m[1]),
+    ...[...site.matchAll(/^\s*(\w+),\s*$/gm)].map((m) => m[1]),
+  ]);
 
   const missing = [...read].filter((d) => !supplied.has(d));
   assert.deepEqual(missing, [], `site-provision reads deps worker.js never supplies: ${missing.join(", ")}`);

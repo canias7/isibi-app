@@ -372,3 +372,58 @@ test("a container that answers with no JSON says what it DID answer", () => {
   assert.match(after, /await r\.text\(\)/, "the body must be read as text so a non-JSON answer survives");
   assert.match(after, /r\.status/, "the status is what separates a 500 from an empty 200");
 });
+
+test("every function ensureSiteBackend calls is actually declared", () => {
+  // THE BUG THIS EXISTS FOR. `saveAuthInfo` and `saveDataInfo` called
+  // `lookupProject(slug)` in their bodies while it existed ONLY as a key in the
+  // deps literal — a bare identifier that is a ReferenceError at runtime, thrown
+  // on the first line of both, on every build of every site, and swallowed by
+  // the best-effort catch around them. `_meta` held nothing but `schema`, so
+  // every generated site 501'd on every read, form and sign-in.
+  //
+  // `node --check` cannot see this: it is valid syntax. There is no linter here
+  // and adding one for a repo with no devDependencies is a bigger change than
+  // the bug, so this is the narrow version — scoped to the function that had it,
+  // and derived rather than a list of names somebody remembered.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const start = src.indexOf("async function ensureSiteBackend(");
+  assert.ok(start > 0, "ensureSiteBackend is gone");
+  const end = src.indexOf("\n}", src.indexOf("return conn;", start));
+  // COMMENTS **AND STRING LITERALS** blanked. Without the strings, the SQL
+  // `CREATE TABLE IF NOT EXISTS _meta (…)` reads as a call to an undeclared
+  // `_meta` — scanning code without removing its strings is the same mistake
+  // that ate an anchor containing `//` earlier today. Blanked, never deleted, so
+  // offsets stay valid.
+  const blank = (t) => t
+    .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/`(?:\\.|[^`\\])*`|'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"/g, (m) => m.replace(/[^\n]/g, " "));
+  const body = blank(src.slice(start, end));
+
+  // What worker.js declares anywhere: imports, and top-level or local bindings.
+  const declared = new Set();
+  for (const m of src.matchAll(/^import\s*\{([^}]+)\}/gm)) {
+    for (const n of m[1].split(",")) declared.add(n.trim().split(/\s+as\s+/i).pop().trim());
+  }
+  for (const m of src.matchAll(/(?:^|[\s;{(])(?:const|let|var)\s+([A-Za-z_$][\w$]*)/g)) declared.add(m[1]);
+  for (const m of src.matchAll(/(?:^|\s)(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/g)) declared.add(m[1]);
+  // Destructured bindings, which several helpers here use.
+  for (const m of src.matchAll(/(?:const|let|var)\s*\{([^}]+)\}\s*=/g)) {
+    for (const n of m[1].split(",")) declared.add(n.trim().split(":").pop().trim().split("=")[0].trim());
+  }
+
+  const GLOBALS = new Set(["fetch", "JSON", "String", "Number", "Boolean", "Object", "Array", "Math",
+    "Date", "Promise", "Error", "console", "encodeURIComponent", "decodeURIComponent", "Set", "Map",
+    "URL", "Request", "Response", "Headers", "AbortSignal", "TextEncoder", "TextDecoder", "atob", "btoa",
+    "parseInt", "parseFloat", "isNaN", "Symbol", "RegExp", "crypto", "structuredClone", "if", "for",
+    "while", "switch", "catch", "return", "typeof", "await", "function", "class", "new", "throw",
+    "async", "do", "else", "try", "yield", "void", "delete", "in", "of"]);
+
+  const missing = new Set();
+  for (const m of body.matchAll(/(?:^|[^\w$.])([a-z_$][\w$]*)\s*\(/g)) {
+    const name = m[1];
+    if (GLOBALS.has(name) || declared.has(name)) continue;
+    missing.add(name);
+  }
+  assert.deepEqual([...missing], [],
+    `called but never declared — a ReferenceError at runtime: ${[...missing].join(", ")}`);
+});
