@@ -489,3 +489,30 @@ test("the container's own split is carried through, on success AND on failure", 
   const c = await publishPages(quiet.deps, { spec: SPEC, slug: "cafe" });
   assert.equal(c.tscMs, undefined);
 });
+
+test("a build that validated nothing says WHY, not just that it failed", async () => {
+  // MEASURED LIVE 2026-08-04: a smoke build spent 23 credits on 10,297 output
+  // tokens, every page was refused, and the response said `stage:-, problems:[]`
+  // with a one-line note. `validatePages` had worked out exactly why and this
+  // branch discarded it — while the branch immediately below already kept the
+  // same field, so it was the odd one out rather than a policy.
+  const { deps, calls } = harness({ generate: async () => gen([{ path: "../escape.tsx", source: "x" }]) });
+  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(out.page, "placeholder");
+  assert.equal(out.stage, "validate", "the caller cannot tell this from a compile failure or an outage");
+  assert.ok(out.problems.length > 0, "validatePages explained itself and the reasons were dropped");
+  assert.match(out.error, /every page was refused/);
+  // The money was still spent, so the breakdown must survive — that is what says
+  // whether the model produced nothing or produced something unusable.
+  assert.ok(out.cost > 0 && out.usage, "a refused generation still cost credits");
+  // And nothing downstream ran.
+  assert.equal(calls.compile.length, 0, "a build with no pages must not reach the container");
+  assert.equal(calls.publish.length, 0);
+});
+
+test("and a generator that returned nothing at all is said plainly", async () => {
+  const { deps } = harness({ generate: async () => gen([]) });
+  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(out.stage, "validate");
+  assert.match(out.error, /no pages at all/, "an empty answer and a refused one are different problems");
+});
