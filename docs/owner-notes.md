@@ -12262,3 +12262,103 @@ build-service import is in the image, `notifyOwnerOfSubmission` has a caller —
 cost nothing to run and catch the class that actually keeps shipping.
 
 813 unit tests.
+
+## `neon e2e` green, and the first thing publicView made reachable was broken (2026-08-04)
+
+**`neon e2e` passes.** All eight declarable constraints now run against real
+Postgres, including the three added this round — `unique` in both halves,
+`uniqueCI`, and `teamScope`'s policy parsing with its organization subquery.
+
+`build smoke` fell back to the placeholder on a typecheck failure, and the useful
+part is what the failure was.
+
+### `PublicRow` made the obvious call a compile error
+
+```
+book.tsx(148,78): error TS2322: Type 'unknown' is not assignable to type 'ReactNode'
+```
+
+`PublicRow` was `Record<string, unknown>`, so `usePublicRows("bookings")` with no
+type argument gives every field the type `unknown`, and `{row.appointment_time}`
+in JSX cannot compile. Reproduced locally, byte-identical.
+
+**This is a defect my own publicView work put into live use.** Before the view
+existed the hook could never succeed, so nothing exercised its default type; the
+moment the feature started working, the first generated page hit it. Same class
+as `RowId`, the `Row` constraint, and the optional `claim` — the client API not
+being the shape a reasonable caller assumes.
+
+`PublicRow` is now `Record<string, string | number | boolean | null>`. A
+projection publishes DECLARED columns, and those are text / integer / real /
+boolean, so that is what actually comes back. The one inexact case is a `json`
+column — and rendering one in JSX is wrong whatever its type says, so typing for
+it would buy nothing and cost every ordinary page a compile error. Three call
+shapes verified: untyped, `PublicRow & {…}`, and a bare column type.
+
+### The instrumentation for this exact failure printed nothing
+
+`cited` was added specifically so a compile failure explains itself, and on its
+first real typecheck failure it showed nothing at all. Not because it was wrong —
+because `ok()` truncates its extra at **300 characters**, and the line packed
+page / stage / error / problems / cited / notes into that one string. Two TS
+errors are longer than 300 characters by themselves, so everything after `error=`
+fell off.
+
+**The comment three lines above the code already said this**, about `notes`:
+*"which pushed the fields that say WHY off the end of the truncated line"*. The
+fix then was to REORDER — which only moves which field gets lost. The error and
+its cited lines now print on their own lines, and when a typecheck fails with no
+citations it says so, rather than being silently absent.
+
+That is the day's theme one more time: the system knew something and threw it
+away — here by a character limit rather than a swallowed error.
+
+### Still unexplained, and now diagnosable
+
+```
+manage.tsx(26,13): TS2322: Type '{ heading: string; description: string; }'
+  is not assignable to 'IntrinsicAttributes & Omit<DetailedHTMLProps…'
+```
+
+A kit component given the wrong prop name. The shape matches `Empty`, whose props
+are `title` / `description` / `icon`, but I am NOT going to rename a prop on a
+guess — the next failing build will quote line 26 and say what the model actually
+wrote.
+
+813 unit tests, site-build 36/36, site-runtime 23/23.
+
+## `Empty` took a second build down, on the same prop (2026-08-04)
+
+```
+manage.tsx(26,13): TS2322: Type '{ heading: string; description: string; }'
+  is not assignable to 'IntrinsicAttributes & Omit<DetailedHTMLProps…'
+```
+
+Reproduced byte for byte before touching anything — `<Empty heading description />`
+against the real template. Not a guess: the same error text, the same shape.
+
+**The reason the model reaches for `heading` was already written in this file's
+own comment.** A div already owns `title`, which is why the component had to
+`Omit` it this morning. A prop whose name collides with an HTML attribute is one
+a caller will not land on first try — the collision IS the tell.
+
+So `heading` is an alias. `title` stays primary and wins if both are given, every
+existing call including `DataList`'s is untouched, and the compound form is
+unchanged. Additive, like the button sizes: a missing prop, not a fork in the
+design system. Resolved with `??` rather than `||`, because an empty string is a
+deliberate "no heading" and `||` would fall through to the alias instead of
+honouring it.
+
+**Rendered, not just typechecked**, which is the lesson this repo keeps paying
+for — `message-scroller` typechecked and hard-crashed, the 70 charts typechecked
+and rendered grey. Five shapes in a real browser: `heading` renders, `title`
+renders, `title` beats `heading`, the compound form still works, and **no `title`
+attribute leaks onto the div** — the tooltip regression the Omit exists to
+prevent.
+
+**Guarded by a real typecheck, not a source grep.** `site-build.mjs`'s menu
+fixture now renders its empty state as `<Empty heading description />`, so the
+alias is checked by `tsc` against the actual template on every run. Removing the
+alias takes the integration suite from 36/36 to 18/36.
+
+813 unit tests, site-build 36/36, site-runtime 23/23.

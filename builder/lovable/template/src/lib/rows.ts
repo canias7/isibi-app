@@ -48,7 +48,26 @@ export type RowId = string | number;
  * is a React `key` of `undefined` on every row. There was no correct way to call
  * it. Use a published column as the key, or the index.
  */
-export type PublicRow = Record<string, unknown>;
+export type PublicRow = Record<string, string | number | boolean | null>;
+
+// WHY THE VALUES ARE SCALARS AND NOT `unknown`.
+//
+// It was `Record<string, unknown>`, and that made the obvious call a compile
+// error: `usePublicRows("bookings")` with no type argument gives every field the
+// type `unknown`, and `<li>{row.appointment_time}</li>` is then
+// `TS2322: Type 'unknown' is not assignable to type 'ReactNode'`. Measured live
+// 2026-08-04 at `book.tsx(148,78)` — the site published as the placeholder.
+//
+// It only became reachable when the view was finally created: before that
+// nothing could call this hook successfully at all, so the type never got
+// exercised. Same class as `RowId`, the `Row` constraint and the optional
+// `claim` — the client API not being the shape a reasonable caller assumes.
+//
+// A projection publishes DECLARED COLUMNS, and those are text / integer / real /
+// boolean, so this is what actually comes back. The one inexact case is a `json`
+// column, whose value arrives as an object — and rendering one in JSX is wrong
+// whatever its type says, so typing for it would buy nothing and cost every
+// ordinary page a compile error.
 
 /** Query parameters a list read accepts. Anything else is ignored by the API. */
 export type RowQuery = {

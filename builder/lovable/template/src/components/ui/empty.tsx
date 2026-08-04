@@ -15,18 +15,34 @@ import { cn } from "@/lib/utils"
 // `title` MUST be re-typed rather than merely added. A div already has an HTML
 // `title`, so leaving it alone leaves the call compiling and rendering the
 // heading as a browser TOOLTIP: invisible, and worse than the error.
+// `heading` IS AN ALIAS FOR `title`, added 2026-08-04 after the same component
+// took a second live build down: `manage.tsx(26,13) TS2322: Type '{ heading:
+// string; description: string; }' is not assignable`, reproduced here byte for
+// byte before anything was changed.
+//
+// The reason the model reaches for `heading` is written two paragraphs up: a div
+// already owns `title`, so this component had to Omit it. A prop name that
+// collides with an HTML attribute is one a caller will not land on first try,
+// and the alias costs nothing — `title` stays primary and every existing call,
+// including `DataList`'s, is untouched. Additive, like the button sizes.
 function Empty({
   className,
   title,
+  heading,
   description,
   icon,
   children,
   ...props
 }: Omit<React.ComponentProps<"div">, "title"> & {
   title?: React.ReactNode
+  /** Alias for `title`. `title` wins if both are given. */
+  heading?: React.ReactNode
   description?: React.ReactNode
   icon?: React.ReactNode
 }) {
+  // `??`, not `||`: an empty string is a deliberate "no heading", and `||` would
+  // silently fall through to the alias instead of honouring it.
+  const head = title ?? heading
   return (
     <div
       data-slot="empty"
@@ -36,10 +52,10 @@ function Empty({
       )}
       {...props}
     >
-      {(icon || title || description) && (
+      {(icon || head || description) && (
         <EmptyHeader>
           {icon && <EmptyMedia variant="icon">{icon}</EmptyMedia>}
-          {title && <EmptyTitle>{title}</EmptyTitle>}
+          {head && <EmptyTitle>{head}</EmptyTitle>}
           {description && <EmptyDescription>{description}</EmptyDescription>}
         </EmptyHeader>
       )}
