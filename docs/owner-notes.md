@@ -12681,3 +12681,56 @@ report three zeros, all closed.
 
 833 unit tests, `site-build` 38/38 against a real container.
 **48 mutants across three rounds, all caught.**
+
+## Every generated site's form was refused by its own database (2026-08-04)
+
+**Measured live, by the first `build smoke` run that got past the billing wall.**
+A generated barber shop's booking form answered **403** to its own customer. 53
+of 54 checks passed around it — the site built, published, rendered, read its
+data — and the one thing a business actually needs, taking a booking, did not
+work. On every site the builder has ever produced.
+
+**The chain, and no single link is wrong:**
+
+- a `collect` table is write-only BY DESIGN — an INSERT policy and an INSERT
+  grant, and deliberately **no SELECT** policy or grant, so a stranger can never
+  list other people's names and phone numbers;
+- `useCreateRow` sent `Prefer: return=representation`;
+- that makes PostgREST run `INSERT … RETURNING`;
+- **RETURNING needs SELECT.**
+
+So the one header that made a confirmation screen possible is the header that
+made the insert impossible, on precisely the tables every contact form and every
+booking form uses. Reads were fine the whole time — `bookings_public` 200,
+`services` 200 — which is why the site looked healthy.
+
+**The root cause is the REFERENCE PAGE, which is the part worth remembering.**
+`book.tsx` read `row.claim_token` off the insert to build a manage link.
+`GENERATOR.md` names that file as the contract the generator is derived from —
+so the template was *teaching* every generated site the one pattern its own
+database refuses. The rules said it too: *"`useCreateRow` resolves to the created
+ROW, so read the token off the column the schema publishes it in."* Advertised at
+the prompt layer, refused at the data layer — **the exact shape of the
+`publicView` bug fixed hours earlier**, one layer over.
+
+**The fix.** `useCreateRow` no longer asks, and resolves `void` rather than
+`T | undefined` — so a page reading the created row now fails at `tsc` instead of
+in front of a customer. `useUpdateRow` KEEPS the header on purpose: PATCH is only
+ever granted on `user`/`feed` tables, where the caller does have SELECT. The
+reference page confirms the booking and stops; a manage link needs the schema to
+expose a function that creates AND returns.
+
+**Two harnesses passed while this was live, and both are fixed:**
+
+- **`build smoke` printed a green tick reading "submitting the form wrote to the
+  database"** — which only checked that a POST went OUT. A name stronger than its
+  assertion is worse than no assertion: it is a false negative that reads as
+  evidence. Renamed to what it checks.
+- **`site-runtime` stubbed the insert and handed the row back**, so all 23 checks
+  were green against the broken client. The stub now refuses `return=representation`
+  on a `collect` table the way Postgres does. **Mutation-checked: reintroduce the
+  header and the harness fails; before this it passed with the bug present.** A
+  fake MORE permissive than the real thing hides bugs exactly the way one that is
+  less capable does — both have now happened in this file.
+
+835 unit tests, site-build 38/38, site-runtime 23/23.

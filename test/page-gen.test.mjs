@@ -1186,3 +1186,41 @@ test("worker.js and the eval both pass the family to pagesRequest", () => {
       `${f} does not pass the family, so no build of it ever gets an example`);
   }
 });
+
+// ── A write-only table cannot hand the row back ─────────────────────────────
+
+test("useCreateRow does NOT ask PostgREST to return the inserted row", () => {
+  // THE BUG THIS PINS REFUSED EVERY SUBMISSION ON EVERY SITE. Measured live
+  // 2026-08-04: a generated barber shop's booking form answered 403 to its own
+  // customer, while the reads beside it answered 200 — so the site looked up.
+  //
+  // `collect` is write-only by design: an INSERT policy and grant, and NO SELECT
+  // policy or grant, so a stranger can never list other people's phone numbers.
+  // `Prefer: return=representation` makes PostgREST run `INSERT … RETURNING`,
+  // and RETURNING needs SELECT. The one header that made a confirmation screen
+  // possible is the one that made the insert impossible.
+  const rows = fs.readFileSync(new URL("../builder/lovable/template/src/lib/rows.ts", import.meta.url), "utf8");
+  const create = rows.slice(rows.indexOf("export function useCreateRow"), rows.indexOf("export function useUpdateRow"));
+  assert.ok(create.length > 100, "useCreateRow was renamed — this guard now checks nothing");
+  assert.ok(!/return=representation/.test(create),
+    "useCreateRow asks for the row back, which 403s on every collect table");
+
+  // …and the sibling KEEPS it, which is not an inconsistency: PATCH is only ever
+  // granted on user/feed tables, where the caller does have SELECT. Asserted so
+  // that "fix the 403" cannot be applied with a blanket find-and-replace.
+  const update = rows.slice(rows.indexOf("export function useUpdateRow"));
+  assert.match(update.slice(0, 900), /return=representation/,
+    "useUpdateRow lost the header too — an edit form now cannot show what it saved");
+});
+
+test("the rules never tell the model the insert resolves to a row", () => {
+  // The rules said `useCreateRow` resolves to the created ROW and to read a claim
+  // token off it — advertised at the prompt layer, refused by the database. The
+  // same shape as publicView: declarable, documented, and impossible.
+  const claims = [/useCreateRow\` resolves to the created ROW/, /read the token off the/];
+  for (const re of claims) {
+    assert.ok(!re.test(PAGE_RULES), `the rules still promise the created row: ${re}`);
+  }
+  assert.match(PAGE_RULES, /useCreateRow\` RESOLVES TO NOTHING/,
+    "nothing tells the model it gets nothing back, so it will keep reading data.claim_token");
+});

@@ -96,8 +96,10 @@ export function siteSlug(): string {
 // ── Talking to the database ─────────────────────────────────────────────────
 //
 // Rows come from the site's own Neon Data API, which is PostgREST — so a filter is
-// `?col=eq.value`, a sort is `?order=col.desc`, and an insert asks for the row back
-// with a `Prefer` header. The platform's own row routes were deleted 2026-07-30;
+// `?col=eq.value`, a sort is `?order=col.desc`, and an insert answers 201 with an
+// empty body unless it asks otherwise — which `useCreateRow` deliberately does
+// not, because asking needs SELECT and a `collect` table has none. The platform's
+// own row routes were deleted 2026-07-30;
 // these paths forward to Neon and nothing more, and the site's RLS policies decide
 // every access question.
 //
@@ -258,25 +260,53 @@ export function useRow<T = Row>(table: string, id: RowId | undefined) {
 }
 
 /**
- * Submit a row. Resolves to the created row.
+ * Submit a row. Resolves to NOTHING, and that is not a limitation — it is the
+ * only thing a write-only table can do.
  *
- * `Prefer: return=representation` is what makes it come back at all — without it
- * PostgREST answers 201 with an empty body, and a page that shows "thanks, here is
- * your booking" has nothing to show.
+ * IT ASKED FOR THE ROW BACK AND THAT REFUSED EVERY SUBMISSION ON EVERY SITE.
+ * Measured live 2026-08-04: a generated barber shop's booking form answered
+ * `403` to its own customer. The chain is exact and it is not a bug in any one
+ * of its links:
+ *
+ *   - a `collect` table is write-only BY DESIGN — an INSERT policy and an INSERT
+ *     grant, and deliberately NO SELECT policy and no SELECT grant, so that
+ *     customer names and phone numbers can never be listed by a stranger;
+ *   - `Prefer: return=representation` makes PostgREST run `INSERT … RETURNING`;
+ *   - RETURNING needs SELECT.
+ *
+ * So the one header that made a confirmation screen possible is the one that
+ * made the insert impossible, on precisely the tables every contact form and
+ * every booking form uses. Reads were fine, which is why it looked like the
+ * database was up: `bookings_public` and `services` both answered 200 while the
+ * POST beside them was refused.
+ *
+ * The header is gone. PostgREST answers 201 with an empty body, `send` hands
+ * back null, and the mutation resolves `void` — so a page that tries to read the
+ * created row now fails at `tsc` rather than in front of a customer. That is the
+ * whole reason this returns void instead of `T | undefined`: the honest type is
+ * the one that cannot be silently wrong at runtime.
+ *
+ * `useUpdateRow` KEEPS the header on purpose — PATCH is only ever granted on
+ * `user`/`feed` tables, where the caller does have SELECT, so RETURNING is legal
+ * there. `collect` has no UPDATE grant at all and 403s whatever it sends.
+ *
+ * The type parameter is kept, unused, so a page written as
+ * `useCreateRow<Booking>("bookings")` still compiles.
  *
  * Never annotate the mutation callback's parameter. TanStack's callback takes four
  * arguments and its types are contravariant, so a hand-written annotation is
  * refused even when it looks right.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function useCreateRow<T = Row>(table: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (values: Record<string, unknown>) =>
-      send<T[]>(base(table), {
+    mutationFn: async (values: Record<string, unknown>): Promise<void> => {
+      await send<unknown>(base(table), {
         method: "POST",
-        headers: { Prefer: "return=representation" },
         body: JSON.stringify(values),
-      }).then((r) => r[0]),
+      });
+    },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["rows", siteSlug(), table] }); },
   });
 }

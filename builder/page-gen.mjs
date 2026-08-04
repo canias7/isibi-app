@@ -1201,7 +1201,8 @@ function Home() {
     blurb: "THE FORM — validation, taken slots, the claim link back, and ?service= preselect.",
     source: `// Reference page — THE FORM. Everything a \`collect\` table needs: validation
 // before a round trip, the four list states behind a Select, the slots somebody
-// else has already taken, and the claim link that lets the customer come back.
+// else has already taken, and a confirmation screen that does not promise the
+// customer a link this page cannot obtain.
 //
 // A \`collect\` table is write-only: no policy lets anyone list it, so a booking
 // page CANNOT read the bookings to work out what is free. \`usePublicRows\` reads
@@ -1252,11 +1253,10 @@ export const Route = createFileRoute("/book")({
 
 type Service = Row & { name: string; price: number | null };
 
-// \`claim_token\` is a column the schema declares on a \`collect\` table, and the
-// insert hands the whole row back — so the token arrives as part of the row
-// rather than beside it. It is NULLABLE, because only a table that declared one
-// has it: read it guarded, never destructured as required.
-type Appointment = Row & { claim_token: string | null };
+// The row shape this form writes. It is a TYPE ARGUMENT ONLY — \`useCreateRow\`
+// resolves to void, because a \`collect\` table grants no SELECT and asking
+// PostgREST to return the inserted row is what made the insert 403.
+type Appointment = Row;
 
 // The same facts on every page of the site. Written once per file rather than
 // once per return.
@@ -1305,7 +1305,9 @@ function Book() {
   const { service: preselected } = Route.useSearch();
   const services = useRows<Service>("services", { order: "price", dir: "asc" });
   const create = useCreateRow<Appointment>("appointments");
-  const [claim, setClaim] = useState<string | null>(null);
+  // A plain "did it land" flag, not a token. The token could never have arrived
+  // — see onSuccess below.
+  const [booked, setBooked] = useState(false);
 
   const form = useForm<Booking>({
     resolver: zodResolver(booking),
@@ -1334,11 +1336,18 @@ function Book() {
     create.mutate(values, {
       // The callback parameter is NOT annotated: TanStack's signature is
       // contravariant in four arguments and refuses any hand-written type here.
-      onSuccess: (row) => {
+      // NOTHING COMES BACK, and this page is why that had to be said out loud.
+      // It read \`row.claim_token\` off the insert — which needs PostgREST to
+      // RETURN the row, which needs SELECT, which a write-only \`collect\` table
+      // deliberately does not grant. So the header that fetched the token is
+      // what made the INSERT itself 403, and since this file is the reference
+      // the generator is derived from, it taught that pattern to every site the
+      // builder has produced. Confirmation is the end of the flow; a manage link
+      // needs the schema to expose a function that creates AND returns.
+      onSuccess: () => {
         toast.success("Booked — we'll call to confirm.");
         form.reset();
-        if (!row.claim_token) return;
-        setClaim(row.claim_token);
+        setBooked(true);
       },
       // The API separates the caller's fault from a server fault, so its own
       // message is worth showing instead of a generic failure.
@@ -1346,18 +1355,20 @@ function Book() {
     });
   };
 
-  if (claim) {
+  // THE CONFIRMATION IS THE END OF THE FLOW, and that is a complete site rather
+  // than a broken one. Offering a "manage your booking" link here would need a
+  // token this page cannot obtain: reading it off the insert is what refused the
+  // insert. A site that wants one declares a function that creates AND returns.
+  if (booked) {
     return (
       <SiteChrome {...CHROME}>
         <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
           <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
           <p className="mt-3 text-muted-foreground">
-            Keep this link — it is the only way back to this appointment.
+            We'll call to confirm within the hour. Need to change it? Give us a ring.
           </p>
-          <Button asChild className="mt-6">
-            <Link to="/manage" search={{ t: claim }}>
-              Manage your booking
-            </Link>
+          <Button asChild variant="outline" className="mt-6">
+            <Link to="/">Back to the shop</Link>
           </Button>
         </div>
       </SiteChrome>
@@ -1931,9 +1942,14 @@ or an access level — anything not in the schema below does not exist.
     **Only build the manage page if the schema actually declares those functions** —
     check the digest. If it does not, the confirmation screen is the end of the flow, and
     that is a complete site rather than a broken one.
-    When it does: \`useCreateRow\` resolves to the created ROW, so read the token off the
-    column the schema publishes it in and put it in the link
-    (\`/manage?t=\${row.claim_token}\`). **Never annotate a mutation callback's parameter.**
+    **\`useCreateRow\` RESOLVES TO NOTHING — never read the created row off it.** A
+    \`collect\` table has no SELECT policy and no SELECT grant, which is the entire point
+    of write-only, so asking PostgREST to return the inserted row makes the INSERT itself
+    fail with 403. It is typed \`void\`, so \`data.claim_token\` is a compile error rather
+    than a form that refuses every customer. To hand somebody a manage link, the SCHEMA
+    has to expose a function that creates the row AND returns its token — call that with
+    \`useRpcAction\`. If it declares no such function, the confirmation screen is the end
+    of the flow and the site is complete. **Never annotate a mutation callback's parameter.**
     Write \`onSuccess: (data) => …\`, not \`onSuccess: (data: Booking) => …\`. TanStack's
     callback takes four arguments and its types are contravariant, so ANY hand-written
     annotation is refused even when it looks right — that was three separate build
