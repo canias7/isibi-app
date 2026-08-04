@@ -1,4 +1,0 @@
-src/routes/account.tsx(162,45): error TS2322: Type '{ title: string; description: string; }' is not assignable to type 'IntrinsicAttributes & ClassAttributes<HTMLDivElement> & HTMLAttributes<HTMLDivElement>'.
-src/routes/index.tsx(56,13): error TS2322: Type '{ className: string; title: string; description: string; }' is not assignable to type 'IntrinsicAttributes & ClassAttributes<HTMLDivElement> & HTMLAttributes<HTMLDivElement>'.
-src/routes/members.tsx(145,13): error TS2322: Type '{ title: string; description: string; }' is not assignable to type 'IntrinsicAttributes & ClassAttributes<HTMLDivElement> & HTMLAttributes<HTMLDivElement>'.
-src/routes/timetable.tsx(82,68): error TS2322: Type '{ className: string; title: string; description: string; }' is not assignable to type 'IntrinsicAttributes & ClassAttributes<HTMLDivElement> & HTMLAttributes<HTMLDivElement>'.

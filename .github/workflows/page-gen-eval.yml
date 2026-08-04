@@ -82,5 +82,7 @@ jobs:
         if: always()
         with:
           name: page-gen-eval
-          path: docs/auth-audit/PAGE-GEN.md
+          path: |
+            docs/auth-audit/PAGE-GEN.md
+            docs/auth-audit/pages
           if-no-files-found: ignore
