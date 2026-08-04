@@ -137,3 +137,28 @@ test("7. the RULES point at something that now exists", () => {
   // pointed the model at an impossible thing — the very bug being fixed.
   assert.match(PAGE_RULES, /useRpcAction/, "the claim route is no longer described");
 });
+
+test("8. a duplicate table name cannot silently destroy the first one", () => {
+  // applySiteSchema DROPS a table's policy shapes and its public view before
+  // recreating them, so a second declaration of the same name re-ran that
+  // teardown and left the emptier version standing — the first's publicView,
+  // noOverlap and access rules gone, with no error anywhere.
+  //
+  // Found by causing it: a second `bookings` in the e2e fixture failed that run
+  // on `relation "bookings_public" does not exist`, six checks away from
+  // anything to do with the change under test. A model can emit a duplicate just
+  // as easily, on a real site.
+  const n = normalizeSchema({
+    tables: [
+      { name: "bookings", access: "collect", publicView: { columns: ["slot"] }, columns: [{ name: "slot" }] },
+      { name: "Bookings", access: "collect", columns: [{ name: "note" }] },
+    ],
+  });
+  assert.equal(n.tables.length, 1, "both declarations reached the DDL");
+  // The first declaration's guarantees survive…
+  assert.ok(n.tables[0].publicView, "a repeat deleted a guarantee the first one declared");
+  // …and a column only the duplicate had is not thrown away either.
+  assert.deepEqual(n.tables[0].columns.map((c) => c.name), ["slot", "note"]);
+  // Case-insensitively, because Postgres folds an unquoted identifier and the
+  // engine quotes them — "Bookings" and "bookings" are the same object here.
+});

@@ -86,6 +86,34 @@ export function normalizeSchema(spec) {
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
   else if (t && typeof t === "object") Object.entries(t).forEach(([n, def]) => coerceTable(n, def));
+
+  // TWO TABLES WITH THE SAME NAME BOTH SURVIVED, and the second silently
+  // destroyed the first. `applySiteSchema` walks this list in order and, per
+  // table, DROPS its policy shapes and its public view before recreating them —
+  // so a duplicate re-ran that teardown against the same object and left the
+  // second declaration's (emptier) version standing. The first's publicView,
+  // noOverlap and access rules were simply gone, with no error anywhere.
+  //
+  // Found by making it happen: a second `bookings` in the e2e fixture failed the
+  // run on `relation "bookings_public" does not exist`, six checks away from
+  // anything to do with the change. The model can emit a duplicate just as
+  // easily, on a real site, and nothing would have said so.
+  //
+  // First declaration wins, and later ones contribute any COLUMNS the first did
+  // not have — so a repeat cannot delete a guarantee, and a field declared only
+  // in the duplicate is not thrown away either.
+  const byName = new Map();
+  for (const tb of out) {
+    const key = String(tb.name).toLowerCase();
+    const first = byName.get(key);
+    if (!first) { byName.set(key, tb); continue; }
+    const have = new Set(first.columns.map((c) => String(c.name).toLowerCase()));
+    for (const c of tb.columns) {
+      if (!have.has(String(c.name).toLowerCase())) { first.columns.push(c); have.add(String(c.name).toLowerCase()); }
+    }
+  }
+  out.length = 0;
+  out.push(...byName.values());
   // Per-app rate-limit config — the owner tunes the data API's per-IP caps (requests
   // per minute) for reads and writes; `{read, write}` (aliases rateLimits/rate/
   // apiRateLimit, a bare number = both). Clamped to sane bounds; absent → platform

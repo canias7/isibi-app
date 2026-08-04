@@ -111,21 +111,25 @@ const SCHEMA = normalizeSchema({
     // an INSERT grant and no SELECT anywhere — so the customer who booked can
     // never read their own booking back. The only way to hand them one row is a
     // SECURITY DEFINER function that takes a token and returns exactly that row.
+    // NOT called `bookings` — the fixture already has one, with a publicView and
+    // noOverlap, and reusing the name silently REPLACED it: the run failed on
+    // `relation "bookings_public" does not exist`, six checks away from anything
+    // to do with functions. A fixture is a namespace like any other.
     {
-      name: "bookings",
+      name: "enquiries",
       access: "collect",
       columns: [
         { name: "customer_name", type: "text" },
-        { name: "slot", type: "text" },
+        { name: "message", type: "text" },
         { name: "claim_token", type: "uuid", default: "gen_random_uuid()" },
       ],
     },
   ],
   functions: [
-    { name: "booking_by_claim", args: [{ name: "tok", type: "uuid" }], returns: "setof bookings",
-      body: "SELECT * FROM bookings WHERE claim_token = tok" },
-    { name: "cancel_booking_by_claim", args: [{ name: "tok", type: "uuid" }], returns: "void",
-      body: "DELETE FROM bookings WHERE claim_token = tok" },
+    { name: "enquiry_by_claim", args: [{ name: "tok", type: "uuid" }], returns: "setof enquiries",
+      body: "SELECT * FROM enquiries WHERE claim_token = tok" },
+    { name: "cancel_enquiry_by_claim", args: [{ name: "tok", type: "uuid" }], returns: "void",
+      body: "DELETE FROM enquiries WHERE claim_token = tok" },
   ],
 });
 
@@ -363,7 +367,7 @@ try {
 
   const fnRows = await sqlQuery(db,
     "SELECT p.proname, p.prosecdef FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace " +
-    "WHERE n.nspname='public' AND p.proname IN ('booking_by_claim','cancel_booking_by_claim') ORDER BY p.proname");
+    "WHERE n.nspname='public' AND p.proname IN ('enquiry_by_claim','cancel_enquiry_by_claim') ORDER BY p.proname");
   ok("both declared functions exist in the database", fnRows.length === 2, JSON.stringify(fnRows));
   ok("and both are SECURITY DEFINER — without it a claim read sees nothing",
     fnRows.every((r) => r.prosecdef === true), JSON.stringify(fnRows));
@@ -371,8 +375,8 @@ try {
   // EXECUTE has to be granted or the function exists and the Data API answers
   // 404 to it — the publicView failure, one object over.
   const canExec = await sqlQuery(db,
-    "SELECT has_function_privilege('anonymous', 'booking_by_claim(uuid)', 'EXECUTE') AS anon, " +
-    "has_function_privilege('authenticated', 'booking_by_claim(uuid)', 'EXECUTE') AS auth");
+    "SELECT has_function_privilege('anonymous', 'enquiry_by_claim(uuid)', 'EXECUTE') AS anon, " +
+    "has_function_privilege('authenticated', 'enquiry_by_claim(uuid)', 'EXECUTE') AS auth");
   ok("a signed-out visitor may EXECUTE it", canExec[0].anon === true, JSON.stringify(canExec[0]));
   ok("and so may a member", canExec[0].auth === true, JSON.stringify(canExec[0]));
 
@@ -380,27 +384,27 @@ try {
   // narrow hole rather than a read policy: no SELECT for anyone, and exactly one
   // row reachable through a token.
   const canRead = await sqlQuery(db,
-    "SELECT has_table_privilege('anonymous', 'bookings', 'SELECT') AS sel, " +
-    "has_table_privilege('anonymous', 'bookings', 'INSERT') AS ins");
+    "SELECT has_table_privilege('anonymous', 'enquiries', 'SELECT') AS sel, " +
+    "has_table_privilege('anonymous', 'enquiries', 'INSERT') AS ins");
   ok("but may NOT select the table it reads from", canRead[0].sel === false, JSON.stringify(canRead[0]));
   ok("and may still submit the form", canRead[0].ins === true, JSON.stringify(canRead[0]));
 
-  await sqlQuery(db, 'INSERT INTO "bookings" ("customer_name","slot") VALUES (?,?)', ["Ada", "10:30"]);
-  const mine = await sqlQuery(db, 'SELECT claim_token FROM "bookings" WHERE customer_name=?', ["Ada"]);
+  await sqlQuery(db, 'INSERT INTO "enquiries" ("customer_name","message") VALUES (?,?)', ["Ada", "10:30"]);
+  const mine = await sqlQuery(db, 'SELECT claim_token FROM "enquiries" WHERE customer_name=?', ["Ada"]);
   const tok = mine[0] && mine[0].claim_token;
   ok("the collect row minted a claim token", !!tok, JSON.stringify(mine[0] || {}));
 
-  const got = await sqlQuery(db, "SELECT * FROM booking_by_claim(?)", [tok]);
+  const got = await sqlQuery(db, "SELECT * FROM enquiry_by_claim(?)", [tok]);
   ok("the claim function returns exactly that row", got.length === 1 && got[0].customer_name === "Ada",
     JSON.stringify(got).slice(0, 200));
 
   // A wrong token is EMPTY, never an error: a bad link and a cancelled booking
   // must look the same, or the response is an oracle for which tokens exist.
-  const wrongTok = await sqlQuery(db, "SELECT * FROM booking_by_claim('00000000-0000-0000-0000-000000000000')");
+  const wrongTok = await sqlQuery(db, "SELECT * FROM enquiry_by_claim('00000000-0000-0000-0000-000000000000')");
   ok("a wrong token returns nothing rather than erroring", wrongTok.length === 0, JSON.stringify(wrongTok));
 
-  await sqlQuery(db, "SELECT cancel_booking_by_claim(?)", [tok]);
-  const after = await sqlQuery(db, "SELECT * FROM booking_by_claim(?)", [tok]);
+  await sqlQuery(db, "SELECT cancel_enquiry_by_claim(?)", [tok]);
+  const after = await sqlQuery(db, "SELECT * FROM enquiry_by_claim(?)", [tok]);
   ok("cancelling by the same token removes it", after.length === 0, JSON.stringify(after));
 
 } catch (e) {
