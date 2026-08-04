@@ -121,14 +121,18 @@ const SCHEMA = normalizeSchema({
       columns: [
         { name: "customer_name", type: "text" },
         { name: "message", type: "text" },
-        { name: "claim_token", type: "uuid", default: "gen_random_uuid()" },
+        // `default:"uuid"` is the engine's reserved token → gen_random_uuid()::text.
+        // The column is TEXT, so the function argument is text: declaring the column
+        // `type:"uuid"` silently became TEXT (PG_TYPES has no uuid) and the body then
+        // failed with `operator does not exist: text = uuid`.
+        { name: "claim_token", type: "text", default: "uuid" },
       ],
     },
   ],
   functions: [
-    { name: "enquiry_by_claim", args: [{ name: "tok", type: "uuid" }], returns: "setof enquiries",
+    { name: "enquiry_by_claim", args: [{ name: "tok", type: "text" }], returns: "setof enquiries",
       body: "SELECT * FROM enquiries WHERE claim_token = tok" },
-    { name: "cancel_enquiry_by_claim", args: [{ name: "tok", type: "uuid" }], returns: "void",
+    { name: "cancel_enquiry_by_claim", args: [{ name: "tok", type: "text" }], returns: "void",
       body: "DELETE FROM enquiries WHERE claim_token = tok" },
   ],
 });
@@ -369,14 +373,17 @@ try {
     "SELECT p.proname, p.prosecdef FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace " +
     "WHERE n.nspname='public' AND p.proname IN ('enquiry_by_claim','cancel_enquiry_by_claim') ORDER BY p.proname");
   ok("both declared functions exist in the database", fnRows.length === 2, JSON.stringify(fnRows));
+  // `.every()` ON AN EMPTY ARRAY IS TRUE, so this reported "ok" on the run where
+  // NEITHER function had been created — the most reassuring possible way to say
+  // nothing exists. The length is part of the assertion now.
   ok("and both are SECURITY DEFINER — without it a claim read sees nothing",
-    fnRows.every((r) => r.prosecdef === true), JSON.stringify(fnRows));
+    fnRows.length === 2 && fnRows.every((r) => r.prosecdef === true), JSON.stringify(fnRows));
 
   // EXECUTE has to be granted or the function exists and the Data API answers
   // 404 to it — the publicView failure, one object over.
   const canExec = await sqlQuery(db,
-    "SELECT has_function_privilege('anonymous', 'enquiry_by_claim(uuid)', 'EXECUTE') AS anon, " +
-    "has_function_privilege('authenticated', 'enquiry_by_claim(uuid)', 'EXECUTE') AS auth");
+    "SELECT has_function_privilege('anonymous', 'enquiry_by_claim(text)', 'EXECUTE') AS anon, " +
+    "has_function_privilege('authenticated', 'enquiry_by_claim(text)', 'EXECUTE') AS auth");
   ok("a signed-out visitor may EXECUTE it", canExec[0].anon === true, JSON.stringify(canExec[0]));
   ok("and so may a member", canExec[0].auth === true, JSON.stringify(canExec[0]));
 
@@ -400,7 +407,7 @@ try {
 
   // A wrong token is EMPTY, never an error: a bad link and a cancelled booking
   // must look the same, or the response is an oracle for which tokens exist.
-  const wrongTok = await sqlQuery(db, "SELECT * FROM enquiry_by_claim('00000000-0000-0000-0000-000000000000')");
+  const wrongTok = await sqlQuery(db, "SELECT * FROM enquiry_by_claim('not-a-real-token')");
   ok("a wrong token returns nothing rather than erroring", wrongTok.length === 0, JSON.stringify(wrongTok));
 
   await sqlQuery(db, "SELECT cancel_enquiry_by_claim(?)", [tok]);

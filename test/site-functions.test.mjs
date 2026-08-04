@@ -162,3 +162,28 @@ test("8. a duplicate table name cannot silently destroy the first one", () => {
   // Case-insensitively, because Postgres folds an unquoted identifier and the
   // engine quotes them — "Bookings" and "bookings" are the same object here.
 });
+
+test("9. the tool describes a column the ENGINE can actually create", () => {
+  // The tool description said to declare `claim_token` as type uuid with default
+  // gen_random_uuid(). PG_TYPES HAS NO uuid — an unknown type falls back to TEXT,
+  // silently — and `gen_random_uuid()` is not a reserved default token either, so
+  // it would have been stored as the literal STRING "gen_random_uuid()".
+  //
+  // Measured against a real database: the function body then failed with
+  // `operator does not exist: text = uuid`, and the site got a claim flow whose
+  // lookup could never match. Advertised at the tool layer, impossible at the
+  // engine layer — the same shape as everything else fixed today, written by me
+  // an hour after writing the fix for it.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const i = w.indexOf("const SITE_SCHEMA_TOOL = {");
+  const tool = w.slice(i, w.indexOf("\n};", i));
+  assert.ok(!/type of uuid|type:'uuid'|type: 'uuid'/.test(tool),
+    "the tool tells the model to declare a uuid column, which becomes TEXT");
+  assert.match(tool, /default:'uuid'/, "the tool no longer names the reserved token that actually works");
+
+  // And the engine really does have that token, and really does not have uuid.
+  const eng = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  const types = eng.slice(eng.indexOf("const PG_TYPES = {"), eng.indexOf("};", eng.indexOf("const PG_TYPES = {")));
+  assert.ok(!/\buuid:/.test(types), "PG_TYPES gained uuid — the tool text can be simplified");
+  assert.match(eng, /uuid: "\(gen_random_uuid\(\)::text\)"/, "the reserved default token is gone");
+});

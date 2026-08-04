@@ -2616,8 +2616,10 @@ const SITE_SCHEMA_TOOL = {
         description:
           "OPTIONAL Postgres functions this site needs, called from a page by name. Use one ONLY when a page must do " +
           "something a table's access level cannot express. THE CASE THIS EXISTS FOR: a `collect` table is write-only, so " +
-          "the customer who booked can never see their booking again. Declare a `claim_token` column of type uuid on it " +
-          "with default gen_random_uuid(), plus a function taking that token and returning exactly the matching row — then " +
+          "the customer who booked can never see their booking again. Give it a column " +
+          "{name:'claim_token', type:'text', default:'uuid'} — `default:'uuid'` is the reserved token that fills it with a " +
+          "random uuid, and the column is TEXT, so the function's argument is type 'text' too — plus a function taking that " +
+          "token and returning exactly the matching row, then " +
           "the site can offer a link back to it. Declare a second to cancel by the same token. Skip this entirely for a " +
           "plain contact form, which nobody returns to. Bodies are plain SQL over this site's own tables.",
         items: {
@@ -2627,7 +2629,7 @@ const SITE_SCHEMA_TOOL = {
             name: { type: "string", description: "lowercase identifier, e.g. booking_by_claim" },
             args: {
               type: "array",
-              description: "Arguments. A claim lookup takes one: {name:'tok', type:'uuid'}.",
+              description: "Arguments. A claim lookup takes one: {name:'tok', type:'text'} — the claim_token column is TEXT, so the argument matching it is text, not uuid.",
               items: {
                 type: "object",
                 required: ["name", "type"],
