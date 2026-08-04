@@ -11,6 +11,7 @@ import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMember
 import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_VISITOR_UPLOAD_BYTES } from "./site-uploads.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
+import { makeTrace } from "./builder/trace.mjs";
 import { injectMeta } from "./site-meta.mjs";
 import { drainTeardown } from "./site-teardown.mjs";
 import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
@@ -18,7 +19,7 @@ import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlI
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
-import { publishPages } from "./builder/publish-pages.mjs";
+import { publishPages, pageCredits } from "./builder/publish-pages.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
 import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
 import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis, eoqCalc, breakevenCalc, demandForecast, installmentPlan, taxCalc, commissionCalc } from "./worker-finance.mjs";
@@ -2918,7 +2919,27 @@ async function designSiteSchema(env, brief) {
     throw e;
   }
   const use = (Array.isArray(j.content) ? j.content : []).find((b) => b && b.type === "tool_use");
-  return (use && use.input) || null;
+  // USAGE, WHICH THIS CALL THREW AWAY UNTIL 2026-08-04.
+  //
+  // It returned `use.input` and nothing else, so the only paid step in the build
+  // that was NOT metered was also the only one nobody could measure. It is
+  // billed a flat SITE_BUILD_FEE, and whether that fee is right — and whether
+  // the prompt cache added here is earning its 1.25x write premium or just
+  // paying it — are both questions this field answers and nothing else could.
+  //
+  // THE SAME FOUR KINDS, in the same shape as the pages call directly below, so
+  // `pageCredits` prices it without a second table. Summing them is what
+  // overcharged a warm build by 35% once already.
+  const u = (j && j.usage) || {};
+  return {
+    input: (use && use.input) || null,
+    usage: {
+      in: u.input_tokens || 0,
+      out: u.output_tokens || 0,
+      cacheRead: u.cache_read_input_tokens || 0,
+      cacheWrite: u.cache_creation_input_tokens || 0,
+    },
+  };
 }
 
 
@@ -3105,7 +3126,7 @@ async function siteNeonProject(env, slug) {
 // Provision (or reuse) one site's database, returning its connection string.
 // The ordering and the failure paths live in site-provision.mjs, where they are
 // tested; this supplies the real Neon and Supabase calls.
-async function ensureSiteBackend(env, slug, uid, brief) {
+async function ensureSiteBackend(env, slug, uid, brief, mark) {
   const write = async (table, body) => {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
       method: "POST",
@@ -3133,6 +3154,10 @@ async function ensureSiteBackend(env, slug, uid, brief) {
     // Where a swallowed best-effort failure goes. Without it a site can be a
     // shell and nothing anywhere says why.
     warn: (m) => console.error(m),
+    // Optional. The build route passes its trace so a COLD provision (create the
+    // project, poll, create the database, poll, enable auth, enable the Data
+    // API) is distinguishable from a WARM one, which is a single lookup.
+    mark,
     createProject: (s2) => createSiteProject(env, s2),
     // Identity is Neon's now. Idempotent, and run on the reuse path too —
     // see site-provision.mjs for why enabling only at creation is a trap.
@@ -3204,6 +3229,7 @@ async function ensureSiteBackend(env, slug, uid, brief) {
   // an optimisation — the lookup backfills on a miss anyway — so a failure here
   // must not fail a build that has otherwise succeeded.
   await saveRoute(routeDeps(env), slug, conn);
+  mark?.("route");
   return conn;
 }
 
@@ -3642,11 +3668,15 @@ async function fetchSiteFonts(pair) {
 // all? — live in builder/publish-pages.mjs, which takes every side effect as an
 // injected function so they can be driven against fakes in test/publish-pages.test.mjs.
 // This is only the wiring that supplies the real ones.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, family, structure }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, family, structure, mark }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
+  // A face that is not bundled is DOWNLOADED here, before any model call. It is
+  // network time inside what looked like pure setup, and on a build using two
+  // unbundled families it is the whole gap between `og` and the generation.
   const fontFiles = await fetchSiteFonts(fontPair);
+  try { mark?.("fonts"); } catch { /* a trace must never break a build */ }
   const out = await publishPages({
     // Throws on failure, and the route logs it. There is no second attempt to
     // swallow one, so nothing needs logging here.
@@ -5797,13 +5827,20 @@ async function handleRequest(request, env, ctx) {
     // This builds the DATA layer only — the page it publishes describes the
     // model it created. Generating the site itself is the next piece.
     if ((url.pathname === "/api/site/react-build" || url.pathname === "/api/site/build" || url.pathname === "/api/site/react-revise") && request.method === "POST") {
+      // THE TRACE, started BEFORE the auth check rather than after it. `authUser`
+      // is a round trip to GoTrue — a real network call on every build — and
+      // starting the trace below it put that call outside `totalMs` entirely, so
+      // the reported total was not the time the caller actually waited.
+      // Costs two Date.now() calls a step and cannot throw — see builder/trace.mjs.
+      const tr = makeTrace();
       const bu = await authUser(request);
       if (!bu) return UNAUTHED();
       if (!siteDbConfigured(env)) return Response.json({ ok: false, error: "site database not configured", need: "NEON_API_KEY" }, { status: 501 });
       if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, error: "service key not configured" }, { status: 501 });
       if (!env.ANTHROPIC_API_KEY) return Response.json({ ok: false, error: "generator not configured" }, { status: 501 });
-
+      tr.at("auth");
       const body = await request.json().catch(() => ({}));
+      tr.at("body");
       // Revise sends {slug, instruction} for an existing site; build sends
       // {brief}. Re-applying a schema is safe (all its DDL is additive or
       // IF NOT EXISTS), so both take the same path.
@@ -5811,6 +5848,11 @@ async function handleRequest(request, env, ctx) {
 
       // A brief means "design the schema"; an explicit schema skips the model.
       let designed = null;
+      // MEASURED, NOT BILLED ON. The fee stays flat at SITE_BUILD_FEE; this is
+      // what the call actually cost, reported so the two can finally be compared.
+      // Changing what a customer is charged is a pricing decision, not a
+      // side effect of adding a measurement.
+      let schemaUsage = null;
       if (!body.schema) {
         if (!brief) return Response.json({ ok: false, error: "no brief" }, { status: 400 });
         // Charge before the call, refund if it does not produce a usable schema —
@@ -5823,9 +5865,16 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, msg: "Credits check failed — try again in a moment." }, { status: 503 });
         }
         if (!(balanceAfter >= 0)) return Response.json({ ok: false, error: "not enough credits", need: "credits", cost: SITE_BUILD_FEE }, { status: 402 });
+        // The credit gate is a Supabase round trip and it was folded into the
+        // model call's time, which is the one number here nobody should be
+        // guessing about.
+        tr.at("gate");
 
         try {
-          designed = await designSiteSchema(env, brief);
+          const dz = await designSiteSchema(env, brief);
+          designed = dz && dz.input;
+          schemaUsage = (dz && dz.usage) || null;
+          tr.at("design", schemaUsage ? { out: schemaUsage.out, in: schemaUsage.in } : undefined);
         } catch (e) {
           await creditBack(env, bu.id, SITE_BUILD_FEE);
           console.error("schema design failed:", e && (e.detail || e.message));
@@ -5883,12 +5932,19 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ ok: false, msg: "Couldn't check that name just now — try again in a moment." }, { status: 503 });
       }
 
+      // A Supabase round trip, and it was folded into a mark named `normalize`
+      // — which is in-process and instant. A step name that hides a network call
+      // is worse than no step at all: it attributes the wait to the wrong thing.
+      tr.at("owner");
+
       const spec = normalizeSchema(body.schema || designed || {});
+      tr.at("normalize");
       if (!spec.tables.length) return Response.json({ ok: false, error: "schema declares no tables" }, { status: 400 });
 
       let db;
       try {
-        db = await ensureSiteBackend(env, slug, bu.id, brief);
+        db = await ensureSiteBackend(env, slug, bu.id, brief, (n) => tr.at("prov:" + n));
+        tr.at("provision");
       } catch (e) {
         if (e && e.conflict) return Response.json({ ok: false, error: "that name is taken" }, { status: 409 });
         console.error("site provision failed:", slug, e && e.status, e && (e.detail || e.message));
@@ -5913,6 +5969,7 @@ async function handleRequest(request, env, ctx) {
       let made;
       try {
         made = await applySiteSchema(db, spec);
+        tr.at("schema", { tables: (spec.tables || []).length });
       } catch (e) {
         console.error("schema apply failed:", slug, e && (e.detail || e.message));
         return Response.json({ ok: false, error: "could not apply the schema", detail: String(e && (e.detail || e.message)).slice(0, 300) }, { status: 502 });
@@ -5925,6 +5982,7 @@ async function handleRequest(request, env, ctx) {
       let seeded = null;
       try {
         seeded = await seedSiteRows(db, spec, (designed && designed.seed) || body.seed);
+        tr.at("seed");
         if (seeded && Object.keys(seeded.seeded).length) console.log("seeded:", slug, JSON.stringify(seeded.seeded));
         if (seeded && seeded.skipped.length) console.log("seed skipped:", slug, JSON.stringify(seeded.skipped.slice(0, 6)));
       } catch (e) { console.error("seeding failed:", slug, e && (e.detail || e.message)); }
@@ -5961,6 +6019,8 @@ async function handleRequest(request, env, ctx) {
         }
       } catch (e) { console.error("merged schema read failed:", slug, e && e.message); }
 
+      tr.at("merge");
+
       let pages = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
       if (brief && env.SITE_BUILD_CONTAINER && env.SITES_BUCKET) {
         try {
@@ -5981,6 +6041,7 @@ async function handleRequest(request, env, ctx) {
               if (first) ogImage = "https://isibi.ai/u/" + slug + "/" + first.key.split("/").pop();
             }
           } catch (e) { console.error("og image lookup failed:", slug, e && e.message); }
+          tr.at("og");
           pages = await buildAndPublishPages(env, {
             brief: briefForPages({ brief, priorBrief }), spec: pageSpec, slug, brand,
             siteDescription, ogImage,
@@ -5993,6 +6054,7 @@ async function handleRequest(request, env, ctx) {
             family: (designed && designed.family) || (body && body.family) || null,
             structure: (designed && designed.structure) || (body && body.structure) || null,
             auth: request.headers.get("Authorization") || "",
+            mark: (n) => tr.at(n),
           });
         } catch (e) {
           console.error("page generation failed:", slug, (e && (e.detail || e.message)));
@@ -6033,12 +6095,27 @@ async function handleRequest(request, env, ctx) {
           }
         } catch (e) { console.error("placeholder publish failed:", slug, e && e.message); }
       }
+      // SPLIT, not one number. `pages` was the model call, the container compile
+      // and ~20 R2 puts together — the majority of a build's wall clock with no
+      // way to attribute it.
+      tr.at("pages", {
+        credits: pages.cost || 0,
+        genMs: pages.genMs || 0,
+        buildMs: pages.buildMs || 0,
+        tscMs: pages.tscMs || 0,
+        viteMs: pages.viteMs || 0,
+        publishMs: pages.publishMs || 0,
+      });
 
       // `schema` reports the access level chosen per table. It is what makes a
       // build verifiable from outside: a menu must come back `display` and an
       // enquiry form `collect`, and getting that wrong silently is exactly the
       // bug that shipped on 2026-07-27. `page` says which of the two things is
       // actually being served, so a fallback is never mistaken for a built site.
+      const traced = tr.done();
+      // One line, once, so a build's shape is visible in the log too. Bounded to
+      // 900 characters by `line()`.
+      console.log("build trace", slug, traced.totalMs + "ms", "|", tr.line());
       const levels = (pageSpec.tables || spec.tables || []).map((t) => ({ name: t.name, access: t.access }));
       return Response.json({
         ok: true, slug, url: "/s/" + slug + "/", backend: true, brand, tables: made, schema: levels,
@@ -6062,6 +6139,29 @@ async function handleRequest(request, env, ctx) {
         // round went on inferring one TS2344 from its file and column.
         cited: pages.page === "app" || !(pages.cited && pages.cited.length) ? undefined : pages.cited,
         cost: (designed ? SITE_BUILD_FEE : 0) + pages.cost, buildMs: pages.buildMs || undefined,
+        // WHAT THE BUILD ACTUALLY DID, step by step, with the time each took.
+        //
+        // Returned rather than only logged — the lesson `publish-pages.mjs` and
+        // the `stage`/`error`/`cited` fields all learned the hard way. A log
+        // line lives in Cloudflare for a while and is gone; this reaches the
+        // caller, the smoke test, and anyone debugging a slow build.
+        //
+        // Numbers only, by construction: `makeTrace` refuses anything that is
+        // not a finite number, so a connection string cannot end up here.
+        trace: traced.steps,
+        totalMs: traced.totalMs,
+        // THE SCHEMA CALL'S REAL COST, measured for the first time. It is
+        // reported, NOT billed on: the fee stays flat at SITE_BUILD_FEE and
+        // changing what a customer pays is a decision, not a side effect of
+        // adding a measurement. `schemaCredits` is what it would cost if it were
+        // metered the way the pages call is — the two are meant to be compared.
+        schemaUsage: schemaUsage || undefined,
+        schemaCredits: schemaUsage ? pageCredits(schemaUsage) : undefined,
+        schemaFee: designed ? SITE_BUILD_FEE : undefined,
+        // The PAGES call's four token kinds. It is metered on exactly these and
+        // reported only the credit total, so the expensive call was the one
+        // whose cache behaviour could not be seen.
+        pagesUsage: pages.usage || undefined,
       });
     }
 

@@ -425,3 +425,67 @@ test("the build route and the smoke both carry the citation", () => {
   const smoke = fs.readFileSync(new URL("./integration/build-smoke.mjs", import.meta.url), "utf8");
   assert.match(smoke, /d\.cited/, "the smoke does not print it, so it may as well not exist");
 });
+
+// -------------------------------------------------- what the build trace sees
+
+test("the model call, the compile and the publish are timed APART", async () => {
+  // They were one `pages` number in the build trace — the majority of a build's
+  // wall clock with no way to attribute it. `buildMs` already split out the
+  // container; without the other two, "the build took four minutes" could mean
+  // a slow model call or a slow publish and there was no way to tell.
+  const { deps } = harness();
+  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(out.page, "app");
+  for (const k of ["genMs", "buildMs", "publishMs"]) {
+    assert.equal(typeof out[k], "number", `${k} is not reported`);
+    assert.ok(out[k] >= 0, `${k} is not a real duration`);
+  }
+});
+
+test("the pages call's FOUR token kinds survive being priced", async () => {
+  // `charge` collapsed them into a credit total and the breakdown was gone — so
+  // the schema call reported its cache reads and writes while the pages call,
+  // the one that actually costs money, reported a single number. Whether the
+  // ~27k-token cached prefix pays for itself is answerable only from these.
+  const usage = { in: 900, out: 11418, cacheRead: 27000, cacheWrite: 0 };
+  const { deps } = harness({ generate: async () => ({ input: { pages: [good()] }, usage }) });
+  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
+  assert.deepEqual(out.usage, usage);
+  assert.equal(out.cost, pageCredits(usage), "the charge and the breakdown must describe the same call");
+});
+
+test("a build that never publishes still reports what it spent", async () => {
+  // The failing path is the one where the numbers matter most: a compile failure
+  // has already paid for the model call, so genMs and usage have to survive it.
+  const { deps } = harness({ compile: async () => ({ ok: false, stage: "typecheck", error: "index.tsx(3,9): error TS2322" }) });
+  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(out.page, "placeholder");
+  assert.equal(typeof out.genMs, "number");
+  assert.ok(out.usage, "the tokens were spent and the record of them was dropped");
+  assert.equal(out.publishMs, undefined, "nothing was published, so nothing may claim to have been");
+});
+
+test("the container's own split is carried through, on success AND on failure", async () => {
+  // `buildMs` is what the Worker waited for, including reaching the container at
+  // all. These say where the time went INSIDE it, and they answer a different
+  // question: `tsc` grows with the whole kit whether or not a page imports any
+  // of it (4.97s → 8.02s when the charts landed), while `vite` only pays for
+  // what is reachable. One number cannot tell a kit that is getting expensive
+  // from a site that is getting big.
+  const times = { routesMs: 400, tscMs: 8020, viteMs: 5170 };
+  const ok = harness({ compile: async () => ({ ok: true, files: { "index.html": { t: "<x>" } }, ...times }) });
+  const a = await publishPages(ok.deps, { spec: SPEC, slug: "cafe" });
+  for (const k of Object.keys(times)) assert.equal(a[k], times[k], `${k} was dropped`);
+
+  // The failing path matters MORE: a build that died in typecheck still spent
+  // that time, and a slow typecheck is the symptom that says the kit has grown.
+  const bad = harness({ compile: async () => ({ ok: false, stage: "typecheck", error: "index.tsx(3,9): error TS2322", ...times }) });
+  const b = await publishPages(bad.deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(b.page, "placeholder");
+  assert.equal(b.tscMs, times.tscMs, "a failed typecheck reports no duration, which is when it is most wanted");
+
+  // A container that reports nothing must not invent numbers.
+  const quiet = harness();
+  const c = await publishPages(quiet.deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(c.tscMs, undefined);
+});

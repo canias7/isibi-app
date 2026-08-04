@@ -12520,3 +12520,164 @@ report is written, or it reports the zero and then bails. 3 mutants, all caught.
 The misleading `0/3` report was reverted to the last real measurement.
 
 815 unit tests.
+
+---
+
+## The build tells you what it did (2026-08-04)
+
+A build makes ~33 ordered steps across seven systems and reported **one number**
+about the journey: `buildMs`, the container's slice of it. Which step was slow,
+whether provisioning was skipped because the project already existed, how the
+schema call compared to the pages call — none of it was visible from outside, and
+none of it is visible from **reading** either: the build reaches the world through
+injected dependencies (`deps.generate`, `deps.compile`, `deps.publish`), which is
+what makes `publishPages` testable and is exactly what stops a static walk of the
+source following the call graph through it. A trace taken at runtime is the only
+complete account.
+
+`builder/trace.mjs` is 60 lines and under four constraints, each of which is the
+thing that would otherwise bite:
+
+- **It can never throw into a build.** Every method swallows — and the
+  constructor did not, so a broken clock took the build down before it had read
+  the request body. Caught by mutation, not by reading. A guarded clock yields
+  `ms 0` rather than losing the step: a step with a wrong duration still answers
+  *did this run*, and a missing step answers it **wrongly**.
+- **It can never carry a secret.** `extra` accepts finite **numbers only** —
+  there is deliberately no way to attach free text, so a connection string with a
+  password in it cannot reach a trace by accident. Anything else is dropped
+  rather than stringified.
+- **It is bounded** — 60 steps, and it says how many it dropped.
+- **It costs two `Date.now()` calls a step.**
+
+**THE SCHEMA CALL'S COST IS MEASURED FOR THE FIRST TIME.** `designSiteSchema` was
+throwing its usage away and is billed a **flat `SITE_BUILD_FEE` of 2 credits** —
+so whether that fee is right, and whether its ~6,800-token cached prefix is
+paying for itself, were both unanswerable. It now returns the same four token
+kinds as the pages call, in the same shape, so `pageCredits` prices it without a
+second table. The response carries `schemaUsage`, `schemaCredits` (what it would
+cost if metered) and `schemaFee` (what was actually charged) side by side.
+
+**Reported, NOT billed on.** The charge is untouched. Changing what a customer
+pays is a pricing decision, not a side effect of adding a measurement — and that
+is asserted by reading the **whole** cost expression, because a substring match
+survives anything appended to the sum, which is precisely how a measurement turns
+into a charge by accident. Proved by mutation: the prefix form let the schema
+cost be added to the bill and passed.
+
+**The reachability guard earned its keep on the first run.** `makeTrace` was
+being *called* in the build route and never imported — a `ReferenceError` on
+every build, shipped by a wiring script whose own assertion was nonsense. Same
+class as `notifyOwnerOfSubmission` having zero callers.
+
+**And the guards themselves needed two rounds.** `>= 6` trace marks with seven
+present survives one being deleted, so the steps are asserted **by name**; and a
+bare `/cache_creation_input_tokens/` matched the pages call *and a comment about
+it*, so it passed while the schema call still discarded its usage — the fifth
+time a source-reading guard in this repo has matched its own prose. It is scoped
+to `designSiteSchema`'s own body now.
+
+`test/trace.test.mjs` (8 tests), **18 mutants, all caught**. `build smoke` prints
+the trace and the schema cost, and asserts only that the steps are *there* — a
+duration is a diagnostic, and a smoke test that fails on a slow step turns a
+measurement into a flake.
+
+**Not yet run against the real thing** — it needs Anthropic credits. The numbers
+arrive on the first green `build smoke` after a top-up.
+
+823 unit tests.
+
+### "Will it tell me everything?" — no, so the three holes got closed (2026-08-04)
+
+The first version reported seven top-level steps, and two of them were still
+single numbers hiding most of the build.
+
+**`pages` was the model call, the container compile and ~20 R2 puts together** —
+the majority of a build's wall clock with no way to attribute it. `buildMs`
+already split out the container; `genMs` and `publishMs` split out the other two,
+so "the build took four minutes" now names which.
+
+**`provision` was six calls behind one number**, and a COLD provision (create the
+Neon project, poll until it exists, create the database, poll again, enable auth,
+enable the Data API) differs from a WARM one — a single Supabase lookup — by tens
+of seconds, with nothing saying which had happened. `site-provision.mjs` takes an
+optional `mark` callback, the same shape as the `warn` it already had. Injected
+rather than returned **because the interesting case is the build that throws half
+way through**: a return value never arrives. A warm build now reads `prov:reuse`
+and a cold one `prov:project · prov:database · prov:auth · prov:data_api ·
+prov:record`.
+
+**The PAGES call reported no token breakdown** — `charge()` priced the four kinds
+and threw them away. So the schema call, which is billed a flat 2 credits,
+reported its cache reads and writes, while the pages call, the one that actually
+costs money, reported a single credit total. `pagesUsage` is returned beside
+`schemaUsage` now, and `build smoke` prints them one above the other.
+
+Two smaller gaps also folded into their neighbours: the credit gate (a Supabase
+round trip that was inside the model call's time) and the merged-schema read plus
+og-image lookup (inside `pages`). Both are marked.
+
+**Closing this found a real hole in the unit tests, unrelated to tracing.** The
+`site-provision` harness had **no `enableData` dep at all**, so `if
+(deps.enableData)` was false in every unit test and the Data API branch — the
+site's entire backend since our own row routes were deleted — ran in none of
+them. That is the branch whose wrong path (`/data_api` for `/data-api`) broke
+every build on 2026-08-04 while the suite stayed green. A fake less capable than
+the real thing hides bugs exactly the way one that is more capable does. The
+harness has it now, plus two tests: auth and the Data API must name the same
+database, and a failed enable must fail the build with `stage:"enable_data_api"`.
+
+831 unit tests. **36 mutants across both rounds, all caught.**
+
+### Every step in the 33 now has a number (2026-08-04)
+
+The owner produced the full 33-step enumeration and asked whether the trace
+covered *that*. It did not — it covered them at the granularity of nine marks,
+and two of those were network calls hiding under names that sound instant.
+
+**What was still folded, and what each was hiding:**
+
+- **`authUser` was outside the trace entirely.** It is a round trip to GoTrue on
+  every build, and the trace started below it — so `totalMs` was not the time the
+  caller waited. The trace starts first now, with an `auth` mark.
+- **The ownership pre-check (step 7) sat inside a mark called `normalize`.** A
+  Supabase read attributed to an in-process function. A step name that hides a
+  network call is worse than no step: it points at the wrong thing.
+- **The KV route write (18)** was the untimed tail of provisioning.
+- **The og-image R2 list (23)** and **the font download (24-25)** were inside
+  `pages`. Fonts are the one that matters — an unbundled face is fetched over the
+  network before any model call, in what reads as pure setup.
+- **The container reported ONE `ms` for `tsr generate` + `tsc` + `vite`.** Those
+  answer different questions: **`tsc` grows with the whole kit** whether or not a
+  page imports any of it (4.97s → 8.02s when the charts and blocks landed), while
+  **`vite` only pays for what is reachable**. One number cannot tell a kit that is
+  getting expensive from a site that is getting big. Split into `routesMs` /
+  `tscMs` / `viteMs`, carried through `publishPages` to the response.
+  **Measured on a real container: routes 753ms · tsc 2792ms · vite 3515ms ·
+  total 7067ms** — so the three account for essentially all of it.
+
+**Two guards fired on my own work and both were right.**
+
+`test/exit-reason.test.mjs` derives subprocess names from `const x = await run(`
+call sites, and collapsing the three into a `timed()` wrapper took that count to
+one. A derivation that stops finding its subjects must go red rather than pass
+vacuously — that is the check working. Widened to accept the wrapper, **plus a
+new assertion that the wrapper still spawns something**, or naming it as a
+subprocess call site would be a lie.
+
+And the new "every exit reports its breakdown" guard caught that `times` was
+declared inside the `try`, so **the catch-all — the exit taken when something
+unexpected happened — was the one exit with no breakdown.** Exactly backwards:
+that is the run somebody is investigating. Hoisted.
+
+**Three mutants survived the first sweep and each was a real hole**: nothing
+proved the container's split reached `out` (source guards checked it was
+*declared* and *reported*, never *carried*); and asserting `...times` is spread
+passes perfectly on a container where all three stay `0`, which two mutants
+proved by putting `tsc` and `vite` back on the bare `run()`. The guard now
+derives the keys from the declaration, requires a `timed("<key>"` call for each,
+and requires the wrapper to assign what it measured — three separate ways to
+report three zeros, all closed.
+
+833 unit tests, `site-build` 38/38 against a real container.
+**48 mutants across three rounds, all caught.**

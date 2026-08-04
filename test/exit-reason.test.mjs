@@ -99,8 +99,17 @@ test("every failure that reports a child process goes through it", () => {
   // whole answer. A guard that fires on correct code gets loosened rather than
   // obeyed, and then it protects nothing.
   const src = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
-  const names = [...src.matchAll(/const (\w+) = await run\(/g)].map((m) => m[1]);
-  assert.ok(names.length >= 3, `only ${names.length} run() call sites found — the scan stopped working`);
+  // `timed()` counts as a spawn: it is the wrapper that records how long each
+  // sub-step took, and it exists because one `ms` for tsr + tsc + vite could not
+  // tell a kit that is getting expensive from a site that is getting big.
+  // Collapsing the three direct calls into it turned this scan up to ONE name and
+  // the guard went red — correctly, since a derivation that stops finding its
+  // subjects must fail rather than pass vacuously. Both spellings are accepted,
+  // and the wrapper is held to actually spawning something.
+  const names = [...src.matchAll(/const (\w+) = await (?:run|timed)\(/g)].map((m) => m[1]);
+  assert.ok(names.length >= 3, `only ${names.length} subprocess call sites found — the scan stopped working`);
+  assert.match(src, /const timed = async \([^)]*\) => \{[\s\S]{0,200}?await run\(/,
+    "timed() no longer spawns anything, so naming it as a subprocess call site is a lie");
 
   const stages = [...src.matchAll(/ok: false, stage: "(\w+)", error: (.+?), ms:/g)];
   assert.ok(stages.length >= 3, `only ${stages.length} failing stages found — the scan stopped working`);

@@ -24,9 +24,17 @@ function harness(over = {}) {
     dropProject: async () => {},
     saveProject: async () => ({ ok: true }),
     enableAuth: async () => ({ enabled: true }),
+    // THE HARNESS DID NOT HAVE THIS AT ALL, so `if (deps.enableData)` was false
+    // in every unit test and the Data API branch — the site's entire backend
+    // since our row routes were deleted — ran in none of them. A fake less
+    // capable than the real thing hides bugs exactly the way one that is MORE
+    // capable does; the real worker always injects it.
+    enableData: async () => ({ enabled: true }),
     createDatabase: async (_p, slug) => "site_" + slug.replace(/-/g, "_"),
     saveBackend: async () => ({ ok: true }),
   };
+  calls.marks = [];
+  calls.enableData = [];
   const pick = (k) => over[k] || base[k];
   const deps = {
     lookupSite: (s) => { calls.lookupSite++; return pick("lookupSite")(s); },
@@ -40,8 +48,13 @@ function harness(over = {}) {
     // which database auth was being installed into, which is the entire
     // thing it exists to check.
     enableAuth: (p, db) => { calls.enableAuth.push({ project: p && p.neon_project, db }); return pick("enableAuth")(p, db); },
+    enableData: (p, db) => { calls.enableData.push({ project: p && p.neon_project, db }); return pick("enableData")(p, db); },
     createDatabase: (p, s) => { calls.createDatabase.push(s); return pick("createDatabase")(p, s); },
     saveBackend: (s, u, db) => { calls.saveBackend.push({ s, u, db }); return pick("saveBackend")(s, u, db); },
+    // Recorded so the build trace's account of provisioning can be asserted.
+    // Deliberately NOT in `base`: it is an OPTIONAL dep, and a test below runs
+    // with it absent to prove the module does not require it.
+    mark: (n) => calls.marks.push(n),
     connFor: (conn, db) => conn.replace(/\/[^/]*$/, "/" + db),
     dbNameFor: (s) => "site_" + s.replace(/-/g, "_"),
   };
@@ -466,4 +479,59 @@ test("what provisioning WRITES is what the proxy READS", () => {
     assert.match(worker, new RegExp(`VALUES \\('${key}',`), `nothing writes _meta.${key}`);
     assert.match(worker, new RegExp(`siteServiceBase\\(db, "${key}"\\)`), `nothing reads _meta.${key}`);
   }
+});
+
+// -------------------------------------------------- what the build trace sees
+
+test("a WARM provision reports one step and a COLD one reports every call", async () => {
+  // These were one number in the build trace, and they differ by tens of
+  // seconds: a cold provision creates a Neon project, polls until it exists,
+  // creates a database, polls again, then enables auth and the Data API. A warm
+  // one is a single Supabase lookup. "Provisioning took 38 seconds" is only
+  // actionable once you know which of the six calls it was.
+  const warm = harness({ lookupSite: async () => ({ conn: "postgres://u:p@h/site_cafe", uid: "u1" }) });
+  await run(warm.deps);
+  assert.deepEqual(warm.calls.marks, ["reuse"], "a rebuild should not look like a fresh provision");
+
+  const cold = harness({ lookupSite: async () => null, lookupProject: async () => null });
+  await run(cold.deps);
+  assert.deepEqual(cold.calls.marks, ["project", "database", "auth", "data_api", "record"]);
+});
+
+test("mark is OPTIONAL — provisioning must not require a tracer", async () => {
+  // The whole point of injecting it is that a caller who does not want a trace
+  // passes nothing. If that path throws, adding a measurement broke the build.
+  const { deps } = harness({ lookupSite: async () => null, lookupProject: async () => null });
+  delete deps.mark;
+  assert.ok(await run(deps));
+});
+
+test("a mark that THROWS cannot fail a build", async () => {
+  // A tracer is a diagnostic. A build that dies because its own logging threw is
+  // the worst possible trade — the same reason every method of makeTrace
+  // swallows, including (after a mutation caught it) its constructor.
+  const { deps } = harness({ lookupSite: async () => null, lookupProject: async () => null });
+  deps.mark = () => { throw new Error("tracer exploded"); };
+  assert.ok(await run(deps));
+});
+
+test("the Data API is enabled for the same database auth was", async () => {
+  // Now reachable at all, because the harness has the dep. It is FATAL by
+  // design: with our own row routes gone this IS the site's backend, so a build
+  // that could not enable it publishes a site whose every list is empty.
+  const { deps, calls } = harness({ lookupSite: async () => null, lookupProject: async () => null });
+  await run(deps, "cafe");
+  assert.deepEqual(calls.enableData, [{ project: "p1", db: "site_cafe" }]);
+  assert.equal(calls.enableAuth[0].db, calls.enableData[0].db, "auth and the Data API disagreed about the database");
+});
+
+test("a failed Data API enable FAILS the build and names its stage", async () => {
+  const { deps } = harness({
+    lookupSite: async () => null,
+    lookupProject: async () => null,
+    enableData: async () => { throw Object.assign(new Error("nope"), { status: 404, detail: "this route does not exist" }); },
+  });
+  // The exact shape of the 2026-08-04 outage: a wrong path answered 404 and the
+  // failure could not name which of the two enable endpoints it was.
+  await assert.rejects(run(deps), (e) => e.stage === "enable_data_api" && e.status === 404);
 });

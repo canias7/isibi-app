@@ -128,10 +128,30 @@ export async function publishPages(deps, { spec, slug } = {}) {
     try { bd = await deps.compile(pages); }
     catch (e) { bd = { ok: false, stage: "build", error: "the build service is unreachable: " + String((e && e.message) || e).slice(0, 200) }; }
     out.buildMs += Date.now() - t0;
+    // THE CONTAINER'S OWN SPLIT, carried through rather than discarded. `buildMs`
+    // is what the Worker waited for and includes reaching the container at all;
+    // these say where the time went inside it. Kept on the FAILURE path too — a
+    // build that died in typecheck still spent that time, and a slow typecheck is
+    // the symptom that says the kit has grown, not the site.
+    if (bd) for (const k of ["routesMs", "tscMs", "viteMs"]) {
+      if (typeof bd[k] === "number") out[k] = (out[k] || 0) + bd[k];
+    }
     return bd || { ok: false, stage: "build", error: "the build service returned nothing" };
   };
 
+  // THE MODEL CALL, TIMED. It is the slowest single thing in a build and it was
+  // folded into one `pages` number alongside the container compile and ~20 R2
+  // puts, so "the build took four minutes" could not be attributed to any of
+  // them. `buildMs` already splits out the compile; these split out the rest.
+  const tGen = Date.now();
   const gen = await deps.generate();
+  out.genMs = Date.now() - tGen;
+  // THE FOUR TOKEN KINDS, kept rather than collapsed into a credit total.
+  // `charge` prices them and threw the breakdown away — so the SCHEMA call
+  // reported its cache-read and cache-write counts while the pages call, the one
+  // that actually costs money, reported a single number. Whether PAGE_RULES's
+  // ~27k-token cached prefix is paying for itself is answerable only from these.
+  out.usage = gen.usage || null;
   await charge(gen);
   const v = validatePages(gen.input);
   if (!v.pages.length) {
@@ -194,7 +214,11 @@ export async function publishPages(deps, { spec, slug } = {}) {
     return out;
   }
 
+  // ~20 R2 puts. Small, but it is the last thing between a compiled bundle and a
+  // live site, and an unexplained gap at the end of a build had nowhere to be.
+  const tPub = Date.now();
   await deps.publish(built.files);
+  out.publishMs = Date.now() - tPub;
   out.page = "app";
   return out;
 }
