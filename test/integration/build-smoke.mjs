@@ -558,9 +558,15 @@ try {
         await pg.waitForTimeout(7000);
 
         const writes = apiCalls.filter((c) => c.method === "POST");
-        ok("submitting the form wrote to the database", writes.length > 0,
+        // NAMED FOR WHAT IT CHECKS. This said "wrote to the database" and only
+        // checked that a POST went OUT — so on the run that found every
+        // submission being refused with 403, the log's first line about the form
+        // was a green tick claiming the write had landed. A name stronger than
+        // its assertion is worse than no assertion: it is a false negative that
+        // reads as evidence.
+        ok("the form sent a submission", writes.length > 0,
           "no POST went out — a required Select with no options is the usual cause: " + JSON.stringify(apiCalls.slice(-4)));
-        ok("the submission was accepted",
+        ok("and the database accepted it",
           writes.length > 0 && writes.every((c) => c.status >= 200 && c.status < 300),
           JSON.stringify(writes));
       }

@@ -202,8 +202,22 @@ try {
               "Key (date, tstzrange(...))=(2026-08-03, [...)) conflicts with existing key.");
           }
           // `Prefer: return=representation` is what makes the row come back, and
-          // it comes back wrapped in an array even for a single insert.
+          // ASKING FOR THE ROW BACK IS REFUSED ON A collect TABLE, and this
+          // stub used to hand it over — which is why this harness passed, all
+          // 23 checks green, while every real generated site answered 403 to
+          // its own customers. Measured live 2026-08-04.
+          //
+          // The mechanism it now mirrors: a `collect` table is granted INSERT
+          // and nothing else, `Prefer: return=representation` makes PostgREST
+          // run `INSERT … RETURNING`, and RETURNING needs SELECT. Postgres
+          // raises 42501 and the whole insert fails — the row is NOT written.
+          //
+          // A fake more permissive than the real thing hides bugs exactly the
+          // way one that is less capable does. Both have now happened here.
           const wants = String(req.headers["prefer"] || "").includes("return=representation");
+          if (wants && table === "appointments") {
+            return pgError(res, 403, "42501", `permission denied for table ${table}`);
+          }
           if (!wants) { res.writeHead(201, { "access-control-allow-origin": "*" }); return res.end(); }
           return send(res, 201, [{ id: 99, ...parsed }]);
         });
@@ -338,8 +352,16 @@ try {
     const afterBody = await page.locator("body").innerText();
     ok("success is reported to the visitor (the Toaster is actually mounted)",
       /we'll call to confirm/i.test(afterBody), afterBody.slice(-400));
-    ok("the form resets after a successful submit",
-      (await page.getByLabel("Your name").inputValue()) === "", "name field still filled");
+    // A CONFIRMATION SCREEN, not a silently-emptied form. This asserted that the
+    // name field went blank, which was the old behaviour only because the
+    // confirmation was gated behind a claim token the insert could never return
+    // — reading that token off the insert is what made every submission 403.
+    // With the gate gone the page always confirms, which is what a customer who
+    // just booked needs to see. A blank form is indistinguishable from one that
+    // never sent.
+    ok("the visitor gets a confirmation screen, not a blank form",
+      /you're booked/i.test(afterBody) && !(await page.getByLabel("Your name").count()),
+      afterBody.slice(-400));
     ok("no runtime error during submit", errors.length === 0, errors.join("\n"));
     await page.context().close();
   }
