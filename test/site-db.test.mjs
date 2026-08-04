@@ -266,3 +266,109 @@ test("a provisioning failure carries its status and its stage out", () => {
   assert.match(branch, /upstream:/, "the route must report the upstream status");
   assert.match(branch, /stage:/, "and which provisioning step failed");
 });
+
+// ── the endpoint a published site is reached through ────────────────────────
+//
+// `saveAuthInfo` and `saveDataInfo` read `.conn` off the row `siteNeonProject`
+// returns. That row has no `conn` column — it has `neon_conn` — so the read was
+// `undefined`, `connForDatabase` threw on `new URL(undefined)`, and the catch
+// around the call swallowed it. Silently, on every build, since the day it was
+// written: NEITHER `auth_info` NOR `data_api` has ever been written to any
+// site's `_meta`, which is every generated site answering 501 no_backend on
+// every read, every form and every sign-in. Measured live 2026-08-04.
+
+test("the save deps read the column the project row actually has", () => {
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
+
+  // Derived at BOTH ends: what the lookup SELECTs, against what the savers read.
+  //
+  // The url is built from ADJACENT string literals — a template literal for the
+  // filter, then a plain string for the select — so a single-literal regex sees
+  // nothing. Same trap the `_users` column sweep hit: match the anchor, then
+  // read forward past the concatenation.
+  const at = src.indexOf("site_project?slug=eq");
+  assert.ok(at > 0, "the project lookup is gone");
+  const sel = src.slice(at, at + 400).match(/select=([a-z_,]+)/);
+  assert.ok(sel, "the project lookup no longer selects named columns");
+  const columns = sel[1].split(",");
+  assert.ok(columns.includes("neon_conn"), `the lookup selects ${sel[1]} — no connection column`);
+
+  for (const dep of ["saveAuthInfo", "saveDataInfo"]) {
+    const i = src.indexOf(dep + ":");
+    assert.ok(i > 0, `${dep} is gone`);
+    const body = src.slice(i, src.indexOf("},", i));
+    assert.match(body, /connForDatabase\(\s*proj\.neon_conn/, `${dep} builds its connection from a column that is not on the row`);
+    assert.ok(!/lookupProject\([^)]*\)\)\.conn\b/.test(body), `${dep} reads .conn, which is undefined`);
+  }
+});
+
+test("a failed endpoint save is logged, not swallowed", () => {
+  // A bare `catch {}` is what let a one-word bug live: it threw on every build
+  // of every site and nothing anywhere said so.
+  const prov = fs.readFileSync(new URL("../site-provision.mjs", import.meta.url), "utf8");
+  for (const dep of ["saveAuthInfo", "saveDataInfo"]) {
+    const i = prov.indexOf("deps." + dep + "(");
+    assert.ok(i > 0, `${dep} is no longer called`);
+    const after = prov.slice(i, i + 240);
+    assert.match(after, /catch \(e\)[^}]*warn/, `${dep}'s failure is swallowed with no log`);
+  }
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(worker, /warn:\s*\(m\)\s*=>\s*console\.error\(m\)/, "the worker supplies no warn, so the log goes nowhere");
+});
+
+test("an already-enabled Data API still returns its url", async () => {
+  // The recovery path. Returning `info: null` meant a site whose first save
+  // failed could never heal, because every rebuild takes this branch — and every
+  // site built before the fix is in exactly that state.
+  const db = await import("../site-db.mjs");
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (u, init) => {
+    calls.push(((init && init.method) || "GET") + " " + String(u));
+    if ((init && init.method) === "POST") {
+      return { ok: false, status: 409, text: async () => JSON.stringify({ message: "already enabled" }) };
+    }
+    return { ok: true, status: 200, text: async () => JSON.stringify({ url: "https://ep-x.apirest.aws.neon.tech/site_x/rest/v1" }) };
+  };
+  try {
+    const r = await db.enableDataApi({ NEON_API_KEY: "k" }, "p", "b", "site_x");
+    assert.equal(r.already, true);
+    assert.ok(r.info && /^https:\/\//.test(r.info.url), "the url must be re-fetched, not left null");
+    assert.ok(calls.some((c) => c.startsWith("GET")), "it never went back for the config");
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test("a re-fetch that fails does not fail the build", () => {
+  // Best-effort on top of best-effort: already-enabled IS success, and a failed
+  // re-read must not turn a working retry into a failed build.
+  const src = fs.readFileSync(new URL("../site-db.mjs", import.meta.url), "utf8");
+  const i = src.indexOf("ALREADY ON: FETCH THE CONFIG");
+  assert.ok(i > 0, "the recovery branch is gone");
+  const branch = src.slice(i, src.indexOf("return { enabled: true, already: true, info };", i));
+  assert.match(branch, /catch\s*\{/, "the re-fetch must not be able to fail the build");
+});
+
+test("a container that answers with no JSON says what it DID answer", () => {
+  // Seven words for every distinct failure: a 500 with a stack trace, a 502 from
+  // the runtime, an OOM kill and an empty 200 all read identically. Reached live
+  // 2026-08-04 on a build whose GENERATION had succeeded, and the response could
+  // not say why the container went quiet.
+  // RAW, not comment-stripped: a naive stripper blanks from the `//` inside
+  // `http://build/build` to the end of that line and loses the anchor entirely.
+  // worker.js is searched raw in this repo for exactly that reason, with
+  // patterns that cannot appear in prose — so the comment beside the fix is
+  // worded to avoid quoting the pattern this asserts against.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const i = src.indexOf("getContainer(env.SITE_BUILD_CONTAINER)");
+  assert.ok(i > 0, "the container call is gone");
+  // Windowed to the END OF THE DEP, not a guessed character count. A 1400-char
+  // window stopped 134 characters short of the thing it asserts — the third time
+  // in this session an assertion sized by luck went red for the wrong reason.
+  const end = src.indexOf("publish:", i);
+  assert.ok(end > i && end - i < 4000, `the compile dep did not close cleanly (${end - i})`);
+  const after = src.slice(i, end);
+  assert.ok(!/r\.json\(\)\s*\.catch/.test(after), "the container's answer is being discarded again");
+  assert.match(after, /await r\.text\(\)/, "the body must be read as text so a non-JSON answer survives");
+  assert.match(after, /r\.status/, "the status is what separates a 500 from an empty 200");
+});

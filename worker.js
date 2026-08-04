@@ -3119,6 +3119,9 @@ async function ensureSiteBackend(env, slug, uid, brief) {
   const conn = await ensureSiteBackendPure({
     lookupSite: (s2) => siteBackendRowFresh(env, s2),
     lookupProject: (s2) => siteNeonProject(env, s2),
+    // Where a swallowed best-effort failure goes. Without it a site can be a
+    // shell and nothing anywhere says why.
+    warn: (m) => console.error(m),
     createProject: (s2) => createSiteProject(env, s2),
     // Identity is Neon's now. Idempotent, and run on the reuse path too —
     // see site-provision.mjs for why enabling only at creation is a trap.
@@ -3127,7 +3130,16 @@ async function ensureSiteBackend(env, slug, uid, brief) {
     // ever read on a request that already holds that connection, and it goes when
     // the site does.
     saveAuthInfo: async (dbName, info) => {
-      const conn = connForDatabase((await lookupProject(slug)).conn, dbName);
+      // `.neon_conn`, NOT `.conn`. `siteNeonProject` returns the raw Supabase row
+      // and there is no `conn` column on it, so this read `undefined`,
+      // `connForDatabase` threw on `new URL(undefined)`, and the catch around
+      // this call swallowed it — silently, on every build, since the day it was
+      // written. Neither `auth_info` nor `data_api` has ever been written to any
+      // site's `_meta`, which is every generated site answering 501 no_backend
+      // on every read, every form and every sign-in. Line ~3080 gets it right.
+      const proj = await lookupProject(slug);
+      if (!proj || !proj.neon_conn) throw new Error("no project connection recorded for " + slug);
+      const conn = connForDatabase(proj.neon_conn, dbName);
       await sqlQuery(conn, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
       await sqlQuery(conn, "INSERT INTO _meta (k,v) VALUES ('auth_info', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
         [JSON.stringify(info).slice(0, 20000)]);
@@ -3149,7 +3161,16 @@ async function ensureSiteBackend(env, slug, uid, brief) {
     // The KEY is what `siteDataBase` reads — `siteServiceBase(db, "data_api")` —
     // so it is spelled once here and once there and a test holds them together.
     saveDataInfo: async (dbName, info) => {
-      const conn = connForDatabase((await lookupProject(slug)).conn, dbName);
+      // `.neon_conn`, NOT `.conn`. `siteNeonProject` returns the raw Supabase row
+      // and there is no `conn` column on it, so this read `undefined`,
+      // `connForDatabase` threw on `new URL(undefined)`, and the catch around
+      // this call swallowed it — silently, on every build, since the day it was
+      // written. Neither `auth_info` nor `data_api` has ever been written to any
+      // site's `_meta`, which is every generated site answering 501 no_backend
+      // on every read, every form and every sign-in. Line ~3080 gets it right.
+      const proj = await lookupProject(slug);
+      if (!proj || !proj.neon_conn) throw new Error("no project connection recorded for " + slug);
+      const conn = connForDatabase(proj.neon_conn, dbName);
       await sqlQuery(conn, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
       await sqlQuery(conn, "INSERT INTO _meta (k,v) VALUES ('data_api', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
         [JSON.stringify(info).slice(0, 20000)]);
@@ -3556,7 +3577,24 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           theme: theme || null,
           fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined }),
       }));
-      return await r.json().catch(() => ({ ok: false, stage: "build", error: "the build service returned no JSON" }));
+      // THE STATUS AND THE BODY, NOT JUST "no JSON". Parsing straight to JSON and
+      // swallowing the failure threw away everything the container said: a 500
+      // with a stack trace, a 502 from
+      // the runtime, an OOM kill and an empty 200 all reported the same seven
+      // words. Measured 2026-08-04 — build smoke reached this branch with a
+      // generation that had SUCCEEDED, and the response could not say why the
+      // container did not answer. Exactly the `detail: "{}"` lesson, a third
+      // layer down; the body is read as TEXT so a non-JSON answer survives.
+      const raw = await r.text().catch(() => "");
+      try { return JSON.parse(raw); }
+      catch {
+        return {
+          ok: false,
+          stage: "build",
+          error: "the build service answered " + r.status + " with " +
+            (raw ? "no JSON: " + raw.slice(0, 300) : "an empty body"),
+        };
+      }
     },
     publish: (dist) => writeSiteDistToR2(env, slug, dist, {
       brand, description: siteDescription, url: "https://isibi.ai/s/" + slug + "/", image: ogImage,

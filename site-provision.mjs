@@ -127,8 +127,15 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
         stage: "enable_auth",
       });
     }
+    // LOGGED, NOT SWALLOWED. Best-effort is right — a site whose auth is ON but
+    // whose endpoint was not written is still recoverable — but a `catch {}` with
+    // no log is how a one-word bug (`.conn` for `.neon_conn`) survived from the
+    // day it was written: it threw on every build of every site, and nothing
+    // anywhere said so. The build still succeeds; somebody can now see why the
+    // site is a shell.
     if (authInfo && authInfo.info && deps.saveAuthInfo) {
-      try { await deps.saveAuthInfo(dbName, authInfo.info); } catch (e) { /* see above */ }
+      try { await deps.saveAuthInfo(dbName, authInfo.info); }
+      catch (e) { deps.warn?.("saveAuthInfo failed for " + slug + ": " + ((e && e.message) || e)); }
     }
   }
 
@@ -147,7 +154,8 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
       });
     }
     if (dataInfo && dataInfo.info && deps.saveDataInfo) {
-      try { await deps.saveDataInfo(dbName, dataInfo.info); } catch (e) { /* best-effort, as above */ }
+      try { await deps.saveDataInfo(dbName, dataInfo.info); }
+      catch (e) { deps.warn?.("saveDataInfo failed for " + slug + ": " + ((e && e.message) || e)); }
     }
   }
 

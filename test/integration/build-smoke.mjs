@@ -156,10 +156,15 @@ try {
     ok("site_backends row written", Array.isArray(rows) && rows.length === 1 && !!rows[0].neon_db, JSON.stringify(rows));
     ok("site is owned by the caller", rows[0] && rows[0].uid === userId);
   }
-  const p = await fetch(`${SUPABASE_URL}/rest/v1/user_site_project?uid=eq.${userId}&select=neon_project`, { headers: svc() });
+  // BY SLUG, from `site_project`. This read `user_site_project?uid=eq.<user>`,
+  // the PER-USER layout that per-site projects replaced on 2026-07-29 — so it
+  // asserted against a table this design stopped writing, and failed on a build
+  // that had provisioned perfectly. The cleanup below drops whatever project it
+  // finds, so reading the wrong table also leaked one project per run.
+  const p = await fetch(`${SUPABASE_URL}/rest/v1/site_project?slug=eq.${slug}&select=neon_project`, { headers: svc() });
   const projs = await p.json().catch(() => []);
   projectId = projs && projs[0] && projs[0].neon_project;
-  ok("a Neon project was provisioned for the user", !!projectId, JSON.stringify(projs));
+  ok("a Neon project was provisioned for this site", !!projectId, JSON.stringify(projs));
 
   // --- the published page -------------------------------------------------
   // `page` says which of the two things was published. The generated app is the

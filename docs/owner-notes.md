@@ -11585,3 +11585,74 @@ assertion sized by a guessed character count is one that fails for the wrong
 reason.
 
 762 unit tests. 6 mutants, all caught, including restoring the live bug.
+
+---
+
+## `.conn` for `.neon_conn` — every generated site was a shell (2026-08-04)
+
+The Neon path fix took build smoke from 6 passing to 22. What was left was three
+unrelated things, and the first is the worst bug found today.
+
+### Every site's backend endpoint was never recorded. On every build. Silently.
+
+`saveAuthInfo` and `saveDataInfo` build their connection from
+`(await lookupProject(slug)).conn`. **`siteNeonProject` returns the raw Supabase
+row, which has `neon_conn` — there is no `conn` column.** So the read was
+`undefined`, `connForDatabase` threw on `new URL(undefined)`, and the `catch {}`
+around the call swallowed it. Line ~3080 of the same file gets it right:
+`connForDatabase(proj.neon_conn, row.neon_db)`.
+
+**Consequence: neither `auth_info` nor `data_api` has ever been written to any
+site's `_meta`.** `siteDataBase` and `siteAuthBase` resolved null, so every read,
+every form and every sign-in on every generated site answered **501 no_backend**.
+With the Worker's own row routes deleted, that IS the site's backend — the sites
+were shells. Three of the five remaining smoke failures, one word, twice.
+
+- **The parser was never the problem.** `siteServiceBase` already tries `url`
+  first and then recurses for any `https://` string, and Neon's enable response
+  is `{"url": "https://…"}` — it would have found it. The row simply was not
+  there. Worth stating because the standing note said the field name was "the one
+  thing not measured against a real project", and that was a red herring.
+- **The silent catch is what let it live.** Best-effort is the right policy — auth
+  being ON is what matters, the note of where it is can be re-fetched — but a
+  `catch {}` with no log means a one-word bug throws on every build of every site
+  and nothing anywhere says so. It logs now.
+- **The "re-fetched by a later build" claim was FALSE.** Both enable functions
+  returned `{already: true, info: null}` on the retry path, and the caller only
+  saves when `info` is present — so a site whose first save failed could never
+  heal, and every site built before today is in exactly that state.
+  `enableDataApi` now GETs the config on that branch, which is what makes the
+  claim true. Best-effort on top of best-effort: already-enabled IS success, and
+  a failed re-read must not fail a working retry.
+
+### The smoke was asserting against a table this design stopped writing
+
+`a Neon project was provisioned` read `user_site_project?uid=eq.<user>` — the
+per-user layout that per-site projects replaced on 2026-07-29. Projects go in
+`site_project` keyed by SLUG. It failed on a build that had provisioned
+perfectly. **And the cleanup drops whatever project that read finds, so pointing
+at the wrong table also leaked one Neon project per run** against a capped quota.
+
+### The container failure said seven words for every distinct cause
+
+`r.json().catch(() => …"no JSON")` discarded everything: a 500 with a stack
+trace, a 502 from the runtime, an OOM kill and an empty 200 all read the same.
+Reached live on a build whose GENERATION had SUCCEEDED — the notes even name the
+four pages the family directive asked for. It reports the status and the body
+now. Third layer this same lesson has been learned at today, after `detail:
+"{}"` and `upstream: null`.
+
+### Three guard failures of my own, all the same shape
+
+**A comment-stripper ate the anchor**: `http://build/build` contains `//`, so
+blanking line comments blanked the line. worker.js is searched RAW here for
+exactly that reason — and the fix is to word the code comment so it does not
+quote the pattern being asserted against, which is the repo's stated rule.
+**A window sized 1400 characters stopped 134 short of its target** — third time
+today an assertion sized by a guessed count went red for a correct change; it is
+windowed to the end of the dep now. **And a select-column scan missed adjacent
+string literals**, the same trap the `_users` sweep hit.
+
+767 unit tests. 5 mutants across the three fixes, all caught, including restoring
+the live `.conn` bug and a half-fix where only one of the two savers was
+corrected.

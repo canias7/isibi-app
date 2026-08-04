@@ -305,7 +305,22 @@ export async function enableDataApi(env, projectId, branchId, dbName) {
         status: e && e.status,
       });
     }
-    return { enabled: true, already: true, info: null };
+    // ALREADY ON: FETCH THE CONFIG RATHER THAN ANSWERING null.
+    //
+    // `info` carries the `url` a published site is reached through, and the
+    // caller only stores it when it is present — so returning null here meant a
+    // site whose first save failed could NEVER recover, because every rebuild
+    // took this branch. The comment in site-provision.mjs already claimed a lost
+    // endpoint "can be re-fetched by a later build"; this is what makes that
+    // true. Every site built before 2026-08-04 needs it: `.conn` for
+    // `.neon_conn` meant the save threw on all of them.
+    //
+    // Best-effort ON TOP of best-effort: already-enabled is success, and a
+    // failure to re-read must not turn a working retry into a failed build.
+    let info = null;
+    try { info = await neonApi(env, `/projects/${projectId}/branches/${branchId}/data-api/${encodeURIComponent(dbName)}`); }
+    catch { /* the endpoint stays unknown until the next build tries again */ }
+    return { enabled: true, already: true, info };
   }
   await waitForProject(env, projectId);
   return { enabled: true, already: false, info };
