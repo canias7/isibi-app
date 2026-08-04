@@ -11890,3 +11890,44 @@ service's own missing file.
 the system knowing something and not saying it — `detail: "{}"`, `upstream: null`,
 `no JSON`, a swallowed `catch {}`, and now a warning written as a comment instead
 of a test. 778 unit tests.
+
+---
+
+## A compile error now quotes the line it points at (2026-08-04)
+
+`build smoke` got to 29/30 and the last failure was:
+
+```
+src/routes/index.tsx(57,25): error TS2344:
+Type 'PublicBooking' does not satisfy the constraint 'Row'.
+```
+
+**And there was no way to see line 57.** The build response carries `stage` and
+`error`; the generated pages are thrown away the moment `publishPages` returns —
+only the eval saves them — so diagnosing a compile failure meant guessing what
+the model wrote. A whole round went on that: reproducing the error locally with a
+probe file to establish that `useRows<T>` constrains `T extends Row` and
+`usePublicRows<T>` does not, therefore the model had called the wrong hook. Which
+is almost certainly right, and I could not name the table it did it on.
+
+`citedLines()` in `builder/publish-pages.mjs` reads the `file(line,col)`
+positions out of the compiler's own message and quotes those source lines back.
+It is the caller's OWN site, so there is nothing to leak, and it is bounded on
+every axis because the input is model-written: four citations, 200 chars each,
+duplicates collapsed, unknown files and out-of-range lines skipped rather than
+guessed at.
+
+**The guard I wrote for it was green before the feature existed.** The first
+draft asserted `/\bcited\b/` against `worker.js` — which already says "cited in
+the" and "uncited" in three unrelated comments about image reference tags. It
+passed while the route was still dropping the field. Now it matches
+`cited:[^\n]*pages\.cited` — the response key and the source of its value on one
+construct, which prose cannot be. Both mutants caught: deleting the wiring, and
+keeping the key while hardcoding `undefined`.
+
+That is the fourth time in this stretch that a source-reading guard matched its
+own explanatory comment. The rule that keeps working: **assert on a construct
+prose cannot contain** — a property access, an assignment, a call — never on a
+word.
+
+782 unit tests.

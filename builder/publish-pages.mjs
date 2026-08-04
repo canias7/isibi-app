@@ -55,6 +55,30 @@ export const pageCredits = (usage) => Math.max(1, Math.ceil(pageCost(usage) / CR
 export const MIN_CREDITS = 8;
 
 /**
+ * The source lines a compiler error points at, so a failure explains itself.
+ *
+ * Bounded on every axis — how many citations, how long a line, how much total —
+ * because this rides in a response and the input is model-written. Unknown files
+ * and out-of-range lines are skipped rather than guessed at.
+ */
+export function citedLines(error, pages, max = 4) {
+  const byPath = new Map((pages || []).map((p) => [p.path, String(p.source || "").split("\n")]));
+  const out = [];
+  const seen = new Set();
+  for (const m of String(error || "").matchAll(/(?:src\/routes\/)?([\w.$/-]+\.tsx)\((\d+),(\d+)\)/g)) {
+    const key = m[1] + ":" + m[2];
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const lines = byPath.get(m[1]);
+    const line = lines && lines[Number(m[2]) - 1];
+    if (typeof line !== "string") continue;
+    out.push(`${m[1]}:${m[2]}: ${line.trim().slice(0, 200)}`);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/**
  * brief + schema → route files → compile → published dist.
  *
  * Best-effort by design: it runs AFTER the database has been provisioned and the
@@ -157,6 +181,15 @@ export async function publishPages(deps, { spec, slug } = {}) {
   if (!built.ok) {
     out.stage = built.stage;
     out.error = String(built.error || "").slice(0, 400);
+    // THE LINE tsc IS POINTING AT. A compile error names `file(line,col)` and
+    // nothing else, so diagnosing one means guessing what the model wrote — and
+    // the pages are gone the moment this returns, because only the eval saves
+    // them. A whole round was spent inferring `TS2344: Type 'PublicBooking' does
+    // not satisfy the constraint 'Row'` from its file and column alone.
+    //
+    // The source is the caller's OWN site, so there is nothing to leak, and it
+    // is capped hard: the first few citations, one line each.
+    out.cited = citedLines(built.error, v.pages);
     out.notes = [v.notes, "The pages didn't compile, so the site is showing its data model for now — send it again to retry."].filter(Boolean).join(" ");
     return out;
   }

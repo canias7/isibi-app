@@ -11,7 +11,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { publishPages, pageCredits, pageCost, RATES, MIN_CREDITS } from "../builder/publish-pages.mjs";
+import { publishPages, pageCredits, pageCost, citedLines, RATES, MIN_CREDITS } from "../builder/publish-pages.mjs";
 
 const SPEC = {
   tables: [
@@ -382,4 +382,46 @@ test("worker.js injects on index.html and nothing else", async () => {
   assert.match(src, /if \(\/\^index\\\.html\$\/i\.test\(String\(rel\)\)/,
     "the injection must be gated on the filename");
   assert.match(src, /injectMeta\(v\.t, meta\)/);
+});
+
+test("a compile failure quotes the line it points at", () => {
+  // A file and a column number are not a diagnosis. This is the same lesson as
+  // `detail: "{}"`, `upstream: null` and `no JSON`: the system knew something
+  // and threw it away, and a round went on inferring what the model wrote.
+  const pages = [{ path: "index.tsx", source: 'import { useRows } from "@/lib/rows";\nconst q = useRows<PublicBooking>("bookings");\n' }];
+  const cited = citedLines('src/routes/index.tsx(2,20): error TS2344: nope', pages);
+  assert.deepEqual(cited, ['index.tsx:2: const q = useRows<PublicBooking>("bookings");']);
+});
+
+test("a citation never invents a line", () => {
+  const pages = [{ path: "index.tsx", source: "one\ntwo\n" }];
+  assert.deepEqual(citedLines("src/routes/nope.tsx(1,1): error", pages), [], "unknown file");
+  assert.deepEqual(citedLines("src/routes/index.tsx(99,1): error", pages), [], "line past the end");
+  assert.deepEqual(citedLines("no positions here", pages), [], "nothing to cite");
+  assert.deepEqual(citedLines(undefined, undefined), [], "no input at all must not throw");
+});
+
+test("citations are bounded — count, length and duplicates", () => {
+  // This rides in a response and every byte of it is model-written.
+  const long = "x".repeat(500);
+  const pages = [{ path: "index.tsx", source: Array.from({ length: 40 }, () => long).join("\n") }];
+  const err = Array.from({ length: 12 }, (_, i) => `src/routes/index.tsx(${i + 1},1): error`).join("\n");
+  const cited = citedLines(err, pages);
+  assert.equal(cited.length, 4, "at most four citations");
+  for (const c of cited) assert.ok(c.length < 260, `citation is ${c.length} chars`);
+  // The same position twice is one citation, not two.
+  const dupe = citedLines("src/routes/index.tsx(1,1): a\nsrc/routes/index.tsx(1,9): b", pages);
+  assert.equal(dupe.length, 1);
+});
+
+test("the build route and the smoke both carry the citation", () => {
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  // NOT /\bcited\b/. That was the first draft and it passed BEFORE the route
+  // was wired at all: worker.js says "cited in the" and "uncited" in three
+  // unrelated comments about image tags. The guard has to name the response key
+  // AND where its value comes from, on one construct, which prose cannot be.
+  assert.match(worker, /cited:[^\n]*pages\.cited/,
+    "the route drops the citation before it reaches the caller");
+  const smoke = fs.readFileSync(new URL("./integration/build-smoke.mjs", import.meta.url), "utf8");
+  assert.match(smoke, /d\.cited/, "the smoke does not print it, so it may as well not exist");
 });

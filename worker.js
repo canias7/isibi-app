@@ -6017,6 +6017,12 @@ async function handleRequest(request, env, ctx) {
         // here they should not see.
         stage: pages.page === "app" ? undefined : (pages.stage || undefined),
         error: pages.page === "app" ? undefined : (pages.error ? String(pages.error).slice(0, 300) : undefined),
+        // The SOURCE LINES that error points at. `error` is `file(line,col)` and
+        // a message, and the pages themselves are gone the moment the build
+        // returns — only the eval saves them — so a compile failure could only
+        // be diagnosed by guessing what the model wrote at that line. A whole
+        // round went on inferring one TS2344 from its file and column.
+        cited: pages.page === "app" || !(pages.cited && pages.cited.length) ? undefined : pages.cited,
         cost: (designed ? SITE_BUILD_FEE : 0) + pages.cost, buildMs: pages.buildMs || undefined,
       });
     }
