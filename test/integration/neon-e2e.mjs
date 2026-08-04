@@ -123,7 +123,12 @@ try {
 
   console.log("applying the schema…");
   const made = await applySiteSchema(db, SCHEMA);
-  ok("applySiteSchema reports every table", made.length === 3, JSON.stringify(made));
+  // Derived from the fixture, like the idempotence check below. I fixed that one
+  // when adding `bookings` and missed this one, and it failed the whole run for a
+  // reason that had nothing to do with what changed — a number somebody has to
+  // remember is a test that breaks on unrelated work.
+  ok("applySiteSchema reports every table", made.length === SCHEMA.tables.length,
+    `${made.length} of ${SCHEMA.tables.length}: ${JSON.stringify(made)}`);
 
   // --- identity column + text timestamp default ---------------------------
   await sqlQuery(db, 'INSERT INTO "posts" ("title","body","views") VALUES (?,?,?)', ["Hello", "world of postgres", 1]);
