@@ -1,10 +1,14 @@
 // Deciding what actually gets published.
 //
 // This is the part of a build that spends money and chooses what a visitor ends
-// up seeing: whether to pay for a repair pass, whether the repair was an
-// improvement worth keeping, and whether to publish at all. It lived inside
-// worker.js, which cannot be imported, so none of it was ever tested — and it is
-// exactly where a silent bug is expensive rather than merely wrong.
+// up seeing: whether the caller can be billed at all, what the call actually
+// cost, and whether to publish or fall back. It lived inside worker.js, which
+// cannot be imported, so none of it was ever tested — and it is exactly where a
+// silent bug is expensive rather than merely wrong.
+//
+// It used to decide one more thing — whether to pay for a repair pass, and
+// whether that repair was an improvement worth keeping. That is gone; see the
+// note at the call site for the measurement it went on.
 //
 // Everything it touches is injected, the way site-data.mjs takes its database
 // functions, so the real decision logic can be driven against fakes with no
@@ -24,10 +28,6 @@ export const pageCredits = (usedIn, usedOut) =>
 // build. A typical small site spends 10-20.
 export const MIN_CREDITS = 8;
 
-const buildFailureLine = (bd) =>
-  (bd && bd.stage === "typecheck" ? "TypeScript rejected the pages:\n" : "The build failed:\n") +
-  String((bd && bd.error) || "unknown build failure").slice(0, 4000);
-
 /**
  * brief + schema → route files → compile → published dist.
  *
@@ -36,8 +36,11 @@ const buildFailureLine = (bd) =>
  * working backend and a placeholder — a build that half-worked, not one that was
  * lost. The return says which landed, so a fallback is never mistaken for a site.
  *
+ * ONE model call, always. `generate` is called exactly once and its cost is the
+ * build's cost; there is no second attempt to sum or to choose between.
+ *
  * deps:
- *   generate(fix?)  → { input, truncated?, usedIn, usedOut }   the model call
+ *   generate()      → { input, truncated?, usedIn, usedOut }   the model call
  *   compile(pages)  → { ok, files?, error?, stage? }           the build container
  *   publish(dist)   → void                                     write to storage
  *   readCredits()   → number
@@ -64,8 +67,9 @@ export async function publishPages(deps, { spec, slug } = {}) {
     try { await deps.useCredits(c); } catch { /* never fail a build over the ledger */ }
   };
 
-  // Summed rather than last-writer: two attempts really did cost two builds, and
-  // reporting only the second understates what the caller waited for.
+  // `buildMs` is what the caller waited for. It was summed across attempts when
+  // there were two; with one call it is simply that call, and the accumulator is
+  // kept so the field never silently changes meaning if a second one returns.
   const compile = async (pages) => {
     const t0 = Date.now();
     let bd;
@@ -77,38 +81,48 @@ export async function publishPages(deps, { spec, slug } = {}) {
 
   const gen = await deps.generate();
   await charge(gen);
-  let v = validatePages(gen.input);
+  const v = validatePages(gen.input);
   if (!v.pages.length) {
     out.notes = gen.truncated
       ? "The pages came out longer than one pass allows — try a simpler brief."
       : "The generator didn't produce a usable page.";
     return out;
   }
-  let problems = v.problems.concat(lintPages(v.pages, spec));
-  let built = await compile(v.pages);
-
-  // One repair pass, on a compile failure OR on a lint problem. Both matter: a
-  // page that lists a `collect` table typechecks, bundles, and then 403s the
-  // moment a visitor opens it, which is the failure nobody sees before shipping.
-  if (!built.ok || problems.length) {
-    const why = (built.ok ? [] : [buildFailureLine(built)]).concat(problems);
-    let retry = null;
-    try { retry = await deps.generate({ pages: v.pages, problems: why }); }
-    catch { /* the first attempt stands */ }
-    if (retry) {
-      await charge(retry);
-      const v2 = validatePages(retry.input);
-      if (v2.pages.length) {
-        const p2 = v2.problems.concat(lintPages(v2.pages, spec));
-        const b2 = await compile(v2.pages);
-        // Only keep the retry when it is actually BETTER — it compiles where the
-        // first did not, or it compiles with fewer problems left in it. A retry
-        // that merely compiles is not an improvement on one that already did.
-        if (b2.ok && (!built.ok || p2.length < problems.length)) { v = v2; problems = p2; built = b2; }
-      }
-    }
+  // A SITE WITH NO HOME PAGE IS NOT A SITE. `validatePages` only FLAGS a missing
+  // index.tsx — it has no basis for picking which of five pages should be home —
+  // so without this the root URL, the one address a customer actually shares,
+  // renders nothing while the build reports success.
+  //
+  // Not introduced by dropping the repair: the old code retried on this and, if
+  // the retry was no better, published the first attempt exactly as it was. The
+  // repair only made it rarer. Refusing is the honest answer either way, and the
+  // placeholder at least explains itself.
+  if (!v.pages.some((p) => p.path === "index.tsx")) {
+    out.problems = v.problems;
+    out.notes = "The pages came back without a home page, so the site is showing its data model for now — send it again to retry.";
+    return out;
   }
 
+  const problems = v.problems.concat(lintPages(v.pages, spec));
+  const built = await compile(v.pages);
+
+  // THERE IS NO REPAIR PASS. Removed 2026-08-04, owner's call, on the first real
+  // measurement of what a build costs: output is 80% of it, and a repair is a
+  // second whole generation — it does not amend a file, it re-writes every page.
+  // So a failing build cost ~2x a working one at a moment when a working one is
+  // already about break-even against the 22 credits charged for it.
+  //
+  // The measurement that made it defensible: the eval scored 0/3 and all eleven
+  // errors were ONE component call, which is not what a repair is for. A
+  // systematic mismatch is paid for once, in the kit or in the rules, and a
+  // repair pass paying for it again on every build is the expensive way to not
+  // fix it. FIRST-TRY IS NOW THE ONLY RATE THAT MATTERS — if it falls, the fix
+  // is whatever the eval's error column names, not a second call.
+  //
+  // What this costs, stated plainly so it is a decision and not a regression: a
+  // generator miss is now a placeholder immediately. The backend is still live
+  // and a revise re-runs the whole thing, so the recovery is the customer
+  // sending it again rather than us paying to guess twice.
   out.files = v.pages.map((p) => "src/routes/" + p.path);
   out.problems = problems;
   out.notes = v.notes;

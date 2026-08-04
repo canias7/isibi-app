@@ -68,7 +68,11 @@ function harness(over = {}) {
   };
   const pick = (k) => over[k] || base[k];
   const deps = {
-    generate: (fix) => { calls.generate.push(fix || null); return pick("generate")(fix); },
+    // FORWARDED BY SPREAD, not as a named parameter. Written `(fix) => …(fix)`
+    // the wrapper manufactures an `undefined` argument the caller never passed,
+    // so "generate is called with nothing" could never be asserted through it —
+    // a fake less faithful than the real thing, which is how setTotp hid a bug.
+    generate: (...a) => { calls.generate.push(a[0] || null); return pick("generate")(...a); },
     compile: (pages) => { calls.compile.push(pages); return pick("compile")(pages); },
     publish: (dist) => { calls.publish.push(dist); return pick("publish")(dist); },
     readCredits: () => pick("readCredits")(),
@@ -164,117 +168,115 @@ test("no usable page stops before the container", async () => {
   assert.equal(calls.generate.length, 1, "nothing to repair from, so no second call");
 });
 
-test("a compile failure is repaired, and a compiling repair is kept", async () => {
-  let n = 0;
+// ── one call a build ────────────────────────────────────────────────────────
+//
+// The repair pass was removed 2026-08-04. These replace ten tests that drove it
+// — was the retry better, was it billed, did it see the compiler error — and
+// they run the opposite way round: the interesting assertion is now that a
+// SECOND call never happens, on every route that used to trigger one.
+//
+// Worth stating because "no repair" is easy to half-implement: dropping the
+// retry while leaving `generate` a one-argument function, or leaving one branch
+// that still re-asks, would pass a test that only checked the happy path.
+
+test("a compile failure is NOT retried — one call, no publish", async () => {
   const { deps, calls } = harness({
-    generate: async () => gen([good()]),
-    compile: async () => (++n === 1
-      ? { ok: false, stage: "typecheck", error: "src/routes/index.tsx(4,7): error TS2304" }
-      : { ok: true, files: { "index.html": { t: "<fixed>" } } }),
+    compile: async () => ({ ok: false, stage: "typecheck", error: "src/routes/index.tsx(4,7): error TS2304" }),
   });
   const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
-  assert.equal(out.page, "app");
-  assert.equal(calls.generate.length, 2);
-  assert.equal(calls.publish.length, 1);
-  assert.deepEqual(calls.publish[0], { "index.html": { t: "<fixed>" } });
-
-  // The repair pass has to be TOLD what was wrong, or it is just a re-roll.
-  const fix = calls.generate[1];
-  assert.ok(fix && fix.pages.length, "the repair sees what was written last time");
-  assert.ok(fix.problems.some((p) => /TS2304/.test(p)), "and the actual compiler error");
-  assert.ok(fix.problems.some((p) => /TypeScript rejected/.test(p)), "labelled as a typecheck failure, not a generic build failure");
-  assert.equal(out.cost, pageCredits(1000, 1000) * 2, "both calls are billed");
-});
-
-test("a lint problem alone triggers the repair pass", async () => {
-  // This is the whole reason the lint exists: this page compiles. Nothing else
-  // in the pipeline would have caught it before a visitor did.
-  let n = 0;
-  const { deps, calls } = harness({ generate: async () => gen([++n === 1 ? lintsBad() : good()]) });
-  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
-  assert.equal(calls.generate.length, 2, "a compiling page with a lint hit still gets repaired");
-  assert.deepEqual(out.problems, [], "and the clean repair replaces it");
-  assert.equal(out.page, "app");
-
-  const fix = calls.generate[1];
-  assert.ok(fix.problems.some((p) => /collect/.test(p)), "the repair is told the access-level problem");
-  assert.ok(!fix.problems.some((p) => /build failed|TypeScript rejected/.test(p)), "and is not told the build failed, because it did not");
-});
-
-test("a repair with fewer problems is kept", async () => {
-  let n = 0;
-  const { deps } = harness({ generate: async () => gen([++n === 1 ? lintsWorse() : lintsBad()]) });
-  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
-  assert.equal(out.page, "app");
-  assert.equal(out.problems.length, 1, "went from two problems to one, so the retry wins");
-  assert.ok(out.problems.every((p) => !/fetch/.test(p)), "and it is the retry's remaining problem, not the first attempt's");
-});
-
-test("a repair with the same or more problems is rejected", async () => {
-  for (const [first, second, label] of [
-    [lintsBad, lintsBad, "equal"],
-    [lintsBad, lintsWorse, "worse"],
-  ]) {
-    let n = 0;
-    const { deps, calls } = harness({ generate: async () => gen([++n === 1 ? first() : second()]) });
-    const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
-    assert.equal(out.page, "app", label);
-    assert.equal(out.problems.length, 1, `a ${label} retry must not replace the first attempt`);
-    assert.equal(calls.compile.length, 2, "the retry was still built — it is the KEEPING that is refused");
-    assert.deepEqual(calls.publish[0], { "index.html": { t: "<build-1>" } }, `a ${label} retry's build must not be the one published`);
-  }
-});
-
-test("a repair that compiles is kept over one that did not, even with more problems", async () => {
-  // Compiling is the higher bar: a page with a lint hit is published and works
-  // for most visitors; a page that does not compile is not a site at all.
-  let n = 0;
-  const { deps } = harness({
-    generate: async () => gen([++n === 1 ? good() : lintsWorse()]),
-    compile: async () => (n === 1
-      ? { ok: false, stage: "typecheck", error: "TS2304" }
-      : { ok: true, files: { "index.html": { t: "<fixed>" } } }),
-  });
-  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
-  assert.equal(out.page, "app");
-  assert.equal(out.problems.length, 2);
-});
-
-test("both attempts failing publishes nothing", async () => {
-  const { deps, calls } = harness({
-    compile: async () => ({ ok: false, stage: "typecheck", error: "error TS2304: cannot find name 'Foo'" }),
-  });
-  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
-  assert.equal(out.page, "placeholder");
+  assert.equal(calls.generate.length, 1, "a failed compile must not buy a second generation");
+  assert.equal(calls.compile.length, 1);
   assert.equal(calls.publish.length, 0, "a broken dist must never reach storage");
-  assert.equal(calls.compile.length, 2);
+  assert.equal(out.page, "placeholder");
   assert.equal(out.stage, "typecheck");
   assert.match(out.error, /TS2304/);
   assert.match(out.notes, /didn't compile/);
   // Still reports what it tried, so a failed build is debuggable from the response.
   assert.deepEqual(out.files, ["src/routes/index.tsx"]);
-  assert.equal(out.cost, pageCredits(1000, 1000) * 2);
+  assert.equal(out.cost, pageCredits(1000, 1000), "one call, one charge");
 });
 
-test("a repair call that throws leaves the first attempt standing", async () => {
-  let n = 0;
-  const { deps, calls } = harness({
-    generate: async () => { if (++n === 2) throw new Error("anthropic 529"); return gen([lintsBad()]); },
-  });
+test("a lint problem does NOT buy a second call — it ships and says so", async () => {
+  // This page compiles and 403s a visitor, which is exactly what the lint is for.
+  // Before, that bought a repair. Now the problem is REPORTED and the site still
+  // publishes: a page that works for most visitors beats a placeholder, and the
+  // fix for a repeated lint hit belongs in the rules, once, not in every build.
+  const { deps, calls } = harness({ generate: async () => gen([lintsBad()]) });
   const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
-  assert.equal(out.page, "app", "the first attempt compiled, so it still ships");
-  assert.equal(out.problems.length, 1);
-  assert.equal(calls.charges.length, 1, "a call that threw is not billed");
+  assert.equal(calls.generate.length, 1);
+  assert.equal(out.page, "app");
+  assert.equal(out.problems.length, 1, "the problem is surfaced, not silently swallowed");
+  assert.ok(out.problems.some((x) => /collect/.test(x)));
 });
 
-test("a repair that produces nothing usable leaves the first attempt standing", async () => {
-  let n = 0;
-  const { deps, calls } = harness({ generate: async () => (++n === 1 ? gen([lintsBad()]) : gen([], { input: null, truncated: true })) });
+test("a site with no home page is refused, not published", async () => {
+  // A missing index.tsx is a validatePages PROBLEM, not something it repairs —
+  // it cannot know which page should be home. It used to trigger the repair pass;
+  // with that gone, publishing anyway would ship a site whose root URL, the only
+  // address the customer shares, renders nothing.
+  const { deps, calls } = harness({ generate: async () => gen([good("menu.tsx"), good("about.tsx")]) });
+  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(calls.generate.length, 1, "and it does not buy a second call either");
+  assert.equal(calls.compile.length, 0, "there is nothing worth compiling");
+  assert.equal(calls.publish.length, 0);
+  assert.equal(out.page, "placeholder");
+  assert.match(out.notes, /home page/);
+  assert.ok(out.problems.some((x) => /no index\.tsx/.test(x)), "and it says why");
+});
+
+test("an index.tsx among other pages publishes normally", async () => {
+  // The other half of the check above: it must refuse a MISSING home page, not
+  // any multi-page site. Without this, tightening the rule to `pages.length === 1`
+  // would pass the test above and silently refuse every real site.
+  const { deps, calls } = harness({ generate: async () => gen([good("menu.tsx"), good("index.tsx")]) });
   const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
   assert.equal(out.page, "app");
-  assert.equal(out.problems.length, 1);
-  assert.equal(calls.compile.length, 1, "an empty retry is not sent to the container");
-  assert.equal(calls.charges.length, 2, "but it did burn tokens, so it is billed");
+  assert.equal(calls.publish.length, 1);
+  assert.deepEqual(out.files, ["src/routes/menu.tsx", "src/routes/index.tsx"]);
+});
+
+test("generate is called with NOTHING — no fix argument survives", async () => {
+  // Pins the removal at the dep boundary rather than at the branch. A `generate`
+  // that accepts no arguments is what worker.js now supplies, so a leftover
+  // `deps.generate({pages, problems})` anywhere would be a silent no-op here and
+  // a real second call in production.
+  const seen = [];
+  const { deps } = harness({
+    generate: async (...args) => { seen.push(args); return gen([lintsBad()]); },
+    compile: async () => ({ ok: false, stage: "typecheck", error: "TS2304" }),
+  });
+  await publishPages(deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(seen.length, 1, "exactly one generation, on the path that used to retry twice");
+  assert.deepEqual(seen[0], [], "and it is passed no arguments at all");
+});
+
+test("the worst case is one generation and one build", async () => {
+  // The reason the pass went: a failing build used to cost two of the expensive
+  // half. Asserted as a ceiling over every failure mode, so a future branch that
+  // re-asks "just this once" fails here rather than on a bill.
+  for (const compile of [
+    async () => ({ ok: false, stage: "typecheck", error: "TS2304" }),
+    async () => ({ ok: false, stage: "build", error: "vite exploded" }),
+    async () => { throw new Error("container boot timeout"); },
+    async () => null,
+  ]) {
+    const { deps, calls } = harness({ generate: async () => gen([lintsWorse()]), compile });
+    const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
+    assert.equal(calls.generate.length, 1, "one model call, whatever went wrong");
+    assert.equal(calls.charges.length, 1, "and one charge");
+    assert.equal(out.cost, pageCredits(1000, 1000));
+    assert.equal(out.page, "placeholder");
+  }
+});
+
+test("buildMs is the one build the caller waited for", async () => {
+  const { deps } = harness({
+    compile: async () => { const t = Date.now(); while (Date.now() - t < 12) {} return { ok: true, files: {} }; },
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(out.page, "app");
+  assert.ok(out.buildMs >= 12, `a ~12ms build should report >=12ms, got ${out.buildMs}`);
+  assert.ok(out.buildMs < 1000, "and not the sum of a second one that never ran");
 });
 
 test("an unreachable container is a build failure, not a crash", async () => {
@@ -293,18 +295,6 @@ test("a container that answers with nothing is a build failure", async () => {
   assert.equal(out.stage, "build");
 });
 
-test("buildMs sums both attempts", async () => {
-  // Last-writer would report only the second build and understate what the caller
-  // actually waited for — two compiles really did take two compiles.
-  let n = 0;
-  const { deps } = harness({
-    compile: async () => { const t = Date.now(); while (Date.now() - t < 12) {} return ++n === 1 ? { ok: false, stage: "typecheck", error: "TS1" } : { ok: true, files: {} }; },
-  });
-  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
-  assert.equal(out.page, "app");
-  assert.ok(out.buildMs >= 24, `two ~12ms builds should sum to >=24ms, got ${out.buildMs}`);
-});
-
 test("the generator's notes reach the caller", async () => {
   const { deps } = harness({
     generate: async () => ({ input: { pages: [good()], notes: "Left out the booking editor — published sites can't update rows yet." }, usedIn: 10, usedOut: 10 }),
@@ -317,18 +307,6 @@ test("multi-page sites are reported under src/routes", async () => {
   const { deps } = harness({ generate: async () => gen([good("index.tsx"), good("menu.tsx")]) });
   const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
   assert.deepEqual(out.files, ["src/routes/index.tsx", "src/routes/menu.tsx"]);
-});
-
-test("validation problems count toward the repair decision", async () => {
-  // A missing index.tsx is a validatePages problem, not a lint one. Both have to
-  // reach the repair pass or half the defects would ship unrepaired.
-  let n = 0;
-  const { deps, calls } = harness({ generate: async () => gen([++n === 1 ? good("menu.tsx") : good("index.tsx")]) });
-  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
-  assert.equal(calls.generate.length, 2);
-  assert.ok(calls.generate[1].problems.some((p) => /no index\.tsx/.test(p)));
-  assert.deepEqual(out.problems, []);
-  assert.deepEqual(out.files, ["src/routes/index.tsx"]);
 });
 
 test("the published index.html carries the share tags", async () => {

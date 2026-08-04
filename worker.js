@@ -17,7 +17,7 @@ import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
-import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, repairPrompt, briefForPages, pagesRequest, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
+import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, pagesRequest, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
 import { publishPages } from "./builder/publish-pages.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
 import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
@@ -2929,16 +2929,16 @@ async function designSiteSchema(env, brief) {
 // a page can only read a table that already exists in the database, at the access
 // level the database actually granted it.
 //
-// `fix` turns this into the repair pass: same rules, same tool, but the user turn
-// carries what was written last time and everything wrong with it.
-async function generateSitePages(env, brief, spec, brand, fix) {
+// ONE call per build. There is no repair pass — see builder/publish-pages.mjs
+// for the measurement it was removed on.
+async function generateSitePages(env, brief, spec, brand) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
     // One definition, shared with the eval harness — see pagesRequest. Restating
     // it here would mean the harness tunes against a different request from the
     // one production runs.
-    body: JSON.stringify(pagesRequest({ brief, spec, brand, fix })),
+    body: JSON.stringify(pagesRequest({ brief, spec, brand })),
     // No timeout — see designSiteSchema. This is the call it mattered most for:
     // three pages against a 24,000-token ceiling is the one that runs long.
   });
@@ -3518,10 +3518,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
   const fontPair = resolvePair(fonts || {});
   const fontFiles = await fetchSiteFonts(fontPair);
   const out = await publishPages({
-    // A failed repair is swallowed by publishPages (the first attempt stands), so
-    // it is logged here or nowhere. A failed FIRST attempt propagates and is
-    // logged by the route, so logging it here too would only duplicate it.
-    generate: async (fix) => {
+    // Throws on failure, and the route logs it. There is no second attempt to
+    // swallow one, so nothing needs logging here.
+    generate: async () => {
       // The family reaches the model as a DIRECTIVE appended to the brief, not
       // as a bare name: `layoutDirective` is where site-layouts.mjs states the
       // hero, the body and the primary action for that family, and a name on
@@ -3537,9 +3536,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
         ? layoutDirective(family, structure ? { structure } : {})
         : null;
       const withLayout = directive ? `${brief}\n\n${directive}` : brief;
-      if (!fix) return generateSitePages(env, withLayout, spec, brand);
-      try { return await generateSitePages(env, withLayout, spec, brand, fix); }
-      catch (e) { console.error("page repair failed:", slug, (e && (e.detail || e.message))); throw e; }
+      return generateSitePages(env, withLayout, spec, brand);
     },
     compile: async (pages) => {
       const files = {};

@@ -752,18 +752,38 @@ test("the Worker and the eval issue the SAME generation request", () => {
   assert.ok(!/model:\s*"claude-/.test(evalSrc), "the eval must not restate the model");
 });
 
-test("pagesRequest carries the budget, the tool and the repair prompt", () => {
+test("pagesRequest carries the budget and the tool", () => {
   const req = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe" });
   assert.equal(req.model, "claude-sonnet-5");
   assert.equal(req.max_tokens, api.SITE_PAGES_MAX_TOKENS);
   assert.equal(req.tool_choice.name, "write_pages");
   assert.equal(req.tools[0], api.SITE_PAGES_TOOL);
   assert.equal(req.system[0].text, api.PAGE_RULES);
-  // A repair sends a DIFFERENT user turn, or the retry re-reads the original
-  // brief and rewrites the same broken page.
-  const fix = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe", fix: { pages: [{ path: "index.tsx", source: "x" }], problems: ["boom"] } });
-  assert.notEqual(fix.messages[0].content, req.messages[0].content);
-  assert.match(fix.messages[0].content, /boom/);
+  assert.equal(req.messages.length, 1);
+});
+
+test("there is ONE model call a build — nothing can ask for a repair", () => {
+  // The repair pass was removed 2026-08-04 because output is 80% of what a build
+  // costs and a repair is a second whole generation. Held on the SOURCE, because
+  // the ways it comes back are all invisible to a behavioural test: a `fix` key
+  // quietly re-honoured by pagesRequest, or publish-pages calling generate twice.
+  const req = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe", fix: { pages: [{ path: "index.tsx", source: "x" }], problems: ["boom"] } });
+  assert.equal(req.messages[0].content, api.pagesPrompt("a cafe", SPEC, "Cafe"),
+    "a stray fix argument must be inert, not silently revive the repair prompt");
+
+  const gen = fs.readFileSync(new URL("../builder/page-gen.mjs", import.meta.url), "utf8");
+  const request = gen.slice(gen.indexOf("export function pagesRequest"));
+  assert.ok(!/repairPrompt/.test(request.slice(0, request.indexOf("\n}"))),
+    "pagesRequest must not reach for repairPrompt");
+
+  // And the spender. `repairPrompt` still EXISTS, deliberately — it is one
+  // decision away from mattering again — so "is it defined" proves nothing and
+  // the real invariant is that publish-pages calls generate exactly once.
+  const pub = fs.readFileSync(new URL("../builder/publish-pages.mjs", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
+  const calls = pub.match(/deps\.generate\s*\(/g) || [];
+  assert.equal(calls.length, 1, `publish-pages calls generate ${calls.length} times; a build is one call`);
+  assert.ok(!/deps\.generate\s*\(\s*[^)]/.test(pub), "and it passes no fix argument");
 });
 
 test("the system block is cached, and nothing variable is inside it", () => {
