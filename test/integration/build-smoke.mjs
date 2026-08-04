@@ -136,17 +136,24 @@ try {
   // `display` table is granted SELECT only and a `collect` table INSERT only, and
   // Postgres refuses the other direction with 42501, which PostgREST answers 403.
   if (display) {
+    // THE BODY, NOT JUST THE STATUS. `-> 501` and `-> 400` were the entire
+    // report on three failures for a whole day, and each time the reason was
+    // sitting in a response nobody read. The proxy passes the Data API's answer
+    // through as-is, so PostgREST's own `message`/`code`/`hint` is right there.
     const r2 = await fetch(`${BASE}/api/db/${slug}/data/${display.name}?select=*`);
-    ok(`GET ${display.name} (display) is allowed`, r2.status === 200, String(r2.status));
+    const b2 = await r2.text().catch(() => "");
+    ok(`GET ${display.name} (display) is allowed`, r2.status === 200, r2.status + " " + b2.slice(0, 300));
     const w = await fetch(`${BASE}/api/db/${slug}/data/${display.name}`, {
       method: "POST", headers: { "content-type": "application/json" }, body: "{}",
     });
-    ok(`POST ${display.name} (display) is refused`, w.status === 403, String(w.status));
+    ok(`POST ${display.name} (display) is refused`, w.status === 403,
+      w.status + " " + (await w.text().catch(() => "")).slice(0, 300));
   }
   if (collect) {
     const r3 = await fetch(`${BASE}/api/db/${slug}/data/${collect.name}?select=*`);
+    const b3 = await r3.text().catch(() => "");
     ok(`GET ${collect.name} (collect) is refused — submissions are not public`,
-      r3.status === 403, String(r3.status));
+      r3.status === 403, r3.status + " " + b3.slice(0, 300));
   }
 
   // --- the ledger rows ----------------------------------------------------

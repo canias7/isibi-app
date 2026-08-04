@@ -11747,3 +11747,36 @@ running, consider calling start()` — Cloudflare's runtime, not our build code,
 and not something the repo can fix by itself.
 
 768 unit tests.
+
+---
+
+## 25/27, and the 501s became 400s (2026-08-04)
+
+**`_meta holds: auth_info(442), data_api(112), schema(2067)`.** Three keys where
+there had only ever been one. The `ReferenceError` was the whole cause, and the
+diagnostic that found it was worth more than the day of theories before it.
+
+**The 501s are 400s now, and that is progress rather than a sideways move.**
+`no_backend` meant the Worker could not find the site's backend at all; a 400
+means it found it, proxied to the site's own Data API, and PostgREST refused the
+request. Past the wall, into a request-shape problem.
+
+**The container failure ALSO changed, and this one must not be over-claimed.** It
+is no longer `Failed to start container` — it is `The generator didn't produce a
+usable page`, which is `validatePages` rejecting the model's output. The earlier
+container errors (`internal error connecting to the port`, then `not running,
+consider calling start()`) look like transient Cloudflare capacity rather than a
+defect that was fixed. **One clean run does not establish that**, and nothing in
+this repo changed the container.
+
+**The smoke prints the Data API's own error body now.** `-> 501` and `-> 400`
+were the entire report on three failures for a whole day, and both times the
+reason was sitting in a response nobody read. The proxy passes PostgREST's answer
+through as-is, so its `message`/`code`/`hint` is right there for the taking.
+
+**Deliberately NOT guessing at the 400.** The proxy forwards only `content-type`,
+`authorization`, `accept` and `prefer`, and nothing about that is obviously wrong
+for a plain GET — but two theories today (the field name, a cached null) were
+plausible, cheap to state, and both wrong. The body will say it.
+
+Score 25/27, from 6/18 when this started.
