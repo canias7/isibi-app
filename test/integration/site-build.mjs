@@ -302,6 +302,58 @@ try {
   ok("and it is blamed on the excluded file, not the page",
     /chart-bar-label/.test(importsExcluded.error || ""), (importsExcluded.error || "").slice(0, 300));
 
+  // ── the empty state, written the way the model actually writes it ───────────
+  //
+  // MEASURED, not imagined: on 2026-08-04 the page-gen eval scored 0/3, and all
+  // eleven errors in the run were this one call. `DataList` takes
+  // `empty={{title, description}}`, so carrying that shape onto the component
+  // underneath is what a reasonable caller assumes — and shadcn's `Empty` was
+  // compound-only, so every sample failed TS2322 and three sites in a row
+  // published as the placeholder.
+  //
+  // Pinned here rather than left to the eval because the eval costs a real model
+  // call and this costs nothing. BOTH forms are built: the props one is the
+  // regression, and the compound one is what `DataList` itself still renders, so
+  // a "fix" that traded one for the other would pass on half a test.
+  console.log("\nbuilding the empty state both ways…");
+  const EMPTY_PROPS = `import { createFileRoute } from "@tanstack/react-router";
+import { Empty } from "@/components/ui/empty";
+export const Route = createFileRoute("/")({ component: Home });
+function Home() {
+  return <Empty title="No teachers listed yet" description="Check back soon." />;
+}
+`;
+  const EMPTY_COMPOUND = `import { createFileRoute } from "@tanstack/react-router";
+import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "@/components/ui/empty";
+export const Route = createFileRoute("/")({ component: Home });
+function Home() {
+  return (
+    <Empty>
+      <EmptyHeader>
+        <EmptyTitle>No teachers listed yet</EmptyTitle>
+        <EmptyDescription>Check back soon.</EmptyDescription>
+      </EmptyHeader>
+    </Empty>
+  );
+}
+`;
+  const emptyProps = await post({ files: { "index.tsx": EMPTY_PROPS }, slug: "fold-coffee" });
+  ok("<Empty title description /> compiles", emptyProps.ok === true,
+    (emptyProps.stage || "") + ": " + String(emptyProps.error || "").slice(0, 300));
+  // The title must reach the DOM as a heading. A div already has an HTML `title`,
+  // so a version that merely ADDED `description` would compile here and render
+  // the heading as a hover tooltip — passing this check while shipping nothing
+  // the visitor can read. Asserted on the bundle for that reason.
+  if (emptyProps.ok) {
+    const js = Object.entries(emptyProps.files || {})
+      .filter(([k]) => k.endsWith(".js")).map(([, v]) => v.t || "").join("");
+    ok("and the title is rendered, not passed through as a div tooltip",
+      js.includes("empty-title") && js.includes("No teachers listed yet"));
+  }
+  const emptyCompound = await post({ files: { "index.tsx": EMPTY_COMPOUND }, slug: "fold-coffee" });
+  ok("the compound form DataList uses still compiles", emptyCompound.ok === true,
+    (emptyCompound.stage || "") + ": " + String(emptyCompound.error || "").slice(0, 300));
+
   // The typeface, which until 2026-07-30 no generated site had at all: the
   // template declared neither --font-sans nor --font-heading, so every site
   // rendered in whatever the visitor's machine defaulted to.

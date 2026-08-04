@@ -2,7 +2,31 @@ import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
-function Empty({ className, ...props }: React.ComponentProps<"div">) {
+// TITLE AND DESCRIPTION ARE PROPS AS WELL AS CHILDREN, added 2026-08-04.
+// Measured: three of three eval samples wrote `<Empty title description />`
+// and every one failed to compile — eleven TS2322s, the only error class in
+// the run, so the whole site fell back to the placeholder three times over.
+// The model is not guessing wildly: `DataList` takes `empty={{title,
+// description}}`, and carrying that shape onto the component underneath is
+// what a reasonable caller assumes. Same call as the button sizes — a missing
+// prop, not a fork in the design system — so this is ADDITIVE and the compound
+// form is untouched, which is what `DataList` itself still uses.
+//
+// `title` MUST be re-typed rather than merely added. A div already has an HTML
+// `title`, so leaving it alone leaves the call compiling and rendering the
+// heading as a browser TOOLTIP: invisible, and worse than the error.
+function Empty({
+  className,
+  title,
+  description,
+  icon,
+  children,
+  ...props
+}: Omit<React.ComponentProps<"div">, "title"> & {
+  title?: React.ReactNode
+  description?: React.ReactNode
+  icon?: React.ReactNode
+}) {
   return (
     <div
       data-slot="empty"
@@ -11,7 +35,16 @@ function Empty({ className, ...props }: React.ComponentProps<"div">) {
         className
       )}
       {...props}
-    />
+    >
+      {(icon || title || description) && (
+        <EmptyHeader>
+          {icon && <EmptyMedia variant="icon">{icon}</EmptyMedia>}
+          {title && <EmptyTitle>{title}</EmptyTitle>}
+          {description && <EmptyDescription>{description}</EmptyDescription>}
+        </EmptyHeader>
+      )}
+      {children}
+    </div>
   )
 }
 
