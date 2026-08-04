@@ -11318,3 +11318,65 @@ the real thing. It spreads now.
 
 740 unit tests, site-build 36/36, 4 mutants on the one-call and home-page
 guards, all caught.
+
+---
+
+## 3/3, and the next blocker named (2026-08-04)
+
+**The eval came back 3/3, no lint problems, no repairs.** The repair pass was
+buying nothing: it existed to absorb a systematic mismatch, and fixing `Empty`
+absorbed it permanently for the price of twelve lines.
+
+```
+3/3 compiled · 3 with no lint problems
+output 11,458 tok/sample · fresh in 780 · cache read 18,113 · write 9,057
+$0.2136 a sample at list price · comments are 0.0% of the source written
+```
+
+**Real spend roughly halved.** Before, all three samples repaired, so a build was
+~$0.41; now it is $0.2136 and the report says so — the figures used to be printed
+to a job log GitHub deletes after 90 days, which for the number this pipeline is
+now managed by is the wrong place to keep it.
+
+### `build smoke` is red and it is NOT this change
+
+It fails at **`could not provision the database`** — Neon, before page
+generation ever runs. It has been red for twelve consecutive runs, but **the
+reason changed tonight**: the older ones died at `upstream: 400, billing: true`
+(the model account was empty), and with credits in it now gets past that and
+dies one stage later. Progress, not a regression.
+
+**The response said `detail: "{}"` and that was the whole diagnosis.** Two
+separate places threw the reason away, and neither is Neon's fault:
+
+- `neonApi` read the body with `r.json().catch(() => ({}))`, so any non-JSON
+  error — an HTML gateway page, a bare string, an empty 403 — became `{}`. **The
+  most reassuring possible way to say nothing at all**, and the same family as
+  the blank-detector that printed "544 cards · 0 rendered nothing".
+- The route dropped `e.status` entirely. **A dead key (401), a plan or permission
+  limit (403), a project quota (422) and a Neon outage (5xx) are indistinguishable
+  without it**, and every one needs a different fix. Exactly the `upstream: 400`
+  lesson, one layer down — which had been learned and then not applied here.
+
+Both fixed: the body is read as TEXT first and kept whatever it was, the status
+rides out as `upstream`, and the detail is **scrubbed of any connection string**
+because a Neon error can echo the parameters it was handed and those carry a
+password. The smoke test already prints the whole body, so the next run names
+the cause without anyone logging into Neon.
+
+**Our own records are clean** — 0 `site_project`, 0 `site_backends`, nothing
+queued in `neon_teardown` — so it is not our cleanup backing up. That leaves the
+Neon account itself: most likely the **project cap**, which CLAUDE.md has flagged
+as the unverified cost of one-project-per-site since 2026-07-29 (Free/Launch 100,
+and every smoke run makes one). Orphans there are invisible to us by
+construction, which is the whole reason the teardown queue exists.
+
+**A source-reading guard matched its own comment.** The comment above the fix
+quotes `r.json().catch(() => ({}))` in order to explain it, so the scan reported
+the explanation as the defect. Comments are blanked before scanning now — blanked
+rather than deleted, keeping offsets valid, which is the rule this repo reached
+after three separate off-by-region bugs.
+
+745 unit tests. 4 mutants on the diagnosis path, all caught — including one that
+made the scrub over-reach and eat plain text, since a scrub that destroys the
+message defeats the point of preserving it.

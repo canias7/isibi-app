@@ -176,6 +176,26 @@ const shapeOf = (line) => String(line)
   .replace(/'[^']*'/g, "'X'")           // the types vary; the shape does not
   .trim().slice(0, 170);
 
+/**
+ * Writes one sample's pages to docs/auth-audit/pages/<n>/ so the LAST run is
+ * always browsable in the repo. Failures additionally get `_errors.txt`.
+ *
+ * Never throws: a build that ran and cost money must not be lost because the
+ * disk write failed, and the numbers are already in hand by this point.
+ */
+function saveSample(n, stage, pages, errors) {
+  try {
+    const dir = path.join(ROOT, "docs", "auth-audit", "pages", String(n));
+    // Wiped first, or a run that writes FEWER pages than the last one leaves the
+    // previous run's extra route sitting there looking like part of this site —
+    // the same leak `src/routes` is reset for on every container build.
+    fs.mkdirSync(dir, { recursive: true });
+    for (const p of pages) fs.writeFileSync(path.join(dir, p.path.replace(/[/\\]/g, "_")), p.source);
+    fs.writeFileSync(path.join(dir, "_stage.txt"), stage + "\n");
+    if (errors && errors.length) fs.writeFileSync(path.join(dir, "_errors.txt"), errors.join("\n"));
+  } catch (e) { console.error(`could not save sample ${n}:`, e && e.message); }
+}
+
 const results = [];
 const errorCounts = new Map();
 const lintCounts = new Map();
@@ -183,6 +203,13 @@ const lintCounts = new Map();
 try {
   if (!(await startServer())) { console.error("the build service did not come up"); process.exit(1); }
   console.log(`sampling the page generator ${SAMPLES}×, fixed schema, no database\n`);
+
+  // WIPED ONCE, BEFORE ANY SAMPLE. Per-sample would leave sample 4 and 5 behind
+  // when the count drops from five to three, and a stale site sitting beside
+  // this run's is indistinguishable from part of it — the same reason the build
+  // container resets src/routes rather than overwriting into it.
+  try { fs.rmSync(path.join(ROOT, "docs", "auth-audit", "pages"), { recursive: true, force: true }); }
+  catch (e) { console.error("could not clear the previous run's pages:", e && e.message); }
 
   for (let n = 1; n <= SAMPLES; n++) {
     const row = { n, stage: "?", files: [], problems: [], errors: [] };
@@ -204,20 +231,21 @@ try {
       } else {
         row.stage = built.stage || "compile";
         row.errors = String(built.error || "").split("\n").filter((l) => /error TS/.test(l));
-        // Keep the SOURCE of a failing sample. Two rounds were spent inferring
-        // what the model wrote from a filename and a column number, and one of
-        // them is still a guess. A compile error names a position; only the file
-        // says what is actually there.
-        try {
-          const dir = path.join(ROOT, "docs", "auth-audit", "failed", String(n));
-          fs.mkdirSync(dir, { recursive: true });
-          for (const p2 of v.pages) fs.writeFileSync(path.join(dir, p2.path.replace(/[/\\]/g, "_")), p2.source);
-          fs.writeFileSync(path.join(dir, "_errors.txt"), row.errors.join("\n"));
-        } catch (e) { console.error("could not save the failing sample:", e && e.message); }
         for (const e of row.errors) errorCounts.set(shapeOf(e), (errorCounts.get(shapeOf(e)) || 0) + 1);
         console.log(`  ${n}. FAILED ${row.stage}`);
         for (const e of row.errors.slice(0, 5)) console.log(`       ${e}`);
       }
+      // KEEP THE SOURCE OF EVERY SAMPLE, not only the failures.
+      //
+      // It used to save failures alone, for a good reason — two rounds had been
+      // spent inferring what the model wrote from a filename and a column
+      // number. But it left the repo able to show every failure and never a
+      // success, which is the wrong way round for judging whether the generator
+      // is any good: a compile rate says a page typechecked and says nothing
+      // about whether it is a site anybody would want. Compiling is not working
+      // — that is the lesson the grey charts and the crashing message-scroller
+      // both taught, and neither would have been visible in a pass/fail column.
+      saveSample(n, row.stage, v.pages, row.errors);
       for (const p of problems.slice(0, 5)) {
         lintCounts.set(p.slice(0, 120), (lintCounts.get(p.slice(0, 120)) || 0) + 1);
         console.log(`       lint: ${p}`);
@@ -257,6 +285,10 @@ console.log(`\n${compiled.length}/${results.length} compiled · ${clean} with no
 // here because rule 13 asks the model not to write them and an unmeasured rule
 // is a wish: comments were 27% of the example set, output is 5x the price of
 // input, so this is the largest single lever on what a build costs.
+// Computed into a value both the console AND the committed report read. Printed
+// only, it lived in a job log that GitHub deletes after 90 days — and cost is
+// the number this pipeline is now managed by, so it has to survive in the repo.
+let costLines = [];
 const withUsage = results.filter((r) => r.usage);
 if (withUsage.length) {
   const avg = (f) => withUsage.reduce((a, r) => a + f(r.usage), 0) / withUsage.length;
@@ -267,14 +299,15 @@ if (withUsage.length) {
     all += t.length;
     cmt += (t.match(COMMENT_RE) || []).reduce((a, m) => a + m.length, 0);
   }
-  console.log(
-    `\noutput ${Math.round(avg((u) => u.out)).toLocaleString()} tok/sample · ` +
+  costLines = [
+    `output ${Math.round(avg((u) => u.out)).toLocaleString()} tok/sample · ` +
     `fresh in ${Math.round(avg((u) => u.in)).toLocaleString()} · ` +
     `cache read ${Math.round(avg((u) => u.cacheRead)).toLocaleString()} · ` +
-    `write ${Math.round(avg((u) => u.cacheWrite)).toLocaleString()}`
-  );
-  console.log(`$${avg(dollars).toFixed(4)} a sample at list price` +
-    (all ? ` · comments are ${(cmt / all * 100).toFixed(1)}% of the source written` : ""));
+    `write ${Math.round(avg((u) => u.cacheWrite)).toLocaleString()}`,
+    `$${avg(dollars).toFixed(4)} a sample at list price` +
+      (all ? ` · comments are ${(cmt / all * 100).toFixed(1)}% of the source written` : ""),
+  ];
+  console.log("\n" + costLines.join("\n"));
 }
 if (errorCounts.size) {
   console.log("\ndistinct compile errors, most frequent first:");
@@ -295,6 +328,11 @@ try {
     "One call a sample, because a build makes one call: there is no repair pass, so this rate IS what the platform ships.",
     "A single failure is variance; a column of the same error is a mismatch worth fixing.", "",
   ];
+  // OUTPUT IS ~80% OF WHAT A BUILD COSTS, so the compile rate alone measures the
+  // cheaper half. Kept here rather than only on stdout: this is the number the
+  // repair pass was removed on, and comparing it against a run from six weeks
+  // ago is impossible once the job log is gone.
+  if (costLines.length) lines.push("## What it cost", "", ...costLines.map((l) => "- " + l), "");
   if (errorCounts.size) {
     lines.push("## Distinct compile errors", "");
     for (const [shape, count] of [...errorCounts].sort((a, b) => b[1] - a[1])) lines.push(`- **${count}×** \`${shape}\``);
