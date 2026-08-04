@@ -1953,6 +1953,14 @@ or an access level — anything not in the schema below does not exist.
     figures to this site's visitors. Import the primitive and pass it the site's own rows.
     The ${CHART_DOMAIN_COUNT} domain modules and everything they export are listed below.
 
+13. NO EXPLANATORY COMMENTS IN THE PAGES YOU WRITE. The examples above are commented
+    because they are teaching you; the files you return are a customer's website and
+    nobody reads its source. Output costs five times what input costs, and comments are
+    27% of the example set — so a comment is the single most expensive thing here, and
+    it is bought for a reader who does not exist. Write the code. The one exception is a
+    line that stops the next person breaking something non-obvious ("cancelled bookings
+    still hold the slot"); if it only restates what the line under it does, leave it out.
+
 ## Reading rows
 
 \`useRows<T>(table, params)\` → a TanStack Query result whose \`.data\` is the rows.
@@ -2551,8 +2559,19 @@ export function repairPrompt(brief, spec, pages, problems, brand) {
  * when `thinking` is omitted, and max_tokens caps thinking AND the response
  * together, so a budget tight around the files would spend part of itself
  * reasoning and truncate the last one.
+ *
+ * 30,000, RAISED FROM 24,000 ON 2026-08-04 (owner's call), alongside taking the
+ * request's timeout off. Both caps had the same shape of failure and it is the
+ * expensive one: hitting either means the tokens were generated and billed and
+ * the caller gets nothing — a truncated tool_use block is treated as a failed
+ * generation here, correctly, because its last file ends mid-expression.
+ *
+ * It costs nothing to raise. max_tokens is a CEILING, not a reservation: a
+ * three-page site that finishes in 5,000 is billed for 5,000 either way. The
+ * only thing a low ceiling buys is a cheaper failure, and a failure is the
+ * thing we are trying not to have.
  */
-export const SITE_PAGES_MAX_TOKENS = 24000;
+export const SITE_PAGES_MAX_TOKENS = 30000;
 
 /**
  * The exact body the Worker POSTs to the model.

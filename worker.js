@@ -13,7 +13,7 @@ import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { injectMeta } from "./site-meta.mjs";
 import { drainTeardown } from "./site-teardown.mjs";
-import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
+import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
@@ -2816,7 +2816,10 @@ const SITE_SCHEMA_TOOL = {
         // which is what actually makes the choice accurate. ~954 tokens.
         description:
           "The kind of site this is: it decides what the PAGES are, not what they look like. " +
-          "Pick the one whose pages match what this business needs.\n\n" + familiesForPrompt(),
+          "Each line is a family and the trades it covers — match the brief's own words against " +
+          "those trades, and where none is exact pick the family whose trades are nearest. " +
+          "How the pages are then arranged is not your problem here; that is sent to the step " +
+          "that writes them.\n\n" + familiesForPrompt(),
       },
       // The third axis: a family says what the PAGES are, a structure says how one
       // is arranged. `store` on card-grid and `store` on sidebar are the same
@@ -2880,7 +2883,17 @@ async function designSiteSchema(env, brief) {
               "chooses from it will have nothing to choose. Write content a real business would publish." }],
       messages: [{ role: "user", content: brief }],
     }),
-    signal: AbortSignal.timeout(60000),
+    // NO TIMEOUT ON EITHER BUILDER CALL (owner's call, 2026-08-04). A timeout
+    // here does not save anything: the tokens are generated and billed to us
+    // whether or not we are still listening, so cutting the connection means
+    // paying in full and handing the customer a failure. The schema call was
+    // 60s and the page call 240s against a 24,000-token ceiling, which a large
+    // generation goes straight past — so the cap was most likely to fire on
+    // exactly the elaborate site somebody most wanted.
+    //
+    // "No timeout" means the platform's, not none: Cloudflare still bounds the
+    // request, and a genuinely hung upstream ends there rather than hanging on
+    // forever. What changes is that a SLOW answer is now allowed to finish.
   });
   if (!r.ok) {
     const e = new Error("anthropic " + r.status);
@@ -2926,7 +2939,8 @@ async function generateSitePages(env, brief, spec, brand, fix) {
     // it here would mean the harness tunes against a different request from the
     // one production runs.
     body: JSON.stringify(pagesRequest({ brief, spec, brand, fix })),
-    signal: AbortSignal.timeout(240000),
+    // No timeout — see designSiteSchema. This is the call it mattered most for:
+    // three pages against a 24,000-token ceiling is the one that runs long.
   });
   if (!r.ok) {
     const e = new Error("anthropic " + r.status);
@@ -2936,7 +2950,21 @@ async function generateSitePages(env, brief, spec, brand, fix) {
   }
   const j = await r.json();
   const usage = j.usage || {};
-  const used = { usedIn: usage.input_tokens || 0, usedOut: usage.output_tokens || 0 };
+  // CACHED TOKENS ARE REPORTED SEPARATELY AND WERE NOT BEING COUNTED. The
+  // Anthropic API excludes cache hits from `input_tokens` and returns them as
+  // `cache_read_input_tokens` / `cache_creation_input_tokens` — and PAGE_RULES,
+  // the thing cache_control exists for, is ~18,300 tokens. So the meter saw a few
+  // hundred input tokens on a call that really carried nineteen thousand, and on
+  // a COLD cache the creation tokens bill at 1.25x and were invisible.
+  //
+  // Counted at face value rather than reweighted: a credit is 1/8000 of a dollar
+  // of MODEL spend, and pretending a cache read costs a tenth would mean the
+  // ledger tracks a different number from the invoice. Reweighting belongs in the
+  // rate, not in the token count, and today the rate is one number.
+  const used = {
+    usedIn: (usage.input_tokens || 0) + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0),
+    usedOut: usage.output_tokens || 0,
+  };
   // A tool_use block cut off at max_tokens carries half-written JSON, which parses
   // into a page whose last file is truncated. Treat it as a failed generation
   // rather than shipping a file that ends mid-expression.
@@ -3094,6 +3122,28 @@ async function ensureSiteBackend(env, slug, uid, brief) {
       const conn = connForDatabase((await lookupProject(slug)).conn, dbName);
       await sqlQuery(conn, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
       await sqlQuery(conn, "INSERT INTO _meta (k,v) VALUES ('auth_info', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
+        [JSON.stringify(info).slice(0, 20000)]);
+    },
+    // THE DATA API, AND IT WAS THE HALF THAT WAS NEVER PLUGGED IN. `enableDataApi`
+    // was written, documented "FATAL, like enableNeonAuth", and had ZERO callers;
+    // site-provision.mjs was already shaped for it and guards with
+    // `if (deps.enableData)`, so a missing dep was a SILENT skip — a green build
+    // every time. The consequence ran all the way to the visitor: nothing wrote
+    // `_meta.data_api`, so `siteDataBase` resolved null and every read and every
+    // form on every generated site answered 501 no_backend. With the Worker's own
+    // row routes deleted this IS the site's backend, so the site was a shell.
+    //
+    // Eighth instance in this repo of built-tested-on-disk-and-reachable-by-
+    // nothing, and the first one where the guard existed and the dep did not.
+    enableData: (proj) => enableDataApi(env, proj.neon_project, proj.neon_branch),
+    // Same store and same reasoning as the auth endpoint: per-site, read only on
+    // a request that already holds that connection, and gone when the site is.
+    // The KEY is what `siteDataBase` reads — `siteServiceBase(db, "data_api")` —
+    // so it is spelled once here and once there and a test holds them together.
+    saveDataInfo: async (dbName, info) => {
+      const conn = connForDatabase((await lookupProject(slug)).conn, dbName);
+      await sqlQuery(conn, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
+      await sqlQuery(conn, "INSERT INTO _meta (k,v) VALUES ('data_api', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
         [JSON.stringify(info).slice(0, 20000)]);
     },
     dropProject: async (id) => {
