@@ -536,6 +536,35 @@ test("a public projection is typed as having no id, because it has none", () => 
   assert.match(PAGE_RULES, /PublicRow/);
 });
 
+test("no hook constrains its row type to Row, because an interface never satisfies it", () => {
+  // `Row` intersects `Record<string, unknown>`, and an INTERFACE gets no implicit
+  // index signature where a type alias does. So `<T extends Row>` refused this:
+  //
+  //     interface Booking { id: number; starts_at: string }
+  //     useRows<Booking>("bookings")     // TS2344
+  //
+  // Every field present, an `id`, and refused — on a keyword that has nothing to
+  // do with the data. Measured live 2026-08-04 on a real build:
+  // `index.tsx(57,25) TS2344 'PublicBooking'`, page refused, site published as
+  // the placeholder. It also refused a caller who typed only the columns they
+  // render, which is ordinary and honest.
+  //
+  // DERIVED, not a list of four names: it scans every exported hook, so one
+  // added later is covered without anyone remembering this. `Row` stays as the
+  // DEFAULT — that is what makes an unannotated `useRows("menu")` usable.
+  const rows = fs.readFileSync(path.join(TEMPLATE, "src", "lib", "rows.ts"), "utf8");
+  const hooks = [...rows.matchAll(/export function (use\w+)\s*<([^>]*)>\s*\(/g)];
+  assert.ok(hooks.length >= 5, `only ${hooks.length} generic hooks found — the scan stopped working`);
+  const constrained = hooks.filter(([, , params]) => /\bextends\s+Row\b/.test(params));
+  assert.deepEqual(constrained.map(([, name]) => name), [],
+    "these demand a type an interface can never be, so an ordinary row declaration is TS2344");
+  // The positive half: the scan passing on a file with no hooks left proves nothing.
+  for (const h of ["useRows", "useRow", "useCreateRow", "useUpdateRow"]) {
+    assert.match(rows, new RegExp("export function " + h + "<T = Row>"),
+      h + " must still DEFAULT to Row — that is what makes an unannotated call usable");
+  }
+});
+
 test("the schema engine really does refuse id in a projection", () => {
   // The premise the type rests on. If this ever changed, PublicRow would be
   // wrong in the other direction and nothing else would say so.

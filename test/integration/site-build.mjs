@@ -150,13 +150,22 @@ function Home() {
 }
 `;
 
+// DELIBERATELY AN INTERFACE, and that is the point of this page.
+//
+// `useRows` was `<T extends Row = Row>` until 2026-08-04, and `Row` intersects
+// `Record<string, unknown>` — which an interface never satisfies, because only a
+// type alias gets an implicit index signature. So this exact declaration, with
+// every field present and an `id`, was TS2344 and the whole site published as
+// the placeholder. Declaring an interface for a row is the most ordinary thing
+// a TypeScript author does, so the fixture writes one; index.tsx keeps the
+// alias form, and between them both spellings are held.
 const MENU = `import { createFileRoute, Link } from "@tanstack/react-router";
-import { useRows, type Row } from "@/lib/rows";
+import { useRows } from "@/lib/rows";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/menu")({ component: Menu });
 
-type Drink = Row & { name: string; price: number | null; notes: string | null };
+interface Drink { id: number; name: string; price: number | null; notes: string | null }
 
 function Menu() {
   const drinks = useRows<Drink>("drinks", { order: "name", dir: "asc" });

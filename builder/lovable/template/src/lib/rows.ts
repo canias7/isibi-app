@@ -185,8 +185,30 @@ async function send<T>(url: string, init?: RequestInit): Promise<T> {
 /**
  * A table's rows. `data` IS the array — PostgREST answers a list with the array
  * itself, and every list hook here unwraps the same way so none is the odd one out.
+ *
+ * `Row` IS THE DEFAULT AND IS NOT THE CONSTRAINT — this and the three hooks below
+ * were `<T extends Row = Row>` until 2026-08-04, and that constraint refused the
+ * most ordinary thing a TypeScript author writes:
+ *
+ *     interface Booking { id: number; starts_at: string }
+ *     useRows<Booking>("bookings")   // TS2344: does not satisfy 'Row'
+ *
+ * Every field is present and it is still refused, because `Row` intersects
+ * `Record<string, unknown>` and an INTERFACE gets no implicit index signature
+ * where a type alias does. So whether a page compiled turned on a keyword that
+ * has nothing to do with the data. Measured live: a build fell back to the
+ * placeholder on exactly this, `index.tsx(57,25) TS2344 'PublicBooking'`.
+ *
+ * It also refused a caller declaring only the columns they render — honest,
+ * ordinary, and a compile error.
+ *
+ * Nothing here indexes into `T`; it is the shape of what comes back and, in
+ * `useUpdateRow`, of what goes out. The constraint bought the implementation
+ * nothing and cost the caller a page. This is the same fix, for the same reason,
+ * that `usePublicRows` got — see `PublicRow` above. Asking for a table the
+ * visitor may not read is still caught, by the lint, which says so in words.
  */
-export function useRows<T extends Row = Row>(
+export function useRows<T = Row>(
   table: string,
   params?: RowQuery,
   options?: Omit<UseQueryOptions<T[]>, "queryKey" | "queryFn">,
@@ -199,7 +221,7 @@ export function useRows<T extends Row = Row>(
 }
 
 /** One row by id, or null. `undefined` id disables the query. */
-export function useRow<T extends Row = Row>(table: string, id: RowId | undefined) {
+export function useRow<T = Row>(table: string, id: RowId | undefined) {
   return useQuery<T | null>({
     queryKey: ["row", siteSlug(), table, id],
     enabled: id !== undefined && id !== null && id !== "",
@@ -218,7 +240,7 @@ export function useRow<T extends Row = Row>(table: string, id: RowId | undefined
  * arguments and its types are contravariant, so a hand-written annotation is
  * refused even when it looks right.
  */
-export function useCreateRow<T extends Row = Row>(table: string) {
+export function useCreateRow<T = Row>(table: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (values: Record<string, unknown>) =>
@@ -232,11 +254,14 @@ export function useCreateRow<T extends Row = Row>(table: string) {
 }
 
 /** Edit a row. Only reaches rows the site's policies let this member reach. */
-export function useUpdateRow<T extends Row = Row>(table: string) {
+export function useUpdateRow<T = Row>(table: string) {
   const qc = useQueryClient();
   return useMutation({
-    // Omit<Partial<T>, "id"> is required: Partial<T> already carries `id?: number`
-    // from Row, and intersecting narrows RowId straight back to number.
+    // Omit<Partial<T>, "id"> is still required with T unconstrained: whenever T
+    // DOES carry an id — the `Row` default, and any row type a page writes —
+    // `Partial<T>` carries `id?: number` and intersecting narrows RowId straight
+    // back to number, which is the third of the three errors that made every
+    // edit page a placeholder on 2026-07-29.
     mutationFn: ({ id, ...values }: { id: RowId } & Omit<Partial<T>, "id">) =>
       send<T[]>(base(table) + idFilter(id), {
         method: "PATCH",

@@ -11931,3 +11931,52 @@ prose cannot contain** — a property access, an assignment, a call — never on
 word.
 
 782 unit tests.
+
+## An `interface` could not be used to type a row (2026-08-04)
+
+The last `build smoke` failure was `index.tsx(57,25): error TS2344: Type
+'PublicBooking' does not satisfy the constraint 'Row'`. Chasing it found
+something bigger than one page.
+
+`Row` is `Record<string, unknown> & { id: number }`, and it was the CONSTRAINT on
+`useRows`, `useRow`, `useCreateRow` and `useUpdateRow`. **An interface never
+satisfies `Record<string, unknown>`** — only a type alias gets an implicit index
+signature. So this was a compile error:
+
+```ts
+interface Booking { id: number; starts_at: string }
+useRows<Booking>("bookings")        // TS2344
+```
+
+Every field present, an `id`, and refused — on a keyword that has nothing to do
+with the data. Declaring an interface for a row is the most ordinary thing a
+TypeScript author does, and it is what training data is full of. It also refused
+a caller who typed only the columns their page renders, which is honest and
+ordinary too.
+
+**Nothing in those four hooks indexes into `T`.** It is the shape of what comes
+back, and in `useUpdateRow` of what goes out. The constraint bought the
+implementation nothing and cost the caller a whole site — a refused page is a
+placeholder. `Row` stays as the DEFAULT, which is what makes an unannotated
+`useRows("menu")` usable; it is no longer the constraint. Exactly the fix
+`usePublicRows` got on 2026-07-29, for exactly the same reason.
+
+Verified by probe before and after: an interface with an id, an interface with
+no id, a type alias, `PublicRow & {…}`, an interface extending `Row`, the
+untyped default, and all four hooks — 2 of 7 refused before, 7 of 7 compile now.
+
+**Two guards, and the behavioural one is the real check.** `site-build.mjs`'s
+menu fixture is now DELIBERATELY an interface, so a returned constraint fails a
+real `tsc` against the real template; index.tsx keeps the alias form, so both
+spellings are held. Mutation-checked by restoring the constraint —
+`menu.tsx(10,26) TS2344 Type 'Drink' does not satisfy the constraint 'Row'`,
+which is byte-identical in shape to the live failure. The unit guard scans every
+exported hook rather than listing four names, so one added later is covered
+without anyone remembering, and asserts the default separately, since "no hook
+constrains to Row" passes on a file with no hooks. 3 mutants, all caught.
+
+**Not yet proven to be the live cause.** Both candidate shapes produce this exact
+message, and only one of them is systemic. The citation added earlier today will
+say which on the next build — that is what it is for.
+
+783 unit tests, site-build 36/36, site-runtime 23/23.
