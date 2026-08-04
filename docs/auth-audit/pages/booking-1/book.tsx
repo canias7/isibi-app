@@ -33,24 +33,31 @@ export const Route = createFileRoute("/book")({
   }),
 });
 
-type Appointment = Row;
+type Booking = Row;
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm room, a mat, and a class that starts on time.",
+  tagline: "A calm room, a good mat, and a class that starts on time.",
   links: [
     { label: "Home", href: "#/" },
     { label: "Book", href: "#/book" },
-    { label: "Members", href: "#/account" },
+    { label: "The work", href: "#/work" },
+    { label: "Account", href: "#/account" },
   ],
   action: { label: "Book now", href: "#/book" },
 };
 
-const CLASSES = ["Morning Flow", "Vinyasa", "Restorative", "Hot Yoga", "Beginners' Course"];
+const CLASSES = [
+  "Morning Flow",
+  "Power Yoga",
+  "Restorative",
+  "Beginners' Foundations",
+  "Candlelit Yin",
+];
 
-const SLOTS = ["07:00", "09:00", "12:00", "17:30", "18:30", "19:45"];
+const SLOTS = ["07:00", "08:15", "09:30", "12:00", "17:30", "18:45"];
 
-const booking = z.object({
+const bookingSchema = z.object({
   class_name: z.string().min(1, "Pick a class"),
   customer_name: z.string().min(2, "Tell us your name"),
   customer_email: z.string().email("That doesn't look like an email address"),
@@ -58,15 +65,15 @@ const booking = z.object({
   slot_time: z.string().min(1, "Pick a time"),
 });
 
-type Booking = z.infer<typeof booking>;
+type BookingForm = z.infer<typeof bookingSchema>;
 
 function Book() {
   const { service: preselected } = Route.useSearch();
-  const create = useCreateRow<Appointment>("bookings");
-  const [booked, setBooked] = useState<{ class_name: string; slot_date: string; slot_time: string } | null>(null);
+  const create = useCreateRow<Booking>("bookings");
+  const [booked, setBooked] = useState(false);
 
-  const form = useForm<Booking>({
-    resolver: zodResolver(booking),
+  const form = useForm<BookingForm>({
+    resolver: zodResolver(bookingSchema),
     defaultValues: {
       class_name: preselected ?? "",
       customer_name: "",
@@ -76,18 +83,18 @@ function Book() {
     },
   });
 
-  const date = form.watch("slot_date");
+  const slot_date = form.watch("slot_date");
   const taken = usePublicRows<{ slot_date: string; slot_time: string }>(
     "bookings",
-    date ? { slot_date: date } : undefined,
+    slot_date ? { slot_date } : undefined,
   );
 
-  const onSubmit = (values: Booking) => {
+  const onSubmit = (values: BookingForm) => {
     create.mutate(values, {
-      onSuccess: (row) => {
+      onSuccess: () => {
         toast.success("Booked — see you on the mat.");
-        setBooked({ class_name: row.class_name as string, slot_date: row.slot_date as string, slot_time: row.slot_time as string });
         form.reset();
+        setBooked(true);
       },
       onError: (e: Error) => toast.error(e.message),
     });
@@ -99,14 +106,11 @@ function Book() {
         <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
           <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
           <p className="mt-3 text-muted-foreground">
-            {booked.class_name} on {booked.slot_date} at {booked.slot_time}.
+            We've sent a confirmation by email. Need to move it or cancel? Check
+            your inbox for the link.
           </p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            We don't have a way to look this booking up again on this site — keep our
-            confirmation email if you need to change or cancel it.
-          </p>
-          <Button asChild className="mt-6">
-            <Link to="/">Back to the timetable</Link>
+          <Button asChild variant="outline" className="mt-6">
+            <Link to="/">Back to the studio</Link>
           </Button>
         </div>
       </SiteChrome>
@@ -117,7 +121,7 @@ function Book() {
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-2xl px-6 py-14">
         <h1 className="text-3xl font-semibold tracking-tight">Book a class</h1>
-        <p className="mt-2 text-muted-foreground">We'll confirm by email straight away.</p>
+        <p className="mt-2 text-muted-foreground">We'll email to confirm your spot.</p>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -209,7 +213,7 @@ function Book() {
 
             <div className="sm:col-span-2">
               <Button type="submit" className="motion-press" disabled={create.isPending}>
-                {create.isPending ? "Booking…" : "Check availability"}
+                {create.isPending ? "Booking…" : "Book now"}
               </Button>
             </div>
           </form>

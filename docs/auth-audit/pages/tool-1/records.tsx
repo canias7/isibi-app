@@ -5,9 +5,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 
-import { useMember, useRows, useCreateRow, useDeleteRow, type Row } from "@/lib/rows";
+import { useMember, useRows, useCreateRow, type Row } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -16,7 +15,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Empty } from "@/components/ui/empty";
-import { FilterBar } from "@/components/ui/filter-bar";
 import {
   Form,
   FormControl,
@@ -25,93 +23,444 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { Input } from "@/components/ui/input";
-import { BulkActions } from "@/components/ui/bulk-actions";
-import { DataTable } from "@/components/ui/data-table";
-import { StatusBadge } from "@/components/ui/status-badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { TableSearch } from "@/components/ui/table-search";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 
 export const Route = createFileRoute("/records")({ component: Records });
 
 type Deal = Row & { title: string; value: string | null; stage: string | null };
 type Account = Row & { name: string; website: string | null; notes: string | null };
 
-const STAGES = ["lead", "qualified", "proposal", "negotiation", "won", "lost"];
-
-function stageState(stage: string | null): "success" | "warning" | "neutral" | "error" {
-  if (stage === "won") return "success";
-  if (stage === "lost") return "error";
-  if (stage === "negotiation" || stage === "proposal") return "warning";
-  return "neutral";
-}
+const STAGES = ["new", "qualifying", "proposal", "negotiation", "won", "lost"];
 
 const dealSchema = z.object({
   title: z.string().min(2, "Give the deal a name"),
   value: z.string().optional(),
   stage: z.string().min(1, "Pick a stage"),
 });
-
 type DealForm = z.infer<typeof dealSchema>;
+
+const accountSchema = z.object({
+  name: z.string().min(2, "Give the account a name"),
+  website: z.string().optional(),
+  notes: z.string().optional(),
+});
+type AccountForm = z.infer<typeof accountSchema>;
+
+function stageState(stage: string | null): "success" | "warning" | "neutral" | "danger" {
+  if (stage === "won") return "success";
+  if (stage === "lost") return "danger";
+  if (stage === "negotiation" || stage === "proposal") return "warning";
+  return "neutral";
+}
 
 function Records() {
   const member = useMember();
+  const [tab, setTab] = useState<"deals" | "accounts">("deals");
+  const [search, setSearch] = useState("");
+  const [stageFilter, setStageFilter] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [dealOpen, setDealOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+
+  const deals = useRows<Deal>("deals", { order: "id", dir: "desc" });
+  const accounts = useRows<Account>("accounts", { order: "id", dir: "desc" });
+  const createDeal = useCreateRow<Deal>("deals");
+  const createAccount = useCreateRow<Account>("accounts");
+
+  const dealForm = useForm<DealForm>({
+    resolver: zodResolver(dealSchema),
+    defaultValues: { title: "", value: "", stage: "new" },
+  });
+  const accountForm = useForm<AccountForm>({
+    resolver: zodResolver(accountSchema),
+    defaultValues: { name: "", website: "", notes: "" },
+  });
+
+  const filteredDeals = useMemo(() => {
+    let rows = deals.data ?? [];
+    if (stageFilter) rows = rows.filter((d) => d.stage === stageFilter);
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      rows = rows.filter((d) => d.title.toLowerCase().includes(q));
+    }
+    return rows;
+  }, [deals.data, stageFilter, search]);
+
+  const filteredAccounts = useMemo(() => {
+    let rows = accounts.data ?? [];
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      rows = rows.filter(
+        (a) => a.name.toLowerCase().includes(q) || (a.website ?? "").toLowerCase().includes(q),
+      );
+    }
+    return rows;
+  }, [accounts.data, search]);
+
+  const onCreateDeal = (values: DealForm) => {
+    createDeal.mutate(
+      { title: values.title, value: values.value || null, stage: values.stage },
+      {
+        onSuccess: () => {
+          toast.success("Deal added");
+          dealForm.reset();
+          setDealOpen(false);
+        },
+        onError: (e) => toast.error(e.message),
+      },
+    );
+  };
+
+  const onCreateAccount = (values: AccountForm) => {
+    createAccount.mutate(
+      { name: values.name, website: values.website || null, notes: values.notes || null },
+      {
+        onSuccess: () => {
+          toast.success("Account added");
+          accountForm.reset();
+          setAccountOpen(false);
+        },
+        onError: (e) => toast.error(e.message),
+      },
+    );
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  if (member.isPending) {
+    return (
+      <main className="flex min-h-screen items-center justify-center">
+        <p className="text-muted-foreground">Checking your sign-in…</p>
+      </main>
+    );
+  }
+
+  if (!member.data) {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-10 text-center">
+        <p className="text-lg font-semibold tracking-tight">Halyard</p>
+        <h1 className="text-2xl font-semibold tracking-tight">Sign in to see the records</h1>
+        <p className="max-w-sm text-muted-foreground">
+          Deals and accounts are only visible to signed-in members of your team.
+        </p>
+        <Button asChild>
+          <Link to="/">Go to sign in</Link>
+        </Button>
+      </main>
+    );
+  }
 
   return (
     <div className="flex min-h-screen">
-      <aside className="hidden w-56 flex-col gap-1 border-r border-border bg-muted/30 p-4 md:flex">
-        <p className="px-2 text-lg font-semibold tracking-tight">Halyard</p>
-        <nav className="mt-6 flex flex-col gap-1 text-sm">
-          <Link
-            to="/records"
-            className="rounded-md px-2 py-1.5 font-medium bg-accent text-accent-foreground"
+      <aside className="hidden w-56 shrink-0 border-r border-border bg-muted/30 p-4 md:block">
+        <p className="text-lg font-semibold tracking-tight">Halyard</p>
+        <nav className="mt-8 flex flex-col gap-1 text-sm">
+          <button
+            className={`rounded-md px-3 py-2 text-left ${tab === "deals" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+            onClick={() => {
+              setTab("deals");
+              setSelected(new Set());
+            }}
           >
             Deals
-          </Link>
-          <a href="#accounts" className="rounded-md px-2 py-1.5 text-muted-foreground hover:bg-accent">
+          </button>
+          <button
+            className={`rounded-md px-3 py-2 text-left ${tab === "accounts" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+            onClick={() => {
+              setTab("accounts");
+              setSelected(new Set());
+            }}
+          >
             Accounts
-          </a>
-          <a href="#playbook" className="rounded-md px-2 py-1.5 text-muted-foreground hover:bg-accent">
-            Playbook
-          </a>
+          </button>
         </nav>
+        <div className="mt-8 border-t border-border pt-4">
+          <p className="text-xs font-medium text-muted-foreground">Stage</p>
+          <div className="mt-2 flex flex-col gap-1">
+            <button
+              className={`rounded-md px-3 py-1.5 text-left text-sm ${!stageFilter ? "bg-muted font-medium" : "hover:bg-muted"}`}
+              onClick={() => setStageFilter(null)}
+            >
+              All stages
+            </button>
+            {STAGES.map((s) => (
+              <button
+                key={s}
+                className={`rounded-md px-3 py-1.5 text-left text-sm capitalize ${stageFilter === s ? "bg-muted font-medium" : "hover:bg-muted"}`}
+                onClick={() => setStageFilter(s)}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
       </aside>
 
-      <main className="flex-1 p-6 md:p-8">
-        {member.isPending && <Skeleton className="h-40 rounded-xl" />}
+      <main className="flex-1 p-6">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">
+              {tab === "deals" ? "The team's deals" : "Shared accounts"}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {tab === "deals"
+                ? "Every deal the team is working, in one shared table."
+                : "Every account anyone on the team has added."}
+            </p>
+          </div>
 
-        {!member.isPending && !member.data && (
-          <Card className="mx-auto mt-16 max-w-md motion-enter">
-            <CardHeader>
-              <CardTitle>Sign in to see the pipeline</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                Deals, accounts and the playbook are all signed-in only.
+          {tab === "deals" ? (
+            <Dialog open={dealOpen} onOpenChange={setDealOpen}>
+              <DialogTrigger asChild>
+                <Button className="motion-press">New record</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>New deal</DialogTitle>
+                </DialogHeader>
+                <Form {...dealForm}>
+                  <form className="grid gap-4" onSubmit={dealForm.handleSubmit(onCreateDeal)}>
+                    <FormField
+                      control={dealForm.control}
+                      name="title"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Title</FormLabel>
+                          <FormControl>
+                            <Input {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={dealForm.control}
+                      name="value"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Value</FormLabel>
+                          <FormControl>
+                            <Input placeholder="£12,000" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={dealForm.control}
+                      name="stage"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Stage</FormLabel>
+                          <FormControl>
+                            <select
+                              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm capitalize"
+                              {...field}
+                            >
+                              {STAGES.map((s) => (
+                                <option key={s} value={s}>
+                                  {s}
+                                </option>
+                              ))}
+                            </select>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <Button type="submit" className="motion-press" disabled={createDeal.isPending}>
+                      {createDeal.isPending ? "Adding…" : "Add deal"}
+                    </Button>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
+          ) : (
+            <Dialog open={accountOpen} onOpenChange={setAccountOpen}>
+              <DialogTrigger asChild>
+                <Button className="motion-press">New record</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>New account</DialogTitle>
+                </DialogHeader>
+                <Form {...accountForm}>
+                  <form className="grid gap-4" onSubmit={accountForm.handleSubmit(onCreateAccount)}>
+                    <FormField
+                      control={accountForm.control}
+                      name="name"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Name</FormLabel>
+                          <FormControl>
+                            <Input {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={accountForm.control}
+                      name="website"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Website</FormLabel>
+                          <FormControl>
+                            <Input placeholder="https://" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={accountForm.control}
+                      name="notes"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Notes</FormLabel>
+                          <FormControl>
+                            <Textarea rows={3} {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <Button type="submit" className="motion-press" disabled={createAccount.isPending}>
+                      {createAccount.isPending ? "Adding…" : "Add account"}
+                    </Button>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
+          )}
+        </div>
+
+        <div className="mt-6 flex flex-wrap items-center gap-3">
+          <TableSearch
+            value={search}
+            onChange={setSearch}
+            placeholder={tab === "deals" ? "Search deals…" : "Search accounts…"}
+          />
+          {tab === "deals" && (
+            <FilterBar
+              filters={[
+                {
+                  label: "Stage",
+                  value: stageFilter ?? "all",
+                  options: [{ label: "All", value: "all" }, ...STAGES.map((s) => ({ label: s, value: s }))],
+                  onChange: (v) => setStageFilter(v === "all" ? null : v),
+                },
+              ]}
+            />
+          )}
+          {selected.size > 0 && (
+            <BulkActionsBar
+              count={selected.size}
+              onClear={() => setSelected(new Set())}
+            />
+          )}
+        </div>
+
+        {tab === "deals" ? (
+          <div className="mt-6">
+            {deals.isPending && <Skeleton className="h-72 rounded-xl" />}
+            {deals.isError && (
+              <p className="text-sm text-destructive">
+                Couldn't load the deals. Refresh and try again.
               </p>
-              <Button asChild className="mt-4">
-                <Link to="/">Go to sign in</Link>
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-
-        {!member.isPending && member.data && (
-          <div className="space-y-12">
-            <DealsSection />
-            <section id="accounts">
-              <AccountsSection />
-            </section>
-            <section id="playbook">
-              <PlaybookSection role={member.data.role} />
-            </section>
+            )}
+            {!deals.isPending && !deals.isError && filteredDeals.length === 0 && (
+              <Empty
+                title="No deals yet"
+                description="Add the first deal the team is working and it'll show up here for everyone."
+              />
+            )}
+            {!deals.isPending && !deals.isError && filteredDeals.length > 0 && (
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-muted-foreground">
+                    <th className="w-10 py-2"></th>
+                    <th className="py-2 font-medium">Title</th>
+                    <th className="py-2 font-medium">Value</th>
+                    <th className="py-2 font-medium">Stage</th>
+                  </tr>
+                </thead>
+                <tbody className="motion-stagger">
+                  {filteredDeals.map((d) => (
+                    <tr key={d.id} className="border-b border-border last:border-0 hover:bg-muted/40">
+                      <td className="py-2">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(d.id)}
+                          onChange={() => toggleSelect(d.id)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </td>
+                      <td className="py-2">
+                        <Link to="/record" search={{ id: d.id, table: "deals" }} className="underline underline-offset-4">
+                          {d.title}
+                        </Link>
+                      </td>
+                      <td className="py-2">{d.value ?? "—"}</td>
+                      <td className="py-2">
+                        <StatusBadge state={stageState(d.stage)}>{d.stage ?? "new"}</StatusBadge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        ) : (
+          <div className="mt-6">
+            {accounts.isPending && <Skeleton className="h-72 rounded-xl" />}
+            {accounts.isError && (
+              <p className="text-sm text-destructive">
+                Couldn't load the accounts. Refresh and try again.
+              </p>
+            )}
+            {!accounts.isPending && !accounts.isError && filteredAccounts.length === 0 && (
+              <Empty
+                title="No accounts yet"
+                description="Add the first account and everyone on the team will see it."
+              />
+            )}
+            {!accounts.isPending && !accounts.isError && filteredAccounts.length > 0 && (
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-muted-foreground">
+                    <th className="py-2 font-medium">Name</th>
+                    <th className="py-2 font-medium">Website</th>
+                    <th className="py-2 font-medium">Notes</th>
+                  </tr>
+                </thead>
+                <tbody className="motion-stagger">
+                  {filteredAccounts.map((a) => (
+                    <tr key={a.id} className="border-b border-border last:border-0 hover:bg-muted/40">
+                      <td className="py-2">
+                        <Link to="/record" search={{ id: a.id, table: "accounts" }} className="underline underline-offset-4">
+                          {a.name}
+                        </Link>
+                      </td>
+                      <td className="py-2">{a.website ?? "—"}</td>
+                      <td className="max-w-xs truncate py-2 text-muted-foreground">{a.notes ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         )}
       </main>
@@ -119,431 +468,13 @@ function Records() {
   );
 }
 
-function DealsSection() {
-  const deals = useRows<Deal>("deals", { order: "id", dir: "desc" });
-  const create = useCreateRow<Deal>("deals");
-  const del = useDeleteRow("deals");
-  const [query, setQuery] = useState("");
-  const [stageFilter, setStageFilter] = useState<string>("all");
-  const [selected, setSelected] = useState<string[]>([]);
-  const [open, setOpen] = useState(false);
-
-  const form = useForm<DealForm>({
-    resolver: zodResolver(dealSchema),
-    defaultValues: { title: "", value: "", stage: "lead" },
-  });
-
-  const filtered = useMemo(() => {
-    const rows = deals.data ?? [];
-    return rows.filter((d) => {
-      const matchesQuery = query
-        ? d.title.toLowerCase().includes(query.toLowerCase())
-        : true;
-      const matchesStage = stageFilter === "all" ? true : d.stage === stageFilter;
-      return matchesQuery && matchesStage;
-    });
-  }, [deals.data, query, stageFilter]);
-
-  const onSubmit = (values: DealForm) => {
-    create.mutate(values, {
-      onSuccess: () => {
-        toast.success("Deal added");
-        form.reset();
-        setOpen(false);
-      },
-      onError: (e: Error) => toast.error(e.message),
-    });
-  };
-
-  const onBulkDelete = () => {
-    selected.forEach((id) => del.mutate(id));
-    toast.success(`Removed ${selected.length} deal${selected.length === 1 ? "" : "s"}`);
-    setSelected([]);
-  };
-
+function BulkActionsBar({ count, onClear }: { count: number; onClear: () => void }) {
   return (
-    <section>
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">The team's deals</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Everyone on the team reads and edits these — add one, move a stage,
-            or open a record for the detail.
-          </p>
-        </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button className="motion-press">New record</Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>New deal</DialogTitle>
-            </DialogHeader>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4">
-                <FormField
-                  control={form.control}
-                  name="title"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Title</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Acme — annual renewal" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="value"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Value</FormLabel>
-                      <FormControl>
-                        <Input placeholder="£12,000" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="stage"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Stage</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Pick a stage" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {STAGES.map((s) => (
-                            <SelectItem key={s} value={s}>
-                              {s}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button type="submit" className="motion-press" disabled={create.isPending}>
-                  {create.isPending ? "Adding…" : "Add deal"}
-                </Button>
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      <div className="mt-6 flex flex-wrap items-center gap-3">
-        <TableSearch value={query} onChange={setQuery} placeholder="Search deals…" />
-        <FilterBar
-          filters={[
-            {
-              label: "Stage",
-              value: stageFilter,
-              options: [{ label: "All stages", value: "all" }, ...STAGES.map((s) => ({ label: s, value: s }))],
-              onChange: setStageFilter,
-            },
-          ]}
-        />
-      </div>
-
-      {selected.length > 0 && (
-        <BulkActions
-          className="mt-4"
-          count={selected.length}
-          actions={[{ label: "Remove selected", onSelect: onBulkDelete, variant: "destructive" }]}
-          onClear={() => setSelected([])}
-        />
-      )}
-
-      <div className="mt-4">
-        {deals.isPending && <Skeleton className="h-64 rounded-xl" />}
-        {deals.isError && (
-          <p className="text-sm text-destructive">Couldn't load the deals. Refresh and try again.</p>
-        )}
-        {deals.data?.length === 0 && (
-          <Empty
-            title="No deals yet"
-            description="Add the first deal the team is working and it'll show up here."
-          />
-        )}
-        {!!deals.data?.length && filtered.length === 0 && (
-          <Empty title="No matches" description="Try a different search or stage." />
-        )}
-        {filtered.length > 0 && (
-          <DataTable
-            data={filtered}
-            selected={selected}
-            onSelectedChange={setSelected}
-            getRowId={(d) => d.id}
-            columns={[
-              {
-                header: "Title",
-                cell: (d) => (
-                  <Link to="/record" search={{ id: d.id }} className="font-medium hover:underline">
-                    {d.title}
-                  </Link>
-                ),
-              },
-              { header: "Value", cell: (d) => d.value ?? "—" },
-              {
-                header: "Stage",
-                cell: (d) => <StatusBadge state={stageState(d.stage)}>{d.stage ?? "lead"}</StatusBadge>,
-              },
-            ]}
-          />
-        )}
-      </div>
-    </section>
-  );
-}
-
-const accountSchema = z.object({
-  name: z.string().min(2, "Name the account"),
-  website: z.string().optional(),
-  notes: z.string().optional(),
-});
-
-type AccountForm = z.infer<typeof accountSchema>;
-
-function AccountsSection() {
-  const accounts = useRows<Account>("accounts", { order: "id", dir: "desc" });
-  const create = useCreateRow<Account>("accounts");
-  const [open, setOpen] = useState(false);
-
-  const form = useForm<AccountForm>({
-    resolver: zodResolver(accountSchema),
-    defaultValues: { name: "", website: "", notes: "" },
-  });
-
-  const onSubmit = (values: AccountForm) => {
-    create.mutate(values, {
-      onSuccess: () => {
-        toast.success("Account added");
-        form.reset();
-        setOpen(false);
-      },
-      onError: (e: Error) => toast.error(e.message),
-    });
-  };
-
-  return (
-    <div>
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-semibold tracking-tight">Accounts</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Shared across the team — anyone signed in can read and add to this list.
-          </p>
-        </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button variant="outline" className="motion-press">
-              Add account
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>New account</DialogTitle>
-            </DialogHeader>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4">
-                <FormField
-                  control={form.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Name</FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="website"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Website</FormLabel>
-                      <FormControl>
-                        <Input placeholder="https://" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="notes"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Notes</FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button type="submit" className="motion-press" disabled={create.isPending}>
-                  {create.isPending ? "Adding…" : "Add account"}
-                </Button>
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      <div className="mt-4">
-        {accounts.isPending && <Skeleton className="h-40 rounded-xl" />}
-        {accounts.isError && (
-          <p className="text-sm text-destructive">Couldn't load the accounts. Refresh and try again.</p>
-        )}
-        {accounts.data?.length === 0 && (
-          <Empty title="No accounts yet" description="Add the first company the team is talking to." />
-        )}
-        {!!accounts.data?.length && (
-          <ul className="grid gap-3 sm:grid-cols-2 motion-stagger">
-            {accounts.data.map((a) => (
-              <li key={a.id} className="rounded-lg border border-border p-4">
-                <p className="font-medium">{a.name}</p>
-                {a.website && (
-                  <a
-                    href={a.website}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-sm text-muted-foreground underline underline-offset-4"
-                  >
-                    {a.website}
-                  </a>
-                )}
-                {a.notes && <p className="mt-2 text-sm text-muted-foreground">{a.notes}</p>}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
-  );
-}
-
-type Playbook = Row & { title: string; body: string | null };
-
-const playbookSchema = z.object({
-  title: z.string().min(2, "Give it a title"),
-  body: z.string().min(1, "Add the content"),
-});
-
-type PlaybookForm = z.infer<typeof playbookSchema>;
-
-function PlaybookSection({ role }: { role: string }) {
-  const entries = useRows<Playbook>("playbook", { order: "id", dir: "desc" });
-  const create = useCreateRow<Playbook>("playbook");
-  const [open, setOpen] = useState(false);
-  const canWrite = role === "admin";
-
-  const form = useForm<PlaybookForm>({
-    resolver: zodResolver(playbookSchema),
-    defaultValues: { title: "", body: "" },
-  });
-
-  const onSubmit = (values: PlaybookForm) => {
-    create.mutate(values, {
-      onSuccess: () => {
-        toast.success("Playbook entry added");
-        form.reset();
-        setOpen(false);
-      },
-      onError: (e: Error) => toast.error(e.message),
-    });
-  };
-
-  return (
-    <div>
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-semibold tracking-tight">Playbook</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            The team's shared reference. Only admins can edit it.
-          </p>
-        </div>
-        {canWrite && (
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" className="motion-press">
-                New entry
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>New playbook entry</DialogTitle>
-              </DialogHeader>
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4">
-                  <FormField
-                    control={form.control}
-                    name="title"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Title</FormLabel>
-                        <FormControl>
-                          <Input {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="body"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Content</FormLabel>
-                        <FormControl>
-                          <Input {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <Button type="submit" className="motion-press" disabled={create.isPending}>
-                    {create.isPending ? "Adding…" : "Add entry"}
-                  </Button>
-                </form>
-              </Form>
-            </DialogContent>
-          </Dialog>
-        )}
-      </div>
-
-      <div className="mt-4">
-        {entries.isPending && <Skeleton className="h-32 rounded-xl" />}
-        {entries.isError && (
-          <p className="text-sm text-destructive">Couldn't load the playbook. Refresh and try again.</p>
-        )}
-        {entries.data?.length === 0 && (
-          <Empty title="Nothing written yet" description="Admins can add the first entry here." />
-        )}
-        {!!entries.data?.length && (
-          <ul className="space-y-3 motion-stagger">
-            {entries.data.map((e) => (
-              <li key={e.id} className="rounded-lg border border-border p-4">
-                <p className="font-medium">{e.title}</p>
-                {e.body && <p className="mt-1 text-sm text-muted-foreground">{e.body}</p>}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+    <div className="flex items-center gap-3 rounded-md border border-border bg-muted/50 px-3 py-1.5 text-sm">
+      <span>{count} selected</span>
+      <Button size="sm" variant="outline" onClick={onClear}>
+        Clear
+      </Button>
     </div>
   );
 }
