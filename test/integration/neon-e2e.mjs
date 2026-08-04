@@ -66,6 +66,36 @@ const SCHEMA = normalizeSchema({
         { name: "customer_email", type: "text" },
       ],
       publicView: { columns: ["appointment_date", "appointment_time"], where: ["status:ne:cancelled"] },
+      // A PARTIAL unique index, which is the headline booking constraint. The
+      // `where` is what stops a CANCELLED booking holding its slot forever —
+      // asserted below, because "the slot is free again after a cancellation" is
+      // the half a plain unique index gets wrong.
+      unique: [{ columns: ["appointment_date", "appointment_time"], where: "status:ne:cancelled" }],
+    },
+    {
+      // uniqueCI: one address, however it was typed. A plain UNIQUE would let
+      // Ada@Example.com and ada@example.com both sign up, which is two accounts
+      // for one person and a password reset that reaches the wrong one.
+      name: "members",
+      access: "public",
+      columns: [
+        { name: "email", type: "text" },
+        { name: "nickname", type: "text" },
+      ],
+      uniqueCI: ["email"],
+    },
+    {
+      // teamScope widens a `user` table to the caller's organization. Its policy
+      // carries a subquery against neon_auth.member — by far the most complex SQL
+      // this engine emits, and a policy that fails to parse is CAUGHT AND LOGGED,
+      // so the table silently ends up with no read policy at all.
+      name: "deals",
+      access: "user",
+      columns: [
+        { name: "title", type: "text" },
+        { name: "value", type: "integer" },
+      ],
+      teamScope: true,
     },
     {
       name: "comments",
@@ -123,7 +153,12 @@ try {
 
   console.log("applying the schema…");
   const made = await applySiteSchema(db, SCHEMA);
-  ok("applySiteSchema reports every table", made.length === 3, JSON.stringify(made));
+  // Derived from the fixture, like the idempotence check below. I fixed that one
+  // when adding `bookings` and missed this one, and it failed the whole run for a
+  // reason that had nothing to do with what changed — a number somebody has to
+  // remember is a test that breaks on unrelated work.
+  ok("applySiteSchema reports every table", made.length === SCHEMA.tables.length,
+    `${made.length} of ${SCHEMA.tables.length}: ${JSON.stringify(made)}`);
 
   // --- identity column + text timestamp default ---------------------------
   await sqlQuery(db, 'INSERT INTO "posts" ("title","body","views") VALUES (?,?,?)', ["Hello", "world of postgres", 1]);
@@ -233,6 +268,60 @@ try {
   ok("the view runs as its owner, or it would return nothing to a stranger",
     /security_invoker=false/.test(ro), ro);
   ok("and it is a security barrier", /security_barrier=true/.test(ro), ro);
+
+  // --- the constraints a designer can actually declare -----------------------
+  //
+  // These are the last three of the eight declarable features that had never run
+  // against a real database. Strings-only tests cannot see the difference between
+  // valid JavaScript and valid SQL, and `unique` in particular was implemented,
+  // tested and UNREACHABLE for the builder's whole life until a week ago — while
+  // two customers booked the same 14:00 slot and both were accepted.
+
+  // bookings already holds 14:00 (booked) and 15:00 (cancelled).
+  let dupRefused = false;
+  try {
+    await sqlQuery(db, 'INSERT INTO "bookings" ("appointment_date","appointment_time","status","customer_name","customer_email") VALUES (?,?,?,?,?)',
+      ["2026-08-04", "14:00", "booked", "Cara", "cara@example.com"]);
+  } catch { dupRefused = true; }
+  ok("a second booking for a taken slot is refused by the database", dupRefused);
+
+  // THE PARTIAL HALF. Without the `where` this would also be refused, and a
+  // cancellation would take its slot out of the shop's day permanently.
+  let freedAgain = true;
+  try {
+    await sqlQuery(db, 'INSERT INTO "bookings" ("appointment_date","appointment_time","status","customer_name","customer_email") VALUES (?,?,?,?,?)',
+      ["2026-08-04", "15:00", "booked", "Dev", "dev@example.com"]);
+  } catch (e) { freedAgain = false; console.log("      " + String(e && e.message).slice(0, 120)); }
+  ok("a CANCELLED booking does not hold its slot", freedAgain);
+
+  await sqlQuery(db, 'INSERT INTO "members" ("email","nickname") VALUES (?,?)', ["Ada@Example.com", "ada"]);
+  let ciRefused = false;
+  try { await sqlQuery(db, 'INSERT INTO "members" ("email","nickname") VALUES (?,?)', ["ada@example.com", "ada2"]); }
+  catch { ciRefused = true; }
+  ok("the same address in a different case is refused", ciRefused);
+
+  const teamCol = await sqlQuery(db,
+    "SELECT data_type FROM information_schema.columns WHERE table_name='deals' AND column_name='team_id'");
+  ok("a teamScope table gets a uuid team_id", teamCol[0] && teamCol[0].data_type === "uuid", JSON.stringify(teamCol));
+
+  // The policy EXISTING is the assertion. Its subquery reads neon_auth.member,
+  // and applySiteSchema catches and logs a failed policy — so a clause that does
+  // not parse leaves the table with no read policy and nothing says so.
+  const pol = await sqlQuery(db,
+    "SELECT policyname, qual FROM pg_policies WHERE tablename='deals' AND cmd='SELECT'");
+  ok("its read policy was created, so the team clause parsed", pol.length === 1, JSON.stringify(pol));
+  // Anchored on `organizationId` rather than on `neon_auth.member`: Postgres
+  // stores a policy as a parsed expression and RE-RENDERS it here, so whether the
+  // schema qualifier survives is its choice and not ours. A quoted camelCase
+  // column cannot be re-rendered away, and it appears nowhere in the plain
+  // own-rows policy — so its presence is exactly the widening.
+  ok("and the policy really widens to the organization",
+    !!(pol[0] && /organizationId/.test(String(pol[0].qual))), JSON.stringify(pol[0] || {}).slice(0, 300));
+  // A member in NO organization must still see their own rows — every naive
+  // "same team" clause fails outward here, and a fresh site is entirely in that
+  // state, so it is the default rather than an edge case.
+  ok("and it still falls back to the caller's own rows",
+    !!(pol[0] && /owner_id/.test(String(pol[0].qual))), JSON.stringify(pol[0] || {}).slice(0, 300));
 
   // Derived from the fixture, not a number somebody has to remember: adding a
   // table to SCHEMA must not fail a test about idempotence.

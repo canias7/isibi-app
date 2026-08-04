@@ -14,6 +14,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { dropUserProject, connForDatabase, dbNameForSite, sqlQuery } from "../../site-db.mjs";
+import { publicViewName } from "../../site-access.mjs";
 
 // Use whatever Chromium is already on the machine — same reasoning as
 // site-runtime.mjs: the pinned playwright version and a pre-installed browser
@@ -262,6 +263,29 @@ try {
       ok("the bundle reads a table the build created",
         !!js && Array.isArray(d.tables) && d.tables.some((t) => js.includes(t)),
         entry + " + " + chunks.length + " chunk(s)");
+
+      // IS THE CONTAINER RUNNING THE IMAGE WE JUST DEPLOYED?
+      //
+      // The template — including `@/lib/rows.ts` — is baked into the build
+      // container's image, so a site is only as current as the image that built
+      // it. Cloudflare's rollout is asynchronous: `wrangler` returns after
+      // "Modified application", and this job starts immediately afterwards.
+      //
+      // Measured 2026-08-04: the image went `ede44c96` -> `070b1f68` at 17:37:35
+      // and the build POST landed ~60s later. Its bundle was the PREVIOUS
+      // rows.ts, so `usePublicRows` still fetched the table instead of the view
+      // and the run reported two failures with no hint that the code under test
+      // was not the code that ran. That cost a full diagnosis to rule out a bug
+      // that did not exist.
+      //
+      // The marker is derived from `publicViewName`, so it cannot drift from the
+      // thing it is checking — and it survives minification because the suffix is
+      // concatenated at runtime (`e + "_public"`), never a whole table name.
+      const marker = publicViewName("");
+      ok("the container built this site with the CURRENT image",
+        !!js && js.includes(marker),
+        `the bundle has no ${JSON.stringify(marker)} — the container is running an older image, ` +
+        "so this run tested the previous template. Cloudflare's rollout is async; re-run after it lands.");
     } else {
       ok("the fallback page names a table it created",
         Array.isArray(d.tables) && d.tables.some((t) => html.includes(t)), html.slice(0, 160));

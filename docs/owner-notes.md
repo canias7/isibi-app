@@ -12216,3 +12216,49 @@ rather than folding into this.
 
 813 unit tests, site-build 36/36, site-runtime 23/23, template typechecks clean.
 13 mutants, all caught.
+
+## Every declarable constraint now runs against a real database (2026-08-04)
+
+Not "test every DB point" — the opposite. Today's failures were all in SEAMS, and
+none of them would have been caught by testing a database point harder:
+`publicView` had a green unit test for `hasPublicView` while nothing created the
+view; `notifyOwner` had 18 green tests and zero callers; `mask` was green and
+unenforced since 30 July; 802 tests passed while no `interface` could type a row.
+A test that passes while the thing is unreachable is worse than no test, because
+it manufactures confidence.
+
+So the bound is the DECLARABLE list, and nothing wider. That is where valid
+JavaScript can be invalid SQL, which strings-only tests cannot see. Three of the
+eight had never run against Postgres:
+
+| declarable | before | now |
+|---|---|---|
+| timestamps · fts · maxRows · noOverlap · publicView | yes | yes |
+| **unique · uniqueCI · teamScope** | **no** | yes |
+
+Marginal cost is ~nothing: `neon e2e` already provisions the project.
+
+- **`unique` is asserted in BOTH halves.** A second booking for a taken slot is
+  refused, AND a slot whose only booking was CANCELLED is free again. The second
+  is the partial `WHERE`, and without it a cancellation takes that time out of
+  the shop's day permanently — a plain unique index passes the first assertion
+  and fails the business.
+- **`uniqueCI`** — `Ada@Example.com` then `ada@example.com` is refused. Two
+  accounts for one person, and a password reset that reaches the wrong one.
+- **`teamScope`** gets the sharpest check, because its policy carries a subquery
+  against `neon_auth.member` — the most complex SQL this engine emits — and
+  `applySiteSchema` CATCHES AND LOGS a failed policy. A clause that does not parse
+  leaves the table with no read policy at all and nothing says so. So: the uuid
+  `team_id` column exists, the SELECT policy EXISTS, it widens to the
+  organization, and it still falls back to the caller's own rows.
+  - Anchored on `organizationId`, not on `neon_auth.member`: Postgres stores a
+    policy as a parsed expression and RE-RENDERS it for `pg_policies`, so whether
+    the schema qualifier survives is its choice. A quoted camelCase column cannot
+    be re-rendered away and appears nowhere in the plain own-rows policy.
+
+**What is deliberately NOT added:** a test per table, per column type, per route.
+The seam guards written today — every declarable feature is enforced, every
+build-service import is in the image, `notifyOwnerOfSubmission` has a caller —
+cost nothing to run and catch the class that actually keeps shipping.
+
+813 unit tests.
