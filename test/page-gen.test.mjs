@@ -1040,6 +1040,32 @@ test("the eval's family, theme and fonts are real ones", async () => {
   }
 });
 
+test("a run that never reached the model cannot publish a compile rate", () => {
+  // Measured 2026-08-04: the Anthropic account ran out of credit, all three
+  // samples threw `400 credit balance is too low`, and the eval wrote
+  // "**0/3 compiled**" into the repo — which reads, permanently, as "the
+  // generator cannot build any of these shapes". It also wiped the previous run's
+  // saved pages on the way, so the last real measurement was destroyed by an
+  // outage.
+  //
+  // Same failure the Worker learned one layer down, where a provider outage and
+  // the model writing an unusable page came back indistinguishable.
+  const src = fs.readFileSync(new URL("./integration/page-gen-eval.mjs", import.meta.url), "utf8");
+  const code = src.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
+
+  assert.match(code, /reachedModel = true/, "nothing records that a sample got an answer");
+  // The bail must come BEFORE the report is written, or it reports and then bails.
+  const bail = code.indexOf("if (!reachedModel)");
+  const write = code.indexOf("PAGE-GEN.md");
+  assert.ok(bail > 0, "no outage branch");
+  assert.ok(bail < write, "the outage check runs after the report is written, so the zero is published anyway");
+
+  // And the wipe must be lazy, or the evidence is gone before the run finds out.
+  assert.ok(!/rmSync\(path\.join\(ROOT, "docs", "auth-audit", "pages"\)/.test(code),
+    "the pages directory is still wiped up front, so an outage destroys the last real samples");
+  assert.match(code, /if \(!wiped\)/, "the lazy wipe is gone");
+});
+
 test("the eval's shapes exercise DIFFERENT access levels", () => {
   // Three briefs that all produce the same schema shape would cost three times
   // as much and measure the same thing once. The point of the extra spend is

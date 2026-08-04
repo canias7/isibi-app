@@ -12480,3 +12480,43 @@ by-hand regression run is three shapes x 3 = nine calls.
 declare it, so sending it meant measuring a pipeline production does not run.
 
 814 unit tests, site-build 36/36.
+
+## The account ran out of credit, and the eval published that as a score of zero (2026-08-04)
+
+Both `page gen eval` and `build smoke` went red, and neither is a code failure:
+
+```
+400 invalid_request_error
+"Your credit balance is too low to access the Anthropic API."
+```
+
+`build smoke` reported `caller was charged for the build -> {"balance":20,"paid":false}`
+— the balance untouched at the grant, so it never got past the designer call.
+**Nothing was spent; a 400 is not billed.** The three site shapes are still
+unsampled: the menu and tool briefs have never generated a page.
+
+**The part worth fixing is what the eval did with that.** It wrote
+`**0/3 compiled**` into the repo — which reads, permanently, as *"the generator
+cannot build any of these shapes"* — and wiped the previous run's saved pages on
+the way, because the wipe ran before the first sample. So an outage destroyed the
+last real measurement and replaced it with a number that looks like a verdict.
+
+That is the failure this repo already learned one layer down, where a provider
+outage and the model writing an unusable page came back indistinguishable, and
+`upstreamKind()` was written with a `billing` flag for exactly it. The lesson did
+not travel up to the harness.
+
+Now: a run that never gets an answer from the model **says so and writes
+nothing** — `PAGE-GEN.md` and the saved pages are left exactly as they were. The
+wipe is lazy, on the first sample that actually has pages to write, so the
+evidence survives a run that could not ask. It still exits non-zero.
+
+The old up-front wipe was right about the case it was written for — a run
+producing fewer samples than the last leaves stale ones looking like part of it —
+and that is preserved by wiping once, later, rather than not at all.
+
+Guarded by a test that also checks the ORDER: the bail must come before the
+report is written, or it reports the zero and then bails. 3 mutants, all caught.
+The misleading `0/3` report was reverted to the last real measurement.
+
+815 unit tests.
