@@ -12734,3 +12734,161 @@ expose a function that creates AND returns.
   less capable does — both have now happened in this file.
 
 835 unit tests, site-build 38/38, site-runtime 23/23.
+
+## The booking form was one of three, and the guard was pinning one in place (2026-08-04)
+
+The owner asked the right question after the 403 fix: *"that is for bookings only?
+what about login or other things"*. Swept every hook against what the database
+actually grants. **Two more instances of the same class, both lint-clean.**
+
+- **`admin` is advertised as writable and is READ-ONLY.** `grantsFor` gives it
+  `GRANT SELECT` and nothing else; `policiesFor` writes it a read policy and no
+  other. Yet the designer's tool offered *"'admin' = SHARED, ROLE-WRITABLE"*, and
+  `ACCESS_NOTE` and rule 2 both told the model *"only a member whose role is
+  'admin' … may write"*. That describes the **hand-built data API deleted on
+  2026-07-30**, which checked `writeRoles` in the Worker — PostgREST has never
+  heard of `writeRoles`. A site with an admin table built an admin form that
+  refused its own administrator.
+- **`useUpdateRow`/`useDeleteRow` were never checked against a table.** The rule
+  was `/useUpdateRow|useDeleteRow/.test(code)` — a BOOLEAN over the whole file,
+  which never captured which table was being edited. So editing a `display`,
+  `collect` or `admin` table was lint-clean, compiled, published and 403'd, as
+  long as the page called `useMember()` and the schema declared any member table.
+  Every neighbouring rule was per-table; these two alone were not.
+- A comment claiming *"`feed` and `admin` serve reads and refuse writes"* — wrong
+  about `feed`, which grants INSERT/UPDATE/DELETE to a signed-in member.
+
+**The admin decision: describe it honestly rather than add role-checking SQL to
+the write path of every site.** The owner already edits those tables through
+their own door (`site-owner.mjs`, an isibi session, not subject to the site's
+RLS), so `admin` means "staff SEE it, the owner maintains it" — a coherent level,
+now stated as one. Granting member writes with a role policy stays available.
+
+**A GUARD WAS ASSERTING THE BUG.** `test/page-gen.test.mjs` required
+`lintPages(…useCreateRow…).length === 0` to equal
+`canWriteAccess(level) || needsMember(level)` — and `needsMember` is true for
+`admin`, so the test DEMANDED the lint stay silent about an admin form. It went
+green every run while pinning the defect in place. `canMemberWrite` splits the
+two questions, and lives in `site-access.mjs` so the lint and the DDL keep
+answering from one place.
+
+### The stale-image check was pinned to the previous fix
+
+The re-run after the booking fix **still reported 403** — and the fix was fine.
+Deploy finished 22:53:09, the build POST landed 22:53:51, and Cloudflare rolls a
+container image out asynchronously, so the build was served by the PREVIOUS image
+and published the older `rows.ts`.
+
+The check that exists for exactly this passed: it looked for the string `_public`
+in the bundle. **A marker only proves the image is at least as new as the change
+that introduced it** — after the next change it goes green while testing stale
+code. Its own comment describes this failure happening once already; it then
+happened again, one change later, to the fix that comment was written for.
+
+Now the container computes a **digest of `src/lib/rows.ts`** and returns it as
+`templateId`, threaded out through `publishPages` like the timings, and the smoke
+test compares it against its own checkout. Approximate → exact, derived at both
+ends. 7 mutants, all caught.
+
+**Not yet proven live** — the booking fix has still never been exercised by a run
+on a current image.
+
+838 unit tests, site-build 38/38.
+
+## Sites can declare database functions (2026-08-04)
+
+**Four client hooks took a function NAME and nothing could ever declare one.**
+`useRpc`, `useRpcAction`, `useClaimedRow`, `useCancelClaim` — plus `manage.tsx`,
+a whole reference page for the flow — were unreachable on every site the builder
+has ever made. The designer's tool offered `tables` and eight cosmetic keys; the
+schema engine emitted `CREATE FUNCTION` only for its own triggers. `rows.ts`
+calls `useRpc` *"the interesting half of moving to the Data API"*, and nothing
+could reach it.
+
+This is the sixth time this repo has found a tier that looks available and is
+reachable by nothing — and **I added to it an hour earlier**: the rule written
+for the booking-form fix told the model to get a claim token via `useRpcAction`,
+which no schema could declare. Same class, introduced while fixing the class.
+
+**Built as the substrate becoming expressive, not as another named verb** — the
+direction stated at the top of this file, and what the claim-links note always
+described: *"ten lines of SQL the generator can emit per site, where
+`site-claim.mjs` was a hand-built verb."*
+
+- The designer declares `functions: [{name, args, returns, body}]`.
+- `normalizeSchema` keeps them — **the layer that silently drops things**, where
+  `teamScope` died. It refuses: a name that shadows `app_user_id` (redefining it
+  would rewrite the access rules of every table on the site from inside a page's
+  data model), a `_`-prefix, `setof` a table the schema never declared, an empty
+  body, a non-identifier name. Capped at 8, body at 4000 chars.
+- `functionSql` in `site-rls.mjs` emits `CREATE OR REPLACE … SECURITY DEFINER`
+  plus `GRANT EXECUTE` to both roles. **A function nobody may execute is a 404** —
+  publicView, one object over. `SECURITY DEFINER` IS the feature: a `collect`
+  table has no read policy, so only a function running as its owner can hand one
+  row back to the person who submitted it.
+- **`$isibi$`, never `$$`** — the body is model-written and a `$$` inside it would
+  end the literal early and turn the rest into top-level syntax.
+- Non-fatal: tables, policies and grants are already applied by then, so a broken
+  function loses a function rather than the site. Only functions that REALLY got
+  created are recorded, or the next revise is pointed at a 404.
+- `schemaDigest` prints the exact signature — a name alone does not say what to
+  pass — and says nothing when a site declares none.
+- `lintPages` refuses a call to an undeclared function, the same class as naming
+  a table that does not exist.
+
+**The reference-page lint guard immediately refused `manage.tsx`**, which is
+exactly right: it had been calling two functions no schema declared. The
+reference spec declares them now.
+
+**Four mutants survived the first sweep and all four were my own source-regex
+assertions** — commenting out the GRANT still matched `/GRANT EXECUTE/`, half-
+renaming the delimiter still matched `/\$isibi\$/`, `if (false)` in front of a
+statement still matched it, and deleting `SECURITY DEFINER` matched **the words
+inside a comment explaining why it is needed**. Sixth time a guard here has
+matched its own prose. Fixed by extracting `functionSql` so the DDL is asserted
+as emitted SQL rather than as a phrase in a file.
+
+`test/site-functions.test.mjs` (9 tests, one per link). **19 mutants, all caught.**
+846 unit tests, site-build 38/38.
+
+**Not proven against real Postgres yet** — `neon e2e` should apply a schema with a
+function and check the claim read actually returns the row.
+
+### Proven against real Postgres, and it found dead code of mine (2026-08-04)
+
+`neon e2e` now applies a schema with a `collect` table and two declared
+functions, then checks the thing only a database can settle — **`SECURITY
+DEFINER` actually reaching past the grants.** Every layer above was asserted
+without one, and all five would pass on a function that returns nothing at
+runtime.
+
+What it asserts, on a throwaway project it destroys in a `finally`:
+
+- both functions exist and **both are `prosecdef`** — without it a claim read
+  runs as the caller and sees exactly what the caller sees, which is nothing
+- `anonymous` and `authenticated` may **EXECUTE** it — a function nobody may
+  execute exists and answers 404, which is publicView one object over
+- `anonymous` may **INSERT** into the table and may **NOT SELECT** it. That pair
+  is the whole feature: the table stays shut, and exactly one row is reachable
+  through a token
+- an inserted row mints a `claim_token`, the function returns exactly that row,
+  a **wrong token returns EMPTY rather than erroring** (a bad link and a
+  cancelled booking must look identical, or the response is an oracle for which
+  tokens exist), and cancelling by the same token removes it
+
+**Writing it found dead code I had shipped two commits earlier.**
+`made.functions = fnsMade` sat behind `if (!Array.isArray(made))` — and `made`
+is ALWAYS an array, so it could never run. A source-reading test asserting the
+line exists passed the whole time. Exactly the failure this session has been
+about, in my own work, caught only by trying to use the value.
+
+The fix also had to survive `JSON.stringify`, which drops properties hung off an
+array — so the route reads `made.functions` explicitly rather than expecting
+them inside `tables`. The build response now carries `functions` and
+`functionErrors`.
+
+**And the guard that let it through survived its first mutation**:
+`/made\.functions = fnsMade/` matches happily when the statement sits behind an
+`if`. Anchored to a whole line now.
+
+845 unit tests. **22 mutants across this change, all caught.**

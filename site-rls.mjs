@@ -327,3 +327,38 @@ export function publicViewSql(t, columns, tableNames) {
   out.push(`GRANT SELECT ON ${q(view)} TO ${user};`);
   return out;
 }
+
+// ── A declared database function ─────────────────────────────────────────────
+//
+// Returned as STATEMENTS rather than executed, for the same reason `publicViewSql`
+// is: the DDL is then testable without a database, and the assertions can be about
+// what is emitted instead of about whether a source file mentions a phrase. Four
+// mutants survived a regex-based version of this check — one of them matched the
+// words "SECURITY DEFINER" inside a COMMENT explaining why it is needed.
+//
+// `SECURITY DEFINER` is the point of the whole feature: a `collect` table has no
+// read policy, so only a function running as its owner can hand one row back to
+// the person who submitted it. That is a far narrower hole than a read policy,
+// because it returns exactly what the body selects and nothing else.
+//
+// `$isibi$` and not `$$`: the body is written by a model, and a `$$` inside it
+// would end the literal early and turn the remainder into top-level syntax.
+export function functionSql(f) {
+  const args = (f.args || []).map((a) => q(a.name) + " " + a.type).join(", ");
+  const argTypes = (f.args || []).map((a) => a.type).join(", ");
+  const ret = String(f.returns).startsWith("setof ")
+    ? "SETOF " + q(String(f.returns).slice(6))
+    : String(f.returns).toUpperCase();
+  const out = [
+    "CREATE OR REPLACE FUNCTION " + q(f.name) + "(" + args + ") RETURNS " + ret +
+    " LANGUAGE " + (f.language === "plpgsql" ? "plpgsql" : "sql") +
+    (f.definer === false ? "" : " SECURITY DEFINER") +
+    " AS $isibi$ " + f.body + " $isibi$",
+  ];
+  // Without EXECUTE the function exists and the Data API answers 404 — the
+  // publicView failure, one object over.
+  for (const role of [DATA_API_ROLES.anon, DATA_API_ROLES.user]) {
+    out.push("GRANT EXECUTE ON FUNCTION " + q(f.name) + "(" + argTypes + ") TO " + role);
+  }
+  return out;
+}

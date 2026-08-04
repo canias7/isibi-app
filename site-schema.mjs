@@ -15,7 +15,7 @@
 //
 // `db` throughout is a Neon connection string (see ./site-db.mjs).
 import { sqlQuery, sqlQuery as realSqlQuery } from "./site-db.mjs";
-import { policiesFor, grantsFor, publicViewSql, SESSION_JWT_EXT, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK } from "./site-rls.mjs";
+import { policiesFor, grantsFor, publicViewSql, functionSql, SESSION_JWT_EXT, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK } from "./site-rls.mjs";
 import { isManagedColumn } from "./site-access.mjs";
 import { makeCache } from "./ttl-cache.mjs";
 
@@ -86,6 +86,34 @@ export function normalizeSchema(spec) {
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
   else if (t && typeof t === "object") Object.entries(t).forEach(([n, def]) => coerceTable(n, def));
+
+  // TWO TABLES WITH THE SAME NAME BOTH SURVIVED, and the second silently
+  // destroyed the first. `applySiteSchema` walks this list in order and, per
+  // table, DROPS its policy shapes and its public view before recreating them —
+  // so a duplicate re-ran that teardown against the same object and left the
+  // second declaration's (emptier) version standing. The first's publicView,
+  // noOverlap and access rules were simply gone, with no error anywhere.
+  //
+  // Found by making it happen: a second `bookings` in the e2e fixture failed the
+  // run on `relation "bookings_public" does not exist`, six checks away from
+  // anything to do with the change. The model can emit a duplicate just as
+  // easily, on a real site, and nothing would have said so.
+  //
+  // First declaration wins, and later ones contribute any COLUMNS the first did
+  // not have — so a repeat cannot delete a guarantee, and a field declared only
+  // in the duplicate is not thrown away either.
+  const byName = new Map();
+  for (const tb of out) {
+    const key = String(tb.name).toLowerCase();
+    const first = byName.get(key);
+    if (!first) { byName.set(key, tb); continue; }
+    const have = new Set(first.columns.map((c) => String(c.name).toLowerCase()));
+    for (const c of tb.columns) {
+      if (!have.has(String(c.name).toLowerCase())) { first.columns.push(c); have.add(String(c.name).toLowerCase()); }
+    }
+  }
+  out.length = 0;
+  out.push(...byName.values());
   // Per-app rate-limit config — the owner tunes the data API's per-IP caps (requests
   // per minute) for reads and writes; `{read, write}` (aliases rateLimits/rate/
   // apiRateLimit, a bare number = both). Clamped to sane bounds; absent → platform
@@ -102,7 +130,63 @@ export function normalizeSchema(spec) {
       if (read || write) rateLimits = { read: read || 0, write: write || 0 };
     }
   }
-  return rateLimits ? { tables: out, rateLimits } : { tables: out };
+  // ── DECLARED DATABASE FUNCTIONS ───────────────────────────────────────────
+  //
+  // The substrate becoming expressive, rather than another named verb. Four
+  // client hooks — `useRpc`, `useRpcAction`, `useClaimedRow`, `useCancelClaim` —
+  // called functions BY NAME, and until now no schema could declare one: the
+  // designer's tool offered `tables` and eight cosmetic keys, and the engine
+  // emitted `CREATE FUNCTION` only for its own triggers. So the whole RPC tier,
+  // the claim flow and `manage.tsx` were unreachable on every site ever built.
+  //
+  // This is what the claim-link note always described: "ten lines of SQL the
+  // generator can emit per site", replacing a hand-built verb. It is also the
+  // ONLY way a `collect` table can hand anything back — a SECURITY DEFINER
+  // function reaches past RLS deliberately and by name, which is a far narrower
+  // hole than a read policy.
+  //
+  // Everything is bounded because a model writes it: the NAME is an identifier we
+  // re-render (never interpolated raw), argument and return types come from an
+  // allow-list, the body is capped, and the count is capped. The body itself is
+  // arbitrary SQL and is NOT sanitised — it cannot be, and it does not need to
+  // be: it runs inside the SITE'S OWN Neon project, which reaches no other site,
+  // no isibi table and no secret, and a wrong one breaks that site's own page.
+  const fnSrc = Array.isArray(spec.functions) ? spec.functions : [];
+  const TYPES = new Set(["text", "int", "integer", "bigint", "numeric", "boolean", "uuid", "date", "timestamptz", "json", "jsonb"]);
+  const ident = (x) => /^[a-z][a-z0-9_]{0,40}$/.test(String(x || "").toLowerCase()) ? String(x).toLowerCase() : null;
+  const declared = new Set(out.map((x) => String(x.name).toLowerCase()));
+  const functions = [];
+  for (const f of fnSrc.slice(0, 8)) {
+    if (!f || typeof f !== "object") continue;
+    const name = ident(f.name);
+    // Never let a declaration shadow the engine's own helpers: `app_user_id` is
+    // what every RLS policy calls, and a redefinition would rewrite the access
+    // rules of every table on the site from inside a page's data model.
+    if (!name || name.startsWith("_") || name === "app_user_id") continue;
+    const args = (Array.isArray(f.args) ? f.args : []).slice(0, 8).map((a2) => {
+      const an = ident(a2 && a2.name);
+      const at = String((a2 && a2.type) || "text").toLowerCase();
+      return an && TYPES.has(at) ? { name: an, type: at } : null;
+    }).filter(Boolean);
+    // `setof <table>` is the shape a claim read needs, and the table has to be
+    // one this schema actually declares — otherwise the function fails to create
+    // and takes the whole apply down with it.
+    const rawRet = String(f.returns || "void").toLowerCase().trim();
+    const setof = rawRet.match(/^setof\s+([a-z][a-z0-9_]{0,40})$/);
+    let returns = null;
+    if (setof && declared.has(setof[1])) returns = "setof " + setof[1];
+    else if (rawRet === "void" || TYPES.has(rawRet)) returns = rawRet;
+    if (!returns) continue;
+    const body = String(f.body || "").slice(0, 4000).trim();
+    if (!body) continue;
+    const lang = String(f.language || "sql").toLowerCase() === "plpgsql" ? "plpgsql" : "sql";
+    functions.push({ name, args, returns, body, language: lang, definer: f.definer !== false });
+  }
+
+  const extra = {};
+  if (rateLimits) extra.rateLimits = rateLimits;
+  if (functions.length) extra.functions = functions;
+  return { tables: out, ...extra };
 }
 
 async function pgTrigger(db, name, { timing, event, table, when, body, returns }) {
@@ -553,10 +637,49 @@ export async function applySiteSchema(uuid, spec) {
     }
     if (!rateLimits && prev && prev.rateLimits) rateLimits = prev.rateLimits; // preserve prior tuning when unspecified
   } catch {}
+  // ── The declared functions ────────────────────────────────────────────────
+  //
+  // Emitted AFTER every table exists, because a `SETOF <table>` return type and
+  // any body touching a table both need the table to be there. `CREATE OR
+  // REPLACE` so a revise updates a function instead of failing on it.
+  //
+  // NOT FATAL, deliberately: the tables, policies and grants are already applied
+  // by this point and a site with a working form and one broken function is a
+  // far better outcome than losing the whole apply. The failure is returned so
+  // the caller can report it rather than discover it from a 404 at runtime.
+  const fnErrors = [];
+  let fnsMade = [];
+  for (const f of (spec.functions || [])) {
+    // The DDL lives in site-rls.mjs beside the policies and grants, so it can be
+    // asserted without a database — the version inline here could only be checked
+    // by grepping this file, and four mutants survived that, one of them by
+    // matching "SECURITY DEFINER" inside a comment.
+    try {
+      for (const stmt of functionSql(f)) await sqlQuery(uuid, stmt);
+      fnsMade.push(f.name);
+    } catch (e) {
+      console.error("function failed:", f.name, e && (e.detail || e.message));
+      fnErrors.push({ name: f.name, error: String((e && (e.detail || e.message)) || e).slice(0, 200) });
+    }
+  }
+
   const metaOut = { tables: mergedTables }; if (rateLimits) metaOut.rateLimits = rateLimits;
+  // The digest reads this to tell the generator which functions it may call, so
+  // only the ones that REALLY EXIST are recorded. Naming a failed function would
+  // point the model at a 404.
+  if (fnsMade.length) metaOut.functions = (spec.functions || []).filter((f) => fnsMade.includes(f.name)).map((f) => ({ name: f.name, args: f.args, returns: f.returns }));
   await sqlQuery(uuid, "INSERT INTO _meta (k,v) VALUES ('schema', ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", [JSON.stringify(metaOut)]);
   // The spec on disk just changed; anything this isolate remembered is stale.
   invalidateSiteSchema(uuid);
+  // ATTACHED TO THE ARRAY, and the guard that used to wrap this said
+  // `!Array.isArray(made)` — which `made` always is, so the whole block was dead
+  // and a source-reading test asserting the line exists passed anyway. Found by
+  // writing the e2e; the same shape as everything else fixed today.
+  //
+  // Note for callers: JSON.stringify drops properties hung off an array, so the
+  // route reads these BEFORE serialising rather than expecting them in `tables`.
+  made.functions = fnsMade;
+  if (fnErrors.length) made.functionErrors = fnErrors;
   return made;
 }
 // Load the persisted access rules for a site's tables (from its own _meta.schema).

@@ -212,3 +212,25 @@ test("the build container times its three sub-steps and reports them every way o
   const silent = exits.filter((e) => !e.includes("...times"));
   assert.deepEqual(silent, [], "these exits report a total and no breakdown");
 });
+
+test("the build reports WHICH template the container used", () => {
+  // The stale-image trap, closed at the layer that can actually answer it. A
+  // container image rolls out asynchronously, so a build seconds after a deploy
+  // can be served by the previous image and publish a bundle of older code. The
+  // smoke test used to look for a marker STRING, which proves only that the
+  // image is at least as new as the change that introduced the marker — so the
+  // check passed while a booking-form fix went untested, and the run reported a
+  // bug that had already been fixed. A digest cannot be approximate that way.
+  const srv = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
+  assert.match(srv, /const TEMPLATE_ID = /, "the container no longer identifies its template");
+  assert.match(srv, /"src", "lib", "rows\.ts"/, "the digest is taken over the wrong file");
+  assert.match(srv, /templateId: TEMPLATE_ID/, "it is computed and never reported");
+
+  const pub = fs.readFileSync(new URL("../builder/publish-pages.mjs", import.meta.url), "utf8");
+  assert.match(pub, /out\.templateId = bd\.templateId/, "publishPages drops it");
+  assert.match(worker(), /templateId: pages\.templateId/, "the route never returns it");
+
+  const smoke = fs.readFileSync(new URL("../test/integration/build-smoke.mjs", import.meta.url), "utf8");
+  assert.match(smoke, /d\.templateId === wantId/, "the smoke test does not compare digests");
+  assert.ok(!/js\.includes\(marker\)/.test(smoke), "the old approximate marker check is still there");
+});

@@ -917,7 +917,7 @@ export const UI_SHORTLIST = (() => {
 // does not do. site-access.mjs is dependency-free, so this module stays
 // importable without the Worker's node_modules.
 export { MANAGED_COLUMNS } from "../site-access.mjs";
-import { MANAGED_COLUMNS, canReadAccess, canWriteAccess, whyNotReadable, needsMember, hasPublicView } from "../site-access.mjs";
+import { MANAGED_COLUMNS, canReadAccess, canWriteAccess, whyNotReadable, needsMember, hasPublicView, canMemberWrite } from "../site-access.mjs";
 
 export const MAX_PAGES = 6;
 export const MAX_PAGE_CHARS = 24000;
@@ -1871,8 +1871,11 @@ or an access level — anything not in the schema below does not exist.
      signed out, both return 401. Build the signed-in view AND a sign-in prompt.
    - \`feed\` — SHARED, MEMBER-AUTHORED. Anyone signed in reads every row; a signed-in
      member writes rows that become theirs. Signed out, both return 401.
-   - \`admin\` — SHARED, ROLE-WRITABLE. Anyone signed in reads it; only a member whose role
-     the table names in \`writeRoles\` may write. Anyone else gets 403 with \`code: "role"\`.
+   - \`admin\` — SHARED, READ-ONLY FROM THE SITE. Anyone signed in reads every row, and
+     NOBODY writes one from a published page — not a form, not \`useCreateRow\`, not an
+     edit, whatever role the member holds. The table is granted SELECT and nothing else,
+     so a write is 403 for everyone; the business maintains those rows from its isibi
+     dashboard. Build the reading UI and no write UI at all.
 
 3. THE KIT FOR EVERY CONTROL, imported from "@/components/ui/<name>". Never hand-roll a
    button, input, select, checkbox or dialog. Build from these — they are what the
@@ -2154,14 +2157,31 @@ export const ACCESS_NOTE = {
   collect: "visitors WRITE to it. Submit a form. Reading it returns 403 — never list these rows.",
   user: "PRIVATE PER MEMBER. Signed in, a member reads and writes only their OWN rows; signed out, both return 401. Build the signed-in view AND a sign-in prompt for when there is no member.",
   feed: "SHARED, MEMBER-AUTHORED. Anyone signed in reads every row; a signed-in member writes rows that become theirs. Signed out, both return 401.",
-  admin: "SHARED, ROLE-WRITABLE. Anyone signed in reads it; only a member whose role is 'admin' (or one this table names in writeRoles) may write. A write by anyone else returns 403 with code 'role'.",
+  admin: "SHARED, READ-ONLY FROM THE SITE. Anyone signed in reads every row; NOBODY writes to it from a published page — no form, no useCreateRow, no edit, whatever role they hold. The business maintains these rows from its isibi dashboard. Build the reading and listing UI and no write UI at all.",
 };
 
 /** The tables, exactly as they exist, in the least ambiguous form we can put them. */
 export function schemaDigest(spec) {
   const tables = (spec && Array.isArray(spec.tables) ? spec.tables : []).filter((t) => t && t.name);
   if (!tables.length) return "(the schema declares no tables)";
-  return tables.map((t) => {
+  // DECLARED FUNCTIONS, STATED. `useRpc`, `useRpcAction`, `useClaimedRow` and
+  // `useCancelClaim` all take a function NAME, and the model has no way to
+  // discover one — it can only be told. Not saying is how the whole tier stayed
+  // dead: exactly the `publicView` failure, where a rule was conditioned on a
+  // fact the digest never supplied.
+  //
+  // Printed with the exact signature, because a name alone does not say what to
+  // pass. An ABSENT section reads as "this site declared none", which is the
+  // honest answer and the common one.
+  const fns = (spec && Array.isArray(spec.functions) ? spec.functions : []).filter((f) => f && f.name);
+  const fnLines = fns.length
+    ? "\n\nFUNCTIONS this schema declares — call these by NAME with useRpc / useRpcAction / useClaimedRow / useCancelClaim, and NO others:\n" +
+      fns.map((f) => {
+        const args = (Array.isArray(f.args) ? f.args : []).map((a2) => a2.name + ": " + a2.type).join(", ");
+        return "  " + f.name + "(" + args + ") -> " + (f.returns || "void");
+      }).join("\n")
+    : "";
+  const tableLines = tables.map((t) => {
     const access = String(t.access || "collect").toLowerCase();
     // Columns arrive in two shapes and BOTH must work. normalizeSchema produces
     // rich objects ({name, type, notnull, ref}); the schema persisted in a
@@ -2212,6 +2232,7 @@ export function schemaDigest(spec) {
     }
     return lines.join("\n");
   }).join("\n\n");
+  return tableLines + fnLines;
 }
 
 /**
@@ -2358,6 +2379,8 @@ export function validatePages(input) {
 export function lintPages(pages, spec) {
   const problems = [];
   const tables = new Map();
+  // Declared function names, for the RPC check below.
+  const fns = new Set((spec && Array.isArray(spec.functions) ? spec.functions : []).map((f) => String(f && f.name || "").toLowerCase()).filter(Boolean));
   for (const t of (spec && Array.isArray(spec.tables) ? spec.tables : [])) {
     if (t && t.name) tables.set(String(t.name).toLowerCase(), t);
   }
@@ -2378,15 +2401,34 @@ export function lintPages(pages, spec) {
     if (/@tanstack\/react-form/.test(code)) {
       say(path, "imports @tanstack/react-form. shadcn's Form components only speak to react-hook-form; use useForm from react-hook-form with zodResolver.");
     }
-    // Editing and deleting are allowed now, but ONLY on a member's own rows —
-    // so a page that offers them without a member has nothing to scope by and
-    // the API answers 401.
+    // EDITING IS CHECKED PER TABLE, like every other hook here. It used to be a
+    // BOOLEAN over the whole file — `/useUpdateRow|useDeleteRow/.test(code)` —
+    // which never captured WHICH table was being edited. So `useUpdateRow` on a
+    // `display` menu, a `collect` booking or an `admin` table passed the lint,
+    // compiled, published and answered 403, as long as the page called
+    // useMember() and the schema declared any member table at all. Every
+    // neighbouring rule was per-table; these two alone were not.
     const editsRows = /\buseUpdateRow\b|\buseDeleteRow\b/.test(code);
-    if (editsRows && !/\buseMember\b/.test(code)) {
-      say(path, "calls useUpdateRow/useDeleteRow without useMember(). Only a signed-in member can change a row, and only their own — put the edit UI behind a sign-in.");
+    const editTargets = [...code.matchAll(/\buse(?:Update|Delete)Row\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)];
+    for (const m of editTargets) {
+      const t = tables.get(m[1].toLowerCase());
+      if (!t) { say(path, 'edits table "' + m[1] + '", which the schema does not declare.'); continue; }
+      if (!canMemberWrite(t.access)) {
+        say(path, 'edits "' + m[1] + '", which is access "' + t.access + '" — PATCH and DELETE on it return 403. Only `user` and `feed` rows have an owner who may change them.');
+      } else if (!/\buseMember\b/.test(code)) {
+        say(path, 'edits "' + m[1] + '" without useMember(). Only a signed-in member can change a row, and only their own — put the edit UI behind a sign-in.');
+      }
     }
-    if (editsRows && !memberTables.length) {
-      say(path, "calls useUpdateRow/useDeleteRow, but this schema has no member table. `collect` and `display` rows have no owner and can never be edited from a page.");
+    // The table name is not always a literal. Keep the blunt checks for the calls
+    // the loop above could not resolve, or a computed table name would skip the
+    // rule entirely — but do not repeat what it already said.
+    if (editsRows && !editTargets.length) {
+      if (!/\buseMember\b/.test(code)) {
+        say(path, "calls useUpdateRow/useDeleteRow without useMember(). Only a signed-in member can change a row, and only their own — put the edit UI behind a sign-in.");
+      }
+      if (!memberTables.length) {
+        say(path, "calls useUpdateRow/useDeleteRow, but this schema has no member table. `collect` and `display` rows have no owner and can never be edited from a page.");
+      }
     }
 
     for (const m of code.matchAll(/from\s+"@\/components\/ui\/([a-z0-9-]+)"/gi)) {
@@ -2473,9 +2515,11 @@ export function lintPages(pages, spec) {
     // that no longer resolves.
 
     // Read and write are asked separately because the API answers them
-    // separately: `feed` and `admin` serve reads and refuse writes, so flagging
-    // a read of one would be reporting a defect that does not exist — and every
-    // problem reported here costs a paid repair pass.
+    // separately, and the levels do not line up: `feed` READS and WRITES for a
+    // signed-in member, while `admin` reads for one and writes for nobody. This
+    // comment said "`feed` and `admin` serve reads and refuse writes", which was
+    // wrong about feed and is exactly the kind of note that outlives the code it
+    // describes.
     // A member-scoped table without useMember() renders a permanent 401 to a
     // signed-out visitor and looks like a broken page rather than a locked one.
     for (const m of code.matchAll(/\buseRows\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
@@ -2511,13 +2555,29 @@ export function lintPages(pages, spec) {
         say(path, 'reads one row of "' + m[1] + '", which is access "' + t.access + '" — reading it returns 403: ' + whyNotReadable(t.access) + '.');
       }
     }
+    // A FUNCTION THE SCHEMA NEVER DECLARED IS A 404, and until 2026-08-04 no
+    // schema could declare one at all — so `useRpc`, `useRpcAction`,
+    // `useClaimedRow` and `useCancelClaim` were four hooks nothing could reach.
+    // Now that they can be declared, calling an undeclared one is the same class
+    // as naming a table that does not exist, and is caught the same way.
+    for (const m of code.matchAll(/\buse(?:Rpc|RpcAction|ClaimedRow|CancelClaim)\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
+      if (!fns.has(m[1].toLowerCase())) {
+        say(path, 'calls the database function "' + m[1] + '", which this schema does not declare — the request is a 404. ' +
+          (fns.size ? "Declared: " + [...fns].join(", ") + "." : "This schema declares no functions at all."));
+      }
+    }
     for (const m of code.matchAll(/\buseCreateRow\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
       const t = tables.get(m[1].toLowerCase());
       if (!t) say(path, 'writes to table "' + m[1] + '", which the schema does not declare.');
       // A member table accepts writes from someone signed in — that is the whole
       // point of the level — so the question is whether the page has a member,
       // not whether the table is writable.
-      else if (needsMember(t.access)) {
+      //
+      // `canMemberWrite`, NOT `needsMember`: the latter is true for `admin`, and
+      // admin grants SELECT and nothing else, so this branch swallowed the one
+      // case it most needed to report. An admin form passed the lint and then
+      // refused its own administrator.
+      else if (canMemberWrite(t.access)) {
         if (!/\buseMember\b/.test(code)) {
           say(path, 'writes to "' + m[1] + '" (access "' + t.access + '") without useMember(). Signed out that returns 401, so the form must be behind a sign-in.');
         }

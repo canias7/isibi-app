@@ -185,6 +185,35 @@ export function canWriteAccess(access) {
   return normalizeAccess(access) === "collect";
 }
 
+/**
+ * Can a SIGNED-IN MEMBER write to this table?
+ *
+ * `user` and `feed` — and deliberately NOT `admin`, which is the whole reason
+ * this predicate exists rather than reusing `needsMember`.
+ *
+ * ADMIN IS READ-ONLY AT THE DATABASE and was described everywhere as writable.
+ * `grantsFor` gives it `GRANT SELECT` and nothing else, and `policiesFor` writes
+ * it a read policy and no other — so no INSERT, UPDATE or DELETE can succeed on
+ * it from a published page, by anyone, whatever role they hold. The
+ * "SHARED, ROLE-WRITABLE … a write by anyone else returns 403 with code 'role'"
+ * wording describes the hand-built data API deleted on 2026-07-30, which checked
+ * `writeRoles` in the Worker. PostgREST has never heard of `writeRoles`.
+ *
+ * The lint used `needsMember` here, which is true for admin — so an admin form
+ * passed the lint, compiled, published and then refused its own administrator.
+ * Exactly the booking-form failure: advertised at the prompt layer, refused at
+ * the data layer.
+ *
+ * The owner still edits these tables — through their OWN door in isibi
+ * (`site-owner.mjs`), which authenticates with an isibi session and is not
+ * subject to the site's RLS. `admin` therefore means "staff can SEE it, the
+ * owner maintains it", which is a coherent level and is now what it says.
+ */
+export function canMemberWrite(access) {
+  const a = normalizeAccess(access);
+  return a === "user" || a === "feed";
+}
+
 /** Why a read is refused, in words a generated page's author can act on. */
 export function whyNotReadable(access) {
   const a = normalizeAccess(access);

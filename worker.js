@@ -2611,6 +2611,39 @@ const SITE_SCHEMA_TOOL = {
     properties: {
       brand: { type: "string", description: "Short display name for the site." },
       slug: { type: "string", description: "url-safe-name, lowercase, hyphens only." },
+      functions: {
+        type: "array",
+        description:
+          "OPTIONAL Postgres functions this site needs, called from a page by name. Use one ONLY when a page must do " +
+          "something a table's access level cannot express. THE CASE THIS EXISTS FOR: a `collect` table is write-only, so " +
+          "the customer who booked can never see their booking again. Give it a column " +
+          "{name:'claim_token', type:'text', default:'uuid'} — `default:'uuid'` is the reserved token that fills it with a " +
+          "random uuid, and the column is TEXT, so the function's argument is type 'text' too — plus a function taking that " +
+          "token and returning exactly the matching row, then " +
+          "the site can offer a link back to it. Declare a second to cancel by the same token. Skip this entirely for a " +
+          "plain contact form, which nobody returns to. Bodies are plain SQL over this site's own tables.",
+        items: {
+          type: "object",
+          required: ["name", "returns", "body"],
+          properties: {
+            name: { type: "string", description: "lowercase identifier, e.g. booking_by_claim" },
+            args: {
+              type: "array",
+              description: "Arguments. A claim lookup takes one: {name:'tok', type:'text'} — the claim_token column is TEXT, so the argument matching it is text, not uuid.",
+              items: {
+                type: "object",
+                required: ["name", "type"],
+                properties: {
+                  name: { type: "string" },
+                  type: { type: "string", enum: ["text", "int", "bigint", "numeric", "boolean", "uuid", "date", "timestamptz", "json", "jsonb"] },
+                },
+              },
+            },
+            returns: { type: "string", description: "'setof <table>' for rows of a table this schema declares, else one of void/text/int/bigint/numeric/boolean/uuid/date/timestamptz/json/jsonb." },
+            body: { type: "string", description: "The SQL body only — no CREATE FUNCTION, no $$ wrapper. e.g. SELECT * FROM bookings WHERE claim_token = tok" },
+          },
+        },
+      },
       tables: {
         type: "array",
         items: {
@@ -2625,7 +2658,7 @@ const SITE_SCHEMA_TOOL = {
                 "'collect' = anyone submits, nobody reads it back (bookings, orders, enquiries). " +
                 "'user' = PRIVATE PER MEMBER: a signed-in visitor reads and writes only their own rows (saved recipes, my orders, a personal journal). " +
                 "'feed' = SHARED, MEMBER-AUTHORED: every signed-in member reads all rows and writes their own (reviews, comments, a community board). " +
-                "'admin' = SHARED, ROLE-WRITABLE: signed-in members read it, only an admin writes it (announcements). " +
+                "'admin' = SHARED, READ-ONLY FROM THE SITE: signed-in members read it and NOBODY writes it from a published page — the business maintains those rows from its isibi dashboard (announcements, staff notices). Pick it only when members should SEE something they never edit. " +
                 "The last three require the visitor to have an account on the site — use them ONLY when the brief actually asks for members, sign-in, or 'their own' anything. A shop that just needs a menu and a booking form must not have them.",
             },
             columns: {
@@ -6119,6 +6152,11 @@ async function handleRequest(request, env, ctx) {
       const levels = (pageSpec.tables || spec.tables || []).map((t) => ({ name: t.name, access: t.access }));
       return Response.json({
         ok: true, slug, url: "/s/" + slug + "/", backend: true, brand, tables: made, schema: levels,
+        // Read off the array explicitly: JSON.stringify would drop them from
+        // `tables`, which is how a site could declare a function, have it fail,
+        // and report success.
+        functions: (made.functions && made.functions.length) ? made.functions : undefined,
+        functionErrors: made.functionErrors || undefined,
         // Rows per display table. An empty object means the site published with
         // empty lists — which reads as a working build and is not one.
         seeded: (seeded && seeded.seeded) || {},
@@ -6162,6 +6200,8 @@ async function handleRequest(request, env, ctx) {
         // reported only the credit total, so the expensive call was the one
         // whose cache behaviour could not be seen.
         pagesUsage: pages.usage || undefined,
+        // The digest of the template the build container actually used.
+        templateId: pages.templateId || undefined,
       });
     }
 

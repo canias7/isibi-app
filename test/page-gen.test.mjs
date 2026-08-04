@@ -74,6 +74,18 @@ const REFERENCE_SPEC = {
     },
     { name: "profiles", access: "user", columns: [{ name: "nickname", type: "text" }] },
   ],
+  // THE TWO FUNCTIONS manage.tsx CALLS. Until 2026-08-04 no schema could declare
+  // one, so that reference page demonstrated a flow no generated site could have
+  // — and the moment the lint learned to check function names it correctly
+  // refused the reference page itself, which is the guard doing exactly its job.
+  // Declared here, this is what a barber shop with a "manage your booking" link
+  // actually has.
+  functions: [
+    { name: "booking_by_claim", args: [{ name: "tok", type: "uuid" }], returns: "setof appointments",
+      body: "SELECT * FROM appointments WHERE claim_token = tok" },
+    { name: "cancel_booking_by_claim", args: [{ name: "tok", type: "uuid" }], returns: "void",
+      body: "DELETE FROM appointments WHERE claim_token = tok" },
+  ],
 };
 
 const page = (source, p = "index.tsx") => [{ path: p, source }];
@@ -305,9 +317,18 @@ test("the lint's access rules ARE the API's — same module, not a copy", async 
       `anonymous read of a "${level}" table: lint and API must agree`);
     assert.equal(lintPages(page('useCreateRow("t");'), spec).length === 0, api.canWriteAccess(level),
       `anonymous write to a "${level}" table: lint and API must agree`);
+    // `canMemberWrite`, NOT `needsMember` — AND THIS ASSERTION IS WHY THE BUG
+    // SURVIVED. `needsMember` is true for `admin`, so this line required the lint
+    // to stay SILENT about an admin form: it pinned the defect in place and went
+    // green every run. admin is granted SELECT and nothing else, so that form
+    // published and then refused its own administrator.
     const wroteAsMember = lintPages(page('const { data: me } = useMember(); useCreateRow("t");'), spec);
-    assert.equal(wroteAsMember.length === 0, api.canWriteAccess(level) || api.needsMember(level),
+    assert.equal(wroteAsMember.length === 0, api.canWriteAccess(level) || api.canMemberWrite(level),
       `signed-in write to a "${level}" table: ${JSON.stringify(wroteAsMember)}`);
+    // Editing follows the same split, and was checked against no table at all.
+    const editedAsMember = lintPages(page('const { data: me } = useMember(); useUpdateRow("t");'), spec);
+    assert.equal(editedAsMember.length === 0, api.canMemberWrite(level),
+      `signed-in edit of a "${level}" table: ${JSON.stringify(editedAsMember)}`);
     // With a member in the page, the three member levels become reachable and
     // the two anonymous levels are unchanged — the lint must track that too, or
     // it forbids the pages this whole feature exists to allow.
@@ -360,15 +381,39 @@ test("editing without a member, or without a member table, is reported", () => {
   // have no owner.
   const spec = { tables: [{ name: "mine", access: "user", columns: [{ name: "body" }] }] };
   const noMember = lintPages(page('useRows("mine"); useUpdateRow("mine");'), spec);
-  assert.ok(noMember.some((x) => /useUpdateRow\/useDeleteRow without useMember/.test(x)), JSON.stringify(noMember));
+  assert.ok(noMember.some((x) => /edits "mine" without useMember/.test(x)), JSON.stringify(noMember));
+
+  // A COMPUTED table name still gets the blunt check. The per-table loop cannot
+  // resolve it, and dropping the old rules outright would have made an unresolved
+  // call silently lint-clean — a smaller version of the hole being closed.
+  const computed = lintPages(page('const t = "mine"; useRows("mine"); useUpdateRow(t);'), spec);
+  assert.ok(computed.some((x) => /useUpdateRow\/useDeleteRow without useMember/.test(x)), JSON.stringify(computed));
 
   assert.deepEqual(
     lintPages(page('const { data: me } = useMember(); useRows("mine"); useUpdateRow("mine"); useDeleteRow("mine");'), spec),
     [], "a signed-in member editing their own rows is exactly what the level is for");
 
+  // NAMED, not merely "this schema has no member table". The per-table rule says
+  // which table and why, which is what the page's author has to act on — and it
+  // fires on a schema that DOES have member tables too, where the old blunt check
+  // was silent because it only ever asked whether any member table existed.
   const displayOnly = { tables: [{ name: "menu", access: "display", columns: [{ name: "title" }] }] };
   const p2 = lintPages(page('const { data: me } = useMember(); useRows("menu"); useDeleteRow("menu");'), displayOnly);
-  assert.ok(p2.some((x) => /no member table/.test(x)), JSON.stringify(p2));
+  assert.ok(p2.some((x) => /edits "menu".*access "display".*403/.test(x)), JSON.stringify(p2));
+
+  // The case the old rule could not see at all: a schema WITH a member table,
+  // and a page editing the display one beside it.
+  const mixed = { tables: [
+    { name: "mine", access: "user", columns: [{ name: "body" }] },
+    { name: "menu", access: "display", columns: [{ name: "title" }] },
+  ] };
+  const p3 = lintPages(page('const { data: me } = useMember(); useRows("menu"); useUpdateRow("menu");'), mixed);
+  assert.ok(p3.some((x) => /edits "menu".*403/.test(x)), JSON.stringify(p3));
+
+  // And an `admin` table, which is granted SELECT and nothing else.
+  const adminSpec = { tables: [{ name: "notices", access: "admin", columns: [{ name: "body" }] }] };
+  const p4 = lintPages(page('const { data: me } = useMember(); useRows("notices"); useCreateRow("notices");'), adminSpec);
+  assert.ok(p4.some((x) => /submits to "notices".*403/.test(x)), JSON.stringify(p4));
 });
 
 test("a ui component that does not exist is caught", () => {
@@ -610,7 +655,11 @@ test("the rules and ACCESS_NOTE agree about every access level", () => {
   for (const level of ["user", "feed", "admin"]) {
     assert.ok(ACCESS_NOTE[level], level);
   }
-  for (const phrase of ["PRIVATE PER MEMBER", "SHARED, MEMBER-AUTHORED", "SHARED, ROLE-WRITABLE"]) {
+  // "SHARED, ROLE-WRITABLE" is gone: admin is granted SELECT and nothing else, so
+  // describing it as writable-by-a-role was a promise about the deleted Worker
+  // data API, which is the only thing that ever checked `writeRoles`.
+  assert.ok(!PAGE_RULES.includes("ROLE-WRITABLE"), "the rules still call admin writable");
+  for (const phrase of ["PRIVATE PER MEMBER", "SHARED, MEMBER-AUTHORED", "SHARED, READ-ONLY FROM THE SITE"]) {
     assert.ok(PAGE_RULES.includes(phrase), "rule 2 must match ACCESS_NOTE: " + phrase);
     assert.ok(Object.values(ACCESS_NOTE).some((v) => v.includes(phrase)), phrase);
   }

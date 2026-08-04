@@ -136,6 +136,12 @@ export async function publishPages(deps, { spec, slug } = {}) {
     if (bd) for (const k of ["routesMs", "tscMs", "viteMs"]) {
       if (typeof bd[k] === "number") out[k] = (out[k] || 0) + bd[k];
     }
+    // WHICH TEMPLATE BUILT THIS. Cloudflare rolls a container image out
+    // asynchronously, so a build minutes after a deploy can still be served by
+    // the previous image — and its published bundle is that older code. Carried
+    // out so a caller can compare it against its own checkout instead of
+    // diagnosing a bug that was already fixed.
+    if (bd && typeof bd.templateId === "string") out.templateId = bd.templateId;
     return bd || { ok: false, stage: "build", error: "the build service returned nothing" };
   };
 
