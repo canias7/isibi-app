@@ -128,6 +128,14 @@ export async function publishPages(deps, { spec, slug } = {}) {
     try { bd = await deps.compile(pages); }
     catch (e) { bd = { ok: false, stage: "build", error: "the build service is unreachable: " + String((e && e.message) || e).slice(0, 200) }; }
     out.buildMs += Date.now() - t0;
+    // THE CONTAINER'S OWN SPLIT, carried through rather than discarded. `buildMs`
+    // is what the Worker waited for and includes reaching the container at all;
+    // these say where the time went inside it. Kept on the FAILURE path too — a
+    // build that died in typecheck still spent that time, and a slow typecheck is
+    // the symptom that says the kit has grown, not the site.
+    if (bd) for (const k of ["routesMs", "tscMs", "viteMs"]) {
+      if (typeof bd[k] === "number") out[k] = (out[k] || 0) + bd[k];
+    }
     return bd || { ok: false, stage: "build", error: "the build service returned nothing" };
   };
 

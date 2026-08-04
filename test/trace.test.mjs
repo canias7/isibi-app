@@ -112,7 +112,8 @@ test("the build route actually uses it", () => {
   // NAMED, not counted. A `>= 6` floor with seven marks present survives one
   // being deleted — proved by mutation. These are the steps whose duration is
   // the actual question ("which one was slow"), so each is asserted by name.
-  for (const step of ["body", "gate", "design", "normalize", "provision", "schema", "seed", "merge", "pages"]) {
+  for (const step of ["auth", "body", "gate", "owner", "design", "normalize", "provision",
+                      "schema", "seed", "merge", "og", "pages"]) {
     assert.match(w, new RegExp('tr\\.at\\("' + step + '"'), `the route stopped recording "${step}"`);
   }
   // PROVISIONING IS SIX CALLS, not one step. A cold provision (create the Neon
@@ -126,9 +127,21 @@ test("the build route actually uses it", () => {
   assert.match(w, /^\s*mark,$/m, "the worker's wrapper takes a mark and never forwards it to the module");
   // THE PAGES CALL'S SPLIT. It was the model call, the container compile and ~20
   // R2 puts together.
-  for (const k of ["genMs: pages.genMs", "buildMs: pages.buildMs", "publishMs: pages.publishMs"]) {
+  for (const k of ["genMs: pages.genMs", "buildMs: pages.buildMs", "publishMs: pages.publishMs",
+                   "tscMs: pages.tscMs", "viteMs: pages.viteMs"]) {
     assert.ok(w.includes(k), `the pages step does not report ${k.split(":")[0]}`);
   }
+  // THE TRACE STARTS BEFORE authUser, which is a round trip to GoTrue. Below it,
+  // that call sat outside `totalMs` entirely and the reported total was not the
+  // time the caller waited.
+  const head = w.slice(w.indexOf("/api/site/react-build"));
+  assert.ok(head.indexOf("const tr = makeTrace();") < head.indexOf("await authUser(request)"),
+    "the trace starts after the auth round trip, so totalMs understates the build");
+  // Fonts are DOWNLOADED inside what looks like setup; the mark has to reach the
+  // function that does it.
+  assert.match(w, /mark: \(n\) => tr\.at\(n\)/, "buildAndPublishPages is given no way to report its own steps");
+  assert.match(w, /mark\?\.\("fonts"\)/, "the font download is untimed again");
+  assert.match(w, /mark\?\.\("route"\)/, "the KV route write is untimed again");
   assert.match(w, /pagesUsage: pages\.usage \|\| undefined/,
     "the pages call is metered on four token kinds and reports none of them");
   assert.match(w, /trace: traced\.steps/, "the trace is built and then never returned");
@@ -165,4 +178,37 @@ test("the schema call's usage is captured and reported, but NOT billed on", () =
   assert.match(cost, /cost: \(designed \? SITE_BUILD_FEE : 0\) \+ pages\.cost,/,
     "the charge changed — that is a pricing decision, not a side effect of a measurement");
   assert.ok(!/schema/i.test(cost), "the schema call's cost reached the customer's bill");
+});
+
+test("the build container times its three sub-steps and reports them every way out", () => {
+  // Source-derived, because the container is an HTTP server the unit suite does
+  // not start. The invariant is that EVERY exit from the build handler carries
+  // the timings — a success, a `tsr generate` failure, a typecheck failure, a
+  // vite failure and a missing index.html. Reporting them only on success is the
+  // version that looks finished and is silent on exactly the runs somebody is
+  // investigating.
+  const src = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
+  assert.match(src, /const times = \{ routesMs: 0, tscMs: 0, viteMs: 0 \}/,
+    "the container stopped timing its sub-steps");
+  // AND SOMETHING HAS TO WRITE THEM. Asserting only that every exit spreads
+  // `times` passes perfectly on a container where all three stay 0 — proved by
+  // mutation, twice, by putting `tsc` and `vite` back on the bare `run()`. The
+  // keys are derived from the declaration so a fourth one cannot be added and
+  // left unwritten.
+  const keys = [...src.match(/const times = \{([^}]*)\}/)[1].matchAll(/(\w+):/g)].map((m) => m[1]);
+  assert.equal(keys.length, 3, "the timings object changed shape — rescope this");
+  for (const k of keys) {
+    assert.ok(src.includes('timed("' + k + '"'), `${k} is reported and never measured — it is always 0`);
+  }
+  // …and the wrapper has to WRITE what it measured. Called-and-spread-but-never-
+  // assigned is a third way to report three zeros, and it survived the two checks
+  // above.
+  assert.match(src, /times\[key\] = Date\.now\(\) - t;/,
+    "timed() measures nothing back into times — every duration is 0");
+
+  const exits = [...src.matchAll(/send\(res, 200, \{ ok: (?:true|false)[^\n]*ms: Date\.now\(\) - t0[^\n]*\}\)/g)]
+    .map((m) => m[0]);
+  assert.ok(exits.length >= 5, `only ${exits.length} timed exits found — the scan stopped working`);
+  const silent = exits.filter((e) => !e.includes("...times"));
+  assert.deepEqual(silent, [], "these exits report a total and no breakdown");
 });

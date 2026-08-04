@@ -464,3 +464,28 @@ test("a build that never publishes still reports what it spent", async () => {
   assert.ok(out.usage, "the tokens were spent and the record of them was dropped");
   assert.equal(out.publishMs, undefined, "nothing was published, so nothing may claim to have been");
 });
+
+test("the container's own split is carried through, on success AND on failure", async () => {
+  // `buildMs` is what the Worker waited for, including reaching the container at
+  // all. These say where the time went INSIDE it, and they answer a different
+  // question: `tsc` grows with the whole kit whether or not a page imports any
+  // of it (4.97s → 8.02s when the charts landed), while `vite` only pays for
+  // what is reachable. One number cannot tell a kit that is getting expensive
+  // from a site that is getting big.
+  const times = { routesMs: 400, tscMs: 8020, viteMs: 5170 };
+  const ok = harness({ compile: async () => ({ ok: true, files: { "index.html": { t: "<x>" } }, ...times }) });
+  const a = await publishPages(ok.deps, { spec: SPEC, slug: "cafe" });
+  for (const k of Object.keys(times)) assert.equal(a[k], times[k], `${k} was dropped`);
+
+  // The failing path matters MORE: a build that died in typecheck still spent
+  // that time, and a slow typecheck is the symptom that says the kit has grown.
+  const bad = harness({ compile: async () => ({ ok: false, stage: "typecheck", error: "index.tsx(3,9): error TS2322", ...times }) });
+  const b = await publishPages(bad.deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(b.page, "placeholder");
+  assert.equal(b.tscMs, times.tscMs, "a failed typecheck reports no duration, which is when it is most wanted");
+
+  // A container that reports nothing must not invent numbers.
+  const quiet = harness();
+  const c = await publishPages(quiet.deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(c.tscMs, undefined);
+});

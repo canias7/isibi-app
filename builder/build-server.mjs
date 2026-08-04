@@ -244,6 +244,12 @@ const server = http.createServer((req, res) => {
     const files = payload && payload.files;
     if (!files || typeof files !== "object") return send(res, 400, { ok: false, error: "no files" });
     const t0 = Date.now();
+    // DECLARED OUTSIDE THE TRY, so the catch-all can report it. Scoped inside, the
+    // one exit taken when something UNEXPECTED happened was the one exit with no
+    // breakdown — which is exactly backwards, since that is the run somebody is
+    // investigating. Caught by the guard that requires every timed exit to carry
+    // it, not by reading.
+    const times = { routesMs: 0, tscMs: 0, viteMs: 0 };
     return oneAtATime(async () => {
     try {
       resetRoutes();
@@ -267,28 +273,42 @@ const server = http.createServer((req, res) => {
       const slug = String((payload.slug || "")).replace(/[^a-z0-9-]/gi, "").slice(0, 80);
       if (slug) buildEnv.VITE_SITE_SLUG = slug;
 
-      const gen = await run("npx", ["tsr", "generate"], buildEnv);
+      // THE THREE SUB-STEPS, TIMED APART. The container reported one `ms` for all
+      // of them, and they answer different questions: `tsc` grows with the whole
+      // kit (4.97s → 8.02s when the charts and blocks landed) whether or not a
+      // page imports any of it, while `vite` only pays for what is actually
+      // reachable. One number cannot tell a kit that is getting expensive from a
+      // site that is getting big. Reported on the FAILURE paths too — a build
+      // that died in typecheck still spent that time.
+      const timed = async (key, cmd, args) => {
+        const t = Date.now();
+        const r = await run(cmd, args, buildEnv);
+        times[key] = Date.now() - t;
+        return r;
+      };
+
+      const gen = await timed("routesMs", "npx", ["tsr", "generate"]);
       if (gen.code !== 0 || !fs.existsSync(GEN)) {
-        return send(res, 200, { ok: false, stage: "routes", error: exitReason("tsr generate", gen).slice(0, 4000), ms: Date.now() - t0 });
+        return send(res, 200, { ok: false, stage: "routes", error: exitReason("tsr generate", gen).slice(0, 4000), ms: Date.now() - t0, ...times });
       }
 
-      const tsc = await run("npx", ["tsc", "--noEmit"], buildEnv);
+      const tsc = await timed("tscMs", "npx", ["tsc", "--noEmit"]);
       if (tsc.code !== 0) {
         // tsc reports on stdout; keep the first errors, which are the causes —
         // the tail is usually the same mistake echoed through the tree.
-        return send(res, 200, { ok: false, stage: "typecheck", error: exitReason("tsc", tsc, { stdoutFirst: true }).slice(0, 6000), ms: Date.now() - t0 });
+        return send(res, 200, { ok: false, stage: "typecheck", error: exitReason("tsc", tsc, { stdoutFirst: true }).slice(0, 6000), ms: Date.now() - t0, ...times });
       }
 
-      const build = await run("npx", ["vite", "build", "--logLevel", "warn"], buildEnv);
+      const build = await timed("viteMs", "npx", ["vite", "build", "--logLevel", "warn"]);
       if (build.code !== 0) {
-        return send(res, 200, { ok: false, stage: "build", error: exitReason("vite build", build).slice(0, 4000), ms: Date.now() - t0 });
+        return send(res, 200, { ok: false, stage: "build", error: exitReason("vite build", build).slice(0, 4000), ms: Date.now() - t0, ...times });
       }
 
       const dist = collectDist();
-      if (!dist["index.html"]) return send(res, 200, { ok: false, stage: "build", error: "build produced no index.html", ms: Date.now() - t0 });
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0 , fonts: fontsUsed, theme: themeUsed });
+      if (!dist["index.html"]) return send(res, 200, { ok: false, stage: "build", error: "build produced no index.html", ms: Date.now() - t0, ...times });
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, fonts: fontsUsed, theme: themeUsed });
     } catch (e) {
-      return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0 });
+      return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
     }
     });
   });

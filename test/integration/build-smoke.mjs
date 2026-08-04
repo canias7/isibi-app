@@ -127,7 +127,14 @@ try {
   // this log until now, and the schema call's real cost had never been measured
   // against the flat SITE_BUILD_FEE it is billed at.
   if (Array.isArray(d.trace) && d.trace.length) {
-    console.log("   trace:", d.trace.map((s) => s.s + " " + s.ms + "ms").join(" · "));
+    // The extras are printed too — `s.ms` alone drops exactly the numbers the
+    // step was instrumented to carry (the pages split, the token counts).
+    const fmt = (s) => {
+      const extra = Object.entries(s).filter(([k]) => k !== "s" && k !== "ms");
+      return s.s + " " + s.ms + "ms" + (extra.length ? " [" + extra.map(([k, v]) => k + " " + v).join(", ") + "]" : "");
+    };
+    console.log("   trace:");
+    for (const step of d.trace) console.log("     " + fmt(step));
     console.log("   total:", d.totalMs + "ms");
   }
   // Both model calls, side by side, in the four kinds they are priced in. Whether

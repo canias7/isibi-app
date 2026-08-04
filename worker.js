@@ -3229,6 +3229,7 @@ async function ensureSiteBackend(env, slug, uid, brief, mark) {
   // an optimisation — the lookup backfills on a miss anyway — so a failure here
   // must not fail a build that has otherwise succeeded.
   await saveRoute(routeDeps(env), slug, conn);
+  mark?.("route");
   return conn;
 }
 
@@ -3667,11 +3668,15 @@ async function fetchSiteFonts(pair) {
 // all? — live in builder/publish-pages.mjs, which takes every side effect as an
 // injected function so they can be driven against fakes in test/publish-pages.test.mjs.
 // This is only the wiring that supplies the real ones.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, family, structure }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, family, structure, mark }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
+  // A face that is not bundled is DOWNLOADED here, before any model call. It is
+  // network time inside what looked like pure setup, and on a build using two
+  // unbundled families it is the whole gap between `og` and the generation.
   const fontFiles = await fetchSiteFonts(fontPair);
+  try { mark?.("fonts"); } catch { /* a trace must never break a build */ }
   const out = await publishPages({
     // Throws on failure, and the route logs it. There is no second attempt to
     // swallow one, so nothing needs logging here.
@@ -5822,16 +5827,18 @@ async function handleRequest(request, env, ctx) {
     // This builds the DATA layer only — the page it publishes describes the
     // model it created. Generating the site itself is the next piece.
     if ((url.pathname === "/api/site/react-build" || url.pathname === "/api/site/build" || url.pathname === "/api/site/react-revise") && request.method === "POST") {
+      // THE TRACE, started BEFORE the auth check rather than after it. `authUser`
+      // is a round trip to GoTrue — a real network call on every build — and
+      // starting the trace below it put that call outside `totalMs` entirely, so
+      // the reported total was not the time the caller actually waited.
+      // Costs two Date.now() calls a step and cannot throw — see builder/trace.mjs.
+      const tr = makeTrace();
       const bu = await authUser(request);
       if (!bu) return UNAUTHED();
       if (!siteDbConfigured(env)) return Response.json({ ok: false, error: "site database not configured", need: "NEON_API_KEY" }, { status: 501 });
       if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, error: "service key not configured" }, { status: 501 });
       if (!env.ANTHROPIC_API_KEY) return Response.json({ ok: false, error: "generator not configured" }, { status: 501 });
-
-      // THE TRACE. Started before anything is read, so step 1 measures the body
-      // parse and not the time since some earlier request. Costs two Date.now()
-      // calls a step and cannot throw — see builder/trace.mjs.
-      const tr = makeTrace();
+      tr.at("auth");
       const body = await request.json().catch(() => ({}));
       tr.at("body");
       // Revise sends {slug, instruction} for an existing site; build sends
@@ -5924,6 +5931,11 @@ async function handleRequest(request, env, ctx) {
         console.error("ownership check failed:", slug, e && (e.detail || e.message));
         return Response.json({ ok: false, msg: "Couldn't check that name just now — try again in a moment." }, { status: 503 });
       }
+
+      // A Supabase round trip, and it was folded into a mark named `normalize`
+      // — which is in-process and instant. A step name that hides a network call
+      // is worse than no step at all: it attributes the wait to the wrong thing.
+      tr.at("owner");
 
       const spec = normalizeSchema(body.schema || designed || {});
       tr.at("normalize");
@@ -6029,6 +6041,7 @@ async function handleRequest(request, env, ctx) {
               if (first) ogImage = "https://isibi.ai/u/" + slug + "/" + first.key.split("/").pop();
             }
           } catch (e) { console.error("og image lookup failed:", slug, e && e.message); }
+          tr.at("og");
           pages = await buildAndPublishPages(env, {
             brief: briefForPages({ brief, priorBrief }), spec: pageSpec, slug, brand,
             siteDescription, ogImage,
@@ -6041,6 +6054,7 @@ async function handleRequest(request, env, ctx) {
             family: (designed && designed.family) || (body && body.family) || null,
             structure: (designed && designed.structure) || (body && body.structure) || null,
             auth: request.headers.get("Authorization") || "",
+            mark: (n) => tr.at(n),
           });
         } catch (e) {
           console.error("page generation failed:", slug, (e && (e.detail || e.message)));
@@ -6088,6 +6102,8 @@ async function handleRequest(request, env, ctx) {
         credits: pages.cost || 0,
         genMs: pages.genMs || 0,
         buildMs: pages.buildMs || 0,
+        tscMs: pages.tscMs || 0,
+        viteMs: pages.viteMs || 0,
         publishMs: pages.publishMs || 0,
       });
 

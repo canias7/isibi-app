@@ -244,6 +244,18 @@ try {
   console.log(`  (${Math.round((Date.now() - t0) / 1000)}s)`);
 
   ok("the build succeeds", built.ok === true, built.stage + ": " + built.error);
+
+  // THE SUB-STEP TIMINGS, from a real container rather than from a fake. The unit
+  // guards prove the timings are declared, written and reported; only running the
+  // thing proves the numbers are real. `tsc` grows with the whole kit whether or
+  // not a page imports any of it, `vite` only pays for what is reachable — so
+  // these two are the early warning that the kit has become expensive.
+  console.log(`  routes ${built.routesMs}ms · tsc ${built.tscMs}ms · vite ${built.viteMs}ms · total ${built.ms}ms`);
+  ok("the container reports its three sub-steps", [built.routesMs, built.tscMs, built.viteMs].every((n) => typeof n === "number" && n > 0),
+    JSON.stringify({ routesMs: built.routesMs, tscMs: built.tscMs, viteMs: built.viteMs }));
+  ok("and they add up to less than the total it reports", built.routesMs + built.tscMs + built.viteMs <= built.ms,
+    `${built.routesMs}+${built.tscMs}+${built.viteMs} > ${built.ms}`);
+
   if (built.ok) {
     const names = Object.keys(built.files);
     ok("it produced an index.html", !!built.files["index.html"]);

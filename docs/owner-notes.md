@@ -12628,3 +12628,56 @@ harness has it now, plus two tests: auth and the Data API must name the same
 database, and a failed enable must fail the build with `stage:"enable_data_api"`.
 
 831 unit tests. **36 mutants across both rounds, all caught.**
+
+### Every step in the 33 now has a number (2026-08-04)
+
+The owner produced the full 33-step enumeration and asked whether the trace
+covered *that*. It did not — it covered them at the granularity of nine marks,
+and two of those were network calls hiding under names that sound instant.
+
+**What was still folded, and what each was hiding:**
+
+- **`authUser` was outside the trace entirely.** It is a round trip to GoTrue on
+  every build, and the trace started below it — so `totalMs` was not the time the
+  caller waited. The trace starts first now, with an `auth` mark.
+- **The ownership pre-check (step 7) sat inside a mark called `normalize`.** A
+  Supabase read attributed to an in-process function. A step name that hides a
+  network call is worse than no step: it points at the wrong thing.
+- **The KV route write (18)** was the untimed tail of provisioning.
+- **The og-image R2 list (23)** and **the font download (24-25)** were inside
+  `pages`. Fonts are the one that matters — an unbundled face is fetched over the
+  network before any model call, in what reads as pure setup.
+- **The container reported ONE `ms` for `tsr generate` + `tsc` + `vite`.** Those
+  answer different questions: **`tsc` grows with the whole kit** whether or not a
+  page imports any of it (4.97s → 8.02s when the charts and blocks landed), while
+  **`vite` only pays for what is reachable**. One number cannot tell a kit that is
+  getting expensive from a site that is getting big. Split into `routesMs` /
+  `tscMs` / `viteMs`, carried through `publishPages` to the response.
+  **Measured on a real container: routes 753ms · tsc 2792ms · vite 3515ms ·
+  total 7067ms** — so the three account for essentially all of it.
+
+**Two guards fired on my own work and both were right.**
+
+`test/exit-reason.test.mjs` derives subprocess names from `const x = await run(`
+call sites, and collapsing the three into a `timed()` wrapper took that count to
+one. A derivation that stops finding its subjects must go red rather than pass
+vacuously — that is the check working. Widened to accept the wrapper, **plus a
+new assertion that the wrapper still spawns something**, or naming it as a
+subprocess call site would be a lie.
+
+And the new "every exit reports its breakdown" guard caught that `times` was
+declared inside the `try`, so **the catch-all — the exit taken when something
+unexpected happened — was the one exit with no breakdown.** Exactly backwards:
+that is the run somebody is investigating. Hoisted.
+
+**Three mutants survived the first sweep and each was a real hole**: nothing
+proved the container's split reached `out` (source guards checked it was
+*declared* and *reported*, never *carried*); and asserting `...times` is spread
+passes perfectly on a container where all three stay `0`, which two mutants
+proved by putting `tsc` and `vite` back on the bare `run()`. The guard now
+derives the keys from the declaration, requires a `timed("<key>"` call for each,
+and requires the wrapper to assign what it measured — three separate ways to
+report three zeros, all closed.
+
+833 unit tests, `site-build` 38/38 against a real container.
+**48 mutants across three rounds, all caught.**
