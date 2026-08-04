@@ -1,5 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -32,11 +31,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/account")({ component: Account });
 
-type Note = Row & { title: string; body: string | null };
+type Note = Row & { title: string; body: string };
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A quiet studio for a steady practice.",
+  tagline: "A calm room, a mat, and a class that starts on time.",
   links: [
     { label: "Home", href: "#/" },
     { label: "Book", href: "#/book" },
@@ -51,6 +50,13 @@ const credentials = z.object({
 });
 
 type Credentials = z.infer<typeof credentials>;
+
+const noteSchema = z.object({
+  title: z.string().min(1, "Give your note a title"),
+  body: z.string().min(1, "Write something"),
+});
+
+type NoteInput = z.infer<typeof noteSchema>;
 
 function Account() {
   const member = useMember();
@@ -87,7 +93,7 @@ function Account() {
           <>
             <h1 className="text-3xl font-semibold tracking-tight">Your account</h1>
             <p className="mt-2 text-muted-foreground">
-              Sign in to keep your own practice notes between visits.
+              Sign in to keep your own practice notes between classes.
             </p>
 
             <Form {...form}>
@@ -143,29 +149,20 @@ function Account() {
   );
 }
 
-const noteSchema = z.object({
-  title: z.string().min(1, "Give it a title"),
-  body: z.string().max(2000).optional(),
-});
-
-type NoteForm = z.infer<typeof noteSchema>;
-
 function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) {
   const notes = useRows<Note>("my_notes", { order: "id", dir: "desc" });
   const create = useCreateRow<Note>("my_notes");
-  const [open, setOpen] = useState(false);
 
-  const form = useForm<NoteForm>({
+  const noteForm = useForm<NoteInput>({
     resolver: zodResolver(noteSchema),
     defaultValues: { title: "", body: "" },
   });
 
-  const onSubmit = (values: NoteForm) => {
+  const onSubmit = (values: NoteInput) => {
     create.mutate(values, {
       onSuccess: () => {
         toast.success("Note saved");
-        form.reset();
-        setOpen(false);
+        noteForm.reset();
       },
       onError: (e: Error) => toast.error(e.message),
     });
@@ -181,76 +178,71 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
       </div>
 
       <Card className="mt-8">
-        <CardHeader className="flex flex-row items-center justify-between gap-3">
-          <CardTitle className="text-base">Your practice notes</CardTitle>
-          <Button size="sm" onClick={() => setOpen((v) => !v)}>
-            {open ? "Close" : "New note"}
-          </Button>
+        <CardHeader>
+          <CardTitle className="text-base">Add a note</CardTitle>
         </CardHeader>
         <CardContent>
-          {open && (
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="mb-6 grid gap-3">
-                <FormField
-                  control={form.control}
-                  name="title"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Title</FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="body"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Note</FormLabel>
-                      <FormControl>
-                        <Textarea rows={4} {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button type="submit" className="motion-press" disabled={create.isPending}>
-                  {create.isPending ? "Saving…" : "Save note"}
-                </Button>
-              </form>
-            </Form>
-          )}
-
-          {notes.isPending && (
-            <div className="grid gap-2">
-              <Skeleton className="h-16 rounded-lg" />
-              <Skeleton className="h-16 rounded-lg" />
-            </div>
-          )}
-          {notes.isError && (
-            <p className="text-sm text-destructive">Couldn't load your notes. Refresh and try again.</p>
-          )}
-          {notes.data?.length === 0 && (
-            <Empty
-              title="No notes yet"
-              description="Keep track of how a class felt, or what to work on next time."
-            />
-          )}
-          {!!notes.data?.length && (
-            <ul className="grid gap-3 motion-stagger">
-              {notes.data.map((n) => (
-                <li key={n.id} className="rounded-lg border border-border p-3">
-                  <p className="font-medium">{n.title}</p>
-                  {n.body && <p className="mt-1 text-sm text-muted-foreground">{n.body}</p>}
-                </li>
-              ))}
-            </ul>
-          )}
+          <Form {...noteForm}>
+            <form onSubmit={noteForm.handleSubmit(onSubmit)} className="grid gap-4">
+              <FormField
+                control={noteForm.control}
+                name="title"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Title</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g. Hips are tighter on the left" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={noteForm.control}
+                name="body"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Note</FormLabel>
+                    <FormControl>
+                      <Textarea rows={3} {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <Button type="submit" className="motion-press" disabled={create.isPending}>
+                {create.isPending ? "Saving…" : "Save note"}
+              </Button>
+            </form>
+          </Form>
         </CardContent>
       </Card>
+
+      <div className="mt-8">
+        <h2 className="text-lg font-semibold tracking-tight">Your notes</h2>
+        {notes.isPending && (
+          <div className="mt-4 grid gap-2">
+            <Skeleton className="h-16 rounded-lg" />
+            <Skeleton className="h-16 rounded-lg" />
+          </div>
+        )}
+        {notes.isError && (
+          <p className="mt-4 text-sm text-destructive">Couldn't load your notes. Refresh and try again.</p>
+        )}
+        {notes.data?.length === 0 && (
+          <Empty className="mt-4" title="No notes yet" description="Whatever you jot down after class will show up here." />
+        )}
+        {!!notes.data?.length && (
+          <ul className="mt-4 grid gap-3 motion-stagger">
+            {notes.data.map((n) => (
+              <li key={n.id} className="rounded-lg border border-border bg-card p-4">
+                <p className="font-medium">{n.title}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{n.body}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </>
   );
 }

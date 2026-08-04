@@ -33,11 +33,11 @@ export const Route = createFileRoute("/book")({
   }),
 });
 
-type Booking_ = Row & { class_name: string };
+type Appointment = Row;
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A quiet studio for a steady practice.",
+  tagline: "A calm room, a mat, and a class that starts on time.",
   links: [
     { label: "Home", href: "#/" },
     { label: "Book", href: "#/book" },
@@ -46,15 +46,9 @@ const CHROME = {
   action: { label: "Book now", href: "#/book" },
 };
 
-const CLASS_NAMES = [
-  "Morning flow",
-  "Slow & stretch",
-  "Hot power",
-  "Beginners' foundations",
-  "Restorative & breath",
-];
+const CLASSES = ["Morning Flow", "Vinyasa", "Restorative", "Hot Yoga", "Beginners' Course"];
 
-const SLOTS = ["07:00", "09:00", "11:00", "13:00", "17:30", "18:45", "20:00"];
+const SLOTS = ["07:00", "09:00", "12:00", "17:30", "18:30", "19:45"];
 
 const booking = z.object({
   class_name: z.string().min(1, "Pick a class"),
@@ -64,14 +58,14 @@ const booking = z.object({
   slot_time: z.string().min(1, "Pick a time"),
 });
 
-type BookingForm = z.infer<typeof booking>;
+type Booking = z.infer<typeof booking>;
 
 function Book() {
   const { service: preselected } = Route.useSearch();
-  const create = useCreateRow<Booking_>("bookings");
-  const [done, setDone] = useState<string | null>(null);
+  const create = useCreateRow<Appointment>("bookings");
+  const [booked, setBooked] = useState<{ class_name: string; slot_date: string; slot_time: string } | null>(null);
 
-  const form = useForm<BookingForm>({
+  const form = useForm<Booking>({
     resolver: zodResolver(booking),
     defaultValues: {
       class_name: preselected ?? "",
@@ -82,33 +76,37 @@ function Book() {
     },
   });
 
-  const slotDate = form.watch("slot_date");
+  const date = form.watch("slot_date");
   const taken = usePublicRows<{ slot_date: string; slot_time: string }>(
     "bookings",
-    slotDate ? { slot_date: slotDate } : undefined,
+    date ? { slot_date: date } : undefined,
   );
 
-  const onSubmit = (values: BookingForm) => {
+  const onSubmit = (values: Booking) => {
     create.mutate(values, {
       onSuccess: (row) => {
         toast.success("Booked — see you on the mat.");
+        setBooked({ class_name: row.class_name as string, slot_date: row.slot_date as string, slot_time: row.slot_time as string });
         form.reset();
-        setDone(row.class_name);
       },
       onError: (e: Error) => toast.error(e.message),
     });
   };
 
-  if (done) {
+  if (booked) {
     return (
       <SiteChrome {...CHROME}>
         <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
           <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
           <p className="mt-3 text-muted-foreground">
-            {done} is confirmed. This table has no claim link, so keep the confirmation email safe if you need to change plans.
+            {booked.class_name} on {booked.slot_date} at {booked.slot_time}.
+          </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            We don't have a way to look this booking up again on this site — keep our
+            confirmation email if you need to change or cancel it.
           </p>
           <Button asChild className="mt-6">
-            <Link to="/">Back to the studio</Link>
+            <Link to="/">Back to the timetable</Link>
           </Button>
         </div>
       </SiteChrome>
@@ -119,7 +117,7 @@ function Book() {
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-2xl px-6 py-14">
         <h1 className="text-3xl font-semibold tracking-tight">Book a class</h1>
-        <p className="mt-2 text-muted-foreground">Pick a class, a date and a time — we'll see you there.</p>
+        <p className="mt-2 text-muted-foreground">We'll confirm by email straight away.</p>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -136,9 +134,9 @@ function Book() {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {CLASS_NAMES.map((name) => (
-                        <SelectItem key={name} value={name}>
-                          {name}
+                      {CLASSES.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {c}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -211,7 +209,7 @@ function Book() {
 
             <div className="sm:col-span-2">
               <Button type="submit" className="motion-press" disabled={create.isPending}>
-                {create.isPending ? "Booking…" : "Book now"}
+                {create.isPending ? "Booking…" : "Check availability"}
               </Button>
             </div>
           </form>
