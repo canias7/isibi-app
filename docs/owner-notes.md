@@ -11494,3 +11494,47 @@ site. A yoga studio gets salon's booking-first hero. The exemplar wired here is
 the family's `index.tsx`, so that gap narrows but does not close.
 
 755 unit tests, site-build 36/36, 5 mutants on the exemplar path, all caught.
+
+---
+
+## Customers were being overcharged 35% on a warm build (2026-08-04)
+
+**Two rate tables in one repo, and they disagreed.** `publish-pages.mjs` priced
+ALL input at the fresh rate; `page-gen-eval.mjs` priced cache reads at 0.1x and
+writes at 1.25x. So what a customer was billed and what we told ourselves a build
+cost came from different numbers, and the customer's came from the wrong one.
+
+It matters because the cached prefix is **27,170 tokens — far the largest input
+component**. Billing a cache read as fresh input is **ten times over**.
+
+```
+charged            35 credits  ($0.280)
+true cost warm     26 credits  ($0.2064)
+true cost cold     38 credits  ($0.3001)
+```
+
+**I CAUSED THIS EARLIER THE SAME DAY, and that is the useful part.** `usedIn` was
+`input_tokens` alone, so cached tokens were not counted at all — 21 credits,
+which is where the "~22 credits" in CLAUDE.md came from. Counting them was
+right; pricing them at 10x was not. The bill went 21 → 35 as a side effect of a
+fix, without anyone deciding it should. **A meter that starts counting a new
+thing has to price it, not just add it.**
+
+- **ONE table now**, exported from `publish-pages.mjs`; the eval imports
+  `pageCost` instead of restating it. Not "two tables that agree" — one table,
+  the same reasoning as `pagesRequest` and `briefWithLayout`.
+- **`pageCredits` takes the usage OBJECT**, not two summed numbers. Summing is
+  what destroyed the distinction in the first place, so the signature no longer
+  admits it. `worker.js` hands over all four kinds under their own names.
+- The guard asserts the **ratios** (0.1x / 1.25x / 5x), not just the ordering —
+  an order-only check passes on rates that are merely in the right sequence and
+  wrong by any amount. Compared with a tolerance, because `0.30e-6 / 3e-6` is
+  `0.09999999999999999`: the rates were right and my first assertion was naive.
+- A derived guard reads `worker.js` and fails if the three input kinds are summed
+  again, since pricing them apart is only possible if the caller keeps them apart.
+
+**Out of scope, flagged not fixed:** the GAME builder has its own `gbCredits`
+with the same flat `RATE_IN` shape, twice in `worker.js`. Different subsystem,
+and whether it even uses caching was not checked.
+
+758 unit tests. 5 mutants, all caught — including restoring the original bug.

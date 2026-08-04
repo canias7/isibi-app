@@ -2961,9 +2961,17 @@ async function generateSitePages(env, brief, spec, brand, family) {
   // of MODEL spend, and pretending a cache read costs a tenth would mean the
   // ledger tracks a different number from the invoice. Reweighting belongs in the
   // rate, not in the token count, and today the rate is one number.
+  // THE FOUR KINDS, KEPT APART. Summing them into one `usedIn` is what made
+  // pageCredits price a cache read at the fresh rate — ten times over, on the
+  // largest input component — and overcharge a warm build by 35%. They are
+  // priced 1x / 5x / 0.1x / 1.25x and only the caller can tell them apart.
   const used = {
-    usedIn: (usage.input_tokens || 0) + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0),
-    usedOut: usage.output_tokens || 0,
+    usage: {
+      in: usage.input_tokens || 0,
+      out: usage.output_tokens || 0,
+      cacheRead: usage.cache_read_input_tokens || 0,
+      cacheWrite: usage.cache_creation_input_tokens || 0,
+    },
   };
   // A tool_use block cut off at max_tokens carries half-written JSON, which parses
   // into a page whose last file is truncated. Treat it as a failed generation

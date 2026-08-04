@@ -28,6 +28,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pagesRequest, briefWithLayout, validatePages, lintPages } from "../../builder/page-gen.mjs";
+import { pageCost } from "../../builder/publish-pages.mjs";
 import { normalizeSchema } from "../../site-schema.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -132,8 +133,11 @@ async function generate(fix) {
 }
 
 // $3/M in, $15/M out, cache write 1.25x, cache read 0.1x — Sonnet 5's list price.
-const dollars = (u) =>
-  (u.in * 3e-6) + (u.out * 15e-6) + (u.cacheWrite * 3.75e-6) + (u.cacheRead * 0.30e-6);
+// IMPORTED, NOT RESTATED. This file kept its own rate table while
+// publish-pages.mjs kept another, and they disagreed: the customer was billed
+// from one and told what a build cost by the other. One table, or they drift
+// again — the same reason `pagesRequest` and `briefWithLayout` are shared.
+const dollars = (u) => pageCost(u);
 const COMMENT_RE = /\/\*[\s\S]*?\*\/|^[ \t]*\/\/.*$/gm;
 
 // ── the build service, set up the way the container image is ──────────────────

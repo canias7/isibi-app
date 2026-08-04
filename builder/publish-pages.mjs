@@ -16,11 +16,37 @@
 
 import { validatePages, lintPages } from "./page-gen.mjs";
 
-// Sonnet 5 rates over the platform's $0.008/credit basis. Whole credits, minimum
-// one — a generation that produced anything at all was not free.
-const RATE_IN = 3e-6, RATE_OUT = 15e-6, CREDIT_USD = 0.008;
-export const pageCredits = (usedIn, usedOut) =>
-  Math.max(1, Math.ceil((usedIn * RATE_IN + usedOut * RATE_OUT) / CREDIT_USD));
+// Sonnet 5 rates over the platform's $0.008/credit basis.
+//
+// THE ONE TABLE. Until 2026-08-04 there were two: this one, which priced ALL
+// input at the fresh rate, and the eval's, which priced cache reads and writes
+// properly — so what a customer was billed and what we told ourselves a build
+// cost were computed from different numbers.
+//
+// A cache read is a TENTH of fresh input and the cached prefix is 27,170 tokens,
+// far the largest input component, so flattening the three kinds overcharged a
+// warm build by ~9 credits — 35%. Measured: 35 charged against a true 26.
+//
+// It got worse the same day rather than being long-standing. `usedIn` used to be
+// `input_tokens` alone, so cached tokens were not counted AT ALL (21 credits);
+// counting them was right and pricing them at 10x was not, and the bill moved
+// 21 -> 35 without anyone deciding it should.
+export const RATES = {
+  in: 3e-6,          // fresh input
+  out: 15e-6,        // output, and adaptive thinking is billed in here too
+  cacheRead: 0.30e-6,   // 0.1x — the whole reason the system block is cached
+  cacheWrite: 3.75e-6,  // 1.25x, paid once per cache window
+};
+const CREDIT_USD = 0.008;
+
+/** Dollars at list price. Exported so nothing has to keep a second copy. */
+export const pageCost = ({ in: fresh = 0, out = 0, cacheRead = 0, cacheWrite = 0 } = {}) =>
+  fresh * RATES.in + out * RATES.out + cacheRead * RATES.cacheRead + cacheWrite * RATES.cacheWrite;
+
+// Whole credits, minimum one — a generation that produced anything at all was
+// not free. Takes the usage OBJECT, not two summed numbers: summing is what
+// threw away the distinction between the three input kinds in the first place.
+export const pageCredits = (usage) => Math.max(1, Math.ceil(pageCost(usage) / CREDIT_USD));
 
 // Don't start a call the caller plainly cannot pay for. Deliberately a floor and
 // not the worst case (~45 credits at the token ceiling): a new account is granted
@@ -40,7 +66,9 @@ export const MIN_CREDITS = 8;
  * build's cost; there is no second attempt to sum or to choose between.
  *
  * deps:
- *   generate()      → { input, truncated?, usedIn, usedOut }   the model call
+ *   generate()      → { input, truncated?, usage }            the model call
+ *                     usage: { in, out, cacheRead, cacheWrite } — the four kinds
+ *                     kept APART, because they are priced 1x / 5x / 0.1x / 1.25x
  *   compile(pages)  → { ok, files?, error?, stage? }           the build container
  *   publish(dist)   → void                                     write to storage
  *   readCredits()   → number
@@ -62,7 +90,7 @@ export async function publishPages(deps, { spec, slug } = {}) {
   // Charged on what the call actually used, and BEFORE the output is judged: the
   // tokens were spent whether or not the result turns out to be usable.
   const charge = async (g) => {
-    const c = pageCredits(g.usedIn, g.usedOut);
+    const c = pageCredits(g.usage);
     out.cost += c;
     try { await deps.useCredits(c); } catch { /* never fail a build over the ledger */ }
   };

@@ -10,7 +10,8 @@
 // or writing a broken dist to R2 after a failed compile.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { publishPages, pageCredits, MIN_CREDITS } from "../builder/publish-pages.mjs";
+import fs from "node:fs";
+import { publishPages, pageCredits, pageCost, RATES, MIN_CREDITS } from "../builder/publish-pages.mjs";
 
 const SPEC = {
   tables: [
@@ -48,7 +49,8 @@ export const Route = createFileRoute("/")({ component: Page });
 function Page() { const { data } = useRows("bookings"); fetch("/x"); return <div>{data?.length}</div>; }`,
 });
 
-const gen = (pages, extra = {}) => ({ input: { pages, notes: "" }, usedIn: 1000, usedOut: 1000, ...extra });
+const USAGE = { in: 1000, out: 1000, cacheRead: 0, cacheWrite: 0 };
+const gen = (pages, extra = {}) => ({ input: { pages, notes: "" }, usage: { ...USAGE }, ...extra });
 
 // Records every side effect so a test can assert on what was NOT done — the
 // publish that should not have happened, the credit that should not have moved.
@@ -82,14 +84,64 @@ function harness(over = {}) {
 }
 
 test("pageCredits meters real usage, never free", () => {
-  // 10k in + 10k out = $0.18 → 23 credits at $0.008.
-  assert.equal(pageCredits(10000, 10000), 23);
+  // 10k fresh in + 10k out = $0.18 → 23 credits at $0.008.
+  assert.equal(pageCredits({ in: 10000, out: 10000 }), 23);
   // A call that used almost nothing still cost something.
-  assert.equal(pageCredits(1, 1), 1);
-  assert.equal(pageCredits(0, 0), 1);
-  // Output tokens are 5× input; a generator is mostly output, so this is where
-  // the money goes and getting the rates backwards would understate every build.
-  assert.ok(pageCredits(0, 1000) > pageCredits(1000, 0));
+  assert.equal(pageCredits({ in: 1, out: 1 }), 1);
+  assert.equal(pageCredits({}), 1);
+  assert.equal(pageCredits(), 1, "no usage at all must not throw");
+  // Output is 5x fresh input; a generator is mostly output, so this is where the
+  // money goes and getting the rates backwards would understate every build.
+  assert.ok(pageCredits({ out: 1000 }) > pageCredits({ in: 1000 }));
+});
+
+test("the four token kinds are priced apart, not summed", () => {
+  // THE BUG THIS REPLACES. `usedIn` was one summed number, so a cache read was
+  // billed at the FRESH rate — ten times over, on the largest input component.
+  // Measured on a real build: 35 credits charged against a true 26, +35% on
+  // every warm build. It arrived the same day the meter started counting cached
+  // tokens at all, so it was never long-standing and never anybody's decision.
+  const N = 27170;
+  assert.ok(pageCost({ cacheRead: N }) < pageCost({ in: N }), "a cache read must be cheaper than fresh input");
+  assert.ok(pageCost({ cacheWrite: N }) > pageCost({ in: N }), "a cache write must be dearer than fresh input");
+  // The ratios, not just the ordering — an order-only check passes on rates that
+  // are merely in the right sequence and wrong by any amount. Compared with a
+  // tolerance because 0.30e-6 / 3e-6 is 0.09999999999999999 in binary floating
+  // point, which is the rates being right and the assertion being naive.
+  const ratio = (a, b) => Math.abs(RATES[a] / RATES.in - b) < 1e-9;
+  assert.ok(ratio("cacheRead", 0.1), `cacheRead is ${RATES.cacheRead / RATES.in}x fresh input, expected 0.1x`);
+  assert.ok(ratio("cacheWrite", 1.25), `cacheWrite is ${RATES.cacheWrite / RATES.in}x, expected 1.25x`);
+  assert.ok(ratio("out", 5), `out is ${RATES.out / RATES.in}x, expected 5x`);
+
+  // The measured build, both ways round.
+  const call = { in: 4977, out: 12222 };
+  assert.equal(pageCredits({ ...call, cacheRead: N }), 26, "warm");
+  assert.equal(pageCredits({ ...call, cacheWrite: N }), 38, "cold");
+  // And what the summed version used to produce, which must no longer be reachable.
+  assert.notEqual(pageCredits({ in: 4977 + N, out: 12222 }), pageCredits({ ...call, cacheRead: N }));
+});
+
+test("worker.js hands over the four kinds, not a sum", () => {
+  // Derived: publish-pages can price them apart only if the caller keeps them
+  // apart, and worker.js is the only caller that sees the real response.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
+  const i = src.indexOf("cache_read_input_tokens");
+  assert.ok(i > 0, "the worker no longer reads the cache fields at all");
+  const block = src.slice(Math.max(0, i - 400), i + 400);
+  assert.match(block, /cacheRead:/, "cache reads must reach publish-pages under their own name");
+  assert.match(block, /cacheWrite:/, "and so must cache writes");
+  assert.ok(!/input_tokens\s*\|\|\s*0\)\s*\+/.test(block), "the three input kinds are being summed again");
+});
+
+test("there is ONE rate table, and the eval reads it", () => {
+  // Two tables disagreed: this one priced all input at the fresh rate while the
+  // eval priced cache reads properly, so the customer's bill and our own cost
+  // figure came from different numbers. Same class as pagesRequest.
+  const evalSrc = fs.readFileSync(new URL("./integration/page-gen-eval.mjs", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
+  assert.match(evalSrc, /pageCost/, "the eval must price through the shared function");
+  assert.ok(!/\d+(\.\d+)?e-6/.test(evalSrc), "the eval is keeping its own rate table again");
 });
 
 test("publishes the app when the first attempt is clean", async () => {
@@ -193,7 +245,7 @@ test("a compile failure is NOT retried — one call, no publish", async () => {
   assert.match(out.notes, /didn't compile/);
   // Still reports what it tried, so a failed build is debuggable from the response.
   assert.deepEqual(out.files, ["src/routes/index.tsx"]);
-  assert.equal(out.cost, pageCredits(1000, 1000), "one call, one charge");
+  assert.equal(out.cost, pageCredits(USAGE), "one call, one charge");
 });
 
 test("a lint problem does NOT buy a second call — it ships and says so", async () => {
@@ -264,7 +316,7 @@ test("the worst case is one generation and one build", async () => {
     const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
     assert.equal(calls.generate.length, 1, "one model call, whatever went wrong");
     assert.equal(calls.charges.length, 1, "and one charge");
-    assert.equal(out.cost, pageCredits(1000, 1000));
+    assert.equal(out.cost, pageCredits(USAGE));
     assert.equal(out.page, "placeholder");
   }
 });
@@ -297,7 +349,7 @@ test("a container that answers with nothing is a build failure", async () => {
 
 test("the generator's notes reach the caller", async () => {
   const { deps } = harness({
-    generate: async () => ({ input: { pages: [good()], notes: "Left out the booking editor — published sites can't update rows yet." }, usedIn: 10, usedOut: 10 }),
+    generate: async () => ({ input: { pages: [good()], notes: "Left out the booking editor — published sites can't update rows yet." }, usage: { in: 10, out: 10 } }),
   });
   const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
   assert.match(out.notes, /booking editor/);
