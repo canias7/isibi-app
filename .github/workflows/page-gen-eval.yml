@@ -16,6 +16,11 @@ on:
     branches: [main]
     paths:
       - "builder/page-gen.mjs"
+      # The harness mirrors this file's pipeline — one model call a build since
+      # the repair pass went. A change here that the eval does not copy makes
+      # every number it reports describe something the platform does not run,
+      # which is the one failure mode a measurement cannot survive.
+      - "builder/publish-pages.mjs"
       - "builder/lovable/template/src/lib/rows.ts"
       - "builder/GENERATOR.md"
       - "test/integration/page-gen-eval.mjs"
