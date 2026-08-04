@@ -12734,3 +12734,63 @@ expose a function that creates AND returns.
   less capable does — both have now happened in this file.
 
 835 unit tests, site-build 38/38, site-runtime 23/23.
+
+## The booking form was one of three, and the guard was pinning one in place (2026-08-04)
+
+The owner asked the right question after the 403 fix: *"that is for bookings only?
+what about login or other things"*. Swept every hook against what the database
+actually grants. **Two more instances of the same class, both lint-clean.**
+
+- **`admin` is advertised as writable and is READ-ONLY.** `grantsFor` gives it
+  `GRANT SELECT` and nothing else; `policiesFor` writes it a read policy and no
+  other. Yet the designer's tool offered *"'admin' = SHARED, ROLE-WRITABLE"*, and
+  `ACCESS_NOTE` and rule 2 both told the model *"only a member whose role is
+  'admin' … may write"*. That describes the **hand-built data API deleted on
+  2026-07-30**, which checked `writeRoles` in the Worker — PostgREST has never
+  heard of `writeRoles`. A site with an admin table built an admin form that
+  refused its own administrator.
+- **`useUpdateRow`/`useDeleteRow` were never checked against a table.** The rule
+  was `/useUpdateRow|useDeleteRow/.test(code)` — a BOOLEAN over the whole file,
+  which never captured which table was being edited. So editing a `display`,
+  `collect` or `admin` table was lint-clean, compiled, published and 403'd, as
+  long as the page called `useMember()` and the schema declared any member table.
+  Every neighbouring rule was per-table; these two alone were not.
+- A comment claiming *"`feed` and `admin` serve reads and refuse writes"* — wrong
+  about `feed`, which grants INSERT/UPDATE/DELETE to a signed-in member.
+
+**The admin decision: describe it honestly rather than add role-checking SQL to
+the write path of every site.** The owner already edits those tables through
+their own door (`site-owner.mjs`, an isibi session, not subject to the site's
+RLS), so `admin` means "staff SEE it, the owner maintains it" — a coherent level,
+now stated as one. Granting member writes with a role policy stays available.
+
+**A GUARD WAS ASSERTING THE BUG.** `test/page-gen.test.mjs` required
+`lintPages(…useCreateRow…).length === 0` to equal
+`canWriteAccess(level) || needsMember(level)` — and `needsMember` is true for
+`admin`, so the test DEMANDED the lint stay silent about an admin form. It went
+green every run while pinning the defect in place. `canMemberWrite` splits the
+two questions, and lives in `site-access.mjs` so the lint and the DDL keep
+answering from one place.
+
+### The stale-image check was pinned to the previous fix
+
+The re-run after the booking fix **still reported 403** — and the fix was fine.
+Deploy finished 22:53:09, the build POST landed 22:53:51, and Cloudflare rolls a
+container image out asynchronously, so the build was served by the PREVIOUS image
+and published the older `rows.ts`.
+
+The check that exists for exactly this passed: it looked for the string `_public`
+in the bundle. **A marker only proves the image is at least as new as the change
+that introduced it** — after the next change it goes green while testing stale
+code. Its own comment describes this failure happening once already; it then
+happened again, one change later, to the fix that comment was written for.
+
+Now the container computes a **digest of `src/lib/rows.ts`** and returns it as
+`templateId`, threaded out through `publishPages` like the timings, and the smoke
+test compares it against its own checkout. Approximate → exact, derived at both
+ends. 7 mutants, all caught.
+
+**Not yet proven live** — the booking fix has still never been exercised by a run
+on a current image.
+
+838 unit tests, site-build 38/38.

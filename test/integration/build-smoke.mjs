@@ -12,9 +12,9 @@
 // Needs SUPABASE_SERVICE_KEY and NEON_API_KEY. Run from CI (workflow_dispatch),
 // or locally with those in the environment.
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { dropUserProject, connForDatabase, dbNameForSite, sqlQuery } from "../../site-db.mjs";
-import { publicViewName } from "../../site-access.mjs";
 
 // Use whatever Chromium is already on the machine — same reasoning as
 // site-runtime.mjs: the pinned playwright version and a pre-installed browser
@@ -350,14 +350,28 @@ try {
       // was not the code that ran. That cost a full diagnosis to rule out a bug
       // that did not exist.
       //
-      // The marker is derived from `publicViewName`, so it cannot drift from the
-      // thing it is checking — and it survives minification because the suffix is
-      // concatenated at runtime (`e + "_public"`), never a whole table name.
-      const marker = publicViewName("");
-      ok("the container built this site with the CURRENT image",
-        !!js && js.includes(marker),
-        `the bundle has no ${JSON.stringify(marker)} — the container is running an older image, ` +
-        "so this run tested the previous template. Cloudflare's rollout is async; re-run after it lands.");
+      // The check below is a DIGEST comparison rather than the marker string this
+      // comment used to describe — see the note on it.
+      // A DIGEST, NOT A MARKER — and the difference has now cost two diagnoses.
+      //
+      // This used to look for the string `_public` in the bundle. That proved
+      // the image was at least as new as the change which introduced it, and
+      // nothing more: after the NEXT change it passes happily while testing
+      // stale code. Exactly what happened on 2026-08-04 — a booking-form fix
+      // merged, deployed at 22:53:09, the build POST landed 42s later on the
+      // PREVIOUS image, the marker check went green, and the run reported the
+      // bug as still present when it had already been fixed.
+      //
+      // A digest of `src/lib/rows.ts` changes with every edit, so comparing the
+      // container's against this checkout's answers the question exactly rather
+      // than approximately. Derived at both ends from the same file.
+      const wantId = createHash("sha256")
+        .update(fs.readFileSync(new URL("../../builder/lovable/template/src/lib/rows.ts", import.meta.url)))
+        .digest("hex").slice(0, 12);
+      ok("the container built this site with the CURRENT template",
+        d.templateId === wantId,
+        `container template ${d.templateId || "(not reported)"} != checkout ${wantId} — the image is ` +
+        "behind, so this run did NOT test the code under test. Cloudflare's rollout is async; re-run after it lands.");
     } else {
       ok("the fallback page names a table it created",
         Array.isArray(d.tables) && d.tables.some((t) => html.includes(t)), html.slice(0, 160));

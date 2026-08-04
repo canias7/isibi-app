@@ -2625,7 +2625,7 @@ const SITE_SCHEMA_TOOL = {
                 "'collect' = anyone submits, nobody reads it back (bookings, orders, enquiries). " +
                 "'user' = PRIVATE PER MEMBER: a signed-in visitor reads and writes only their own rows (saved recipes, my orders, a personal journal). " +
                 "'feed' = SHARED, MEMBER-AUTHORED: every signed-in member reads all rows and writes their own (reviews, comments, a community board). " +
-                "'admin' = SHARED, ROLE-WRITABLE: signed-in members read it, only an admin writes it (announcements). " +
+                "'admin' = SHARED, READ-ONLY FROM THE SITE: signed-in members read it and NOBODY writes it from a published page — the business maintains those rows from its isibi dashboard (announcements, staff notices). Pick it only when members should SEE something they never edit. " +
                 "The last three require the visitor to have an account on the site — use them ONLY when the brief actually asks for members, sign-in, or 'their own' anything. A shop that just needs a menu and a booking form must not have them.",
             },
             columns: {
@@ -6162,6 +6162,8 @@ async function handleRequest(request, env, ctx) {
         // reported only the credit total, so the expensive call was the one
         // whose cache behaviour could not be seen.
         pagesUsage: pages.usage || undefined,
+        // The digest of the template the build container actually used.
+        templateId: pages.templateId || undefined,
       });
     }
 

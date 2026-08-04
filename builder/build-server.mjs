@@ -19,6 +19,7 @@
 import http from "node:http";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { resolvePair, fontCss, fontImports } from "./site-fonts.mjs";
 import { themeCss } from "./site-theme.mjs";
@@ -233,8 +234,31 @@ function oneAtATime(fn) {
   return done;
 }
 
+// WHICH TEMPLATE IS BAKED INTO THIS IMAGE.
+//
+// The template — `@/lib/rows.ts` above all — is baked into the container image,
+// and Cloudflare's image rollout is ASYNCHRONOUS: `wrangler` returns after
+// "Modified application" and the next request can still reach the previous
+// image for a minute or more. So a build can be served by code that is one
+// change behind, and its published bundle is that older code.
+//
+// This has now cost two full diagnoses. The smoke test guarded against it with a
+// marker string, but a marker only proves the image is at least as new as the
+// change that introduced it — after the NEXT change it passes while testing
+// stale code, which is exactly what happened on 2026-08-04 to a booking-form fix.
+//
+// A digest cannot go stale that way: it changes with every edit to the file, so
+// the caller can compare it against its own checkout and know, exactly, whether
+// this run tested the code under test.
+const TEMPLATE_ID = (() => {
+  try {
+    const f = path.join(APP, "src", "lib", "rows.ts");
+    return createHash("sha256").update(fs.readFileSync(f)).digest("hex").slice(0, 12);
+  } catch { return "unknown"; }
+})();
+
 const server = http.createServer((req, res) => {
-  if (req.method === "GET" && req.url === "/health") { res.writeHead(200); res.end("ok"); return; }
+  if (req.method === "GET" && req.url === "/health") { res.writeHead(200); res.end("ok " + TEMPLATE_ID); return; }
   if (req.method !== "POST" || req.url !== "/build") { res.writeHead(404); res.end("nf"); return; }
   let body = "", tooBig = false;
   req.on("data", (c) => { body += c; if (body.length > MAX_BODY) { tooBig = true; req.destroy(); } });
@@ -306,7 +330,7 @@ const server = http.createServer((req, res) => {
 
       const dist = collectDist();
       if (!dist["index.html"]) return send(res, 200, { ok: false, stage: "build", error: "build produced no index.html", ms: Date.now() - t0, ...times });
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, fonts: fontsUsed, theme: themeUsed });
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
     }
