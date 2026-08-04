@@ -223,10 +223,25 @@ try {
   // `TS2344: Type 'PublicBooking' does not satisfy the constraint 'Row'` from
   // its position alone. The pages are gone the moment the build returns.
   ok("the generated app was published, not the fallback", d.page === "app",
-    "page=" + d.page + " stage=" + (d.stage || "-") + " error=" + (d.error || "-") +
-    " problems=" + JSON.stringify(d.problems || []) +
-    (d.cited && d.cited.length ? " cited=" + JSON.stringify(d.cited) : "") +
-    " notes=" + String(d.notes || "-").slice(0, 120));
+    "page=" + d.page + " stage=" + (d.stage || "-") +
+    " problems=" + JSON.stringify(d.problems || []));
+  // THE ERROR AND ITS SOURCE LINES GO ON THEIR OWN LINES.
+  //
+  // `ok()` truncates its extra at 300 characters, and this used to pack
+  // page/stage/error/problems/cited/notes into that one string. A typecheck
+  // failure reports two or three TS errors, which is more than 300 characters by
+  // itself — so `cited`, the field added specifically to explain a compile
+  // failure, was pushed off the end and printed nothing on the first real
+  // typecheck failure after it shipped.
+  //
+  // The comment this replaces already said exactly that, about `notes`: "which
+  // pushed the fields that say WHY off the end of the truncated line". The fix
+  // then was to reorder. Reordering only moves which field gets lost.
+  if (d.page !== "app") {
+    if (d.error) console.log("   error:\n     " + String(d.error).split("\n").join("\n     "));
+    if (d.cited && d.cited.length) console.log("   the model wrote:\n     " + d.cited.join("\n     "));
+    else if (d.stage === "typecheck") console.log("   (no cited lines — citedLines could not match the error to a page)");
+  }
   ok("the build reports the route files it wrote",
     Array.isArray(d.files) && d.files.some((f) => /index\.tsx$/.test(f)), JSON.stringify(d.files));
 
