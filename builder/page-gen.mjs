@@ -2559,8 +2559,19 @@ export function repairPrompt(brief, spec, pages, problems, brand) {
  * when `thinking` is omitted, and max_tokens caps thinking AND the response
  * together, so a budget tight around the files would spend part of itself
  * reasoning and truncate the last one.
+ *
+ * 30,000, RAISED FROM 24,000 ON 2026-08-04 (owner's call), alongside taking the
+ * request's timeout off. Both caps had the same shape of failure and it is the
+ * expensive one: hitting either means the tokens were generated and billed and
+ * the caller gets nothing — a truncated tool_use block is treated as a failed
+ * generation here, correctly, because its last file ends mid-expression.
+ *
+ * It costs nothing to raise. max_tokens is a CEILING, not a reservation: a
+ * three-page site that finishes in 5,000 is billed for 5,000 either way. The
+ * only thing a low ceiling buys is a cheaper failure, and a failure is the
+ * thing we are trying not to have.
  */
-export const SITE_PAGES_MAX_TOKENS = 24000;
+export const SITE_PAGES_MAX_TOKENS = 30000;
 
 /**
  * The exact body the Worker POSTs to the model.
