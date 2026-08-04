@@ -33,15 +33,14 @@ export const Route = createFileRoute("/book")({
   }),
 });
 
-type Booking = Row & { claim_token: string | null };
+type Booking = Row & { class_name: string; customer_name: string; customer_email: string; slot_date: string; slot_time: string };
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A quiet studio for a steady practice.",
+  tagline: "Slow mornings, steady evenings — a mat and a class most days.",
   links: [
     { label: "Home", href: "#/" },
     { label: "Book", href: "#/book" },
-    { label: "The work", href: "#/work" },
     { label: "Account", href: "#/account" },
   ],
   action: { label: "Book now", href: "#/book" },
@@ -49,13 +48,13 @@ const CHROME = {
 
 const CLASS_NAMES = [
   "Sunrise Flow",
-  "Hatha Foundations",
+  "Hatha Fundamentals",
   "Power Vinyasa",
   "Restorative & Yin",
-  "Prenatal Yoga",
+  "Candlelit Slow Flow",
 ];
 
-const SLOTS = ["07:00", "08:00", "09:15", "12:00", "17:30", "18:45", "20:00"];
+const SLOTS = ["07:00", "09:00", "12:00", "17:30", "18:45", "19:30"];
 
 const booking = z.object({
   class_name: z.string().min(1, "Pick a class"),
@@ -70,7 +69,7 @@ type BookingForm = z.infer<typeof booking>;
 function Book() {
   const { service: preselected } = Route.useSearch();
   const create = useCreateRow<Booking>("bookings");
-  const [claim, setClaim] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
 
   const form = useForm<BookingForm>({
     resolver: zodResolver(booking),
@@ -91,28 +90,26 @@ function Book() {
 
   const onSubmit = (values: BookingForm) => {
     create.mutate(values, {
-      onSuccess: (row) => {
-        toast.success("Booked — see you on the mat.");
+      onSuccess: () => {
+        toast.success("You're booked — see you on the mat.");
         form.reset();
-        if (!row.claim_token) return;
-        setClaim(row.claim_token);
+        setDone(true);
       },
       onError: (e: Error) => toast.error(e.message),
     });
   };
 
-  if (claim) {
+  if (done) {
     return (
       <SiteChrome {...CHROME}>
         <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
           <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
           <p className="mt-3 text-muted-foreground">
-            Keep this link — it is the only way back to this booking.
+            We've saved your spot. Bring a bottle of water and arrive ten minutes early for your
+            first class.
           </p>
           <Button asChild className="mt-6">
-            <Link to="/manage" search={{ t: claim }}>
-              Manage your booking
-            </Link>
+            <Link to="/">Back to the studio</Link>
           </Button>
         </div>
       </SiteChrome>
@@ -123,7 +120,7 @@ function Book() {
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-2xl px-6 py-14">
         <h1 className="text-3xl font-semibold tracking-tight">Book a class</h1>
-        <p className="mt-2 text-muted-foreground">We'll confirm by email straight away.</p>
+        <p className="mt-2 text-muted-foreground">Pick a class, a date and a time — we'll hold your mat.</p>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">

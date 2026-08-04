@@ -35,11 +35,10 @@ type Note = Row & { title: string; body: string | null };
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A quiet studio for a steady practice.",
+  tagline: "Slow mornings, steady evenings — a mat and a class most days.",
   links: [
     { label: "Home", href: "#/" },
     { label: "Book", href: "#/book" },
-    { label: "The work", href: "#/work" },
     { label: "Account", href: "#/account" },
   ],
   action: { label: "Book now", href: "#/book" },
@@ -151,7 +150,7 @@ function Account() {
 }
 
 function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) {
-  const notes = useRows<Note>("my_notes", { order: "id", dir: "desc" });
+  const notes = useRows<Note>("my_notes", { order: "title", dir: "asc" });
   const create = useCreateRow<Note>("my_notes");
 
   const form = useForm<NoteForm>({
@@ -180,11 +179,34 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
 
       <Card className="mt-8">
         <CardHeader>
-          <CardTitle className="text-base">Add a note</CardTitle>
+          <CardTitle className="text-base">Your practice notes</CardTitle>
         </CardHeader>
         <CardContent>
+          {notes.isPending && (
+            <div className="grid gap-2">
+              <Skeleton className="h-10 rounded-md" />
+              <Skeleton className="h-10 rounded-md" />
+            </div>
+          )}
+          {notes.isError && (
+            <p className="text-sm text-destructive">Couldn't load your notes. Refresh and try again.</p>
+          )}
+          {notes.data?.length === 0 && (
+            <Empty title="No notes yet" description="Jot down how a class felt, or what to work on next time." />
+          )}
+          {!!notes.data?.length && (
+            <ul className="grid gap-3 motion-stagger">
+              {notes.data.map((n) => (
+                <li key={n.id} className="rounded-md border border-border p-3">
+                  <p className="text-sm font-medium">{n.title}</p>
+                  {n.body && <p className="mt-1 text-sm text-muted-foreground">{n.body}</p>}
+                </li>
+              ))}
+            </ul>
+          )}
+
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-3">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="mt-6 grid gap-3">
               <FormField
                 control={form.control}
                 name="title"
@@ -192,7 +214,7 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
                   <FormItem>
                     <FormLabel>Title</FormLabel>
                     <FormControl>
-                      <Input placeholder="Left hip, tight on the left" {...field} />
+                      <Input placeholder="e.g. Tight hips today" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -205,51 +227,19 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
                   <FormItem>
                     <FormLabel>Note</FormLabel>
                     <FormControl>
-                      <Textarea rows={4} placeholder="Whatever you want to remember for next time" {...field} />
+                      <Textarea rows={3} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-              <div>
-                <Button type="submit" className="motion-press" disabled={create.isPending}>
-                  {create.isPending ? "Saving…" : "Save note"}
-                </Button>
-              </div>
+              <Button type="submit" className="motion-press" disabled={create.isPending}>
+                {create.isPending ? "Saving…" : "Save note"}
+              </Button>
             </form>
           </Form>
         </CardContent>
       </Card>
-
-      <div className="mt-8">
-        <h2 className="text-lg font-semibold tracking-tight">Your notes</h2>
-        {notes.isPending && (
-          <div className="mt-4 grid gap-3">
-            <Skeleton className="h-20 rounded-xl" />
-            <Skeleton className="h-20 rounded-xl" />
-          </div>
-        )}
-        {notes.isError && (
-          <p className="mt-4 text-sm text-destructive">Couldn't load your notes. Refresh and try again.</p>
-        )}
-        {notes.data?.length === 0 && (
-          <Empty
-            className="mt-4"
-            title="No notes yet"
-            description="Jot down anything you'd like to remember before your next class — how a pose felt, what to bring, a question for your teacher."
-          />
-        )}
-        {!!notes.data?.length && (
-          <ul className="mt-4 grid gap-3 motion-stagger">
-            {notes.data.map((n) => (
-              <li key={n.id} className="rounded-lg border border-border bg-card p-4">
-                <p className="font-medium">{n.title}</p>
-                {n.body && <p className="mt-1 text-sm text-muted-foreground">{n.body}</p>}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
     </>
   );
 }

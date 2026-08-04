@@ -8,9 +8,9 @@ A single failure is variance; a column of the same error is a mismatch worth fix
 
 ## What it cost
 
-- output 12,222 tok/sample · fresh in 4,977 · cache read 0 · write 27,170
-- $0.3001 a sample at list price · comments are 0.0% of the source written
+- output 11,692 tok/sample · fresh in 4,977 · cache read 0 · write 27,170
+- $0.2922 a sample at list price · comments are 0.0% of the source written
 
 ## Samples
 
-- **1. ok** — index.tsx, book.tsx, manage.tsx, work.tsx, account.tsx
+- **1. ok** — index.tsx, book.tsx, work.tsx, manage.tsx, account.tsx
