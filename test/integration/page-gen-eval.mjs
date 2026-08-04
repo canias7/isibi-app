@@ -257,6 +257,10 @@ console.log(`\n${compiled.length}/${results.length} compiled · ${clean} with no
 // here because rule 13 asks the model not to write them and an unmeasured rule
 // is a wish: comments were 27% of the example set, output is 5x the price of
 // input, so this is the largest single lever on what a build costs.
+// Computed into a value both the console AND the committed report read. Printed
+// only, it lived in a job log that GitHub deletes after 90 days — and cost is
+// the number this pipeline is now managed by, so it has to survive in the repo.
+let costLines = [];
 const withUsage = results.filter((r) => r.usage);
 if (withUsage.length) {
   const avg = (f) => withUsage.reduce((a, r) => a + f(r.usage), 0) / withUsage.length;
@@ -267,14 +271,15 @@ if (withUsage.length) {
     all += t.length;
     cmt += (t.match(COMMENT_RE) || []).reduce((a, m) => a + m.length, 0);
   }
-  console.log(
-    `\noutput ${Math.round(avg((u) => u.out)).toLocaleString()} tok/sample · ` +
+  costLines = [
+    `output ${Math.round(avg((u) => u.out)).toLocaleString()} tok/sample · ` +
     `fresh in ${Math.round(avg((u) => u.in)).toLocaleString()} · ` +
     `cache read ${Math.round(avg((u) => u.cacheRead)).toLocaleString()} · ` +
-    `write ${Math.round(avg((u) => u.cacheWrite)).toLocaleString()}`
-  );
-  console.log(`$${avg(dollars).toFixed(4)} a sample at list price` +
-    (all ? ` · comments are ${(cmt / all * 100).toFixed(1)}% of the source written` : ""));
+    `write ${Math.round(avg((u) => u.cacheWrite)).toLocaleString()}`,
+    `$${avg(dollars).toFixed(4)} a sample at list price` +
+      (all ? ` · comments are ${(cmt / all * 100).toFixed(1)}% of the source written` : ""),
+  ];
+  console.log("\n" + costLines.join("\n"));
 }
 if (errorCounts.size) {
   console.log("\ndistinct compile errors, most frequent first:");
@@ -295,6 +300,11 @@ try {
     "One call a sample, because a build makes one call: there is no repair pass, so this rate IS what the platform ships.",
     "A single failure is variance; a column of the same error is a mismatch worth fixing.", "",
   ];
+  // OUTPUT IS ~80% OF WHAT A BUILD COSTS, so the compile rate alone measures the
+  // cheaper half. Kept here rather than only on stdout: this is the number the
+  // repair pass was removed on, and comparing it against a run from six weeks
+  // ago is impossible once the job log is gone.
+  if (costLines.length) lines.push("## What it cost", "", ...costLines.map((l) => "- " + l), "");
   if (errorCounts.size) {
     lines.push("## Distinct compile errors", "");
     for (const [shape, count] of [...errorCounts].sort((a, b) => b[1] - a[1])) lines.push(`- **${count}×** \`${shape}\``);
