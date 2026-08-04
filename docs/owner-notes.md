@@ -12118,3 +12118,101 @@ may read the view and may **not** read the table underneath.
 
 802 unit tests, site-build 36/36, site-runtime 23/23, template typechecks clean.
 9 mutants, all caught.
+
+## The backend sweep: every declarable feature, audited (2026-08-04)
+
+`publicView` was the sixth time this repo shipped the same bug — a schema feature
+declared, advertised, and enforced by nothing. So rather than fix another one, I
+audited **all of them** and made the class fail a test.
+
+**What the designer can declare, and what keeps the promise:**
+
+| declarable | enforced by |
+|---|---|
+| name · access · columns · timestamps · fts | DDL |
+| unique · uniqueCI · maxRows | indexes + triggers |
+| noOverlap | `EXCLUDE USING gist` |
+| teamScope | `team_id UUID` + the RLS read policy |
+| publicView | the view, as of this morning |
+| **mask** | **nothing** |
+
+### `mask` is REMOVED, not implemented — and that is the decision
+
+`maskFields()` was called from `site-data.mjs`'s read path. That file was deleted
+2026-07-30 when reads moved to Neon's Data API, so **the Worker is no longer on
+the read path and has nothing to redact on the way out**. The function survived
+with zero callers and the tool went on offering the guarantee: *"Roles that DO
+see the full value... Everyone else sees it redacted."* A table declaring it
+served the raw value to every reader.
+
+It cannot move into the database as specified. `mask` names OUR application roles
+("staff"); Postgres knows `anonymous` and `authenticated`. Column-level GRANTs
+express that coarser split and **break `select=*`**, which is what every read
+this platform makes sends. Rewriting reads to enumerate columns is a real option
+and a much larger change than a sweep should smuggle in.
+
+So: a feature that lies, or no feature. Same call, same reasoning, that pulled
+`teamRead` and `teamScope` out of the tool when their enforcement went. Both the
+tool property and `maskFields()` are gone, each replaced by a comment saying it
+is not a gap to fill back in.
+
+### `test/declarable-enforced.test.mjs` — the class, not the instance
+
+It reads the `design_schema` tool out of `worker.js`, takes every table property
+it offers, and requires each to be READ somewhere in `site-schema.mjs` or
+`site-rls.mjs` — **with the parser's `out.push({…})` and the normaliser's
+`norm.push({…})` cut out**, because appearing only in those is precisely what
+parsed-and-inert looks like.
+
+Two things had to be got right:
+
+- **The cut is asserted**, or the guard is a no-op that passes: if those two
+  expressions were not removed, every property reads as enforced.
+- **A property READ, not a mention.** The first draft matched the bare name and a
+  mutation walked through it — renaming the real `t.noOverlap` left the word in a
+  neighbouring string, and "enforced" was satisfied by a coincidence. All six
+  features are now individually mutation-checked.
+
+The opposite direction is deliberately NOT asserted: implemented-and-undeclarable
+is dead weight, not a lie. No site can be broken by a feature it cannot ask for.
+
+### The owner is told about a booking again
+
+`notifyOwnerOfSubmission` had **zero callers** since `site-data.mjs` went. A
+barber shop took an appointment and the only way to find out was to log into
+isibi and look.
+
+The note left behind said re-wiring needed *"a Postgres trigger writing to a
+queue table plus the existing 2-minute cron, because there is no `http` extension
+to call out from Neon"*. **That was wrong, and usefully so**: it assumed the
+Worker had left the write path. It has not — `proxySiteService` forwards every
+insert a published site makes, so the hook is one branch in the proxy. No
+trigger, no queue table, no cron.
+
+- Gated on a POST that **succeeded** — a refused booking (a duplicate slot, a
+  failed constraint) must not email the owner about a row that does not exist.
+- The access level comes from the site's own schema, never the request. Taken
+  from anything the caller controls, any write could be made to look like a
+  submission and mail the owner on demand — the mail bomb the cooldown exists to
+  prevent, aimed by hand.
+- **The request body is read exactly once.** A Request body can only be consumed
+  once; reading it in the hook would send an empty body upstream and every
+  submission on the platform would silently write a blank row. Asserted by count.
+- Detached under `ctx.waitUntil`, which the dispatch now passes — without it the
+  promise is cancelled when the response returns, which is how the audit log lost
+  most of its rows.
+
+`test/notify-wiring.test.mjs` asserts REACHABILITY rather than behaviour: the
+behaviour was 18 green tests the whole time it was doing nothing.
+
+**Still open, and stated rather than quietly skipped:** the ~17 features that are
+parsed and inert but which the designer cannot declare (`transitions`, `sla`,
+`roundRobin`, `assignBy`, `webhooks`, `geo`, `currency`, `formulas`,
+`searchWeights`, `jsonShapes`, `checks`, `computed`, `defaultSort`, `fieldRoles`,
+`teamRead`, `approval`, `sequence`). None can break a site, because nothing can
+ask for them — they are dead code to delete under the "if we are not using it, I
+don't want it on the code" rule, which is a deletion worth doing deliberately
+rather than folding into this.
+
+813 unit tests, site-build 36/36, site-runtime 23/23, template typechecks clean.
+13 mutants, all caught.

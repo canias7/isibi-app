@@ -2687,28 +2687,29 @@ const SITE_SCHEMA_TOOL = {
               type: "integer",
               description: "Cap how many rows this table may ever hold. Worth setting on a public form (a giveaway with 500 places, a class with 20 seats); a full table answers 409 rather than growing forever.",
             },
-            // Field-level redaction. Enforced on the read path since 2026-07-29;
-            // before that `maskFields` was written and called by nothing, so a
-            // table declaring it served the raw value to everyone. An ARRAY,
-            // not a map keyed by column name — a map needs `additionalProperties`
-            // in a tool schema, and an under-specified schema there is what took
-            // the builder down for three merges.
-            mask: {
-              type: "array",
-              description:
-                "Columns whose value is REDACTED for callers who may not see it in full — a phone shown as \"••••1234\" on a public page, a member's email hidden from other members. " +
-                "Use it when a table is readable by people who should not see every field of it; do NOT use it to hide a column from everyone (leave that column off the table instead). " +
-                "An `admin` always sees the full value, and an anonymous visitor counts as the role \"public\".",
-              items: {
-                type: "object",
-                properties: {
-                  column: { type: "string", description: "The column to redact." },
-                  roles: { type: "array", items: { type: "string" }, description: "Roles that DO see the full value, e.g. [\"staff\"]. Everyone else sees it redacted; admin always sees it." },
-                  keep: { type: "integer", description: "How many trailing characters stay visible (default 4), so \"07700900123\" shows as \"•••••••0123\"." },
-                },
-                required: ["column", "roles"],
-              },
-            },
+            // `mask` USED TO BE HERE and was removed 2026-08-04, deliberately —
+            // it is not a gap to fill back in.
+            //
+            // It promised field-level redaction: a phone shown as "••••1234" to
+            // a reader who may not see it in full. `maskFields()` enforced that
+            // on the read path in `site-data.mjs`, and that file was DELETED on
+            // 2026-07-30 when reads moved to Neon's Data API. So the Worker is
+            // no longer on the read path and has nothing to redact on the way
+            // out; the function survived with zero callers, and the tool went on
+            // offering the guarantee. A table declaring it served the raw value
+            // to every reader, silently.
+            //
+            // It cannot move into the database as specified either: `mask` names
+            // OUR application roles ("staff"), and Postgres knows `anonymous`
+            // and `authenticated`. Column-level GRANTs express that coarser
+            // split, but they make `select=*` fail outright — and `select=*` is
+            // what every read this platform makes sends.
+            //
+            // So: a feature that lies, or no feature. Same call, for the same
+            // reason, that pulled `teamRead` and `teamScope` out of this tool
+            // when their enforcement went. Restoring it means building the
+            // enforcement FIRST — test/declarable-enforced.test.mjs fails if it
+            // comes back without one.
             // A team is a Neon Auth ORGANIZATION now, so the owner sets teams up
             // through Better Auth rather than through any route of ours. Offered
             // here again because a flag the designer cannot declare is a feature
@@ -3329,7 +3330,7 @@ async function siteServiceBase(db, key) {
  * client sees, including its errors — a proxy that reinterprets them is a second
  * place where "wrong password" has to be spelled, and the two drift.
  */
-async function proxySiteService(env, request, url, slug, path, which) {
+async function proxySiteService(env, request, url, slug, path, which, ctx) {
   const db = await siteBackendBySlug(env, slug);
   if (!db) return Response.json({ error: "no such site" }, { status: 404 });
   let base;
@@ -3365,17 +3366,54 @@ async function proxySiteService(env, request, url, slug, path, which) {
     const anon = await siteAnonToken(db).catch(() => null);
     if (anon) headers.set("authorization", "Bearer " + anon);
   }
+  // Read once and keep it: the notify below needs the row that was submitted,
+  // and a Request body can only be consumed a single time.
+  const sent = request.method === "GET" || request.method === "HEAD" ? undefined : await request.text();
   try {
     const r = await fetch(target, {
       method: request.method,
       headers,
-      body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.text(),
+      body: sent,
       // A redirect is followed here rather than handed to the page: the client is
       // an XHR and cannot act on a 302 from a cross-origin hop.
       redirect: "follow",
       signal: AbortSignal.timeout(15000),
     });
     const body = await r.text();
+
+    // TELL THE OWNER A BOOKING ARRIVED.
+    //
+    // `notifyOwnerOfSubmission` lost its trigger point when `site-data.mjs` was
+    // deleted on 2026-07-30 and had ZERO callers after it — so a barber shop took
+    // an appointment and the only way to find out was to log into isibi and look.
+    //
+    // The note left behind said this needed a Postgres trigger writing to a queue
+    // table plus the 2-minute cron, "because there is no `http` extension to call
+    // out from Neon". That was written on the assumption the Worker had left the
+    // write path. It has not: THIS PROXY IS THE WRITE PATH — every insert a
+    // published site makes comes through here. So the hook is one branch, with no
+    // trigger, no queue table and no cron.
+    //
+    // Fire-and-forget under waitUntil, and it can only ever no-op: the row is
+    // already in Postgres and a broken mailer must not look like a broken form.
+    // `shouldNotify` decides — POST to a `collect` table and nothing else — and
+    // the cooldown is claimed in the database, so many isolates send one email.
+    if (which === "data" && request.method === "POST" && r.status >= 200 && r.status < 300) {
+      try {
+        const table = String(path).split("/")[0].toLowerCase();
+        const spec = await loadSiteSchema(db);
+        const def = (spec && spec.tables || []).find((t) => String(t.name).toLowerCase() === table);
+        if (def) {
+          // The response when the caller asked for the row back, else what they
+          // sent. Either is the submission; the request body is the reliable one.
+          let row = null;
+          try { const j = JSON.parse(body); row = Array.isArray(j) ? j[0] : j; } catch { /* not json */ }
+          if (!row) { try { row = JSON.parse(sent || "null"); } catch { row = null; } }
+          notifyOwnerOfSubmission(env, ctx, { slug, table, access: def.access, method: "POST", row: row || {} });
+        }
+      } catch (e) { console.error("notify hook:", slug, e && e.message); }
+    }
+
     return new Response(body, {
       status: r.status,
       headers: {
@@ -5673,7 +5711,7 @@ async function handleRequest(request, env, ctx) {
           const t = tooMany(hit);
           return Response.json(t.body, { status: t.status, headers: t.headers });
         }
-        return proxySiteService(env, request, url, slug, dpath, "data");
+        return proxySiteService(env, request, url, slug, dpath, "data", ctx);
       }
     }
 
