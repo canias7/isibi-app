@@ -1,13 +1,23 @@
-src/routes/record.tsx(111,40): error TS2367: This comparison appears to be unintentional because the types 'number' and 'string' have no overlap.
-src/routes/record.tsx(173,9): error TS2322: Type '{ className: string; title: string; subtitle: string; badge: Element; actions: Element | undefined; }' is not assignable to type 'IntrinsicAttributes & { title: string; subtitle?: string | undefined; status?: ReactNode; actions?: ReactNode; className?: string | undefined; }'.
-src/routes/record.tsx(266,15): error TS2353: Object literal may only specify known properties, and 'title' does not exist in type 'Activity'.
-src/routes/record.tsx(267,15): error TS2353: Object literal may only specify known properties, and 'title' does not exist in type 'Activity'.
-src/routes/record.tsx(285,46): error TS2367: This comparison appears to be unintentional because the types 'number' and 'string' have no overlap.
-src/routes/record.tsx(426,15): error TS2353: Object literal may only specify known properties, and 'title' does not exist in type 'Activity'.
-src/routes/record.tsx(427,15): error TS2353: Object literal may only specify known properties, and 'title' does not exist in type 'Activity'.
-src/routes/records.tsx(361,19): error TS2353: Object literal may only specify known properties, and 'value' does not exist in type '{ key: string; label: string; }'.
-src/routes/records.tsx(363,30): error TS7006: Parameter 'v' implicitly has an 'any' type.
-src/routes/records.tsx(406,49): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
-src/routes/records.tsx(407,56): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
-src/routes/records.tsx(412,54): error TS2322: Type 'number' is not assignable to type 'string'.
-src/routes/records.tsx(453,54): error TS2322: Type 'number' is not assignable to type 'string'.
+src/routes/record.tsx(134,40): error TS2367: This comparison appears to be unintentional because the types 'number' and 'string' have no overlap.
+src/routes/record.tsx(180,9): error TS2322: Type '{ title: string; subtitle: string; badge: Element; }' is not assignable to type 'IntrinsicAttributes & { title: string; subtitle?: string | undefined; status?: ReactNode; actions?: ReactNode; className?: string | undefined; }'.
+src/routes/record.tsx(254,19): error TS2353: Object literal may only specify known properties, and 'id' does not exist in type 'Activity'.
+src/routes/record.tsx(255,19): error TS2353: Object literal may only specify known properties, and 'id' does not exist in type 'Activity'.
+src/routes/record.tsx(268,46): error TS2367: This comparison appears to be unintentional because the types 'number' and 'string' have no overlap.
+src/routes/record.tsx(392,19): error TS2353: Object literal may only specify known properties, and 'id' does not exist in type 'Activity'.
+src/routes/record.tsx(393,19): error TS2353: Object literal may only specify known properties, and 'id' does not exist in type 'Activity'.
+src/routes/record.tsx(405,44): error TS2367: This comparison appears to be unintentional because the types 'number' and 'string' have no overlap.
+src/routes/records.tsx(34,26): error TS2305: Module '"@/components/ui/data-table"' has no exported member 'DataTableColumn'.
+src/routes/records.tsx(140,14): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/routes/records.tsx(146,45): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/routes/records.tsx(150,14): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/routes/records.tsx(158,14): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/routes/records.tsx(164,49): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/routes/records.tsx(165,45): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/routes/records.tsx(360,19): error TS2353: Object literal may only specify known properties, and 'value' does not exist in type '{ key: string; label: string; }'.
+src/routes/records.tsx(373,51): error TS2353: Object literal may only specify known properties, and 'onClick' does not exist in type '{ label: string; onSelect: () => void; destructive?: boolean | undefined; }'.
+src/routes/records.tsx(392,19): error TS2322: Type '{ data: Deal[]; columns: DataTableColumn<Deal>[]; getRowId: (d: any) => any; selected: string[]; onSelectedChange: Dispatch<SetStateAction<string[]>>; onRowClick: (d: Record<...>) => Promise<...>; }' is not assignable to type 'IntrinsicAttributes & { columns: Column<Record<string, unknown>>[]; rows: Record<string, unknown>[]; empty?: string | undefined; rowKey?: ((row: Record<string, unknown>, i: number) => string | number) | undefined; onRowClick?: ((row: Record<...>) => void) | undefined; className?: string | undefined; }'.
+src/routes/records.tsx(394,30): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/routes/records.tsx(397,90): error TS2322: Type 'unknown' is not assignable to type 'string | undefined'.
+src/routes/records.tsx(415,19): error TS2322: Type '{ data: Account[]; columns: DataTableColumn<Account>[]; getRowId: (a: any) => any; onRowClick: (a: Record<string, unknown>) => Promise<void>; }' is not assignable to type 'IntrinsicAttributes & { columns: Column<Record<string, unknown>>[]; rows: Record<string, unknown>[]; empty?: string | undefined; rowKey?: ((row: Record<string, unknown>, i: number) => string | number) | undefined; onRowClick?: ((row: Record<...>) => void) | undefined; className?: string | undefined; }'.
+src/routes/records.tsx(417,30): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/routes/records.tsx(418,93): error TS2322: Type 'unknown' is not assignable to type 'string | undefined'.

@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -18,7 +19,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
 
-export const Route = createFileRoute("/")({ component: Home });
+export const Route = createFileRoute("/")({ component: Door });
 
 const credentials = z.object({
   email: z.string().email("That doesn't look like an email address"),
@@ -27,33 +28,29 @@ const credentials = z.object({
 
 type Credentials = z.infer<typeof credentials>;
 
-function Home() {
+function Door() {
   const member = useMember();
   const login = useLogin();
   const signup = useSignup();
+  const [mode, setMode] = useState<"login" | "signup">("login");
 
   const form = useForm<Credentials>({
     resolver: zodResolver(credentials),
     defaultValues: { email: "", password: "" },
   });
 
-  const submit = (action: typeof login, values: Credentials) => {
+  const action = mode === "login" ? login : signup;
+
+  const onSubmit = (values: Credentials) => {
     action.mutate(values, {
-      onSuccess: (data) => {
-        if (data && typeof data === "object" && "pending" in data) {
-          toast.message("Check your authenticator app to finish signing in.");
-          return;
-        }
-        form.reset();
-      },
-      onError: () => toast.error("That email and password didn't match."),
+      onError: (e) => toast.error(e.message),
     });
   };
 
   if (member.isPending) {
     return (
       <main className="flex min-h-screen items-center justify-center">
-        <p className="text-muted-foreground">Checking your sign-in…</p>
+        <p className="text-sm text-muted-foreground">Checking your sign-in…</p>
       </main>
     );
   }
@@ -61,10 +58,10 @@ function Home() {
   if (member.data) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-10 text-center">
-        <p className="text-lg font-semibold tracking-tight">Halyard</p>
-        <h1 className="text-2xl font-semibold tracking-tight">You're signed in, {member.data.name}</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Halyard</h1>
+        <p className="text-muted-foreground">You're signed in as {member.data.name || member.data.email}.</p>
         <Button asChild>
-          <Link to="/records">Go to records</Link>
+          <Link to="/records">Go to the records</Link>
         </Button>
       </main>
     );
@@ -76,25 +73,25 @@ function Home() {
         <p className="text-lg font-semibold tracking-tight">Halyard</p>
         <div className="max-w-md py-12">
           <h1 className="text-3xl font-semibold tracking-tight text-balance">
-            One pipeline your whole sales team actually shares
+            Every deal your team is working, one shared table
           </h1>
           <p className="mt-4 text-muted-foreground">
-            Halyard is the internal tool for a small sales team: every deal is a record the
-            team works together, accounts are shared across everyone, and the playbook is
-            one page nobody has to hunt for in a drive folder.
+            Halyard is where a small sales team keeps its pipeline: deals move through
+            stages, accounts are shared across the desk, and the playbook sits one click
+            from the record it applies to.
           </p>
           <ul className="mt-8 space-y-4 text-sm">
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>Deals move through stages the whole team can see and edit</span>
+              <span>The team's deals in one table — everyone reads and edits the same rows</span>
             </li>
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>Accounts are shared — everyone reads and adds to the same list</span>
+              <span>A shared account list, built by whoever spots the lead first</span>
             </li>
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>Every record opens with its own activity trail</span>
+              <span>Every record carries its own activity trail</span>
             </li>
           </ul>
         </div>
@@ -106,12 +103,16 @@ function Home() {
       <section className="flex items-center justify-center p-10">
         <Card className="w-full max-w-sm">
           <CardHeader>
-            <CardTitle>Sign in</CardTitle>
-            <CardDescription>Back to the pipeline in one field and a click.</CardDescription>
+            <CardTitle>{mode === "login" ? "Sign in" : "Create an account"}</CardTitle>
+            <CardDescription>
+              {mode === "login"
+                ? "Back to the pipeline in one field and a click."
+                : "Set a password and you're straight into the deals."}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <Form {...form}>
-              <form className="grid gap-4" onSubmit={form.handleSubmit((v) => submit(login, v))}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4">
                 <FormField
                   control={form.control}
                   name="email"
@@ -119,7 +120,7 @@ function Home() {
                     <FormItem>
                       <FormLabel>Work email</FormLabel>
                       <FormControl>
-                        <Input type="email" autoComplete="email" {...field} />
+                        <Input type="email" autoComplete="email" placeholder="you@company.com" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -138,20 +139,22 @@ function Home() {
                     </FormItem>
                   )}
                 />
-                <div className="flex gap-3">
-                  <Button type="submit" className="motion-press flex-1" disabled={login.isPending}>
-                    {login.isPending ? "Signing in…" : "Sign in"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="flex-1"
-                    disabled={signup.isPending}
-                    onClick={form.handleSubmit((v) => submit(signup, v))}
-                  >
-                    {signup.isPending ? "Creating…" : "Create account"}
-                  </Button>
-                </div>
+                <Button type="submit" className="motion-press" disabled={action.isPending}>
+                  {action.isPending
+                    ? mode === "login"
+                      ? "Signing in…"
+                      : "Creating…"
+                    : mode === "login"
+                      ? "Sign in"
+                      : "Create account"}
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => setMode(mode === "login" ? "signup" : "login")}
+                  className="text-center text-xs text-muted-foreground underline underline-offset-4"
+                >
+                  {mode === "login" ? "New here? Create an account" : "Already have an account? Sign in"}
+                </button>
               </form>
             </Form>
           </CardContent>

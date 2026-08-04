@@ -37,7 +37,7 @@ type Booking = Row;
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm room, a good mat, and a class that starts on time.",
+  tagline: "A quiet room, a good floor, classes that start on time.",
   links: [
     { label: "Home", href: "#/" },
     { label: "Book", href: "#/book" },
@@ -47,17 +47,10 @@ const CHROME = {
   action: { label: "Book now", href: "#/book" },
 };
 
-const CLASSES = [
-  "Morning Flow",
-  "Power Yoga",
-  "Restorative",
-  "Beginners' Foundations",
-  "Candlelit Yin",
-];
-
+const CLASSES = ["Morning Flow", "Slow & Strong", "Restorative", "Beginners' Course"];
 const SLOTS = ["07:00", "08:15", "09:30", "12:00", "17:30", "18:45"];
 
-const bookingSchema = z.object({
+const booking = z.object({
   class_name: z.string().min(1, "Pick a class"),
   customer_name: z.string().min(2, "Tell us your name"),
   customer_email: z.string().email("That doesn't look like an email address"),
@@ -65,7 +58,7 @@ const bookingSchema = z.object({
   slot_time: z.string().min(1, "Pick a time"),
 });
 
-type BookingForm = z.infer<typeof bookingSchema>;
+type BookingForm = z.infer<typeof booking>;
 
 function Book() {
   const { service: preselected } = Route.useSearch();
@@ -73,7 +66,7 @@ function Book() {
   const [booked, setBooked] = useState(false);
 
   const form = useForm<BookingForm>({
-    resolver: zodResolver(bookingSchema),
+    resolver: zodResolver(booking),
     defaultValues: {
       class_name: preselected ?? "",
       customer_name: "",
@@ -83,10 +76,10 @@ function Book() {
     },
   });
 
-  const slot_date = form.watch("slot_date");
+  const slotDate = form.watch("slot_date");
   const taken = usePublicRows<{ slot_date: string; slot_time: string }>(
     "bookings",
-    slot_date ? { slot_date } : undefined,
+    slotDate ? { slot_date: slotDate } : undefined,
   );
 
   const onSubmit = (values: BookingForm) => {
@@ -106,11 +99,11 @@ function Book() {
         <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
           <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
           <p className="mt-3 text-muted-foreground">
-            We've sent a confirmation by email. Need to move it or cancel? Check
-            your inbox for the link.
+            We've sent a confirmation to your email. Need to change plans? Just get in touch and
+            we'll sort it.
           </p>
           <Button asChild variant="outline" className="mt-6">
-            <Link to="/">Back to the studio</Link>
+            <Link to="/">Back to Aurora Yoga</Link>
           </Button>
         </div>
       </SiteChrome>
@@ -121,7 +114,7 @@ function Book() {
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-2xl px-6 py-14">
         <h1 className="text-3xl font-semibold tracking-tight">Book a class</h1>
-        <p className="mt-2 text-muted-foreground">We'll email to confirm your spot.</p>
+        <p className="mt-2 text-muted-foreground">We'll email you a confirmation straight away.</p>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -201,7 +194,11 @@ function Book() {
                   <FormControl>
                     <AvailabilityGrid
                       slots={SLOTS}
-                      taken={taken.data?.map((t) => t.slot_time) ?? []}
+                      taken={
+                        taken.data
+                          ?.filter((t) => t.slot_date === slotDate)
+                          .map((t) => t.slot_time) ?? []
+                      }
                       value={field.value}
                       onSelect={field.onChange}
                     />
@@ -213,7 +210,7 @@ function Book() {
 
             <div className="sm:col-span-2">
               <Button type="submit" className="motion-press" disabled={create.isPending}>
-                {create.isPending ? "Booking…" : "Book now"}
+                {create.isPending ? "Booking…" : "Book this class"}
               </Button>
             </div>
           </form>

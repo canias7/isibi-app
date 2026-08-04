@@ -38,39 +38,26 @@ const CHROME = {
   tagline: "A neighbourhood table on Pell Street.",
   links: [
     { label: "Menu", href: "#menu" },
-    { label: "Kitchen", href: "#kitchen" },
+    { label: "Who cooks", href: "#kitchen" },
     { label: "Find us", href: "#find-us" },
-    { label: "0114 233 0000", href: "tel:+441142330000" },
   ],
   action: { label: "Directions", href: "#find-us" },
 };
 
-const DAY_ORDER: Record<string, number> = {
+const DAY_INDEX: Record<string, number> = {
+  sunday: 0,
   monday: 1,
   tuesday: 2,
   wednesday: 3,
   thursday: 4,
   friday: 5,
   saturday: 6,
-  sunday: 0,
 };
 
-function parseTimeToMinutes(t: string | null): number | null {
-  if (!t) return null;
-  const m = t.match(/^(\d{1,2}):(\d{2})/);
-  if (!m) return null;
-  return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
-}
-
-function courseOrder(course: string | null): number {
-  if (!course) return 99;
-  const key = course.toLowerCase();
-  if (key.includes("starter")) return 0;
-  if (key.includes("main")) return 1;
-  if (key.includes("side")) return 2;
-  if (key.includes("dessert") || key.includes("pudding")) return 3;
-  if (key.includes("drink")) return 4;
-  return 50;
+function parsePrice(price: string | null): number | undefined {
+  if (!price) return undefined;
+  const n = Number(price.replace(/[^0-9.]/g, ""));
+  return Number.isFinite(n) ? n : undefined;
 }
 
 function Home() {
@@ -78,71 +65,66 @@ function Home() {
   const chefs = useRows<Chef>("chefs", { order: "name", dir: "asc" });
   const hours = useRows<Hour>("hours", { order: "day", dir: "asc" });
 
-  const groupedDishes = (() => {
-    if (!dishes.data) return [];
-    const groups = new Map<string, Dish[]>();
+  const groups = (() => {
+    if (!dishes.data?.length) return [];
+    const byCourse = new Map<string, Dish[]>();
     for (const d of dishes.data) {
-      const course = d.course ?? "On the menu";
-      if (!groups.has(course)) groups.set(course, []);
-      groups.get(course)!.push(d);
+      const course = d.course ?? "Menu";
+      const list = byCourse.get(course) ?? [];
+      list.push(d);
+      byCourse.set(course, list);
     }
-    return Array.from(groups.entries())
-      .sort((a, b) => courseOrder(a[0]) - courseOrder(b[0]))
-      .map(([name, items]) => ({
-        name,
-        items: items.map((d) => ({
-          name: d.name,
-          description: d.description,
-          price: d.price ? parsePrice(d.price) : null,
-        })),
-      }));
+    return Array.from(byCourse.entries()).map(([name, items]) => ({
+      name,
+      items: items.map((d) => ({
+        name: d.name,
+        description: d.description,
+        price: parsePrice(d.price),
+      })),
+    }));
   })();
 
-  const openHours: DayHours[] = (() => {
-    if (!hours.data) return [];
-    return hours.data
-      .map((h) => ({
-        day: DAY_ORDER[h.day.toLowerCase()] ?? 0,
-        label: h.day.charAt(0).toUpperCase() + h.day.slice(1).toLowerCase(),
-        open: h.opens,
-        close: h.closes,
-      }))
-      .sort((a, b) => {
-        const rank = (d: number) => (d === 0 ? 7 : d);
-        return rank(a.day) - rank(b.day);
-      });
-  })();
+  const openNowHours = (hours.data ?? [])
+    .filter((h) => h.opens && h.closes)
+    .map((h) => ({
+      day: DAY_INDEX[h.day.toLowerCase()] ?? 0,
+      open: h.opens as string,
+      close: h.closes as string,
+    }));
 
-  const openNowHours = openHours
-    .filter((h) => h.open && h.close)
-    .map((h) => ({ day: h.day, open: h.open!, close: h.close! }));
+  const dayHours: DayHours[] = (hours.data ?? []).map((h, i) => ({
+    day: DAY_INDEX[h.day.toLowerCase()] ?? i,
+    label: h.day,
+    open: h.opens,
+    close: h.closes,
+  }));
 
   return (
     <SiteChrome {...CHROME}>
       <section className="border-b border-border bg-muted/40">
-        <div className="mx-auto max-w-4xl px-6 py-14">
+        <div className="mx-auto max-w-5xl px-6 py-14">
           <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            Pell Street · a table when you want one
+            Pell Street · neighbourhood cooking
           </p>
-          <h1 className="mt-3 text-5xl font-semibold tracking-tight text-balance">
+          <h1 className="mt-3 text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
             Pell Street Kitchen
           </h1>
-          <p className="mt-5 max-w-xl text-lg leading-relaxed text-muted-foreground">
-            Honest plates, a short menu that changes with the season, and a kitchen you can see
-            from most of the tables. No online booking — ring us, or just come in.
+          <p className="mt-4 max-w-xl text-lg leading-relaxed text-muted-foreground">
+            Simple food cooked properly, a short walk from wherever you already are. No booking
+            system — ring the number below and we'll hold you a table.
           </p>
           <div className="mt-7 flex flex-wrap items-center gap-3">
             <a
-              className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground"
+              className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground motion-press"
+              href="#find-us"
+            >
+              Directions
+            </a>
+            <a
+              className="rounded-md border border-border px-5 py-2.5 text-sm font-medium motion-press"
               href="#menu"
             >
               See the menu
-            </a>
-            <a
-              href="tel:+441142330000"
-              className="rounded-md border border-border px-5 py-2.5 text-sm font-medium"
-            >
-              Call 0114 233 0000
             </a>
             {!hours.isPending && !hours.isError && openNowHours.length > 0 && (
               <OpenNow hours={openNowHours} />
@@ -154,104 +136,93 @@ function Home() {
       <section id="menu" className="mx-auto max-w-4xl px-6 py-20">
         <SectionHeader
           eyebrow="The menu"
-          title="What's cooking"
-          description="Short by design — everything on it is here because it earns its place."
+          title="What's on"
+          description="Dishes change with what's good this week. Ask what's just come off the pass."
         />
-        <div className="mt-10">
-          {dishes.isPending && <Skeleton className="h-64 rounded-xl" />}
-          {dishes.isError && (
-            <p className="text-sm text-destructive">
-              Couldn't load the menu. Refresh and try again.
-            </p>
-          )}
-          {dishes.data?.length === 0 && (
-            <Empty
-              title="Menu coming soon"
-              description="We're setting the table — check back shortly for what's cooking."
-            />
-          )}
-          {!!dishes.data?.length && <MenuSection groups={groupedDishes} />}
-        </div>
+        {dishes.isPending && <Skeleton className="mt-8 h-72 rounded-xl" />}
+        {dishes.isError && (
+          <p className="mt-8 text-sm text-destructive">
+            Couldn't load the menu. Refresh and try again.
+          </p>
+        )}
+        {dishes.data?.length === 0 && (
+          <Empty
+            className="mt-8"
+            title="Nothing on the menu yet"
+            description="The kitchen is putting the list together — check back soon."
+          />
+        )}
+        {!!dishes.data?.length && <MenuSection className="mt-8" groups={groups} />}
       </section>
 
       <section id="kitchen" className="border-y border-border bg-muted/40">
-        <div className="mx-auto max-w-4xl px-6 py-20">
+        <div className="mx-auto max-w-5xl px-6 py-20">
           <SectionHeader
-            eyebrow="The kitchen"
-            title="Who cooks"
-            description="Small team, long hours, and every plate leaves the pass looked at twice."
+            eyebrow="Who cooks"
+            title="The kitchen"
+            description="A small team, cooking the same menu every service."
           />
-          <div className="mt-8">
-            {chefs.isPending && <Skeleton className="h-40 rounded-xl" />}
-            {chefs.isError && (
-              <p className="text-sm text-destructive">
-                Couldn't load the team. Refresh and try again.
-              </p>
-            )}
-            {chefs.data?.length === 0 && (
-              <Empty
-                title="Introductions soon"
-                description="The team's photos and roles will be here shortly."
-              />
-            )}
-            {!!chefs.data?.length && (
-              <TeamGrid
-                items={chefs.data.map((c) => ({
-                  name: c.name,
-                  role: c.role ?? "",
-                  photo: c.photo_url ?? undefined,
-                }))}
-              />
-            )}
-          </div>
+          {chefs.isPending && <Skeleton className="mt-8 h-40 rounded-xl" />}
+          {chefs.isError && (
+            <p className="mt-8 text-sm text-destructive">
+              Couldn't load the team. Refresh and try again.
+            </p>
+          )}
+          {chefs.data?.length === 0 && (
+            <Empty
+              className="mt-8"
+              title="No team listed yet"
+              description="The kitchen line-up will appear here shortly."
+            />
+          )}
+          {!!chefs.data?.length && (
+            <TeamGrid
+              className="mt-8"
+              items={chefs.data.map((c) => ({
+                name: c.name,
+                role: c.role ?? undefined,
+                photo: c.photo_url ?? undefined,
+              }))}
+            />
+          )}
         </div>
       </section>
 
-      <section id="find-us" className="mx-auto max-w-4xl px-6 py-20">
+      <section id="find-us" className="mx-auto max-w-5xl px-6 py-20">
         <div className="grid gap-10 sm:grid-cols-2">
           <div>
             <SectionHeader eyebrow="Find us" title="On Pell Street" />
-            <div className="mt-6">
-              {hours.isPending && <Skeleton className="h-48 rounded-xl" />}
-              {hours.isError && (
-                <p className="text-sm text-destructive">
-                  Couldn't load our hours. Refresh and try again.
-                </p>
-              )}
-              {hours.data?.length === 0 && (
-                <Empty
-                  title="Hours coming soon"
-                  description="We're finalising opening times — ring ahead for now."
-                />
-              )}
-              {!!hours.data?.length && <OpeningHours days={openHours} />}
-            </div>
+            {hours.isPending && <Skeleton className="mt-6 h-48 rounded-xl" />}
+            {hours.isError && (
+              <p className="mt-6 text-sm text-destructive">
+                Couldn't load our hours. Refresh and try again.
+              </p>
+            )}
+            {hours.data?.length === 0 && (
+              <Empty
+                className="mt-6"
+                title="Hours not listed yet"
+                description="Ring ahead and we'll tell you what's open."
+              />
+            )}
+            {!!hours.data?.length && <OpeningHours className="mt-6" days={dayHours} />}
           </div>
           <LocationCard
             className="self-start"
             name="Pell Street Kitchen"
-            address="22 Pell Street, Sheffield S3 8GJ"
-            note="Street parking after 6pm, or the Pell Street car park two minutes' walk away."
+            address="22 Pell Street, Sheffield S3 8GG"
+            note="No booking system — give us a ring and we'll hold you a table."
           />
         </div>
       </section>
 
-      <section className="border-t border-border bg-muted/40">
-        <div className="mx-auto max-w-4xl px-6 py-16">
-          <CtaBand
-            title="No online booking — just ring us"
-            description="We hold a handful of tables for phone bookings each evening. The rest is first come."
-            action={{ label: "Call 0114 233 0000", href: "tel:+441142330000" }}
-          />
-        </div>
+      <section className="mx-auto max-w-5xl px-6 py-16">
+        <CtaBand
+          title="We don't take bookings online"
+          description="Ring the kitchen and we'll sort you a table — we're usually able to fit you in."
+          action={{ label: "Get directions", href: "#find-us" }}
+        />
       </section>
     </SiteChrome>
   );
-}
-
-function parsePrice(raw: string): number | null {
-  const cleaned = raw.replace(/[^0-9.]/g, "");
-  if (!cleaned) return null;
-  const n = parseFloat(cleaned);
-  return Number.isFinite(n) ? n : null;
 }

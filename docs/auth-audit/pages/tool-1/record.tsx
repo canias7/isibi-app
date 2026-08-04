@@ -1,13 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 
 import { useMember, useRows, useUpdateRow, type Row } from "@/lib/rows";
-import { ActivityFeed } from "@/components/ui/activity-feed";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Form,
   FormControl,
@@ -17,30 +16,33 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { RecordHeader } from "@/components/ui/record-header";
-import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBadge } from "@/components/ui/status-badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { RecordHeader } from "@/components/ui/record-header";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { ActivityFeed } from "@/components/ui/activity-feed";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Empty } from "@/components/ui/empty";
 
 export const Route = createFileRoute("/record")({
   component: RecordPage,
-  validateSearch: (search: Record<string, unknown>): { id?: string; table?: string } => ({
-    id: typeof search.id === "string" ? search.id : undefined,
+  validateSearch: (search: Record<string, unknown>): { table?: string; id?: string } => ({
     table: typeof search.table === "string" ? search.table : undefined,
+    id: typeof search.id === "string" ? search.id : undefined,
   }),
 });
 
 type Deal = Row & { title: string; value: string | null; stage: string | null };
 type Account = Row & { name: string; website: string | null; notes: string | null };
+type Playbook = Row & { title: string; body: string | null };
 
-const STAGES = ["new", "qualifying", "proposal", "negotiation", "won", "lost"];
-
-function stageState(stage: string | null): "success" | "warning" | "neutral" | "danger" {
-  if (stage === "won") return "success";
-  if (stage === "lost") return "danger";
-  if (stage === "negotiation" || stage === "proposal") return "warning";
-  return "neutral";
-}
+const STAGES = ["new", "qualified", "proposal", "won", "lost"] as const;
 
 const dealSchema = z.object({
   title: z.string().min(2, "Give the deal a name"),
@@ -56,14 +58,21 @@ const accountSchema = z.object({
 });
 type AccountForm = z.infer<typeof accountSchema>;
 
+function stageState(stage: string | null): "success" | "warning" | "neutral" | "danger" {
+  if (stage === "won") return "success";
+  if (stage === "lost") return "danger";
+  if (stage === "proposal") return "warning";
+  return "neutral";
+}
+
 function RecordPage() {
-  const { id, table } = Route.useSearch();
+  const { table, id } = Route.useSearch();
   const member = useMember();
 
   if (member.isPending) {
     return (
       <main className="flex min-h-screen items-center justify-center">
-        <p className="text-muted-foreground">Checking your sign-in…</p>
+        <p className="text-sm text-muted-foreground">Checking your sign-in…</p>
       </main>
     );
   }
@@ -71,8 +80,7 @@ function RecordPage() {
   if (!member.data) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-10 text-center">
-        <p className="text-lg font-semibold tracking-tight">Halyard</p>
-        <h1 className="text-2xl font-semibold tracking-tight">Sign in to open this record</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Sign in to view this record</h1>
         <Button asChild>
           <Link to="/">Go to sign in</Link>
         </Button>
@@ -80,354 +88,354 @@ function RecordPage() {
     );
   }
 
-  if (!id || (table !== "deals" && table !== "accounts")) {
+  if (!table || !id) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-10 text-center">
-        <p className="text-lg font-semibold tracking-tight">Halyard</p>
-        <h1 className="text-2xl font-semibold tracking-tight">No record chosen</h1>
-        <p className="max-w-sm text-muted-foreground">
-          Open a record from the table instead of coming here directly.
-        </p>
-        <Button asChild>
+      <main className="p-10">
+        <Empty title="No record chosen" description="Open a record from the table to see it here." />
+        <Button asChild className="mt-4">
           <Link to="/records">Back to records</Link>
         </Button>
       </main>
     );
   }
 
-  return table === "deals" ? <DealRecord id={id} /> : <AccountRecord id={id} />;
+  if (table === "deals") return <DealRecord id={id} />;
+  if (table === "accounts") return <AccountRecord id={id} />;
+  if (table === "playbook") return <PlaybookRecord id={id} />;
+
+  return (
+    <main className="p-10">
+      <Empty title="Unknown record type" description="That link doesn't point at a table this tool knows." />
+    </main>
+  );
+}
+
+function Shell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-screen">
+      <aside className="hidden w-56 shrink-0 border-r border-border p-6 md:block">
+        <Link to="/" className="text-lg font-semibold tracking-tight">
+          Halyard
+        </Link>
+        <nav className="mt-8 flex flex-col gap-1 text-sm text-muted-foreground">
+          <Link to="/records" className="rounded-md px-3 py-2 text-left hover:bg-muted/60">
+            Back to records
+          </Link>
+        </nav>
+      </aside>
+      <main className="flex-1 p-6">{children}</main>
+    </div>
+  );
 }
 
 function DealRecord({ id }: { id: string }) {
   const deals = useRows<Deal>("deals");
   const update = useUpdateRow<Deal>("deals");
-  const [editing, setEditing] = useState(false);
+  const deal = deals.data?.find((d) => d.id === id);
 
   const form = useForm<DealForm>({
     resolver: zodResolver(dealSchema),
-    defaultValues: { title: "", value: "", stage: "new" },
+    values: deal ? { title: deal.title, value: deal.value ?? "", stage: deal.stage ?? "new" } : undefined,
   });
-
-  const deal = deals.data?.find((d) => d.id === id);
-
-  const startEdit = () => {
-    if (!deal) return;
-    form.reset({ title: deal.title, value: deal.value ?? "", stage: deal.stage ?? "new" });
-    setEditing(true);
-  };
-
-  const onSave = (values: DealForm) => {
-    update.mutate(
-      { id, title: values.title, value: values.value || null, stage: values.stage },
-      {
-        onSuccess: () => {
-          toast.success("Deal updated");
-          setEditing(false);
-        },
-        onError: (e) => toast.error(e.message),
-      },
-    );
-  };
 
   if (deals.isPending) {
     return (
-      <main className="p-6">
-        <Skeleton className="h-10 w-64 rounded-md" />
-        <Skeleton className="mt-4 h-48 rounded-xl" />
-      </main>
+      <Shell>
+        <Skeleton className="h-96 rounded-xl" />
+      </Shell>
     );
   }
 
   if (deals.isError) {
     return (
-      <main className="p-6">
+      <Shell>
         <p className="text-sm text-destructive">Couldn't load this deal. Refresh and try again.</p>
-      </main>
+      </Shell>
     );
   }
 
   if (!deal) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-10 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">We couldn't find that deal</h1>
-        <p className="max-w-sm text-muted-foreground">
-          It may have been removed, or the link is wrong.
-        </p>
-        <Button asChild>
-          <Link to="/records">Back to records</Link>
-        </Button>
-      </main>
+      <Shell>
+        <Empty title="Not found" description="This deal isn't in the team's pipeline, or it's been removed." />
+      </Shell>
     );
   }
 
+  const onSave = (values: DealForm) => {
+    update.mutate(
+      { id: deal.id, ...values },
+      {
+        onSuccess: () => toast.success("Deal updated"),
+        onError: (e) => toast.error(e.message),
+      },
+    );
+  };
+
   return (
-    <main className="mx-auto max-w-3xl p-6">
-      <Link to="/records" className="text-sm text-muted-foreground underline underline-offset-4">
-        ← Back to records
-      </Link>
-
+    <Shell>
       <RecordHeader
-        className="mt-4"
         title={deal.title}
-        subtitle="A deal the team is working together"
+        subtitle="Deal"
         badge={<StatusBadge state={stageState(deal.stage)}>{deal.stage ?? "new"}</StatusBadge>}
-        actions={
-          !editing ? (
-            <Button variant="outline" onClick={startEdit}>
-              Edit
-            </Button>
-          ) : undefined
-        }
       />
-
-      {!editing ? (
-        <div className="mt-6 grid gap-4 rounded-xl border border-border p-5">
-          <div>
-            <p className="text-xs font-medium text-muted-foreground">Title</p>
-            <p className="mt-1 text-sm">{deal.title}</p>
-          </div>
-          <div>
-            <p className="text-xs font-medium text-muted-foreground">Value</p>
-            <p className="mt-1 text-sm">{deal.value ?? "Not set"}</p>
-          </div>
-          <div>
-            <p className="text-xs font-medium text-muted-foreground">Stage</p>
-            <p className="mt-1 text-sm capitalize">{deal.stage ?? "new"}</p>
-          </div>
-        </div>
-      ) : (
-        <Form {...form}>
-          <form className="mt-6 grid gap-4 rounded-xl border border-border p-5" onSubmit={form.handleSubmit(onSave)}>
-            <FormField
-              control={form.control}
-              name="title"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Title</FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Fields</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSave)} className="grid gap-4">
+                <FormField
+                  control={form.control}
+                  name="title"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Title</FormLabel>
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="value"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Value</FormLabel>
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="stage"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Stage</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Choose one" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {STAGES.map((s) => (
+                            <SelectItem key={s} value={s}>
+                              {s}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <Button type="submit" className="motion-press" disabled={update.isPending}>
+                  {update.isPending ? "Saving…" : "Save changes"}
+                </Button>
+              </form>
+            </Form>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Activity</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ActivityFeed
+              items={[
+                { id: "created", title: "Deal created", timestamp: deal.created_at },
+                { id: "updated", title: "Last updated", timestamp: deal.updated_at ?? deal.created_at },
+              ]}
             />
-            <FormField
-              control={form.control}
-              name="value"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Value</FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="stage"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Stage</FormLabel>
-                  <FormControl>
-                    <select
-                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm capitalize"
-                      {...field}
-                    >
-                      {STAGES.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <div className="flex gap-3">
-              <Button type="submit" className="motion-press" disabled={update.isPending}>
-                {update.isPending ? "Saving…" : "Save"}
-              </Button>
-              <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
-                Cancel
-              </Button>
-            </div>
-          </form>
-        </Form>
-      )}
-
-      <div className="mt-8">
-        <h2 className="text-sm font-medium">Activity</h2>
-        <ActivityFeed
-          className="mt-3"
-          items={[
-            { title: "Record created", timestamp: deal.created_at ?? undefined },
-            { title: "Last updated", timestamp: deal.updated_at ?? undefined },
-          ]}
-        />
+          </CardContent>
+        </Card>
       </div>
-    </main>
+    </Shell>
   );
 }
 
 function AccountRecord({ id }: { id: string }) {
   const accounts = useRows<Account>("accounts");
   const update = useUpdateRow<Account>("accounts");
-  const [editing, setEditing] = useState(false);
+  const account = accounts.data?.find((a) => a.id === id);
+  const member = useMember();
 
   const form = useForm<AccountForm>({
     resolver: zodResolver(accountSchema),
-    defaultValues: { name: "", website: "", notes: "" },
+    values: account
+      ? { name: account.name, website: account.website ?? "", notes: account.notes ?? "" }
+      : undefined,
   });
-
-  const account = accounts.data?.find((a) => a.id === id);
-
-  const startEdit = () => {
-    if (!account) return;
-    form.reset({ name: account.name, website: account.website ?? "", notes: account.notes ?? "" });
-    setEditing(true);
-  };
-
-  const onSave = (values: AccountForm) => {
-    update.mutate(
-      { id, name: values.name, website: values.website || null, notes: values.notes || null },
-      {
-        onSuccess: () => {
-          toast.success("Account updated");
-          setEditing(false);
-        },
-        onError: (e) => toast.error(e.message),
-      },
-    );
-  };
 
   if (accounts.isPending) {
     return (
-      <main className="p-6">
-        <Skeleton className="h-10 w-64 rounded-md" />
-        <Skeleton className="mt-4 h-48 rounded-xl" />
-      </main>
+      <Shell>
+        <Skeleton className="h-96 rounded-xl" />
+      </Shell>
     );
   }
 
   if (accounts.isError) {
     return (
-      <main className="p-6">
+      <Shell>
         <p className="text-sm text-destructive">Couldn't load this account. Refresh and try again.</p>
-      </main>
+      </Shell>
     );
   }
 
   if (!account) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-10 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">We couldn't find that account</h1>
-        <p className="max-w-sm text-muted-foreground">
-          It may have been removed, or the link is wrong.
-        </p>
-        <Button asChild>
-          <Link to="/records">Back to records</Link>
-        </Button>
-      </main>
+      <Shell>
+        <Empty title="Not found" description="This account isn't in the shared list, or it's been removed." />
+      </Shell>
+    );
+  }
+
+  const isOwner = member.data && account.owner_id === member.data.id;
+
+  const onSave = (values: AccountForm) => {
+    update.mutate(
+      { id: account.id, ...values },
+      {
+        onSuccess: () => toast.success("Account updated"),
+        onError: (e) => toast.error(e.message),
+      },
+    );
+  };
+
+  return (
+    <Shell>
+      <RecordHeader title={account.name} subtitle="Account" />
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Fields</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isOwner ? (
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit(onSave)} className="grid gap-4">
+                  <FormField
+                    control={form.control}
+                    name="name"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Name</FormLabel>
+                        <FormControl>
+                          <Input {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="website"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Website</FormLabel>
+                        <FormControl>
+                          <Input {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="notes"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Notes</FormLabel>
+                        <FormControl>
+                          <Textarea rows={4} {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <Button type="submit" className="motion-press" disabled={update.isPending}>
+                    {update.isPending ? "Saving…" : "Save changes"}
+                  </Button>
+                </form>
+              </Form>
+            ) : (
+              <div className="grid gap-3 text-sm">
+                <p>
+                  <span className="text-muted-foreground">Website: </span>
+                  {account.website || "—"}
+                </p>
+                <p>
+                  <span className="text-muted-foreground">Notes: </span>
+                  {account.notes || "—"}
+                </p>
+                <p className="text-xs text-muted-foreground">Only the teammate who added this account can edit it.</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Activity</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ActivityFeed
+              items={[
+                { id: "created", title: "Account added", timestamp: account.created_at },
+                { id: "updated", title: "Last updated", timestamp: account.updated_at ?? account.created_at },
+              ]}
+            />
+          </CardContent>
+        </Card>
+      </div>
+    </Shell>
+  );
+}
+
+function PlaybookRecord({ id }: { id: string }) {
+  const playbook = useRows<Playbook>("playbook");
+  const entry = playbook.data?.find((p) => p.id === id);
+
+  if (playbook.isPending) {
+    return (
+      <Shell>
+        <Skeleton className="h-64 rounded-xl" />
+      </Shell>
+    );
+  }
+
+  if (playbook.isError) {
+    return (
+      <Shell>
+        <p className="text-sm text-destructive">Couldn't load the playbook. Refresh and try again.</p>
+      </Shell>
+    );
+  }
+
+  if (!entry) {
+    return (
+      <Shell>
+        <Empty title="Not found" description="This playbook entry isn't there any more." />
+      </Shell>
     );
   }
 
   return (
-    <main className="mx-auto max-w-3xl p-6">
-      <Link to="/records" className="text-sm text-muted-foreground underline underline-offset-4">
-        ← Back to records
-      </Link>
-
-      <RecordHeader
-        className="mt-4"
-        title={account.name}
-        subtitle="A shared account — anyone on the team can add to this"
-        actions={
-          !editing ? (
-            <Button variant="outline" onClick={startEdit}>
-              Edit
-            </Button>
-          ) : undefined
-        }
-      />
-
-      {!editing ? (
-        <div className="mt-6 grid gap-4 rounded-xl border border-border p-5">
-          <div>
-            <p className="text-xs font-medium text-muted-foreground">Website</p>
-            <p className="mt-1 text-sm">{account.website ?? "Not set"}</p>
-          </div>
-          <div>
-            <p className="text-xs font-medium text-muted-foreground">Notes</p>
-            <p className="mt-1 whitespace-pre-wrap text-sm">{account.notes ?? "Nothing noted yet."}</p>
-          </div>
-        </div>
-      ) : (
-        <Form {...form}>
-          <form className="mt-6 grid gap-4 rounded-xl border border-border p-5" onSubmit={form.handleSubmit(onSave)}>
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="website"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Website</FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="notes"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Notes</FormLabel>
-                  <FormControl>
-                    <Textarea rows={4} {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <div className="flex gap-3">
-              <Button type="submit" className="motion-press" disabled={update.isPending}>
-                {update.isPending ? "Saving…" : "Save"}
-              </Button>
-              <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
-                Cancel
-              </Button>
-            </div>
-          </form>
-        </Form>
-      )}
-
-      <div className="mt-8">
-        <h2 className="text-sm font-medium">Activity</h2>
-        <ActivityFeed
-          className="mt-3"
-          items={[
-            { title: "Record created", timestamp: account.created_at ?? undefined },
-            { title: "Last updated", timestamp: account.updated_at ?? undefined },
-          ]}
-        />
-      </div>
-    </main>
+    <Shell>
+      <RecordHeader title={entry.title} subtitle="Playbook" />
+      <Card className="mt-6">
+        <CardContent className="pt-6 whitespace-pre-wrap text-sm text-foreground">
+          {entry.body || "No content yet."}
+        </CardContent>
+      </Card>
+    </Shell>
   );
 }

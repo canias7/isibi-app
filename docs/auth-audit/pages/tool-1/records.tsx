@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -14,7 +14,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Empty } from "@/components/ui/empty";
 import {
   Form,
   FormControl,
@@ -23,19 +22,29 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { FilterBar } from "@/components/ui/filter-bar";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBadge } from "@/components/ui/status-badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { TableSearch } from "@/components/ui/table-search";
-import { Textarea } from "@/components/ui/textarea";
+import { FilterBar } from "@/components/ui/filter-bar";
+import { BulkActions } from "@/components/ui/bulk-actions";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Empty } from "@/components/ui/empty";
 
 export const Route = createFileRoute("/records")({ component: Records });
 
 type Deal = Row & { title: string; value: string | null; stage: string | null };
 type Account = Row & { name: string; website: string | null; notes: string | null };
 
-const STAGES = ["new", "qualifying", "proposal", "negotiation", "won", "lost"];
+const STAGES = ["new", "qualified", "proposal", "won", "lost"] as const;
 
 const dealSchema = z.object({
   title: z.string().min(2, "Give the deal a name"),
@@ -54,23 +63,22 @@ type AccountForm = z.infer<typeof accountSchema>;
 function stageState(stage: string | null): "success" | "warning" | "neutral" | "danger" {
   if (stage === "won") return "success";
   if (stage === "lost") return "danger";
-  if (stage === "negotiation" || stage === "proposal") return "warning";
+  if (stage === "proposal") return "warning";
   return "neutral";
 }
 
 function Records() {
   const member = useMember();
-  const [tab, setTab] = useState<"deals" | "accounts">("deals");
+  const [view, setView] = useState<"deals" | "accounts">("deals");
   const [search, setSearch] = useState("");
-  const [stageFilter, setStageFilter] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [dealOpen, setDealOpen] = useState(false);
-  const [accountOpen, setAccountOpen] = useState(false);
+  const [stageFilter, setStageFilter] = useState<string>("all");
+  const [selected, setSelected] = useState<string[]>([]);
 
-  const deals = useRows<Deal>("deals", { order: "id", dir: "desc" });
-  const accounts = useRows<Account>("accounts", { order: "id", dir: "desc" });
+  const deals = useRows<Deal>("deals", { order: "title", dir: "asc" });
+  const accounts = useRows<Account>("accounts", { order: "name", dir: "asc" });
   const createDeal = useCreateRow<Deal>("deals");
   const createAccount = useCreateRow<Account>("accounts");
+  const navigate = useNavigate();
 
   const dealForm = useForm<DealForm>({
     resolver: zodResolver(dealSchema),
@@ -81,11 +89,14 @@ function Records() {
     defaultValues: { name: "", website: "", notes: "" },
   });
 
+  const [dealDialogOpen, setDealDialogOpen] = useState(false);
+  const [accountDialogOpen, setAccountDialogOpen] = useState(false);
+
   const filteredDeals = useMemo(() => {
     let rows = deals.data ?? [];
-    if (stageFilter) rows = rows.filter((d) => d.stage === stageFilter);
+    if (stageFilter !== "all") rows = rows.filter((d) => d.stage === stageFilter);
     if (search.trim()) {
-      const q = search.toLowerCase();
+      const q = search.trim().toLowerCase();
       rows = rows.filter((d) => d.title.toLowerCase().includes(q));
     }
     return rows;
@@ -94,55 +105,70 @@ function Records() {
   const filteredAccounts = useMemo(() => {
     let rows = accounts.data ?? [];
     if (search.trim()) {
-      const q = search.toLowerCase();
-      rows = rows.filter(
-        (a) => a.name.toLowerCase().includes(q) || (a.website ?? "").toLowerCase().includes(q),
-      );
+      const q = search.trim().toLowerCase();
+      rows = rows.filter((a) => a.name.toLowerCase().includes(q));
     }
     return rows;
   }, [accounts.data, search]);
 
   const onCreateDeal = (values: DealForm) => {
-    createDeal.mutate(
-      { title: values.title, value: values.value || null, stage: values.stage },
-      {
-        onSuccess: () => {
-          toast.success("Deal added");
-          dealForm.reset();
-          setDealOpen(false);
-        },
-        onError: (e) => toast.error(e.message),
+    createDeal.mutate(values, {
+      onSuccess: () => {
+        toast.success("Deal added");
+        dealForm.reset();
+        setDealDialogOpen(false);
       },
-    );
+      onError: (e) => toast.error(e.message),
+    });
   };
 
   const onCreateAccount = (values: AccountForm) => {
-    createAccount.mutate(
-      { name: values.name, website: values.website || null, notes: values.notes || null },
-      {
-        onSuccess: () => {
-          toast.success("Account added");
-          accountForm.reset();
-          setAccountOpen(false);
-        },
-        onError: (e) => toast.error(e.message),
+    createAccount.mutate(values, {
+      onSuccess: () => {
+        toast.success("Account added");
+        accountForm.reset();
+        setAccountDialogOpen(false);
       },
-    );
-  };
-
-  const toggleSelect = (id: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+      onError: (e) => toast.error(e.message),
     });
   };
+
+  const dealColumns: DataTableColumn<Deal>[] = [
+    {
+      key: "title",
+      header: "Deal",
+      cell: (d) => (
+        <Link to="/record" search={{ table: "deals", id: d.id }} className="font-medium hover:underline">
+          {d.title}
+        </Link>
+      ),
+    },
+    { key: "value", header: "Value", cell: (d) => d.value ?? "—" },
+    {
+      key: "stage",
+      header: "Stage",
+      cell: (d) => <StatusBadge state={stageState(d.stage)}>{d.stage ?? "new"}</StatusBadge>,
+    },
+  ];
+
+  const accountColumns: DataTableColumn<Account>[] = [
+    {
+      key: "name",
+      header: "Account",
+      cell: (a) => (
+        <Link to="/record" search={{ table: "accounts", id: a.id }} className="font-medium hover:underline">
+          {a.name}
+        </Link>
+      ),
+    },
+    { key: "website", header: "Website", cell: (a) => a.website ?? "—" },
+    { key: "notes", header: "Notes", cell: (a) => a.notes ?? "—" },
+  ];
 
   if (member.isPending) {
     return (
       <main className="flex min-h-screen items-center justify-center">
-        <p className="text-muted-foreground">Checking your sign-in…</p>
+        <p className="text-sm text-muted-foreground">Checking your sign-in…</p>
       </main>
     );
   }
@@ -150,10 +176,9 @@ function Records() {
   if (!member.data) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-10 text-center">
-        <p className="text-lg font-semibold tracking-tight">Halyard</p>
         <h1 className="text-2xl font-semibold tracking-tight">Sign in to see the records</h1>
-        <p className="max-w-sm text-muted-foreground">
-          Deals and accounts are only visible to signed-in members of your team.
+        <p className="max-w-sm text-sm text-muted-foreground">
+          The team's deals and accounts are only visible to signed-in members.
         </p>
         <Button asChild>
           <Link to="/">Go to sign in</Link>
@@ -164,74 +189,49 @@ function Records() {
 
   return (
     <div className="flex min-h-screen">
-      <aside className="hidden w-56 shrink-0 border-r border-border bg-muted/30 p-4 md:block">
+      <aside className="hidden w-56 shrink-0 border-r border-border p-6 md:block">
         <p className="text-lg font-semibold tracking-tight">Halyard</p>
         <nav className="mt-8 flex flex-col gap-1 text-sm">
           <button
-            className={`rounded-md px-3 py-2 text-left ${tab === "deals" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+            className={`rounded-md px-3 py-2 text-left ${view === "deals" ? "bg-muted font-medium" : "text-muted-foreground hover:bg-muted/60"}`}
             onClick={() => {
-              setTab("deals");
-              setSelected(new Set());
+              setView("deals");
+              setSelected([]);
             }}
           >
             Deals
           </button>
           <button
-            className={`rounded-md px-3 py-2 text-left ${tab === "accounts" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+            className={`rounded-md px-3 py-2 text-left ${view === "accounts" ? "bg-muted font-medium" : "text-muted-foreground hover:bg-muted/60"}`}
             onClick={() => {
-              setTab("accounts");
-              setSelected(new Set());
+              setView("accounts");
+              setSelected([]);
             }}
           >
             Accounts
           </button>
+          <Link to="/records" search={{ table: "playbook" } as never} className="rounded-md px-3 py-2 text-left text-muted-foreground hover:bg-muted/60">
+            Playbook
+          </Link>
         </nav>
-        <div className="mt-8 border-t border-border pt-4">
-          <p className="text-xs font-medium text-muted-foreground">Stage</p>
-          <div className="mt-2 flex flex-col gap-1">
-            <button
-              className={`rounded-md px-3 py-1.5 text-left text-sm ${!stageFilter ? "bg-muted font-medium" : "hover:bg-muted"}`}
-              onClick={() => setStageFilter(null)}
-            >
-              All stages
-            </button>
-            {STAGES.map((s) => (
-              <button
-                key={s}
-                className={`rounded-md px-3 py-1.5 text-left text-sm capitalize ${stageFilter === s ? "bg-muted font-medium" : "hover:bg-muted"}`}
-                onClick={() => setStageFilter(s)}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        </div>
       </aside>
 
       <main className="flex-1 p-6">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">
-              {tab === "deals" ? "The team's deals" : "Shared accounts"}
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              {tab === "deals"
-                ? "Every deal the team is working, in one shared table."
-                : "Every account anyone on the team has added."}
-            </p>
-          </div>
-
-          {tab === "deals" ? (
-            <Dialog open={dealOpen} onOpenChange={setDealOpen}>
+        <div className="flex items-center justify-between gap-4">
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {view === "deals" ? "The team's deals" : "Shared accounts"}
+          </h1>
+          {view === "deals" ? (
+            <Dialog open={dealDialogOpen} onOpenChange={setDealDialogOpen}>
               <DialogTrigger asChild>
-                <Button className="motion-press">New record</Button>
+                <Button className="motion-press">New deal</Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>New deal</DialogTitle>
                 </DialogHeader>
                 <Form {...dealForm}>
-                  <form className="grid gap-4" onSubmit={dealForm.handleSubmit(onCreateDeal)}>
+                  <form onSubmit={dealForm.handleSubmit(onCreateDeal)} className="grid gap-4">
                     <FormField
                       control={dealForm.control}
                       name="title"
@@ -264,18 +264,20 @@ function Records() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Stage</FormLabel>
-                          <FormControl>
-                            <select
-                              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm capitalize"
-                              {...field}
-                            >
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Choose one" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
                               {STAGES.map((s) => (
-                                <option key={s} value={s}>
+                                <SelectItem key={s} value={s}>
                                   {s}
-                                </option>
+                                </SelectItem>
                               ))}
-                            </select>
-                          </FormControl>
+                            </SelectContent>
+                          </Select>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -288,16 +290,16 @@ function Records() {
               </DialogContent>
             </Dialog>
           ) : (
-            <Dialog open={accountOpen} onOpenChange={setAccountOpen}>
+            <Dialog open={accountDialogOpen} onOpenChange={setAccountDialogOpen}>
               <DialogTrigger asChild>
-                <Button className="motion-press">New record</Button>
+                <Button className="motion-press">New account</Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>New account</DialogTitle>
                 </DialogHeader>
                 <Form {...accountForm}>
-                  <form className="grid gap-4" onSubmit={accountForm.handleSubmit(onCreateAccount)}>
+                  <form onSubmit={accountForm.handleSubmit(onCreateAccount)} className="grid gap-4">
                     <FormField
                       control={accountForm.control}
                       name="name"
@@ -318,7 +320,7 @@ function Records() {
                         <FormItem>
                           <FormLabel>Website</FormLabel>
                           <FormControl>
-                            <Input placeholder="https://" {...field} />
+                            <Input placeholder="acme.com" {...field} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -331,7 +333,7 @@ function Records() {
                         <FormItem>
                           <FormLabel>Notes</FormLabel>
                           <FormControl>
-                            <Textarea rows={3} {...field} />
+                            <Input {...field} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -348,133 +350,78 @@ function Records() {
         </div>
 
         <div className="mt-6 flex flex-wrap items-center gap-3">
-          <TableSearch
-            value={search}
-            onChange={setSearch}
-            placeholder={tab === "deals" ? "Search deals…" : "Search accounts…"}
-          />
-          {tab === "deals" && (
+          <TableSearch value={search} onChange={setSearch} placeholder={view === "deals" ? "Search deals…" : "Search accounts…"} />
+          {view === "deals" && (
             <FilterBar
               filters={[
                 {
+                  key: "stage",
                   label: "Stage",
-                  value: stageFilter ?? "all",
-                  options: [{ label: "All", value: "all" }, ...STAGES.map((s) => ({ label: s, value: s }))],
-                  onChange: (v) => setStageFilter(v === "all" ? null : v),
+                  value: stageFilter,
+                  options: [{ value: "all", label: "All stages" }, ...STAGES.map((s) => ({ value: s, label: s }))],
+                  onChange: setStageFilter,
                 },
               ]}
             />
           )}
-          {selected.size > 0 && (
-            <BulkActionsBar
-              count={selected.size}
-              onClear={() => setSelected(new Set())}
-            />
-          )}
         </div>
 
-        {tab === "deals" ? (
-          <div className="mt-6">
-            {deals.isPending && <Skeleton className="h-72 rounded-xl" />}
-            {deals.isError && (
-              <p className="text-sm text-destructive">
-                Couldn't load the deals. Refresh and try again.
-              </p>
-            )}
-            {!deals.isPending && !deals.isError && filteredDeals.length === 0 && (
-              <Empty
-                title="No deals yet"
-                description="Add the first deal the team is working and it'll show up here for everyone."
-              />
-            )}
-            {!deals.isPending && !deals.isError && filteredDeals.length > 0 && (
-              <table className="w-full border-collapse text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-muted-foreground">
-                    <th className="w-10 py-2"></th>
-                    <th className="py-2 font-medium">Title</th>
-                    <th className="py-2 font-medium">Value</th>
-                    <th className="py-2 font-medium">Stage</th>
-                  </tr>
-                </thead>
-                <tbody className="motion-stagger">
-                  {filteredDeals.map((d) => (
-                    <tr key={d.id} className="border-b border-border last:border-0 hover:bg-muted/40">
-                      <td className="py-2">
-                        <input
-                          type="checkbox"
-                          checked={selected.has(d.id)}
-                          onChange={() => toggleSelect(d.id)}
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                      </td>
-                      <td className="py-2">
-                        <Link to="/record" search={{ id: d.id, table: "deals" }} className="underline underline-offset-4">
-                          {d.title}
-                        </Link>
-                      </td>
-                      <td className="py-2">{d.value ?? "—"}</td>
-                      <td className="py-2">
-                        <StatusBadge state={stageState(d.stage)}>{d.stage ?? "new"}</StatusBadge>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        ) : (
-          <div className="mt-6">
-            {accounts.isPending && <Skeleton className="h-72 rounded-xl" />}
-            {accounts.isError && (
-              <p className="text-sm text-destructive">
-                Couldn't load the accounts. Refresh and try again.
-              </p>
-            )}
-            {!accounts.isPending && !accounts.isError && filteredAccounts.length === 0 && (
-              <Empty
-                title="No accounts yet"
-                description="Add the first account and everyone on the team will see it."
-              />
-            )}
-            {!accounts.isPending && !accounts.isError && filteredAccounts.length > 0 && (
-              <table className="w-full border-collapse text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-muted-foreground">
-                    <th className="py-2 font-medium">Name</th>
-                    <th className="py-2 font-medium">Website</th>
-                    <th className="py-2 font-medium">Notes</th>
-                  </tr>
-                </thead>
-                <tbody className="motion-stagger">
-                  {filteredAccounts.map((a) => (
-                    <tr key={a.id} className="border-b border-border last:border-0 hover:bg-muted/40">
-                      <td className="py-2">
-                        <Link to="/record" search={{ id: a.id, table: "accounts" }} className="underline underline-offset-4">
-                          {a.name}
-                        </Link>
-                      </td>
-                      <td className="py-2">{a.website ?? "—"}</td>
-                      <td className="max-w-xs truncate py-2 text-muted-foreground">{a.notes ?? "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
+        {view === "deals" && selected.length > 0 && (
+          <BulkActions
+            className="mt-4"
+            count={selected.length}
+            actions={[{ label: "Clear selection", onClick: () => setSelected([]) }]}
+          />
         )}
-      </main>
-    </div>
-  );
-}
 
-function BulkActionsBar({ count, onClear }: { count: number; onClear: () => void }) {
-  return (
-    <div className="flex items-center gap-3 rounded-md border border-border bg-muted/50 px-3 py-1.5 text-sm">
-      <span>{count} selected</span>
-      <Button size="sm" variant="outline" onClick={onClear}>
-        Clear
-      </Button>
+        <div className="mt-6">
+          {view === "deals" ? (
+            <>
+              {deals.isPending && <Skeleton className="h-64 rounded-xl" />}
+              {deals.isError && (
+                <p className="text-sm text-destructive">Couldn't load the deals. Refresh and try again.</p>
+              )}
+              {!deals.isPending && !deals.isError && filteredDeals.length === 0 && (
+                <Empty
+                  title="No deals yet"
+                  description="Add the first deal your team is working and it'll show up here."
+                />
+              )}
+              {!!filteredDeals.length && (
+                <DataTable
+                  data={filteredDeals}
+                  columns={dealColumns}
+                  getRowId={(d) => d.id}
+                  selected={selected}
+                  onSelectedChange={setSelected}
+                  onRowClick={(d) => navigate({ to: "/record", search: { table: "deals", id: d.id } })}
+                />
+              )}
+            </>
+          ) : (
+            <>
+              {accounts.isPending && <Skeleton className="h-64 rounded-xl" />}
+              {accounts.isError && (
+                <p className="text-sm text-destructive">Couldn't load the accounts. Refresh and try again.</p>
+              )}
+              {!accounts.isPending && !accounts.isError && filteredAccounts.length === 0 && (
+                <Empty
+                  title="No accounts yet"
+                  description="Add the first account the team is talking to."
+                />
+              )}
+              {!!filteredAccounts.length && (
+                <DataTable
+                  data={filteredAccounts}
+                  columns={accountColumns}
+                  getRowId={(a) => a.id}
+                  onRowClick={(a) => navigate({ to: "/record", search: { table: "accounts", id: a.id } })}
+                />
+              )}
+            </>
+          )}
+        </div>
+      </main>
     </div>
   );
 }

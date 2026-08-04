@@ -1,0 +1,2 @@
+src/routes/announcements.tsx(44,21): error TS2322: Type '"/account"' is not assignable to type '"/" | "/announcements" | "/book" | "/manage" | "/notes" | "/work" | "." | ".."'.
+src/routes/notes.tsx(68,21): error TS2322: Type '"/account"' is not assignable to type '"/" | "/announcements" | "/book" | "/manage" | "/notes" | "/work" | "." | ".."'.
