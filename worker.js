@@ -2883,7 +2883,17 @@ async function designSiteSchema(env, brief) {
               "chooses from it will have nothing to choose. Write content a real business would publish." }],
       messages: [{ role: "user", content: brief }],
     }),
-    signal: AbortSignal.timeout(60000),
+    // NO TIMEOUT ON EITHER BUILDER CALL (owner's call, 2026-08-04). A timeout
+    // here does not save anything: the tokens are generated and billed to us
+    // whether or not we are still listening, so cutting the connection means
+    // paying in full and handing the customer a failure. The schema call was
+    // 60s and the page call 240s against a 24,000-token ceiling, which a large
+    // generation goes straight past — so the cap was most likely to fire on
+    // exactly the elaborate site somebody most wanted.
+    //
+    // "No timeout" means the platform's, not none: Cloudflare still bounds the
+    // request, and a genuinely hung upstream ends there rather than hanging on
+    // forever. What changes is that a SLOW answer is now allowed to finish.
   });
   if (!r.ok) {
     const e = new Error("anthropic " + r.status);
@@ -2929,7 +2939,8 @@ async function generateSitePages(env, brief, spec, brand, fix) {
     // it here would mean the harness tunes against a different request from the
     // one production runs.
     body: JSON.stringify(pagesRequest({ brief, spec, brand, fix })),
-    signal: AbortSignal.timeout(240000),
+    // No timeout — see designSiteSchema. This is the call it mattered most for:
+    // three pages against a 24,000-token ceiling is the one that runs long.
   });
   if (!r.ok) {
     const e = new Error("anthropic " + r.status);

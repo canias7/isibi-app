@@ -62,7 +62,9 @@ async function generate(fix) {
     method: "POST",
     headers: { "x-api-key": KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
     body: JSON.stringify(pagesRequest({ brief: BRIEF, spec: SPEC, brand: BRAND, fix })),
-    signal: AbortSignal.timeout(240000),
+    // No timeout, matching production — see designSiteSchema in worker.js. A
+    // harness that gives up sooner than the thing it measures reports a failure
+    // the real path would not have had.
   });
   if (!r.ok) throw new Error("anthropic " + r.status + " " + (await r.text().catch(() => "")).slice(0, 200));
   const j = await r.json();
