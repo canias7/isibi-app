@@ -12362,3 +12362,74 @@ alias is checked by `tsc` against the actual template on every run. Removing the
 alias takes the integration suite from 36/36 to 18/36.
 
 813 unit tests, site-build 36/36, site-runtime 23/23.
+
+## The builder works end to end. 49/53, and none of the four is the generator (2026-08-04)
+
+`build smoke` published a real app, and every check that has been failing all day
+now passes:
+
+```
+ok  the container built this site with the CURRENT image
+ok  the generated app was published, not the fallback
+ok  no console errors
+ok  every data read the page made was allowed
+ok  the page never hit a 403 — it respected the access levels
+ok  the site rendered a form with real controls, on some page
+```
+
+**`publicView` is live in production.** The published page made these, by name,
+with a date filter and no `id` ordering:
+
+```
+GET /data/bookings_public?select=*                                → 200
+GET /data/bookings_public?select=*&appointment_date=eq.2030-06-15 → 200
+```
+
+All three parts landed: the view exists and is granted to `anonymous`, the client
+asks for the view rather than the table, and the read does not order by a column
+a projection cannot have.
+
+`PublicRow` as a scalar union and `Empty`'s `heading` alias both held — the
+typecheck passed on the first try.
+
+### The form was RIGHT and the robot could not drive it
+
+The screenshot decided this rather than the log. Every field filled — service,
+name, phone, email, date, notes — `Time` in red, "Pick a time" underneath, and a
+grid of slot buttons: 09:00, 09:30, 10:00 … 16:30. **The page validated and
+correctly refused an incomplete booking.**
+
+The filler handles inputs, textareas and comboboxes. A time slot is a BUTTON, and
+a booking page picks its time from a row of them fed by the live availability
+read — which is the correct design and precisely what this platform exists to
+produce. The failure message said "a required Select with no options is the usual
+cause", which named the wrong cause entirely.
+
+It now clicks one option per group, and deliberately narrowly: three or more
+enabled `type="button"` siblings sharing a parent, never the submit. One or two
+buttons in a form are "cancel" and "add another"; three or more that share a
+parent are a chooser.
+
+### A brand-new site is not reachable for its first minute
+
+The two remaining failures are the same thing, and this one is a real product
+finding rather than a test artifact:
+
+| when | probe | result |
+|---|---|---|
+| build + 10s | `GET /data/services` | **400** `missing authentication credentials` |
+| build + 43s | `GET /data/bookings` | **503** (our proxy's timeout) |
+| build + 45s | the browser, same reads | **200** |
+
+The 400 is Neon's, and it means our proxy attached NO token — `siteAnonToken`
+fetches one from the site's own Neon Auth server and that fetch had failed. So
+for roughly the first minute of a site's life, a visitor gets errors.
+
+The probes now settle (bounded retry, and they SAY how many retries it took —
+"the first minute of a new site is broken" is a thing to know, not something a
+retry should hide). **The product side is not fixed**: warming the site at the
+end of a build — one anon-token fetch after publishing, on a path that already
+takes 60s — is the obvious answer, and it changes build behaviour, so it is a
+decision rather than a cleanup.
+
+813 unit tests, site-build 36/36, site-runtime 23/23.
