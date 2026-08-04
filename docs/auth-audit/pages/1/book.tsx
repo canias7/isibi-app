@@ -33,28 +33,29 @@ export const Route = createFileRoute("/book")({
   }),
 });
 
-type Booking = Row & { class_name: string; customer_name: string; customer_email: string; slot_date: string; slot_time: string };
+type Booking = Row & { claim_token?: string | null };
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "Slow mornings, steady evenings — a mat and a class most days.",
+  tagline: "A quiet studio, a steady practice.",
   links: [
     { label: "Home", href: "#/" },
     { label: "Book", href: "#/book" },
+    { label: "The work", href: "#/work" },
     { label: "Account", href: "#/account" },
   ],
   action: { label: "Book now", href: "#/book" },
 };
 
 const CLASS_NAMES = [
-  "Sunrise Flow",
-  "Hatha Fundamentals",
-  "Power Vinyasa",
+  "Sunrise Vinyasa",
+  "Slow Hatha",
   "Restorative & Yin",
-  "Candlelit Slow Flow",
+  "Strength & Flow",
+  "Beginners' Foundations",
 ];
 
-const SLOTS = ["07:00", "09:00", "12:00", "17:30", "18:45", "19:30"];
+const SLOTS = ["07:00", "09:00", "12:00", "17:30", "18:45", "20:00"];
 
 const booking = z.object({
   class_name: z.string().min(1, "Pick a class"),
@@ -69,7 +70,7 @@ type BookingForm = z.infer<typeof booking>;
 function Book() {
   const { service: preselected } = Route.useSearch();
   const create = useCreateRow<Booking>("bookings");
-  const [done, setDone] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
 
   const form = useForm<BookingForm>({
     resolver: zodResolver(booking),
@@ -82,31 +83,32 @@ function Book() {
     },
   });
 
-  const slot_date = form.watch("slot_date");
+  const date = form.watch("slot_date");
   const taken = usePublicRows<{ slot_date: string; slot_time: string }>(
     "bookings",
-    slot_date ? { slot_date } : undefined,
+    date ? { slot_date: date } : undefined,
   );
 
   const onSubmit = (values: BookingForm) => {
     create.mutate(values, {
       onSuccess: () => {
-        toast.success("You're booked — see you on the mat.");
+        toast.success("Booked — see you on the mat.");
         form.reset();
-        setDone(true);
+        setConfirmed(true);
       },
       onError: (e: Error) => toast.error(e.message),
     });
   };
 
-  if (done) {
+  if (confirmed) {
     return (
       <SiteChrome {...CHROME}>
         <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
           <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
           <p className="mt-3 text-muted-foreground">
-            We've saved your spot. Bring a bottle of water and arrive ten minutes early for your
-            first class.
+            We've sent a confirmation to your email. This studio's bookings can't
+            be looked up again from a link — keep an eye on your inbox for the
+            details.
           </p>
           <Button asChild className="mt-6">
             <Link to="/">Back to the studio</Link>
@@ -120,7 +122,9 @@ function Book() {
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-2xl px-6 py-14">
         <h1 className="text-3xl font-semibold tracking-tight">Book a class</h1>
-        <p className="mt-2 text-muted-foreground">Pick a class, a date and a time — we'll hold your mat.</p>
+        <p className="mt-2 text-muted-foreground">
+          Pick a class, a date and a time — we'll hold your mat.
+        </p>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -137,9 +141,9 @@ function Book() {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {CLASS_NAMES.map((c) => (
-                        <SelectItem key={c} value={c}>
-                          {c}
+                      {CLASS_NAMES.map((name) => (
+                        <SelectItem key={name} value={name}>
+                          {name}
                         </SelectItem>
                       ))}
                     </SelectContent>

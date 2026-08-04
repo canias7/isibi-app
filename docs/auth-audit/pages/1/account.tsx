@@ -35,10 +35,11 @@ type Note = Row & { title: string; body: string | null };
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "Slow mornings, steady evenings — a mat and a class most days.",
+  tagline: "A quiet studio, a steady practice.",
   links: [
     { label: "Home", href: "#/" },
     { label: "Book", href: "#/book" },
+    { label: "The work", href: "#/work" },
     { label: "Account", href: "#/account" },
   ],
   action: { label: "Book now", href: "#/book" },
@@ -50,13 +51,6 @@ const credentials = z.object({
 });
 
 type Credentials = z.infer<typeof credentials>;
-
-const noteSchema = z.object({
-  title: z.string().min(1, "Give it a title"),
-  body: z.string().max(2000).optional(),
-});
-
-type NoteForm = z.infer<typeof noteSchema>;
 
 function Account() {
   const member = useMember();
@@ -93,7 +87,7 @@ function Account() {
           <>
             <h1 className="text-3xl font-semibold tracking-tight">Your account</h1>
             <p className="mt-2 text-muted-foreground">
-              Sign in to keep your own practice notes between visits.
+              Sign in to keep your own practice notes between classes.
             </p>
 
             <Form {...form}>
@@ -149,8 +143,15 @@ function Account() {
   );
 }
 
+const noteSchema = z.object({
+  title: z.string().min(1, "Give it a short title"),
+  body: z.string().max(2000).optional(),
+});
+
+type NoteForm = z.infer<typeof noteSchema>;
+
 function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) {
-  const notes = useRows<Note>("my_notes", { order: "title", dir: "asc" });
+  const notes = useRows<Note>("my_notes", { order: "id", dir: "desc" });
   const create = useCreateRow<Note>("my_notes");
 
   const form = useForm<NoteForm>({
@@ -182,22 +183,20 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
           <CardTitle className="text-base">Your practice notes</CardTitle>
         </CardHeader>
         <CardContent>
-          {notes.isPending && (
-            <div className="grid gap-2">
-              <Skeleton className="h-10 rounded-md" />
-              <Skeleton className="h-10 rounded-md" />
-            </div>
-          )}
+          {notes.isPending && <Skeleton className="h-24 rounded-xl" />}
           {notes.isError && (
             <p className="text-sm text-destructive">Couldn't load your notes. Refresh and try again.</p>
           )}
           {notes.data?.length === 0 && (
-            <Empty title="No notes yet" description="Jot down how a class felt, or what to work on next time." />
+            <Empty
+              title="No notes yet"
+              description="Jot down what worked in a class, or what to try next time."
+            />
           )}
           {!!notes.data?.length && (
             <ul className="grid gap-3 motion-stagger">
               {notes.data.map((n) => (
-                <li key={n.id} className="rounded-md border border-border p-3">
+                <li key={n.id} className="rounded-lg border border-border p-3">
                   <p className="text-sm font-medium">{n.title}</p>
                   {n.body && <p className="mt-1 text-sm text-muted-foreground">{n.body}</p>}
                 </li>
@@ -214,7 +213,7 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
                   <FormItem>
                     <FormLabel>Title</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g. Tight hips today" {...field} />
+                      <Input {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -233,9 +232,11 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
                   </FormItem>
                 )}
               />
-              <Button type="submit" className="motion-press" disabled={create.isPending}>
-                {create.isPending ? "Saving…" : "Save note"}
-              </Button>
+              <div>
+                <Button type="submit" className="motion-press" disabled={create.isPending}>
+                  {create.isPending ? "Saving…" : "Save note"}
+                </Button>
+              </div>
             </form>
           </Form>
         </CardContent>

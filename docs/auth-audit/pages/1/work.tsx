@@ -9,10 +9,11 @@ export const Route = createFileRoute("/work")({ component: Work });
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "Slow mornings, steady evenings — a mat and a class most days.",
+  tagline: "A quiet studio, a steady practice.",
   links: [
     { label: "Home", href: "#/" },
     { label: "Book", href: "#/book" },
+    { label: "The work", href: "#/work" },
     { label: "Account", href: "#/account" },
   ],
   action: { label: "Book now", href: "#/book" },
@@ -24,29 +25,29 @@ function Work() {
       <div className="mx-auto max-w-6xl px-6 py-16">
         <SectionHeader
           eyebrow="The studio"
-          title="A look inside"
-          description="Our main room, the smaller studio upstairs, and a few moments from class."
+          title="Inside Aurora"
+          description="The space itself — the room, the props wall, and the quiet corner where people arrive early."
         />
         <Gallery
           className="mt-8"
           columns={3}
           items={[
-            { src: null, alt: "The main studio at sunrise, mats laid out" },
-            { src: null, alt: "A Restorative & Yin class, bolsters and blankets" },
-            { src: null, alt: "The smaller upstairs studio, candlelit for evening class" },
-            { src: null, alt: "Power Vinyasa mid-flow" },
-            { src: null, alt: "The reception and tea corner" },
-            { src: null, alt: "Blocks and straps, ready for a Hatha class" },
+            { src: null, alt: "The main room, mats laid out before sunrise class" },
+            { src: null, alt: "Bolsters and blankets stacked for restorative class" },
+            { src: null, alt: "Morning light across the studio floor" },
+            { src: null, alt: "The props wall — blocks, straps, blankets" },
+            { src: null, alt: "A Saturday beginners' class in the foundations pose" },
+            { src: null, alt: "The entrance and reception nook" },
           ]}
         />
       </div>
-      <div className="mx-auto max-w-6xl px-6 pb-20">
+      <section className="mx-auto max-w-6xl px-6 pb-20">
         <CtaBand
           title="Come see it for yourself"
-          description="Book your first class and we'll show you round before it starts."
+          description="Book a class and try the room before you commit to a course."
           action={{ label: "Book now", href: "#/book" }}
         />
-      </div>
+      </section>
     </SiteChrome>
   );
 }
