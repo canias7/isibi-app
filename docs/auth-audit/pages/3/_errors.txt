@@ -1,0 +1,1 @@
+src/routes/index.tsx(55,11): error TS2322: Type '{ title: string; time: string; description: string; }[]' is not assignable to type '{ id: string | number; at: string | number | Date; title: string; meta?: ReactNode; }[]'.
