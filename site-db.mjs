@@ -37,14 +37,33 @@ async function neonApi(env, path, init) {
     },
     signal: AbortSignal.timeout(30000),
   });
-  const body = await r.json().catch(() => ({}));
+  // READ THE BODY AS TEXT FIRST. `r.json().catch(() => ({}))` turns any
+  // non-JSON error — an HTML gateway page, a bare string, an empty 403 — into
+  // `{}`, and `{}` is the most reassuring possible way to say nothing at all.
+  // Measured 2026-08-04: build smoke failed with `detail: "{}"` and the reason
+  // could not be recovered from the response, from the log, or from anywhere
+  // else. Same failure as the `upstream: 400` incident, one layer down.
+  const text = await r.text().catch(() => "");
+  let body = {};
+  try { body = text ? JSON.parse(text) : {}; } catch { body = null; }
   if (!r.ok) {
-    const e = new Error("neon api " + (init && init.method || "GET") + " " + path + " failed");
+    // The STATUS is what separates the causes: 401 is a dead key, 403 a
+    // permission or plan limit, 422 a quota, 5xx Neon itself. Without it every
+    // one of them reads identically, and they need completely different fixes.
+    const e = new Error("neon api " + ((init && init.method) || "GET") + " " + path + " failed: " + r.status);
     e.status = r.status;
-    e.detail = JSON.stringify(body).slice(0, 400);
+    // Falls back to the raw text when it was not JSON, so nothing is lost, and
+    // scrubs any connection string — a Neon error can echo the params it was
+    // given, and those carry a PASSWORD.
+    e.detail = scrubSecrets((body === null ? text : JSON.stringify(body)) || "(empty body)").slice(0, 400);
     throw e;
   }
-  return body;
+  return body === null ? {} : body;
+}
+
+/** Never let a Postgres URI reach a response or a log — it carries a password. */
+export function scrubSecrets(s) {
+  return String(s).replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, "postgres://[redacted]");
 }
 
 // An org-scoped API key infers its org, a personal key must name one. Resolve it

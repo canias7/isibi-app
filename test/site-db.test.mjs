@@ -2,12 +2,14 @@
 // Pure functions only — no network, no database. Run: node --test test/
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import {
   toPgPlaceholders,
   pgParams,
   dbNameForSite,
   projectNameForUser,
   connForDatabase,
+  scrubSecrets,
 } from "../site-db.mjs";
 
 // ------------------------------------------------------------ placeholders
@@ -134,4 +136,63 @@ test("swaps the database in a connection URI, keeping host/role/password", () =>
   const out = connForDatabase(base, "site_my_restaurant");
   assert.ok(out.startsWith("postgresql://neondb_owner:secret@ep-cool-1.us-east-1.aws.neon.tech/site_my_restaurant"));
   assert.ok(out.includes("sslmode=require"));
+});
+
+// ------------------------------------------------------- provisioning errors
+//
+// A build that cannot provision used to answer `detail: "{}"` and nothing else.
+// Measured live 2026-08-04: build smoke failed that way and the cause could not
+// be recovered from the response, the log, or anywhere else — a dead key, a plan
+// limit, a project quota and a Neon outage all produce that same empty object,
+// and each needs a completely different fix. Same shape as the `upstream: 400`
+// incident one layer up.
+
+test("a connection string never survives into an error", () => {
+  // A Neon error can echo the parameters it was handed, and those carry a
+  // PASSWORD. The scrub is what stands between that and a 502 body.
+  const leaked = 'failed for postgres://neondb_owner:npg_S3cr3tPw@ep-x.aws.neon.tech/db?sslmode=require';
+  const clean = scrubSecrets(leaked);
+  assert.ok(!/npg_S3cr3tPw/.test(clean), "the password must not survive");
+  assert.ok(!/neondb_owner/.test(clean), "nor the role it belongs to");
+  assert.match(clean, /\[redacted\]/);
+  assert.match(clean, /^failed for /, "and the rest of the message is kept");
+});
+
+test("it scrubs postgresql:// too, and every occurrence", () => {
+  const two = scrubSecrets("a postgresql://u:p@h/d and postgres://u2:p2@h2/d2 b");
+  assert.ok(!/:p@|:p2@/.test(two), two);
+  assert.equal((two.match(/\[redacted\]/g) || []).length, 2);
+});
+
+test("text that is not a URI is left alone", () => {
+  // Over-scrubbing would destroy the message this exists to preserve.
+  const msg = "project quota exceeded: 100 of 100 projects on this plan";
+  assert.equal(scrubSecrets(msg), msg);
+});
+
+test("the neon fetch keeps a non-JSON body instead of reporting {}", () => {
+  // Asserted on the SOURCE: neonApi is network-bound and the invariant is about
+  // which parser runs first. `r.json().catch(() => ({}))` is the exact line that
+  // turned an HTML gateway page into an empty object, so it must not come back.
+  const src = fs.readFileSync(new URL("../site-db.mjs", import.meta.url), "utf8");
+  // COMMENTS BLANKED, NOT REMOVED — the comment above the fix QUOTES the bad
+  // pattern in order to explain it, so a raw scan reports the explanation as the
+  // defect. (Blanking rather than deleting keeps every offset valid, which is
+  // the rule this repo arrived at after three separate off-by-region bugs.)
+  const blanked = src.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
+  const fn = blanked.slice(blanked.indexOf("async function neonApi"), blanked.indexOf("export function scrubSecrets"));
+  assert.ok(fn.length > 200, "the guard must actually be looking at the function");
+  assert.ok(!/\.json\(\)\s*\.catch/.test(fn),
+    "reading the body as JSON-or-{} discards every non-JSON error Neon can send");
+  assert.match(fn, /await r\.text\(\)/, "the body has to be read as text first");
+  assert.match(fn, /e\.status = r\.status/, "and the status carried, since it is the whole diagnosis");
+});
+
+test("the build route returns the upstream status, not just a sentence", () => {
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const i = src.indexOf('"could not provision the database"');
+  assert.ok(i > 0, "the provisioning failure branch must still exist");
+  const branch = src.slice(i - 400, i + 400);
+  assert.match(branch, /upstream:\s*\(e && e\.status\)/, "a 401, a 403 and a 500 are indistinguishable without it");
+  assert.match(branch, /scrubSecrets\(/, "and the detail is scrubbed before it leaves the Worker");
 });

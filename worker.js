@@ -13,7 +13,7 @@ import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { injectMeta } from "./site-meta.mjs";
 import { drainTeardown } from "./site-teardown.mjs";
-import { neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
+import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
@@ -5750,8 +5750,18 @@ async function handleRequest(request, env, ctx) {
         db = await ensureSiteBackend(env, slug, bu.id, brief);
       } catch (e) {
         if (e && e.conflict) return Response.json({ ok: false, error: "that name is taken" }, { status: 409 });
-        console.error("site provision failed:", slug, e && (e.detail || e.message));
-        return Response.json({ ok: false, error: "could not provision the database", detail: String(e && (e.detail || e.message)).slice(0, 300) }, { status: 502 });
+        console.error("site provision failed:", slug, e && e.status, e && (e.detail || e.message));
+        // THE STATUS IS THE DIAGNOSIS. A dead key (401), a plan or permission
+        // limit (403), a project quota (422) and Neon being down (5xx) all read
+        // identically without it, and each needs a completely different fix —
+        // which is exactly how build smoke spent a run reporting `detail: "{}"`
+        // and no way to tell which had happened.
+        return Response.json({
+          ok: false,
+          error: "could not provision the database",
+          upstream: (e && e.status) || null,
+          detail: scrubSecrets(String((e && (e.detail || e.message)) || "")).slice(0, 300),
+        }, { status: 502 });
       }
 
       let made;
