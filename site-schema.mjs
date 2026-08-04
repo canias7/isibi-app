@@ -15,7 +15,7 @@
 //
 // `db` throughout is a Neon connection string (see ./site-db.mjs).
 import { sqlQuery, sqlQuery as realSqlQuery } from "./site-db.mjs";
-import { policiesFor, grantsFor, SESSION_JWT_EXT, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK } from "./site-rls.mjs";
+import { policiesFor, grantsFor, publicViewSql, SESSION_JWT_EXT, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK } from "./site-rls.mjs";
 import { isManagedColumn } from "./site-access.mjs";
 import { makeCache } from "./ttl-cache.mjs";
 
@@ -534,7 +534,13 @@ export async function applySiteSchema(uuid, spec) {
     // Policies first, then the grants that make the table reachable at all. In the
     // other order there is a window — however short — where a role can ask and no
     // policy has decided what it may see.
-    for (const stmt of policiesFor({ ...t, access }).concat(grantsFor({ ...t, access }))) {
+    // And LAST the public projection, which is a view over the table this loop
+    // has just finished building — so it needs `colNames`, the columns that were
+    // really created, rather than the ones the spec asked for. After the grants
+    // for the same reason the grants come after the policies: the object is only
+    // reachable once the thing it reads from is settled.
+    const pubSql = publicViewSql({ ...t, access }, colNames, new Set((spec.tables || []).map((x) => String(x && x.name))));
+    for (const stmt of policiesFor({ ...t, access }).concat(grantsFor({ ...t, access })).concat(pubSql)) {
       try { await sqlQuery(uuid, stmt); }
       catch (e) { console.error("rls failed:", t.name, stmt.slice(0, 80), e && (e.detail || e.message)); }
     }

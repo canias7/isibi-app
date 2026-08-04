@@ -54,6 +54,20 @@ const SCHEMA = normalizeSchema({
       noOverlap: { on: ["room"], start: "start_min", end: "end_min" },
     },
     {
+      // The one table here that is NOT public: a booking form nobody may read,
+      // publishing exactly two columns to strangers through a view.
+      name: "bookings",
+      access: "collect",
+      columns: [
+        { name: "appointment_date", type: "text" },
+        { name: "appointment_time", type: "text" },
+        { name: "status", type: "text" },
+        { name: "customer_name", type: "text" },
+        { name: "customer_email", type: "text" },
+      ],
+      publicView: { columns: ["appointment_date", "appointment_time"], where: ["status:ne:cancelled"] },
+    },
+    {
       name: "comments",
       access: "public",
       columns: [
@@ -181,7 +195,49 @@ try {
 
   // --- re-applying a schema must be safe (revise path) --------------------
   const again = await applySiteSchema(db, SCHEMA);
-  ok("schema re-apply is idempotent", again.length === 3);
+  // --- the public projection, against a real database -----------------------
+  //
+  // Strings are asserted in test/public-view.test.mjs; this is the half that
+  // catches a view which is valid JavaScript and invalid SQL. `publicView` spent
+  // its whole life parsed and never created, so "it produces the right DDL" is
+  // exactly the claim that was never worth anything on its own.
+  await sqlQuery(db, 'INSERT INTO "bookings" ("appointment_date","appointment_time","status","customer_name","customer_email") VALUES (?,?,?,?,?)',
+    ["2026-08-04", "14:00", "booked", "Ada", "ada@example.com"]);
+  await sqlQuery(db, 'INSERT INTO "bookings" ("appointment_date","appointment_time","status","customer_name","customer_email") VALUES (?,?,?,?,?)',
+    ["2026-08-04", "15:00", "cancelled", "Bob", "bob@example.com"]);
+
+  const pubCols = await sqlQuery(db,
+    "SELECT column_name FROM information_schema.columns WHERE table_name='bookings_public' ORDER BY ordinal_position");
+  ok("the public view exists with exactly the declared columns",
+    pubCols.map((r) => r.column_name).join(",") === "appointment_date,appointment_time",
+    JSON.stringify(pubCols));
+
+  const pubRows = await sqlQuery(db, 'SELECT * FROM "bookings_public" ORDER BY "appointment_time"');
+  ok("it publishes the booked slot", pubRows.length === 1 && pubRows[0].appointment_time === "14:00", JSON.stringify(pubRows));
+  ok("and the WHERE really excluded the cancelled one", pubRows.length === 1, JSON.stringify(pubRows));
+  ok("and it carries no id and no name", pubRows[0] && pubRows[0].id === undefined && pubRows[0].customer_name === undefined,
+    JSON.stringify(pubRows[0]));
+
+  // THE SECURITY PROPERTY, asked of Postgres rather than reasoned about: a
+  // stranger may read the projection and may NOT read the table it comes from.
+  // If the second of these ever flips, the feature is publishing customers'
+  // names and addresses to anyone who knows the slug.
+  const priv = await sqlQuery(db,
+    "SELECT has_table_privilege('anonymous','bookings_public','SELECT') AS view_ok, " +
+    "has_table_privilege('anonymous','bookings','SELECT') AS table_ok");
+  ok("anonymous may SELECT the view", priv[0] && priv[0].view_ok === true, JSON.stringify(priv));
+  ok("anonymous may NOT SELECT the table underneath", priv[0] && priv[0].table_ok === false, JSON.stringify(priv));
+
+  const opts = await sqlQuery(db, "SELECT reloptions FROM pg_class WHERE relname='bookings_public'");
+  const ro = String((opts[0] && opts[0].reloptions) || "");
+  ok("the view runs as its owner, or it would return nothing to a stranger",
+    /security_invoker=false/.test(ro), ro);
+  ok("and it is a security barrier", /security_barrier=true/.test(ro), ro);
+
+  // Derived from the fixture, not a number somebody has to remember: adding a
+  // table to SCHEMA must not fail a test about idempotence.
+  ok("schema re-apply is idempotent", again.length === SCHEMA.tables.length,
+    `${again.length} of ${SCHEMA.tables.length}`);
   const stillOne = await sqlQuery(db, 'SELECT COUNT(*)::int AS n FROM "posts" WHERE "title"=?', ["Hello edited"]);
   ok("re-apply did not destroy existing rows", stillOne[0].n === 1);
 

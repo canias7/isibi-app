@@ -335,7 +335,51 @@ try {
       ok("shadcn controls are rendering, not hand-rolled ones", ui.shadcnClasses, JSON.stringify(ui));
       ok("Radix primitives are live in the page", ui.radix > 0, JSON.stringify(ui));
       ok("Tailwind utilities are applied", ui.tailwind);
-      ok("the site rendered a form with real controls", ui.forms > 0 && ui.controls > 1, JSON.stringify(ui));
+
+      // THE FORM IS NOT NECESSARILY ON THE HOME PAGE, and asserting that it is
+      // was a test defect rather than a product one. `build smoke` failed twice
+      // on 2026-08-04 against a correct site: the barber shop put its booking
+      // form on /book and linked to it from three places, which is where a
+      // booking form belongs. The old check ran `pg.$("form")` on the home page
+      // only, so it asserted a one-page site — exactly the over-specification
+      // this repo already refuses elsewhere ("a timetable can legitimately
+      // render the same signed in or out; that check fails on a correct site").
+      //
+      // So: walk the routes the BUILD ITSELF reported, home first, and stop at
+      // the page that has a form.
+      //
+      // The router is hash history (`createHashHistory` in main.tsx), so a route
+      // is `/s/<slug>/#/book` — `/s/<slug>/book` ignores the path entirely and
+      // renders home. That mistake has already been made in this repo once, and
+      // it is invisible: the page loads, it is a real page, it is the wrong one.
+      // Hence the fingerprint assertion below rather than trusting the URL.
+      const routes = (d.files || [])
+        .map((f) => String(f).replace(/^src\/routes\//, "").replace(/\.tsx$/, ""))
+        .filter((r) => /^[a-z0-9-]+$/i.test(r) || r === "index");
+      const asHash = (r) => (r === "index" ? "#/" : "#/" + r);
+      const fingerprint = () => pg.evaluate(() => (document.body.innerText || "").trim().slice(0, 400));
+
+      const homePrint = await fingerprint();
+      let formRoute = ui.forms > 0 ? "index" : null;
+      let formUi = ui;
+      for (const r of routes) {
+        if (formRoute) break;
+        if (r === "index") continue;
+        await pg.goto(`${BASE}/s/${slug}/${asHash(r)}`, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
+        await pg.waitForTimeout(1200);
+        // A route that renders identically to home did not navigate. Skipping it
+        // is what stops a silent SPA fallback being reported as "no form here".
+        if ((await fingerprint()) === homePrint) continue;
+        const u = await pg.evaluate(() => ({
+          forms: document.querySelectorAll("form").length,
+          controls: document.querySelectorAll("form input, form textarea, form button").length,
+        }));
+        if (u.forms > 0) { formRoute = r; formUi = u; }
+      }
+      ok("the site rendered a form with real controls, on some page",
+        !!formRoute && formUi.forms > 0 && formUi.controls > 1,
+        `routes=${JSON.stringify(routes)} home=${JSON.stringify(ui)} found=${formRoute} ${JSON.stringify(formUi)}`);
+      if (formRoute) console.log(`   the form lives on ${asHash(formRoute)}`);
 
       // The starter content actually reached the page. Without it a site is a
       // brochure with an empty list, and a form whose required Select reads that
@@ -345,9 +389,11 @@ try {
         Object.keys(d.seeded || {}).length > 0, "seeded=" + JSON.stringify(d.seeded || {}));
 
       // And the whole reason seeding matters: a real visitor submission, filled
-      // in a real browser and landing in real Postgres.
+      // in a real browser and landing in real Postgres. Driven on whichever page
+      // the walk above found the form on — the browser is already there.
       const form = await pg.$("form");
-      ok("the site has a form a visitor can submit", !!form);
+      ok("the site has a form a visitor can submit", !!form,
+        formRoute ? `expected one on ${asHash(formRoute)}` : "no page in the site had one");
       if (form) {
         // Best-effort fill: the schema is designed per-brief, so the fields are
         // not known ahead of time. Every input gets something type-appropriate.
@@ -392,8 +438,18 @@ try {
           JSON.stringify(writes));
       }
 
+      // The form page as it stands after the submit, THEN home. Two shots
+      // because the walk above may have left the browser on a sub-route, and a
+      // file called "the published site" showing a booking form is the kind of
+      // small lie that costs a round of confusion later.
+      if (formRoute && formRoute !== "index") {
+        await pg.screenshot({ path: "smoke-form.png", fullPage: true }).catch(() => {});
+        await pg.goto(`${BASE}/s/${slug}/#/`, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
+        await pg.waitForTimeout(1200);
+      }
       await pg.screenshot({ path: "smoke-site.png", fullPage: true });
-      console.log(`   screenshot: smoke-site.png  (live at ${BASE}/s/${slug}/)`);
+      console.log(`   screenshot: smoke-site.png  (live at ${BASE}/s/${slug}/)`
+        + (formRoute && formRoute !== "index" ? `, plus smoke-form.png (${asHash(formRoute)})` : ""));
       console.log("   api calls:", JSON.stringify(apiCalls));
     } catch (e) {
       failed++;

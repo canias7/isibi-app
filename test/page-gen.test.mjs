@@ -704,8 +704,13 @@ test("the lint and everything that enforces access ask ONE question about public
     .concat([["builder/page-gen.mjs", fs.readFileSync(path.join(ROOT, "builder", "page-gen.mjs"), "utf8")]]);
   const users = candidates.filter(([, src]) => /publicView/.test(src));
   assert.ok(users.length, "nothing mentions publicView — this test is watching nothing");
+  // Blank the comments before looking. This fired on a comment that merely
+  // QUOTED the rule while explaining why the code no longer restates it —
+  // the recurring failure in this repo, and the fix is always the same: scan
+  // code, never prose. Blanked rather than deleted so offsets do not shift.
+  const code = (s) => s.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
   for (const [name, src] of users) {
-    assert.ok(!/Array\.isArray\(pv\.columns\)/.test(src), name + " keeps its own copy of the rule");
+    assert.ok(!/Array\.isArray\(pv\.columns\)/.test(code(src)), name + " keeps its own copy of the rule");
   }
 });
 

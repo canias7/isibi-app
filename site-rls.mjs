@@ -32,6 +32,8 @@
 // Pure string building. Every statement this produces is asserted in
 // test/site-rls.test.mjs and applied against a real Postgres in the e2e.
 
+import { hasPublicView, publicViewName } from "./site-access.mjs";
+
 /**
  * Who the caller is, according to the database.
  *
@@ -188,4 +190,140 @@ export function grantsFor(t) {
   if (access === "collect") return [`GRANT INSERT ON ${tn} TO ${anon};`, `GRANT INSERT ON ${tn} TO ${user};`];
   if (access === "admin") return [`GRANT SELECT ON ${tn} TO ${user};`];
   return [`GRANT SELECT, INSERT, UPDATE, DELETE ON ${tn} TO ${user};`];
+}
+
+// ── The public projection ────────────────────────────────────────────────────
+//
+// `publicView` was declarable, told to the DESIGNER as the way to grey out taken
+// slots, told to the GENERATOR as `usePublicRows: YES`, and refused by the lint
+// when absent — and NOTHING EVER CREATED IT. It appeared in site-schema.mjs only
+// in the parser and the `_meta` copy: no DDL, no grant, no object in the database.
+//
+// So the model did exactly what four layers told it to and the published page
+// answered 403. Measured live 2026-08-04: a generated barber shop asked for
+// today's bookings on its own home page and was refused by its own database.
+// That is the parsed-but-inert pattern this repo keeps rediscovering, made worse
+// by being advertised as working.
+//
+// It has to be a real VIEW. The table underneath is `collect` or `user`, so a
+// stranger has no SELECT policy on it — by design, and that IS the feature:
+// publish WHEN somebody booked, never WHO.
+
+const CMP = { eq: "=", ne: "<>", lt: "<", lte: "<=", gt: ">", gte: ">=" };
+
+/** A single-quoted SQL literal. NUL is refused — Postgres cannot store it in text. */
+function lit(v) {
+  const s = String(v);
+  // The NUL is written as an ESCAPE, never as the raw byte. Three files in
+  // this repo once held literal control characters, which made `grep` treat
+  // them as binary and skip them entirely — so every source-reading guard
+  // silently stopped covering them while looking exactly like a file with
+  // nothing to report. My first draft of this very line put one straight back.
+  if (s.indexOf("\u0000") >= 0) return null;
+  return "'" + s.replace(/'/g, "''") + "'";
+}
+
+/** Escape LIKE metacharacters, so a `%` in a value matches a literal `%`. */
+const likeSafe = (v) => String(v).replace(/[\\%_]/g, (m) => "\\" + m);
+
+/**
+ * One `col:op:value` predicate as SQL, or null if it cannot be compiled.
+ *
+ * NULL IS NOT "no filter" — see the caller. A predicate that silently vanishes
+ * WIDENS what the view publishes, and that is the one direction which must never
+ * happen quietly: `status:ne:cancelled` dropped is a view that also publishes
+ * the cancellations.
+ */
+export function publicViewPredicate(w, known) {
+  const m = /^([a-z_][a-z0-9_]{0,40}):([a-z]+):([\s\S]{0,80})$/i.exec(String(w == null ? "" : w));
+  if (!m) return null;
+  const col = m[1].toLowerCase(), op = m[2].toLowerCase(), raw = m[3];
+  if (known && !known.has(col)) return null;
+  const c = q(col);
+  if (op === "isnull") return `${c} IS NULL`;
+  if (op === "notnull") return `${c} IS NOT NULL`;
+  if (CMP[op]) { const v = lit(raw); return v && `${c} ${CMP[op]} ${v}`; }
+  if (op === "contains" || op === "startswith" || op === "endswith") {
+    const e = likeSafe(raw);
+    const v = lit(op === "contains" ? `%${e}%` : op === "startswith" ? `${e}%` : `%${e}`);
+    return v && `${c} LIKE ${v}`;
+  }
+  if (op === "in" || op === "nin") {
+    const parts = raw.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 24).map(lit);
+    if (!parts.length || parts.some((p) => !p)) return null;
+    return `${c} ${op === "in" ? "IN" : "NOT IN"} (${parts.join(", ")})`;
+  }
+  if (op === "between") {
+    const i = raw.indexOf(",");
+    if (i < 0) return null;
+    const a = lit(raw.slice(0, i).trim()), b = lit(raw.slice(i + 1).trim());
+    return (a && b) ? `${c} BETWEEN ${a} AND ${b}` : null;
+  }
+  return null;
+}
+
+/**
+ * The statements that make a table's `publicView` real, or unmake it.
+ *
+ * `columns` is what the table ACTUALLY has after its DDL ran, not what the spec
+ * asked for — a projection naming a column nothing created is a view that fails
+ * to compile, which is the 403 again wearing a different cause.
+ *
+ * THE DROP ALWAYS RUNS, even for a table with no publicView. A revise that
+ * removed one would otherwise leave the old view standing and still published —
+ * the same reasoning that drops every policy shape before creating any.
+ *
+ * ALL OR NOTHING. If a declared column is missing, or a filter will not compile,
+ * the view is not created at all. Publishing a subset of the columns is a
+ * smaller answer; publishing without one of the filters is a WRONG one, and it
+ * fails outward — more rows, to more strangers, silently.
+ *
+ * `security_invoker = false` is stated rather than left to the default, and it
+ * is the whole mechanism: the view runs as its owner, who bypasses the table's
+ * RLS, so a stranger reads the projection while still unable to read the table.
+ * `security_barrier = true` stops a crafted predicate seeing rows the WHERE
+ * excluded.
+ *
+ * The declared `limit` is deliberately NOT compiled in. A LIMIT inside a view
+ * applies BEFORE the caller's filter, so `?appointment_date=eq.2026-08-04`
+ * against a 500-row view would silently miss bookings — a wrong answer rather
+ * than a smaller one. Callers pass their own limit and the Data API caps the rest.
+ */
+export function publicViewSql(t, columns, tableNames) {
+  const name = String((t && t.name) || "");
+  // Both of these come from site-access.mjs rather than being restated here. The
+  // first draft inlined `Array.isArray(pv.columns) && pv.columns.length` and the
+  // one-question guard caught it immediately — which is the guard doing exactly
+  // its job on the very change that proves why it exists: two copies of "does
+  // this table publish a projection" drift into a lint that passes a page whose
+  // every read the database then refuses.
+  const view = publicViewName(name);
+  const out = [`DROP VIEW IF EXISTS ${q(view)};`];
+
+  const pv = t && t.publicView;
+  if (!hasPublicView(t)) return out;
+  // A declared table already owning that name: the CREATE would fail anyway, and
+  // refusing here beats a caught SQL error nobody reads.
+  if (tableNames && tableNames.has(view)) return out;
+
+  const known = new Set((columns || []).map((c) => String(c).toLowerCase()));
+  const cols = pv.columns.map((c) => String(c).toLowerCase());
+  if (!cols.every((c) => known.has(c))) return out;
+
+  const where = [];
+  for (const w of (pv.where || [])) {
+    const sql = publicViewPredicate(w, known);
+    if (!sql) return out;
+    where.push(sql);
+  }
+
+  const { anon, user } = DATA_API_ROLES;
+  out.push(
+    `CREATE VIEW ${q(view)} WITH (security_invoker = false, security_barrier = true) AS ` +
+    `SELECT ${cols.map(q).join(", ")} FROM ${q(name)}` +
+    (where.length ? ` WHERE ${where.join(" AND ")}` : "") + ";",
+  );
+  out.push(`GRANT SELECT ON ${q(view)} TO ${anon};`);
+  out.push(`GRANT SELECT ON ${q(view)} TO ${user};`);
+  return out;
 }

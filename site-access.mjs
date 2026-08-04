@@ -146,6 +146,26 @@ export function hasPublicView(def) {
 }
 
 /**
+ * The database object a `publicView` is actually served from.
+ *
+ * A projection cannot be the table: the table is `collect` or `user`, and RLS
+ * gives a stranger no SELECT policy on it at all. So the projection is a real
+ * Postgres VIEW beside it, and this is its name.
+ *
+ * ONE DEFINITION, for the same reason `hasPublicView` is one: three things have
+ * to agree on it or the feature is dead in a way nothing catches. The schema
+ * engine CREATEs it, the client FETCHes it, and a disagreement is a 403 on a
+ * published site — which is exactly what happened while nothing created it at
+ * all (measured live 2026-08-04, the home page of a generated barber shop).
+ *
+ * `@/lib/rows` keeps its own copy of the suffix because it is a separate bundle
+ * and cannot import this. A test reads both files and fails if they differ.
+ */
+export function publicViewName(table) {
+  return String(table) + "_public";
+}
+
+/**
  * Can an ANONYMOUS visitor READ this table?
  *
  * Only `display`. `collect` is write-only so one visitor can never read back

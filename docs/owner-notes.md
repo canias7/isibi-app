@@ -12039,3 +12039,82 @@ variable `build`.
 **Still open:** what is killing the container. The next failing build will say.
 
 789 unit tests, site-build 36/36.
+
+## `publicView` was advertised at two layers and created by nothing (2026-08-04)
+
+`build smoke` published a real app for the first time — 29/30 → **45/50**, and
+the browser half of the suite ran at all. Three of the five failures were one
+read:
+
+```
+GET /data/bookings?select=*&order=id.desc&appointment_date=eq.2026-08-04 → 403
+```
+
+**`publicView` appeared in `site-schema.mjs` in exactly four places: two
+comments, the parser, and the `_meta` copy. No DDL. No grant. No object in the
+database.** Meanwhile the designer tool said *"USE THIS WITH A BOOKING TABLE so
+the page can grey out slots that are already taken"* and `schemaDigest` said
+*"usePublicRows: YES — anyone may read appointment_date, appointment_time"*. The
+model did exactly what four layers told it to and its own database refused it.
+
+It is visible in the screenshot: *"Today's chairs — Slots load on the booking
+page"* is the availability panel's fallback, not a design choice.
+
+The gap was already written down when the data API was deleted — *"a site now
+needs a declared VIEW or function for which slots are taken"* — and the two
+places that advertise the feature were never told.
+
+**Now it is a real view.** `publicViewSql` in `site-rls.mjs` emits
+`CREATE VIEW <table>_public WITH (security_invoker = false, security_barrier =
+true) AS SELECT <declared columns> FROM <table> WHERE <declared filters>`, plus
+a GRANT to `anonymous` and `authenticated`. It has to be a view: the table
+underneath is `collect`, so a stranger has no SELECT policy on it — by design,
+and that IS the feature. Publish WHEN somebody booked, never WHO.
+
+Decisions worth keeping:
+
+- **`security_invoker = false` is the whole mechanism**, and it is stated rather
+  than left to the default. True instead, and the feature silently returns zero
+  rows on every site — it compiles, it grants, it 200s, the list is always empty.
+- **ALL OR NOTHING.** A filter that will not compile, or a column the table does
+  not have, means no view at all. Publishing a subset of columns is a smaller
+  answer; publishing without one of the filters is a WRONG one — `status:ne:cancelled`
+  dropped is a view that also publishes the cancellations. It fails outward.
+- **The DROP always runs**, even for a table with no publicView, or a revise that
+  removed one leaves the old view standing and still published.
+- **The declared `limit` is deliberately not compiled in.** A LIMIT inside a view
+  applies BEFORE the caller's filter, so a date filter against a 500-row view
+  silently misses bookings — wrong, not smaller. Asserted, so the absence reads
+  as a decision rather than an oversight.
+- **`pgQuery` defaulted to `order=id.desc` and a projection has no `id`** — the
+  schema engine refuses it. That is the exact URL the smoke logged. It only bit
+  when the caller passed params, which the taken-slots call always does.
+
+**Two of my own guards fired on my own code, and both were right.** The
+one-question guard caught `publicViewSql` restating `Array.isArray(pv.columns)`
+instead of calling `hasPublicView` — the drift it exists to prevent, on the very
+change that proves why. And a mutation survived: my chain test asserted
+`publicViewSql(` was *called*, so stripping `.concat(pubSql)` left the call
+standing with its result discarded. The live bug wearing a fix, the same shape as
+the invite-code guard. It now checks the DDL reaches the loop that runs SQL.
+
+**A raw NUL byte got into `site-rls.mjs`** from my own heredoc, and `grep`
+immediately called the file binary — the exact failure this repo documented for
+three other files. Rewritten as the two-character escape. Then I did it a second
+time, in the sentence you are reading, while describing it.
+
+**The other two failures were the TEST, not the product.** `pg.$("form")` ran on
+the home page only, so it asserted a one-page site; this barber shop put its
+booking form on `/book` and linked it from three places, which is where it
+belongs. The smoke now walks the routes the build itself reported. The router is
+`createHashHistory`, so a route is `/s/<slug>/#/book` — `/s/<slug>/book` ignores
+the path and renders home, a mistake already made once in this repo and invisible
+when it happens, so a fingerprint check refuses a page identical to home.
+
+Proven against a real Postgres in `neon e2e`, not just as strings: the view
+exists with exactly the declared columns, the WHERE excluded the cancelled row,
+there is no `id` and no customer name, and `has_table_privilege` says `anonymous`
+may read the view and may **not** read the table underneath.
+
+802 unit tests, site-build 36/36, site-runtime 23/23, template typechecks clean.
+9 mutants, all caught.
