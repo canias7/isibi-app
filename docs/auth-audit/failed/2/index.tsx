@@ -1,74 +1,87 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
+
 import { useRows, type Row } from "@/lib/rows";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CtaBand } from "@/components/ui/cta-band";
+import { Hero } from "@/components/ui/hero";
+import { SectionHeader } from "@/components/ui/section-header";
+import { SiteChrome } from "@/components/ui/site-chrome";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
+import { TeamGrid } from "@/components/ui/team-grid";
+import { Empty } from "@/components/ui/empty";
 
 export const Route = createFileRoute("/")({ component: Home });
 
-type Teacher = Row & {
-  name: string;
-  bio: string | null;
-  phone: string | null;
+type Teacher = Row & { name: string; bio: string | null; phone: string | null };
+
+const CHROME = {
+  name: "Aurora Yoga",
+  tagline: "A quiet studio for a steady practice.",
+  links: [
+    { label: "Timetable", href: "#/timetable" },
+    { label: "Book", href: "#/book" },
+    { label: "Members", href: "#/members" },
+    { label: "Account", href: "#/account" },
+  ],
+  action: { label: "Book a class", href: "#/book" },
 };
 
 function Home() {
   const teachers = useRows<Teacher>("teachers", { order: "name", dir: "asc" });
 
   return (
-    <main className="mx-auto max-w-4xl px-6 py-16">
-      <h1 className="text-4xl font-semibold tracking-tight">Aurora Yoga</h1>
-      <p className="mt-2 text-muted-foreground">
-        A calm, welcoming studio for every level of practice. Meet our teachers, then
-        book your spot on the mat.
-      </p>
+    <SiteChrome {...CHROME}>
+      <Hero
+        title="Aurora Yoga"
+        subtitle="Small classes, natural light, a studio built around the practice rather than around us."
+        primary={{ label: "Book a class", href: "#/book" }}
+        secondary={{ label: "See the timetable", href: "#/timetable" }}
+      />
 
-      <div className="mt-8 flex flex-wrap gap-3">
-        <Button asChild>
-          <Link to="/booking">Book a class</Link>
-        </Button>
-        <Button asChild variant="outline">
-          <Link to="/members">Members area</Link>
-        </Button>
-        <Button asChild variant="outline">
-          <Link to="/announcements">Announcements</Link>
-        </Button>
-        <Button asChild variant="outline">
-          <Link to="/account">Account</Link>
-        </Button>
-      </div>
+      <section id="teachers" className="mx-auto max-w-5xl px-6 py-20 motion-reveal">
+        <SectionHeader
+          eyebrow="The teachers"
+          title="Learn from people who practise daily"
+          description="Every class is taught live, in the room, by one of these teachers."
+        />
+        {teachers.isPending && (
+          <div className="mt-8 grid gap-5 sm:grid-cols-3">
+            <Skeleton className="h-40 rounded-xl" />
+            <Skeleton className="h-40 rounded-xl" />
+            <Skeleton className="h-40 rounded-xl" />
+          </div>
+        )}
+        {teachers.isError && (
+          <p className="mt-8 text-sm text-destructive">
+            Couldn't load the teachers. Refresh and try again.
+          </p>
+        )}
+        {teachers.data?.length === 0 && (
+          <Empty
+            className="mt-8"
+            title="No teachers listed yet"
+            description="Check back soon — our teaching team will appear here."
+          />
+        )}
+        {!!teachers.data?.length && (
+          <TeamGrid
+            className="mt-8"
+            items={teachers.data.map((t) => ({
+              name: t.name,
+              role: t.bio ?? undefined,
+            }))}
+          />
+        )}
+      </section>
 
-      <section className="mt-14">
-        <h2 className="text-xl font-medium">Our teachers</h2>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          {teachers.isPending &&
-            [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-32 rounded-xl" />)}
-
-          {teachers.isError && (
-            <p className="text-sm text-destructive sm:col-span-2">
-              Couldn't load our teachers. Refresh and try again.
-            </p>
-          )}
-
-          {teachers.data?.length === 0 && (
-            <p className="text-sm text-muted-foreground sm:col-span-2">
-              No teachers listed yet — check back soon.
-            </p>
-          )}
-
-          {teachers.data?.map((t) => (
-            <Card key={t.id}>
-              <CardHeader className="pb-2">
-                <CardTitle>{t.name}</CardTitle>
-                {t.phone && <CardDescription>{t.phone}</CardDescription>}
-              </CardHeader>
-              {t.bio && (
-                <CardContent className="text-sm text-muted-foreground">{t.bio}</CardContent>
-              )}
-            </Card>
-          ))}
+      <section className="border-y border-border bg-muted/40">
+        <div className="mx-auto max-w-5xl px-6 py-20">
+          <CtaBand
+            title="Your mat is waiting"
+            description="Pick a class from the timetable and book in under a minute."
+            action={{ label: "Book a class", href: "#/book" }}
+          />
         </div>
       </section>
-    </main>
+    </SiteChrome>
   );
 }

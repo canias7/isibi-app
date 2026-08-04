@@ -1,4 +1,4 @@
-src/routes/account.tsx(17,26): error TS2307: Cannot find module '@/components/sign-in-prompt' or its corresponding type declarations.
-src/routes/account.tsx(83,24): error TS2554: Expected 1-2 arguments, but got 0.
-src/routes/announcements.tsx(5,26): error TS2307: Cannot find module '@/components/sign-in-prompt' or its corresponding type declarations.
-src/routes/members.tsx(20,26): error TS2307: Cannot find module '@/components/sign-in-prompt' or its corresponding type declarations.
+src/routes/account.tsx(162,45): error TS2322: Type '{ title: string; description: string; }' is not assignable to type 'IntrinsicAttributes & ClassAttributes<HTMLDivElement> & HTMLAttributes<HTMLDivElement>'.
+src/routes/index.tsx(56,13): error TS2322: Type '{ className: string; title: string; description: string; }' is not assignable to type 'IntrinsicAttributes & ClassAttributes<HTMLDivElement> & HTMLAttributes<HTMLDivElement>'.
+src/routes/members.tsx(145,13): error TS2322: Type '{ title: string; description: string; }' is not assignable to type 'IntrinsicAttributes & ClassAttributes<HTMLDivElement> & HTMLAttributes<HTMLDivElement>'.
+src/routes/timetable.tsx(82,68): error TS2322: Type '{ className: string; title: string; description: string; }' is not assignable to type 'IntrinsicAttributes & ClassAttributes<HTMLDivElement> & HTMLAttributes<HTMLDivElement>'.

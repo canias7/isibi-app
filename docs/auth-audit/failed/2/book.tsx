@@ -1,11 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 
-import { useCreateRow, usePublicRows } from "@/lib/rows";
+import { useCreateRow, usePublicRows, type Row } from "@/lib/rows";
 import { AvailabilityGrid } from "@/components/ui/availability-grid";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,9 +25,11 @@ export const Route = createFileRoute("/book")({
   }),
 });
 
+type Booking = Row & Record<string, never>;
+
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A quiet room, a good mat, and a class for wherever you're starting from.",
+  tagline: "A quiet studio for a steady practice.",
   links: [
     { label: "Home", href: "#/" },
     { label: "Timetable", href: "#/timetable" },
@@ -39,7 +40,7 @@ const CHROME = {
   action: { label: "Book a class", href: "#/book" },
 };
 
-const SLOTS = ["07:00", "09:00", "10:00", "18:00", "19:00"];
+const SLOTS = ["07:00", "09:00", "18:15", "19:00", "19:30"];
 
 const booking = z.object({
   class_name: z.string().min(1, "Tell us which class"),
@@ -49,14 +50,13 @@ const booking = z.object({
   slot_time: z.string().min(1, "Pick a time"),
 });
 
-type Booking = z.infer<typeof booking>;
+type BookingForm = z.infer<typeof booking>;
 
 function Book() {
   const { class: preselected } = Route.useSearch();
-  const create = useCreateRow("bookings");
-  const [done, setDone] = useState(false);
+  const create = useCreateRow<Row>("bookings");
 
-  const form = useForm<Booking>({
+  const form = useForm<BookingForm>({
     resolver: zodResolver(booking),
     defaultValues: {
       class_name: preselected ?? "",
@@ -73,38 +73,23 @@ function Book() {
     slot_date ? { slot_date } : undefined,
   );
 
-  const onSubmit = (values: Booking) => {
+  const onSubmit = (values: BookingForm) => {
     create.mutate(values, {
       onSuccess: () => {
         toast.success("Booked — see you on the mat.");
         form.reset();
-        setDone(true);
       },
       onError: (e: Error) => toast.error(e.message),
     });
   };
 
-  if (done) {
-    return (
-      <SiteChrome {...CHROME}>
-        <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
-          <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
-          <p className="mt-3 text-muted-foreground">
-            We look forward to seeing you. Arrive a few minutes early to settle in.
-          </p>
-          <Button className="mt-6 motion-press" onClick={() => setDone(false)}>
-            Book another class
-          </Button>
-        </div>
-      </SiteChrome>
-    );
-  }
-
   return (
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-2xl px-6 py-14">
         <h1 className="text-3xl font-semibold tracking-tight">Book a class</h1>
-        <p className="mt-2 text-muted-foreground">Pick a class, a date and a time.</p>
+        <p className="mt-2 text-muted-foreground">
+          Fill this in and we'll hold your spot on the mat.
+        </p>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -115,7 +100,7 @@ function Book() {
                 <FormItem className="sm:col-span-2">
                   <FormLabel>Class</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g. Sunrise Flow" {...field} />
+                    <Input placeholder="e.g. Vinyasa" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

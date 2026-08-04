@@ -1,145 +1,178 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { toast } from "sonner";
 
-import {
-  useMember,
-  useLogout,
-  useSessions,
-  useRevokeSession,
-  useLogoutOthers,
-  useAddPasskey,
-} from "@/lib/rows";
+import { useMember, useLogin, useSignup, useLogout, useRows, type Row } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { SiteChrome } from "@/components/ui/site-chrome";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
-import SignInPrompt from "@/components/sign-in-prompt";
+import { Empty } from "@/components/ui/empty";
 
 export const Route = createFileRoute("/account")({ component: Account });
 
+type Announcement = Row & { title: string; body: string | null };
+
+const CHROME = {
+  name: "Aurora Yoga",
+  tagline: "A quiet room, a good mat, and a class for wherever you're starting from.",
+  links: [
+    { label: "Home", href: "#/" },
+    { label: "Timetable", href: "#/timetable" },
+    { label: "Book", href: "#/book" },
+    { label: "Members", href: "#/members" },
+    { label: "Account", href: "#/account" },
+  ],
+  action: { label: "Book a class", href: "#/book" },
+};
+
+const credentials = z.object({
+  email: z.string().email("That doesn't look like an email address"),
+  password: z.string().min(8, "At least 8 characters"),
+});
+
+type Credentials = z.infer<typeof credentials>;
+
 function Account() {
   const member = useMember();
-
-  if (member.isPending) {
-    return (
-      <main className="mx-auto max-w-2xl px-6 py-16">
-        <Skeleton className="h-10 w-64" />
-        <Skeleton className="mt-6 h-40 rounded-xl" />
-      </main>
-    );
-  }
-
-  if (!member.data) {
-    return (
-      <main className="mx-auto max-w-md px-6 py-16">
-        <h1 className="text-3xl font-semibold">Your account</h1>
-        <p className="mt-2 text-muted-foreground">Sign in to manage your account and devices.</p>
-        <div className="mt-8">
-          <SignInPrompt />
-        </div>
-      </main>
-    );
-  }
-
-  return <AccountDetail email={member.data.email} />;
-}
-
-function AccountDetail({ email }: { email: string }) {
+  const login = useLogin();
+  const signup = useSignup();
   const logout = useLogout();
-  const sessions = useSessions();
-  const revoke = useRevokeSession();
-  const logoutOthers = useLogoutOthers();
-  const addPasskey = useAddPasskey();
-  const [addingPasskey, setAddingPasskey] = useState(false);
 
-  const onRevoke = (sid: string, isCurrent: boolean) => {
-    revoke.mutate(
-      { sid },
-      {
-        onSuccess: () => {
-          if (isCurrent) {
-            toast.success("Signed out on this device.");
-            logout();
-          } else {
-            toast.success("That device has been signed out.");
-          }
-        },
-        onError: (e) => toast.error(e.message),
-      }
-    );
-  };
+  const form = useForm<Credentials>({
+    resolver: zodResolver(credentials),
+    defaultValues: { email: "", password: "" },
+  });
 
-  const onLogoutOthers = () => {
-    logoutOthers.mutate(undefined, {
-      onSuccess: () => toast.success("Signed out everywhere else."),
-      onError: (e) => toast.error(e.message),
+  const submit = (action: typeof login, values: Credentials) => {
+    action.mutate(values, {
+      onSuccess: (data) => {
+        if (data && typeof data === "object" && "pending" in data) {
+          toast.message("Check your authenticator app to finish signing in.");
+          return;
+        }
+        form.reset();
+      },
+      onError: () => toast.error("That email and password didn't match."),
     });
   };
 
-  const onAddPasskey = async () => {
-    setAddingPasskey(true);
-    try {
-      await addPasskey.mutateAsync();
-      toast.success("Passkey added.");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't add a passkey.");
-    } finally {
-      setAddingPasskey(false);
-    }
-  };
+  return (
+    <SiteChrome {...CHROME}>
+      <div className="mx-auto max-w-md px-6 py-16">
+        {member.isPending && <p className="text-muted-foreground">Checking your sign-in…</p>}
+
+        {member.data && <SignedIn name={member.data.name} onSignOut={() => logout.mutate()} />}
+
+        {!member.isPending && !member.data && (
+          <>
+            <h1 className="text-3xl font-semibold tracking-tight">Your account</h1>
+            <p className="mt-2 text-muted-foreground">
+              Sign in, or make an account to keep your notes and see studio announcements.
+            </p>
+
+            <Form {...form}>
+              <form
+                className="mt-8 grid gap-4"
+                onSubmit={form.handleSubmit((v) => submit(login, v))}
+              >
+                <FormField
+                  control={form.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email</FormLabel>
+                      <FormControl>
+                        <Input type="email" autoComplete="email" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Password</FormLabel>
+                      <FormControl>
+                        <Input type="password" autoComplete="current-password" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <div className="flex gap-3">
+                  <Button type="submit" className="motion-press" disabled={login.isPending}>
+                    {login.isPending ? "Signing in…" : "Sign in"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={signup.isPending}
+                    onClick={form.handleSubmit((v) => submit(signup, v))}
+                  >
+                    Create an account
+                  </Button>
+                </div>
+              </form>
+            </Form>
+          </>
+        )}
+      </div>
+    </SiteChrome>
+  );
+}
+
+function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) {
+  const announcements = useRows<Announcement>("announcements", { order: "id", dir: "desc" });
 
   return (
-    <main className="mx-auto max-w-2xl px-6 py-16">
-      <h1 className="text-3xl font-semibold">Your account</h1>
-      <p className="mt-2 text-muted-foreground">{email}</p>
-
-      <div className="mt-8 flex flex-wrap gap-3">
-        <Button variant="outline" onClick={onAddPasskey} disabled={addingPasskey}>
-          {addingPasskey ? "Adding…" : "Add a passkey"}
-        </Button>
-        <Button variant="outline" onClick={onLogoutOthers} disabled={logoutOthers.isPending}>
-          {logoutOthers.isPending ? "Working…" : "Sign out everywhere else"}
-        </Button>
-        <Button variant="destructive" onClick={() => logout()}>
+    <>
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-semibold tracking-tight">Hello, {name}</h1>
+        <Button variant="ghost" onClick={onSignOut}>
           Sign out
         </Button>
       </div>
 
-      <section className="mt-12">
-        <h2 className="text-lg font-medium">Signed-in devices</h2>
-        <div className="mt-4 grid gap-3">
-          {sessions.isPending &&
-            [0, 1].map((i) => <Skeleton key={i} className="h-16 rounded-xl" />)}
-
-          {sessions.isError && (
-            <p className="text-sm text-destructive">Couldn't load your sessions right now.</p>
+      <Card className="mt-8">
+        <CardHeader>
+          <CardTitle className="text-base">Studio announcements</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {announcements.isPending && <Skeleton className="h-24 rounded-xl" />}
+          {announcements.isError && (
+            <p className="text-sm text-destructive">
+              Couldn't load announcements. Refresh and try again.
+            </p>
           )}
-
-          {sessions.data?.length === 0 && (
-            <p className="text-sm text-muted-foreground">No active sessions found.</p>
+          {announcements.data?.length === 0 && (
+            <Empty title="No announcements" description="Nothing from the studio right now." />
           )}
-
-          {sessions.data?.map((s) => (
-            <Card key={s.sid}>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    {s.device}
-                    {s.current && <Badge>This device</Badge>}
-                  </CardTitle>
-                  <CardDescription>
-                    {s.country ?? "Unknown location"} · {s.lastSeenLabel}
-                  </CardDescription>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => onRevoke(s.sid, s.current)}>
-                  Sign out
-                </Button>
-              </CardHeader>
-            </Card>
-          ))}
-        </div>
-      </section>
-    </main>
+          {!!announcements.data?.length && (
+            <ul className="grid gap-3 motion-stagger">
+              {announcements.data.map((a) => (
+                <li key={a.id} className="rounded-lg border border-border p-4">
+                  <p className="font-medium">{a.title}</p>
+                  {a.body && <p className="mt-1 text-sm text-muted-foreground">{a.body}</p>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+    </>
   );
 }

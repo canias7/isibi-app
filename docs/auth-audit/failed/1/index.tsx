@@ -1,77 +1,81 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
+
 import { useRows, type Row } from "@/lib/rows";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CtaBand } from "@/components/ui/cta-band";
+import { Hero } from "@/components/ui/hero";
+import { SectionHeader } from "@/components/ui/section-header";
+import { SiteChrome } from "@/components/ui/site-chrome";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
+import { TeamGrid } from "@/components/ui/team-grid";
+import { Empty } from "@/components/ui/empty";
 
 export const Route = createFileRoute("/")({ component: Home });
 
-type Teacher = Row & {
-  name: string;
-  bio: string | null;
-  phone: string | null;
+type Teacher = Row & { name: string; bio: string | null; phone: string | null };
+
+const CHROME = {
+  name: "Aurora Yoga",
+  tagline: "A quiet room, a good mat, and a class for wherever you're starting from.",
+  links: [
+    { label: "Timetable", href: "#/timetable" },
+    { label: "Book", href: "#/book" },
+    { label: "Members", href: "#/members" },
+    { label: "Account", href: "#/account" },
+  ],
+  action: { label: "Book a class", href: "#/book" },
 };
 
 function Home() {
   const teachers = useRows<Teacher>("teachers", { order: "name", dir: "asc" });
 
   return (
-    <main className="mx-auto max-w-4xl px-6 py-16">
-      <h1 className="text-4xl font-semibold tracking-tight">Aurora Yoga</h1>
-      <p className="mt-2 text-muted-foreground">
-        A calm, well-lit studio for morning stretches and evening wind-downs. Come as you are.
-      </p>
+    <SiteChrome {...CHROME}>
+      <Hero
+        title="Aurora Yoga"
+        subtitle="Small classes, unhurried pace. Morning flow, evening restore, and everything between."
+        primary={{ label: "Book a class", href: "#/book" }}
+        secondary={{ label: "See the timetable", href: "#/timetable" }}
+      />
 
-      <div className="mt-8 flex flex-wrap gap-3">
-        <Button asChild>
-          <Link to="/booking">Book a class</Link>
-        </Button>
-        <Button asChild variant="outline">
-          <Link to="/members">Members area</Link>
-        </Button>
-        <Button asChild variant="outline">
-          <Link to="/account">Account</Link>
-        </Button>
-      </div>
+      <section className="mx-auto max-w-5xl px-6 py-20 motion-reveal">
+        <SectionHeader
+          eyebrow="Your teachers"
+          title="Who you'll practise with"
+          description="Every class is taught by one of the studio's own teachers, never a substitute you haven't met."
+        />
+        {teachers.isPending && <Skeleton className="mt-8 h-48 rounded-xl" />}
+        {teachers.isError && (
+          <p className="mt-8 text-sm text-destructive">
+            Couldn't load the teachers. Refresh and try again.
+          </p>
+        )}
+        {teachers.data?.length === 0 && (
+          <Empty
+            className="mt-8"
+            title="No teachers listed yet"
+            description="Check back soon — we're adding profiles for the studio's teachers."
+          />
+        )}
+        {!!teachers.data?.length && (
+          <TeamGrid
+            className="mt-8"
+            items={teachers.data.map((t) => ({
+              name: t.name,
+              role: t.bio ?? "Yoga teacher",
+            }))}
+          />
+        )}
+      </section>
 
-      <section className="mt-14">
-        <h2 className="text-xl font-medium">Our teachers</h2>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          {teachers.isPending &&
-            [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-32 rounded-xl" />)}
-
-          {teachers.isError && (
-            <p className="text-sm text-destructive sm:col-span-2">
-              Couldn't load our teachers right now. Refresh and try again.
-            </p>
-          )}
-
-          {teachers.data?.length === 0 && (
-            <p className="text-sm text-muted-foreground sm:col-span-2">
-              No teacher profiles listed yet — check back soon.
-            </p>
-          )}
-
-          {teachers.data?.map((t) => (
-            <Card key={t.id}>
-              <CardHeader>
-                <CardTitle>{t.name}</CardTitle>
-                {t.phone && <CardDescription>{t.phone}</CardDescription>}
-              </CardHeader>
-              {t.bio && <CardContent className="text-sm text-muted-foreground">{t.bio}</CardContent>}
-            </Card>
-          ))}
+      <section className="border-y border-border bg-muted/40">
+        <div className="mx-auto max-w-5xl px-6 py-20">
+          <CtaBand
+            title="Your first class is a good time to start"
+            description="Pick a slot on the timetable and book in a minute — we'll see you on the mat."
+            action={{ label: "Book a class", href: "#/book" }}
+          />
         </div>
       </section>
-
-      <section className="mt-14">
-        <h2 className="text-xl font-medium">Timetable</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Classes run daily — morning flow at 7:30am, gentle stretch at noon, and evening vinyasa
-          at 6:30pm. Pick a class and a time on the booking page; we'll grey out anything already
-          taken.
-        </p>
-      </section>
-    </main>
+    </SiteChrome>
   );
 }

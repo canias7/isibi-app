@@ -1,28 +1,62 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { useState } from "react";
 
-import { useRows, useCreateRow, usePublicRows, type PublicRow } from "@/lib/rows";
+import { useCreateRow, usePublicRows } from "@/lib/rows";
+import { AvailabilityGrid } from "@/components/ui/availability-grid";
 import { Button } from "@/components/ui/button";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { SiteChrome } from "@/components/ui/site-chrome";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
-export const Route = createFileRoute("/book")({ component: Book });
+export const Route = createFileRoute("/book")({
+  component: Book,
+  validateSearch: (search: Record<string, unknown>): { class?: string } => ({
+    class: typeof search.class === "string" ? search.class : undefined,
+  }),
+});
 
-type TakenSlot = PublicRow & {
-  slot_date: string;
-  slot_time: string;
+const CHROME = {
+  name: "Aurora Yoga",
+  tagline: "Slow down, breathe, move well.",
+  links: [
+    { label: "Timetable", href: "#/timetable" },
+    { label: "Book", href: "#/book" },
+    { label: "Members", href: "#/members" },
+    { label: "Account", href: "#/account" },
+  ],
+  action: { label: "Book a class", href: "#/book" },
 };
 
+const CLASS_NAMES = [
+  "Sunrise Flow",
+  "Slow Hatha",
+  "Power Vinyasa",
+  "Restorative & Yin",
+];
+
+const SLOTS = ["07:00", "09:30", "17:00", "18:00"];
+
 const booking = z.object({
-  class_name: z.string().min(2, "Tell us which class"),
+  class_name: z.string().min(1, "Pick a class"),
   customer_name: z.string().min(2, "Tell us your name"),
-  customer_email: z.string().email("A valid email please"),
+  customer_email: z.string().email("That doesn't look like an email address"),
   slot_date: z.string().min(1, "Pick a date"),
   slot_time: z.string().min(1, "Pick a time"),
 });
@@ -30,14 +64,13 @@ const booking = z.object({
 type Booking = z.infer<typeof booking>;
 
 function Book() {
-  const taken = usePublicRows<TakenSlot>("bookings");
+  const { class: preselected } = Route.useSearch();
   const create = useCreateRow("bookings");
-  const [claimInfo, setClaimInfo] = useState<{ id: string; claim: string } | null>(null);
 
   const form = useForm<Booking>({
     resolver: zodResolver(booking),
     defaultValues: {
-      class_name: "",
+      class_name: preselected ?? "",
       customer_name: "",
       customer_email: "",
       slot_date: "",
@@ -45,13 +78,16 @@ function Book() {
     },
   });
 
+  const date = form.watch("slot_date");
+  const taken = usePublicRows<{ slot_date: string; slot_time: string }>(
+    "bookings",
+    date ? { slot_date: date } : undefined,
+  );
+
   const onSubmit = (values: Booking) => {
     create.mutate(values, {
-      onSuccess: (data) => {
-        toast.success("You're booked — see you on the mat!");
-        if (data.claim) {
-          setClaimInfo({ id: data.row.id, claim: data.claim });
-        }
+      onSuccess: () => {
+        toast.success("Booked! See you on the mat.");
         form.reset();
       },
       onError: (e: Error) => toast.error(e.message),
@@ -59,141 +95,109 @@ function Book() {
   };
 
   return (
-    <main className="mx-auto max-w-2xl px-6 py-16">
-      <h1 className="text-4xl font-semibold tracking-tight">Book a class</h1>
-      <p className="mt-2 text-muted-foreground">
-        Pick your class, date and time. We'll hold your spot.
-      </p>
+    <SiteChrome {...CHROME}>
+      <div className="mx-auto max-w-2xl px-6 py-14">
+        <h1 className="text-3xl font-semibold tracking-tight">Book a class</h1>
+        <p className="mt-2 text-muted-foreground">
+          Pick a class, a date and a time — we'll hold your spot.
+        </p>
 
-      <section className="mt-8">
-        <h2 className="text-lg font-medium">Already taken</h2>
-        <div className="mt-3 grid gap-2">
-          {taken.isPending && [0, 1, 2].map((i) => <Skeleton key={i} className="h-8 rounded-md" />)}
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
+            <FormField
+              control={form.control}
+              name="class_name"
+              render={({ field }) => (
+                <FormItem className="sm:col-span-2">
+                  <FormLabel>Class</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Choose a class" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {CLASS_NAMES.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {c}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-          {taken.isError && (
-            <p className="text-sm text-muted-foreground">
-              Couldn't load current bookings — pick a time and we'll confirm it works.
-            </p>
-          )}
+            <FormField
+              control={form.control}
+              name="customer_name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Your name</FormLabel>
+                  <FormControl>
+                    <Input autoComplete="name" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-          {taken.data?.length === 0 && (
-            <p className="text-sm text-muted-foreground">No slots booked yet — plenty of room.</p>
-          )}
+            <FormField
+              control={form.control}
+              name="customer_email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Email</FormLabel>
+                  <FormControl>
+                    <Input type="email" autoComplete="email" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-          {taken.data && taken.data.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {taken.data.map((slot, i) => (
-                <span
-                  key={i}
-                  className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground"
-                >
-                  {slot.slot_date} @ {slot.slot_time}
-                </span>
-              ))}
+            <FormField
+              control={form.control}
+              name="slot_date"
+              render={({ field }) => (
+                <FormItem className="sm:col-span-2">
+                  <FormLabel>Date</FormLabel>
+                  <FormControl>
+                    <Input type="date" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="slot_time"
+              render={({ field }) => (
+                <FormItem className="sm:col-span-2">
+                  <FormLabel>Time</FormLabel>
+                  <FormControl>
+                    <AvailabilityGrid
+                      slots={SLOTS}
+                      taken={taken.data?.map((t) => t.slot_time) ?? []}
+                      value={field.value}
+                      onSelect={field.onChange}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className="sm:col-span-2">
+              <Button type="submit" className="motion-press" disabled={create.isPending}>
+                {create.isPending ? "Booking…" : "Book this class"}
+              </Button>
             </div>
-          )}
-        </div>
-      </section>
-
-      {claimInfo && (
-        <Card className="mt-8 border-primary">
-          <CardHeader>
-            <CardTitle className="text-base">Manage this booking</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm">
-            Save this link — it's the only way to view or cancel your booking later:
-            <div className="mt-2">
-              <Link
-                to="/manage"
-                search={{ id: claimInfo.id, claim: claimInfo.claim }}
-                className="text-primary underline"
-              >
-                Manage my booking
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
-          <FormField
-            control={form.control}
-            name="class_name"
-            render={({ field }) => (
-              <FormItem className="sm:col-span-2">
-                <FormLabel>Class</FormLabel>
-                <FormControl>
-                  <Input placeholder="e.g. Vinyasa Flow" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="customer_name"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Your name</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="customer_email"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Email</FormLabel>
-                <FormControl>
-                  <Input type="email" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="slot_date"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Date</FormLabel>
-                <FormControl>
-                  <Input type="date" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="slot_time"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Time</FormLabel>
-                <FormControl>
-                  <Input type="time" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <div className="sm:col-span-2">
-            <Button type="submit" disabled={create.isPending}>
-              {create.isPending ? "Booking…" : "Request booking"}
-            </Button>
-          </div>
-        </form>
-      </Form>
-    </main>
+          </form>
+        </Form>
+      </div>
+    </SiteChrome>
   );
 }
