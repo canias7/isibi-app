@@ -162,6 +162,7 @@ function Home() {
 const MENU = `import { createFileRoute, Link } from "@tanstack/react-router";
 import { useRows } from "@/lib/rows";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Empty } from "@/components/ui/empty";
 
 export const Route = createFileRoute("/menu")({ component: Menu });
 
@@ -176,7 +177,7 @@ function Menu() {
       <div className="mt-8 grid gap-4">
         {drinks.isPending && [0, 1, 2].map((i) => <Skeleton key={i} className="h-10 rounded-lg" />)}
         {drinks.isError && <p className="text-sm text-destructive">Couldn't load the menu.</p>}
-        {drinks.data?.length === 0 && <p className="text-sm text-muted-foreground">Nothing listed yet.</p>}
+        {drinks.data?.length === 0 && <Empty heading="Nothing listed yet" description="The menu goes up soon." />}
         {drinks.data?.map((d) => (
           <div key={d.id} className="flex items-baseline justify-between border-b border-border pb-2">
             <span>{d.name}</span>

@@ -12326,3 +12326,39 @@ guess — the next failing build will quote line 26 and say what the model actua
 wrote.
 
 813 unit tests, site-build 36/36, site-runtime 23/23.
+
+## `Empty` took a second build down, on the same prop (2026-08-04)
+
+```
+manage.tsx(26,13): TS2322: Type '{ heading: string; description: string; }'
+  is not assignable to 'IntrinsicAttributes & Omit<DetailedHTMLProps…'
+```
+
+Reproduced byte for byte before touching anything — `<Empty heading description />`
+against the real template. Not a guess: the same error text, the same shape.
+
+**The reason the model reaches for `heading` was already written in this file's
+own comment.** A div already owns `title`, which is why the component had to
+`Omit` it this morning. A prop whose name collides with an HTML attribute is one
+a caller will not land on first try — the collision IS the tell.
+
+So `heading` is an alias. `title` stays primary and wins if both are given, every
+existing call including `DataList`'s is untouched, and the compound form is
+unchanged. Additive, like the button sizes: a missing prop, not a fork in the
+design system. Resolved with `??` rather than `||`, because an empty string is a
+deliberate "no heading" and `||` would fall through to the alias instead of
+honouring it.
+
+**Rendered, not just typechecked**, which is the lesson this repo keeps paying
+for — `message-scroller` typechecked and hard-crashed, the 70 charts typechecked
+and rendered grey. Five shapes in a real browser: `heading` renders, `title`
+renders, `title` beats `heading`, the compound form still works, and **no `title`
+attribute leaks onto the div** — the tooltip regression the Omit exists to
+prevent.
+
+**Guarded by a real typecheck, not a source grep.** `site-build.mjs`'s menu
+fixture now renders its empty state as `<Empty heading description />`, so the
+alias is checked by `tsc` against the actual template on every run. Removing the
+alias takes the integration suite from 36/36 to 18/36.
+
+813 unit tests, site-build 36/36, site-runtime 23/23.
