@@ -120,6 +120,26 @@ try {
   if (d.notes) console.log("   notes:", d.notes);
   if (d.problems) console.log("   problems:", JSON.stringify(d.problems));
 
+  // --- WHAT THE BUILD ACTUALLY DID ----------------------------------------
+  // The build's own account of itself, printed rather than asserted. A duration
+  // is not a pass/fail — a slow build is still a correct one — but a run that
+  // takes four minutes and a run that takes ninety seconds looked identical in
+  // this log until now, and the schema call's real cost had never been measured
+  // against the flat SITE_BUILD_FEE it is billed at.
+  if (Array.isArray(d.trace) && d.trace.length) {
+    console.log("   trace:", d.trace.map((s) => s.s + " " + s.ms + "ms").join(" · "));
+    console.log("   total:", d.totalMs + "ms");
+  }
+  if (d.schemaUsage) {
+    const u = d.schemaUsage;
+    console.log(`   schema call: in ${u.in} · out ${u.out} · cacheRead ${u.cacheRead} · cacheWrite ${u.cacheWrite}` +
+      ` → ${d.schemaCredits} credits, charged ${d.schemaFee}`);
+  }
+  // Reported, never enforced: the trace is a diagnostic, and a smoke test that
+  // fails on a slow step turns a measurement into a flake.
+  ok("the build reports its own steps", Array.isArray(d.trace) && d.trace.length >= 3,
+    "trace=" + JSON.stringify(d.trace || null));
+
   // --- the access levels are enforced live --------------------------------
   // The build must produce something readable and something submittable, and
   // must NOT let a visitor read back other people's submissions.

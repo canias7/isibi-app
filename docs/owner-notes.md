@@ -12520,3 +12520,69 @@ report is written, or it reports the zero and then bails. 3 mutants, all caught.
 The misleading `0/3` report was reverted to the last real measurement.
 
 815 unit tests.
+
+---
+
+## The build tells you what it did (2026-08-04)
+
+A build makes ~33 ordered steps across seven systems and reported **one number**
+about the journey: `buildMs`, the container's slice of it. Which step was slow,
+whether provisioning was skipped because the project already existed, how the
+schema call compared to the pages call — none of it was visible from outside, and
+none of it is visible from **reading** either: the build reaches the world through
+injected dependencies (`deps.generate`, `deps.compile`, `deps.publish`), which is
+what makes `publishPages` testable and is exactly what stops a static walk of the
+source following the call graph through it. A trace taken at runtime is the only
+complete account.
+
+`builder/trace.mjs` is 60 lines and under four constraints, each of which is the
+thing that would otherwise bite:
+
+- **It can never throw into a build.** Every method swallows — and the
+  constructor did not, so a broken clock took the build down before it had read
+  the request body. Caught by mutation, not by reading. A guarded clock yields
+  `ms 0` rather than losing the step: a step with a wrong duration still answers
+  *did this run*, and a missing step answers it **wrongly**.
+- **It can never carry a secret.** `extra` accepts finite **numbers only** —
+  there is deliberately no way to attach free text, so a connection string with a
+  password in it cannot reach a trace by accident. Anything else is dropped
+  rather than stringified.
+- **It is bounded** — 60 steps, and it says how many it dropped.
+- **It costs two `Date.now()` calls a step.**
+
+**THE SCHEMA CALL'S COST IS MEASURED FOR THE FIRST TIME.** `designSiteSchema` was
+throwing its usage away and is billed a **flat `SITE_BUILD_FEE` of 2 credits** —
+so whether that fee is right, and whether its ~6,800-token cached prefix is
+paying for itself, were both unanswerable. It now returns the same four token
+kinds as the pages call, in the same shape, so `pageCredits` prices it without a
+second table. The response carries `schemaUsage`, `schemaCredits` (what it would
+cost if metered) and `schemaFee` (what was actually charged) side by side.
+
+**Reported, NOT billed on.** The charge is untouched. Changing what a customer
+pays is a pricing decision, not a side effect of adding a measurement — and that
+is asserted by reading the **whole** cost expression, because a substring match
+survives anything appended to the sum, which is precisely how a measurement turns
+into a charge by accident. Proved by mutation: the prefix form let the schema
+cost be added to the bill and passed.
+
+**The reachability guard earned its keep on the first run.** `makeTrace` was
+being *called* in the build route and never imported — a `ReferenceError` on
+every build, shipped by a wiring script whose own assertion was nonsense. Same
+class as `notifyOwnerOfSubmission` having zero callers.
+
+**And the guards themselves needed two rounds.** `>= 6` trace marks with seven
+present survives one being deleted, so the steps are asserted **by name**; and a
+bare `/cache_creation_input_tokens/` matched the pages call *and a comment about
+it*, so it passed while the schema call still discarded its usage — the fifth
+time a source-reading guard in this repo has matched its own prose. It is scoped
+to `designSiteSchema`'s own body now.
+
+`test/trace.test.mjs` (8 tests), **18 mutants, all caught**. `build smoke` prints
+the trace and the schema cost, and asserts only that the steps are *there* — a
+duration is a diagnostic, and a smoke test that fails on a slow step turns a
+measurement into a flake.
+
+**Not yet run against the real thing** — it needs Anthropic credits. The numbers
+arrive on the first green `build smoke` after a top-up.
+
+823 unit tests.
