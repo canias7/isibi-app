@@ -55,12 +55,20 @@ jobs:
       - name: Sample the generator
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          # ONE BY DEFAULT. Three separates a systematic mismatch from variance
-          # — which is what caught the `Empty` bug, eleven identical errors
-          # across three samples — but that is the question you ask when
-          # something is wrong, not on every merge. One sample is $0.22 against
-          # $0.66 and answers "what does it build"; raise it by hand when
-          # chasing a regression.
+          # ONE SAMPLE PER SHAPE, and there are three shapes — so a merge makes
+          # three calls, ~$0.85, not one at ~$0.28.
+          #
+          # That is the deliberate trade: the eval used to sample a yoga studio
+          # and nothing else, so what it measured was "the generator handles
+          # booking sites". A menu-only cafe and an internal tool go through
+          # different declarable features, a different family exemplar and a
+          # different layout directive, and none of it was ever sampled.
+          #
+          # This number is samples PER SHAPE. Raising it to 3 makes nine calls —
+          # worth it when chasing a regression, because repeating the same error
+          # across samples is what separates a systematic mismatch from variance
+          # (eleven identical errors across three samples is what caught the
+          # `Empty` bug). Not worth it on every merge.
           EVAL_SAMPLES: ${{ github.event.inputs.samples || '1' }}
         run: node test/integration/page-gen-eval.mjs
 
