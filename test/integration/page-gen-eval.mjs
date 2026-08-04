@@ -56,16 +56,43 @@ const SPEC = normalizeSchema({
   ],
 });
 
+/**
+ * ONE RETRY, AND ONLY ON A TRANSPORT THROW. A run of this costs real money and
+ * fifteen minutes of somebody's attention, and the first run after the credits
+ * landed died three-for-three on `fetch failed` in 250ms each — the request
+ * never completed, so it measured nothing and reported it as though the
+ * generator had produced nothing.
+ *
+ * The distinction is what makes the retry safe: a REJECTED fetch means no
+ * response was received, and at a quarter of a second no tokens had been
+ * generated to pay for. An HTTP error is never retried here — a 400 or a 529 is
+ * an answer, and re-asking would spend again for the same answer.
+ *
+ * The honest caveat: a connection that dies LATE could have generated tokens we
+ * are then billed for twice. Bounded at one retry for that reason, rather than
+ * looping.
+ */
+async function postWithRetry(body) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "x-api-key": KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+        body,
+      });
+    } catch (e) {
+      if (attempt >= 1) throw e;
+      console.log(`     transport failure, retrying once: ${(e && e.message) || e}`);
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
+}
+
 /** `fix` is {pages, problems} — the same repair shape publish-pages.mjs sends. */
 async function generate(fix) {
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "x-api-key": KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify(pagesRequest({ brief: BRIEF, spec: SPEC, brand: BRAND, fix })),
-    // No timeout, matching production — see designSiteSchema in worker.js. A
-    // harness that gives up sooner than the thing it measures reports a failure
-    // the real path would not have had.
-  });
+  // No timeout, matching production — a harness that gives up sooner than the
+  // thing it measures reports a failure the real path would not have had.
+  const r = await postWithRetry(JSON.stringify(pagesRequest({ brief: BRIEF, spec: SPEC, brand: BRAND, fix })));
   if (!r.ok) throw new Error("anthropic " + r.status + " " + (await r.text().catch(() => "")).slice(0, 200));
   const j = await r.json();
   // USAGE IS THE POINT OF HALF OF THIS FILE NOW AND IT WAS BEING THROWN AWAY.
@@ -207,7 +234,19 @@ try {
         console.log(`       lint: ${p}`);
       }
     } catch (e) {
-      row.stage = "threw"; row.problems = [(e && e.message) || String(e)];
+      // THE CAUSE, NOT JUST THE MESSAGE. Node wraps every transport failure as
+      // the single word "fetch failed" and hangs the real reason — DNS, TLS,
+      // ECONNRESET, a refused connection — off `.cause`. Reporting only the
+      // message turned three identical 250ms network failures into a line that
+      // looked exactly like the generator producing nothing, which is the same
+      // class of mistake as returning `upstream: 400` with no type: a total
+      // outage and a bad answer read identically. Walked, because undici nests.
+      const chain = [];
+      for (let x = e, i = 0; x && i < 4; x = x.cause, i++) {
+        const bit = [x.name, x.message, x.code].filter(Boolean).join(" ");
+        if (bit && !chain.includes(bit)) chain.push(bit);
+      }
+      row.stage = "threw"; row.problems = [chain.join(" ← ") || String(e)];
       console.log(`  ${n}. THREW  ${row.problems[0]}`);
     }
     results.push(row);
