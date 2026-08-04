@@ -2442,10 +2442,29 @@ export const STRUCTURE_NAMES = Object.keys(STRUCTURES);
  * What a designer/classifier step may choose from — READY families only. A
  * not-ready family here would be an instruction to build a page around a
  * component that does not exist.
+ *
+ * NO `label` HERE, AND THAT IS THE POINT. The label is the LAYOUT STRATEGY —
+ * "the slot picker is the hero; everything else supports the appointment" — and
+ * it was 56% of this block while being sent a SECOND time, in full and with far
+ * more detail, as `layoutDirective` on the page call. This step is not building
+ * anything. It is answering one question: which of these hundred is the business
+ * in front of me. For that, how the pages get arranged is not evidence.
+ *
+ * SIX KINDS RATHER THAN FOUR, spending some of the saving on the half that DOES
+ * decide it. A brief says "nail bar" or "veg box" or "man and van", and the only
+ * thing that matches those words is the trades list. Four kinds covered 385
+ * trades; six covers more, which makes the choosing better than it was — the
+ * opposite direction from a saving that costs reach.
+ *
+ * THE KEY IS DOING MORE WORK NOW, and it survives the loss because the keys were
+ * renamed to businesses on 2026-08-02 for exactly this reason. Measured: only 15
+ * of the shown kinds appear under two families, and in twelve of those one
+ * family's KEY is the colliding word (`food-truck` against `restaurant`,
+ * `pharmacy` against `gym`), so the name resolves it with nothing else needed.
  */
 export function familiesForPrompt() {
   return READY_FAMILIES
-    .map((n) => `${n} — ${FAMILIES[n].label} (${FAMILIES[n].kinds.slice(0, 4).join(", ")})`)
+    .map((n) => `${n} — ${FAMILIES[n].kinds.slice(0, 6).join(", ")}`)
     .join("\n");
 }
 

@@ -2816,7 +2816,10 @@ const SITE_SCHEMA_TOOL = {
         // which is what actually makes the choice accurate. ~954 tokens.
         description:
           "The kind of site this is: it decides what the PAGES are, not what they look like. " +
-          "Pick the one whose pages match what this business needs.\n\n" + familiesForPrompt(),
+          "Each line is a family and the trades it covers — match the brief's own words against " +
+          "those trades, and where none is exact pick the family whose trades are nearest. " +
+          "How the pages are then arranged is not your problem here; that is sent to the step " +
+          "that writes them.\n\n" + familiesForPrompt(),
       },
       // The third axis: a family says what the PAGES are, a structure says how one
       // is arranged. `store` on card-grid and `store` on sidebar are the same

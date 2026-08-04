@@ -177,20 +177,58 @@ test("the prompt shortlist offers ready families only, and stays cheap", () => {
   // budgeting for is the wrong shape, and raising the number each time is not a
   // guard, it is a ritual.
   //
-  // What actually needs watching is the cost PER FAMILY — a label growing into
-  // a paragraph, a kinds list growing to twenty. That is the runaway, and the
-  // count is not: this list rides in the design call's `cache_control:
-  // ephemeral` block, so after the first build of a deploy it is a cache read
-  // rather than fresh input, and one more family is one more line.
+  // What actually needs watching is the cost PER FAMILY — a kinds list growing
+  // to twenty, or the LABEL coming back. That is the runaway, and the count is
+  // not: this list rides in the design call's `cache_control: ephemeral` block,
+  // so after the first build of a deploy it is a cache read rather than fresh
+  // input, and one more family is one more line.
+  //
+  // 115, DOWN FROM 145 ON 2026-08-04, and the drop is the point rather than an
+  // incidental. The label left this block that day, taking 56% of it with it,
+  // and the reading went 144.1 -> 93.0. A ceiling left at 145 would have been
+  // slack enough to let the whole label creep back without a word — a guard
+  // that cannot fail is not one, and this file has said so about three other
+  // numbers already.
   const perFamily = list.length / READY_FAMILIES.length;
-  assert.ok(perFamily < 145, `${Math.round(perFamily)} chars per family — a label or a kinds list has run away`);
-  assert.ok(list.length < READY_FAMILIES.length * 145,
+  assert.ok(perFamily < 115, `${Math.round(perFamily)} chars per family — a kinds list has run away, or the label is back`);
+  assert.ok(list.length < READY_FAMILIES.length * 115,
     `the shortlist is ${list.length} chars for ${READY_FAMILIES.length} families`);
   // A backstop on the WHOLE block, not on the count. Cached or not, a shortlist
   // this size would be a different conversation about what belongs in a tool
   // description — it is here to force that conversation, not to cap growth.
   assert.ok(list.length < 20000, `the shortlist is ${list.length} chars — time to reconsider the shape, not the number`);
   assert.ok(structuresForPrompt().split("\n").length === STRUCTURE_NAMES.length);
+});
+
+// THE LABEL IS THE LAYOUT STRATEGY AND IT DOES NOT BELONG AT CHOOSE TIME.
+//
+// It was 56% of this block and it was already being sent a second time, in full
+// and with far more detail, as `layoutDirective` on the page call. The design
+// step is not building anything — it answers "which of these hundred is the
+// business in front of me", and how the pages get arranged is not evidence for
+// that. Removing it took 3,895 tokens to 2,513 while BUYING two more trades per
+// family, which is the half that actually decides the answer.
+//
+// DERIVED, not a character budget. The ceiling above would catch the label
+// coming back wholesale; this catches one creeping in. And it asserts the other
+// direction too, because a saving that quietly dropped the trades would pass a
+// label check perfectly while destroying the thing the block is for.
+test("the choose-time list carries trades, never layout strategy", () => {
+  const list = familiesForPrompt();
+  for (const n of READY_FAMILIES) {
+    const f = FAMILIES[n];
+    assert.ok(!list.includes(f.label),
+      `${n}'s LABEL is back in the choose-time prompt — that is layout strategy, and layoutDirective already sends it`);
+    // The trades are what a brief's own words match against. Six, and the first
+    // one at minimum has to survive any future edit to this line.
+    assert.ok(list.includes(f.kinds[0]),
+      `${n} offers none of its trades — the design step has nothing to match a brief against`);
+  }
+  // And the shape: one line per family, "key — trades", nothing else.
+  for (const line of list.split("\n")) {
+    assert.match(line, /^[a-z][a-z0-9-]* — [^—]+$/,
+      `a shortlist line grew a second clause: ${JSON.stringify(line.slice(0, 90))}`);
+  }
 });
 
 test("a directive carries the whole contract, and refuses everything unknown", () => {
