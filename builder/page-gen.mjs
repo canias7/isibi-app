@@ -17,7 +17,8 @@ import { COMPONENT_API } from "./component-api.mjs";
 // The chart half, generated from src/components/charts/lib by
 // builder/gen-chart-api.mjs and kept in step by test/chart-api.test.mjs.
 import { CHART_COMPONENTS, CHART_API } from "./chart-api.mjs";
-import { FAMILIES } from "./site-layouts.mjs";
+import { FAMILIES, layoutDirective } from "./site-layouts.mjs";
+import { FAMILY_EXEMPLARS } from "./family-exemplars.mjs";
 // One worked call per primitive, mined out of the demos by
 // builder/gen-chart-usage.mjs. This is what the 1,140 demo files are FOR: they
 // are the only place in the repo these APIs are called, and they compile, so
@@ -2227,11 +2228,69 @@ export function briefForPages({ brief, priorBrief } = {}) {
     "\n\nKeep everything the original brief asked for unless this change says otherwise.";
 }
 
-export function pagesPrompt(brief, spec, brand) {
+/**
+ * brief + the family's layout directive, which is what the model is ACTUALLY
+ * given. Extracted from worker.js 2026-08-04.
+ *
+ * It lived inline in `buildAndPublishPages`, so the eval — which is supposed to
+ * measure the generator — composed its own user turn and sent the bare brief.
+ * ~287 tokens of layout instruction that every production build carries and no
+ * sample ever did, which made the compile rate a number for a prompt the
+ * platform does not send. Exactly what `pagesRequest` was extracted to prevent,
+ * one layer up: the harness must not be able to tune a different prompt.
+ *
+ * GUARDED against a null directive: `layoutDirective` answers null for an
+ * unknown family or structure, and interpolating that appends the literal word
+ * "null" to the brief and loses the layout, silently.
+ */
+export function briefWithLayout({ brief, family, structure } = {}) {
+  const directive = family ? layoutDirective(family, structure ? { structure } : {}) : null;
+  return directive ? `${brief}\n\n${directive}` : String(brief ?? "");
+}
+
+/**
+ * The reference home page for a family, as a worked example — or null.
+ *
+ * THE MODEL HAD NEVER SEEN ONE UNTIL 2026-08-04. `src/family-pages` was read by
+ * test files and by nothing on the model path, and PAGE_RULES never mentioned
+ * it, so the 100 best pages in this repo were on disk, typechecked, rendered,
+ * guarded — and reachable by nothing. The same shape as the 27 blocks and the
+ * 196 examples, both deleted for exactly that. These are wired instead, because
+ * unlike a block they are what a good site of that trade actually looks like.
+ *
+ * IN THE USER TURN, NEVER THE SYSTEM BLOCK. A cache entry is keyed on the bytes,
+ * so an exemplar that varies per family would make the cached prefix differ every
+ * build and never hit: $0.0082 a build becomes $0.1019, thirteen times, measured.
+ * Here it is ~2,300 tokens of fresh input, about $0.007 — 4% of what a build's
+ * output costs.
+ *
+ * It does NOT replace the barber page in PAGE_RULES. They answer different
+ * questions: that one is how to CALL the API and is identical on every build,
+ * which is what makes it nearly free; this one is what this TRADE looks like.
+ */
+export function familyExemplar(family) {
+  const src = family ? FAMILY_EXEMPLARS[family] : null;
+  return src || null;
+}
+
+export function pagesPrompt(brief, spec, brand, family) {
   const name = String(brand || "").trim();
+  const example = familyExemplar(family);
   return "Build the pages for this site.\n\nBRIEF\n" + String(brief || "").trim() +
     (name ? "\n\nTHE SITE IS CALLED\n" + name + " — use it as the heading; it is already the page title." : "") +
-    "\n\nTHE SCHEMA THAT EXISTS\n" + schemaDigest(spec);
+    "\n\nTHE SCHEMA THAT EXISTS\n" + schemaDigest(spec) +
+    // AFTER the schema, deliberately: the schema is a constraint the page must
+    // obey and the example is a shape to follow, and an example read first
+    // invites copying its tables. Framed as a DIFFERENT site of the same trade,
+    // or the model reproduces its content — the failure the deleted examples
+    // tier actually shipped, with a real customer's page reading "Our flagship
+    // product combines cutting-edge technology with sleek design."
+    (example
+      ? "\n\nA SITE OF THIS TRADE, DONE WELL\nThis is a DIFFERENT business, and it compiles today. Copy its SHAPE — " +
+        "what leads, what the sections are and in what order, how dense the real pages are, how specific the " +
+        "writing is. Copy none of its words, its prices, its names or its tables; this site has its own schema " +
+        "above and its own brief.\n\n" + example
+      : "");
 }
 
 // A route path the container will accept: under src/routes, .tsx, no traversal,
@@ -2618,13 +2677,13 @@ export const SITE_PAGES_MAX_TOKENS = 30000;
  * the next call pays the write premium again. That is once per deploy that
  * touches the rules, against a saving on every build in between.
  */
-export function pagesRequest({ brief, spec, brand } = {}) {
+export function pagesRequest({ brief, spec, brand, family } = {}) {
   return {
     model: "claude-sonnet-5",
     max_tokens: SITE_PAGES_MAX_TOKENS,
     tools: [SITE_PAGES_TOOL],
     tool_choice: { type: "tool", name: "write_pages" },
     system: [{ type: "text", text: PAGE_RULES, cache_control: { type: "ephemeral" } }],
-    messages: [{ role: "user", content: pagesPrompt(brief, spec, brand) }],
+    messages: [{ role: "user", content: pagesPrompt(brief, spec, brand, family) }],
   };
 }

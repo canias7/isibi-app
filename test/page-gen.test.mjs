@@ -917,3 +917,178 @@ test("toast is left out on purpose, because sonner is already here", () => {
   assert.match(PAGE_RULES, /toast\.(success|error)/,
     "and the rules must actually teach the sonner API, or neither is reachable");
 });
+
+// ── the eval sends what production sends ────────────────────────────────────
+//
+// The harness composed its own user turn and posted `{files}` to the build
+// service, so it sampled the generator with NO family directive, NO theme and
+// NO fonts: 447 characters where production sends 1,508, rendered on the bare
+// template. Every number it reported described a pipeline the platform does not
+// run, which is the one failure a measurement cannot survive.
+
+test("briefWithLayout appends the family's directive, and never a null", () => {
+  const withFam = api.briefWithLayout({ brief: "A yoga studio.", family: "salon" });
+  assert.match(withFam, /^A yoga studio\.\n\n/);
+  assert.match(withFam, /LAYOUT — /);
+
+  // layoutDirective answers null for an unknown family or structure, and
+  // interpolating that appends the literal word "null" and LOSES the layout.
+  for (const args of [
+    { brief: "A yoga studio." },
+    { brief: "A yoga studio.", family: "not-a-family" },
+    { brief: "A yoga studio.", family: "salon", structure: "not-a-structure" },
+  ]) {
+    const out = api.briefWithLayout(args);
+    assert.equal(out, "A yoga studio.", JSON.stringify(args));
+    assert.ok(!/null/.test(out), "a null directive must not reach the brief");
+  }
+});
+
+test("worker.js and the eval both compose the brief through briefWithLayout", () => {
+  // Derived at BOTH ends. Asserting only that the eval calls it would pass on a
+  // worker that still composed its own, which is the drift this replaces.
+  for (const f of ["../worker.js", "./integration/page-gen-eval.mjs"]) {
+    const src = fs.readFileSync(new URL(f, import.meta.url), "utf8")
+      .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
+    assert.match(src, /briefWithLayout\(/, `${f} must compose the brief through the shared function`);
+    assert.ok(!/layoutDirective\s*\(/.test(src), `${f} must not build the directive itself`);
+  }
+});
+
+test("the eval posts a theme, fonts and a title to the build service", () => {
+  // COMMENTS BLANKED FIRST. The comment above that body names theme/fonts/title
+  // in order to explain them, so a raw scan is satisfied by the explanation —
+  // caught by mutation: stripping the whole post down to `{files}` passed. Third
+  // time this exact shape has bitten in one sitting; blank, never delete, so
+  // offsets stay valid.
+  const src = fs.readFileSync(new URL("./integration/page-gen-eval.mjs", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
+  const body = src.slice(src.indexOf("async function compile"), src.indexOf("const shapeOf"));
+  assert.ok(body.length > 100, "the guard must actually be looking at the function");
+  // Asserted on what the POST BODY carries, not on the function generally.
+  const post = (body.match(/JSON\.stringify\(\{[^}]*\}/) || [""])[0];
+  for (const key of ["theme", "fonts", "title"]) {
+    assert.match(post, new RegExp("\\b" + key + "\\b"),
+      `the build post must carry ${key}, or every sample renders on the bare template`);
+  }
+});
+
+test("the eval's family, theme and fonts are real ones", async () => {
+  // A name that does not resolve fails SILENTLY — the build falls back to the
+  // default and the sample looks fine. Caught exactly this way while writing it:
+  // the first theme I picked did not exist.
+  const src = fs.readFileSync(new URL("./integration/page-gen-eval.mjs", import.meta.url), "utf8");
+  const pick = (k) => (src.match(new RegExp("const " + k + ' = "([^"]+)"')) || [])[1];
+  const [layouts, themes, fonts] = await Promise.all([
+    import("../builder/site-layouts.mjs"),
+    import("../builder/site-theme-registry.mjs"),
+    import("../builder/site-fonts.mjs"),
+  ]);
+  const family = pick("FAMILY");
+  assert.ok(family && layouts.READY_FAMILIES.includes(family), `FAMILY ${family} is not a ready family`);
+  assert.ok(layouts.layoutDirective(family, {}), `${family} produces no directive`);
+
+  const theme = pick("THEME");
+  assert.ok(theme && themes.resolveTheme(theme), `THEME ${theme} does not resolve`);
+
+  const f = (src.match(/const FONTS = \{ heading: "([^"]+)", body: "([^"]+)" \}/) || []).slice(1);
+  assert.equal(f.length, 2, "FONTS must name a heading and a body face");
+  const pair = fonts.resolvePair({ heading: f[0], body: f[1] });
+  assert.deepEqual(pair.notes || [], [], `fonts fell back: ${JSON.stringify(pair.notes)}`);
+});
+
+// ── the family's reference page as a worked example ─────────────────────────
+//
+// Until 2026-08-04 the model had never seen one and could not: a Worker has no
+// filesystem, src/family-pages was read by test files only, and PAGE_RULES never
+// mentioned it. 100 reference apps, typechecked, rendered, guarded — and
+// reachable by nothing, which is the shape the 27 blocks and 196 examples were
+// deleted for. These are wired instead.
+
+test("every ready family has a baked exemplar", async () => {
+  const [layouts, ex] = await Promise.all([
+    import("../builder/site-layouts.mjs"),
+    import("../builder/family-exemplars.mjs"),
+  ]);
+  for (const f of layouts.READY_FAMILIES) {
+    assert.ok(ex.FAMILY_EXEMPLARS[f], `${f} is offered to the designer with no worked example behind it`);
+  }
+  assert.ok(layouts.READY_FAMILIES.length >= 90, "the family list collapsed");
+});
+
+test("the baked exemplar has not drifted from the file on disk", async () => {
+  // Same guarantee PAGE_RULES' copy of the barber page has. A note that
+  // disagrees with the file is worse than no note, and this one is 2,300 tokens
+  // of it on every build.
+  const ex = await import("../builder/family-exemplars.mjs");
+  const dir = path.join(import.meta.dirname, "../builder/lovable/template/src/family-pages");
+  const strip = (src) => src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^[ \t]*\/\/[^\n]*\n/gm, "")
+    .replace(/[ \t]+\/\/[^\n]*$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  let checked = 0;
+  for (const [family, baked] of Object.entries(ex.FAMILY_EXEMPLARS)) {
+    const file = path.join(dir, family, "index.tsx");
+    assert.ok(fs.existsSync(file), `${family} has a baked exemplar and no file`);
+    assert.equal(baked, strip(fs.readFileSync(file, "utf8")),
+      `${family}'s exemplar is stale — re-run builder/gen-family-exemplars.mjs`);
+    checked++;
+  }
+  assert.ok(checked >= 90, `only ${checked} exemplars checked`);
+});
+
+test("the exemplar rides in the USER turn and the cached block never varies", () => {
+  // THE EXPENSIVE ONE. A cache entry is keyed on the bytes, so an exemplar that
+  // varies per family inside the system block would make the cached prefix
+  // differ on every build and never hit — $0.0082 becomes $0.1019, thirteen
+  // times, measured. Asserted across two DIFFERENT families, because comparing
+  // a request to itself proves nothing.
+  const spec = { tables: [{ name: "bookings", access: "collect", columns: ["name"] }] };
+  const salon = api.pagesRequest({ brief: "a studio", spec, brand: "A", family: "salon" });
+  const store = api.pagesRequest({ brief: "a shop", spec, brand: "B", family: "store" });
+  const none = api.pagesRequest({ brief: "a studio", spec, brand: "A" });
+
+  assert.equal(salon.system[0].text, store.system[0].text, "the cached block must not vary by family");
+  assert.equal(salon.system[0].text, none.system[0].text, "nor between having a family and not");
+  assert.deepEqual(salon.system[0].cache_control, { type: "ephemeral" });
+
+  const body = salon.messages[0].content;
+  assert.ok(body.includes(api.familyExemplar("salon")), "the salon exemplar must reach the user turn");
+  assert.ok(!salon.system[0].text.includes(api.familyExemplar("salon")), "and must NOT be in the cached block");
+  assert.notEqual(body, store.messages[0].content, "two families must not produce the same user turn");
+});
+
+test("an unknown family costs nothing rather than throwing", () => {
+  const spec = { tables: [] };
+  for (const family of [undefined, null, "", "not-a-family"]) {
+    const r = api.pagesRequest({ brief: "a shop", spec, brand: "A", family });
+    assert.ok(r.messages[0].content.length < 2000, `${family} produced an exemplar`);
+  }
+  assert.equal(api.familyExemplar("not-a-family"), null);
+});
+
+test("the exemplar is framed so its CONTENT is not copied", () => {
+  // The deleted examples tier shipped a real customer's page reading "Our
+  // flagship product combines cutting-edge technology with sleek design." The
+  // example is a shape to follow, and saying so is the only thing standing
+  // between this and that.
+  const spec = { tables: [{ name: "bookings", access: "collect", columns: ["name"] }] };
+  const body = api.pagesRequest({ brief: "a studio", spec, brand: "A", family: "salon" }).messages[0].content;
+  assert.match(body, /DIFFERENT business/i, "the example must be framed as another business");
+  assert.match(body, /Copy none of its words/i, "it must say not to copy the content");
+  // Order matters: the schema is a constraint, the example a shape. Read first,
+  // an example invites reproducing its tables.
+  assert.ok(body.indexOf("THE SCHEMA THAT EXISTS") < body.indexOf("A SITE OF THIS TRADE"),
+    "the schema must come before the example");
+});
+
+test("worker.js and the eval both pass the family to pagesRequest", () => {
+  for (const f of ["../worker.js", "./integration/page-gen-eval.mjs"]) {
+    const src = fs.readFileSync(new URL(f, import.meta.url), "utf8")
+      .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
+    assert.match(src, /pagesRequest\(\{[^}]*\bfamily\b[^}]*\}\)/s,
+      `${f} does not pass the family, so no build of it ever gets an example`);
+  }
+});

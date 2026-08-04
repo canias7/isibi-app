@@ -17,6 +17,7 @@ import path from "node:path";
 
 import { THEME_IDS, THEME_SHORTLIST, ALL_THEMES, resolveTheme } from "../builder/site-theme-registry.mjs";
 import { themeCss, THEMES } from "../builder/site-theme.mjs";
+import { briefWithLayout } from "../builder/page-gen.mjs";
 import { FAMILY_NAMES, READY_FAMILIES, STRUCTURE_NAMES, STRUCTURES, layoutDirective, familiesForPrompt, structuresForPrompt, FAMILIES } from "../builder/site-layouts.mjs";
 import { UI_COMPONENTS, UI_SHORTLIST, PAGE_RULES } from "../builder/page-gen.mjs";
 
@@ -133,30 +134,35 @@ test("the chosen theme reaches the container, by name", () => {
 });
 
 test("the chosen family reaches the PAGE prompt as a directive, not a name", () => {
-  // This assertion has now gone red twice for correct changes — once when the
-  // variant axis was wired in and the call gained a third option, and once when
-  // that axis was removed again and it lost it. Both times the invariant held
-  // and only the spelling moved, which is the sign an assertion is pinned too
-  // tightly. So it matches the two things that must be true — the FAMILY is
-  // passed, and the STRUCTURE rides with it — and not the punctuation between.
-  assert.match(worker, /layoutDirective\(family,[^)]*structure[^)]*\)/s,
-    "layoutDirective is no longer called with the family and its structure");
-  assert.ok(
-    /generateSitePages\(env, withLayout, spec, brand\)/.test(worker),
-    "the page generator is still called with the bare brief",
-  );
+  // THIRD TIME THIS WENT RED FOR A CORRECT CHANGE — twice for the variant axis
+  // arriving and leaving, now for the composition moving into page-gen.mjs so
+  // the eval could reach it. Its own comment already called that the sign of an
+  // assertion pinned too tightly, and matching a looser regex was not enough:
+  // the fix is to stop asserting WHERE it happens.
+  //
+  // What must be true: the worker hands BOTH axes to the shared composer, and
+  // that composer really does turn them into a directive. The second half is
+  // behavioural, so it holds wherever the code lives.
+  assert.match(worker, /briefWithLayout\(\{[^}]*\bfamily\b[^}]*\bstructure\b[^}]*\}\)/s,
+    "the worker no longer passes the family and its structure to the composer");
+  const out = briefWithLayout({ brief: "a shop", family: "store", structure: "card-grid" });
+  assert.match(out, /^a shop\n\n/, "the brief must still lead");
+  assert.match(out, /LAYOUT — /, "the family must arrive as a directive, not a name");
+  assert.ok(out.includes(STRUCTURES["card-grid"].text), "the structure must ride with it");
 });
 
-
-
 test("a null directive is never interpolated into the brief", () => {
-  // layoutDirective answers null for an unknown family or structure, and this
-  // was `${brief}\n\n${layoutDirective(family)}` — so the brief would have
-  // gained the literal word "null" and lost its layout, silently. Unreachable
-  // while both come from enums; one hand-passed body.structure is all it takes.
+  // layoutDirective answers null for an unknown family or structure, and the
+  // unguarded form appends the literal word "null" and LOSES the layout.
+  // Asserted behaviourally rather than by matching the guard's spelling.
   assert.equal(layoutDirective("store", { structure: "nope" }), null, "the null case moved");
-  assert.match(worker, /const withLayout = directive \? /,
-    "the directive is interpolated unguarded again");
+  for (const args of [
+    { brief: "a shop" },
+    { brief: "a shop", family: "not-a-family" },
+    { brief: "a shop", family: "store", structure: "nope" },
+  ]) {
+    assert.equal(briefWithLayout(args), "a shop", JSON.stringify(args));
+  }
 });
 
 test("the structure axis is offered, optional, and every name works", () => {

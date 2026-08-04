@@ -17,7 +17,7 @@ import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, cre
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
-import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, pagesRequest, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
+import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
 import { publishPages } from "./builder/publish-pages.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
 import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
@@ -27,7 +27,7 @@ import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis
 import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
 import { SHORTLIST, resolvePair } from "./builder/site-fonts.mjs";
 import { THEME_SHORTLIST } from "./builder/site-theme-registry.mjs";
-import { READY_FAMILIES, STRUCTURE_NAMES, layoutDirective, familiesForPrompt, structuresForPrompt } from "./builder/site-layouts.mjs";
+import { READY_FAMILIES, STRUCTURE_NAMES, familiesForPrompt, structuresForPrompt } from "./builder/site-layouts.mjs";
 
 // Game build-service container (Phase 3). The image (./builder-game/Dockerfile)
 // bakes kaplay + a headless Chromium for the smoke test. Runs to zero after idle.
@@ -2931,14 +2931,14 @@ async function designSiteSchema(env, brief) {
 //
 // ONE call per build. There is no repair pass — see builder/publish-pages.mjs
 // for the measurement it was removed on.
-async function generateSitePages(env, brief, spec, brand) {
+async function generateSitePages(env, brief, spec, brand, family) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
     // One definition, shared with the eval harness — see pagesRequest. Restating
     // it here would mean the harness tunes against a different request from the
     // one production runs.
-    body: JSON.stringify(pagesRequest({ brief, spec, brand })),
+    body: JSON.stringify(pagesRequest({ brief, spec, brand, family })),
     // No timeout — see designSiteSchema. This is the call it mattered most for:
     // three pages against a 24,000-token ceiling is the one that runs long.
   });
@@ -3524,19 +3524,13 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // The family reaches the model as a DIRECTIVE appended to the brief, not
       // as a bare name: `layoutDirective` is where site-layouts.mjs states the
       // hero, the body and the primary action for that family, and a name on
-      // its own would leave the model to guess all three. The structure rides
-      // with it as an override — omitted, the family's own default applies.
+      // its own would leave the model to guess all three.
       //
-      // GUARDED, because `layoutDirective` answers null for an unknown family or
-      // structure and this was interpolating it straight into a template string:
-      // the brief would have gained the literal word "null" and lost its layout,
-      // silently. Unreachable while both come from enums, and one hand-passed
-      // `body.structure` is all it would take.
-      const directive = family
-        ? layoutDirective(family, structure ? { structure } : {})
-        : null;
-      const withLayout = directive ? `${brief}\n\n${directive}` : brief;
-      return generateSitePages(env, withLayout, spec, brand);
+      // COMPOSED IN page-gen.mjs, not here. Inline, the eval could not reach it
+      // and sent the bare brief — ~287 tokens of layout that every real build
+      // carries and no sample ever did, so the compile rate described a prompt
+      // the platform does not send.
+      return generateSitePages(env, briefWithLayout({ brief, family, structure }), spec, brand, family);
     },
     compile: async (pages) => {
       const files = {};

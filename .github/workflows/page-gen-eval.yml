@@ -27,9 +27,9 @@ on:
   workflow_dispatch:
     inputs:
       samples:
-        description: "How many pages to generate (1-10)"
+        description: "How many sites to generate (1-10)"
         required: false
-        default: "3"
+        default: "1"
 
 permissions:
   contents: write
@@ -55,7 +55,13 @@ jobs:
       - name: Sample the generator
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          EVAL_SAMPLES: ${{ github.event.inputs.samples || '3' }}
+          # ONE BY DEFAULT. Three separates a systematic mismatch from variance
+          # — which is what caught the `Empty` bug, eleven identical errors
+          # across three samples — but that is the question you ask when
+          # something is wrong, not on every merge. One sample is $0.22 against
+          # $0.66 and answers "what does it build"; raise it by hand when
+          # chasing a regression.
+          EVAL_SAMPLES: ${{ github.event.inputs.samples || '1' }}
         run: node test/integration/page-gen-eval.mjs
 
       - name: Commit the report

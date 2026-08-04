@@ -11380,3 +11380,117 @@ after three separate off-by-region bugs.
 745 unit tests. 4 mutants on the diagnosis path, all caught — including one that
 made the scrub over-reach and eat plain text, since a scrub that destroys the
 message defeats the point of preserving it.
+
+---
+
+## The eval was measuring a different pipeline (2026-08-04)
+
+**Three yoga sites came out thin — a plain timetable, no week grid, no
+availability — and the reason was not the generator.** Put beside `salon`'s
+`class-schedule` reference app (Wharf Studio: a real 7-day grid, 13 filter chips,
+"4 left" on every class), the gap looked damning. It was the harness.
+
+**The eval sent the BARE brief. Production sends the brief plus the family's
+layout directive** — 447 characters against 1,508. That directive is where
+`site-layouts.mjs` states the hero, the body order, the primary verb and the
+components to reach for (`availability-grid`, `week-strip`, `day-schedule`). The
+model was never told this was a booking-first salon and was never pointed at the
+week-grid parts. **It also sent no theme and no fonts**, so every sample rendered
+on the bare template: default palette, system font stack.
+
+So the compile rate, the cost figures and every screenshot described a prompt and
+a build the platform does not run. Exactly what `pagesRequest` was extracted to
+prevent one layer up, and the eval's own header claimed it "cannot quietly drift
+into tuning a different prompt" — same function, different input.
+
+- **`briefWithLayout()` is now the one definition**, in `page-gen.mjs`. It lived
+  inline in `buildAndPublishPages`, which is why the harness could not reach it.
+  Guarded at BOTH ends: worker.js and the eval must call it, and NEITHER may
+  build the directive itself — asserting only that the eval calls it would pass
+  on a worker that still had its own copy.
+- **The eval now posts `theme`, `fonts` and `title` to the build service.**
+  `fontFiles` stays production-only: the Worker has no npm and the container has
+  the packages baked, which the site-build integration test already relies on.
+
+**THE MODEL HAS NEVER SEEN A REFERENCE APP, AND CANNOT.** Verified, not assumed:
+`src/family-pages/` is read by test files and nothing else, and `PAGE_RULES`
+never mentions `family-pages`, `Wharf`, `class-schedule` or the folder in any
+form. There is no filesystem in a Worker. Wharf Studio reaches the model only as
+the ~287-token hand-written distillation in `site-layouts.mjs`. Its week grid,
+its copy, its filter chips are not in the channel and were never going to come
+out the other end. **"Render based on the reference app" was never the
+mechanism** — those 100 families are a design artifact and the raw material
+somebody read while writing the summary.
+
+**The one worked example the model DOES get is Cutler Row Barbers** — the
+template's own `src/routes/index.tsx`, embedded whole in `PAGE_RULES`, about half
+the rulebook. So for every site of every trade, the only real page it has ever
+read is a barber shop, which is precisely the shape all three yoga sites came out
+in. Swapping that for the matching family's reference page is the obvious lever
+and is NOT done yet — it needs the pages baked into a module as strings, because
+the Worker cannot read them off disk.
+
+**A theme name that does not resolve fails SILENTLY** — the build falls back to
+the default and the sample looks fine. Caught while writing this: the first theme
+I picked, `ink-wash`, does not exist. All three axes are now checked against the
+real registries.
+
+**Two wiring tests went red for a CORRECT change, for the third time.** Both
+asserted where the composition happens rather than that it happens. The first
+one's own comment had already called that "the sign an assertion is pinned too
+tightly" — and loosening the regex twice was not the fix. They are behavioural
+now and survive the code moving.
+
+**A source guard matched its own comment for the THIRD time this sitting.** The
+comment above the build post names theme/fonts/title to explain them, so the scan
+was satisfied by the explanation while the post itself was stripped to `{files}`.
+Found by mutation. The rule to internalise: **any guard that greps source must
+blank comments first** — blank, never delete, so offsets stay valid.
+
+749 unit tests, site-build 36/36. 9 mutants across the composer, the axes and the
+worker wiring — 8 caught first time, the ninth was the comment-matching guard.
+
+---
+
+## The reference apps are INPUT now (2026-08-04, owner's call)
+
+**The model had never seen one, and could not.** A Worker has no filesystem;
+`src/family-pages` was read by test files and nothing else; `PAGE_RULES` never
+mentioned it. So 100 reference apps — typechecked, rendered, guarded, the best
+pages in this repo — were **reachable by nothing**. Exactly the shape the 27
+blocks and the 196 examples were deleted for, and it survived because the
+directive summarising them looked like the whole channel.
+
+`builder/gen-family-exemplars.mjs` bakes each ready family's `index.tsx` into
+`builder/family-exemplars.mjs` (100 families, 833 KB, comments stripped), the
+same pattern as `component-api.mjs`. That module IS how those pages reach the
+model.
+
+- **IN THE USER TURN, NEVER THE CACHED SYSTEM BLOCK, and this is the expensive
+  detail.** A cache entry is keyed on the bytes, so an exemplar that varies by
+  family makes the cached prefix differ every build and never hit: **$0.0082 a
+  build becomes $0.1019 — thirteen times**, measured. In the user turn it is
+  ~2,600 fresh tokens, **$0.0078, +4.9%** on a build. The guard compares the
+  system block across two DIFFERENT families, because comparing a request to
+  itself proves nothing.
+- **It does NOT replace Cutler Row Barbers.** The two answer different questions:
+  the barber page is how to CALL the API and is byte-identical on every build,
+  which is what makes it nearly free; the family page is what this TRADE looks
+  like. Removing the barber would also break the drift guards and GENERATOR.md's
+  contract, which is derived from it.
+- **Framed as a DIFFERENT business, with "copy none of its words."** Without
+  that, this is the deleted examples tier again — that one shipped a real
+  customer's page reading *"Our flagship product combines cutting-edge technology
+  with sleek design."* Asserted, along with the ORDER: schema first, example
+  second, because an example read first invites reproducing its tables.
+- **A ready family with no reference page fails the generator**, rather than
+  quietly producing a directive with no example behind it.
+
+**Still open, and it is the owner's call:** the `alt` homes stay out. Excluding
+them from the directive is correct — `pages` doubles as the generated site's
+route list, so without the filter every salon would ship a `/call-now` route —
+but it also means `class-schedule`'s week-grid LAYOUT has no path to a generated
+site. A yoga studio gets salon's booking-first hero. The exemplar wired here is
+the family's `index.tsx`, so that gap narrows but does not close.
+
+755 unit tests, site-build 36/36, 5 mutants on the exemplar path, all caught.

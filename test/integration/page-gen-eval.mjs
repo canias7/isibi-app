@@ -27,7 +27,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { pagesRequest, validatePages, lintPages } from "../../builder/page-gen.mjs";
+import { pagesRequest, briefWithLayout, validatePages, lintPages } from "../../builder/page-gen.mjs";
 import { normalizeSchema } from "../../site-schema.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -45,8 +45,22 @@ if (!fs.existsSync(path.join(TEMPLATE, "node_modules"))) {
 // The same shape the auth audit builds, so a fix here is a fix there. Chosen to
 // exercise the parts that have actually broken: a member table (an account
 // page), a collect table with a claim (a manage page), a publicView, a mask.
-const BRIEF = "A yoga studio: a class timetable, a booking form, a members area where somebody keeps their own notes, and an account page.";
+// THE THREE AXES A REAL BUILD CARRIES, and this harness carried none of them
+// until 2026-08-04. A yoga studio is a `salon` (its `kinds` name yoga outright);
+// the theme and the fonts are what the designer picks alongside the schema.
+//
+// Sending the bare brief made every number here describe a prompt the platform
+// does not send — 447 characters where production sends 1,508 — and every
+// rendered sample the bare template rather than a themed site. A harness that
+// measures a different pipeline is worse than no harness.
+const FAMILY = "salon";
+const THEME = "herbarium";
+const FONTS = { heading: "fraunces", body: "inter" };
 const BRAND = "Aurora Yoga";
+const RAW_BRIEF = "A yoga studio: a class timetable, a booking form, a members area where somebody keeps their own notes, and an account page.";
+// Composed through the SAME function worker.js calls, so the directive cannot
+// be here in a form production does not send.
+const BRIEF = briefWithLayout({ brief: RAW_BRIEF, family: FAMILY });
 const SPEC = normalizeSchema({
   tables: [
     { name: "teachers", access: "display", columns: ["name", "bio", "phone"], mask: [{ column: "phone", roles: ["staff"], keep: 4 }] },
@@ -97,7 +111,7 @@ async function postWithRetry(body) {
 async function generate(fix) {
   // No timeout, matching production — a harness that gives up sooner than the
   // thing it measures reports a failure the real path would not have had.
-  const r = await postWithRetry(JSON.stringify(pagesRequest({ brief: BRIEF, spec: SPEC, brand: BRAND, fix })));
+  const r = await postWithRetry(JSON.stringify(pagesRequest({ brief: BRIEF, spec: SPEC, brand: BRAND, family: FAMILY })));
   if (!r.ok) throw new Error("anthropic " + r.status + " " + (await r.text().catch(() => "")).slice(0, 200));
   const j = await r.json();
   // USAGE IS THE POINT OF HALF OF THIS FILE NOW AND IT WAS BEING THROWN AWAY.
@@ -163,7 +177,12 @@ async function compile(pages) {
   for (const p of pages) files[p.path] = p.source;
   const r = await fetch(`http://127.0.0.1:${PORT}/build`, {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ files }),
+    // theme/fonts/title, exactly as worker.js posts them. Without these the
+    // build is the bare template — default palette, system font stack — so a
+    // sample could be LOOKED at and still not show what a customer gets.
+    // `fontFiles` is production-only: the Worker has no npm, the container does,
+    // and the build service resolves the pair itself when they are absent.
+    body: JSON.stringify({ files, slug: "eval-aurora", title: BRAND, theme: THEME, fonts: FONTS }),
   });
   return r.json();
 }
