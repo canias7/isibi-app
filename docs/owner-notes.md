@@ -11840,3 +11840,53 @@ to keep working only because `anon` is a substring of `anonymous`; it is
 `\banonymous\b` now, true by meaning rather than by luck.
 
 772 unit tests, 5 mutants, all caught against a clean baseline.
+
+---
+
+## The container never started. One missing COPY. (2026-08-04)
+
+**29/30 after the token and grants fix** — a visitor can read a `display` table,
+cannot write to it, and cannot read `collect` submissions. The access model works
+over Neon's Data API for the first time.
+
+The one failure left was the container, and **I had inferred it was Cloudflare
+capacity. It was not — it was ours, and it was never intermittent.**
+
+**`build-server.mjs` imports `site-theme.mjs` and `site-theme-registry.mjs`. The
+Dockerfile copied neither.** So `node build-server.mjs` threw
+`ERR_MODULE_NOT_FOUND` at startup, the process exited, and nothing ever listened
+on 8080. Cloudflare reported that as **"Failed to start container: There has been
+an internal error connecting to the port"** on some runs and **"The container is
+not running, consider calling start()"** on others — two messages for one cause,
+which is exactly why it read as flaky infrastructure.
+
+**The Dockerfile already carried the warning, in prose:** *"site-fonts.mjs and its
+index are imported BY build-server.mjs, so a missing one is not a degraded build —
+the service fails to start at all."* Somebody understood the failure mode
+precisely, wrote it down, and then `themeCss` and `resolveTheme` were imported
+without anyone touching the COPY. **A comment cannot fail a build.**
+
+The closure is bigger than the two files: `site-theme-registry.mjs` pulls in
+`site-theme.mjs` plus seven modules under `theme-candidates/`. All copied now.
+
+**`test/dockerfile.test.mjs` walks the import graph** from each entrypoint,
+transitively, and fails if anything it reaches is not in a COPY — so a module
+added three hops down is covered without anyone thinking about it. It also pins
+the entrypoint (the walk is meaningless if the CMD runs something else) and the
+port against the container class, since a port mismatch has the identical
+symptom.
+
+**Both services, not just the broken one.** The game container is correct today
+and is the identical shape — one Dockerfile, hand-listed COPY lines, nothing
+forcing them to track the imports. Covering only the one that broke would leave
+the same bug live next door. Proved by dropping its `smoke.mjs` and watching the
+test go red.
+
+6 mutants, all caught: the exact live bug, a dropped transitive directory, a NEW
+import added and not copied, a changed entrypoint, a port mismatch, and the game
+service's own missing file.
+
+**The lesson, and it is the day's theme one last time:** every failure today was
+the system knowing something and not saying it — `detail: "{}"`, `upstream: null`,
+`no JSON`, a swallowed `catch {}`, and now a warning written as a comment instead
+of a test. 778 unit tests.

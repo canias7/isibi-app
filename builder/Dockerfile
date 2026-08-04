@@ -34,9 +34,20 @@ RUN mkdir -p /app/.routes-base \
     && cp src/styles.css /app/.styles-base.css \
     && find src/routes -maxdepth 1 -name '*.tsx' ! -name '__root.tsx' -delete
 
-# site-fonts.mjs and its index are imported BY build-server.mjs, so a missing one
-# is not a degraded build — the service fails to start at all.
-COPY build-server.mjs site-fonts.mjs font-index.json ./
+# EVERYTHING build-server.mjs IMPORTS, TRANSITIVELY. A missing one is not a
+# degraded build — node throws ERR_MODULE_NOT_FOUND on startup, the process
+# exits, nothing ever listens on 8080, and Cloudflare reports it as "Failed to
+# start container: There has been an internal error connecting to the port" or
+# "The container is not running". Two messages, one cause, which is why it read
+# as flaky infrastructure for a day.
+#
+# That is exactly what the previous version of this comment warned about for
+# site-fonts.mjs — and then `themeCss` and `resolveTheme` were imported without
+# anything being added here. `test/dockerfile.test.mjs` walks the imports from
+# build-server.mjs and fails if one is not copied, so the warning is enforced
+# rather than written down.
+COPY build-server.mjs site-fonts.mjs font-index.json site-theme.mjs site-theme-registry.mjs ./
+COPY theme-candidates/ ./theme-candidates/
 
 ENV NODE_ENV=production
 EXPOSE 8080
