@@ -12362,3 +12362,121 @@ alias is checked by `tsc` against the actual template on every run. Removing the
 alias takes the integration suite from 36/36 to 18/36.
 
 813 unit tests, site-build 36/36, site-runtime 23/23.
+
+## The builder works end to end. 49/53, and none of the four is the generator (2026-08-04)
+
+`build smoke` published a real app, and every check that has been failing all day
+now passes:
+
+```
+ok  the container built this site with the CURRENT image
+ok  the generated app was published, not the fallback
+ok  no console errors
+ok  every data read the page made was allowed
+ok  the page never hit a 403 — it respected the access levels
+ok  the site rendered a form with real controls, on some page
+```
+
+**`publicView` is live in production.** The published page made these, by name,
+with a date filter and no `id` ordering:
+
+```
+GET /data/bookings_public?select=*                                → 200
+GET /data/bookings_public?select=*&appointment_date=eq.2030-06-15 → 200
+```
+
+All three parts landed: the view exists and is granted to `anonymous`, the client
+asks for the view rather than the table, and the read does not order by a column
+a projection cannot have.
+
+`PublicRow` as a scalar union and `Empty`'s `heading` alias both held — the
+typecheck passed on the first try.
+
+### The form was RIGHT and the robot could not drive it
+
+The screenshot decided this rather than the log. Every field filled — service,
+name, phone, email, date, notes — `Time` in red, "Pick a time" underneath, and a
+grid of slot buttons: 09:00, 09:30, 10:00 … 16:30. **The page validated and
+correctly refused an incomplete booking.**
+
+The filler handles inputs, textareas and comboboxes. A time slot is a BUTTON, and
+a booking page picks its time from a row of them fed by the live availability
+read — which is the correct design and precisely what this platform exists to
+produce. The failure message said "a required Select with no options is the usual
+cause", which named the wrong cause entirely.
+
+It now clicks one option per group, and deliberately narrowly: three or more
+enabled `type="button"` siblings sharing a parent, never the submit. One or two
+buttons in a form are "cancel" and "add another"; three or more that share a
+parent are a chooser.
+
+### A brand-new site is not reachable for its first minute
+
+The two remaining failures are the same thing, and this one is a real product
+finding rather than a test artifact:
+
+| when | probe | result |
+|---|---|---|
+| build + 10s | `GET /data/services` | **400** `missing authentication credentials` |
+| build + 43s | `GET /data/bookings` | **503** (our proxy's timeout) |
+| build + 45s | the browser, same reads | **200** |
+
+The 400 is Neon's, and it means our proxy attached NO token — `siteAnonToken`
+fetches one from the site's own Neon Auth server and that fetch had failed. So
+for roughly the first minute of a site's life, a visitor gets errors.
+
+The probes now settle (bounded retry, and they SAY how many retries it took —
+"the first minute of a new site is broken" is a thing to know, not something a
+retry should hide). **The product side is not fixed**: warming the site at the
+end of a build — one anon-token fetch after publishing, on a path that already
+takes 60s — is the obvious answer, and it changes build behaviour, so it is a
+decision rather than a cleanup.
+
+813 unit tests, site-build 36/36, site-runtime 23/23.
+
+## The eval measured one trade. Now it measures three (2026-08-04)
+
+`page gen eval` sampled a yoga studio and nothing else, so what it actually told
+us was *"the generator handles booking sites"*. Every other trade goes through a
+different set of declarable features, a different family exemplar and a different
+layout directive, and none of it had ever been sampled.
+
+That gap mattered specifically because of what today proved: the failures were in
+the PLATFORM, not in one site's luck. `publicView` was uncreated for every site
+that declared one; `PublicRow` was unrenderable for every untyped read. **A shape
+nobody samples is a shape whose platform bugs nobody finds.**
+
+Three shapes, chosen so their declarable features barely overlap:
+
+| shape | family | what only it exercises |
+|---|---|---|
+| booking | salon | `collect` + `publicView` + `unique`, a member area, an admin table |
+| menu | restaurant | `display` ONLY — no form, no members, no publicView. Seeding is the whole content and there is nothing to submit, which is most of what this platform builds |
+| tool | crm | `teamScope` and member tables, so every page needs `useMember` |
+
+**Reported per shape, not as one total.** "2/3 compiled" across three different
+shapes is the least useful possible summary: it cannot distinguish one unlucky
+sample from "it cannot build a menu site at all". Breaking it out is the entire
+reason the extra spend buys anything, so the console and the committed report
+both carry the per-shape line.
+
+**Cost, stated rather than absorbed:** a merge now makes three model calls
+(~$0.85) instead of one (~$0.28). `EVAL_SAMPLES` is samples PER SHAPE, so the
+by-hand regression run is three shapes x 3 = nine calls.
+
+**Two guards, both mutation-checked (5 mutants, all caught).**
+
+- The existing family/theme/font check covered the one top-level constant that no
+  longer exists. It parses every scenario now — three families, three themes,
+  three font pairs, and the failure mode is unchanged and silent: a name that
+  does not resolve falls back to the default and the sample looks fine.
+- A new one asserts the shapes are actually DIFFERENT: no two may declare the
+  same set of access levels, one must be display-only, one must have a form, and
+  `teamScope` and `publicView` must each appear somewhere. Three briefs that
+  produce the same schema shape would cost three times as much and measure the
+  same thing once.
+
+**Also removed `mask` from the eval's schema** — the designer tool can no longer
+declare it, so sending it meant measuring a pipeline production does not run.
+
+814 unit tests, site-build 36/36.

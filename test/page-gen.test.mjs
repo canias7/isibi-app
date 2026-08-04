@@ -1011,24 +1011,58 @@ test("the eval's family, theme and fonts are real ones", async () => {
   // A name that does not resolve fails SILENTLY — the build falls back to the
   // default and the sample looks fine. Caught exactly this way while writing it:
   // the first theme I picked did not exist.
+  // EVERY SCENARIO, not the one that used to be a top-level constant. The eval
+  // samples three site shapes now, each with its own family, theme and font
+  // pair — so there are three of each to get wrong, and the failure mode is
+  // unchanged: a name that does not resolve falls back to the default and the
+  // sample looks fine.
   const src = fs.readFileSync(new URL("./integration/page-gen-eval.mjs", import.meta.url), "utf8");
-  const pick = (k) => (src.match(new RegExp("const " + k + ' = "([^"]+)"')) || [])[1];
   const [layouts, themes, fonts] = await Promise.all([
     import("../builder/site-layouts.mjs"),
     import("../builder/site-theme-registry.mjs"),
     import("../builder/site-fonts.mjs"),
   ]);
-  const family = pick("FAMILY");
-  assert.ok(family && layouts.READY_FAMILIES.includes(family), `FAMILY ${family} is not a ready family`);
-  assert.ok(layouts.layoutDirective(family, {}), `${family} produces no directive`);
 
-  const theme = pick("THEME");
-  assert.ok(theme && themes.resolveTheme(theme), `THEME ${theme} does not resolve`);
+  const block = src.slice(src.indexOf("const SCENARIOS = ["), src.indexOf("for (const sc of SCENARIOS)"));
+  assert.ok(block.length > 200, "the SCENARIOS block is gone — retarget this test");
+  const scenarios = [...block.matchAll(
+    /key: "([^"]+)",\s*family: "([^"]+)",\s*theme: "([^"]+)",\s*fonts: \{ heading: "([^"]+)", body: "([^"]+)" \}/g,
+  )];
+  assert.ok(scenarios.length >= 2,
+    `only ${scenarios.length} scenario(s) parsed — the eval measures one shape again, or the scan broke`);
 
-  const f = (src.match(/const FONTS = \{ heading: "([^"]+)", body: "([^"]+)" \}/) || []).slice(1);
-  assert.equal(f.length, 2, "FONTS must name a heading and a body face");
-  const pair = fonts.resolvePair({ heading: f[0], body: f[1] });
-  assert.deepEqual(pair.notes || [], [], `fonts fell back: ${JSON.stringify(pair.notes)}`);
+  for (const [, key, family, theme, heading, body] of scenarios) {
+    assert.ok(layouts.READY_FAMILIES.includes(family), `${key}: family ${family} is not a ready family`);
+    assert.ok(layouts.layoutDirective(family, {}), `${key}: ${family} produces no directive`);
+    assert.ok(themes.resolveTheme(theme), `${key}: theme ${theme} does not resolve`);
+    const pair = fonts.resolvePair({ heading, body });
+    assert.deepEqual(pair.notes || [], [], `${key}: fonts fell back: ${JSON.stringify(pair.notes)}`);
+  }
+});
+
+test("the eval's shapes exercise DIFFERENT access levels", () => {
+  // Three briefs that all produce the same schema shape would cost three times
+  // as much and measure the same thing once. The point of the extra spend is
+  // coverage: a menu-only site has no form and no members, an internal tool
+  // needs a signed-in member on every page, and only the booking one has a
+  // publicView. Asserted so a later edit cannot quietly collapse them.
+  const src = fs.readFileSync(new URL("./integration/page-gen-eval.mjs", import.meta.url), "utf8");
+  const block = src.slice(src.indexOf("const SCENARIOS = ["), src.indexOf("for (const sc of SCENARIOS)"));
+  const perShape = block.split(/key: "/).slice(1).map((chunk) => {
+    const key = chunk.slice(0, chunk.indexOf('"'));
+    return { key, levels: new Set([...chunk.matchAll(/access: "(\w+)"/g)].map((m) => m[1])) };
+  });
+  const signature = (s2) => [...s2.levels].sort().join("+");
+  const seen = new Set(perShape.map(signature));
+  assert.equal(seen.size, perShape.length,
+    "two shapes declare the same access levels, so one of them is paid for and measures nothing: " +
+    JSON.stringify(perShape.map((s2) => `${s2.key}=${signature(s2)}`)));
+  // And the specific coverage the shapes were chosen for.
+  assert.ok(perShape.some((s2) => s2.levels.has("collect")), "no shape has a form to submit");
+  assert.ok(perShape.some((s2) => s2.levels.size === 1 && s2.levels.has("display")),
+    "no display-only shape — the brochure site is most of what this platform builds");
+  assert.ok(/teamScope: true/.test(block), "no shape exercises teamScope");
+  assert.ok(/publicView:/.test(block), "no shape exercises publicView");
 });
 
 // ── the family's reference page as a worked example ─────────────────────────

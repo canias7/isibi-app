@@ -54,27 +54,88 @@ if (!fs.existsSync(path.join(TEMPLATE, "node_modules"))) {
 // does not send — 447 characters where production sends 1,508 — and every
 // rendered sample the bare template rather than a themed site. A harness that
 // measures a different pipeline is worse than no harness.
-const FAMILY = "salon";
-const THEME = "herbarium";
-const FONTS = { heading: "fraunces", body: "inter" };
-const BRAND = "Aurora Yoga";
-const RAW_BRIEF = "A yoga studio: a class timetable, a booking form, a members area where somebody keeps their own notes, and an account page.";
-// Composed through the SAME function worker.js calls, so the directive cannot
-// be here in a form production does not send.
-const BRIEF = briefWithLayout({ brief: RAW_BRIEF, family: FAMILY });
-const SPEC = normalizeSchema({
-  tables: [
-    { name: "teachers", access: "display", columns: ["name", "bio", "phone"], mask: [{ column: "phone", roles: ["staff"], keep: 4 }] },
-    {
-      name: "bookings", access: "collect",
-      columns: ["class_name", "customer_name", "customer_email", "slot_date", "slot_time"],
-      unique: [{ columns: ["slot_date", "slot_time"] }],
-      publicView: { columns: ["slot_date", "slot_time"] },
-    },
-    { name: "my_notes", access: "user", columns: ["title", "body"] },
-    { name: "announcements", access: "admin", columns: ["title", "body"], writeRoles: ["admin"] },
-  ],
-});
+// THREE SHAPES, NOT ONE.
+//
+// This measured a yoga studio and nothing else, so what it actually told us was
+// "the generator handles booking sites". Every other trade — a menu-only café, an
+// internal tool with sign-in — went through a DIFFERENT set of declarable
+// features, a different family exemplar and a different layout directive, and
+// none of it had ever been sampled.
+//
+// That mattered because today proved the failures are in the PLATFORM rather
+// than in one site's luck: `publicView` was uncreated for every site that
+// declared one, `PublicRow` was unrenderable for every untyped read. A shape
+// nobody samples is a shape whose platform bugs nobody finds.
+//
+// Deliberately three, and deliberately these three. They are chosen so the
+// declarable features they exercise barely overlap:
+//
+//   booking  — collect + publicView + unique, a member area, an admin table
+//   menu     — display only. No form, no members, no publicView at all: the
+//              shape where seeding is the whole content and there is nothing to
+//              submit, which is most of what this platform builds.
+//   tool     — teamScope and member tables, so the page has to sign somebody in.
+//              The one shape where `useMember` is mandatory.
+//
+// Cost is linear: one model call per scenario per sample, ~$0.28 each. CI runs
+// one sample of each, so a merge went from ~$0.28 to ~$0.85.
+const SCENARIOS = [
+  {
+    key: "booking",
+    family: "salon",
+    theme: "herbarium",
+    fonts: { heading: "fraunces", body: "inter" },
+    brand: "Aurora Yoga",
+    brief: "A yoga studio: a class timetable, a booking form, a members area where somebody keeps their own notes, and an account page.",
+    tables: [
+      // `mask` was removed from the designer tool on 2026-08-04 because nothing
+      // can enforce it, so it is gone from here too — an eval that sends a
+      // schema production cannot produce is measuring a pipeline we do not run.
+      { name: "teachers", access: "display", columns: ["name", "bio", "photo_url"] },
+      {
+        name: "bookings", access: "collect",
+        columns: ["class_name", "customer_name", "customer_email", "slot_date", "slot_time"],
+        unique: [{ columns: ["slot_date", "slot_time"] }],
+        publicView: { columns: ["slot_date", "slot_time"] },
+      },
+      { name: "my_notes", access: "user", columns: ["title", "body"] },
+      { name: "announcements", access: "admin", columns: ["title", "body"], writeRoles: ["admin"] },
+    ],
+  },
+  {
+    key: "menu",
+    family: "restaurant",
+    theme: "herbarium",
+    fonts: { heading: "fraunces", body: "inter" },
+    brand: "Pell Street Kitchen",
+    brief: "A neighbourhood restaurant: the menu with prices, who cooks, opening hours and how to find us. No online booking — people phone.",
+    tables: [
+      { name: "dishes", access: "display", columns: ["name", "description", "price", "course"] },
+      { name: "chefs", access: "display", columns: ["name", "role", "photo_url"] },
+      { name: "hours", access: "display", columns: ["day", "opens", "closes"] },
+    ],
+  },
+  {
+    key: "tool",
+    family: "crm",
+    theme: "herbarium",
+    fonts: { heading: "fraunces", body: "inter" },
+    brand: "Halyard",
+    brief: "An internal tool for a small sales team: everyone signs in, sees the deals their team is working, adds their own, and there is a shared list of accounts.",
+    tables: [
+      { name: "deals", access: "user", columns: ["title", "value", "stage"], teamScope: true },
+      { name: "accounts", access: "feed", columns: ["name", "website", "notes"] },
+      { name: "playbook", access: "admin", columns: ["title", "body"], writeRoles: ["admin"] },
+    ],
+  },
+];
+
+// Composed through the SAME function worker.js calls, so the directive cannot be
+// here in a form production does not send.
+for (const sc of SCENARIOS) {
+  sc.spec = normalizeSchema({ tables: sc.tables });
+  sc.composed = briefWithLayout({ brief: sc.brief, family: sc.family });
+}
 
 /**
  * ONE RETRY, AND ONLY ON A TRANSPORT THROW. A run of this costs real money and
@@ -109,10 +170,10 @@ async function postWithRetry(body) {
 }
 
 /** `fix` is {pages, problems} — the same repair shape publish-pages.mjs sends. */
-async function generate(fix) {
+async function generate(sc) {
   // No timeout, matching production — a harness that gives up sooner than the
   // thing it measures reports a failure the real path would not have had.
-  const r = await postWithRetry(JSON.stringify(pagesRequest({ brief: BRIEF, spec: SPEC, brand: BRAND, family: FAMILY })));
+  const r = await postWithRetry(JSON.stringify(pagesRequest({ brief: sc.composed, spec: sc.spec, brand: sc.brand, family: sc.family })));
   if (!r.ok) throw new Error("anthropic " + r.status + " " + (await r.text().catch(() => "")).slice(0, 200));
   const j = await r.json();
   // USAGE IS THE POINT OF HALF OF THIS FILE NOW AND IT WAS BEING THROWN AWAY.
@@ -176,7 +237,7 @@ async function startServer() {
 }
 
 /** Takes the pages ARRAY and sends what worker.js sends: {path: source}. */
-async function compile(pages) {
+async function compile(pages, sc) {
   const files = {};
   for (const p of pages) files[p.path] = p.source;
   const r = await fetch(`http://127.0.0.1:${PORT}/build`, {
@@ -186,7 +247,7 @@ async function compile(pages) {
     // sample could be LOOKED at and still not show what a customer gets.
     // `fontFiles` is production-only: the Worker has no npm, the container does,
     // and the build service resolves the pair itself when they are absent.
-    body: JSON.stringify({ files, slug: "eval-aurora", title: BRAND, theme: THEME, fonts: FONTS }),
+    body: JSON.stringify({ files, slug: "eval-" + sc.key, title: sc.brand, theme: sc.theme, fonts: sc.fonts }),
   });
   return r.json();
 }
@@ -206,9 +267,9 @@ const shapeOf = (line) => String(line)
  * Never throws: a build that ran and cost money must not be lost because the
  * disk write failed, and the numbers are already in hand by this point.
  */
-function saveSample(n, stage, pages, errors) {
+function saveSample(key, n, stage, pages, errors) {
   try {
-    const dir = path.join(ROOT, "docs", "auth-audit", "pages", String(n));
+    const dir = path.join(ROOT, "docs", "auth-audit", "pages", key + "-" + n);
     // Wiped first, or a run that writes FEWER pages than the last one leaves the
     // previous run's extra route sitting there looking like part of this site —
     // the same leak `src/routes` is reset for on every container build.
@@ -216,7 +277,7 @@ function saveSample(n, stage, pages, errors) {
     for (const p of pages) fs.writeFileSync(path.join(dir, p.path.replace(/[/\\]/g, "_")), p.source);
     fs.writeFileSync(path.join(dir, "_stage.txt"), stage + "\n");
     if (errors && errors.length) fs.writeFileSync(path.join(dir, "_errors.txt"), errors.join("\n"));
-  } catch (e) { console.error(`could not save sample ${n}:`, e && e.message); }
+  } catch (e) { console.error(`could not save sample ${key}-${n}:`, e && e.message); }
 }
 
 const results = [];
@@ -225,7 +286,7 @@ const lintCounts = new Map();
 
 try {
   if (!(await startServer())) { console.error("the build service did not come up"); process.exit(1); }
-  console.log(`sampling the page generator ${SAMPLES}×, fixed schema, no database\n`);
+  console.log(`sampling the page generator ${SAMPLES}× across ${SCENARIOS.length} site shapes (${SCENARIOS.map((x) => x.key).join(", ")}), fixed schemas, no database\n`);
 
   // WIPED ONCE, BEFORE ANY SAMPLE. Per-sample would leave sample 4 and 5 behind
   // when the count drops from five to three, and a stale site sitting beside
@@ -234,28 +295,30 @@ try {
   try { fs.rmSync(path.join(ROOT, "docs", "auth-audit", "pages"), { recursive: true, force: true }); }
   catch (e) { console.error("could not clear the previous run's pages:", e && e.message); }
 
-  for (let n = 1; n <= SAMPLES; n++) {
-    const row = { n, stage: "?", files: [], problems: [], errors: [] };
+  for (const sc of SCENARIOS) {
+   console.log(`— ${sc.key} (${sc.family})`);
+   for (let n = 1; n <= SAMPLES; n++) {
+    const row = { key: sc.key, n, stage: "?", files: [], problems: [], errors: [] };
     try {
-      const gen = await generate();
+      const gen = await generate(sc);
       if (gen.usage) { row.usage = gen.usage; }
-      if (gen.truncated) { row.stage = "truncated"; console.log(`  ${n}. TRUNCATED at max_tokens`); results.push(row); continue; }
+      if (gen.truncated) { row.stage = "truncated"; console.log(`  ${sc.key} ${n}. TRUNCATED at max_tokens`); results.push(row); continue; }
       const v = validatePages(gen.input);
-      if (!v.pages.length) { row.stage = "no-pages"; row.problems = v.problems; console.log(`  ${n}. NO PAGES  ${v.problems.join(" | ") || "(nothing usable)"}`); results.push(row); continue; }
+      if (!v.pages.length) { row.stage = "no-pages"; row.problems = v.problems; console.log(`  ${sc.key} ${n}. NO PAGES  ${v.problems.join(" | ") || "(nothing usable)"}`); results.push(row); continue; }
 
-      const problems = v.problems.concat(lintPages(v.pages, SPEC));
-      const built = await compile(v.pages);
+      const problems = v.problems.concat(lintPages(v.pages, sc.spec));
+      const built = await compile(v.pages, sc);
 
       row.files = v.pages.map((p) => p.path);
       row.problems = problems;
       if (built.ok) {
         row.stage = "ok";
-        console.log(`  ${n}. OK  ${row.files.length} files${problems.length ? `, ${problems.length} lint problem(s)` : ""}`);
+        console.log(`  ${sc.key} ${n}. OK  ${row.files.length} files${problems.length ? `, ${problems.length} lint problem(s)` : ""}`);
       } else {
         row.stage = built.stage || "compile";
         row.errors = String(built.error || "").split("\n").filter((l) => /error TS/.test(l));
         for (const e of row.errors) errorCounts.set(shapeOf(e), (errorCounts.get(shapeOf(e)) || 0) + 1);
-        console.log(`  ${n}. FAILED ${row.stage}`);
+        console.log(`  ${sc.key} ${n}. FAILED ${row.stage}`);
         for (const e of row.errors.slice(0, 5)) console.log(`       ${e}`);
       }
       // KEEP THE SOURCE OF EVERY SAMPLE, not only the failures.
@@ -268,7 +331,7 @@ try {
       // about whether it is a site anybody would want. Compiling is not working
       // — that is the lesson the grey charts and the crashing message-scroller
       // both taught, and neither would have been visible in a pass/fail column.
-      saveSample(n, row.stage, v.pages, row.errors);
+      saveSample(sc.key, n, row.stage, v.pages, row.errors);
       for (const p of problems.slice(0, 5)) {
         lintCounts.set(p.slice(0, 120), (lintCounts.get(p.slice(0, 120)) || 0) + 1);
         console.log(`       lint: ${p}`);
@@ -287,9 +350,10 @@ try {
         if (bit && !chain.includes(bit)) chain.push(bit);
       }
       row.stage = "threw"; row.problems = [chain.join(" ← ") || String(e)];
-      console.log(`  ${n}. THREW  ${row.problems[0]}`);
+      console.log(`  ${sc.key} ${n}. THREW  ${row.problems[0]}`);
     }
     results.push(row);
+   }
   }
 } finally {
   if (server) server.kill();
@@ -299,10 +363,31 @@ try {
 const compiled = results.filter((r) => r.stage === "ok");
 const clean = compiled.filter((r) => !r.problems.length).length;
 
+// PER SHAPE, NOT JUST A TOTAL.
+//
+// "2/3 compiled" across three different site shapes is the least useful way to
+// report this: it cannot distinguish "the generator is fine and one sample was
+// unlucky" from "it cannot build a menu site at all". The whole reason for
+// sampling more than one shape is to see WHICH one fails, so the number has to
+// be broken out or the extra spend buys nothing.
+const byShape = SCENARIOS.map((sc) => {
+  const rs = results.filter((r) => r.key === sc.key);
+  return {
+    key: sc.key,
+    family: sc.family,
+    ok: rs.filter((r) => r.stage === "ok").length,
+    n: rs.length,
+    clean: rs.filter((r) => r.stage === "ok" && !r.problems.length).length,
+  };
+});
+const shapeLines = byShape.map((b2) =>
+  `${b2.key} (${b2.family}): ${b2.ok}/${b2.n} compiled` + (b2.ok ? `, ${b2.clean} clean` : ""));
+
 // No "first try" column any more: with the repair pass gone every sample IS a
 // first try, and a second number saying the same thing invites reading it as a
 // second chance that exists.
 console.log(`\n${compiled.length}/${results.length} compiled · ${clean} with no lint problems`);
+for (const l of shapeLines) console.log("  " + l);
 
 // WHAT IT COST, AND HOW MUCH OF THE OUTPUT WAS COMMENTS. The second number is
 // here because rule 13 asks the model not to write them and an unmeasured rule
@@ -347,7 +432,12 @@ try {
   const lines = [
     "# Page generator — compile rate", "",
     `**${compiled.length}/${results.length} compiled**, ${clean} with no lint problems.`, "",
-    "One fixed schema, no database and no publish — this measures the GENERATOR, not the build path around it.",
+    "Three site shapes, each with its own schema, family and layout directive — a booking site, a",
+    "menu-only site with no form at all, and an internal tool where every page needs a signed-in member.",
+    "",
+    ...shapeLines.map((l) => "- " + l),
+    "",
+    "No database and no publish — this measures the GENERATOR, not the build path around it.",
     "One call a sample, because a build makes one call: there is no repair pass, so this rate IS what the platform ships.",
     "A single failure is variance; a column of the same error is a mismatch worth fixing.", "",
   ];
@@ -368,7 +458,7 @@ try {
   }
   lines.push("## Samples", "");
   for (const r of results) {
-    lines.push(`- **${r.n}. ${r.stage}** — ${r.files.length ? r.files.join(", ") : "(no files)"}`);
+    lines.push(`- **${r.key} ${r.n}. ${r.stage}** — ${r.files.length ? r.files.join(", ") : "(no files)"}`);
     for (const e of r.errors.slice(0, 4)) lines.push(`  - \`${e}\``);
     for (const p of r.problems.slice(0, 4)) lines.push(`  - lint: ${p}`);
   }

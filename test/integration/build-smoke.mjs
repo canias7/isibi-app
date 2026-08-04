@@ -136,13 +136,41 @@ try {
   // this is now a live check that `grantsFor` says what we think it says. A
   // `display` table is granted SELECT only and a `collect` table INSERT only, and
   // Postgres refuses the other direction with 42501, which PostgREST answers 403.
+  // A BRAND-NEW SITE IS NOT REACHABLE THE INSTANT THE BUILD RETURNS.
+  //
+  // Measured 2026-08-04: this probe ran 10s after the build and got
+  // `400 missing authentication credentials` — our proxy fetches an anonymous
+  // token from the site's own Neon Auth server and attaches it, and that fetch
+  // had failed, so nothing was attached. A second probe 43s in timed out (503).
+  // The browser then made the SAME reads at 45s and every one answered 200.
+  //
+  // These assertions are about GRANTS, not about latency, so they retry rather
+  // than reporting a permissions failure that is really a cold start. The wait
+  // is bounded and it REPORTS what it saw on the way, because "the first minute
+  // of a new site's life is broken" is a real thing to know about and not
+  // something a retry should paper over silently.
+  const settle = async (url, want, tries = 6) => {
+    let last = null;
+    for (let i = 0; i < tries; i++) {
+      const r = await fetch(url).catch((e) => ({ status: 0, text: async () => String(e && e.message) }));
+      const body = await r.text().catch(() => "");
+      last = { status: r.status, body };
+      if (r.status === want) {
+        if (i) console.log(`   (settled after ${i} retr${i === 1 ? "y" : "ies"}: ${url.split("/data/")[1]})`);
+        return last;
+      }
+      await new Promise((res) => setTimeout(res, 5000));
+    }
+    return last;
+  };
+
   if (display) {
     // THE BODY, NOT JUST THE STATUS. `-> 501` and `-> 400` were the entire
     // report on three failures for a whole day, and each time the reason was
     // sitting in a response nobody read. The proxy passes the Data API's answer
     // through as-is, so PostgREST's own `message`/`code`/`hint` is right there.
-    const r2 = await fetch(`${BASE}/api/db/${slug}/data/${display.name}?select=*`);
-    const b2 = await r2.text().catch(() => "");
+    const r2 = await settle(`${BASE}/api/db/${slug}/data/${display.name}?select=*`, 200);
+    const b2 = r2.body;
     ok(`GET ${display.name} (display) is allowed`, r2.status === 200, r2.status + " " + b2.slice(0, 300));
     const w = await fetch(`${BASE}/api/db/${slug}/data/${display.name}`, {
       method: "POST", headers: { "content-type": "application/json" }, body: "{}",
@@ -151,8 +179,8 @@ try {
       w.status + " " + (await w.text().catch(() => "")).slice(0, 300));
   }
   if (collect) {
-    const r3 = await fetch(`${BASE}/api/db/${slug}/data/${collect.name}?select=*`);
-    const b3 = await r3.text().catch(() => "");
+    const r3 = await settle(`${BASE}/api/db/${slug}/data/${collect.name}?select=*`, 403);
+    const b3 = r3.body;
     ok(`GET ${collect.name} (collect) is refused — submissions are not public`,
       r3.status === 403, r3.status + " " + b3.slice(0, 300));
   }
@@ -465,6 +493,37 @@ try {
             await opt.click({ timeout: 3000 });
           } catch { /* not every combobox opens a listbox; skip it */ }
         }
+        // A SLOT GRID IS A CHOOSER MADE OF BUTTONS, and the filler above cannot
+        // see it: it handles inputs, textareas and comboboxes. A generated
+        // booking page picks its time from a row of buttons fed by the live
+        // availability read — which is the correct design and the one this
+        // platform exists to produce.
+        //
+        // Measured 2026-08-04: every field filled, `Time` in red, "Pick a time"
+        // underneath, no POST. The form was right and the robot could not drive
+        // it, so the run reported "no POST went out — a required Select with no
+        // options is the usual cause", which named the wrong cause entirely.
+        //
+        // Deliberately narrow: only a GROUP of three or more enabled
+        // `type="button"` siblings, and never the submit. One or two buttons in a
+        // form are "cancel" and "add another"; three or more that share a parent
+        // are options to choose between.
+        await pg.evaluate(() => {
+          const form = document.querySelector("form");
+          if (!form) return;
+          const groups = new Map();
+          for (const b of form.querySelectorAll('button[type="button"]:not([disabled])')) {
+            const p = b.parentElement;
+            if (!p) continue;
+            if (!groups.has(p)) groups.set(p, []);
+            groups.get(p).push(b);
+          }
+          for (const [, bs] of groups) {
+            if (bs.length >= 3 && !bs.some((b) => b.getAttribute("aria-pressed") === "true")) bs[0].click();
+          }
+        });
+        await pg.waitForTimeout(400);
+
         const submit = await pg.$('form button[type="submit"]') || await pg.$("form button");
         if (submit) await submit.click({ timeout: 5000 }).catch(() => {});
         await pg.waitForTimeout(7000);
