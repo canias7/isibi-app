@@ -1,0 +1,124 @@
+// A build step that fails must say why — even when it said nothing.
+//
+// WHY THIS EXISTS. `build smoke` reported, against the deployed Worker:
+//
+//   page=placeholder stage=build error=build failed problems=[]
+//
+// "build failed" is the least useful sentence this service can produce: it names
+// the step we already knew and adds nothing. It was the `|| "build failed"`
+// fallback firing because the step exited non-zero having written to NEITHER
+// stream — and a step that writes nothing usually never got to, because it was
+// killed rather than because it failed.
+//
+// `run()` was resolving `{code, out, err}` and DISCARDING the signal. A killed
+// process closes with `code: null` plus the signal that killed it, and
+// `null !== 0` reads as an ordinary non-zero exit, so a SIGKILL was reported as
+// a build that failed for no stated reason.
+//
+// Same family as `detail: "{}"`, `upstream: null`, `no JSON` and the swallowed
+// `catch {}`: the system knew something and threw it away.
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import { spawn } from "node:child_process";
+import { exitReason } from "../builder/exit-reason.mjs";
+
+/** Run a real child and hand back what `run()` hands back. */
+function realRun(args) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, ["-e", args]);
+    let out = "", err = "";
+    child.stdout.on("data", (d) => { out += d; });
+    child.stderr.on("data", (d) => { err += d; });
+    child.on("close", (code, signal) => resolve({ code, signal, out, err }));
+  });
+}
+
+test("a process killed with no output names the signal, not 'build failed'", async () => {
+  // DRIVEN BY A REAL KILL, not a hand-written {code:null,signal:"SIGKILL"}.
+  // The whole bug was a wrong belief about what node reports when a child dies,
+  // so a fabricated object would have asserted the belief rather than tested it.
+  const r = await realRun("process.kill(process.pid, 'SIGKILL')");
+  assert.equal(r.code, null, "node reports a killed child as code null — the premise");
+  assert.equal(r.signal, "SIGKILL");
+  assert.equal(r.out + r.err, "", "and it gets no chance to say anything");
+
+  const said = exitReason("vite build", r);
+  assert.match(said, /SIGKILL/);
+  assert.match(said, /vite build/, "which step died is half the answer");
+  assert.match(said, /instance was stopped|resource limit/,
+    "a killed step must name what could have killed it, or the reader has nowhere to start");
+  // MEASURED, not assumed: the container is standard-1 (4 GiB) and vite peaks at
+  // 618 MiB here, so memory is the weaker candidate. Asserting it as the cause
+  // would send whoever reads this message chasing the wrong thing first.
+  assert.ok(!/usually means the container ran out of memory/.test(said),
+    "do not assert a cause the measurements argue against");
+  assert.ok(!/^build failed$/.test(said));
+});
+
+test("a signal that is not SIGKILL is reported without guessing at memory", async () => {
+  const r = await realRun("process.kill(process.pid, 'SIGTERM')");
+  const said = exitReason("tsc", r);
+  assert.match(said, /SIGTERM/);
+  assert.ok(!/resource limit/.test(said),
+    "SIGTERM is a polite request to stop, not a kill — offering causes for it would be inventing them");
+});
+
+test("a silent non-zero exit reports the code", async () => {
+  const r = await realRun("process.exit(7)");
+  assert.equal(r.out + r.err, "");
+  const said = exitReason("vite build", r);
+  assert.match(said, /code 7/);
+  assert.match(said, /wrote nothing/);
+});
+
+test("real output always wins over the synthesised reason", async () => {
+  const r = await realRun("console.error('Could not resolve @/nope'); process.exit(1)");
+  const said = exitReason("vite build", r);
+  assert.match(said, /Could not resolve @\/nope/);
+  assert.ok(!/code 1/.test(said), "the tool's own diagnosis is the answer; do not decorate it");
+});
+
+test("which stream leads is stated, not swapped at the call site", async () => {
+  // tsc reports on stdout and everything else on stderr. The first draft passed
+  // `{...tsc, err: tsc.out, out: tsc.err}` — correct, and it reads as a bug.
+  const r = await realRun("console.log('OUT'); console.error('ERR')");
+  assert.match(exitReason("tsc", r, { stdoutFirst: true }), /^OUT/);
+  assert.match(exitReason("vite build", r), /^ERR/);
+});
+
+test("every failure that reports a child process goes through it", () => {
+  // DERIVED AT BOTH ENDS: the subprocess names come from `run()`'s own call
+  // sites, and every failure whose message is built from one of them must use
+  // exitReason. A step still assembling its own string is one that can go silent
+  // again, which is the entire failure this replaces.
+  //
+  // Aimed at exactly those, and no wider. The first draft demanded it of EVERY
+  // `ok:false` and flagged two that report no subprocess at all — "build
+  // produced no index.html" and the catch-all, whose messages are already the
+  // whole answer. A guard that fires on correct code gets loosened rather than
+  // obeyed, and then it protects nothing.
+  const src = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
+  const names = [...src.matchAll(/const (\w+) = await run\(/g)].map((m) => m[1]);
+  assert.ok(names.length >= 3, `only ${names.length} run() call sites found — the scan stopped working`);
+
+  const stages = [...src.matchAll(/ok: false, stage: "(\w+)", error: (.+?), ms:/g)];
+  assert.ok(stages.length >= 3, `only ${stages.length} failing stages found — the scan stopped working`);
+
+  // Blank string literals before looking for an identifier, or `"vite build"`
+  // reads as a use of the variable `build`. Blanked, not removed, so nothing
+  // shifts. This repo has been bitten by scanning code with its strings intact.
+  const bare = (s) => s.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, (m) => " ".repeat(m.length));
+  const reportsAChild = ([, , expr]) => names.some((n) => new RegExp("\\b" + n + "\\b").test(bare(expr)));
+
+  const relevant = stages.filter(reportsAChild);
+  assert.ok(relevant.length >= 3,
+    `only ${relevant.length} failures reference a subprocess — the identifier scan stopped working`);
+  const handRolled = relevant.filter(([, , expr]) => !/exitReason\(/.test(expr));
+  assert.deepEqual(handRolled.map(([, stage]) => stage), [],
+    "these build their own error string, so they can still report a killed step as nothing");
+
+  // `run` must actually CARRY the signal, or exitReason can never see one.
+  assert.match(src, /child\.on\("close", \(code, signal\)/,
+    "run() drops the signal again, so a SIGKILL reads as an ordinary non-zero exit");
+});
