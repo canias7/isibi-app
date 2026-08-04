@@ -34,6 +34,14 @@
  *   dbNameFor(slug)             → dbName
  */
 export async function ensureSiteBackend(deps, { slug, uid }) {
+  // OPTIONAL, like `deps.warn`. Provisioning is six Neon/Supabase calls behind
+  // one number in the build trace, and a COLD provision (create the project,
+  // poll until it exists, create the database, poll again, enable auth, enable
+  // the Data API) takes tens of seconds while a WARM one — the slug already has
+  // a database — is a single lookup. They were indistinguishable from outside.
+  // Injected rather than returned, because the interesting case is the build
+  // that THROWS half way through: a return value never arrives.
+  const mark = (name) => { try { deps.mark?.(name); } catch { /* never break a build */ } };
   // Deliberately NOT the cached read used on the request path. This is the write
   // path: a cached connection string for a slug another isolate has since
   // deleted would send a schema apply at a dropped database. A build takes tens
@@ -50,6 +58,7 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
     if (existing.uid && existing.uid !== uid) {
       throw Object.assign(new Error("that name is taken"), { stage: "owner", conflict: true });
     }
+    mark("reuse");
     return existing.conn;
   }
   // Exists but with no usable connection recorded, owned by someone else: still
@@ -79,6 +88,7 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
         stage: "save_project",
       });
     }
+    mark("project");
   }
 
   // A retried build can hit an already-created database; that is success, not
@@ -90,6 +100,7 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
     if (!/already exists/i.test(String((e && e.detail) || (e && e.message) || ""))) throw e;
     dbName = deps.dbNameFor(slug);
   }
+  mark("database");
 
   // Neon Auth, every time — not only when the project was just created.
   //
@@ -137,6 +148,7 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
       try { await deps.saveAuthInfo(dbName, authInfo.info); }
       catch (e) { deps.warn?.("saveAuthInfo failed for " + slug + ": " + ((e && e.message) || e)); }
     }
+    mark("auth");
   }
 
   // The Data API. Fatal for the same reason auth is: with the Worker's own row
@@ -157,6 +169,7 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
       try { await deps.saveDataInfo(dbName, dataInfo.info); }
       catch (e) { deps.warn?.("saveDataInfo failed for " + slug + ": " + ((e && e.message) || e)); }
     }
+    mark("data_api");
   }
 
   // The database exists now, but nothing points at it until this row lands: the
@@ -171,5 +184,6 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
     });
   }
 
+  mark("record");
   return deps.connFor(proj.neon_conn, dbName);
 }

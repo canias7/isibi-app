@@ -112,9 +112,25 @@ test("the build route actually uses it", () => {
   // NAMED, not counted. A `>= 6` floor with seven marks present survives one
   // being deleted — proved by mutation. These are the steps whose duration is
   // the actual question ("which one was slow"), so each is asserted by name.
-  for (const step of ["body", "design", "normalize", "provision", "schema", "seed", "pages"]) {
+  for (const step of ["body", "gate", "design", "normalize", "provision", "schema", "seed", "merge", "pages"]) {
     assert.match(w, new RegExp('tr\\.at\\("' + step + '"'), `the route stopped recording "${step}"`);
   }
+  // PROVISIONING IS SIX CALLS, not one step. A cold provision (create the Neon
+  // project, poll, create the database, poll, enable auth, enable the Data API)
+  // and a warm one (a single lookup) differed by tens of seconds and were the
+  // same number. The module reports them through an injected callback, because
+  // the interesting case is the build that THROWS half way through — a return
+  // value never arrives.
+  assert.match(w, /ensureSiteBackend\(env, slug, bu\.id, brief, \(n\) => tr\.at\("prov:" \+ n\)\)/,
+    "provisioning is back to being one opaque number");
+  assert.match(w, /^\s*mark,$/m, "the worker's wrapper takes a mark and never forwards it to the module");
+  // THE PAGES CALL'S SPLIT. It was the model call, the container compile and ~20
+  // R2 puts together.
+  for (const k of ["genMs: pages.genMs", "buildMs: pages.buildMs", "publishMs: pages.publishMs"]) {
+    assert.ok(w.includes(k), `the pages step does not report ${k.split(":")[0]}`);
+  }
+  assert.match(w, /pagesUsage: pages\.usage \|\| undefined/,
+    "the pages call is metered on four token kinds and reports none of them");
   assert.match(w, /trace: traced\.steps/, "the trace is built and then never returned");
   assert.match(w, /tr\.line\(\)/, "nothing logs it either");
 });

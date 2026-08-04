@@ -12586,3 +12586,45 @@ measurement into a flake.
 arrive on the first green `build smoke` after a top-up.
 
 823 unit tests.
+
+### "Will it tell me everything?" — no, so the three holes got closed (2026-08-04)
+
+The first version reported seven top-level steps, and two of them were still
+single numbers hiding most of the build.
+
+**`pages` was the model call, the container compile and ~20 R2 puts together** —
+the majority of a build's wall clock with no way to attribute it. `buildMs`
+already split out the container; `genMs` and `publishMs` split out the other two,
+so "the build took four minutes" now names which.
+
+**`provision` was six calls behind one number**, and a COLD provision (create the
+Neon project, poll until it exists, create the database, poll again, enable auth,
+enable the Data API) differs from a WARM one — a single Supabase lookup — by tens
+of seconds, with nothing saying which had happened. `site-provision.mjs` takes an
+optional `mark` callback, the same shape as the `warn` it already had. Injected
+rather than returned **because the interesting case is the build that throws half
+way through**: a return value never arrives. A warm build now reads `prov:reuse`
+and a cold one `prov:project · prov:database · prov:auth · prov:data_api ·
+prov:record`.
+
+**The PAGES call reported no token breakdown** — `charge()` priced the four kinds
+and threw them away. So the schema call, which is billed a flat 2 credits,
+reported its cache reads and writes, while the pages call, the one that actually
+costs money, reported a single credit total. `pagesUsage` is returned beside
+`schemaUsage` now, and `build smoke` prints them one above the other.
+
+Two smaller gaps also folded into their neighbours: the credit gate (a Supabase
+round trip that was inside the model call's time) and the merged-schema read plus
+og-image lookup (inside `pages`). Both are marked.
+
+**Closing this found a real hole in the unit tests, unrelated to tracing.** The
+`site-provision` harness had **no `enableData` dep at all**, so `if
+(deps.enableData)` was false in every unit test and the Data API branch — the
+site's entire backend since our own row routes were deleted — ran in none of
+them. That is the branch whose wrong path (`/data_api` for `/data-api`) broke
+every build on 2026-08-04 while the suite stayed green. A fake less capable than
+the real thing hides bugs exactly the way one that is more capable does. The
+harness has it now, plus two tests: auth and the Data API must name the same
+database, and a failed enable must fail the build with `stage:"enable_data_api"`.
+
+831 unit tests. **36 mutants across both rounds, all caught.**

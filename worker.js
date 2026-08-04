@@ -3126,7 +3126,7 @@ async function siteNeonProject(env, slug) {
 // Provision (or reuse) one site's database, returning its connection string.
 // The ordering and the failure paths live in site-provision.mjs, where they are
 // tested; this supplies the real Neon and Supabase calls.
-async function ensureSiteBackend(env, slug, uid, brief) {
+async function ensureSiteBackend(env, slug, uid, brief, mark) {
   const write = async (table, body) => {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
       method: "POST",
@@ -3154,6 +3154,10 @@ async function ensureSiteBackend(env, slug, uid, brief) {
     // Where a swallowed best-effort failure goes. Without it a site can be a
     // shell and nothing anywhere says why.
     warn: (m) => console.error(m),
+    // Optional. The build route passes its trace so a COLD provision (create the
+    // project, poll, create the database, poll, enable auth, enable the Data
+    // API) is distinguishable from a WARM one, which is a single lookup.
+    mark,
     createProject: (s2) => createSiteProject(env, s2),
     // Identity is Neon's now. Idempotent, and run on the reuse path too —
     // see site-provision.mjs for why enabling only at creation is a trap.
@@ -5854,6 +5858,10 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, msg: "Credits check failed — try again in a moment." }, { status: 503 });
         }
         if (!(balanceAfter >= 0)) return Response.json({ ok: false, error: "not enough credits", need: "credits", cost: SITE_BUILD_FEE }, { status: 402 });
+        // The credit gate is a Supabase round trip and it was folded into the
+        // model call's time, which is the one number here nobody should be
+        // guessing about.
+        tr.at("gate");
 
         try {
           const dz = await designSiteSchema(env, brief);
@@ -5923,7 +5931,7 @@ async function handleRequest(request, env, ctx) {
 
       let db;
       try {
-        db = await ensureSiteBackend(env, slug, bu.id, brief);
+        db = await ensureSiteBackend(env, slug, bu.id, brief, (n) => tr.at("prov:" + n));
         tr.at("provision");
       } catch (e) {
         if (e && e.conflict) return Response.json({ ok: false, error: "that name is taken" }, { status: 409 });
@@ -5999,6 +6007,8 @@ async function handleRequest(request, env, ctx) {
         }
       } catch (e) { console.error("merged schema read failed:", slug, e && e.message); }
 
+      tr.at("merge");
+
       let pages = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
       if (brief && env.SITE_BUILD_CONTAINER && env.SITES_BUCKET) {
         try {
@@ -6071,7 +6081,15 @@ async function handleRequest(request, env, ctx) {
           }
         } catch (e) { console.error("placeholder publish failed:", slug, e && e.message); }
       }
-      tr.at("pages", { credits: pages.cost || 0, buildMs: pages.buildMs || 0 });
+      // SPLIT, not one number. `pages` was the model call, the container compile
+      // and ~20 R2 puts together — the majority of a build's wall clock with no
+      // way to attribute it.
+      tr.at("pages", {
+        credits: pages.cost || 0,
+        genMs: pages.genMs || 0,
+        buildMs: pages.buildMs || 0,
+        publishMs: pages.publishMs || 0,
+      });
 
       // `schema` reports the access level chosen per table. It is what makes a
       // build verifiable from outside: a menu must come back `display` and an
@@ -6124,6 +6142,10 @@ async function handleRequest(request, env, ctx) {
         schemaUsage: schemaUsage || undefined,
         schemaCredits: schemaUsage ? pageCredits(schemaUsage) : undefined,
         schemaFee: designed ? SITE_BUILD_FEE : undefined,
+        // The PAGES call's four token kinds. It is metered on exactly these and
+        // reported only the credit total, so the expensive call was the one
+        // whose cache behaviour could not be seen.
+        pagesUsage: pages.usage || undefined,
       });
     }
 

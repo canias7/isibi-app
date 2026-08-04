@@ -130,11 +130,13 @@ try {
     console.log("   trace:", d.trace.map((s) => s.s + " " + s.ms + "ms").join(" · "));
     console.log("   total:", d.totalMs + "ms");
   }
-  if (d.schemaUsage) {
-    const u = d.schemaUsage;
-    console.log(`   schema call: in ${u.in} · out ${u.out} · cacheRead ${u.cacheRead} · cacheWrite ${u.cacheWrite}` +
-      ` → ${d.schemaCredits} credits, charged ${d.schemaFee}`);
-  }
+  // Both model calls, side by side, in the four kinds they are priced in. Whether
+  // the flat SITE_BUILD_FEE is right, and whether the cached prefixes are paying
+  // for themselves, are answerable from these two lines and from nothing else.
+  const usage = (label, u, extra) => u && console.log(
+    `   ${label}: in ${u.in} · out ${u.out} · cacheRead ${u.cacheRead} · cacheWrite ${u.cacheWrite}${extra || ""}`);
+  usage("schema call", d.schemaUsage, ` → ${d.schemaCredits} credits, charged ${d.schemaFee}`);
+  usage("pages call ", d.pagesUsage, ` → charged ${d.cost - (d.schemaFee || 0)} credits`);
   // Reported, never enforced: the trace is a diagnostic, and a smoke test that
   // fails on a slow step turns a measurement into a flake.
   ok("the build reports its own steps", Array.isArray(d.trace) && d.trace.length >= 3,

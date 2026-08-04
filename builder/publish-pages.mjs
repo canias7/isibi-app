@@ -131,7 +131,19 @@ export async function publishPages(deps, { spec, slug } = {}) {
     return bd || { ok: false, stage: "build", error: "the build service returned nothing" };
   };
 
+  // THE MODEL CALL, TIMED. It is the slowest single thing in a build and it was
+  // folded into one `pages` number alongside the container compile and ~20 R2
+  // puts, so "the build took four minutes" could not be attributed to any of
+  // them. `buildMs` already splits out the compile; these split out the rest.
+  const tGen = Date.now();
   const gen = await deps.generate();
+  out.genMs = Date.now() - tGen;
+  // THE FOUR TOKEN KINDS, kept rather than collapsed into a credit total.
+  // `charge` prices them and threw the breakdown away — so the SCHEMA call
+  // reported its cache-read and cache-write counts while the pages call, the one
+  // that actually costs money, reported a single number. Whether PAGE_RULES's
+  // ~27k-token cached prefix is paying for itself is answerable only from these.
+  out.usage = gen.usage || null;
   await charge(gen);
   const v = validatePages(gen.input);
   if (!v.pages.length) {
@@ -194,7 +206,11 @@ export async function publishPages(deps, { spec, slug } = {}) {
     return out;
   }
 
+  // ~20 R2 puts. Small, but it is the last thing between a compiled bundle and a
+  // live site, and an unexplained gap at the end of a build had nowhere to be.
+  const tPub = Date.now();
   await deps.publish(built.files);
+  out.publishMs = Date.now() - tPub;
   out.page = "app";
   return out;
 }
