@@ -70,6 +70,18 @@ const auth = (action, init) => fetch(`${BASE}/api/db/${slug}/auth/${action}`, in
 /** The site's Data API, through the same proxy a published page uses. */
 const data = (path, init) => fetch(`${BASE}/api/db/${slug}/data/${path}`, init);
 const bearer = (t) => ({ Authorization: `Bearer ${t}` });
+
+// A COOKIE JAR, because node's fetch has none and the session is a cookie.
+// Measured 2026-08-04: sign-in answers with `set-cookie` and nothing else, so a
+// client that does not send it back is signed out on every later call — which is
+// exactly what a browser does automatically and this test did not.
+let jar = null;
+const keepCookie = (res) => {
+  const c = res.headers.get("set-cookie");
+  if (c) jar = c.split(";")[0];
+  return res;
+};
+const withCookie = (extra) => (jar ? { ...(extra || {}), cookie: jar } : (extra || {}));
 const jsonPost = (body, t) => ({
   method: "POST",
   headers: { "content-type": "application/json", ...(t ? bearer(t) : {}) },
@@ -144,7 +156,7 @@ try {
   // --- signing up ------------------------------------------------------------
   console.log("\nsigning up and signing in…");
   const m1 = { email: `ada-${stamp}@example.com`, password: "correct-horse-battery", name: "Ada" };
-  const su = await auth("sign-up/email", jsonPost(m1));
+  const su = keepCookie(await auth("sign-up/email", jsonPost(m1)));
   const suHeaderTok = su.headers.get("set-auth-token");
   const suBody = await su.json().catch(() => null);
   ok("signup succeeds", su.status >= 200 && su.status < 300, su.status + " " + JSON.stringify(suBody).slice(0, 200));
@@ -156,7 +168,7 @@ try {
   // up — the one seam only a real sign-in proves." `tokenOf` here is a copy of
   // the client's, so this asserts the exact value a generated page would store.
 
-  const li = await auth("sign-in/email", jsonPost({ email: m1.email, password: m1.password }));
+  const li = keepCookie(await auth("sign-in/email", jsonPost({ email: m1.email, password: m1.password })));
   const tokA2 = tokenOf(await li.json().catch(() => null));
   ok("signing in again works", li.status >= 200 && li.status < 300 && !!tokA2, li.status);
 
@@ -208,11 +220,15 @@ try {
   const probe = await auth("get-session", { headers: { ...bearer(tokA), "x-isibi-debug": "headers" } });
   console.log("   get-session upstream: " + upstream(probe));
   console.log("   what the client sees: " + names(probe));
-  ok("sign-in answers with a bearer token in set-auth-token",
-    !!suHeaderTok, "the proxy is stripping it, or the bearer plugin is off");
+  // COOKIE-BASED, measured rather than assumed: sign-in answers with
+  // `set-cookie` and no `set-auth-token`, so Better Auth's bearer plugin is off
+  // in Neon's managed deployment. The bearer is still sent alongside, because it
+  // costs nothing and a deployment WITH that plugin would want it.
+  ok("sign-in answers with a session cookie", !!jar,
+    "no set-cookie survived the proxy, so no session can be established");
   const sessTok = suHeaderTok || tokA;
 
-  const sess = await auth("get-session", { headers: bearer(sessTok) });
+  const sess = await auth("get-session", { headers: withCookie(bearer(sessTok)) });
   console.log("   get-session headers: " + names(sess));
   const sessBody = await sess.json().catch(() => null);
   ok("and that token opens a session", sess.status === 200 && !!(sessBody && sessBody.user),

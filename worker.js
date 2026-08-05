@@ -13,6 +13,7 @@ import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
 import { injectMeta } from "./site-meta.mjs";
+import { rescopeCookie } from "./site-cookie.mjs";
 import { drainTeardown } from "./site-teardown.mjs";
 import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlIdent, seedSiteRows } from "./site-schema.mjs";
@@ -3420,7 +3421,7 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
   // cookies for isibi.ai into a third party.
   // `prefer` carries PostgREST's return=representation, which is how an insert
   // answers with the row it created rather than an empty body.
-  for (const h of ["content-type", "authorization", "accept", "prefer"]) {
+  for (const h of ["content-type", "authorization", "accept", "prefer", "cookie"]) {
     const v = request.headers.get(h);
     if (v) headers.set(h, v);
   }
@@ -3543,6 +3544,30 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
         // credentials, and this reaches a public CI log.
         ...(request.headers.get("x-isibi-debug") === "headers"
           ? { "x-isibi-upstream": [...r.headers.keys()].join(",").slice(0, 500) } : {}),
+        // THE SESSION COOKIE, RESCOPED — and without it member accounts cannot
+        // work at all. Measured 2026-08-04 by asking the auth server what it
+        // sends: SIGN-IN answers with `set-cookie` and nothing else, so Neon's
+        // managed Better Auth is COOKIE-based; the bearer plugin is off, which
+        // is why `set-auth-token` never appeared and two fixes built on it were
+        // wrong. With the cookie dropped here the session died at birth, so
+        // `get-session` answered `200 null` and there was never a JWT to hand
+        // the Data API.
+        //
+        // TWO REWRITES, and the second is a security matter, not tidiness:
+        //
+        //   `Domain` is stripped, or the browser refuses a cookie scoped to the
+        //   auth server's host when it arrives from isibi.ai.
+        //
+        //   `Path` is pinned to this site's own prefix. Every published site is
+        //   served from the SAME origin, so a cookie at `Path=/` would be sent
+        //   to every other site on isibi.ai — one barber shop's customer session
+        //   travelling to a stranger's site. Scoped here it reaches this slug's
+        //   auth and data calls and nothing else.
+        //
+        // HttpOnly / Secure / SameSite are left exactly as the auth server set
+        // them: those are its decisions about its own credential.
+        ...(rescopeCookie(r.headers.get("set-cookie"), "/api/db/" + slug + "/")
+          ? { "set-cookie": rescopeCookie(r.headers.get("set-cookie"), "/api/db/" + slug + "/") } : {}),
         ...(r.headers.get("set-auth-token") ? { "set-auth-token": r.headers.get("set-auth-token") } : {}),
         ...(r.headers.get("set-auth-jwt") ? { "set-auth-jwt": r.headers.get("set-auth-jwt") } : {}),
       },

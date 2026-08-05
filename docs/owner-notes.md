@@ -13259,3 +13259,46 @@ documents both described a deployment that is not this one, and the way to find
 that out was to ask the deployment.
 
 870 unit tests.
+
+## Member sessions are COOKIES, and the proxy was throwing them away (2026-08-04)
+
+Measured, after two fixes built on vendor documentation were both wrong. Asking
+the auth server what it actually sends:
+
+    sign-in upstream:     …, set-cookie, …          ← there it is
+    get-session upstream: …, no set-cookie, no set-auth-jwt
+
+**Neon's managed Better Auth is cookie-based. The bearer plugin is OFF**, which
+is why `set-auth-token` never appeared and why both earlier fixes — a JWT
+endpoint, then a bearer header — described a deployment that is not this one.
+
+`proxySiteService` neither forwarded `cookie` on the way in nor passed
+`set-cookie` back, so **the session died at birth**: `get-session` answered
+`200 null`, and with no session there was never a JWT for the Data API either.
+Every failure downstream of that was a symptom.
+
+**`site-cookie.mjs` rewrites two attributes and leaves everything else alone.**
+
+- **`Domain` is stripped.** It names the auth server's host, and a browser
+  silently refuses a cookie for a domain it is not on — so the session would
+  vanish with no error anywhere.
+- **`Path` is pinned to `/api/db/<slug>/`, and this one is a SECURITY fix.**
+  Every published site is served from ONE origin, so a cookie at `Path=/` is sent
+  to every other site on isibi.ai — one barber shop's customer session
+  travelling to a stranger's site, by construction rather than by mistake.
+  Scoped, it reaches that slug's auth and data calls and nothing else.
+- `HttpOnly`, `Secure`, `SameSite`, `Max-Age` are passed through untouched:
+  those are the session owner's decisions about its own credential, and a proxy
+  rewriting them is overruling the thing that issued it.
+
+The smoke test needed a **cookie jar** — node's `fetch` has none, which is
+precisely the behaviour a browser performs automatically and the test did not.
+
+**Three wrong fixes, then an instrument, then the answer.** The instrument was
+also wrong the first time: it reported the headers of OUR response, which the
+proxy rebuilds, so it could not tell "never sent" from "dropped". And the second
+version asked `get-session` — the call that READS a session — when `sign-in` is
+where one is established. Every step of that was avoidable by asking the
+deployment instead of the documentation.
+
+875 unit tests, 6 mutants on the cookie path, all caught.
