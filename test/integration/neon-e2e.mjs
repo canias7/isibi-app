@@ -426,15 +426,24 @@ try {
   ok("owner_id defaults to the caller, or no member can write anything",
     !!(ownerDef[0] && /app_user_id\(\)/.test(String(ownerDef[0].column_default))), JSON.stringify(ownerDef[0] || {}));
 
-  // REPORTED, not asserted: `team_id` is uuid and Better Auth's `organizationId`
-  // is whatever Neon's deployment made it. If it is uuid-shaped, that column can
-  // take `DEFAULT app_team_id()::uuid` and a team-mate's row would be shared on
-  // creation; if it is not, that default would make every write to a teamScope
-  // table throw, which is worse than the sharing quietly not happening. Deciding
-  // needs the real type, so this run answers it instead of a guess doing so.
+  // MEASURED 2026-08-05 and it is `uuid`, which is what let `team_id` gain a
+  // default at all — until this run it was deliberately left without one,
+  // because a bare `::uuid` cast on a non-uuid throws and every write to a team
+  // table would have failed. Still printed rather than asserted: it is Neon's
+  // column, so a change there is news rather than a broken build, and the
+  // default is guarded by a regex either way.
   const orgType = await sqlQuery(db,
     "SELECT data_type FROM information_schema.columns WHERE table_schema='neon_auth' AND table_name='member' AND column_name='organizationId'");
   console.log("   neon_auth.member.organizationId is: " + (orgType[0] ? orgType[0].data_type : "(no such column)"));
+  const teamDef = await sqlQuery(db,
+    "SELECT column_default FROM information_schema.columns WHERE table_name='deals' AND column_name='team_id'");
+  ok("team_id defaults to the caller's team, or the widening shares nothing",
+    !!(teamDef[0] && /app_team_id\(\)/.test(String(teamDef[0].column_default))), JSON.stringify(teamDef[0] || {}));
+  // A member in NO organization gets NULL rather than an error — which is the
+  // state a fresh site is entirely in, so it is the default path and not an edge.
+  const teamNull = await sqlQuery(db, "SELECT " + "app_team_id() IS NULL AS none");
+  ok("and a member in no organization simply gets none", teamNull[0] && teamNull[0].none === true,
+    JSON.stringify(teamNull[0] || {}));
 
   const teamFn = await sqlQuery(db,
     "SELECT prosecdef, pg_get_functiondef(oid) AS def FROM pg_proc WHERE proname='app_team_id'");
