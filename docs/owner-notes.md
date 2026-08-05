@@ -13516,3 +13516,32 @@ came back clean). What the CRM sample found, twice in a row:
   takes a source now, the way `extract` always has.
 
 893 tests, site-build 45/45.
+
+### The e2e answered both open questions
+
+Both things I deliberately left undecided came back measured on the next run.
+
+- **`grants attempted: [{ok:true},{ok:true}]` beside `auth-schema USAGE:
+  {"u":false,"a":false}`.** The grants report SUCCESS and change nothing — so
+  "silent success" is now recorded evidence rather than an inference from a log
+  line that was never written. That is the whole reason `applySiteSchema` returns
+  them.
+- **`neon_auth.member."organizationId" is: uuid`**, so `team_id` can have a
+  default after all. It now stamps the caller's team, for the same reason
+  `owner_id` stamps the caller: nothing has stamped either since the Worker's
+  data path was deleted, so a team-scoped row carried NULL and the colleague it
+  was meant for could not see it — the widening quietly did nothing.
+  - **The cast is guarded, not bare.** `app_team_id()` returns text, and a plain
+    `::uuid` on anything else THROWS: every write to a team table would fail.
+    Guarded by a regex, a non-uuid becomes NULL — the row is not shared, which is
+    the failure an owner can live with. The measurement says the guard should
+    never fire; it is there for the deployment where that stops being true, which
+    would otherwise be found by a customer.
+  - `~*` and not `~`, because a uuid can arrive uppercased.
+  - One constant, both call sites: a column created with one default and altered
+    to another is a table whose behaviour depends on when it was built.
+
+One of my own guards had to be relaxed on the way: it pinned the whole `team_id`
+DDL string while claiming to check that the policy's condition and the column's
+condition agree, so adding a DEFAULT failed it for a reason unrelated to its
+invariant. A guard that fires on unrelated edits gets relaxed rather than read.

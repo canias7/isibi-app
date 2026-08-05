@@ -32,6 +32,19 @@ export function sqlIdent(name) { if (!SAFE_IDENT.test(String(name || ""))) throw
 // they edited is what gets written; AFTER triggers return NULL (ignored).
 // Bodies are dollar-quoted and carry no bound parameters.
 
+// The default for a team-scoped row's `team_id`. Written once because the CREATE
+// and the revise-path ALTER must agree byte for byte: a column created with one
+// default and altered to a different one is a table whose behaviour depends on
+// when it was built, which is the class of bug `ADD COLUMN IF NOT EXISTS` not
+// changing a type already caused here.
+//
+// The regex is what makes the cast safe. `app_team_id()` returns text, and a bare
+// `::uuid` on anything else THROWS — every write to a team table would fail. This
+// way a value that is not uuid-shaped becomes NULL: the row is simply not shared,
+// which is the failure the owner can live with. `~*`, because a uuid may arrive
+// uppercased.
+const TEAM_DEFAULT = "(CASE WHEN app_team_id() ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN app_team_id()::uuid END)";
+
 const PG_TYPES = { text: "TEXT", string: "TEXT", integer: "INTEGER", int: "INTEGER", real: "REAL", float: "REAL", number: "REAL", numeric: "NUMERIC", blob: "BYTEA", boolean: "INTEGER", bool: "INTEGER", json: "TEXT", array: "TEXT", object: "TEXT" };
 // JSON/array columns store as TEXT: an object/array value is JSON-stringified on write
 // and re-parsed on read, so an app can keep nested/flexible data in one column.
@@ -356,7 +369,20 @@ export async function applySiteSchema(uuid, spec) {
     // `neon_auth.organization.id` — a uuid, not the sequential integer the deleted
     // `_teams` table used. No foreign key into `neon_auth`, for the same reason
     // owner_id has none.
-    if (t.teamScope && access === "user") cols.push('"team_id" UUID');
+    // DEFAULT the caller's team, for the same reason owner_id defaults to the
+    // caller: nothing stamps it since the Worker's data path was deleted, so a
+    // row created by a member carried `team_id` NULL and their colleagues could
+    // not see it — the widening quietly did nothing.
+    //
+    // THE CAST IS GUARDED RATHER THAN BARE, and that asymmetry is deliberate:
+    // `app_team_id()` returns text (its own comment says why), and a plain
+    // `::uuid` on a value that is not uuid-shaped THROWS, which would make every
+    // write to a team table fail. Absent sharing is a feature quietly not
+    // working; a broken write is the form nobody can use. Measured 2026-08-05
+    // against a real project — `neon_auth.member."organizationId"` IS uuid — so
+    // this is expected to take; the guard is for the deployment where it stops
+    // being true, which would otherwise be discovered by a customer.
+    if (t.teamScope && access === "user") cols.push('"team_id" UUID DEFAULT ' + TEAM_DEFAULT);
     if (t.trash) cols.push('"deleted_at" TEXT'); // soft-delete: NULL = live, timestamp = trashed
     if (t.version) cols.push('"_version" INTEGER NOT NULL DEFAULT 1'); // optimistic-concurrency row version
     if (t.timestamps || t.sync) cols.push('"updated_at" TEXT DEFAULT (to_char(now() AT TIME ZONE \'UTC\',\'YYYY-MM-DD HH24:MI:SS\'))'); // auto edit-tracking (also required by sync): set on insert, bumped on every UPDATE
@@ -390,7 +416,10 @@ export async function applySiteSchema(uuid, spec) {
       try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "owner_id" UUID'); } catch {}
       try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ALTER COLUMN "owner_id" SET DEFAULT app_user_id()'); } catch {}
     }
-    if (t.teamScope && access === "user") { try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "team_id" UUID'); } catch {} }
+    if (t.teamScope && access === "user") {
+      try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "team_id" UUID'); } catch {}
+      try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ALTER COLUMN "team_id" SET DEFAULT ' + TEAM_DEFAULT); } catch {}
+    }
     if (t.trash) { try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "deleted_at" TEXT'); } catch {} }
     if (t.version) { try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "_version" INTEGER NOT NULL DEFAULT 1'); } catch {} }
     // Auto updated_at backfill on a pre-existing table (ALTER ADD COLUMN can't carry a

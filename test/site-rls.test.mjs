@@ -197,7 +197,12 @@ test("teamScope on a non-user table is ignored, as it is everywhere else", () =>
   const rls = fs.readFileSync(new URL("../site-rls.mjs", import.meta.url), "utf8");
   const engine = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
   assert.match(rls, /t\.teamScope && access === "user"/, "the policy's condition changed");
-  assert.match(engine, /t\.teamScope && access === "user"\) cols\.push\('"team_id" UUID'\)/,
+  // Matched on the CONDITION and the column, not the whole statement: this
+  // guard is about the two conditions agreeing, and pinning the DDL string too
+  // made it fail when a DEFAULT was added — a change that cannot affect the
+  // invariant. A guard that fires on unrelated edits gets relaxed rather than
+  // read.
+  assert.match(engine, /t\.teamScope && access === "user"\) cols\.push\('"team_id" UUID/,
     "the column's condition changed, so the policy may now reference a column no table has");
 });
 
@@ -370,4 +375,30 @@ test("owner_id fills itself in, or the member tier can read and never write", ()
   // WITH CHECK is what stops one that SENDS it claiming another member's id.
   // Dropping either leaves a hole the other does not cover.
   assert.match(sql(T({ access: "user" })), /FOR INSERT WITH CHECK \("things"\."owner_id" = app_user_id\(\)\)/);
+});
+
+test("a team-scoped row stamps the caller's team, safely", () => {
+  const engine = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  // Same reason owner_id defaults to the caller: nothing stamps it since the
+  // Worker's data path went, so a row created by a member carried team_id NULL
+  // and their colleagues could not see it — the widening quietly did nothing.
+  assert.match(engine, /cols\.push\('"team_id" UUID DEFAULT ' \+ TEAM_DEFAULT\)/);
+  assert.match(engine, /ALTER COLUMN "team_id" SET DEFAULT ' \+ TEAM_DEFAULT/,
+    "an existing table never gains a default from ADD COLUMN IF NOT EXISTS");
+  // ONE CONSTANT, both call sites. Two spellings would be a table whose
+  // behaviour depends on when it was built.
+  const uses = engine.match(/TEAM_DEFAULT/g) || [];
+  assert.equal(uses.length, 3, "declared once, used at both the create and the revise: " + uses.length);
+  // THE CAST IS GUARDED, and that is the whole decision. `app_team_id()` returns
+  // text and a bare `::uuid` on anything else THROWS, which would make every
+  // write to a team table fail. Guarded, a non-uuid becomes NULL — the row is
+  // not shared, which is the failure an owner can live with. Measured: the
+  // column really is uuid, so this is expected to take; the guard is for the
+  // deployment where that stops being true.
+  const decl = engine.match(/const TEAM_DEFAULT = "([^"]+)"/);
+  assert.ok(decl, "TEAM_DEFAULT is no longer a single literal");
+  assert.match(decl[1], /CASE WHEN app_team_id\(\) ~\*/, "a bare cast would throw on every write: " + decl[1]);
+  assert.match(decl[1], /THEN app_team_id\(\)::uuid END/);
+  // `~*`, because a uuid can arrive uppercased and `~` would reject it.
+  assert.ok(!/ ~ /.test(decl[1]), "case-sensitive matching drops an uppercased uuid: " + decl[1]);
 });
