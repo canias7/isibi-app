@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { StatsBand } from "@/components/ui/stats-band";
+import { SafeImage } from "@/components/ui/safe-image";
 
 export const Route = createFileRoute("/")({ component: Door });
 
@@ -49,14 +49,7 @@ function Door() {
   const submit = (action: typeof login, values: Credentials) => {
     setError(null);
     action.mutate(values, {
-      onSuccess: (data) => {
-        if (data && typeof data === "object" && "pending" in data) {
-          toast.message("Check your authenticator app to finish signing in.");
-          return;
-        }
-        form.reset();
-      },
-      onError: (e: Error) => setError(e.message),
+      onError: () => setError("That email and password didn't match."),
     });
   };
 
@@ -70,18 +63,12 @@ function Door() {
 
   if (member.data) {
     return (
-      <main className="flex min-h-screen items-center justify-center p-10">
-        <Card className="w-full max-w-sm text-center">
-          <CardHeader>
-            <CardTitle>You're signed in</CardTitle>
-            <CardDescription>Head to the work surface.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button asChild className="motion-press">
-              <Link to="/records">Go to records</Link>
-            </Button>
-          </CardContent>
-        </Card>
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-10 text-center">
+        <h1 className="text-2xl font-semibold tracking-tight">Halyard</h1>
+        <p className="text-muted-foreground">Signed in as {member.data.name}.</p>
+        <Button asChild>
+          <Link to="/records">Go to records</Link>
+        </Button>
       </main>
     );
   }
@@ -92,40 +79,31 @@ function Door() {
         <p className="text-lg font-semibold tracking-tight">Halyard</p>
         <div className="max-w-md py-12">
           <h1 className="text-3xl font-semibold tracking-tight text-balance">
-            Every deal your team is working, in one table
+            Every deal your team is working, in one shared table
           </h1>
           <p className="mt-4 text-muted-foreground">
-            Halyard is the shared pipeline for a small sales team: deals, accounts and
-            the activity behind each one, all read from the same records — nobody's
-            personal spreadsheet, nobody's inbox.
+            Halyard is the internal tool for a small sales team: sign in, see the
+            deals your team is carrying, add your own, and keep one shared list
+            of accounts nobody has to re-type.
           </p>
-          <StatsBand
-            className="mt-8"
-            columns={3}
-            items={[
-              { value: "1", label: "shared pipeline" },
-              { value: "0", label: "spreadsheets" },
-              { value: "24/7", label: "team visibility" },
-            ]}
-          />
+          <SafeImage className="mt-8" src={null} alt="The deal table, as the team sees it" ratio="16/10" />
           <ul className="mt-8 space-y-4 text-sm">
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>Deals the whole team reads and edits together, by stage</span>
+              <span>The team's deals in one table — stage, value, who owns it</span>
             </li>
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>A shared list of accounts anyone can add to</span>
+              <span>Every record opens with its own activity trail</span>
             </li>
             <li className="flex items-start gap-3">
-              <StatusBadge state="neutral">reference</StatusBadge>
-              <span>The team playbook, kept up to date from head office</span>
+              <StatusBadge state="neutral">soon</StatusBadge>
+              <span>Kanban view across the whole pipeline</span>
             </li>
           </ul>
         </div>
         <p className="text-xs text-muted-foreground">
-          Built for a five-to-ten person desk — one team, one pipeline, no admin
-          panel to configure.
+          Built for teams of five to fifteen. No seats to manage, no setup call.
         </p>
       </section>
 
@@ -133,7 +111,7 @@ function Door() {
         <Card className="w-full max-w-sm">
           <CardHeader>
             <CardTitle>Sign in</CardTitle>
-            <CardDescription>Back to the pipeline in one field and a click.</CardDescription>
+            <CardDescription>Back to the pipeline in a field and a click.</CardDescription>
           </CardHeader>
           <CardContent>
             <Form {...form}>
@@ -178,7 +156,7 @@ function Door() {
                     disabled={signup.isPending}
                     onClick={form.handleSubmit((v) => submit(signup, v))}
                   >
-                    Create account
+                    {signup.isPending ? "Creating…" : "Create account"}
                   </Button>
                 </div>
               </form>
