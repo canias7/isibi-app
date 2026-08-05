@@ -28,6 +28,20 @@ const ok = (name, cond, extra) => {
 const SCHEMA = normalizeSchema({
   tables: [
     {
+      // THE FIXTURE HAD NO DISPLAY TABLE, found 2026-08-05 when a new check
+      // asserted a stranger could read one and got "permission denied for table
+      // posts". Every `access: "public"` below normalizes to `collect` — the
+      // level list is collect/display/user/feed/admin and anything else falls
+      // back to the default — so the level a menu, a price list and every
+      // brochure page uses had never been exercised against a real database.
+      name: "menu",
+      access: "display",
+      columns: [
+        { name: "dish", type: "text" },
+        { name: "price", type: "real" },
+      ],
+    },
+    {
       name: "posts",
       access: "public",
       columns: [
@@ -303,16 +317,23 @@ try {
   // no coverage were exactly the broken ones.
   //
   // The precise form first, because it cannot fail for an unrelated reason.
+  // THE GRANT IS REPORTED, NOT ASSERTED, and that distinction was earned: the
+  // first version of this check demanded the privilege and the fix was to grant
+  // it — the statements raised no error and the privilege stayed false, so
+  // `auth` is Neon's to open and not ours. Asserting it would sit red forever
+  // saying nothing. What IS asserted is the property that matters, below:
+  // whether the policy can actually be evaluated.
   const schemaPriv = await sqlQuery(db,
     "SELECT has_schema_privilege('authenticated','auth','USAGE') AS u, " +
     "has_schema_privilege('anonymous','auth','USAGE') AS a " +
     "WHERE EXISTS (SELECT 1 FROM pg_namespace WHERE nspname='auth')");
-  if (!schemaPriv.length) {
-    console.log("   (pg_session_jwt not installed here — the fallback body needs no grant)");
-  } else {
-    ok("the Data API's roles may reach the schema app_user_id() reads",
-      schemaPriv[0].u === true && schemaPriv[0].a === true, JSON.stringify(schemaPriv[0]));
-  }
+  console.log("   auth-schema USAGE: " + (schemaPriv.length ? JSON.stringify(schemaPriv[0]) : "(no auth schema — the fallback body needs none)"));
+  console.log("   grants attempted:  " + JSON.stringify(made.authGrants || []).slice(0, 240));
+  // app_user_id() must therefore run as its DEFINER, which is what makes the
+  // schema reachable at all. Read back from the database, not from our source.
+  const idFn = await sqlQuery(db, "SELECT prosecdef FROM pg_proc WHERE proname='app_user_id'");
+  ok("app_user_id runs as its definer, or nothing can reach auth.user_id()",
+    !!(idFn[0] && idFn[0].prosecdef === true), JSON.stringify(idFn[0] || {}));
 
   // And the general property: run a real SELECT under the role, so RLS actually
   // applies. Every query above this line runs as the table's OWNER, which
@@ -335,8 +356,12 @@ try {
     ok("a member's own-rows policy can be EVALUATED, not just granted", probe === null, String(probe));
     const team = await asRole("authenticated", 'SELECT count(*) INTO n FROM "deals" WHERE "team_id" IS NOT NULL;');
     ok("and so can the team clause it widens to", team === null, String(team));
-    const stranger = await asRole("anonymous", 'SELECT count(*) INTO n FROM "posts";');
+    const stranger = await asRole("anonymous", 'SELECT count(*) INTO n FROM "menu";');
     ok("a stranger can still read a display table", stranger === null, String(stranger));
+    // And the level next to it must still refuse — otherwise "the roles can read
+    // things" is all this proves.
+    const nosy = await asRole("anonymous", 'SELECT count(*) INTO n FROM "bookings";');
+    ok("and still cannot read a collect table", /permission denied/i.test(String(nosy)), String(nosy));
   }
 
   const opts = await sqlQuery(db, "SELECT reloptions FROM pg_class WHERE relname='bookings_public'");
@@ -386,13 +411,20 @@ try {
   const pol = await sqlQuery(db,
     "SELECT policyname, qual FROM pg_policies WHERE tablename='deals' AND cmd='SELECT'");
   ok("its read policy was created, so the team clause parsed", pol.length === 1, JSON.stringify(pol));
-  // Anchored on `organizationId` rather than on `neon_auth.member`: Postgres
-  // stores a policy as a parsed expression and RE-RENDERS it here, so whether the
-  // schema qualifier survives is its choice and not ours. A quoted camelCase
-  // column cannot be re-rendered away, and it appears nowhere in the plain
-  // own-rows policy — so its presence is exactly the widening.
+  // THE MEMBERSHIP READ MOVED ONE LEVEL DOWN, into `app_team_id()`, because a
+  // policy that selects `neon_auth.member` is evaluated as the CALLER and the
+  // caller cannot reach it. So this is asserted as a chain: the policy calls the
+  // function, and the function — read back out of the database, not out of our
+  // source — is the thing that reads the organization.
   ok("and the policy really widens to the organization",
-    !!(pol[0] && /organizationId/.test(String(pol[0].qual))), JSON.stringify(pol[0] || {}).slice(0, 300));
+    !!(pol[0] && /app_team_id\(\)/.test(String(pol[0].qual))), JSON.stringify(pol[0] || {}).slice(0, 300));
+  const teamFn = await sqlQuery(db,
+    "SELECT prosecdef, pg_get_functiondef(oid) AS def FROM pg_proc WHERE proname='app_team_id'");
+  ok("app_team_id exists and reads neon_auth.member",
+    !!(teamFn[0] && /neon_auth\.member/.test(String(teamFn[0].def))), JSON.stringify(teamFn[0] || {}).slice(0, 200));
+  // Definer rights are what let it read that table at all; without them the
+  // clause is the same permission wall wearing a function call.
+  ok("and it runs as its definer", !!(teamFn[0] && teamFn[0].prosecdef === true), JSON.stringify(teamFn[0] || {}).slice(0, 120));
   // A member in NO organization must still see their own rows — every naive
   // "same team" clause fails outward here, and a fresh site is entirely in that
   // state, so it is the default rather than an edge case.

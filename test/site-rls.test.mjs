@@ -269,13 +269,26 @@ test("a grant never gives more than the level allows", () => {
 
 // ---------------------------------------------- reachable, not merely defined
 
-test("the roles that call app_user_id() can reach the schema it reads", () => {
+test("the native identity function runs as its definer", () => {
   // THE FAILURE THIS ENCODES, measured live 2026-08-05: the function existed,
   // the owner could run it, every grant on every table was correct — and every
   // member read answered `42501 permission denied for schema auth`, because the
   // native body calls `auth.user_id()` and neither Data API role had USAGE on
   // that schema. `display` and `collect` never call it, so the two levels with
   // live coverage were the two that could not break.
+  //
+  // The obvious fix was to grant them USAGE. Measured against a real project:
+  // both statements raised NO error and the privilege stayed false, so that
+  // schema is Neon's to open and not ours. Definer rights sidestep it.
+  assert.match(APP_USER_FN_NATIVE, /SECURITY DEFINER/);
+  assert.match(APP_USER_FN_NATIVE, /SET search_path = pg_catalog/,
+    "an unpinned definer function lets a role that can create a schema choose what it runs");
+  // The fallback stays INVOKER: it reads a GUC anyone may read, so definer
+  // rights there would be privilege bought for nothing.
+  assert.ok(!/SECURITY DEFINER/.test(APP_USER_FN_FALLBACK));
+});
+
+test("the auth-schema grants are still emitted, and nothing depends on them", () => {
   const both = SESSION_JWT_GRANTS.join("\n");
   assert.match(both, /GRANT USAGE ON SCHEMA auth TO anonymous;/);
   assert.match(both, /GRANT USAGE ON SCHEMA auth TO authenticated;/);
