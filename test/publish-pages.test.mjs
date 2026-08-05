@@ -312,10 +312,17 @@ test("generate is called with NOTHING — no fix argument survives", async () =>
   assert.deepEqual(seen[0], [], "and it is passed no arguments at all");
 });
 
-test("the worst case is one generation and one build", async () => {
-  // The reason the pass went: a failing build used to cost two of the expensive
-  // half. Asserted as a ceiling over every failure mode, so a future branch that
-  // re-asks "just this once" fails here rather than on a bill.
+test("the worst case is ONE generation, whatever else is retried", async () => {
+  // The reason the repair pass went: a failing build used to cost two of the
+  // EXPENSIVE half. That is the ceiling this asserts, and it is unchanged by the
+  // container retry added on 2026-08-05 — a second compile costs ~40 seconds and
+  // no tokens, a second generation costs ~80% of a build. The name used to say
+  // "and one build", which stopped being true the moment a killed container was
+  // retried; a test whose title claims more than it checks is how a guard gets
+  // relaxed instead of read.
+  //
+  // Asserted over every failure mode, so a future branch that re-asks the MODEL
+  // "just this once" fails here rather than on somebody's bill.
   for (const compile of [
     async () => ({ ok: false, stage: "typecheck", error: "TS2304" }),
     async () => ({ ok: false, stage: "build", error: "vite exploded" }),
@@ -325,6 +332,7 @@ test("the worst case is one generation and one build", async () => {
     const { deps, calls } = harness({ generate: async () => gen([lintsWorse()]), compile });
     const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
     assert.equal(calls.generate.length, 1, "one model call, whatever went wrong");
+    assert.ok(calls.compile.length <= 2, "the container is retried once, never looped: " + calls.compile.length);
     // AND NO CHARGE, on every one of them. The ceiling this test exists for is
     // now zero on the failure side: every route to a placeholder is free, so a
     // future branch that bills one fails here rather than on somebody's balance.
@@ -586,4 +594,72 @@ test("a published site IS billed, and billed AFTER it is live", async () => {
   // And exactly one charge site, or "billed once" is a property of this fake
   // rather than of the code.
   assert.equal((src.match(/await charge\(/g) || []).length, 1, "a second charge site can double-bill");
+});
+
+// ── the container dying is not the code being wrong ──────────────────────────
+
+test("a killed container is retried once, and the retry publishes", async () => {
+  // MEASURED LIVE 2026-08-05: `vite build was killed by SIGTERM (no output)`,
+  // 2.5 seconds into a bundle that normally takes 20 — because `build smoke`
+  // started two seconds after a deploy and Cloudflare rolls the container image
+  // out asynchronously, so the instance was drained underneath a running build.
+  let n = 0;
+  const { deps, calls } = harness({
+    compile: async () => (++n === 1
+      ? { ok: false, stage: "build", error: "vite build was killed by SIGTERM (no output)" }
+      : { ok: true, files: { "index.html": { t: "<retry>" } } }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(out.page, "app", "the second attempt succeeded and must be published");
+  assert.equal(calls.compile.length, 2);
+  assert.equal(out.builds, 2);
+  assert.match(out.retriedBuild, /SIGTERM/, "what was retried has to be visible, or this is invisible in production");
+  // NOT the repair pass: the model is never asked again.
+  assert.equal(calls.generate.length, 1, "a container failure must never buy a second generation");
+  // And a site that went live is billed, once.
+  assert.equal(calls.charges.length, 1);
+  assert.equal(out.cost, pageCredits(USAGE));
+});
+
+test("a typecheck failure is NEVER retried", async () => {
+  // The exclusion that stops this being a slow no-op on the common failure: a
+  // page that does not compile does not compile the second time either, and the
+  // customer would wait another 40 seconds for the same placeholder.
+  const { deps, calls } = harness({
+    compile: async () => ({ ok: false, stage: "typecheck", error: "src/routes/index.tsx(4,7): error TS2304" }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(calls.compile.length, 1, "a deterministic code failure must not be re-run");
+  assert.equal(out.builds, 1);
+  assert.equal(out.retriedBuild, undefined);
+  assert.equal(out.page, "placeholder");
+  assert.equal(out.cost, 0);
+});
+
+test("two container failures fall back, and still cost nothing", async () => {
+  const { deps, calls } = harness({
+    compile: async () => ({ ok: false, stage: "build", error: "the build service returned nothing" }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(calls.compile.length, 2, "exactly two — one retry, never a loop");
+  assert.equal(calls.generate.length, 1);
+  assert.equal(out.page, "placeholder");
+  assert.equal(out.cost, 0, "the customer got a placeholder either way");
+  assert.equal(calls.publish.length, 0, "a broken dist must never reach storage");
+  // buildMs covers BOTH attempts, because that is what the caller waited for.
+  assert.ok(typeof out.buildMs === "number");
+});
+
+test("a thrown container is retried too — it is the same event", async () => {
+  // `deps.compile` throwing becomes stage "build" inside `compile()`, so an
+  // unreachable build service and a killed one are one case. Asserted, because
+  // the throw takes a different route through the code to get there.
+  let n = 0;
+  const { deps, calls } = harness({
+    compile: async () => { if (++n === 1) throw new Error("container boot timeout"); return { ok: true, files: { "index.html": { t: "<retry>" } } }; },
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(calls.compile.length, 2);
+  assert.equal(out.page, "app");
+  assert.match(out.retriedBuild, /unreachable|boot timeout/);
 });

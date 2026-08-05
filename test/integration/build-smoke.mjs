@@ -144,6 +144,11 @@ try {
     `   ${label}: in ${u.in} · out ${u.out} · cacheRead ${u.cacheRead} · cacheWrite ${u.cacheWrite}${extra || ""}`);
   usage("schema call", d.schemaUsage, ` → ${d.schemaCredits} credits, charged ${d.schemaFee}`);
   usage("pages call ", d.pagesUsage, ` → charged ${d.cost - (d.schemaFee || 0)} credits`);
+  // A RETRIED CONTAINER, SAID OUT LOUD. A build that succeeded on its second
+  // compile is indistinguishable from one that succeeded on its first unless
+  // this is printed — and the whole point of the retry is that the failure it
+  // absorbs is infrastructure, which nobody would otherwise learn was happening.
+  if (d.builds > 1) console.log(`   the container was retried: ${d.retriedBuild}`);
   // Reported, never enforced: the trace is a diagnostic, and a smoke test that
   // fails on a slow step turns a measurement into a flake.
   ok("the build reports its own steps", Array.isArray(d.trace) && d.trace.length >= 3,
