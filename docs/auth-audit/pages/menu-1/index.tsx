@@ -1,15 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
+
 import { useRows, type Row } from "@/lib/rows";
-import { SiteChrome } from "@/components/ui/site-chrome";
 import { CtaBand } from "@/components/ui/cta-band";
 import { LocationCard } from "@/components/ui/location-card";
-import { MenuSection, type MenuGroup } from "@/components/ui/menu-section";
+import { MenuSection } from "@/components/ui/menu-section";
 import { OpenNow } from "@/components/ui/open-now";
 import { OpeningHours, type DayHours } from "@/components/ui/opening-hours";
 import { SectionHeader } from "@/components/ui/section-header";
-import { TeamGrid } from "@/components/ui/team-grid";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Empty } from "@/components/ui/empty";
+import { TeamGrid } from "@/components/ui/team-grid";
+import { SiteChrome } from "@/components/ui/site-chrome";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -37,14 +37,13 @@ const CHROME = {
   tagline: "A neighbourhood table on Pell Street.",
   links: [
     { label: "Menu", href: "#menu" },
-    { label: "The kitchen", href: "#kitchen" },
+    { label: "Kitchen", href: "#kitchen" },
     { label: "Find us", href: "#find-us" },
   ],
   action: { label: "Directions", href: "#find-us" },
 };
 
-const DAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-const DAY_NUMBER: Record<string, number> = {
+const DAY_INDEX: Record<string, number> = {
   Sunday: 0,
   Monday: 1,
   Tuesday: 2,
@@ -54,10 +53,10 @@ const DAY_NUMBER: Record<string, number> = {
   Saturday: 6,
 };
 
-function parsePrice(price: string | null): number | undefined {
-  if (!price) return undefined;
-  const n = Number(price.replace(/[^0-9.]/g, ""));
-  return Number.isFinite(n) ? n : undefined;
+function toPrice(price: string | null): number | string | null {
+  if (price == null) return null;
+  const n = Number(price);
+  return Number.isFinite(n) ? n : price;
 }
 
 function Home() {
@@ -65,133 +64,108 @@ function Home() {
   const chefs = useRows<Chef>("chefs", { order: "name", dir: "asc" });
   const hours = useRows<HourRow>("hours", { order: "day", dir: "asc" });
 
-  const groups: MenuGroup[] = [];
-  if (dishes.data?.length) {
-    const byCourse = new Map<string, Dish[]>();
-    for (const d of dishes.data) {
-      const key = d.course ?? "On the menu";
-      if (!byCourse.has(key)) byCourse.set(key, []);
-      byCourse.get(key)!.push(d);
-    }
-    for (const [course, items] of byCourse) {
-      groups.push({
-        name: course,
-        items: items.map((d) => ({
-          name: d.name,
-          description: d.description,
-          price: parsePrice(d.price),
-        })),
-      });
-    }
-  }
-
-  const sortedHours = hours.data
-    ? [...hours.data].sort(
-        (a, b) => DAY_ORDER.indexOf(a.day) - DAY_ORDER.indexOf(b.day),
-      )
-    : [];
-
-  const dayHours: DayHours[] = sortedHours.map((h) => ({
-    day: DAY_NUMBER[h.day] ?? 0,
+  const dayHours: DayHours[] = (hours.data ?? []).map((h) => ({
+    day: DAY_INDEX[h.day] ?? 0,
     label: h.day,
     open: h.opens,
     close: h.closes,
   }));
 
-  const openNowHours = sortedHours
-    .filter((h) => h.opens && h.closes)
-    .map((h) => ({ day: DAY_NUMBER[h.day] ?? 0, open: h.opens!, close: h.closes! }));
+  const openNowHours = dayHours
+    .filter((d) => d.open && d.close)
+    .map((d) => ({ day: d.day, open: d.open as string, close: d.close as string }));
+
+  const groups = Object.entries(
+    (dishes.data ?? []).reduce<Record<string, Dish[]>>((acc, d) => {
+      const key = d.course ?? "Menu";
+      acc[key] = acc[key] ?? [];
+      acc[key].push(d);
+      return acc;
+    }, {}),
+  ).map(([name, items]) => ({
+    name,
+    items: items.map((d) => ({
+      name: d.name,
+      description: d.description,
+      price: toPrice(d.price),
+    })),
+  }));
 
   return (
     <SiteChrome {...CHROME}>
       <section className="border-b border-border bg-muted/40">
-        <div className="mx-auto max-w-4xl px-6 py-16 text-center">
+        <div className="mx-auto max-w-5xl px-6 py-14">
           <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            Pell Street · a neighbourhood kitchen
+            Pell Street · Neighbourhood kitchen
           </p>
           <h1 className="mt-3 text-5xl font-semibold tracking-tight text-balance">
             Pell Street Kitchen
           </h1>
-          <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-muted-foreground">
-            Honest plates, a short menu that changes with the season, and a table
-            for you most nights without a booking. We don't take reservations
-            online — ring us and we'll hold you a seat.
+          <p className="mt-4 max-w-xl text-lg leading-relaxed text-muted-foreground">
+            No booking line, no maître d' — just a table if you've got the time and a menu that
+            barely changes because it doesn't need to.
           </p>
-          <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
+          <div className="mt-6 flex flex-wrap items-center gap-3">
             <a
               className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground motion-press"
-              href="#menu"
-            >
-              See the menu
-            </a>
-            <a
-              className="rounded-md border border-border px-5 py-2.5 text-sm font-medium motion-press"
               href="#find-us"
             >
               Directions
+            </a>
+            <a
+              className="rounded-md border border-border px-5 py-2.5 text-sm font-medium motion-press"
+              href="#menu"
+            >
+              See the menu
             </a>
             {openNowHours.length > 0 && <OpenNow hours={openNowHours} />}
           </div>
         </div>
       </section>
 
-      <section id="menu" className="mx-auto max-w-3xl px-6 py-20">
+      <section id="menu" className="mx-auto max-w-5xl px-6 py-20">
         <SectionHeader
           eyebrow="The menu"
-          title="What we're cooking"
-          description="Short and seasonal — everything on it is here because it's worth making well."
-          align="center"
+          title="What's on tonight"
+          description="We phone the orders that need it — everything else is on the table."
         />
-        {dishes.isPending && <Skeleton className="mt-10 h-64 rounded-xl" />}
+        {dishes.isPending && <Skeleton className="mt-8 h-72 rounded-xl" />}
         {dishes.isError && (
-          <p className="mt-10 text-sm text-destructive">
-            Couldn't load the menu right now. Refresh and try again.
+          <p className="mt-8 text-sm text-destructive">
+            Couldn't load the menu right now. Refresh and try again, or give us a call.
           </p>
         )}
         {dishes.data?.length === 0 && (
-          <Empty
-            className="mt-10"
-            title="The menu isn't up yet"
-            description="Check back soon, or give us a call to hear what's cooking tonight."
-          />
+          <p className="mt-8 text-sm text-muted-foreground">
+            The menu isn't listed yet — ring us and we'll tell you what's cooking.
+          </p>
         )}
-        {!!dishes.data?.length && <MenuSection groups={groups} currency="£" />}
+        {!!dishes.data?.length && <MenuSection className="mt-8" groups={groups} />}
       </section>
 
       <section id="kitchen" className="border-y border-border bg-muted/40">
         <div className="mx-auto max-w-5xl px-6 py-20">
           <SectionHeader
-            eyebrow="The kitchen"
-            title="Who's cooking"
-            description="A small team, most of whom have been here since we opened."
-            align="center"
+            eyebrow="Who cooks"
+            title="The kitchen"
+            description="Small team, long hours, food that tastes like somebody meant it."
           />
-          {chefs.isPending && (
-            <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-              {[1, 2, 3, 4].map((i) => (
-                <Skeleton key={i} className="h-56 rounded-xl" />
-              ))}
-            </div>
-          )}
+          {chefs.isPending && <Skeleton className="mt-8 h-40 rounded-xl" />}
           {chefs.isError && (
-            <p className="mt-10 text-sm text-destructive">
-              Couldn't load the team right now.
-            </p>
+            <p className="mt-8 text-sm text-destructive">Couldn't load the team right now.</p>
           )}
           {chefs.data?.length === 0 && (
-            <Empty
-              className="mt-10"
-              title="Team page coming soon"
-              description="We're putting names to the faces — check back shortly."
-            />
+            <p className="mt-8 text-sm text-muted-foreground">
+              We haven't listed the team yet — ask whoever answers the phone.
+            </p>
           )}
           {!!chefs.data?.length && (
             <TeamGrid
-              className="mt-10"
+              className="mt-8"
               items={chefs.data.map((c) => ({
                 name: c.name,
-                role: c.role ?? undefined,
-                photo: c.photo_url ?? undefined,
+                role: c.role,
+                photo: c.photo_url,
               }))}
             />
           )}
@@ -202,40 +176,31 @@ function Home() {
         <div className="grid gap-10 sm:grid-cols-2">
           <div>
             <SectionHeader eyebrow="Find us" title="On Pell Street" />
-            <LocationCard
-              className="mt-6"
-              name="Pell Street Kitchen"
-              address="22 Pell Street, Manchester, M4 1JQ"
-              note="Two doors from the old post office. Street parking after 6pm, or the NCP on Turner Street."
-            />
-          </div>
-          <div>
-            <h3 className="text-sm font-medium uppercase tracking-[0.14em] text-muted-foreground">
-              Opening hours
-            </h3>
-            {hours.isPending && <Skeleton className="mt-5 h-56 rounded-xl" />}
+            {hours.isPending && <Skeleton className="mt-6 h-48 rounded-xl" />}
             {hours.isError && (
-              <p className="mt-5 text-sm text-destructive">
-                Couldn't load our hours right now — do call if you're unsure.
-              </p>
+              <p className="mt-6 text-sm text-destructive">Couldn't load our hours right now.</p>
             )}
             {hours.data?.length === 0 && (
-              <Empty
-                className="mt-5"
-                title="Hours not listed yet"
-                description="Give us a ring and we'll tell you when we're open."
-              />
+              <p className="mt-6 text-sm text-muted-foreground">
+                Hours aren't listed yet — give us a call to check we're open.
+              </p>
             )}
-            {!!hours.data?.length && <OpeningHours className="mt-5" days={dayHours} />}
+            {!!hours.data?.length && <OpeningHours className="mt-6" days={dayHours} />}
           </div>
+          <LocationCard
+            className="self-start"
+            name="Pell Street Kitchen"
+            address="22 Pell Street"
+            note="No bookings taken — we phone through any large orders, otherwise just come by."
+          />
         </div>
       </section>
 
       <section className="border-t border-border bg-muted/40">
-        <div className="mx-auto max-w-4xl px-6 py-16">
+        <div className="mx-auto max-w-5xl px-6 py-16">
           <CtaBand
-            title="We don't take bookings online"
-            description="Give us a call and we'll hold you a table — walk-ins always welcome too."
+            title="No online booking — phone ahead"
+            description="Ring us if you'd like to check a table's free, or just come by. We keep a few open most evenings."
             action={{ label: "Get directions", href: "#find-us" }}
           />
         </div>

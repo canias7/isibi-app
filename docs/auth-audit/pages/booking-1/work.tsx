@@ -1,19 +1,20 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { SiteChrome } from "@/components/ui/site-chrome";
-import { SectionHeader } from "@/components/ui/section-header";
+
 import { Gallery } from "@/components/ui/gallery";
+import { SectionHeader } from "@/components/ui/section-header";
+import { SiteChrome } from "@/components/ui/site-chrome";
 import { CtaBand } from "@/components/ui/cta-band";
 
 export const Route = createFileRoute("/work")({ component: Work });
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm, well-lit studio for every level of practice.",
+  tagline: "A calm, well-lit studio for every kind of practice.",
   links: [
     { label: "Home", href: "#/" },
     { label: "Book", href: "#/book" },
-    { label: "Manage booking", href: "#/manage" },
-    { label: "Members", href: "#/account" },
+    { label: "Work", href: "#/work" },
+    { label: "Account", href: "#/account" },
   ],
   action: { label: "Book now", href: "#/book" },
 };
@@ -21,20 +22,32 @@ const CHROME = {
 function Work() {
   return (
     <SiteChrome {...CHROME}>
-      <section className="mx-auto max-w-6xl px-6 py-16">
-        <SectionHeader eyebrow="The studio" title="A look inside" description="Our main room, the quiet corner for restorative work, and a few moments from class." />
-        <Gallery className="mt-8" columns={3} items={[
-          { src: null, alt: "The main studio floor, morning light" },
-          { src: null, alt: "Mats and bolsters laid out for a restorative class" },
-          { src: null, alt: "Candlelit yin on a Friday evening" },
-          { src: null, alt: "Beginners' Foundations, a supported pose" },
-          { src: null, alt: "The changing room and cubbies" },
-          { src: null, alt: "A full room for Power Hour" },
-        ]} />
-      </section>
-      <section className="mx-auto max-w-6xl px-6 pb-20">
-        <CtaBand title="Come see it for yourself" description="Book a class and find out why our students keep coming back." action={{ label: "Book now", href: "#/book" }} />
-      </section>
+      <div className="mx-auto max-w-6xl px-6 py-16">
+        <SectionHeader
+          eyebrow="The studio"
+          title="A look inside"
+          description="The room, the mats, and the practice itself — so you know what to expect before you arrive."
+        />
+        <Gallery
+          className="mt-8"
+          columns={3}
+          items={[
+            { src: null, alt: "Morning light across the main studio floor", caption: "Sunrise Vinyasa, 7am" },
+            { src: null, alt: "Bolsters and blankets set out for Restorative", caption: "Restorative, set up and waiting" },
+            { src: null, alt: "A full Power Yoga class mid-flow", caption: "Power Yoga, Thursday evening" },
+            { src: null, alt: "The props wall — blocks, straps and bolsters", caption: "Everything provided" },
+            { src: null, alt: "Beginners' Foundations, one-to-one adjustment", caption: "Beginners' Foundations" },
+            { src: null, alt: "The studio entrance on Meadow Lane", caption: "18 Meadow Lane" },
+          ]}
+        />
+      </div>
+      <div className="mx-auto max-w-6xl px-6 pb-20">
+        <CtaBand
+          title="Come see it for yourself"
+          description="Book your first class and try the room on for size."
+          action={{ label: "Book now", href: "#/book" }}
+        />
+      </div>
     </SiteChrome>
   );
 }

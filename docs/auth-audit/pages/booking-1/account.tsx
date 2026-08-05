@@ -16,7 +16,14 @@ import {
 } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { SiteChrome } from "@/components/ui/site-chrome";
@@ -26,17 +33,17 @@ import { ActivityFeed } from "@/components/ui/activity-feed";
 
 export const Route = createFileRoute("/account")({ component: Account });
 
-type Note = Row & { title: string | null; body: string | null };
-type Announcement = Row & { title: string; body: string | null };
+type Note = Row & { title: string; body: string };
+type Announcement = Row & { title: string; body: string };
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm, well-lit studio for every level of practice.",
+  tagline: "A calm, well-lit studio for every kind of practice.",
   links: [
     { label: "Home", href: "#/" },
     { label: "Book", href: "#/book" },
-    { label: "Manage booking", href: "#/manage" },
-    { label: "Members", href: "#/account" },
+    { label: "Work", href: "#/work" },
+    { label: "Account", href: "#/account" },
   ],
   action: { label: "Book now", href: "#/book" },
 };
@@ -49,11 +56,11 @@ const credentials = z.object({
 type Credentials = z.infer<typeof credentials>;
 
 const noteSchema = z.object({
-  title: z.string().min(1, "Give your note a title"),
+  title: z.string().min(1, "Give it a title"),
   body: z.string().min(1, "Write something"),
 });
 
-type NoteForm = z.infer<typeof noteSchema>;
+type NoteInput = z.infer<typeof noteSchema>;
 
 function Account() {
   const member = useMember();
@@ -88,20 +95,26 @@ function Account() {
 
         {!member.isPending && !member.data && (
           <>
-            <h1 className="text-3xl font-semibold tracking-tight">Members</h1>
+            <h1 className="text-3xl font-semibold tracking-tight">Your account</h1>
             <p className="mt-2 text-muted-foreground">
-              Sign in to keep your own practice notes and see studio announcements.
+              Sign in to keep your own practice notes, or make an account if this is your first
+              time.
             </p>
 
             <Form {...form}>
-              <form className="mt-8 grid gap-4 max-w-md" onSubmit={form.handleSubmit((v) => submit(login, v))}>
+              <form
+                className="mt-8 grid gap-4"
+                onSubmit={form.handleSubmit((v) => submit(login, v))}
+              >
                 <FormField
                   control={form.control}
                   name="email"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Email</FormLabel>
-                      <FormControl><Input type="email" autoComplete="email" {...field} /></FormControl>
+                      <FormControl>
+                        <Input type="email" autoComplete="email" {...field} />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -112,7 +125,9 @@ function Account() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Password</FormLabel>
-                      <FormControl><Input type="password" autoComplete="current-password" {...field} /></FormControl>
+                      <FormControl>
+                        <Input type="password" autoComplete="current-password" {...field} />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -144,18 +159,18 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
   const announcements = useRows<Announcement>("announcements", { order: "id", dir: "desc" });
   const create = useCreateRow<Note>("my_notes");
 
-  const form = useForm<NoteForm>({
+  const form = useForm<NoteInput>({
     resolver: zodResolver(noteSchema),
     defaultValues: { title: "", body: "" },
   });
 
-  const onSubmit = (values: NoteForm) => {
+  const onSubmit = (values: NoteInput) => {
     create.mutate(values, {
       onSuccess: () => {
         toast.success("Note saved");
         form.reset();
       },
-      onError: (e: Error) => toast.error(e.message),
+      onError: (e) => toast.error(e.message),
     });
   };
 
@@ -163,7 +178,9 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
     <>
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-semibold tracking-tight">Hello, {name}</h1>
-        <Button variant="ghost" onClick={onSignOut}>Sign out</Button>
+        <Button variant="ghost" onClick={onSignOut}>
+          Sign out
+        </Button>
       </div>
 
       <Card className="mt-8">
@@ -171,16 +188,20 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
           <CardTitle className="text-base">Studio announcements</CardTitle>
         </CardHeader>
         <CardContent>
-          {announcements.isPending && <Skeleton className="h-24 rounded-xl" />}
+          {announcements.isPending && <Skeleton className="h-20 rounded-lg" />}
           {announcements.isError && (
-            <p className="text-sm text-destructive">Couldn't load announcements. Refresh and try again.</p>
+            <p className="text-sm text-destructive">Couldn't load announcements.</p>
           )}
           {announcements.data?.length === 0 && (
-            <Empty title="No announcements yet" description="Nothing from the studio right now — check back soon." />
+            <Empty title="Nothing posted yet" description="Check back before your next class." />
           )}
           {!!announcements.data?.length && (
             <ActivityFeed
-              items={announcements.data.map((a) => ({ title: a.title, description: a.body ?? undefined }))}
+              items={announcements.data.map((a) => ({
+                who: a.title,
+                what: a.body,
+                at: a.created_at,
+              }))}
             />
           )}
         </CardContent>
@@ -191,12 +212,10 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
           <CardTitle className="text-base">Your practice notes</CardTitle>
         </CardHeader>
         <CardContent>
-          {notes.isPending && <Skeleton className="h-24 rounded-xl" />}
-          {notes.isError && (
-            <p className="text-sm text-destructive">Couldn't load your notes. Refresh and try again.</p>
-          )}
+          {notes.isPending && <Skeleton className="h-24 rounded-lg" />}
+          {notes.isError && <p className="text-sm text-destructive">Couldn't load your notes.</p>}
           {notes.data?.length === 0 && (
-            <Empty title="No notes yet" description="Jot down what to work on next time — only you can see these." />
+            <Empty title="No notes yet" description="Jot down what worked in your last class." />
           )}
           {!!notes.data?.length && (
             <ul className="grid gap-3 motion-stagger">
@@ -217,7 +236,9 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Title</FormLabel>
-                    <FormControl><Input {...field} /></FormControl>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -228,7 +249,9 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Note</FormLabel>
-                    <FormControl><Textarea rows={3} {...field} /></FormControl>
+                    <FormControl>
+                      <Textarea rows={4} {...field} />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}

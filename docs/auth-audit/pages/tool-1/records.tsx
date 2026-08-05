@@ -7,7 +7,6 @@ import { toast } from "sonner";
 
 import { useMember, useRows, useCreateRow, type Row } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -25,26 +24,31 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Empty } from "@/components/ui/empty";
 import { TableSearch } from "@/components/ui/table-search";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { BulkActions } from "@/components/ui/bulk-actions";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Empty } from "@/components/ui/empty";
+import { ResultCount } from "@/components/ui/result-count";
+import { SideNav } from "@/components/ui/side-nav";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Checkbox } from "@/components/ui/checkbox";
+  DataTable,
+  type Column,
+} from "@/components/ui/data-table";
 
 export const Route = createFileRoute("/records")({ component: Records });
 
 type Deal = Row & { title: string; value: string | null; stage: string | null };
 type Account = Row & { name: string; website: string | null; notes: string | null };
+type PlaybookEntry = Row & { title: string; body: string | null };
 
 const STAGES = ["new", "qualifying", "proposal", "negotiation", "won", "lost"];
 
@@ -71,238 +75,281 @@ type AccountForm = z.infer<typeof accountSchema>;
 
 function Records() {
   const member = useMember();
-  const navigate = useNavigate();
-  const [view, setView] = useState<"deals" | "accounts">("deals");
-  const [query, setQuery] = useState("");
-  const [stageFilter, setStageFilter] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string[]>([]);
-  const [dealOpen, setDealOpen] = useState(false);
-  const [accountOpen, setAccountOpen] = useState(false);
-
-  const deals = useRows<Deal>("deals", { order: "id", dir: "desc" });
-  const accounts = useRows<Account>("accounts", { order: "id", dir: "desc" });
-  const createDeal = useCreateRow<Deal>("deals");
-  const createAccount = useCreateRow<Account>("accounts");
-
-  const dealForm = useForm<DealForm>({
-    resolver: zodResolver(dealSchema),
-    defaultValues: { title: "", value: "", stage: "new" },
-  });
-  const accountForm = useForm<AccountForm>({
-    resolver: zodResolver(accountSchema),
-    defaultValues: { name: "", website: "", notes: "" },
-  });
-
-  const filteredDeals = useMemo(() => {
-    let rows = deals.data ?? [];
-    if (stageFilter) rows = rows.filter((d) => d.stage === stageFilter);
-    if (query.trim()) {
-      const q = query.toLowerCase();
-      rows = rows.filter((d) => d.title.toLowerCase().includes(q));
-    }
-    return rows;
-  }, [deals.data, stageFilter, query]);
-
-  const filteredAccounts = useMemo(() => {
-    let rows = accounts.data ?? [];
-    if (query.trim()) {
-      const q = query.toLowerCase();
-      rows = rows.filter((a) => a.name.toLowerCase().includes(q));
-    }
-    return rows;
-  }, [accounts.data, query]);
-
-  const onCreateDeal = (values: DealForm) => {
-    createDeal.mutate(
-      { title: values.title, value: values.value || null, stage: values.stage },
-      {
-        onSuccess: () => {
-          toast.success("Deal added");
-          dealForm.reset();
-          setDealOpen(false);
-        },
-        onError: (e) => toast.error(e.message),
-      },
-    );
-  };
-
-  const onCreateAccount = (values: AccountForm) => {
-    createAccount.mutate(
-      { name: values.name, website: values.website || null, notes: values.notes || null },
-      {
-        onSuccess: () => {
-          toast.success("Account added");
-          accountForm.reset();
-          setAccountOpen(false);
-        },
-        onError: (e) => toast.error(e.message),
-      },
-    );
-  };
-
-  const toggleSelected = (id: string) => {
-    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  };
 
   if (member.isPending) {
     return (
-      <main className="p-10">
-        <Skeleton className="h-64 w-full rounded-xl" />
-      </main>
+      <div className="flex min-h-screen items-center justify-center">
+        <p className="text-muted-foreground">Checking your sign-in…</p>
+      </div>
     );
   }
 
   if (!member.data) {
     return (
-      <main className="grid min-h-screen place-items-center p-10">
-        <Card className="w-full max-w-sm text-center">
-          <CardHeader>
-            <CardTitle>Sign in required</CardTitle>
-            <CardDescription>The pipeline is only visible to signed-in team members.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button asChild>
-              <Link to="/">Go to sign in</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </main>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-10 text-center">
+        <h1 className="text-2xl font-semibold tracking-tight">Sign in to see the pipeline</h1>
+        <p className="max-w-sm text-muted-foreground">
+          Deals and accounts are only visible to signed-in team members.
+        </p>
+        <Button asChild>
+          <Link to="/">Go to sign in</Link>
+        </Button>
+      </div>
     );
   }
 
+  return <RecordsWorkspace />;
+}
+
+function RecordsWorkspace() {
+  const navigate = useNavigate();
+  const deals = useRows<Deal>("deals", { order: "id", dir: "desc", limit: 100 });
+  const accounts = useRows<Account>("accounts", { order: "id", dir: "desc", limit: 100 });
+  const playbook = useRows<PlaybookEntry>("playbook", { order: "id", dir: "asc", limit: 50 });
+  const createDeal = useCreateRow<Deal>("deals");
+  const createAccount = useCreateRow<Account>("accounts");
+
+  const [search, setSearch] = useState("");
+  const [stageFilter, setStageFilter] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [dealOpen, setDealOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+
+  const dealForm = useForm<DealForm>({
+    resolver: zodResolver(dealSchema),
+    defaultValues: { title: "", value: "", stage: "new" },
+  });
+
+  const accountForm = useForm<AccountForm>({
+    resolver: zodResolver(accountSchema),
+    defaultValues: { name: "", website: "", notes: "" },
+  });
+
+  const filtered = useMemo(() => {
+    let rows = deals.data ?? [];
+    if (stageFilter) rows = rows.filter((d) => d.stage === stageFilter);
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      rows = rows.filter((d) => d.title.toLowerCase().includes(q));
+    }
+    return rows;
+  }, [deals.data, stageFilter, search]);
+
+  const columns: Column<Deal>[] = [
+    { key: "title", header: "Deal", render: (d) => <span className="font-medium">{d.title}</span> },
+    { key: "value", header: "Value", render: (d) => d.value ?? "—" },
+    {
+      key: "stage",
+      header: "Stage",
+      render: (d) => <StatusBadge state={stageState(d.stage)}>{d.stage ?? "new"}</StatusBadge>,
+    },
+  ];
+
+  const onDealSubmit = (values: DealForm) => {
+    createDeal.mutate(values, {
+      onSuccess: () => {
+        toast.success("Deal added to the pipeline.");
+        dealForm.reset();
+        setDealOpen(false);
+      },
+      onError: (e) => toast.error(e.message),
+    });
+  };
+
+  const onAccountSubmit = (values: AccountForm) => {
+    createAccount.mutate(values, {
+      onSuccess: () => {
+        toast.success("Account added.");
+        accountForm.reset();
+        setAccountOpen(false);
+      },
+      onError: (e) => toast.error(e.message),
+    });
+  };
+
   return (
     <div className="flex min-h-screen">
-      <aside className="hidden w-56 shrink-0 border-r border-border bg-muted/30 p-6 md:block">
+      <aside className="hidden w-64 shrink-0 border-r border-border bg-muted/30 p-6 md:block">
         <p className="text-lg font-semibold tracking-tight">Halyard</p>
-        <nav className="mt-8 flex flex-col gap-1 text-sm">
-          <button
-            className={`rounded-md px-3 py-2 text-left ${view === "deals" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
-            onClick={() => {
-              setView("deals");
-              setStageFilter(null);
-              setSelected([]);
-            }}
-          >
-            Deals
-          </button>
-          <button
-            className={`rounded-md px-3 py-2 text-left ${view === "accounts" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
-            onClick={() => {
-              setView("accounts");
-              setSelected([]);
-            }}
-          >
-            Accounts
-          </button>
-        </nav>
-        {view === "deals" && (
-          <div className="mt-8">
-            <p className="px-3 text-xs font-medium uppercase text-muted-foreground">Stage</p>
-            <div className="mt-2 flex flex-col gap-1">
-              {STAGES.map((s) => (
-                <button
-                  key={s}
-                  className={`rounded-md px-3 py-1.5 text-left text-sm capitalize ${stageFilter === s ? "bg-muted font-medium" : "hover:bg-muted/60"}`}
-                  onClick={() => setStageFilter(stageFilter === s ? null : s)}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        <SideNav
+          className="mt-8"
+          active="deals"
+          sections={[
+            {
+              title: "Pipeline",
+              items: [
+                { label: "Deals", href: "#deals" },
+                { label: "Accounts", href: "#accounts" },
+                { label: "Playbook", href: "#playbook" },
+              ],
+            },
+          ]}
+        />
       </aside>
 
-      <main className="flex-1 p-6 md:p-10">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+      <main className="flex-1 overflow-y-auto p-8">
+        <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">
-              {view === "deals" ? "The team's deals" : "Accounts"}
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              {view === "deals"
-                ? "Everything the team is working, shared across the whole team."
-                : "Every account the team knows, shared and editable by anyone signed in."}
+            <h1 className="text-2xl font-semibold tracking-tight">The team's deals</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Everyone on the team reads and edits the same pipeline.
             </p>
           </div>
+          <Dialog open={dealOpen} onOpenChange={setDealOpen}>
+            <DialogTrigger asChild>
+              <Button>New record</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>New deal</DialogTitle>
+              </DialogHeader>
+              <Form {...dealForm}>
+                <form className="grid gap-4" onSubmit={dealForm.handleSubmit(onDealSubmit)}>
+                  <FormField
+                    control={dealForm.control}
+                    name="title"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Title</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Acme — annual renewal" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={dealForm.control}
+                    name="value"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Value</FormLabel>
+                        <FormControl>
+                          <Input placeholder="£12,000" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={dealForm.control}
+                    name="stage"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Stage</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Choose one" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {STAGES.map((s) => (
+                              <SelectItem key={s} value={s}>
+                                {s}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <Button type="submit" className="motion-press" disabled={createDeal.isPending}>
+                    {createDeal.isPending ? "Adding…" : "Add deal"}
+                  </Button>
+                </form>
+              </Form>
+            </DialogContent>
+          </Dialog>
+        </div>
 
-          {view === "deals" ? (
-            <Dialog open={dealOpen} onOpenChange={setDealOpen}>
-              <DialogTrigger asChild>
-                <Button className="motion-press">New record</Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>New deal</DialogTitle>
-                </DialogHeader>
-                <Form {...dealForm}>
-                  <form onSubmit={dealForm.handleSubmit(onCreateDeal)} className="grid gap-4">
-                    <FormField
-                      control={dealForm.control}
-                      name="title"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Title</FormLabel>
-                          <FormControl>
-                            <Input {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={dealForm.control}
-                      name="value"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Value</FormLabel>
-                          <FormControl>
-                            <Input placeholder="£12,000" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={dealForm.control}
-                      name="stage"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Stage</FormLabel>
-                          <FormControl>
-                            <select
-                              className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm capitalize"
-                              {...field}
-                            >
-                              {STAGES.map((s) => (
-                                <option key={s} value={s}>
-                                  {s}
-                                </option>
-                              ))}
-                            </select>
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <Button type="submit" className="motion-press" disabled={createDeal.isPending}>
-                      {createDeal.isPending ? "Adding…" : "Add deal"}
-                    </Button>
-                  </form>
-                </Form>
-              </DialogContent>
-            </Dialog>
-          ) : (
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <TableSearch
+            value={search}
+            onChange={setSearch}
+            placeholder="Search deals"
+            count={filtered.length}
+            total={deals.data?.length}
+          />
+        </div>
+
+        <FilterBar
+          className="mt-3"
+          filters={stageFilter ? [{ key: "stage", label: `Stage: ${stageFilter}` }] : []}
+          onRemove={() => setStageFilter(null)}
+          onClear={() => setStageFilter(null)}
+        >
+          <div className="flex flex-wrap gap-2">
+            {STAGES.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setStageFilter(stageFilter === s ? null : s)}
+                className="motion-press"
+              >
+                <StatusBadge state={stageFilter === s ? stageState(s) : "neutral"}>{s}</StatusBadge>
+              </button>
+            ))}
+          </div>
+        </FilterBar>
+
+        <div className="mt-4">
+          <ResultCount total={filtered.length} noun="deal" filtered={!!stageFilter || !!search} />
+        </div>
+
+        {selected.length > 0 && (
+          <BulkActions
+            className="mt-3"
+            count={selected.length}
+            onClear={() => setSelected([])}
+            actions={[{ label: "Clear selection", onClick: () => setSelected([]) }]}
+          />
+        )}
+
+        <div className="mt-4">
+          {deals.isPending && <Skeleton className="h-72 rounded-xl" />}
+          {deals.isError && (
+            <p className="text-sm text-destructive">Couldn't load the pipeline. Refresh and try again.</p>
+          )}
+          {!deals.isPending && !deals.isError && filtered.length === 0 && (
+            <Empty
+              title={deals.data?.length === 0 ? "No deals yet" : "Nothing matches"}
+              description={
+                deals.data?.length === 0
+                  ? "Add the team's first deal to start the pipeline."
+                  : "Try a different search or clear the stage filter."
+              }
+            />
+          )}
+          {!deals.isPending && !deals.isError && filtered.length > 0 && (
+            <DataTable
+              data={filtered}
+              columns={columns}
+              getRowId={(d) => d.id}
+              selected={selected}
+              onSelectedChange={setSelected}
+              onRowClick={(d) => navigate({ to: "/record", search: { id: d.id } })}
+            />
+          )}
+        </div>
+
+        <section id="accounts" className="mt-12">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight">Accounts</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Shared across the team.</p>
+            </div>
             <Dialog open={accountOpen} onOpenChange={setAccountOpen}>
               <DialogTrigger asChild>
-                <Button className="motion-press">New record</Button>
+                <Button variant="outline">New account</Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>New account</DialogTitle>
                 </DialogHeader>
                 <Form {...accountForm}>
-                  <form onSubmit={accountForm.handleSubmit(onCreateAccount)} className="grid gap-4">
+                  <form className="grid gap-4" onSubmit={accountForm.handleSubmit(onAccountSubmit)}>
                     <FormField
                       control={accountForm.control}
                       name="name"
@@ -310,7 +357,7 @@ function Records() {
                         <FormItem>
                           <FormLabel>Name</FormLabel>
                           <FormControl>
-                            <Input {...field} />
+                            <Input placeholder="Acme Ltd" {...field} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -323,7 +370,7 @@ function Records() {
                         <FormItem>
                           <FormLabel>Website</FormLabel>
                           <FormControl>
-                            <Input placeholder="https://" {...field} />
+                            <Input placeholder="acme.com" {...field} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -349,142 +396,55 @@ function Records() {
                 </Form>
               </DialogContent>
             </Dialog>
-          )}
-        </div>
-
-        <div className="mt-6 flex flex-wrap items-center gap-3">
-          <TableSearch
-            value={query}
-            onChange={setQuery}
-            placeholder={view === "deals" ? "Search deals" : "Search accounts"}
-            count={view === "deals" ? filteredDeals.length : filteredAccounts.length}
-            total={view === "deals" ? deals.data?.length : accounts.data?.length}
-          />
-          {view === "deals" && stageFilter && (
-            <FilterBar
-              filters={[{ key: "stage", label: `Stage: ${stageFilter}` }]}
-              onRemove={() => setStageFilter(null)}
-              onClear={() => setStageFilter(null)}
-            />
-          )}
-        </div>
-
-        {view === "deals" && selected.length > 0 && (
-          <div className="mt-4">
-            <BulkActions
-              count={selected.length}
-              onClear={() => setSelected([])}
-              actions={[{ label: "Clear selection", onClick: () => setSelected([]) }]}
-            />
           </div>
-        )}
 
-        <div className="mt-6">
-          {view === "deals" ? (
-            <>
-              {deals.isPending && <Skeleton className="h-64 w-full rounded-xl" />}
-              {deals.isError && (
-                <p className="text-sm text-destructive">
-                  Couldn't load the team's deals. Refresh and try again.
-                </p>
-              )}
-              {deals.data?.length === 0 && (
-                <Empty
-                  title="No deals yet"
-                  description="Add the team's first deal to start the pipeline."
-                />
-              )}
-              {!!deals.data?.length && filteredDeals.length === 0 && (
-                <Empty title="No matches" description="Try a different search or clear the filter." />
-              )}
-              {filteredDeals.length > 0 && (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-10" />
-                      <TableHead>Title</TableHead>
-                      <TableHead>Value</TableHead>
-                      <TableHead>Stage</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredDeals.map((d) => (
-                      <TableRow
-                        key={d.id}
-                        className="cursor-pointer"
-                        onClick={() => navigate({ to: "/record", search: { id: d.id, type: "deal" } })}
-                      >
-                        <TableCell onClick={(e) => e.stopPropagation()}>
-                          <Checkbox
-                            checked={selected.includes(d.id)}
-                            onCheckedChange={() => toggleSelected(d.id)}
-                          />
-                        </TableCell>
-                        <TableCell className="font-medium">{d.title}</TableCell>
-                        <TableCell>{d.value ?? "—"}</TableCell>
-                        <TableCell>
-                          <StatusBadge state={stageState(d.stage)}>{d.stage ?? "new"}</StatusBadge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </>
-          ) : (
-            <>
-              {accounts.isPending && <Skeleton className="h-64 w-full rounded-xl" />}
-              {accounts.isError && (
-                <p className="text-sm text-destructive">
-                  Couldn't load accounts. Refresh and try again.
-                </p>
-              )}
-              {accounts.data?.length === 0 && (
-                <Empty
-                  title="No accounts yet"
-                  description="Add the first account the team is talking to."
-                />
-              )}
-              {!!accounts.data?.length && filteredAccounts.length === 0 && (
-                <Empty title="No matches" description="Try a different search." />
-              )}
-              {filteredAccounts.length > 0 && (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Website</TableHead>
-                      <TableHead>Notes</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredAccounts.map((a) => (
-                      <TableRow
-                        key={a.id}
-                        className="cursor-pointer"
-                        onClick={() => navigate({ to: "/record", search: { id: a.id, type: "account" } })}
-                      >
-                        <TableCell className="font-medium">{a.name}</TableCell>
-                        <TableCell>{a.website ?? "—"}</TableCell>
-                        <TableCell className="max-w-xs truncate">{a.notes ?? "—"}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </>
-          )}
-        </div>
+          <div className="mt-4">
+            {accounts.isPending && <Skeleton className="h-40 rounded-xl" />}
+            {accounts.isError && (
+              <p className="text-sm text-destructive">Couldn't load accounts. Refresh and try again.</p>
+            )}
+            {accounts.data?.length === 0 && (
+              <Empty title="No accounts yet" description="Add the first account the team is working." />
+            )}
+            {!!accounts.data?.length && (
+              <ul className="mt-2 grid gap-3 sm:grid-cols-2 motion-stagger">
+                {accounts.data.map((a) => (
+                  <li key={a.id} className="rounded-lg border border-border p-4">
+                    <p className="font-medium">{a.name}</p>
+                    {a.website && <p className="text-sm text-muted-foreground">{a.website}</p>}
+                    {a.notes && <p className="mt-2 text-sm text-muted-foreground">{a.notes}</p>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
 
-        <div className="mt-10 border-t border-border pt-6">
-          <h2 className="text-sm font-medium">The playbook</h2>
-          <p className="text-xs text-muted-foreground">
-            Guidance the business keeps up to date — read here, maintained elsewhere.
+        <section id="playbook" className="mt-12">
+          <h2 className="text-xl font-semibold tracking-tight">Playbook</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Guidance maintained by the business — read-only here.
           </p>
-          <Link to="/record" search={{ id: "", type: "deal" }} className="sr-only">
-            placeholder
-          </Link>
-        </div>
+          <div className="mt-4">
+            {playbook.isPending && <Skeleton className="h-40 rounded-xl" />}
+            {playbook.isError && (
+              <p className="text-sm text-destructive">Couldn't load the playbook. Refresh and try again.</p>
+            )}
+            {playbook.data?.length === 0 && (
+              <Empty title="No playbook entries yet" description="Nothing has been published yet." />
+            )}
+            {!!playbook.data?.length && (
+              <ul className="mt-2 grid gap-3 motion-stagger">
+                {playbook.data.map((p) => (
+                  <li key={p.id} className="rounded-lg border border-border p-4">
+                    <p className="font-medium">{p.title}</p>
+                    {p.body && <p className="mt-2 text-sm text-muted-foreground">{p.body}</p>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
       </main>
     </div>
   );

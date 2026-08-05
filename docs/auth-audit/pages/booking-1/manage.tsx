@@ -1,17 +1,18 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+
+import { Button } from "@/components/ui/button";
 import { SiteChrome } from "@/components/ui/site-chrome";
-import { ContactCard } from "@/components/ui/contact-card";
 
 export const Route = createFileRoute("/manage")({ component: Manage });
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm, well-lit studio for every level of practice.",
+  tagline: "A calm, well-lit studio for every kind of practice.",
   links: [
     { label: "Home", href: "#/" },
     { label: "Book", href: "#/book" },
-    { label: "Manage booking", href: "#/manage" },
-    { label: "Members", href: "#/account" },
+    { label: "Work", href: "#/work" },
+    { label: "Account", href: "#/account" },
   ],
   action: { label: "Book now", href: "#/book" },
 };
@@ -22,18 +23,12 @@ function Manage() {
       <div className="mx-auto max-w-lg px-6 py-16">
         <h1 className="text-3xl font-semibold tracking-tight">Manage your booking</h1>
         <p className="mt-4 text-muted-foreground">
-          To move or cancel a class, drop us a line with your name and the class time — we'll sort it by return. We're not yet able to look bookings up automatically from this page.
+          To change or cancel a class, reply to your confirmation email or give the studio a
+          call — we'll sort it for you straight away.
         </p>
-        <div className="mt-8">
-          <ContactCard
-            address="18 Meadow Lane, Bristol BS6 5TF"
-            phone="0117 946 0000"
-            email="hello@aurorayoga.studio"
-          />
-        </div>
-        <Link to="/" className="mt-8 inline-block text-sm font-medium underline underline-offset-4">
-          Back to the studio
-        </Link>
+        <Button asChild variant="outline" className="mt-6">
+          <Link to="/book">Book another class</Link>
+        </Button>
       </div>
     </SiteChrome>
   );

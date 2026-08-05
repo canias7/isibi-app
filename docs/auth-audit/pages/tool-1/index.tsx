@@ -1,9 +1,8 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { toast } from "sonner";
 
 import { useMember, useLogin, useSignup } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
@@ -18,7 +17,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Skeleton } from "@/components/ui/skeleton";
+import { StatsBand } from "@/components/ui/stats-band";
 
 export const Route = createFileRoute("/")({ component: Door });
 
@@ -33,49 +32,34 @@ function Door() {
   const member = useMember();
   const login = useLogin();
   const signup = useSignup();
+  const navigate = useNavigate();
   const [mode, setMode] = useState<"login" | "signup">("login");
+  const [formError, setFormError] = useState<string | null>(null);
 
   const form = useForm<Credentials>({
     resolver: zodResolver(credentials),
     defaultValues: { email: "", password: "" },
   });
 
+  if (!member.isPending && member.data) {
+    navigate({ to: "/records" });
+  }
+
   const action = mode === "login" ? login : signup;
 
   const onSubmit = (values: Credentials) => {
+    setFormError(null);
     action.mutate(values, {
-      onSuccess: () => {
-        form.reset();
+      onSuccess: (data) => {
+        if (data && typeof data === "object" && "pending" in data) {
+          setFormError("Check your authenticator app to finish signing in.");
+          return;
+        }
+        navigate({ to: "/records" });
       },
-      onError: (e) => toast.error(e.message),
+      onError: (e) => setFormError(e.message),
     });
   };
-
-  if (member.isPending) {
-    return (
-      <main className="grid min-h-screen place-items-center">
-        <Skeleton className="h-48 w-full max-w-sm rounded-xl" />
-      </main>
-    );
-  }
-
-  if (member.data) {
-    return (
-      <main className="grid min-h-screen place-items-center p-10">
-        <Card className="w-full max-w-sm text-center">
-          <CardHeader>
-            <CardTitle>You're signed in</CardTitle>
-            <CardDescription>Head to the pipeline to pick up where the team left off.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button asChild>
-              <Link to="/records">Go to records</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </main>
-    );
-  }
 
   return (
     <main className="grid min-h-screen md:grid-cols-2">
@@ -83,31 +67,39 @@ function Door() {
         <p className="text-lg font-semibold tracking-tight">Halyard</p>
         <div className="max-w-md py-12">
           <h1 className="text-3xl font-semibold tracking-tight text-balance">
-            The deals your team is working, in one shared table
+            The team's deals, one table everyone reads
           </h1>
           <p className="mt-4 text-muted-foreground">
-            Halyard is where a small sales team keeps its pipeline: every deal the
-            team is chasing, a shared account list, and the plays that have worked
-            before — all in one place instead of scattered across spreadsheets and
-            inboxes.
+            Halyard is where a small sales team keeps its pipeline: every deal a shared
+            record, every account a shared list, every change logged against the deal it
+            happened on.
           </p>
+          <StatsBand
+            className="mt-8"
+            columns={3}
+            items={[
+              { value: "1", label: "Shared pipeline" },
+              { value: "1", label: "Shared account list" },
+              { value: "0", label: "Spreadsheets left" },
+            ]}
+          />
           <ul className="mt-8 space-y-4 text-sm">
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>Every deal the team is working, filterable and searchable</span>
+              <span>Every deal the team is working, filterable by stage and value</span>
             </li>
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>A shared account list everyone can read and add to</span>
+              <span>One shared account list, so nobody chases the same lead twice</span>
             </li>
             <li className="flex items-start gap-3">
               <StatusBadge state="neutral">soon</StatusBadge>
-              <span>Pipeline forecasting straight off the table</span>
+              <span>Weekly digest of what moved, sent to the whole team</span>
             </li>
           </ul>
         </div>
         <p className="text-xs text-muted-foreground">
-          Built for teams of five to twenty — no admin dashboard to configure, just sign in.
+          Built for teams of five to fifteen. No admin console to configure first.
         </p>
       </section>
 
@@ -118,12 +110,12 @@ function Door() {
             <CardDescription>
               {mode === "login"
                 ? "Back to the pipeline in one field and a click."
-                : "Join your team's workspace."}
+                : "Join the team already working these deals."}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4">
+              <form className="grid gap-4" onSubmit={form.handleSubmit(onSubmit)}>
                 <FormField
                   control={form.control}
                   name="email"
@@ -144,12 +136,17 @@ function Door() {
                     <FormItem>
                       <FormLabel>Password</FormLabel>
                       <FormControl>
-                        <Input type="password" autoComplete="current-password" {...field} />
+                        <Input
+                          type="password"
+                          autoComplete={mode === "login" ? "current-password" : "new-password"}
+                          {...field}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+                {formError && <p className="text-sm text-destructive">{formError}</p>}
                 <Button type="submit" className="motion-press" disabled={action.isPending}>
                   {action.isPending
                     ? mode === "login"
@@ -159,31 +156,16 @@ function Door() {
                       ? "Sign in"
                       : "Create account"}
                 </Button>
-                <p className="text-center text-xs text-muted-foreground">
-                  {mode === "login" ? (
-                    <>
-                      New to the team?{" "}
-                      <button
-                        type="button"
-                        className="underline underline-offset-4"
-                        onClick={() => setMode("signup")}
-                      >
-                        Create an account
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      Already have one?{" "}
-                      <button
-                        type="button"
-                        className="underline underline-offset-4"
-                        onClick={() => setMode("login")}
-                      >
-                        Sign in
-                      </button>
-                    </>
-                  )}
-                </p>
+                <button
+                  type="button"
+                  className="text-center text-xs text-muted-foreground underline underline-offset-4"
+                  onClick={() => {
+                    setFormError(null);
+                    setMode(mode === "login" ? "signup" : "login");
+                  }}
+                >
+                  {mode === "login" ? "New to Halyard? Create an account" : "Already have an account? Sign in"}
+                </button>
               </form>
             </Form>
           </CardContent>

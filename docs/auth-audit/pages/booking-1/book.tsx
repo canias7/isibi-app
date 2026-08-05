@@ -8,10 +8,23 @@ import { toast } from "sonner";
 import { useCreateRow, usePublicRows, type Row } from "@/lib/rows";
 import { AvailabilityGrid } from "@/components/ui/availability-grid";
 import { Button } from "@/components/ui/button";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { SiteChrome } from "@/components/ui/site-chrome";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export const Route = createFileRoute("/book")({
   component: Book,
@@ -20,31 +33,31 @@ export const Route = createFileRoute("/book")({
   }),
 });
 
-type Booking = Row;
+type Appointment = Row;
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm, well-lit studio for every level of practice.",
+  tagline: "A calm, well-lit studio for every kind of practice.",
   links: [
     { label: "Home", href: "#/" },
     { label: "Book", href: "#/book" },
-    { label: "Manage booking", href: "#/manage" },
-    { label: "Members", href: "#/account" },
+    { label: "Work", href: "#/work" },
+    { label: "Account", href: "#/account" },
   ],
   action: { label: "Book now", href: "#/book" },
 };
 
-const CLASS_NAMES = [
-  "Morning Flow",
-  "Slow & Restorative",
-  "Power Hour",
+const CLASSES = [
+  "Sunrise Vinyasa",
+  "Slow Flow",
+  "Restorative",
+  "Power Yoga",
   "Beginners' Foundations",
-  "Candlelit Yin",
 ];
 
-const SLOTS = ["07:00", "09:00", "12:00", "17:30", "18:30", "19:30"];
+const SLOTS = ["07:00", "08:15", "09:30", "12:00", "17:30", "18:45", "19:15"];
 
-const bookingSchema = z.object({
+const booking = z.object({
   class_name: z.string().min(1, "Pick a class"),
   customer_name: z.string().min(2, "Tell us your name"),
   customer_email: z.string().email("That doesn't look like an email address"),
@@ -52,15 +65,15 @@ const bookingSchema = z.object({
   slot_time: z.string().min(1, "Pick a time"),
 });
 
-type BookingForm = z.infer<typeof bookingSchema>;
+type Booking = z.infer<typeof booking>;
 
 function Book() {
   const { service: preselected } = Route.useSearch();
-  const create = useCreateRow<Booking>("bookings");
+  const create = useCreateRow<Appointment>("bookings");
   const [booked, setBooked] = useState(false);
 
-  const form = useForm<BookingForm>({
-    resolver: zodResolver(bookingSchema),
+  const form = useForm<Booking>({
+    resolver: zodResolver(booking),
     defaultValues: {
       class_name: preselected ?? "",
       customer_name: "",
@@ -71,16 +84,19 @@ function Book() {
   });
 
   const slot_date = form.watch("slot_date");
-  const taken = usePublicRows<{ slot_date: string; slot_time: string }>("bookings", slot_date ? { slot_date } : undefined);
+  const taken = usePublicRows<{ slot_date: string; slot_time: string }>(
+    "bookings",
+    slot_date ? { slot_date } : undefined,
+  );
 
-  const onSubmit = (values: BookingForm) => {
+  const onSubmit = (values: Booking) => {
     create.mutate(values, {
       onSuccess: () => {
-        toast.success("Booked — see you on your mat.");
+        toast.success("Booked — see you on the mat.");
         form.reset();
         setBooked(true);
       },
-      onError: (e: Error) => toast.error(e.message),
+      onError: (e) => toast.error(e.message),
     });
   };
 
@@ -90,7 +106,8 @@ function Book() {
         <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
           <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
           <p className="mt-3 text-muted-foreground">
-            We've saved your place. Need to change or cancel? Get in touch and we'll sort it.
+            We've saved your spot. If you need to change or cancel it, use the link in your
+            confirmation email.
           </p>
           <Button asChild variant="outline" className="mt-6">
             <Link to="/">Back to the studio</Link>
@@ -104,7 +121,7 @@ function Book() {
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-2xl px-6 py-14">
         <h1 className="text-3xl font-semibold tracking-tight">Book a class</h1>
-        <p className="mt-2 text-muted-foreground">Pick your class, pick your time — we'll see you on the mat.</p>
+        <p className="mt-2 text-muted-foreground">We'll email you a confirmation with a manage link.</p>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -121,8 +138,10 @@ function Book() {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {CLASS_NAMES.map((c) => (
-                        <SelectItem key={c} value={c}>{c}</SelectItem>
+                      {CLASSES.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {c}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -137,7 +156,9 @@ function Book() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Your name</FormLabel>
-                  <FormControl><Input autoComplete="name" {...field} /></FormControl>
+                  <FormControl>
+                    <Input autoComplete="name" {...field} />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
@@ -149,7 +170,9 @@ function Book() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Email</FormLabel>
-                  <FormControl><Input type="email" autoComplete="email" {...field} /></FormControl>
+                  <FormControl>
+                    <Input type="email" autoComplete="email" {...field} />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
@@ -161,7 +184,9 @@ function Book() {
               render={({ field }) => (
                 <FormItem className="sm:col-span-2">
                   <FormLabel>Date</FormLabel>
-                  <FormControl><Input type="date" {...field} /></FormControl>
+                  <FormControl>
+                    <Input type="date" {...field} />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
@@ -188,7 +213,7 @@ function Book() {
 
             <div className="sm:col-span-2">
               <Button type="submit" className="motion-press" disabled={create.isPending}>
-                {create.isPending ? "Booking…" : "Book my mat"}
+                {create.isPending ? "Booking…" : "Book class"}
               </Button>
             </div>
           </form>
