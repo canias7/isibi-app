@@ -13631,3 +13631,33 @@ Refusing too much is the same bug as accepting nothing.
 plus one in twelve eval samples. Too few to put a number on, but if it holds it is
 the single largest product risk in the builder — every occurrence is a paying
 customer receiving a placeholder.
+
+### Pricing fixed: a placeholder is free
+
+Owner's call. **The pages call is billed only when a real app is published.**
+
+It used to charge before the output was judged, on the reasoning that the tokens
+were spent either way. That was true about our costs and wrong about the
+customer's: measured live, a build spent 68 seconds, returned `pages: []`,
+published the placeholder and took **23 credits off an account granted 20** — the
+same price as a working site, for nothing.
+
+- **All three routes to a placeholder are free**: no pages, no home page, and a
+  compile failure. From the customer's side those are one event — they asked for
+  a site and did not get one.
+- **The charge runs AFTER `publish`**, not before, so a publish that throws
+  cannot bill either. Asserted on the source, because with both succeeding the
+  ordering is invisible from outside.
+- **`usage` is still returned on every path**, so what we spent with the model is
+  visible even when nothing is billed. Losing that would have made a failure
+  uncostable.
+- **The schema call's flat 2 credits still applies.** The database really is live
+  and a revise reuses it, so that half was delivered.
+- Every placeholder note now ends with *"You weren't charged for the pages on
+  this attempt."* Somebody who sees a fallback page AND a balance drop has been
+  charged for nothing twice — once in credits, once in trust.
+
+**The guard that matters is the positive one.** Three tests now assert zero on
+the failure paths, so a charge deleted outright would pass all of them — a fourth
+asserts a published site IS billed, exactly once, from exactly one call site.
+5 mutants, all caught.
