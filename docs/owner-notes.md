@@ -13386,3 +13386,43 @@ a source guard that a disabled call walked past, a lint that would have flagged
 two params compared to each other, and one equivalent mutant whose real
 invariant (the policy's condition and the column's condition must agree) is now
 asserted from both files.
+
+### Correction, same day: the grant was not the fix
+
+The note above said `GRANT USAGE ON SCHEMA auth` closed it. **It did not.**
+Measured against a real Neon project: both statements raised **no error** and
+`has_schema_privilege` still answered false for both roles — so that schema is
+Neon's to open and not ours, and a grant that silently changes nothing is the
+worst of the three possible outcomes. The live run confirmed it: still
+`permission denied for schema auth` on every member call.
+
+**`app_user_id()` is SECURITY DEFINER now**, which sidesteps the question. It is
+safe because of what it reads: `auth.user_id()` decodes the session's verified
+JWT, which is connection state rather than role state — a database role has no
+JWT, so this cannot hand back the owner's identity, and an unreadable claim
+returns NULL, which is the direction that shows nobody anything. The assertion
+that would catch the unsafe direction already runs live: `member smoke` proves
+one member cannot read another's rows.
+
+The grants stay — one statement each, the documented mechanism, and correct on a
+deployment where that schema IS ours — but **nothing depends on them, and
+`applySiteSchema` now RETURNS whether they took.** Finding out that they had not
+cost a whole CI cycle spent reading a job log for an error line that was never
+written, because the failure was silent success.
+
+**Two more things the same run found, both in the test rather than the platform.**
+
+- **The e2e fixture had no `display` table at all.** Every `access: "public"` in
+  it normalizes to `collect` — the level list is collect/display/user/feed/admin
+  and anything else falls back to the default — so the level a menu, a price list
+  and every brochure page uses had never been exercised against a real database.
+  A `menu` table is in the fixture now, with the collect table beside it as the
+  contrast, or "the roles can read things" is all the check proves.
+- **The team assertion was anchored on `organizationId` appearing in the policy
+  text**, which moved into `app_team_id()`. Pointed at the policy it would now be
+  vacuous. It is a chain instead: the policy calls the function, and the
+  function — read back out of `pg_proc`, not out of our source — is the thing
+  that reads the organization, and runs as its definer.
+
+`member smoke` is 30/34: every credential problem is gone and all five remaining
+failures are one root cause, which is what this change removes.

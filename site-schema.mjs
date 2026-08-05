@@ -229,10 +229,15 @@ export async function applySiteSchema(uuid, spec) {
   // schema — so every member read and write answered `permission denied for
   // schema auth` while the function itself existed and the owner could run it
   // perfectly. Only on the native path; the fallback reads a GUC.
+  const authGrants = [];
   if (jwtExt) {
     for (const g of SESSION_JWT_GRANTS) {
-      try { await sqlQuery(uuid, g); }
-      catch (e) { console.error("auth schema grant failed:", g, e && (e.detail || e.message)); }
+      try { await sqlQuery(uuid, g); authGrants.push({ sql: g, ok: true }); }
+      catch (e) {
+        const why = String((e && (e.detail || e.message)) || e);
+        console.error("auth schema grant failed:", g, why);
+        authGrants.push({ sql: g, ok: false, error: why });
+      }
     }
   }
   // The team lookup, lifted out of the policy it used to be inlined in — see
@@ -696,6 +701,12 @@ export async function applySiteSchema(uuid, spec) {
   // route reads these BEFORE serialising rather than expecting them in `tables`.
   made.functions = fnsMade;
   if (fnErrors.length) made.functionErrors = fnErrors;
+  // WHETHER THE AUTH-SCHEMA GRANTS TOOK, reported rather than assumed. The first
+  // attempt at this raised no error and changed no privilege, and finding that
+  // out cost a whole CI cycle reading a job log for a line that was never
+  // written. `app_user_id()` no longer depends on them; this is how anyone can
+  // tell whether a future deployment has made them unnecessary or essential.
+  made.authGrants = authGrants;
   return made;
 }
 // Load the persisted access rules for a site's tables (from its own _meta.schema).

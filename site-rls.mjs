@@ -58,9 +58,28 @@ import { hasPublicView, publicViewName } from "./site-access.mjs";
  */
 export const SESSION_JWT_EXT = "CREATE EXTENSION IF NOT EXISTS pg_session_jwt;";
 
+// SECURITY DEFINER, and that is what actually makes the native form usable.
+// `auth.user_id()` lives in the schema `pg_session_jwt` creates, and the Data
+// API's roles cannot reach it — measured 2026-08-05, and the obvious fix (grant
+// them USAGE) did not take: the grant raised no error and the privilege stayed
+// false, so the schema is not ours to open. Running as the definer sidesteps the
+// question entirely.
+//
+// It is safe BECAUSE OF WHAT IT READS: `auth.user_id()` decodes the session's
+// verified JWT, which is connection state, not role state — a database role has
+// no JWT, so this cannot hand back the owner's identity. If the claim is
+// unreadable it returns NULL, which is the safe direction (nobody sees
+// anything). The live assertion that would catch the unsafe direction already
+// exists: `member smoke` proves one member cannot read another's rows.
+//
+// `search_path` is pinned and the call is qualified, or a role able to create a
+// schema ahead of it chooses what the definer runs.
+//
+// The FALLBACK is deliberately left as SECURITY INVOKER: it reads a GUC anyone
+// may read, so definer rights would be privilege bought for nothing.
 export const APP_USER_FN_NATIVE = `
 CREATE OR REPLACE FUNCTION app_user_id() RETURNS uuid
-LANGUAGE sql STABLE AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog AS $$
   SELECT NULLIF(auth.user_id(), '')::uuid
 $$;`;
 
@@ -95,6 +114,15 @@ export const APP_USER_FN = APP_USER_FN_FALLBACK;
  * stops existing takes the other role down with it.
  *
  * Emitted only on the native path — the fallback reads a GUC and needs nothing.
+ *
+ * **IT IS NOT WHAT FIXED IT, and the reason is worth keeping.** Measured
+ * 2026-08-05 against a real project: both statements raised NO error and
+ * `has_schema_privilege` still answered false for both roles, so `auth` is
+ * Neon's to open and not ours. `app_user_id()` is SECURITY DEFINER for that
+ * reason. These stay because they cost one statement, they are the documented
+ * mechanism, and a deployment where the schema IS ours needs nothing else — but
+ * nothing depends on them, and the engine now REPORTS whether they took rather
+ * than assuming.
  */
 export const SESSION_JWT_GRANTS = [
   "GRANT USAGE ON SCHEMA auth TO anonymous;",
