@@ -1,13 +1,23 @@
-import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
-import { useMember, useRows, useRpcAction, type Row } from "@/lib/rows";
-import { RecordHeader } from "@/components/ui/record-header";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { ActivityFeed } from "@/components/ui/activity-feed";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Empty } from "@/components/ui/empty";
+import { useMember, useRows, useUpdateRow, useDeleteRow, type Row } from "@/lib/rows";
+import { ActivityFeed, type Activity } from "@/components/ui/activity-feed";
 import { Button } from "@/components/ui/button";
+import { Empty } from "@/components/ui/empty";
+import { Input } from "@/components/ui/input";
+import { RecordHeader } from "@/components/ui/record-header";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { SiteChrome } from "@/components/ui/site-chrome";
+import { Skeleton } from "@/components/ui/skeleton";
+import { StatusBadge } from "@/components/ui/status-badge";
 
 export const Route = createFileRoute("/record")({
   component: RecordPage,
@@ -18,104 +28,233 @@ export const Route = createFileRoute("/record")({
 
 type Deal = Row & { title: string; value: string | null; stage: string | null };
 
-function stageState(stage: string | null): "success" | "warning" | "danger" | "neutral" | "quiet" {
-  switch (stage) {
-    case "Won":
-      return "success";
-    case "Lost":
-      return "danger";
-    case "Negotiation":
-    case "Proposal":
-      return "warning";
-    default:
-      return "neutral";
-  }
+const STAGES = ["new", "qualified", "proposal", "negotiation", "won", "lost"];
+
+function stageState(stage: string | null): "success" | "warning" | "danger" | "neutral" {
+  if (stage === "won") return "success";
+  if (stage === "lost") return "danger";
+  if (stage === "negotiation" || stage === "proposal") return "warning";
+  return "neutral";
 }
+
+const CHROME = {
+  name: "Halyard",
+  tagline: "The team's shared pipeline",
+  links: [{ label: "Records", href: "#/records" }],
+  action: { label: "New record", href: "#/records" },
+};
 
 function RecordPage() {
   const member = useMember();
-
-  if (member.isPending) {
-    return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Checking your sign-in…</div>;
-  }
-
-  if (!member.data) {
-    return <Navigate to="/" />;
-  }
-
-  return <RecordDetail />;
-}
-
-function RecordDetail() {
+  const navigate = useNavigate();
   const { id } = Route.useSearch();
-  const deals = useRows<Deal>("deals", { order: "id", dir: "desc" });
+  const deals = useRows<Deal>("deals");
+  const update = useUpdateRow<Deal>("deals");
+  const del = useDeleteRow("deals");
+
+  const [titleDraft, setTitleDraft] = useState("");
+  const [valueDraft, setValueDraft] = useState("");
+  const [editingFields, setEditingFields] = useState(false);
+  const [activity, setActivity] = useState<Activity[]>([]);
+
+  useEffect(() => {
+    if (!member.isPending && !member.data) {
+      navigate({ to: "/" });
+    }
+  }, [member.isPending, member.data, navigate]);
 
   const deal = deals.data?.find((d) => String(d.id) === id);
 
+  useEffect(() => {
+    if (deal) {
+      setTitleDraft(deal.title);
+      setValueDraft(deal.value ?? "");
+    }
+  }, [deal?.id]);
+
+  if (member.isPending) {
+    return (
+      <SiteChrome {...CHROME}>
+        <div className="px-6 py-10">
+          <Skeleton className="h-64 rounded-xl" />
+        </div>
+      </SiteChrome>
+    );
+  }
+
+  if (!member.data) {
+    return null;
+  }
+
+  if (!id) {
+    return (
+      <SiteChrome {...CHROME}>
+        <div className="px-6 py-14">
+          <Empty
+            title="No record chosen"
+            description="Open a deal from the records table to see it here."
+          />
+          <Button asChild className="mt-4">
+            <Link to="/records">Back to records</Link>
+          </Button>
+        </div>
+      </SiteChrome>
+    );
+  }
+
   if (deals.isPending) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-16">
-        <Skeleton className="h-40 rounded-xl" />
-      </div>
+      <SiteChrome {...CHROME}>
+        <div className="px-6 py-10">
+          <Skeleton className="h-64 rounded-xl" />
+        </div>
+      </SiteChrome>
     );
   }
 
   if (deals.isError) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-16">
-        <p className="text-sm text-destructive">Couldn't load this record. Refresh and try again.</p>
-      </div>
+      <SiteChrome {...CHROME}>
+        <div className="px-6 py-10">
+          <p className="text-sm text-destructive">Couldn't load this record. Refresh and try again.</p>
+        </div>
+      </SiteChrome>
     );
   }
 
-  if (!id || !deal) {
+  if (!deal) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-16">
-        <Empty title="We can't find that deal" description="It may have been removed by a teammate." />
-        <Button asChild variant="outline" className="mt-6">
-          <Link to="/records">Back to the records</Link>
-        </Button>
-      </div>
+      <SiteChrome {...CHROME}>
+        <div className="px-6 py-14">
+          <Empty
+            title="Not found"
+            description="This deal isn't in the team's pipeline, or it's been removed."
+          />
+          <Button asChild className="mt-4">
+            <Link to="/records">Back to records</Link>
+          </Button>
+        </div>
+      </SiteChrome>
     );
   }
 
-  const activity = [
-    { who: "System", what: `Deal "${deal.title}" created`, at: deal.created_at ?? new Date().toISOString() },
-    { who: "Team", what: `Currently in ${deal.stage ?? "New"}`, at: deal.updated_at ?? deal.created_at ?? new Date().toISOString() },
-  ];
+  const logActivity = (what: string) => {
+    setActivity((prev) => [{ who: "You", what, at: new Date() }, ...prev]);
+  };
+
+  const onStageChange = (stage: string) => {
+    update.mutate(
+      { id: deal.id, stage },
+      {
+        onSuccess: () => {
+          toast.success("Stage updated");
+          logActivity(`moved the deal to ${stage}`);
+        },
+        onError: (e) => toast.error(e.message),
+      },
+    );
+  };
+
+  const onSaveFields = () => {
+    update.mutate(
+      { id: deal.id, title: titleDraft, value: valueDraft },
+      {
+        onSuccess: () => {
+          toast.success("Saved");
+          logActivity("updated the deal details");
+          setEditingFields(false);
+        },
+        onError: (e) => toast.error(e.message),
+      },
+    );
+  };
+
+  const onDelete = () => {
+    del.mutate(deal.id, {
+      onSuccess: () => {
+        toast.success("Deal deleted");
+        navigate({ to: "/records" });
+      },
+      onError: (e) => toast.error(e.message),
+    });
+  };
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-12">
-      <Button asChild variant="ghost" size="sm">
-        <Link to="/records">← Back to records</Link>
-      </Button>
+    <SiteChrome {...CHROME}>
+      <div className="mx-auto max-w-3xl px-6 py-10">
+        <RecordHeader
+          title={deal.title}
+          subtitle="Shared with the team"
+          status={<StatusBadge state={stageState(deal.stage)}>{deal.stage ?? "new"}</StatusBadge>}
+          actions={
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setEditingFields((v) => !v)}>
+                {editingFields ? "Cancel" : "Edit"}
+              </Button>
+              <Button variant="destructive" onClick={onDelete} disabled={del.isPending}>
+                {del.isPending ? "Deleting…" : "Delete"}
+              </Button>
+            </div>
+          }
+        />
 
-      <RecordHeader
-        className="mt-4"
-        title={deal.title}
-        subtitle={deal.value ? `Worth ${deal.value}` : undefined}
-        status={<StatusBadge state={stageState(deal.stage)}>{deal.stage ?? "New"}</StatusBadge>}
-      />
+        <div className="mt-8 grid gap-6 sm:grid-cols-2">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Title</p>
+            {editingFields ? (
+              <Input
+                className="mt-1"
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+              />
+            ) : (
+              <p className="mt-1">{deal.title}</p>
+            )}
+          </div>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Value</p>
+            {editingFields ? (
+              <Input
+                className="mt-1"
+                value={valueDraft}
+                onChange={(e) => setValueDraft(e.target.value)}
+              />
+            ) : (
+              <p className="mt-1">{deal.value ?? "—"}</p>
+            )}
+          </div>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Stage</p>
+            <Select value={deal.stage ?? "new"} onValueChange={onStageChange}>
+              <SelectTrigger className="mt-1 w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {STAGES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
 
-      <div className="mt-8 grid gap-6 sm:grid-cols-2">
-        <div className="rounded-lg border border-border p-4">
-          <p className="text-xs uppercase text-muted-foreground">Title</p>
-          <p className="mt-1 text-sm">{deal.title}</p>
-        </div>
-        <div className="rounded-lg border border-border p-4">
-          <p className="text-xs uppercase text-muted-foreground">Value</p>
-          <p className="mt-1 text-sm">{deal.value ?? "—"}</p>
-        </div>
-        <div className="rounded-lg border border-border p-4 sm:col-span-2">
-          <p className="text-xs uppercase text-muted-foreground">Stage</p>
-          <p className="mt-1 text-sm">{deal.stage ?? "New"}</p>
+        {editingFields && (
+          <Button className="mt-4 motion-press" onClick={onSaveFields} disabled={update.isPending}>
+            {update.isPending ? "Saving…" : "Save changes"}
+          </Button>
+        )}
+
+        <div className="mt-10">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
+            Activity
+          </h2>
+          <div className="mt-3">
+            <ActivityFeed items={activity} empty="No activity yet on this deal." />
+          </div>
         </div>
       </div>
-
-      <div className="mt-10">
-        <h2 className="text-lg font-semibold tracking-tight">Activity</h2>
-        <ActivityFeed className="mt-4" items={activity} empty="Nothing logged on this deal yet" />
-      </div>
-    </div>
+    </SiteChrome>
   );
 }

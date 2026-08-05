@@ -5,8 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 
-import { useRows, useCreateRow, usePublicRows, type Row } from "@/lib/rows";
-import { AvailabilityGrid } from "@/components/ui/availability-grid";
+import { useCreateRow, usePublicRows, type Row } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -25,39 +24,40 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { AvailabilityGrid } from "@/components/ui/availability-grid";
 
 export const Route = createFileRoute("/book")({
   component: Book,
-  validateSearch: (search: Record<string, unknown>): { class?: string } => ({
-    class: typeof search.class === "string" ? search.class : undefined,
+  validateSearch: (search: Record<string, unknown>): { service?: string } => ({
+    service: typeof search.service === "string" ? search.service : undefined,
   }),
 });
 
-type Teacher = Row & { name: string };
-type Appointment = Row;
+type Booking = Row;
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "Slow mornings, strong practice — a studio on the high street.",
+  tagline: "A quiet studio for a steady practice.",
   links: [
-    { label: "Home", href: "#/" },
+    { label: "Classes", href: "#/" },
     { label: "Book", href: "#/book" },
+    { label: "Members", href: "#/members" },
     { label: "Account", href: "#/account" },
   ],
   action: { label: "Book now", href: "#/book" },
 };
 
 const CLASSES = [
-  "Sunrise Vinyasa",
-  "Slow Flow",
-  "Power Hour",
-  "Restorative",
-  "Beginners' Flow",
+  "Morning Flow",
+  "Hatha Fundamentals",
+  "Power Vinyasa",
+  "Restorative & Yin",
+  "Candlelit Slow Flow",
 ];
 
-const SLOTS = ["07:00", "08:15", "09:30", "12:00", "17:30", "18:45"];
+const SLOTS = ["07:00", "09:00", "10:30", "12:15", "17:30", "18:45", "19:30"];
 
-const booking = z.object({
+const bookingSchema = z.object({
   class_name: z.string().min(1, "Pick a class"),
   customer_name: z.string().min(2, "Tell us your name"),
   customer_email: z.string().email("That doesn't look like an email address"),
@@ -65,17 +65,17 @@ const booking = z.object({
   slot_time: z.string().min(1, "Pick a time"),
 });
 
-type Booking = z.infer<typeof booking>;
+type BookingForm = z.infer<typeof bookingSchema>;
 
 function Book() {
-  const { class: preselected } = Route.useSearch();
-  const create = useCreateRow<Appointment>("bookings");
+  const { service } = Route.useSearch();
+  const create = useCreateRow<Booking>("bookings");
   const [booked, setBooked] = useState(false);
 
-  const form = useForm<Booking>({
-    resolver: zodResolver(booking),
+  const form = useForm<BookingForm>({
+    resolver: zodResolver(bookingSchema),
     defaultValues: {
-      class_name: preselected ?? "",
+      class_name: service ?? "",
       customer_name: "",
       customer_email: "",
       slot_date: "",
@@ -89,14 +89,14 @@ function Book() {
     slot_date ? { slot_date } : undefined,
   );
 
-  const onSubmit = (values: Booking) => {
+  const onSubmit = (values: BookingForm) => {
     create.mutate(values, {
       onSuccess: () => {
         toast.success("Booked — see you on the mat.");
         form.reset();
         setBooked(true);
       },
-      onError: (e: Error) => toast.error(e.message),
+      onError: (e) => toast.error(e.message),
     });
   };
 
@@ -106,7 +106,8 @@ function Book() {
         <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
           <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
           <p className="mt-3 text-muted-foreground">
-            We've saved your spot. Need to change it? Get in touch and we'll sort it.
+            We've saved your spot. Bring a bottle of water and turn up ten minutes early for your
+            first class.
           </p>
           <Button asChild variant="outline" className="mt-6">
             <Link to="/">Back to the studio</Link>
@@ -120,7 +121,9 @@ function Book() {
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-2xl px-6 py-14">
         <h1 className="text-3xl font-semibold tracking-tight">Book a class</h1>
-        <p className="mt-2 text-muted-foreground">Pick a class, a date and a time — we'll hold your mat.</p>
+        <p className="mt-2 text-muted-foreground">
+          Pick a class, a date and a time — we'll hold your mat.
+        </p>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -212,7 +215,7 @@ function Book() {
 
             <div className="sm:col-span-2">
               <Button type="submit" className="motion-press" disabled={create.isPending}>
-                {create.isPending ? "Booking…" : "Request booking"}
+                {create.isPending ? "Booking…" : "Book class"}
               </Button>
             </div>
           </form>

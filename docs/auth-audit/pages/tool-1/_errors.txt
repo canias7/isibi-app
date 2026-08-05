@@ -1,9 +1,8 @@
-src/routes/record.tsx(117,40): error TS2322: Type '{ who: string; what: string; at: string | number | boolean; }[]' is not assignable to type 'Activity[]'.
-src/routes/records.tsx(324,23): error TS2322: Type '(row: Deal) => React.JSX.Element' is not assignable to type '(row: Record<string, unknown>) => ReactNode'.
-src/routes/records.tsx(333,53): error TS2322: Type '(row: Deal) => string' is not assignable to type '(row: Record<string, unknown>) => ReactNode'.
-src/routes/records.tsx(334,54): error TS2322: Type '(row: Deal) => string' is not assignable to type '(row: Record<string, unknown>) => ReactNode'.
-src/routes/records.tsx(338,23): error TS2322: Type '(row: Deal) => React.JSX.Element' is not assignable to type '(row: Record<string, unknown>) => ReactNode'.
-src/routes/records.tsx(341,19): error TS2322: Type '(row: Deal) => void' is not assignable to type '(row: Record<string, unknown>) => void'.
-src/routes/records.tsx(425,55): error TS2322: Type '(row: Account) => string' is not assignable to type '(row: Record<string, unknown>) => ReactNode'.
-src/routes/records.tsx(426,58): error TS2322: Type '(row: Account) => string' is not assignable to type '(row: Record<string, unknown>) => ReactNode'.
-src/routes/records.tsx(427,54): error TS2322: Type '(row: Account) => string' is not assignable to type '(row: Record<string, unknown>) => ReactNode'.
+src/routes/records.tsx(177,37): error TS2353: Object literal may only specify known properties, and 'render' does not exist in type 'Column<Deal>'.
+src/routes/records.tsx(177,46): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/routes/records.tsx(178,38): error TS2353: Object literal may only specify known properties, and 'render' does not exist in type 'Column<Deal>'.
+src/routes/records.tsx(178,47): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/routes/records.tsx(182,7): error TS2353: Object literal may only specify known properties, and 'render' does not exist in type 'Column<Deal>'.
+src/routes/records.tsx(182,16): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/routes/records.tsx(362,17): error TS2353: Object literal may only specify known properties, and 'render' does not exist in type 'Column<Deal>'.
+src/routes/records.tsx(362,26): error TS7006: Parameter 'r' implicitly has an 'any' type.

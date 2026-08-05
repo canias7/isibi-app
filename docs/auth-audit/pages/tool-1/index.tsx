@@ -1,5 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -17,9 +17,8 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { StatsBand } from "@/components/ui/stats-band";
-import { FeatureGrid } from "@/components/ui/feature-grid";
-import { Link, Navigate } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/")({ component: Door });
 
@@ -34,6 +33,8 @@ function Door() {
   const member = useMember();
   const login = useLogin();
   const signup = useSignup();
+  const navigate = useNavigate();
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [error, setError] = useState<string | null>(null);
 
   const form = useForm<Credentials>({
@@ -41,27 +42,34 @@ function Door() {
     defaultValues: { email: "", password: "" },
   });
 
-  const submit = (action: typeof login, values: Credentials) => {
+  useEffect(() => {
+    if (member.data) {
+      navigate({ to: "/records" });
+    }
+  }, [member.data, navigate]);
+
+  const onSubmit = (values: Credentials) => {
     setError(null);
-    action.mutate(values, {
+    const action = mode === "signin" ? login : signup;
+    const payload = mode === "signin" ? values : { ...values, name: values.email.split("@")[0] };
+    action.mutate(payload, {
       onSuccess: (data) => {
         if (data && typeof data === "object" && "pending" in data) {
           toast.message("Check your authenticator app to finish signing in.");
           return;
         }
         form.reset();
+        navigate({ to: "/records" });
       },
-      onError: () => setError("That email and password didn't match."),
+      onError: (e) => setError(e.message),
     });
   };
 
-  if (member.isPending) {
-    return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Checking your sign-in…</div>;
+  if (member.isPending || member.data) {
+    return null;
   }
 
-  if (member.data) {
-    return <Navigate to="/records" />;
-  }
+  const busy = login.isPending || signup.isPending;
 
   return (
     <main className="grid min-h-screen md:grid-cols-2">
@@ -72,41 +80,52 @@ function Door() {
             One shared table for every deal your team is working
           </h1>
           <p className="mt-4 text-muted-foreground">
-            Halyard is the internal tool for a small sales team: deals, accounts and the
-            team's playbook, all in one place, all behind a sign-in.
+            Halyard is where a small sales team keeps its pipeline — the deals
+            everyone is chasing, the accounts everyone sells into, and the plays
+            that work, all in one place instead of scattered across inboxes.
           </p>
           <StatsBand
             className="mt-8"
             columns={3}
             items={[
               { value: "1", label: "shared pipeline" },
-              { value: "0", label: "spreadsheets" },
+              { value: "0", label: "spreadsheets left" },
               { value: "24/7", label: "team visibility" },
             ]}
           />
-          <FeatureGrid
-            className="mt-8"
-            columns={2}
-            items={[
-              { title: "For the whole team", description: "Everyone on the team reads and edits the same deals." },
-              { title: "Shared accounts", description: "One list of accounts the whole team keeps current." },
-              { title: "Activity trail", description: "Every record keeps a record of what changed and when." },
-              { title: "The playbook", description: "The team's playbook, always up to date, never edited from here." },
-            ]}
-          />
+          <ul className="mt-8 space-y-4 text-sm">
+            <li className="flex items-start gap-3">
+              <StatusBadge state="success">live</StatusBadge>
+              <span>Every deal your team owns, in one table, with stage and value at a glance</span>
+            </li>
+            <li className="flex items-start gap-3">
+              <StatusBadge state="success">live</StatusBadge>
+              <span>A shared account list — add one, everyone on the team sees it</span>
+            </li>
+            <li className="flex items-start gap-3">
+              <StatusBadge state="neutral">soon</StatusBadge>
+              <span>Playbook plays surfaced right on the deal that needs them</span>
+            </li>
+          </ul>
         </div>
-        <p className="text-xs text-muted-foreground">Built for a five-person sales team. Not a public marketing site.</p>
+        <p className="text-xs text-muted-foreground">
+          Built for teams of two to ten — no admin console to configure before it's useful.
+        </p>
       </section>
 
       <section className="flex items-center justify-center p-10">
         <Card className="w-full max-w-sm">
           <CardHeader>
-            <CardTitle>Sign in</CardTitle>
-            <CardDescription>Back to the pipeline in one field and a click.</CardDescription>
+            <CardTitle>{mode === "signin" ? "Sign in" : "Create an account"}</CardTitle>
+            <CardDescription>
+              {mode === "signin"
+                ? "Back to the pipeline in one field and a click."
+                : "Join your team's shared pipeline."}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <Form {...form}>
-              <form className="grid gap-4" onSubmit={form.handleSubmit((v) => submit(login, v))}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4">
                 <FormField
                   control={form.control}
                   name="email"
@@ -127,28 +146,39 @@ function Door() {
                     <FormItem>
                       <FormLabel>Password</FormLabel>
                       <FormControl>
-                        <Input type="password" autoComplete="current-password" {...field} />
+                        <Input
+                          type="password"
+                          autoComplete={mode === "signin" ? "current-password" : "new-password"}
+                          {...field}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
                 {error && <p className="text-sm text-destructive">{error}</p>}
-                <div className="flex gap-3">
-                  <Button type="submit" className="motion-press" disabled={login.isPending}>
-                    {login.isPending ? "Signing in…" : "Sign in"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={signup.isPending}
-                    onClick={form.handleSubmit((v) => submit(signup, v))}
-                  >
-                    Create an account
-                  </Button>
-                </div>
+                <Button type="submit" className="motion-press" disabled={busy}>
+                  {busy ? "Signing in…" : mode === "signin" ? "Sign in" : "Create account"}
+                </Button>
               </form>
             </Form>
+            <p className="mt-4 text-center text-xs text-muted-foreground">
+              {mode === "signin" ? (
+                <>
+                  New here?{" "}
+                  <button type="button" className="underline underline-offset-4" onClick={() => setMode("signup")}>
+                    Create an account
+                  </button>
+                </>
+              ) : (
+                <>
+                  Already have one?{" "}
+                  <button type="button" className="underline underline-offset-4" onClick={() => setMode("signin")}>
+                    Sign in
+                  </button>
+                </>
+              )}
+            </p>
           </CardContent>
         </Card>
       </section>

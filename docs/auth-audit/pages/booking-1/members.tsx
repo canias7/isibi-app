@@ -4,7 +4,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 
-import { useMember, useLogin, useSignup, useLogout, useRows, type Row } from "@/lib/rows";
+import {
+  useMember,
+  useLogin,
+  useSignup,
+  useRows,
+  useCreateRow,
+  type Row,
+} from "@/lib/rows";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -16,13 +23,14 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Empty } from "@/components/ui/empty";
 
-export const Route = createFileRoute("/account")({ component: Account });
+export const Route = createFileRoute("/members")({ component: Members });
 
-type Announcement = Row & { title: string; body: string };
+type Note = Row & { title: string; body: string };
 
 const CHROME = {
   name: "Aurora Yoga",
@@ -42,11 +50,16 @@ const credentials = z.object({
 });
 type Credentials = z.infer<typeof credentials>;
 
-function Account() {
+const noteSchema = z.object({
+  title: z.string().min(1, "Give it a title"),
+  body: z.string().min(1, "Write something down"),
+});
+type NoteForm = z.infer<typeof noteSchema>;
+
+function Members() {
   const member = useMember();
   const login = useLogin();
   const signup = useSignup();
-  const logout = useLogout();
 
   const form = useForm<Credentials>({
     resolver: zodResolver(credentials),
@@ -68,18 +81,16 @@ function Account() {
 
   return (
     <SiteChrome {...CHROME}>
-      <div className="mx-auto max-w-md px-6 py-16">
+      <div className="mx-auto max-w-2xl px-6 py-16">
         {member.isPending && <p className="text-muted-foreground">Checking your sign-in…</p>}
 
-        {member.data && (
-          <SignedIn name={member.data.name} onSignOut={() => logout.mutate()} />
-        )}
+        {member.data && <SignedInNotes name={member.data.name} />}
 
         {!member.isPending && !member.data && (
           <>
-            <h1 className="text-3xl font-semibold tracking-tight">Your account</h1>
+            <h1 className="text-3xl font-semibold tracking-tight">Members</h1>
             <p className="mt-2 text-muted-foreground">
-              Sign in to see studio announcements and keep your practice notes.
+              Sign in to keep your own practice notes — what worked, what to try next time.
             </p>
 
             <Form {...form}>
@@ -135,49 +146,108 @@ function Account() {
   );
 }
 
-function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) {
-  const announcements = useRows<Announcement>("announcements", { order: "id", dir: "desc" });
+function SignedInNotes({ name }: { name: string }) {
+  const notes = useRows<Note>("my_notes", { order: "id", dir: "desc" });
+  const create = useCreateRow<Note>("my_notes");
+
+  const form = useForm<NoteForm>({
+    resolver: zodResolver(noteSchema),
+    defaultValues: { title: "", body: "" },
+  });
+
+  const onSubmit = (values: NoteForm) => {
+    create.mutate(values, {
+      onSuccess: () => {
+        toast.success("Note saved");
+        form.reset();
+      },
+      onError: (e) => toast.error(e.message),
+    });
+  };
 
   return (
     <>
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-semibold tracking-tight">Hello, {name}</h1>
-        <Button variant="ghost" onClick={onSignOut}>
-          Sign out
-        </Button>
-      </div>
+      <h1 className="text-3xl font-semibold tracking-tight">Hello, {name}</h1>
+      <p className="mt-2 text-muted-foreground">
+        Your own practice notes — nobody else sees these.
+      </p>
 
       <Card className="mt-8">
         <CardHeader>
-          <CardTitle className="text-base">Studio announcements</CardTitle>
+          <CardTitle className="text-base">Add a note</CardTitle>
         </CardHeader>
         <CardContent>
-          {announcements.isPending && (
-            <div className="grid gap-3">
-              <Skeleton className="h-16 rounded-lg" />
-              <Skeleton className="h-16 rounded-lg" />
-            </div>
-          )}
-          {announcements.isError && (
-            <p className="text-sm text-destructive">
-              Couldn't load announcements. Refresh and try again.
-            </p>
-          )}
-          {announcements.data?.length === 0 && (
-            <Empty title="Nothing posted yet" description="Studio news will show up here." />
-          )}
-          {!!announcements.data?.length && (
-            <ul className="grid gap-4 motion-stagger">
-              {announcements.data.map((a) => (
-                <li key={a.id} className="border-b border-border pb-4 last:border-0 last:pb-0">
-                  <p className="font-medium">{a.title}</p>
-                  <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">{a.body}</p>
-                </li>
-              ))}
-            </ul>
-          )}
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4">
+              <FormField
+                control={form.control}
+                name="title"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Title</FormLabel>
+                    <FormControl>
+                      <Input placeholder="After Power Vinyasa" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="body"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Note</FormLabel>
+                    <FormControl>
+                      <Textarea rows={4} placeholder="Hips felt tight in pigeon, go slower next time…" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div>
+                <Button type="submit" className="motion-press" disabled={create.isPending}>
+                  {create.isPending ? "Saving…" : "Save note"}
+                </Button>
+              </div>
+            </form>
+          </Form>
         </CardContent>
       </Card>
+
+      <div className="mt-8">
+        {notes.isPending && (
+          <div className="grid gap-3">
+            <Skeleton className="h-20 rounded-xl" />
+            <Skeleton className="h-20 rounded-xl" />
+          </div>
+        )}
+        {notes.isError && (
+          <p className="text-sm text-destructive">Couldn't load your notes. Refresh and try again.</p>
+        )}
+        {notes.data?.length === 0 && (
+          <Empty
+            title="No notes yet"
+            description="Add one above after your next class."
+          />
+        )}
+        {!!notes.data?.length && (
+          <ul className="grid gap-3 motion-stagger">
+            {notes.data.map((n) => (
+              <li key={n.id}>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">{n.title}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">{n.body}</p>
+                  </CardContent>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </>
   );
 }
