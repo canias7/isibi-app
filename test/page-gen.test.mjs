@@ -12,10 +12,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  REFERENCE_PAGE, REFERENCE_PAGES, UI_COMPONENTS, UI_SHORTLIST, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MANAGED_COLUMNS,
+  REFERENCE_PAGE, REFERENCE_PAGES, UI_COMPONENTS, UI_SHORTLIST, UI_SHORTLIST_API, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MANAGED_COLUMNS,
   schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, ACCESS_NOTE,
 } from "../builder/page-gen.mjs";
-import { COMPONENT_API } from "../builder/component-api.mjs";
+import { COMPONENT_API, COMPONENT_TYPES } from "../builder/component-api.mjs";
 import { build as buildApi, render as renderApi } from "../builder/gen-component-api.mjs";
 import * as api from "../builder/page-gen.mjs";
 
@@ -1369,4 +1369,38 @@ test("component-api.mjs is what the generator produces right now", () => {
   const onDisk = fs.readFileSync(new URL("../builder/component-api.mjs", import.meta.url), "utf8");
   assert.equal(fresh, onDisk,
     "builder/component-api.mjs is stale — run `node builder/gen-component-api.mjs`");
+});
+
+test("a signature that names a type also shows that type's SHAPE", () => {
+  // `ActivityFeed(items: Activity[], …)` names a type the model cannot see. It
+  // passed `{title, description}[]` where Activity is `{who, what, at, avatar?}`
+  // — one error, and the only thing between the booking sample and a pass.
+  const line = UI_SHORTLIST_API().split("\n").find((l) => l.includes("activity-feed"));
+  assert.ok(line, "activity-feed left the shortlist — pick another component with a named type");
+  assert.match(line, /where Activity = \{ who: string/, line);
+});
+
+test("and the shape comes from THAT component's file, not a name lookup", () => {
+  // TWO components in this kit export a type called `Activity` and they are
+  // different shapes. A flat name -> shape map collapsed them, last one winning,
+  // so the prompt would have carried the wrong fields for one of them. A wrong
+  // type is worse than none: it looks authoritative, exactly like the truncated
+  // enum did earlier the same day.
+  const a = COMPONENT_TYPES["activity-feed"];
+  const b = COMPONENT_TYPES["facility-status"];
+  assert.ok(a && a.Activity, "activity-feed lost its type");
+  assert.ok(b && b.Activity, "facility-status lost its type");
+  assert.notEqual(a.Activity, b.Activity, "the two Activity types collapsed into one");
+  assert.match(a.Activity, /who: string/);
+  assert.match(b.Activity, /state\?*:/);
+});
+
+test("a type is read with balanced braces, not up to the first semicolon", () => {
+  // These are object literals whose fields are semicolon-separated, so a lazy
+  // match returns `Activity = { who: string` and looks like it worked.
+  for (const [, types] of Object.entries(COMPONENT_TYPES)) {
+    for (const [name, body] of Object.entries(types)) {
+      assert.ok(body.startsWith("{") && body.endsWith("}"), `${name} was cut off: ${body}`);
+    }
+  }
 });

@@ -13081,3 +13081,53 @@ working on a real generation. Menu clean both runs. The CRM is still the one tha
 fails.
 
 863 unit tests, 5 mutants on this change, all caught.
+
+## `build smoke` is GREEN — the booking form works (2026-08-04)
+
+**54/54, on `cfe08d9`, verified against the SHA.** A generated site builds,
+publishes, loads in a real browser, submits its form, and the row lands in
+Postgres:
+
+    ok   the generated app was published, not the fallback
+    ok   the container built this site with the CURRENT template
+    ok   the form sent a submission
+    ok   and the database accepted it
+
+That check had been red all day and took **five attempts**: an empty Anthropic
+account, a stale container image, a generator miss, a validate failure, and then
+green. Each attempt was a different problem, and the reason it took five rather
+than fifteen is that every failure this session was made to name itself — the
+`stage`/`error` fields, the template digest, the trace.
+
+**The template digest earned its place immediately.** It confirms this run tested
+the CURRENT code rather than passing on an image one change behind, which is
+exactly how attempt three misled a whole diagnosis.
+
+### The signature that stopped at a type name
+
+The eval's booking sample failed on ONE error: `Activity[]`. The prompt said
+`ActivityFeed(items: Activity[], …)`, the model passed
+`{title, description}[]`, and `Activity` is `{who, what, at, avatar?}` —
+completely different fields, and no way to know. Signatures now carry the shape:
+
+    activity-feed — ActivityFeed(items: Activity[], empty?: string = "Nothing yet")
+       where Activity = { who: string; what: string; at: string | number | Date; avatar?: string | null }
+
+**Two traps on the way in, both caught before shipping.**
+
+TWO components in this kit export a type called `Activity`, with different
+shapes — `activity-feed`'s and `facility-status`'s. A flat name→shape map
+collapsed them, last one winning, so the prompt would have carried the wrong
+fields for one of them. **A wrong type is worse than none: it looks
+authoritative**, exactly like the truncated enum did the same day. Keyed per
+component now, and only types the signature actually mentions are printed.
+
+And the shapes are read with BALANCED BRACES, not up to the first `;` — these are
+object literals whose fields are semicolon-separated, so a lazy match returns
+`Activity = { who: string` and looks like it worked. It did, in the first draft,
+and the measurement it produced was wrong too.
+
+Prompt block 9,269 → 11,790 tokens, all cached — roughly $0.0008 more per warm
+build.
+
+866 unit tests, 4 mutants, all caught.

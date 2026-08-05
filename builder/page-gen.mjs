@@ -13,7 +13,7 @@
 
 // Generated from the component files by builder/gen-component-api.mjs. Kept in
 // step by test/component-api.test.mjs, which regenerates and compares.
-import { COMPONENT_API } from "./component-api.mjs";
+import { COMPONENT_API, COMPONENT_TYPES } from "./component-api.mjs";
 // The chart half, generated from src/components/charts/lib by
 // builder/gen-chart-api.mjs and kept in step by test/chart-api.test.mjs.
 import { CHART_COMPONENTS, CHART_API } from "./chart-api.mjs";
@@ -920,7 +920,19 @@ export const UI_SHORTLIST_API = () => {
   const lines = [];
   for (const n of UI_SHORTLIST) {
     const sig = COMPONENT_API[n];
-    if (sig) lines.push("  " + n + " — " + sig);
+    if (!sig) continue;
+    // THE SHAPE A SIGNATURE STOPS AT. `ActivityFeed(items: Activity[], …)` names
+    // a type the model cannot see, and it passed `{title, description}[]` where
+    // `Activity` is `{who, what, at, avatar?}` — one error, and the only thing
+    // between a booking sample and a pass.
+    //
+    // Taken from THAT COMPONENT'S OWN FILE: two components in this kit export a
+    // type called `Activity` and they are different shapes, so a name alone
+    // cannot resolve it. Only types the signature actually mentions are printed.
+    const own = COMPONENT_TYPES[n] || {};
+    const cited = Object.keys(own).filter((t) => new RegExp("\\b" + t + "\\b").test(sig));
+    const shapes = cited.map((t) => t + " = " + own[t]).join("; ");
+    lines.push("  " + n + " — " + sig + (shapes ? "   where " + shapes : ""));
   }
   return lines.join("\n");
 };
