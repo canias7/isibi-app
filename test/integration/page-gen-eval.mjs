@@ -423,7 +423,7 @@ console.log(`\n${compiled.length}/${results.length} compiled · ${clean} with no
 for (const l of shapeLines) console.log("  " + l);
 
 // WHAT IT COST, AND HOW MUCH OF THE OUTPUT WAS COMMENTS. The second number is
-// here because rule 13 asks the model not to write them and an unmeasured rule
+// here because the no-comments rule asks the model not to write them and an unmeasured rule
 // is a wish: comments were 27% of the example set, output is 5x the price of
 // input, so this is the largest single lever on what a build costs.
 // Computed into a value both the console AND the committed report read. Printed

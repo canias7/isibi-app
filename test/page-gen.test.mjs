@@ -16,7 +16,7 @@ import {
   schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, ACCESS_NOTE,
 } from "../builder/page-gen.mjs";
 import { COMPONENT_API, COMPONENT_TYPES } from "../builder/component-api.mjs";
-import { build as buildApi, render as renderApi } from "../builder/gen-component-api.mjs";
+import { build as buildApi, render as renderApi, extract as extractApi } from "../builder/gen-component-api.mjs";
 import * as api from "../builder/page-gen.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -1417,8 +1417,116 @@ test("Row and PublicRow agree that a column value is a SCALAR", () => {
   // alone — the only error between the booking sample and a pass.
   const src = fs.readFileSync(new URL("../builder/lovable/template/src/lib/rows.ts", import.meta.url), "utf8");
   const scalar = "Record<string, string | number | boolean | null>";
-  assert.match(src, new RegExp("export type Row = " + scalar.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&") + " & \\{ id: number \\}"),
+  assert.match(src, new RegExp("export type Row = " + scalar.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&") + " & \\{[\\s\\S]{0,400}?id: number;"),
     "Row's values are back to `unknown`, so an ordinary page cannot render one");
   assert.ok(src.includes("export type PublicRow = " + scalar),
     "PublicRow drifted from Row — they describe the same thing");
+});
+
+test("Row names created_at, and the schema engine really does always add it", () => {
+  // The one column a page reads that the model's own `type Deal = Row & {…}`
+  // cannot narrow: a declared column gets a type in that intersection, a
+  // platform-managed one is left on the index signature as
+  // `string | number | boolean | null`. Handing it to anything wanting
+  // `string | number | Date` is TS2322 — measured live 2026-08-05, and the CRM
+  // sample published as the placeholder over it.
+  const src = fs.readFileSync(new URL("../builder/lovable/template/src/lib/rows.ts", import.meta.url), "utf8");
+  assert.match(src, /created_at: string;/, "Row must name it, or no page can render a date");
+  // NON-OPTIONAL is a claim about site-schema.mjs, so it is checked there.
+  // `updated_at` sits behind the `timestamps` flag and `created_at` does not —
+  // typing them the same way would be wrong in one direction or the other.
+  assert.ok(!/created_at\?: /.test(src), "optional would give `string | undefined`, which fails the same way");
+  const engine = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  const created = engine.match(/^\s*(.*)cols\.push\((['"`])"created_at" TEXT/m);
+  assert.ok(created, "site-schema.mjs no longer adds created_at at all");
+  assert.equal(created[1].trim(), "", "created_at became conditional, so `created_at: string` in rows.ts is now a lie");
+  assert.match(engine, /if \(t\.timestamps \|\| t\.sync\) cols\.push\('"updated_at"/,
+    "updated_at is the conditional one — if that ever changes, so must the type above");
+});
+
+test("a component's prop shape is printed, never collapsed to `object`", () => {
+  // THE SAME FAILURE AS THE TRUNCATED STRING UNION, one type-kind over. An
+  // inline object literal names the exact properties a caller must write, and
+  // `object` reads as "any object" — measured live 2026-08-05,
+  // `BulkActions(actions: object[])` was called with `{label, onClick}` against
+  // `{label, onSelect, destructive?}`. TS2353, page refused.
+  //
+  // Worse than the union was, because there is nowhere else to look it up:
+  // COMPONENT_TYPES only resolves `export type` names.
+  const all = Object.values(COMPONENT_API).join(" ");
+  assert.ok(!/:\s*object[,)\]]/.test(all), "a prop is still typed `object`: " + (all.match(/\w+\??:\s*object[,)\]]/) || [])[0]);
+  assert.ok(!/:\s*object\[\]/.test(all), "a prop is still typed `object[]`");
+  assert.match(COMPONENT_API["bulk-actions"], /onSelect/, "the prop the generator guessed wrong must now be stated");
+  // A function's parameters are a contract too — `(next: string) => void` and
+  // `(id: number, done: boolean) => void` are not interchangeable.
+  assert.ok(!/:\s*function[,)]/.test(all), "a callback prop is still typed `function`");
+});
+
+test("a shape too long to print keeps its property NAMES", () => {
+  // Between `object` and the full type there is a third answer, and it is most
+  // of the value: a caller who knows the keys writes a call that compiles.
+  // Driven through the real extractor rather than asserted on the output, so a
+  // kit with no shape over the limit cannot make this pass vacuously.
+  const long = Array.from({ length: 14 }, (_, i) => `field${i}: string`).join("; ");
+  const [found] = extractApi(`export function Big({ rows }: { rows: { ${long} }[]; }) { return null; }`);
+  assert.ok(found, "the extractor stopped seeing the component");
+  const sig = found.props.join(", ");
+  assert.ok(!/object/.test(sig), "a shape over the limit must not fall back to `object`: " + sig);
+  assert.match(sig, /rows: \{ field0; field1;/, sig);
+  assert.ok(!/field0: string/.test(sig), "over the limit the types are dropped, not kept: " + sig);
+  assert.match(sig, /\}\[\]$/, "an array of the shape must stay an array: " + sig);
+  // And UNDER the limit the full type survives, or the rule above is just the
+  // old collapse with different words.
+  const [small] = extractApi(`export function Small({ a }: { a: { label: string; onSelect: () => void; destructive?: boolean }[]; }) { return null; }`);
+  assert.match(small.props.join(""), /label: string; onSelect: \(\) => void/, small.props.join(""));
+});
+
+// ── a row id is a number and a route param is a string ───────────────────────
+
+test("comparing a row id to a route param is caught", () => {
+  // NOT MERELY A TYPE ERROR. `4 === "4"` is false, so if this ever stopped being
+  // refused by tsc it would become a manage page that answers "not found" for
+  // every real row. Measured live 2026-08-05 in a CRM sample.
+  const p = lintPages(page('const { id } = Route.useSearch(); const d = rows.find((r) => r.id === id);'), SPEC);
+  assert.equal(p.length, 1, JSON.stringify(p));
+  assert.match(p[0], /route param is a string while a row id is a number/);
+  assert.match(p[0], /String\(r\.id\)/, "the message must name the fix: " + p[0]);
+  // Either way round.
+  assert.equal(lintPages(page('const { id } = Route.useParams(); const d = rows.find((r) => id === r.id);'), SPEC).length, 1);
+  // And the object form of the binding, not only the destructured one.
+  assert.equal(lintPages(page('const sp = Route.useSearch(); const d = rows.find((r) => r.id === sp.id);'), SPEC).length, 1);
+});
+
+test("and the correct spelling is silent", () => {
+  assert.deepEqual(lintPages(page('const { id } = Route.useSearch(); const d = rows.find((r) => String(r.id) === id);'), SPEC), []);
+  // `useRow(TABLE, id)` with the raw string is CORRECT — every hook takes
+  // `string | number` — so a rule that pushed the model to Number() would be
+  // teaching a bug.
+  assert.deepEqual(lintPages(page(`const { id } = Route.useParams(); useRows("services");`), SPEC), []);
+});
+
+test("a comparison against something that is NOT a param is left alone", () => {
+  // `d.id === selectedId` against a numeric state is correct code, and a lint
+  // that flagged it would be one the model learns to ignore. Scoped to
+  // identifiers this file actually binds from a param hook.
+  assert.deepEqual(lintPages(page('const { q } = Route.useSearch(); const hit = d.id === selectedId;'), SPEC), []);
+  // With no param hook at all, the rule cannot fire.
+  assert.deepEqual(lintPages(page('const hit = d.id === other;'), SPEC), []);
+  // TWO PARAMS COMPARED TO EACH OTHER are both strings and perfectly equal-able.
+  // Found by mutation: without the `!isParam` half of the id test, one param's
+  // `.id` reads as a row id and this is reported as impossible.
+  assert.deepEqual(lintPages(page('const a = Route.useParams(); const b = Route.useSearch(); const same = a.id === b.id;'), SPEC), []);
+});
+
+test("an id put INTO a route without String() is caught", () => {
+  const link = lintPages(page('<Link to="/r/$id" params={{ id: row.id }} />'), SPEC);
+  assert.equal(link.length, 1, JSON.stringify(link));
+  assert.match(link[0], /String\(row\.id\)/);
+  assert.equal(lintPages(page('navigate({ to: "/record", search: { id: d.id } })'), SPEC).length, 1);
+  // Blanked rather than matched around, so whitespace inside the call cannot
+  // evade it.
+  assert.deepEqual(lintPages(page('<Link to="/r/$id" params={{ id: String( row.id ) }} />'), SPEC), []);
+  assert.deepEqual(lintPages(page('navigate({ to: "/record", search: { id: String(d.id) } })'), SPEC), []);
+  // A search param that is not an id is not this rule's business.
+  assert.deepEqual(lintPages(page('<Link to="/book" search={{ service: row.title }} />'), SPEC), []);
 });

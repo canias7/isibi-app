@@ -15,7 +15,7 @@
 //
 // `db` throughout is a Neon connection string (see ./site-db.mjs).
 import { sqlQuery, sqlQuery as realSqlQuery } from "./site-db.mjs";
-import { policiesFor, grantsFor, publicViewSql, functionSql, SESSION_JWT_EXT, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK } from "./site-rls.mjs";
+import { policiesFor, grantsFor, publicViewSql, functionSql, SESSION_JWT_EXT, SESSION_JWT_GRANTS, APP_TEAM_FN, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK } from "./site-rls.mjs";
 import { isManagedColumn } from "./site-access.mjs";
 import { makeCache } from "./ttl-cache.mjs";
 
@@ -224,6 +224,22 @@ export async function applySiteSchema(uuid, spec) {
     // better than no function at all — without one, every policy is broken.
     if (jwtExt) { try { await sqlQuery(uuid, APP_USER_FN_FALLBACK); } catch {} }
   }
+  // CREATING THE FUNCTION IS NOT THE SAME AS BEING ABLE TO CALL IT. The native
+  // body reads `auth.user_id()`, and the Data API's roles have no USAGE on that
+  // schema — so every member read and write answered `permission denied for
+  // schema auth` while the function itself existed and the owner could run it
+  // perfectly. Only on the native path; the fallback reads a GUC.
+  if (jwtExt) {
+    for (const g of SESSION_JWT_GRANTS) {
+      try { await sqlQuery(uuid, g); }
+      catch (e) { console.error("auth schema grant failed:", g, e && (e.detail || e.message)); }
+    }
+  }
+  // The team lookup, lifted out of the policy it used to be inlined in — see
+  // site-rls.mjs. Created unconditionally so a revise picks it up; a site with no
+  // team-scoped table simply never calls it.
+  try { await sqlQuery(uuid, APP_TEAM_FN); }
+  catch (e) { console.error("app_team_id() failed:", e && (e.detail || e.message)); }
   spec = normalizeSchema(spec);
   const tables = (spec && Array.isArray(spec.tables)) ? spec.tables.slice(0, 24) : [];
   const made = [], norm = [];

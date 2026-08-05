@@ -2022,7 +2022,18 @@ ${UI_SHORTLIST_API()}
     figures to this site's visitors. Import the primitive and pass it the site's own rows.
     The ${CHART_DOMAIN_COUNT} domain modules and everything they export are listed below.
 
-13. NO EXPLANATORY COMMENTS IN THE PAGES YOU WRITE. The examples above are commented
+13. A ROUTE PARAM IS A STRING AND \`row.id\` IS A NUMBER. Everything out of
+    \`Route.useParams()\` or \`Route.useSearch()\` is typed \`string\`, so putting an id into a
+    link or comparing one needs \`String(...)\` — and a comparison without it is not only a
+    type error, it is a lookup that would find nothing:
+      <Link to="/records/$id" params={{ id: String(row.id) }}>
+      navigate({ to: "/record", search: { id: String(row.id) } })
+      const record = rows.find((r) => String(r.id) === id)
+    Going the OTHER way needs nothing: every hook that takes an id accepts \`string | number\`,
+    so \`useRow(TABLE, id)\` with the string straight off the URL is correct. Do not wrap it
+    in \`Number()\`.
+
+14. NO EXPLANATORY COMMENTS IN THE PAGES YOU WRITE. The examples above are commented
     because they are teaching you; the files you return are a customer's website and
     nobody reads its source. Output costs five times what input costs, and comments are
     27% of the example set — so a comment is the single most expensive thing here, and
@@ -2511,6 +2522,48 @@ export function lintPages(pages, spec) {
       if (!memberTables.length) {
         say(path, "calls useUpdateRow/useDeleteRow, but this schema has no member table. `collect` and `display` rows have no owner and can never be edited from a page.");
       }
+    }
+
+    // A ROW ID IS A NUMBER AND A ROUTE PARAM IS A STRING, and the two failures
+    // this catches are not the same size. Handing `row.id` to a link is a type
+    // error and nothing worse. COMPARING them is a lookup that finds nothing —
+    // `4 === "4"` is false — so if it ever stopped being a type error it would
+    // become a manage page that says "not found" for every real row. Measured
+    // live 2026-08-05: both, in one CRM sample, two of its four errors.
+    //
+    // Scoped to identifiers this file actually binds from a param hook, rather
+    // than to every `.id ===` — `d.id === selectedId` against a numeric state is
+    // correct code, and a rule that flagged it would be one the model learns to
+    // ignore.
+    const params = new Set();
+    for (const m of code.matchAll(/(?:const|let)\s*(\{[^}]*\}|\w+)\s*=\s*[\w.]*use(?:Params|Search)\s*\(/g)) {
+      const bind = m[1].trim();
+      if (bind.startsWith("{")) {
+        for (const part of bind.slice(1, -1).split(",")) {
+          // `{ service: preselected }` binds the RIGHT name; `{ id = "" }` the left.
+          const name = part.includes(":") ? part.split(":").pop() : part;
+          const clean = name.split("=")[0].trim();
+          if (/^\w+$/.test(clean)) params.add(clean);
+        }
+      } else if (/^\w+$/.test(bind)) params.add(bind + ".");
+    }
+    const isParam = (expr) => params.has(expr) || [...params].some((p) => p.endsWith(".") && expr.startsWith(p));
+    if (params.size) {
+      for (const m of code.matchAll(/([A-Za-z_$][\w$]*(?:\.[\w$]+)*)\s*(===|!==)\s*([A-Za-z_$][\w$]*(?:\.[\w$]+)*)/g)) {
+        const [, left, , right] = m;
+        const rowId = (e) => /\.id$/.test(e) && !isParam(e);
+        if ((rowId(left) && isParam(right)) || (rowId(right) && isParam(left))) {
+          say(path, "compares " + left + " " + m[2] + " " + right + ", and a route param is a string while a row id is a number — they can never be equal. Write String(" + (rowId(left) ? left : right) + ") on the id side.");
+        }
+      }
+    }
+    // The other direction: an id going INTO a route. `String(...)` calls are
+    // blanked first rather than matched around, so whitespace inside the call
+    // cannot evade the check.
+    for (const m of code.matchAll(/\b(?:params|search)\s*[:=]\s*\{\{?([^{}]*)\}\}?/g)) {
+      const body = m[1].replace(/String\s*\([^()]*\)/g, '""');
+      const bare = body.match(/\b[A-Za-z_$][\w$]*\.id\b/);
+      if (bare) say(path, "puts " + bare[0] + " into a route without String(). Params and search params are typed string; wrap it as String(" + bare[0] + ").");
     }
 
     for (const m of code.matchAll(/from\s+"@\/components\/ui\/([a-z0-9-]+)"/gi)) {

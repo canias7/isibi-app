@@ -13302,3 +13302,87 @@ where one is established. Every step of that was avoidable by asking the
 deployment instead of the documentation.
 
 875 unit tests, 6 mutants on the cookie path, all caught.
+
+---
+
+## 2026-08-05 — the member tier could not evaluate its own policies
+
+The cookie fix worked: **25/34 → 29/34**, and the JWT the Data API needs now
+arrives. What it uncovered underneath was a second, unrelated break.
+
+**Every member read and write answered `42501 permission denied for schema
+auth`.** Not a policy refusing a row — the policy could not be RUN. `app_user_id()`
+is SECURITY INVOKER, so it executes as whoever asked, and Neon's Data API runs a
+request as `authenticated` or `anonymous`, neither of which had USAGE on the
+schema `pg_session_jwt` creates. The function existed, the owner could call it,
+every GRANT on every table was correct, and the member tier did not work at all.
+
+**It was invisible from both sides of the same file.** `display` reads are
+`USING (true)` and `collect` writes are `WITH CHECK (true)` — neither calls the
+function — so the two levels with live coverage were the two that could not
+break, and `user`, `feed` and `admin` were the three that had none.
+
+- **`GRANT USAGE ON SCHEMA auth`, one statement per role.** What it exposes is
+  `auth.user_id()`, `auth.session()` and `auth.jwt()` — each returns the
+  CALLER'S OWN claims, i.e. what they already presented. Emitted only on the
+  native path; the fallback reads a GUC and needs nothing.
+- **The team clause got the opposite treatment, and the asymmetry is the point.**
+  It selected from `neon_auth.member` inline — same permission wall, one table
+  over — but that table is every member of every organization on the site, and
+  one policy clause is not a reason to publish it. It is `app_team_id()` now:
+  SECURITY DEFINER, `search_path` pinned, every name qualified, and **no
+  argument**, so it can only ever answer for the caller.
+- **Compared as text on both sides.** `team_id` is a uuid column and Better
+  Auth's `organizationId` is whatever Neon's managed deployment made it; `uuid =
+  text` is not an operator Postgres has, so a type guess there is a policy that
+  fails to CREATE — which the apply loop logs and carries on from, leaving the
+  table with no read policy at all.
+
+**The guard that should have caught this was watching the layer below.**
+`neon e2e` asks `has_table_privilege`, which answers whether a role may ASK. It
+says nothing about whether the policy attached can be EVALUATED, and every query
+in that suite runs as the table's OWNER, which bypasses its own policies. It now
+runs a real SELECT under `SET LOCAL ROLE` — and reports an honest skip if the
+connection cannot assume the role, because silence there would read as coverage.
+
+**Two of the five failures were the test's own fault, and worth keeping.** The
+second member was handed the session token straight out of sign-up and sent it at
+the Data API, which answered "not a valid JWT encoding" — so the two checks that
+exist to prove one member cannot read another's rows were failing on the
+credential rather than on the scoping. `rows.ts` does that exchange in
+`keepAuthHeaders`; a test that skips it is testing a path no page takes.
+
+## The generator's remaining errors, all three fixed
+
+Measured from the last eval: 2/3 compiled, and the CRM sample's four errors were
+three separate causes.
+
+- **`BulkActions(actions: object[])`.** The extractor collapses an inline object
+  literal over 46 characters to `object`, so the model invented `{label,
+  onClick}` where the prop is `{label, onSelect, destructive?}`. **The same
+  failure as the truncated string union, one type-kind over** — and worse,
+  because `COMPONENT_TYPES` only resolves `export type` names, so a shape lost
+  here is unrecoverable. `FilterBar`'s equivalent was under the limit and worked;
+  whether the model could write the call came down to how many characters the
+  shape happened to spell. Nothing is collapsed now, and a shape too long to
+  print keeps its property NAMES, which is most of the value. **35 props read
+  `object` and 10 read `function`; both are zero.** Cost: +807 tokens on a block
+  that rides in the cache at 0.1×.
+- **`at: deal.created_at` against `string | number | Date`.** A declared column
+  gets a type in the model's own `type Deal = Row & {…}`; a platform-managed one
+  is left on the index signature as `string | number | boolean | null`. `Row`
+  names `created_at: string` now — non-optional, because `site-schema.mjs` adds
+  it to every table unconditionally, which a test asserts, since the type is a
+  claim about that file.
+- **A row id is a number and a route param is a string.** Two of the four errors.
+  Taught as one idiom (ids become strings at the boundary; the hooks take either
+  going the other way, so `Number()` is wrong) and **linted both directions** —
+  because the comparison is not merely a type error: `4 === "4"` is false, so if
+  it ever stopped being refused it would be a manage page that says "not found"
+  for every real row.
+
+887 unit tests. Mutation: 24 mutants, 3 survivors, all three fixed and all real —
+a source guard that a disabled call walked past, a lint that would have flagged
+two params compared to each other, and one equivalent mutant whose real
+invariant (the policy's condition and the column's condition must agree) is now
+asserted from both files.

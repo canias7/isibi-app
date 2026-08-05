@@ -73,6 +73,60 @@ $$;`;
 /** Kept as the default export name so callers do not have to know which won. */
 export const APP_USER_FN = APP_USER_FN_FALLBACK;
 
+/**
+ * THE NATIVE FORM IS UNREACHABLE FROM THE ROLES THAT ACTUALLY CALL IT.
+ *
+ * `app_user_id()` is SECURITY INVOKER, so it runs as whoever asked — and Neon's
+ * Data API runs a request as `authenticated` or `anonymous`, neither of which
+ * has USAGE on the `auth` schema the extension creates. Measured live
+ * 2026-08-05: every member read and write on a `user`, `feed` or `admin` table
+ * answered `42501 permission denied for schema auth`. Not a policy refusing a
+ * row — the policy could not be EVALUATED, so the site had no member tier at
+ * all.
+ *
+ * It was invisible from the other side of the same file: `display` reads
+ * (`USING (true)`) and `collect` writes (`WITH CHECK (true)`) never call the
+ * function, so exactly the levels with no live coverage were the broken ones.
+ *
+ * What this exposes is `auth.user_id()`, `auth.session()` and `auth.jwt()` —
+ * every one of which returns the CALLER'S OWN claims, i.e. what they already
+ * presented. ONE STATEMENT PER ROLE, the same discipline as the table grants:
+ * `TO anonymous, authenticated` is a single statement, so a role name that ever
+ * stops existing takes the other role down with it.
+ *
+ * Emitted only on the native path — the fallback reads a GUC and needs nothing.
+ */
+export const SESSION_JWT_GRANTS = [
+  "GRANT USAGE ON SCHEMA auth TO anonymous;",
+  "GRANT USAGE ON SCHEMA auth TO authenticated;",
+];
+
+/**
+ * Which team the caller is in.
+ *
+ * SECURITY DEFINER rather than a grant, and the asymmetry with the schema above
+ * is the point: `auth.user_id()` hands back what the caller already presented,
+ * while `neon_auth.member` is every member of every organization on the site.
+ * Granting SELECT on it to satisfy one policy clause would let any signed-in
+ * member read the whole membership table.
+ *
+ * It takes NO ARGUMENTS and derives from `app_user_id()`, so it can only ever
+ * answer for the caller — there is no id to pass and therefore nobody else's
+ * team to ask about.
+ *
+ * `search_path` is pinned and every name is schema-qualified, because a
+ * SECURITY DEFINER function that resolves names through the caller's
+ * `search_path` is the classic escalation: a role able to create a schema ahead
+ * of it chooses what the definer runs.
+ */
+export const APP_TEAM_FN = `
+CREATE OR REPLACE FUNCTION app_team_id() RETURNS text
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog AS $$
+  SELECT m."organizationId"::text FROM neon_auth.member m
+  WHERE m."userId" = public.app_user_id()
+  ORDER BY m."createdAt" ASC NULLS LAST LIMIT 1
+$$;`;
+
 /** Every policy this module creates is named with this prefix, so they can be replaced idempotently. */
 export const POLICY_PREFIX = "isibi_";
 
@@ -124,8 +178,13 @@ export function policiesFor(t) {
   // null = null, which is NULL and therefore not true — correct here by accident,
   // so it is written explicitly instead of relied on.
   const mine = `${tn}."owner_id" = app_user_id()`;
+  // COMPARED AS TEXT, both sides. `team_id` is a uuid column and Better Auth's
+  // `organizationId` is whatever Neon's managed deployment made it — and
+  // `uuid = text` is not an operator Postgres has, so a type guess here is a
+  // policy that fails to create rather than one that refuses a row. Casting the
+  // uuid to text is always lossless and always defined; the reverse is not.
   const ours = (t && t.teamScope && access === "user")
-    ? `(${mine} OR (${tn}."team_id" IS NOT NULL AND ${tn}."team_id" = (SELECT m."organizationId" FROM neon_auth.member m WHERE m."userId" = app_user_id() ORDER BY m."createdAt" ASC NULLS LAST LIMIT 1)))`
+    ? `(${mine} OR (${tn}."team_id" IS NOT NULL AND ${tn}."team_id"::text = app_team_id()))`
     : `(${mine})`;
 
   if (access === "display") {
