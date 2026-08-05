@@ -111,7 +111,20 @@ export function extract(source) {
   // The optional `<T>` is not decoration — `DataList<T>` is the most-used
   // component in the kit and a regex without it silently skipped the one that
   // matters most, while reporting 429 successes.
-  const re = /export function (\w+)\s*(?:<[^>()]*>)?\s*\(\s*\{/g;
+  // THE GENERIC MAY BE NESTED, and `[^>()]*` stops at the FIRST `>` — so
+  // `<T extends Record<string, unknown>>` ended at the inner one and the match
+  // failed. `data-table` was therefore absent from COMPONENT_API entirely, the
+  // model was given no signature, and it guessed `data=` where the prop is
+  // `rows=`: with `T` unable to infer it fell back to the constraint, and every
+  // `cell: (row: Deal) => …` became a contravariance error. **Eight of the CRM
+  // sample's nine errors, from one missing entry.**
+  //
+  // Precisely the failure the previous line of this comment records for the bare
+  // `<T>` case — "silently skipped the one that matters most, while reporting
+  // 429 successes" — arriving one nesting level deeper. One level of nesting is
+  // all the kit has and all this allows; a component that needs two would be
+  // caught by the coverage guard in test/page-gen.test.mjs rather than skipped.
+  const re = /export function (\w+)\s*(?:<(?:[^<>()]|<[^<>()]*>)*>)?\s*\(\s*\{/g;
   let m;
   while ((m = re.exec(source))) {
     const destructOpen = m.index + m[0].length - 1;

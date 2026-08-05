@@ -339,7 +339,19 @@ export async function applySiteSchema(uuid, spec) {
     // FAILS if any existing owner_id no longer matches a live user. An orphaned
     // owner_id reads as "belongs to nobody" and the row is still the owner's to
     // see, which is what site-owner.mjs already decided when a member was deleted.
-    if (access === "user" || access === "feed") { cols.push('"owner_id" UUID'); } // stamps the author / scopes rows
+    // DEFAULT app_user_id(), and without it the member tier could READ and never
+    // WRITE. Nothing stamps this column any more: the Worker's data path did,
+    // and it was deleted on 2026-07-30 when the site moved to Neon's Data API.
+    // So a member's insert arrived with `owner_id` NULL, the policy's
+    // `WITH CHECK (owner_id = app_user_id())` evaluated NULL, and every write
+    // answered 403. Measured live 2026-08-05.
+    //
+    // The default and the policy are BOTH needed and neither replaces the other:
+    // the default fills the column in for a client that omits it (which the Data
+    // API does, since owner_id is a managed column the generator is told never to
+    // write), and the WITH CHECK is what stops a client that SENDS one from
+    // claiming somebody else's id.
+    if (access === "user" || access === "feed") { cols.push('"owner_id" UUID DEFAULT app_user_id()'); } // stamps the author / scopes rows
     // A team is a Neon Auth ORGANIZATION now, so this holds
     // `neon_auth.organization.id` — a uuid, not the sequential integer the deleted
     // `_teams` table used. No foreign key into `neon_auth`, for the same reason
@@ -369,7 +381,15 @@ export async function applySiteSchema(uuid, spec) {
     // scoped writes / soft-deletes would silently fail. ADD COLUMN is idempotent here
     // (a "duplicate column" error on a fresh table is swallowed), so re-declaring safely
     // backfills owner_id / deleted_at onto a pre-existing table.
-    if (access === "user" || access === "feed") { try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "owner_id" UUID'); } catch {} }
+    // The DEFAULT needs its own statement: `ADD COLUMN IF NOT EXISTS` does
+    // nothing at all when the column is already there, so every site built
+    // before 2026-08-05 would keep a column with no default and keep refusing
+    // every member write. Same class as `ADD COLUMN IF NOT EXISTS` never
+    // changing a type — a revise-path fix has to say what it wants explicitly.
+    if (access === "user" || access === "feed") {
+      try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "owner_id" UUID'); } catch {}
+      try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ALTER COLUMN "owner_id" SET DEFAULT app_user_id()'); } catch {}
+    }
     if (t.teamScope && access === "user") { try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "team_id" UUID'); } catch {} }
     if (t.trash) { try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "deleted_at" TEXT'); } catch {} }
     if (t.version) { try { await sqlQuery(uuid, "ALTER TABLE " + tn + ' ADD COLUMN IF NOT EXISTS "_version" INTEGER NOT NULL DEFAULT 1'); } catch {} }
