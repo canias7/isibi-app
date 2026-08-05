@@ -16,6 +16,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { validatePages } from "../../builder/page-gen.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const TEMPLATE = path.join(ROOT, "builder", "lovable", "template");
@@ -477,13 +478,64 @@ function Home() { return <main><h1>${brand}</h1></main>; }`;
       !A.includes("FADE AND CO") && !B.includes("AURORA YOGA"),
       "one build was published with the other's pages — a cross-tenant content leak");
   }
+  // ── a link to a page that does not exist ─────────────────────────────────────
+  //
+  // PROVEN AS A CHAIN, not as a regex. The unit test asserts validatePages rewrites
+  // the href; the claim that matters is that the SITE BUILDS, and only the real
+  // container can say that. Free — no model call.
+  //
+  // Measured live 2026-08-04: the generator wrote seven pages, the cap kept six,
+  // and the dropped one was the one two others linked to. TanStack generates a
+  // UNION of the routes that exist, so the link was TS2322 and the whole site
+  // published as its data model.
+  console.log("\na link to a page that was never written…");
+  {
+    const route = (path, body) => `import { createFileRoute, Link } from "@tanstack/react-router";
+  export const Route = createFileRoute("${path}")({ component: P });
+  function P() { return <main><h1>Hi</h1>${body}</main>; }`;
+
+    const raw = [
+      { path: "index.tsx", source: route("/", '<Link to="/menu">Menu</Link><Link to="/account">Account</Link>') },
+      { path: "menu.tsx", source: route("/menu", '<Link to="/">Home</Link>') },
+    ];
+
+    // THE NEGATIVE FIRST, or this test passes for the wrong reason. Posting the
+    // pages exactly as the model wrote them must FAIL — if it does not, the fix is
+    // guarding against something that was never broken.
+    const before = await post({
+      files: Object.fromEntries(raw.map((p) => [p.path, p.source])),
+      slug: "dangling-before", title: "Dangling",
+    });
+    ok("the unfixed pages really do fail to compile", before.ok === false && before.stage === "typecheck",
+      `${before.stage || "ok"}: ${String(before.error || "").slice(0, 200)}`);
+    ok("and it fails on the link, not on something else",
+      /account/.test(String(before.error || "")), String(before.error || "").slice(0, 200));
+
+    // …then the same pages through validatePages, which is what production does.
+    const v = validatePages({ pages: raw.map((p) => ({ ...p })) });
+    ok("validatePages reports the rewrite rather than doing it silently",
+      v.problems.some((x) => /\/account/.test(x)), JSON.stringify(v.problems));
+    const after = await post({
+      files: Object.fromEntries(v.pages.map((p) => [p.path, p.source])),
+      slug: "dangling-after", title: "Dangling",
+    });
+    ok("the rewritten pages compile and publish", after.ok === true,
+      `${after.stage || "ok"}: ${String(after.error || "").slice(0, 300)}`);
+    ok("and the surviving link still points at the real page",
+      Object.entries(after.files || {}).filter(([k]) => k.endsWith(".js"))
+        .map(([, x]) => (x && typeof x === "object" ? x.t || "" : String(x))).join("").includes("/menu"),
+      "the live route was rewritten too");
+  }
+
 } catch (e) {
   failed++;
   console.log("\nUNCAUGHT: " + ((e && (e.stack || e.message)) || e));
+
 } finally {
   if (server) { try { server.kill("SIGKILL"); } catch {} }
   try { fs.rmSync(sandbox, { recursive: true, force: true }); } catch {}
 }
+
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

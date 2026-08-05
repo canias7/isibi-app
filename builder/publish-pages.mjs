@@ -161,6 +161,22 @@ export async function publishPages(deps, { spec, slug } = {}) {
   await charge(gen);
   const v = validatePages(gen.input);
   if (!v.pages.length) {
+    // THE ONE BRANCH THAT THREW ITS REASONS AWAY. `validatePages` works out
+    // exactly why each page was refused — a bad path, a duplicate, an empty
+    // source — and this returned a one-line note and no `stage`, so a build that
+    // spent 23 credits on 10,297 output tokens reported `stage:-, problems:[]`
+    // and could not say which of four things had happened. Measured live
+    // 2026-08-04; the branch immediately below already kept them, so this was
+    // the odd one out rather than a policy.
+    //
+    // Same lesson as `upstream: null` and the `cited` lines: the response is the
+    // only place a failure can be diagnosed from, because the pages are gone the
+    // moment this returns.
+    out.stage = "validate";
+    out.problems = v.problems;
+    out.error = v.problems.length
+      ? "every page was refused: " + v.problems.slice(0, 3).join(" · ").slice(0, 300)
+      : "the generator returned no pages at all";
     out.notes = gen.truncated
       ? "The pages came out longer than one pass allows — try a simpler brief."
       : "The generator didn't produce a usable page.";

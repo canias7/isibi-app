@@ -12,9 +12,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  REFERENCE_PAGE, REFERENCE_PAGES, UI_COMPONENTS, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MANAGED_COLUMNS,
+  REFERENCE_PAGE, REFERENCE_PAGES, UI_COMPONENTS, UI_SHORTLIST, PAGE_RULES, SITE_PAGES_TOOL, MAX_PAGES, MANAGED_COLUMNS,
   schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, ACCESS_NOTE,
 } from "../builder/page-gen.mjs";
+import { COMPONENT_API } from "../builder/component-api.mjs";
+import { build as buildApi, render as renderApi } from "../builder/gen-component-api.mjs";
 import * as api from "../builder/page-gen.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -1272,4 +1274,99 @@ test("the rules never tell the model the insert resolves to a row", () => {
   }
   assert.match(PAGE_RULES, /useCreateRow\` RESOLVES TO NOTHING/,
     "nothing tells the model it gets nothing back, so it will keep reading data.claim_token");
+});
+
+// ── A link to a page that does not exist ────────────────────────────────────
+
+test("a link to a page that was never written is pointed at home, not left dead", () => {
+  // MEASURED LIVE 2026-08-04. TanStack generates a UNION of the routes that
+  // exist, so `<Link to="/account">` with no account.tsx is TS2322 — the compile
+  // fails and the WHOLE site publishes as the placeholder. One href costs every
+  // page.
+  const mk = (path, body) => ({ path, source:
+    'import { createFileRoute, Link } from "@tanstack/react-router";\n' +
+    'export const Route = createFileRoute("/")({ component: P });\n' +
+    "function P(){ return <div>" + body + "</div>; }" });
+  const v = validatePages({ pages: [
+    mk("index.tsx", '<Link to="/book">Book</Link><Link to="/account">Account</Link>'),
+    mk("book.tsx", '<Link to="/">Home</Link>'),
+  ] });
+  assert.equal(v.pages.length, 2);
+  // The live link is untouched…
+  assert.match(v.pages[0].source, /to="\/book"/, "a real route was rewritten");
+  // …and the dead one goes home rather than nowhere.
+  assert.ok(!/\/account/.test(v.pages[0].source), v.pages[0].source);
+  assert.ok(v.problems.some((x) => /\/account/.test(x)), "the rewrite happened silently: " + JSON.stringify(v.problems));
+});
+
+test("and the same fix covers the page CAP, which is how it was found", () => {
+  // The model wrote SEVEN pages, the cap kept six, and the one dropped was the
+  // one two others linked to. A cap that removes a page while leaving links to
+  // it is a guaranteed failure, not a risk.
+  const mk = (path, body = "") => ({ path, source:
+    'import { createFileRoute, Link } from "@tanstack/react-router";\n' +
+    'export const Route = createFileRoute("/")({ component: P });\n' +
+    "function P(){ return <div>" + body + "</div>; }" });
+  const many = [
+    mk("index.tsx", '<Link to="/account">Account</Link>'),
+    mk("a.tsx"), mk("b.tsx"), mk("c.tsx"), mk("d.tsx"), mk("e.tsx"),
+    mk("account.tsx"),   // the 7th — dropped by the cap
+  ];
+  const v = validatePages({ pages: many });
+  assert.equal(v.pages.length, MAX_PAGES);
+  assert.ok(!v.pages.some((p) => p.path === "account.tsx"), "the cap did not drop anything");
+  assert.ok(!/\/account/.test(v.pages[0].source), "the link to the dropped page survived and will not compile");
+});
+
+test("a navigate({to}) target is covered too, not just <Link>", () => {
+  const src = 'import { createFileRoute } from "@tanstack/react-router";\n' +
+    'export const Route = createFileRoute("/")({ component: P });\n' +
+    'function P(){ const n = useNavigate(); n({ to: "/ghost" }); return null; }';
+  const v = validatePages({ pages: [{ path: "index.tsx", source: src }] });
+  assert.ok(!/ghost/.test(v.pages[0].source), v.pages[0].source);
+});
+
+// ── The props the model was guessing ────────────────────────────────────────
+
+test("every shortlisted component's props are STATED, not left to a guess", () => {
+  // Measured 2026-08-04 on one CRM sample: a `badge` prop that does not exist, a
+  // `subtitle` that is really `description`, an `id` on a row type that has none,
+  // and `"error"` for a state whose values are success/warning/danger/neutral/
+  // quiet. Four compile errors, one root cause — 282 names and no signatures —
+  // and the whole site published as its data model.
+  const listed = UI_SHORTLIST.filter((n) => COMPONENT_API[n]);
+  assert.ok(listed.length > 250, `only ${listed.length} of the shortlist have a signature`);
+  for (const n of listed.slice(0, 40)) {
+    assert.ok(PAGE_RULES.includes(n + " — " + COMPONENT_API[n]),
+      `${n} is offered to the model with no props`);
+  }
+});
+
+test("a string-literal union is never truncated — a half-shown enum is worse than none", () => {
+  // `shortType` capped every type at 46 characters, so StatusBadge arrived as
+  // `"success" | "warning" | "danger" | "neutral…`. The generator wrote "error",
+  // which is a reasonable guess at what the ellipsis hid and is not a member.
+  // A trimmed union reads as authoritative while hiding the value you needed.
+  const enums = Object.values(COMPONENT_API).filter((v) => /\?\s*:\s*"/.test(v) || /:\s*"/.test(v));
+  assert.ok(enums.length > 20, "no string-union props found — the scan stopped working");
+  const cut = enums.filter((v) => /"[^"]*…/.test(v) && !/…"/.test(v));
+  assert.deepEqual(cut, [], "these unions are truncated mid-value");
+  // The one that caused it, spelled out.
+  assert.equal(COMPONENT_API["status-badge"],
+    'StatusBadge(state?: "success" | "warning" | "danger" | "neutral" | "quiet" = "neutral", children: React.ReactNode)');
+});
+
+test("component-api.mjs is what the generator produces right now", () => {
+  // A DERIVED FILE THAT NOBODY REGENERATES IS A LIE THAT COMPILES. The
+  // signatures are extracted from the kit's source and committed, so they go
+  // stale two ways: a component's props change, or — as happened today — the
+  // EXTRACTOR changes and the committed output still carries the old shape.
+  //
+  // `shortType` was fixed so a string-literal union is never truncated. Without
+  // this check, forgetting to re-run the generator would leave every enum in the
+  // prompt still cut off mid-union while the fix sat in the source looking done.
+  const fresh = renderApi(buildApi());
+  const onDisk = fs.readFileSync(new URL("../builder/component-api.mjs", import.meta.url), "utf8");
+  assert.equal(fresh, onDisk,
+    "builder/component-api.mjs is stale — run `node builder/gen-component-api.mjs`");
 });
