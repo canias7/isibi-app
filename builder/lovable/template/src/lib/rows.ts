@@ -41,9 +41,28 @@ import {
 // Non-optional because `site-schema.mjs` adds it to EVERY table unconditionally
 // — not behind the `timestamps` flag, which is `updated_at`. A test asserts that
 // stays true, because `string` here is a claim about that file.
-export type Row = Record<string, string | number | boolean | null> & {
+//
+// WHY THIS IS A LITERAL INDEX SIGNATURE AND NOT `Record<…> & {…}`. Naming
+// `created_at` fixed one half and the model went straight to the other:
+// `at: deal.updated_at ?? deal.created_at ?? new Date().toISOString()` is
+// `string | number | boolean` against `string | number | Date`, because
+// `updated_at` is still on the index signature and `??` only strips the `null`.
+// The date prop has now failed in two consecutive evals wearing two different
+// types, which is a column and not variance.
+//
+// `updated_at` cannot be typed inside an INTERSECTION: a property type there is
+// intersected with the index signature's, so `updated_at?: string` collapses to
+// plain `string` and claims a column exists on every table when it only exists
+// behind `timestamps`. Written as one literal with `undefined` in the index
+// signature, the optional marker means what it says — `string | undefined`, which
+// the model's own `??` chain resolves — and the wider signature is TRUE of any
+// column nobody declared.
+export type Row = {
+  [column: string]: string | number | boolean | null | undefined;
   id: number;
   created_at: string;
+  /** Only on a table that declared `timestamps`, which is why it is optional. */
+  updated_at?: string;
 };
 
 /**

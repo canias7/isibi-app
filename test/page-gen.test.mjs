@@ -16,7 +16,7 @@ import {
   schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, ACCESS_NOTE,
 } from "../builder/page-gen.mjs";
 import { COMPONENT_API, COMPONENT_TYPES } from "../builder/component-api.mjs";
-import { build as buildApi, render as renderApi, extract as extractApi } from "../builder/gen-component-api.mjs";
+import { build as buildApi, render as renderApi, extract as extractApi, buildTypes as buildTypesApi, extractTypes as extractTypesApi } from "../builder/gen-component-api.mjs";
 import * as api from "../builder/page-gen.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -1416,11 +1416,22 @@ test("Row and PublicRow agree that a column value is a SCALAR", () => {
   // generator got the field NAMES exactly right and still failed on `at: unknown`
   // alone — the only error between the booking sample and a pass.
   const src = fs.readFileSync(new URL("../builder/lovable/template/src/lib/rows.ts", import.meta.url), "utf8");
-  const scalar = "Record<string, string | number | boolean | null>";
-  assert.match(src, new RegExp("export type Row = " + scalar.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&") + " & \\{[\\s\\S]{0,400}?id: number;"),
+  const scalar = "string | number | boolean | null";
+  // `Row` is a LITERAL index signature rather than `Record<…> & {…}` — an
+  // intersection cannot carry an optional property, because the member type is
+  // intersected with the index signature's and `updated_at?: string` collapses
+  // to plain `string`, claiming a column that only exists behind `timestamps`.
+  assert.match(src, new RegExp("export type Row = \\{\\s*\\[column: string\\]: " + scalar.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&")),
     "Row's values are back to `unknown`, so an ordinary page cannot render one");
-  assert.ok(src.includes("export type PublicRow = " + scalar),
-    "PublicRow drifted from Row — they describe the same thing");
+  assert.ok(src.includes("export type PublicRow = Record<string, " + scalar + ">"),
+    "PublicRow drifted from Row — they describe the same scalars");
+  // The `| undefined` is there BECAUSE of the optional column and for no other
+  // reason: TypeScript requires an index signature to admit the optional
+  // property's type. If that column ever goes, so should this — asserted as an
+  // implication rather than as a fact, or it becomes a licence to widen.
+  const rowDecl = src.slice(src.indexOf("export type Row = "), src.indexOf("export type RowId"));
+  assert.equal(/\| undefined;/.test(rowDecl), /\w+\?: /.test(rowDecl),
+    "Row admits undefined with no optional column to justify it, or the reverse");
 });
 
 test("Row names created_at, and the schema engine really does always add it", () => {
@@ -1442,6 +1453,13 @@ test("Row names created_at, and the schema engine really does always add it", ()
   assert.equal(created[1].trim(), "", "created_at became conditional, so `created_at: string` in rows.ts is now a lie");
   assert.match(engine, /if \(t\.timestamps \|\| t\.sync\) cols\.push\('"updated_at"/,
     "updated_at is the conditional one — if that ever changes, so must the type above");
+  // And the two are typed to MATCH that asymmetry: `created_at` is present on
+  // every table so it is required, `updated_at` only behind a flag so it is
+  // optional. Typing them the same way is wrong in one direction or the other —
+  // required, it claims a column half the tables do not have; absent, the model
+  // gets `string | number | boolean` out of `deal.updated_at ?? deal.created_at`
+  // and the page is refused, which is what happened on 2026-08-05.
+  assert.match(src, /updated_at\?: string;/, "updated_at must be OPTIONAL, matching the flag it sits behind");
 });
 
 test("a component's prop shape is printed, never collapsed to `object`", () => {
@@ -1577,4 +1595,44 @@ test("the extractor reads a generic with a nested constraint", () => {
   // And the plain forms it already handled must keep working.
   assert.ok(extractApi('export function A<T>({ x }: { x: T; }) { return null; }')[0]);
   assert.ok(extractApi('export function B({ x }: { x: string; }) { return null; }')[0]);
+});
+
+test("a named type with a generic parameter still resolves to its shape", () => {
+  // THE SAME CLASS AS THE COMPONENT REGEX, one layer over and found the moment
+  // that one was fixed: `export type Column<T> = ` never matched, so `Column`
+  // had no shape, so `DataTable(columns: Column<T>[], …)` stopped at a name the
+  // model could not see — and it wrote `render:` where the prop is `cell:`.
+  // Measured live 2026-08-05. `sortable-list`'s `SortOption<T>` was hidden the
+  // same way.
+  //
+  // A signature that stops at a type NAME is the failure `COMPONENT_TYPES`
+  // exists to prevent; a name it cannot resolve is that failure wearing a fix.
+  assert.ok(COMPONENT_TYPES["data-table"] && COMPONENT_TYPES["data-table"].Column,
+    "Column<T> is cited by DataTable's signature and has no shape");
+  assert.match(COMPONENT_TYPES["data-table"].Column, /cell\?: \(row: T\) => React\.ReactNode/,
+    "the prop the generator guessed wrong must be the one stated");
+  // Driven through the real builder as well, so this still fails if the kit ever
+  // loses its only generic exported type.
+  const types = buildTypesApi();
+  assert.ok(types["data-table"] && types["data-table"].Column, "the generated file and the builder disagree");
+  // And a default containing `=` must not end the parameter list early.
+  assert.ok(COMPONENT_TYPES["sortable-list"] && COMPONENT_TYPES["sortable-list"].SortOption);
+});
+
+test("a generic DEFAULT does not end the type-parameter list early", () => {
+  // FOUND BY MUTATION, on my own new code: swapping the generic pattern for
+  // `<[^=]*?>` passed the entire suite, because no component in the kit declares
+  // a default. A guard that can only see today's files restates the kit rather
+  // than the rule — so `extractTypes` takes a source, the way `extract` always
+  // has, and the rule is driven directly.
+  const withDefault = extractTypesApi('export type Slot<T = Row> = { at: string; row: T };');
+  assert.ok(withDefault.Slot, "a default containing `=` swallowed the match");
+  assert.match(withDefault.Slot, /at: string; row: T/);
+  // The plain and single-parameter forms must keep working.
+  assert.ok(extractTypesApi('export type Plain = { a: string };').Plain);
+  assert.ok(extractTypesApi('export type Gen<T> = { a: T };').Gen);
+  // A nested constraint too, matching what the kit actually has.
+  assert.ok(extractTypesApi('export type Col<T extends Record<string, unknown>> = { key: string; get: (r: T) => string };').Col);
+  // And a bare alias still says nothing worth the tokens.
+  assert.ok(!extractTypesApi('export type Alias = string | number;').Alias);
 });

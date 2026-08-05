@@ -527,6 +527,50 @@ function Home() { return <main><h1>${brand}</h1></main>; }`;
       "the live route was rewritten too");
   }
 
+  // ── what a row VALUE is, proved by compiling ────────────────────────────────
+  //
+  // `Row` is the most load-bearing type the generator writes against, and the
+  // date prop has now failed in two consecutive evals wearing two different
+  // types: first `unknown`, then `string | number | boolean` once `created_at`
+  // was named and `updated_at` was not. A source-reading test cannot catch that
+  // — the failure is type SEMANTICS, and only a compiler has an opinion.
+  //
+  // The page is the one the CRM sample actually wrote, reduced to the lines
+  // that failed.
+  console.log("\nwhat a row value is…");
+  {
+    const rowPage = (tail) => `import { createFileRoute } from "@tanstack/react-router";
+  import type { Row } from "@/lib/rows";
+  export const Route = createFileRoute("/")({ component: P });
+  type Deal = Row & { title: string; value: string | null; stage: string | null };
+  type Activity = { who: string; what: string; at: string | number | Date };
+  function P() {
+    const deal = {} as Deal;
+    const activity: Activity[] = [
+      { who: "System", what: \`Deal "\${deal.title}" created\`, at: deal.created_at ?? new Date().toISOString() },
+      { who: "Team", what: \`In \${deal.stage ?? "New"}\`, at: deal.updated_at ?? deal.created_at ?? new Date().toISOString() },
+    ];
+    ${tail}
+    return <main><h1 key={deal.id}>{deal.title}{activity.length}</h1></main>;
+  }`;
+
+    const good = await post({ files: { "index.tsx": rowPage("") }, slug: "rowtype-ok", title: "Row" });
+    ok("a timestamp column can be handed to something expecting a date", good.ok === true,
+      `${good.stage || "ok"}: ${String(good.error || "").slice(0, 240)}`);
+
+    // THE NEGATIVE, or this passes for the wrong reason. If `Row`'s index
+    // signature ever became `any`, the check above would go green while every
+    // undeclared column silently lost its type — which is the state that made
+    // `usePublicRows` uncallable and `row.id` undefined at runtime.
+    const loose = await post({
+      files: { "index.tsx": rowPage("const s: string = deal.some_column_nobody_declared;\n    void s;") },
+      slug: "rowtype-loose", title: "Row",
+    });
+    ok("and an undeclared column is still a union, not `any`",
+      loose.ok === false && loose.stage === "typecheck",
+      `${loose.stage || "ok"}: ${String(loose.error || "").slice(0, 240)}`);
+  }
+
 } catch (e) {
   failed++;
   console.log("\nUNCAUGHT: " + ((e && (e.stack || e.message)) || e));

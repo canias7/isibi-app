@@ -210,31 +210,57 @@ export function buildTypes() {
   const out = {};
   for (const file of fs.readdirSync(UI_DIR).filter((f) => f.endsWith(".tsx")).sort()) {
     const slug = file.replace(/\.tsx$/, "");
-    const src = fs.readFileSync(path.join(UI_DIR, file), "utf8");
-    for (const m of src.matchAll(/export type ([A-Z][A-Za-z0-9]*) = /g)) {
-      const name = m[1];
-      let i = m.index + m[0].length, depth = 0, end = -1;
-      for (; i < src.length; i++) {
-        const c = src[i];
-        if (c === "{") depth++;
-        else if (c === "}") { depth--; if (depth === 0) { end = i + 1; break; } }
-        else if (c === ";" && depth === 0) { end = i; break; }
-        else if (c === "\n" && depth === 0 && src[i + 1] === "\n") { end = i; break; }
-      }
-      if (end < 0) continue;
-      const body = tidy(src.slice(m.index + m[0].length, end));
-      // A union of other names or a bare alias says nothing the signature did
-      // not; only a shape is worth the tokens.
-      if (!body.startsWith("{") || body.length > 400) continue;
-      // KEYED PER COMPONENT, and that is not tidiness. A flat map collapsed the
-      // TWO different `Activity` types in this kit — activity-feed's
-      // `{who, what, at, avatar?}` and facility-status's
-      // `{name, state, detail?…}` — and last-one-wins meant the prompt would
-      // have carried the wrong shape for one of them. A wrong type is worse than
-      // no type: it looks authoritative, which is exactly what the truncated
-      // enum did earlier today.
-      (out[slug] || (out[slug] = {}))[name] = body;
+    const found = extractTypes(fs.readFileSync(path.join(UI_DIR, file), "utf8"));
+    // KEYED PER COMPONENT, and that is not tidiness. A flat map collapsed the
+    // TWO different `Activity` types in this kit — activity-feed's
+    // `{who, what, at, avatar?}` and facility-status's
+    // `{name, state, detail?…}` — and last-one-wins meant the prompt would
+    // have carried the wrong shape for one of them. A wrong type is worse than
+    // no type: it looks authoritative, which is exactly what the truncated
+    // enum did earlier today.
+    if (Object.keys(found).length) out[slug] = found;
+  }
+  return out;
+}
+
+/**
+ * The exported shapes in ONE source, split out so it can be driven with a string.
+ *
+ * `extract` has taken a source since it was written and `buildTypes` read the
+ * disk itself, which meant its regex could only be tested against files that
+ * happen to exist. A mutation proved that: swapping the generic pattern for one
+ * that breaks on a default like `<T = Row>` passed the entire suite, because no
+ * component in the kit has one. A guard that can only see today's files is not
+ * guarding the rule, it is restating the kit.
+ */
+export function extractTypes(src) {
+  const out = {};
+  // A GENERIC TYPE PARAMETER DEFEATED THIS TOO — the third time in one session
+  // that a regex written for the non-generic case silently skipped the thing
+  // that mattered. `export type Column<T> = ` never matched, so `Column` had no
+  // shape, so `DataTable(columns: Column<T>[], …)` stopped at a name the model
+  // could not see, and it wrote `render:` where the prop is `cell:`. Measured
+  // live 2026-08-05, immediately after the same class was fixed one layer up
+  // in the component regex.
+  //
+  // `[^<>]` with one nested level, not `[^=]`: a default like `<T = Row>`
+  // contains an `=` and would end the match in the wrong place.
+  for (const m of src.matchAll(/export type ([A-Z][A-Za-z0-9]*)(?:<(?:[^<>]|<[^<>]*>)*>)?\s*=\s*/g)) {
+    const name = m[1];
+    let i = m.index + m[0].length, depth = 0, end = -1;
+    for (; i < src.length; i++) {
+      const c = src[i];
+      if (c === "{") depth++;
+      else if (c === "}") { depth--; if (depth === 0) { end = i + 1; break; } }
+      else if (c === ";" && depth === 0) { end = i; break; }
+      else if (c === "\n" && depth === 0 && src[i + 1] === "\n") { end = i; break; }
     }
+    if (end < 0) continue;
+    const body = tidy(src.slice(m.index + m[0].length, end));
+    // A union of other names or a bare alias says nothing the signature did
+    // not; only a shape is worth the tokens.
+    if (!body.startsWith("{") || body.length > 400) continue;
+    out[name] = body;
   }
   return out;
 }
