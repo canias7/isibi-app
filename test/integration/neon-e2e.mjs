@@ -290,6 +290,55 @@ try {
   ok("anonymous may SELECT the view", priv[0] && priv[0].view_ok === true, JSON.stringify(priv));
   ok("anonymous may NOT SELECT the table underneath", priv[0] && priv[0].table_ok === false, JSON.stringify(priv));
 
+  // --- can the role EVALUATE the policy, not merely ask? ---------------------
+  //
+  // `has_table_privilege` answers whether a role is allowed to ask the question.
+  // It says nothing about whether the policy attached to the table can be
+  // evaluated once it does — and those are two different failures wearing the
+  // same green tick. Measured live 2026-08-05: every grant was right, every
+  // policy existed, and every member read and write answered `42501 permission
+  // denied for schema auth`, because `app_user_id()` is SECURITY INVOKER and the
+  // Data API's roles had no USAGE on the schema `pg_session_jwt` creates. This
+  // whole suite was green throughout, and so was `build smoke` — the levels with
+  // no coverage were exactly the broken ones.
+  //
+  // The precise form first, because it cannot fail for an unrelated reason.
+  const schemaPriv = await sqlQuery(db,
+    "SELECT has_schema_privilege('authenticated','auth','USAGE') AS u, " +
+    "has_schema_privilege('anonymous','auth','USAGE') AS a " +
+    "WHERE EXISTS (SELECT 1 FROM pg_namespace WHERE nspname='auth')");
+  if (!schemaPriv.length) {
+    console.log("   (pg_session_jwt not installed here — the fallback body needs no grant)");
+  } else {
+    ok("the Data API's roles may reach the schema app_user_id() reads",
+      schemaPriv[0].u === true && schemaPriv[0].a === true, JSON.stringify(schemaPriv[0]));
+  }
+
+  // And the general property: run a real SELECT under the role, so RLS actually
+  // applies. Every query above this line runs as the table's OWNER, which
+  // bypasses its own policies — which is why none of them could ever have caught
+  // this.
+  const asRole = async (role, body) => {
+    try {
+      await sqlQuery(db, "DO $isibi$ DECLARE n bigint; BEGIN SET LOCAL ROLE " +
+        role + "; " + body + " END $isibi$;");
+      return null;
+    } catch (e) { return String((e && (e.detail || e.message)) || e); }
+  };
+  const probe = await asRole("authenticated", 'SELECT count(*) INTO n FROM "deals";');
+  // An honest skip rather than a pass or a failure: if this connection cannot
+  // assume the role at all, the check never ran and saying so is the only
+  // truthful report. Silence here would read as coverage.
+  if (probe && /permission denied to set role/i.test(probe)) {
+    console.log("   (cannot SET ROLE from this connection — policy evaluation not exercised)");
+  } else {
+    ok("a member's own-rows policy can be EVALUATED, not just granted", probe === null, String(probe));
+    const team = await asRole("authenticated", 'SELECT count(*) INTO n FROM "deals" WHERE "team_id" IS NOT NULL;');
+    ok("and so can the team clause it widens to", team === null, String(team));
+    const stranger = await asRole("anonymous", 'SELECT count(*) INTO n FROM "posts";');
+    ok("a stranger can still read a display table", stranger === null, String(stranger));
+  }
+
   const opts = await sqlQuery(db, "SELECT reloptions FROM pg_class WHERE relname='bookings_public'");
   const ro = String((opts[0] && opts[0].reloptions) || "");
   ok("the view runs as its owner, or it would return nothing to a stranger",

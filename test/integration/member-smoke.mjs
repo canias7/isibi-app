@@ -94,6 +94,30 @@ const tokenOf = (d) => {
   return typeof t === "string" && t ? t : null;
 };
 
+/**
+ * A SESSION TOKEN IS NOT A DATA API TOKEN, and it takes a second member to see
+ * it. Member one's JWT is exchanged for below and used everywhere; member two
+ * was handed the token straight out of sign-up and sent it at the Data API,
+ * which answered `Provided authentication token is not a valid JWT encoding` —
+ * so the two checks that exist to prove one member cannot read another's rows
+ * were both failing on the credential rather than on the scoping.
+ *
+ * `keepAuthHeaders` in the template's `rows.ts` does exactly this exchange, so a
+ * test that skips it is testing a path no generated page takes. Isolated from
+ * the module-level jar on purpose: this is a DIFFERENT member, and writing their
+ * cookie into it would sign member one out mid-test.
+ */
+const cookieOf = (res) => {
+  const c = res.headers.get("set-cookie");
+  return c ? c.split(";")[0] : null;
+};
+const dataTokenFor = async (cookie, token) => {
+  const r = await auth("get-session", {
+    headers: { ...(token ? bearer(token) : {}), ...(cookie ? { cookie } : {}) },
+  });
+  return r.headers.get("set-auth-jwt");
+};
+
 try {
   // --- a throwaway isibi user -----------------------------------------------
   const mk = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
@@ -254,11 +278,15 @@ try {
   // looks correct with one account in the database.
   const m2 = { email: `bob-${stamp}@example.com`, password: "another-good-passphrase", name: "Bob" };
   const su2 = await auth("sign-up/email", jsonPost(m2));
+  const jarB = cookieOf(su2);
   const tokB = tokenOf(await su2.json().catch(() => null));
   ok("a second member can sign up", !!tokB, su2.status);
+  const dataTokB = await dataTokenFor(jarB, tokB);
+  ok("and gets their own Data API token", !!dataTokB && dataTokB !== dataTok,
+    "without a second, distinct JWT the scoping checks below prove nothing");
 
-  if (tokB) {
-    const bobSees = await data("notes?select=*", { headers: bearer(tokB) });
+  if (dataTokB) {
+    const bobSees = await data("notes?select=*", { headers: bearer(dataTokB) });
     const bobRows = await bobSees.json().catch(() => []);
     ok("a member does NOT see another member's private rows",
       bobSees.status === 200 && Array.isArray(bobRows) && bobRows.length === 0,
@@ -267,7 +295,7 @@ try {
     // `feed` is the opposite level and must behave the opposite way, or "own
     // rows" has simply been applied everywhere.
     await data("posts", jsonPost({ body: "ada's public post" }, dataTok));
-    const bobFeed = await data("posts?select=*", { headers: bearer(tokB) });
+    const bobFeed = await data("posts?select=*", { headers: bearer(dataTokB) });
     const feedRows = await bobFeed.json().catch(() => []);
     ok("but a feed row IS visible to every signed-in member",
       bobFeed.status === 200 && Array.isArray(feedRows) && feedRows.length >= 1,

@@ -54,10 +54,55 @@ function shortType(t) {
   // the cached block.
   if (/^(?:"[^"]*"\s*\|\s*)+"[^"]*"$/.test(s)) return s;
   if (s.length <= 46) return s;
-  if (/^\{[\s\S]*\}\[\]$/.test(s)) return "object[]";
-  if (/^\{/.test(s)) return "object";
-  if (/=>/.test(s)) return "function";
+  // AN INLINE OBJECT LITERAL IS THE SAME CONTRACT AS A STRING UNION, and it was
+  // being collapsed for the same reason the union used to be truncated: it
+  // looked long. `object` reads as "any object", so the model invents property
+  // names — measured live 2026-08-05, `BulkActions(actions: object[])` was
+  // called with `{label, onClick}` where the prop is
+  // `{label, onSelect, destructive?}`. TS2353, page refused, whole site a
+  // placeholder. It was under the limit for `FilterBar` and over it here, so
+  // whether the model could get the call right came down to how many characters
+  // the shape happened to spell.
+  //
+  // Worse than a truncated union, because there is nowhere else to look:
+  // `COMPONENT_TYPES` only resolves `export type` names, so an inline shape lost
+  // here is unrecoverable. 35 props in the shortlist read `object`.
+  //
+  // The names survive even when the shape does not fit — `{ label; onSelect;
+  // destructive? }` is a call the model can write, where `object` is a guess.
+  if (/^\{[\s\S]*\}(\[\])?$/.test(s)) return s.length <= 200 ? s : keysOnly(s);
+  // A function's PARAMETERS are a contract too — `(next: string) => void` and
+  // `(id: number, done: boolean) => void` are not interchangeable, and
+  // `function` says neither.
+  if (/=>/.test(s)) return s.length <= 120 ? s : "function";
   return s.slice(0, 43) + "…";
+}
+
+/**
+ * A shape too long to print, reduced to the property NAMES.
+ *
+ * Between `object` and the full type there is a third answer, and it is most of
+ * the value: a caller who knows the keys writes a call that compiles, and a
+ * wrong type is a clearer error than a wrong property name. Optionality is kept
+ * because it changes whether the key may be omitted.
+ */
+function keysOnly(s) {
+  const arr = /\}\[\]$/.test(s);
+  const body = s.replace(/^\{/, "").replace(/\}(\[\])?$/, "");
+  const keys = [];
+  let depth = 0, start = 0;
+  for (let i = 0; i <= body.length; i++) {
+    const c = body[i];
+    if (c === "{" || c === "(" || c === "[") depth++;
+    else if (c === "}" || c === ")" || c === "]") depth--;
+    if (i === body.length || (c === ";" && depth === 0)) {
+      const part = body.slice(start, i).trim();
+      const colon = part.indexOf(":");
+      if (colon > 0) keys.push(part.slice(0, colon).trim());
+      start = i + 1;
+    }
+  }
+  return keys.length ? `{ ${keys.join("; ")} }${arr ? "[]" : ""}` : (arr ? "object[]" : "object");
 }
 
 export function extract(source) {

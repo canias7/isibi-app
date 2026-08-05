@@ -12,7 +12,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { policiesFor, grantsFor, APP_USER_FN, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK, SESSION_JWT_EXT, POLICY_PREFIX } from "../site-rls.mjs";
+import { policiesFor, grantsFor, APP_USER_FN, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK, SESSION_JWT_EXT, SESSION_JWT_GRANTS, APP_TEAM_FN, POLICY_PREFIX } from "../site-rls.mjs";
 
 const sql = (t) => policiesFor(t).join("\n");
 const T = (over) => ({ name: "things", access: "user", columns: [{ name: "title" }], ...over });
@@ -152,8 +152,14 @@ test("admin: reads for anyone signed in, and writing is REFUSED at the database"
 
 test("a team-shared table widens to the caller's organization", () => {
   const s = sql(T({ access: "user", teamScope: true }));
-  assert.match(s, /neon_auth\.member/, "membership comes from Neon Auth, not a table of ours");
-  assert.match(s, /"organizationId"/);
+  // MEMBERSHIP STILL COMES FROM NEON AUTH — it moved one level down, into
+  // `app_team_id()`, because a policy that selects from `neon_auth.member` is
+  // evaluated as the caller and the caller cannot reach it. This assertion used
+  // to read the policy text; pointed there now it would pass vacuously for every
+  // level, so it follows the fact instead of the file.
+  assert.match(s, /app_team_id\(\)/);
+  assert.match(APP_TEAM_FN, /neon_auth\.member/, "membership comes from Neon Auth, not a table of ours");
+  assert.match(APP_TEAM_FN, /"organizationId"/);
 });
 
 test("a member in NO organization still sees only their own rows", () => {
@@ -166,9 +172,33 @@ test("a member in NO organization still sees only their own rows", () => {
 });
 
 test("teamScope on a non-user table is ignored, as it is everywhere else", () => {
+  // Checked on `app_team_id`, not on `neon_auth.member`: no policy names that
+  // table any more, so the old pattern would be satisfied by every level for a
+  // reason having nothing to do with teamScope. A guard that cannot fail is
+  // worse than no guard — it reads as coverage.
   for (const access of ["feed", "admin", "display", "collect"]) {
-    assert.ok(!/neon_auth\.member/.test(sql(T({ access, teamScope: true }))), access);
+    assert.ok(!/app_team_id/.test(sql(T({ access, teamScope: true }))), access);
   }
+  assert.match(sql(T({ access: "user", teamScope: true })), /app_team_id/,
+    "and the one level that DOES widen must still widen, or the loop above proves nothing");
+
+  // THE LOOP ABOVE PASSES FOR A REASON THAT IS NOT THE CONDITION IT LOOKS LIKE
+  // IT IS TESTING — found by mutation. Only the `user` branch uses the widened
+  // clause at all; `feed` reads its own, and the other three return before it.
+  // So relaxing the `access === "user"` guard changes no SQL and the loop stays
+  // green.
+  //
+  // What that guard really protects is an AGREEMENT WITH THE COLUMN: the schema
+  // engine stamps `team_id` only on a `user` table that declared teamScope, so a
+  // policy widening any other level would name a column that does not exist,
+  // fail to CREATE — which applySiteSchema logs and carries on from — and leave
+  // that table with no read policy, i.e. invisible to its own members. Asserted
+  // from both files, so the two conditions cannot drift apart.
+  const rls = fs.readFileSync(new URL("../site-rls.mjs", import.meta.url), "utf8");
+  const engine = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  assert.match(rls, /t\.teamScope && access === "user"/, "the policy's condition changed");
+  assert.match(engine, /t\.teamScope && access === "user"\) cols\.push\('"team_id" UUID'\)/,
+    "the column's condition changed, so the policy may now reference a column no table has");
 });
 
 // --------------------------------------------------------------- trash
@@ -235,4 +265,77 @@ test("a grant never gives more than the level allows", () => {
     assert.ok(!/\banonymous\b/.test(grantsFor(T({ access })).join("")),
       access + " must not be granted to the anonymous role");
   }
+});
+
+// ---------------------------------------------- reachable, not merely defined
+
+test("the roles that call app_user_id() can reach the schema it reads", () => {
+  // THE FAILURE THIS ENCODES, measured live 2026-08-05: the function existed,
+  // the owner could run it, every grant on every table was correct — and every
+  // member read answered `42501 permission denied for schema auth`, because the
+  // native body calls `auth.user_id()` and neither Data API role had USAGE on
+  // that schema. `display` and `collect` never call it, so the two levels with
+  // live coverage were the two that could not break.
+  const both = SESSION_JWT_GRANTS.join("\n");
+  assert.match(both, /GRANT USAGE ON SCHEMA auth TO anonymous;/);
+  assert.match(both, /GRANT USAGE ON SCHEMA auth TO authenticated;/);
+  // ONE STATEMENT PER ROLE, the same reason as the table grants: `TO a, b` is a
+  // single statement, so a role name that stops existing takes the other with it.
+  assert.equal(SESSION_JWT_GRANTS.length, 2);
+  for (const g of SESSION_JWT_GRANTS) assert.ok(!/,/.test(g), "one role per statement: " + g);
+  // It is only the NATIVE body that needs them — the fallback reads a GUC.
+  assert.match(APP_USER_FN_NATIVE, /auth\.user_id\(\)/);
+  assert.ok(!/auth\.user_id/.test(APP_USER_FN_FALLBACK), "the fallback must not depend on that schema");
+});
+
+test("the schema engine applies those grants, and only on the native path", () => {
+  const engine = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  // Derived from the source rather than from a comment: a constant exported and
+  // never executed is the exact shape of the eleven schema features this repo
+  // found parsed, stored and acted on by nothing.
+  assert.match(engine, /SESSION_JWT_GRANTS/, "the engine must import it");
+  const loop = engine.match(/if\s*\(jwtExt\)\s*\{[\s\S]{0,400}?SESSION_JWT_GRANTS[\s\S]{0,300}?\}/);
+  assert.ok(loop, "the grants must run inside the jwtExt branch, not unconditionally");
+  assert.match(loop[0], /sqlQuery\(/, "and must actually be executed");
+});
+
+test("the team clause calls a function instead of reading neon_auth inline", () => {
+  const team = sql(T({ access: "user", teamScope: true }));
+  // The same permission wall one table over: a policy that selects from
+  // `neon_auth.member` is evaluated as the CALLER, who has no access to it. The
+  // fix is not another grant — that table is every member of every organization
+  // on the site, and one policy clause is not a reason to publish it.
+  assert.ok(!/neon_auth/.test(team), "the policy must not reach neon_auth directly: " + team);
+  assert.match(team, /app_team_id\(\)/);
+  // Compared as TEXT on both sides. `team_id` is uuid and `organizationId` is
+  // whatever Neon's managed Better Auth made it; `uuid = text` is not an
+  // operator, so a type guess is a policy that fails to CREATE.
+  assert.match(team, /"team_id"::text = app_team_id\(\)/);
+  assert.match(APP_TEAM_FN, /RETURNS text/);
+  // A table that is not team-scoped must not widen at all.
+  assert.ok(!/app_team_id/.test(sql(T({ access: "user" }))), "own-rows only unless declared");
+});
+
+test("app_team_id runs as its definer, with the search path pinned", () => {
+  assert.match(APP_TEAM_FN, /SECURITY DEFINER/);
+  // Without this a role that can create a schema ahead of the search path
+  // chooses what the definer executes. Every name in the body is qualified for
+  // the same reason.
+  assert.match(APP_TEAM_FN, /SET search_path = pg_catalog/);
+  assert.match(APP_TEAM_FN, /neon_auth\.member/);
+  assert.match(APP_TEAM_FN, /public\.app_user_id\(\)/);
+  // It takes NO ARGUMENT, which is what makes the definer rights safe: there is
+  // no id to pass, so it can only ever answer for the caller.
+  assert.match(APP_TEAM_FN, /FUNCTION app_team_id\(\)/);
+});
+
+test("the schema engine creates app_team_id", () => {
+  const engine = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  // The whole statement, with `await` anchored straight after the brace. Written
+  // as a bare mention of the call it passed against
+  // `try { if (false) await sqlQuery(uuid, APP_TEAM_FN); }` — the same survivor
+  // shape as `} finally { if (false)` earlier in this repo. A named constant
+  // that is imported and never actually executed is exactly how eleven schema
+  // features ended up parsed, stored and acted on by nothing.
+  assert.match(engine, /try \{ await sqlQuery\(uuid, APP_TEAM_FN\); \}/);
 });

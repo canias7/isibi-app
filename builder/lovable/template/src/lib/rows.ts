@@ -31,7 +31,20 @@ import {
 // what actually comes back. A `json` column arrives as an object and is the one
 // inexact case; rendering one in JSX is wrong whatever its type says, so typing
 // for it would buy nothing and cost every ordinary page a compile error.
-export type Row = Record<string, string | number | boolean | null> & { id: number };
+// `created_at` IS NAMED, and not for tidiness. It is the one column a page reads
+// that the model's own `type Deal = Row & { title: string }` cannot narrow — a
+// declared column gets a type in that intersection, a platform-managed one is
+// left on the index signature. So `at: deal.created_at` is
+// `string | number | boolean | null` against `string | number | Date`. Measured
+// live 2026-08-05: TS2322, page refused, whole CRM sample a placeholder.
+//
+// Non-optional because `site-schema.mjs` adds it to EVERY table unconditionally
+// — not behind the `timestamps` flag, which is `updated_at`. A test asserts that
+// stays true, because `string` here is a claim about that file.
+export type Row = Record<string, string | number | boolean | null> & {
+  id: number;
+  created_at: string;
+};
 
 /**
  * A row id being passed IN.
