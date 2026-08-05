@@ -213,7 +213,9 @@ try {
 
   // --- signing out -----------------------------------------------------------
   console.log("\nsigning out…");
-  const out = await auth("sign-out", { method: "POST", headers: bearer(tokA) });
+  // The same shape the client sends — a bare POST answers 415, which is what the
+  // first run found and what `useLogout` was doing on every generated site.
+  const out = await auth("sign-out", jsonPost({}, tokA));
   ok("sign-out is accepted", out.status >= 200 && out.status < 400, out.status);
   const after = await auth("get-session", { headers: bearer(tokA) });
   ok("and the token stops working", after.status === 401 || !(await after.json().catch(() => null))?.user, after.status);

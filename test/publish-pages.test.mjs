@@ -511,8 +511,40 @@ test("a build that validated nothing says WHY, not just that it failed", async (
 });
 
 test("and a generator that returned nothing at all is said plainly", async () => {
-  const { deps } = harness({ generate: async () => gen([]) });
-  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
-  assert.equal(out.stage, "validate");
-  assert.match(out.error, /no pages at all/, "an empty answer and a refused one are different problems");
+  // THREE OUTCOMES, NOT TWO, because they need three different responses: the
+  // model answered in prose and never called the tool; it called the tool with
+  // nothing in it; or it called it and every page was refused. A build spent
+  // 9,810 output tokens and 22 credits on 2026-08-04 and the response could only
+  // say "didn't produce a usable page", which is all three at once.
+  const empty = harness({ generate: async () => gen([]) });
+  const a = await publishPages(empty.deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(a.stage, "validate");
+  assert.match(a.error, /called the tool with no pages/, a.error);
+
+  // The one that actually happened: no tool_use block in the answer at all.
+  const prose = harness({
+    generate: async () => ({ ...gen([]), input: null, shape: { stopReason: "end_turn", blocks: ["text"] } }),
+  });
+  const b2 = await publishPages(prose.deps, { spec: SPEC, slug: "cafe" });
+  assert.match(b2.error, /never called the tool/, b2.error);
+  assert.match(b2.error, /end_turn/, "the stop reason is the first thing to look at and it is not reported");
+  assert.match(b2.error, /text/, "which blocks came back says whether it answered in prose");
+});
+
+test("and the WORKER really produces that shape — the fake above is not proof", () => {
+  // The test above hands publishPages a hand-made `shape`, so it proves the
+  // reporting and says nothing about whether generateSitePages ever builds one.
+  // Two mutants survived on exactly that gap: disabling the capture, and blanking
+  // the stop reason, both passed the behavioural test.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /const shape = use \? null : \{/,
+    "generateSitePages no longer captures why there was no tool call");
+  assert.match(w, /stopReason: String\(j\.stop_reason \|\| ""\)/,
+    "the stop reason is the first thing to look at and it is not captured");
+  assert.match(w, /blocks: \(Array\.isArray\(j\.content\) \? j\.content : \[\]\)\.map\(\(b\) => String\(b && b\.type\)\)/,
+    "which block types came back is what says whether the model answered in prose");
+  // NEVER THE TEXT. It is model-written prose about a customer's brief, and this
+  // value is returned to the caller and logged.
+  const at = w.indexOf("const shape = use ? null : {");
+  assert.ok(!/b\.text/.test(w.slice(at, at + 400)), "the model's prose is being returned to the caller");
 });

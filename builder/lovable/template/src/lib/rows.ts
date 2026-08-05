@@ -492,7 +492,17 @@ export function useLogout() {
       // Told to the server as well as forgotten locally, or the session stays
       // live for anyone who kept a copy of the token.
       if (token) {
-        await fetch(authUrl("sign-out"), { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+        // A BODY AND A CONTENT-TYPE, or the auth server answers 415 before it
+        // looks at anything else. Measured live 2026-08-04: sign-out was a POST
+        // with neither, so it failed on every generated site — and because the
+        // failure is swallowed (deliberately: the local token is cleared either
+        // way), the page believed it had signed out while the session stayed
+        // live for anyone holding a copy of the token.
+        await fetch(authUrl("sign-out"), {
+          method: "POST",
+          headers: { "content-type": "application/json", Authorization: `Bearer ${token}` },
+          body: "{}",
+        }).catch(() => {});
       }
       setSessionToken(null);
     },

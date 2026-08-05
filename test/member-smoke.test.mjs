@@ -80,3 +80,32 @@ test("it cleans up the billed resources it created", () => {
   assert.ok(!/\bif\s*\(/.test(head),
     "something gates the cleanup block, so a failing run can leak a billed Neon project");
 });
+
+test("the proxy SETS Origin rather than forwarding what a caller sent", () => {
+  // MEASURED LIVE 2026-08-04, first run of member smoke: every signup answered
+  // `400 MISSING_ORIGIN`. The proxy's header allow-list is about COOKIES — it
+  // exists so isibi.ai's cookies never reach a third party — and it dropped
+  // `Origin`, which is not a cookie. No generated site could sign anybody up.
+  //
+  // SET, not forwarded: this endpoint is public, so forwarding trusts an
+  // attacker-chosen value into Better Auth's trusted-origins check. The request
+  // really does originate from this Worker.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /headers\.set\("origin", url\.origin\)/,
+    "the auth proxy does not set Origin, so signup answers MISSING_ORIGIN");
+  assert.ok(!/for \(const h of \[[^\]]*"origin"/.test(w),
+    "Origin is being FORWARDED from the caller — on a public endpoint that is attacker-chosen");
+});
+
+test("sign-out sends a body, or the auth server refuses it as 415", () => {
+  // The client posted with neither a content-type nor a body, and the failure is
+  // swallowed by design (the local token is cleared either way) — so the page
+  // believed it had signed out while the session stayed live for anyone holding
+  // the token.
+  const rowsSrc = fs.readFileSync(new URL("../builder/lovable/template/src/lib/rows.ts", import.meta.url), "utf8");
+  const at = rowsSrc.indexOf('authUrl("sign-out")');
+  assert.ok(at > 0, "sign-out is no longer called");
+  const call = rowsSrc.slice(at, at + 260);
+  assert.match(call, /"content-type": "application\/json"/, "no content-type: the server answers 415");
+  assert.match(call, /body: "\{\}"/, "no body: the server answers 415");
+});
