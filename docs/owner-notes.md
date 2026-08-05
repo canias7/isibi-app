@@ -13468,3 +13468,51 @@ usable)" covered three different problems (prose instead of a tool call, no call
 at all, a call with an empty list). The eval now reports the stop reason and the
 block types, which `generateSitePages` has done in production since yesterday;
 the eval was the half still silent.
+
+---
+
+## 2026-08-05 — the member tier is green, 35/35
+
+`member smoke` passes end to end for the first time since `auth-smoke.mjs` was
+deleted on 2026-07-30. Three rounds, three distinct root causes, each one hidden
+behind the one in front of it:
+
+1. **The proxy threw the session cookie away** — Neon's managed Better Auth is
+   cookie-based, so the session died at birth and there was never a JWT either.
+2. **`app_user_id()` could not be EVALUATED by the roles that call it.** The
+   grant that looks like the fix raised no error and changed no privilege;
+   SECURITY DEFINER is what closed it.
+3. **`owner_id` had no default.** Reads worked, writes answered 403 — which is
+   why it read as a partial success rather than a missing column default.
+
+`user`, `feed` and `admin` — the three access levels with no live coverage for a
+week — are all proved now: own-rows scoping across two real members, a shared
+feed, an admin table that reads and refuses writes.
+
+### The generator, same day, third and fourth regex of the same shape
+
+The page eval is 2/3 (the menu sample's earlier zero-page run was variance and
+came back clean). What the CRM sample found, twice in a row:
+
+- **`export type Column<T> = ` never matched**, so `Column` had no shape, so
+  `DataTable(columns: Column<T>[], …)` stopped at a name the model could not
+  see — and it wrote `render:` where the prop is `cell:`. **The same class as
+  `data-table` being missing entirely, one layer over, found the moment that one
+  was fixed.** `sortable-list`'s `SortOption<T>` was hidden the same way.
+- **A generic parameter list defeats a regex written for the non-generic case.**
+  Three separate places in one session. Worth remembering as its own pattern,
+  next to "strip comments by blanking, never by removing".
+- **`Row` is a literal index signature now, not `Record<…> & {…}`.** An
+  intersection cannot carry an optional property: the member type is intersected
+  with the index signature's, so `updated_at?: string` collapses to plain
+  `string` and claims a column that only exists behind `timestamps`. The date
+  prop had failed in two consecutive evals wearing two different types, which is
+  a column and not variance. Proved by COMPILING the page that failed, in
+  `site-build` — negative first, so a `Row` that ever became `any` fails the
+  check rather than passing it.
+- **A mutation caught my own new guard restating the kit rather than the rule.**
+  Swapping the generic pattern for one that breaks on a default like `<T = Row>`
+  passed the whole suite, because no component in the kit has one. `extractTypes`
+  takes a source now, the way `extract` always has.
+
+893 tests, site-build 45/45.
