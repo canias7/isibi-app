@@ -3510,6 +3510,28 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
         // PostgREST reports the total row count here when asked for it, and a
         // paginated list is useless without it.
         ...(r.headers.get("content-range") ? { "content-range": r.headers.get("content-range") } : {}),
+        // THE TWO AUTH HEADERS, WITHOUT WHICH MEMBER ACCOUNTS CANNOT WORK AT ALL.
+        // Both are answers, not cookies, and both were being dropped here — so a
+        // published page could sign somebody in and then had no way to act as
+        // them. Measured live 2026-08-04 and confirmed against both vendors'
+        // documentation rather than guessed:
+        //
+        //   `set-auth-token` — Better Auth's bearer plugin: "After a successful
+        //   sign-in, you'll receive a session token in the response headers."
+        //   THIS, not the body's `token`, is what `get-session` accepts. Sending
+        //   the body value got `200` with a null session — a signed-in visitor
+        //   who reads as signed out, on every generated site.
+        //
+        //   `set-auth-jwt` — Neon's Data API: "Call GET /get-session and copy the
+        //   JWT from the Set-Auth-Jwt response header." A Better Auth session
+        //   token is NOT a JWT, and the Data API answers `400 not a valid JWT
+        //   encoding` — so every `user`, `feed` and `admin` read and write failed.
+        //
+        // The request-side allow-list above is about protecting isibi.ai's
+        // cookies. These are the auth server's own answers to its own caller, and
+        // withholding them just breaks the caller.
+        ...(r.headers.get("set-auth-token") ? { "set-auth-token": r.headers.get("set-auth-token") } : {}),
+        ...(r.headers.get("set-auth-jwt") ? { "set-auth-jwt": r.headers.get("set-auth-jwt") } : {}),
       },
     });
   } catch (e) {

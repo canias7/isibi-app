@@ -13081,3 +13081,100 @@ working on a real generation. Menu clean both runs. The CRM is still the one tha
 fails.
 
 863 unit tests, 5 mutants on this change, all caught.
+
+## `build smoke` is GREEN — the booking form works (2026-08-04)
+
+**54/54, on `cfe08d9`, verified against the SHA.** A generated site builds,
+publishes, loads in a real browser, submits its form, and the row lands in
+Postgres:
+
+    ok   the generated app was published, not the fallback
+    ok   the container built this site with the CURRENT template
+    ok   the form sent a submission
+    ok   and the database accepted it
+
+That check had been red all day and took **five attempts**: an empty Anthropic
+account, a stale container image, a generator miss, a validate failure, and then
+green. Each attempt was a different problem, and the reason it took five rather
+than fifteen is that every failure this session was made to name itself — the
+`stage`/`error` fields, the template digest, the trace.
+
+**The template digest earned its place immediately.** It confirms this run tested
+the CURRENT code rather than passing on an image one change behind, which is
+exactly how attempt three misled a whole diagnosis.
+
+### The signature that stopped at a type name
+
+The eval's booking sample failed on ONE error: `Activity[]`. The prompt said
+`ActivityFeed(items: Activity[], …)`, the model passed
+`{title, description}[]`, and `Activity` is `{who, what, at, avatar?}` —
+completely different fields, and no way to know. Signatures now carry the shape:
+
+    activity-feed — ActivityFeed(items: Activity[], empty?: string = "Nothing yet")
+       where Activity = { who: string; what: string; at: string | number | Date; avatar?: string | null }
+
+**Two traps on the way in, both caught before shipping.**
+
+TWO components in this kit export a type called `Activity`, with different
+shapes — `activity-feed`'s and `facility-status`'s. A flat name→shape map
+collapsed them, last one winning, so the prompt would have carried the wrong
+fields for one of them. **A wrong type is worse than none: it looks
+authoritative**, exactly like the truncated enum did the same day. Keyed per
+component now, and only types the signature actually mentions are printed.
+
+And the shapes are read with BALANCED BRACES, not up to the first `;` — these are
+object literals whose fields are semicolon-separated, so a lazy match returns
+`Activity = { who: string` and looks like it worked. It did, in the first draft,
+and the measurement it produced was wrong too.
+
+Prompt block 9,269 → 11,790 tokens, all cached — roughly $0.0008 more per warm
+build.
+
+866 unit tests, 4 mutants, all caught.
+
+## Member accounts: two tokens, two response headers, three places dropping them (2026-08-04)
+
+`member smoke` found signup working and every member READ and WRITE failing. The
+cause is one mistake made three times, and none of it was guessed — it was
+measured live, then confirmed against both vendors' own documentation.
+
+**There are TWO tokens and neither is in a response body.**
+
+- **Better Auth's bearer plugin**: *"After a successful sign-in, you'll receive a
+  session token in the response headers"* — `set-auth-token`. **That** is what
+  `get-session` accepts. The body's `token` field is a different value, and
+  sending it returned `200` with a **null session** — so a signed-in visitor read
+  as signed out on every generated site, and `useMember()` always answered null.
+- **Neon's Data API**: *"Call GET /get-session and copy the JWT from the
+  Set-Auth-Jwt response header."* A Better Auth session token is **not a JWT**,
+  and the Data API answers `400 not a valid JWT encoding` — so `user`, `feed` and
+  `admin`, all three member levels, failed on every site.
+
+**Three places dropped them:**
+
+1. `proxySiteService` returned only `content-type` and `content-range`, so both
+   headers were stripped and the client could never obtain either. The
+   REQUEST-side allow-list is about protecting isibi.ai's cookies; these are the
+   auth server's own answers to its own caller, and withholding them just breaks
+   the caller.
+2. The client stored the body's `token` as the session, so `get-session` refused.
+3. The client sent that same token to the Data API, which wants the JWT.
+
+Now: the proxy passes both back, `rows.ts` keeps them **apart** (`site_session_*`
+for the auth server, `site_jwt_*` for the Data API), `get-session` is where the
+JWT is refreshed — which is what any page showing member content calls anyway —
+and sign-out drops both, or the next person on a shared machine inherits a live
+JWT.
+
+**The probe this replaces was looking in the wrong place entirely.** It tried
+`token`, `jwt`, `get-token` and `session/token` as ENDPOINTS. Neither token is an
+endpoint. Reading the two vendors' docs took two fetches and cost nothing; the
+probe would have cost a deploy and a run to come back empty.
+
+The smoke test now asserts the JWT is **three dot-separated segments and not the
+session token** — without that, handing the same value to both servers looks
+exactly like success.
+
+869 unit tests, 6 mutants, all caught. Template typechecks clean.
+
+**Still unrun** — it needs a deploy.

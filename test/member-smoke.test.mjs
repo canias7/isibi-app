@@ -109,3 +109,53 @@ test("sign-out sends a body, or the auth server refuses it as 415", () => {
   assert.match(call, /"content-type": "application\/json"/, "no content-type: the server answers 415");
   assert.match(call, /body: "\{\}"/, "no body: the server answers 415");
 });
+
+test("the proxy passes back BOTH auth headers, or member accounts cannot work", () => {
+  // Neither token is in a response body, and the proxy returned only
+  // content-type and content-range — so a page could sign somebody in and then
+  // had no way to act as them. Confirmed against both vendors' docs after being
+  // measured live:
+  //   set-auth-token — Better Auth's bearer plugin; what get-session accepts
+  //   set-auth-jwt   — Neon's Data API; what every member read and write needs
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  for (const h of ["set-auth-token", "set-auth-jwt"]) {
+    assert.match(w, new RegExp('r\\.headers\\.get\\("' + h + '"\\)'),
+      `the proxy strips ${h}, so the client can never obtain it`);
+  }
+});
+
+test("the client keeps the two tokens APART and sends the right one to each", () => {
+  // One value for the auth server, a different one for the Data API. Using
+  // either in the other's place is a silent failure: a null session, or
+  // `400 not a valid JWT encoding`.
+  const rowsSrc = fs.readFileSync(new URL("../builder/lovable/template/src/lib/rows.ts", import.meta.url), "utf8");
+  assert.match(rowsSrc, /const JWT_KEY = \(\) => `site_jwt_\$\{siteSlug\(\)\}`/, "there is only one token store");
+  assert.match(rowsSrc, /set-auth-token/, "the bearer token is still read from the body");
+  assert.match(rowsSrc, /set-auth-jwt/, "the JWT is never captured");
+
+  // `send` is the DATA path and must use the JWT.
+  const at = rowsSrc.indexOf("async function send<T>");
+  assert.ok(at > 0, "send() was renamed");
+  assert.match(rowsSrc.slice(at, at + 500), /const token = getJwt\(\)/,
+    "data calls carry the auth token, which the Data API refuses as not-a-JWT");
+
+  // Signing out has to drop BOTH, or the next visitor on a shared machine
+  // inherits a live JWT.
+  // Sliced to the function's real END, not a guessed number of characters — a
+  // 900-char window fell short of the line it was looking for and reported a
+  // bug that was not there.
+  const out = rowsSrc.indexOf("export function useLogout");
+  const outEnd = rowsSrc.indexOf("\nexport ", out + 10);
+  assert.ok(out > 0 && outEnd > out, "useLogout was renamed");
+  assert.match(rowsSrc.slice(out, outEnd), /setJwt\(null\)/, "sign-out leaves the JWT behind");
+});
+
+test("the smoke test reads the tokens from the headers, not from a body", () => {
+  const smokeSrc = fs.readFileSync(new URL("./integration/member-smoke.mjs", import.meta.url), "utf8");
+  assert.match(smokeSrc, /su\.headers\.get\("set-auth-token"\)/);
+  assert.match(smokeSrc, /sess\.headers\.get\("set-auth-jwt"\)/);
+  // A JWT is three dot-separated segments and a bearer token is not — which is
+  // the entire reason the two are kept apart.
+  assert.match(smokeSrc, /dataTok\.split\("\."\)\.length === 3 && dataTok !== sessTok/,
+    "nothing checks the JWT is actually a JWT, which is how this bug looked fine");
+});

@@ -145,6 +145,7 @@ try {
   console.log("\nsigning up and signing in…");
   const m1 = { email: `ada-${stamp}@example.com`, password: "correct-horse-battery", name: "Ada" };
   const su = await auth("sign-up/email", jsonPost(m1));
+  const suHeaderTok = su.headers.get("set-auth-token");
   const suBody = await su.json().catch(() => null);
   ok("signup succeeds", su.status >= 200 && su.status < 300, su.status + " " + JSON.stringify(suBody).slice(0, 200));
   const tokA = tokenOf(suBody);
@@ -154,12 +155,6 @@ try {
   // bearer token the client stores is the same session.token the resolver looks
   // up — the one seam only a real sign-in proves." `tokenOf` here is a copy of
   // the client's, so this asserts the exact value a generated page would store.
-  const me = await auth("get-session", { headers: bearer(tokA) });
-  const meBody = await me.json().catch(() => null);
-  ok("the token the CLIENT would store opens a session", me.status === 200 && !!(meBody && meBody.user),
-    me.status + " " + JSON.stringify(meBody).slice(0, 200));
-  ok("and the session names the member who signed up",
-    !!(meBody && meBody.user && meBody.user.email === m1.email), JSON.stringify(meBody && meBody.user).slice(0, 200));
 
   const li = await auth("sign-in/email", jsonPost({ email: m1.email, password: m1.password }));
   const tokA2 = tokenOf(await li.json().catch(() => null));
@@ -170,11 +165,45 @@ try {
   const ghost = await auth("sign-in/email", jsonPost({ email: `nobody-${stamp}@example.com`, password: "whatever-123" }));
   ok("and so is an address with no account", ghost.status >= 400, ghost.status);
 
+  // --- the two tokens, from the two response headers ----------------------
+  //
+  // MEASURED, THEN CONFIRMED AGAINST BOTH VENDORS' DOCS. An earlier version of
+  // this block probed `token`, `jwt`, `get-token` and `session/token` — all
+  // wrong. Neither token is in a body:
+  //
+  //   Better Auth's bearer plugin: "After a successful sign-in, you'll receive a
+  //   session token in the response headers" — `set-auth-token`. Sending the
+  //   body's `token` to get-session returned 200 with a null session.
+  //
+  //   Neon's Data API: "Call GET /get-session and copy the JWT from the
+  //   Set-Auth-Jwt response header." A bearer token is not a JWT, and the Data
+  //   API answered `400 not a valid JWT encoding`.
+  //
+  // Both headers also have to survive the Worker's proxy, which passed back only
+  // content-type and content-range — so this asserts the whole path, not just
+  // that the auth server produced them.
+  console.log("\nthe two tokens…");
+  ok("sign-in answers with a bearer token in set-auth-token",
+    !!suHeaderTok, "the proxy is stripping it, or the bearer plugin is off");
+  const sessTok = suHeaderTok || tokA;
+
+  const sess = await auth("get-session", { headers: bearer(sessTok) });
+  const sessBody = await sess.json().catch(() => null);
+  ok("and that token opens a session", sess.status === 200 && !!(sessBody && sessBody.user),
+    sess.status + " " + JSON.stringify(sessBody).slice(0, 160));
+  const dataTok = sess.headers.get("set-auth-jwt");
+  ok("get-session answers with the Data API's JWT in set-auth-jwt", !!dataTok,
+    "without it no member can read or write anything");
+  // A JWT is three dot-separated segments; a bearer token is not, which is the
+  // entire reason the two are kept apart.
+  ok("and it really is a JWT, not the session token again",
+    !!dataTok && dataTok.split(".").length === 3 && dataTok !== sessTok, String(dataTok).slice(0, 40));
+
   // --- a member's own rows ---------------------------------------------------
   console.log("\nwhat a member may see…");
-  const mine = await data("notes", jsonPost({ body: "ada's private note" }, tokA));
+  const mine = await data("notes", jsonPost({ body: "ada's private note" }, dataTok));
   ok("a member may write to a user table", mine.status >= 200 && mine.status < 300, mine.status);
-  const mineRead = await data("notes?select=*", { headers: bearer(tokA) });
+  const mineRead = await data("notes?select=*", { headers: bearer(dataTok) });
   const mineRows = await mineRead.json().catch(() => []);
   ok("and read it back", mineRead.status === 200 && Array.isArray(mineRows) && mineRows.length === 1,
     mineRead.status + " " + JSON.stringify(mineRows).slice(0, 200));
@@ -195,7 +224,7 @@ try {
 
     // `feed` is the opposite level and must behave the opposite way, or "own
     // rows" has simply been applied everywhere.
-    await data("posts", jsonPost({ body: "ada's public post" }, tokA));
+    await data("posts", jsonPost({ body: "ada's public post" }, dataTok));
     const bobFeed = await data("posts?select=*", { headers: bearer(tokB) });
     const feedRows = await bobFeed.json().catch(() => []);
     ok("but a feed row IS visible to every signed-in member",
@@ -205,9 +234,9 @@ try {
 
   // --- admin is READ-ONLY, which is what 2026-08-04 got wrong ---------------
   console.log("\nadmin…");
-  const adminRead = await data("notices?select=*", { headers: bearer(tokA) });
+  const adminRead = await data("notices?select=*", { headers: bearer(dataTok) });
   ok("a signed-in member may READ an admin table", adminRead.status === 200, adminRead.status);
-  const adminWrite = await data("notices", jsonPost({ body: "should not land" }, tokA));
+  const adminWrite = await data("notices", jsonPost({ body: "should not land" }, dataTok));
   ok("and may NOT write to it — it is granted SELECT and nothing else",
     adminWrite.status === 401 || adminWrite.status === 403, adminWrite.status);
 
