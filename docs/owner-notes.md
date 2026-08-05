@@ -13744,3 +13744,28 @@ A guard had to be relaxed on the way — test 6 pinned the whole statement while
 claiming to check "only functions that really got created are advertised", so a
 rewrite of that line broke it for a reason unrelated to its rule. Same lesson as
 the `team_id` DDL guard earlier today. 901 tests, 4 mutants, all caught.
+
+### Two database findings, recorded so they are not re-investigated (2026-08-05)
+
+**`queue_neon_teardown()` is flagged by the Supabase advisor and is NOT
+exploitable.** The lint says it is a SECURITY DEFINER function executable by
+`anon` over `/rest/v1/rpc/`. It is a **trigger function** — calling it answers
+`0A000: trigger functions can only be called as triggers`, and PostgREST gets the
+same error. The advisor matches on the shape and does not read the return type.
+**Do not revoke the grant to silence it**: trigger execution and function EXECUTE
+privilege interact in ways not worth risking for a linter line, and what this
+function guards is the mechanism that stops Neon projects leaking.
+
+**The last orphaned Neon project is gone, and the teardown chain is now proven in
+production rather than only in tests.** `shy-dust-86732181`, provisioned 28 July
+under the per-user layout, with no site pointing at it. Deleted through the
+Supabase row rather than the Neon API, so the `BEFORE DELETE` trigger captured it
+— which is precisely the "an operator typing DELETE by hand" path that trigger
+was written for. It queued with `reason: user_site_project`, the 2-minute cron
+drained it on the first tick, and the row cleared itself: zero attempts, no
+`last_error`.
+
+**State after: 0 sites, 0 Neon project records, an empty teardown queue, no
+orphans.** Worth knowing because every fix made today applies at build or revise
+time — with nothing older in existence, there is no backfill to write and no
+sweep to run.
