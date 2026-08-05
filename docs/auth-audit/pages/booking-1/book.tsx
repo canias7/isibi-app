@@ -37,25 +37,25 @@ type Appointment = Row;
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm, well-lit studio for every kind of practice.",
+  tagline: "A calm, well-lit room for whatever your practice needs today.",
   links: [
-    { label: "Home", href: "#/" },
-    { label: "Book", href: "#/book" },
-    { label: "Work", href: "#/work" },
-    { label: "Account", href: "#/account" },
+    { label: "Home", href: "/" },
+    { label: "Book", href: "/book" },
+    { label: "The work", href: "/work" },
+    { label: "Account", href: "/account" },
   ],
-  action: { label: "Book now", href: "#/book" },
+  action: { label: "Book now", href: "/book" },
 };
 
-const CLASSES = [
-  "Sunrise Vinyasa",
+const CLASS_NAMES = [
   "Slow Flow",
+  "Vinyasa",
   "Restorative",
-  "Power Yoga",
   "Beginners' Foundations",
+  "Private session",
 ];
 
-const SLOTS = ["07:00", "08:15", "09:30", "12:00", "17:30", "18:45", "19:15"];
+const SLOTS = ["07:00", "08:00", "09:30", "11:00", "12:30", "17:30", "18:30", "19:30"];
 
 const booking = z.object({
   class_name: z.string().min(1, "Pick a class"),
@@ -96,7 +96,7 @@ function Book() {
         form.reset();
         setBooked(true);
       },
-      onError: (e) => toast.error(e.message),
+      onError: (e: Error) => toast.error(e.message),
     });
   };
 
@@ -106,8 +106,7 @@ function Book() {
         <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
           <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
           <p className="mt-3 text-muted-foreground">
-            We've saved your spot. If you need to change or cancel it, use the link in your
-            confirmation email.
+            We've sent a confirmation to your email. Need to move or cancel it? Use the link in that email.
           </p>
           <Button asChild variant="outline" className="mt-6">
             <Link to="/">Back to the studio</Link>
@@ -121,7 +120,7 @@ function Book() {
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-2xl px-6 py-14">
         <h1 className="text-3xl font-semibold tracking-tight">Book a class</h1>
-        <p className="mt-2 text-muted-foreground">We'll email you a confirmation with a manage link.</p>
+        <p className="mt-2 text-muted-foreground">Pick a class and a slot — we'll confirm by email.</p>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -134,11 +133,11 @@ function Book() {
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Choose a class" />
+                        <SelectValue placeholder="Choose one" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {CLASSES.map((c) => (
+                      {CLASS_NAMES.map((c) => (
                         <SelectItem key={c} value={c}>
                           {c}
                         </SelectItem>

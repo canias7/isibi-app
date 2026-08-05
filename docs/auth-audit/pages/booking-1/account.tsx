@@ -1,5 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -29,7 +28,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Empty } from "@/components/ui/empty";
-import { ActivityFeed } from "@/components/ui/activity-feed";
 
 export const Route = createFileRoute("/account")({ component: Account });
 
@@ -38,14 +36,14 @@ type Announcement = Row & { title: string; body: string };
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm, well-lit studio for every kind of practice.",
+  tagline: "A calm, well-lit room for whatever your practice needs today.",
   links: [
-    { label: "Home", href: "#/" },
-    { label: "Book", href: "#/book" },
-    { label: "Work", href: "#/work" },
-    { label: "Account", href: "#/account" },
+    { label: "Home", href: "/" },
+    { label: "Book", href: "/book" },
+    { label: "The work", href: "/work" },
+    { label: "Account", href: "/account" },
   ],
-  action: { label: "Book now", href: "#/book" },
+  action: { label: "Book now", href: "/book" },
 };
 
 const credentials = z.object({
@@ -56,11 +54,11 @@ const credentials = z.object({
 type Credentials = z.infer<typeof credentials>;
 
 const noteSchema = z.object({
-  title: z.string().min(1, "Give it a title"),
+  title: z.string().min(1, "Give your note a title"),
   body: z.string().min(1, "Write something"),
 });
 
-type NoteInput = z.infer<typeof noteSchema>;
+type NoteForm = z.infer<typeof noteSchema>;
 
 function Account() {
   const member = useMember();
@@ -97,8 +95,7 @@ function Account() {
           <>
             <h1 className="text-3xl font-semibold tracking-tight">Your account</h1>
             <p className="mt-2 text-muted-foreground">
-              Sign in to keep your own practice notes, or make an account if this is your first
-              time.
+              Sign in to keep your own class notes, or make an account if you're new here.
             </p>
 
             <Form {...form}>
@@ -159,18 +156,18 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
   const announcements = useRows<Announcement>("announcements", { order: "id", dir: "desc" });
   const create = useCreateRow<Note>("my_notes");
 
-  const form = useForm<NoteInput>({
+  const form = useForm<NoteForm>({
     resolver: zodResolver(noteSchema),
     defaultValues: { title: "", body: "" },
   });
 
-  const onSubmit = (values: NoteInput) => {
+  const onSubmit = (values: NoteForm) => {
     create.mutate(values, {
       onSuccess: () => {
-        toast.success("Note saved");
+        toast.success("Note saved.");
         form.reset();
       },
-      onError: (e) => toast.error(e.message),
+      onError: (e: Error) => toast.error(e.message),
     });
   };
 
@@ -188,40 +185,41 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
           <CardTitle className="text-base">Studio announcements</CardTitle>
         </CardHeader>
         <CardContent>
-          {announcements.isPending && <Skeleton className="h-20 rounded-lg" />}
+          {announcements.isPending && <Skeleton className="h-16 rounded-md" />}
           {announcements.isError && (
-            <p className="text-sm text-destructive">Couldn't load announcements.</p>
+            <p className="text-sm text-destructive">Couldn't load announcements right now.</p>
           )}
           {announcements.data?.length === 0 && (
-            <Empty title="Nothing posted yet" description="Check back before your next class." />
+            <Empty title="Nothing posted yet" description="Studio news will appear here." />
           )}
           {!!announcements.data?.length && (
-            <ActivityFeed
-              items={announcements.data.map((a) => ({
-                who: a.title,
-                what: a.body,
-                at: a.created_at,
-              }))}
-            />
+            <ul className="grid gap-3 motion-stagger">
+              {announcements.data.map((a) => (
+                <li key={a.id} className="rounded-md border border-border p-3">
+                  <p className="text-sm font-medium">{a.title}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{a.body}</p>
+                </li>
+              ))}
+            </ul>
           )}
         </CardContent>
       </Card>
 
-      <Card className="mt-8">
+      <Card className="mt-6">
         <CardHeader>
-          <CardTitle className="text-base">Your practice notes</CardTitle>
+          <CardTitle className="text-base">Your notes</CardTitle>
         </CardHeader>
         <CardContent>
-          {notes.isPending && <Skeleton className="h-24 rounded-lg" />}
+          {notes.isPending && <Skeleton className="h-24 rounded-md" />}
           {notes.isError && <p className="text-sm text-destructive">Couldn't load your notes.</p>}
           {notes.data?.length === 0 && (
-            <Empty title="No notes yet" description="Jot down what worked in your last class." />
+            <Empty title="No notes yet" description="Jot down what worked in class, or what to try next time." />
           )}
           {!!notes.data?.length && (
-            <ul className="grid gap-3 motion-stagger">
+            <ul className="grid gap-2 motion-stagger">
               {notes.data.map((n) => (
-                <li key={n.id} className="rounded-lg border border-border p-4">
-                  <p className="font-medium">{n.title}</p>
+                <li key={n.id} className="rounded-md border border-border p-3">
+                  <p className="text-sm font-medium">{n.title}</p>
                   <p className="mt-1 text-sm text-muted-foreground">{n.body}</p>
                 </li>
               ))}
@@ -229,7 +227,7 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
           )}
 
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="mt-6 grid gap-3">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="mt-4 grid gap-3">
               <FormField
                 control={form.control}
                 name="title"
@@ -250,7 +248,7 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
                   <FormItem>
                     <FormLabel>Note</FormLabel>
                     <FormControl>
-                      <Textarea rows={4} {...field} />
+                      <Textarea rows={3} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

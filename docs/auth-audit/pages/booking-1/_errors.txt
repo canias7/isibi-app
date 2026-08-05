@@ -1,1 +1,0 @@
-src/routes/account.tsx(200,15): error TS2322: Type '{ who: string; what: string; at: unknown; }[]' is not assignable to type 'Activity[]'.

@@ -1,8 +1,9 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { toast } from "sonner";
 
 import { useMember, useLogin, useSignup } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
@@ -17,7 +18,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { StatsBand } from "@/components/ui/stats-band";
+import { SafeImage } from "@/components/ui/safe-image";
 
 export const Route = createFileRoute("/")({ component: Door });
 
@@ -33,31 +34,28 @@ function Door() {
   const login = useLogin();
   const signup = useSignup();
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"login" | "signup">("login");
-  const [formError, setFormError] = useState<string | null>(null);
 
   const form = useForm<Credentials>({
     resolver: zodResolver(credentials),
     defaultValues: { email: "", password: "" },
   });
 
-  if (!member.isPending && member.data) {
-    navigate({ to: "/records" });
-  }
+  useEffect(() => {
+    if (member.data) {
+      navigate({ to: "/records" });
+    }
+  }, [member.data, navigate]);
 
-  const action = mode === "login" ? login : signup;
-
-  const onSubmit = (values: Credentials) => {
-    setFormError(null);
+  const submit = (action: typeof login, values: Credentials) => {
     action.mutate(values, {
       onSuccess: (data) => {
         if (data && typeof data === "object" && "pending" in data) {
-          setFormError("Check your authenticator app to finish signing in.");
+          toast.message("Check your authenticator app to finish signing in.");
           return;
         }
         navigate({ to: "/records" });
       },
-      onError: (e) => setFormError(e.message),
+      onError: (e) => toast.error(e.message),
     });
   };
 
@@ -67,55 +65,43 @@ function Door() {
         <p className="text-lg font-semibold tracking-tight">Halyard</p>
         <div className="max-w-md py-12">
           <h1 className="text-3xl font-semibold tracking-tight text-balance">
-            The team's deals, one table everyone reads
+            Every deal your team is working, one shared table
           </h1>
           <p className="mt-4 text-muted-foreground">
-            Halyard is where a small sales team keeps its pipeline: every deal a shared
-            record, every account a shared list, every change logged against the deal it
-            happened on.
+            Halyard is the internal tool a small sales team actually opens every morning: deals
+            live in one place, the whole team sees the same pipeline, and the shared account
+            list means nobody chases a contact somebody else already has.
           </p>
-          <StatsBand
-            className="mt-8"
-            columns={3}
-            items={[
-              { value: "1", label: "Shared pipeline" },
-              { value: "1", label: "Shared account list" },
-              { value: "0", label: "Spreadsheets left" },
-            ]}
-          />
+          <SafeImage className="mt-8" src={null} alt="The team pipeline, as a table" ratio="16/10" />
           <ul className="mt-8 space-y-4 text-sm">
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>Every deal the team is working, filterable by stage and value</span>
+              <span>The team's deals in one table — search, filter, open any record</span>
             </li>
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>One shared account list, so nobody chases the same lead twice</span>
+              <span>A shared account list everyone on the team can read and add to</span>
             </li>
             <li className="flex items-start gap-3">
               <StatusBadge state="neutral">soon</StatusBadge>
-              <span>Weekly digest of what moved, sent to the whole team</span>
+              <span>Stage automation and forecast rollups</span>
             </li>
           </ul>
         </div>
         <p className="text-xs text-muted-foreground">
-          Built for teams of five to fifteen. No admin console to configure first.
+          Built for sales teams of five to twenty who are done with spreadsheets.
         </p>
       </section>
 
       <section className="flex items-center justify-center p-10">
         <Card className="w-full max-w-sm">
           <CardHeader>
-            <CardTitle>{mode === "login" ? "Sign in" : "Create your account"}</CardTitle>
-            <CardDescription>
-              {mode === "login"
-                ? "Back to the pipeline in one field and a click."
-                : "Join the team already working these deals."}
-            </CardDescription>
+            <CardTitle>Sign in</CardTitle>
+            <CardDescription>Back to the team's pipeline in one field and a click.</CardDescription>
           </CardHeader>
           <CardContent>
             <Form {...form}>
-              <form className="grid gap-4" onSubmit={form.handleSubmit(onSubmit)}>
+              <form className="grid gap-4" onSubmit={form.handleSubmit((v) => submit(login, v))}>
                 <FormField
                   control={form.control}
                   name="email"
@@ -136,36 +122,25 @@ function Door() {
                     <FormItem>
                       <FormLabel>Password</FormLabel>
                       <FormControl>
-                        <Input
-                          type="password"
-                          autoComplete={mode === "login" ? "current-password" : "new-password"}
-                          {...field}
-                        />
+                        <Input type="password" autoComplete="current-password" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-                {formError && <p className="text-sm text-destructive">{formError}</p>}
-                <Button type="submit" className="motion-press" disabled={action.isPending}>
-                  {action.isPending
-                    ? mode === "login"
-                      ? "Signing in…"
-                      : "Creating account…"
-                    : mode === "login"
-                      ? "Sign in"
-                      : "Create account"}
-                </Button>
-                <button
-                  type="button"
-                  className="text-center text-xs text-muted-foreground underline underline-offset-4"
-                  onClick={() => {
-                    setFormError(null);
-                    setMode(mode === "login" ? "signup" : "login");
-                  }}
-                >
-                  {mode === "login" ? "New to Halyard? Create an account" : "Already have an account? Sign in"}
-                </button>
+                <div className="flex gap-3">
+                  <Button type="submit" className="motion-press" disabled={login.isPending}>
+                    {login.isPending ? "Signing in…" : "Sign in"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={signup.isPending}
+                    onClick={form.handleSubmit((v) => submit(signup, v))}
+                  >
+                    Create account
+                  </Button>
+                </div>
               </form>
             </Form>
           </CardContent>
