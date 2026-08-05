@@ -13545,3 +13545,35 @@ One of my own guards had to be relaxed on the way: it pinned the whole `team_id`
 DDL string while claiming to check that the policy's condition and the column's
 condition agree, so adding a DEFAULT failed it for a reason unrelated to its
 invariant. A guard that fires on unrelated edits gets relaxed rather than read.
+
+---
+
+## Everything is green (2026-08-05, end of the session)
+
+| what | result |
+|---|---|
+| unit | **894 / 894** |
+| `member smoke` (deployed Worker + a real Neon project) | **35 / 35** |
+| `neon e2e` (real Postgres, real RLS, real Neon Auth) | **64 / 64** |
+| `site build` (real container, real compile) | **45 / 45** |
+| `page gen eval` (3 real model calls) | **3 / 3 compiled, 3 clean** |
+
+**The page generator has never been at 3/3 before**, and the CRM sample — the one
+that failed every run this session — is clean. It was never one bug: it was four,
+each hidden behind the one in front of it. A prop shape collapsed to `object`; a
+row id compared to a route param; a component with no signature at all; and the
+named type that component's signature stopped at. Every one of them cost the
+whole site, because a compile failure is a placeholder and there is no repair
+pass.
+
+**Three of those four were the same mistake in different clothes:** a regex
+written for the case in front of the author, meeting the case that was not.
+`<[^>()]*>` stops at the first `>`. `[^=]` eats a default. A 46-character limit
+that collapses a shape reads as a summary and is a guess. Each one failed
+SILENTLY — no error, no gap in a list, nothing to notice — which is the property
+that made them survive so long.
+
+**And the member tier works end to end for the first time since 2026-07-30.**
+`user`, `feed` and `admin` all proved live: own-rows scoping across two real
+members, a shared feed, an admin table that reads and refuses writes, and a
+team-scoped row that stamps the caller's organization.
