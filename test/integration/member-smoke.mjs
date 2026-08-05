@@ -183,11 +183,23 @@ try {
   // content-type and content-range — so this asserts the whole path, not just
   // that the auth server produced them.
   console.log("\nthe two tokens…");
+  // WHAT THE SERVER ACTUALLY SENDS BACK. Two guesses have now been wrong: first
+  // that the JWT came from an endpoint, then that Better Auth's bearer plugin
+  // was on. Both vendors' docs describe a deployment that may not be this one —
+  // Neon's managed Better Auth need not enable the bearer plugin, in which case
+  // sessions are COOKIE-based and a different set of headers matters.
+  //
+  // Header NAMES only, never values: a session cookie and a JWT are both
+  // credentials and this output goes to a public CI log.
+  const names = (res) => [...res.headers.keys()].join(", ");
+  console.log("   sign-up headers:   " + names(su));
+  console.log("   sign-in headers:   " + names(li));
   ok("sign-in answers with a bearer token in set-auth-token",
     !!suHeaderTok, "the proxy is stripping it, or the bearer plugin is off");
   const sessTok = suHeaderTok || tokA;
 
   const sess = await auth("get-session", { headers: bearer(sessTok) });
+  console.log("   get-session headers: " + names(sess));
   const sessBody = await sess.json().catch(() => null);
   ok("and that token opens a session", sess.status === 200 && !!(sessBody && sessBody.user),
     sess.status + " " + JSON.stringify(sessBody).slice(0, 160));

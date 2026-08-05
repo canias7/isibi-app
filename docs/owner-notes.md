@@ -13178,3 +13178,36 @@ exactly like success.
 869 unit tests, 6 mutants, all caught. Template typechecks clean.
 
 **Still unrun** — it needs a deploy.
+
+## The named-type fix worked, and left one error behind (2026-08-04)
+
+`page gen eval`'s booking sample, before and after showing the model what a
+signature's named type actually is:
+
+    before   { title: string; description: string | undefined }[]   ✗ Activity[]
+    after    { who: string; what: string; at: unknown }[]           ✗ Activity[]
+
+**The model now uses exactly the right field names.** It read
+`Activity = {who, what, at, avatar?}` and matched it. What remained was `at:
+unknown` — one error, and the only thing between that sample and a pass.
+
+**`Row` was `Record<string, unknown>` while `PublicRow` was scalars.** The
+reasoning for scalars is written out in full under `PublicRow`, applies to both
+word for word, and even names *"the `Row` constraint"* as the same class — while
+`Row` itself was never changed. With `unknown`, `useRows<Row>("posts")` types
+every field `unknown`, so `<li>{row.title}</li>` is `TS2322` and handing
+`row.created_at` to anything wanting `string | number | Date` fails identically.
+Both are scalars now, guarded by a test that fails if they ever drift apart.
+
+Building the named-type extraction caught a trap worth recording: **two
+components in this kit export a type called `Activity` with different shapes** —
+`activity-feed`'s `{who, what, at, avatar?}` and `facility-status`'s
+`{name, state, detail?…}`. A flat name→shape map collapsed them, last one
+winning, so the prompt would have carried the wrong fields for one of them. A
+wrong type is worse than none: it looks authoritative, exactly like the truncated
+enum earlier the same day. Keyed per component now.
+
+Prompt block 9,269 → 11,790 tokens, all cached — about $0.0008 more on a warm
+build.
+
+870 unit tests, site-build 43/43, template typechecks clean.
