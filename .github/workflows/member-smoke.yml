@@ -1,0 +1,50 @@
+# The visitor-account layer against the deployed Worker — and it spends NO model
+# credits.
+#
+# `auth-smoke` (1,314 lines, ~155 checks) was deleted on 2026-07-30 with the
+# hand-built auth layer and the Neon Auth replacement never got one, so signup,
+# login, logout, reset and three of the five access levels had no live coverage
+# at all. That gap is what let `admin` be described everywhere as writable while
+# the database granted it SELECT and nothing else.
+#
+# It is free because the build route's two model calls are both conditional: an
+# explicit `schema` skips the designer, and no `brief` skips page generation. So
+# this provisions a real Neon project with real RLS and real Neon Auth for zero
+# Anthropic spend — and the test asserts `cost === 0`, so if that ever stops
+# being true it fails rather than quietly billing.
+#
+# It DOES burn a throwaway Neon project and a Supabase user per run, both
+# destroyed in the test's `finally`.
+name: member smoke
+
+on:
+  workflow_run:
+    workflows: ["Deploy to Cloudflare"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Base URL to test against'
+        required: false
+        default: 'https://isibi.ai'
+
+jobs:
+  member:
+    # A failed deploy has nothing new to test.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --no-audit --no-fund
+
+      - name: The member tier, end to end
+        env:
+          SMOKE_BASE_URL: ${{ github.event.inputs.base_url || 'https://isibi.ai' }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        run: node test/integration/member-smoke.mjs

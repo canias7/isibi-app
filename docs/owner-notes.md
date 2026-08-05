@@ -12973,3 +12973,58 @@ matched, and the suite passed — which I nearly recorded as the mutant being
 caught. A mutation that does not apply is not a passing test.
 
 855 unit tests, site-build 43/43.
+
+## The member tier has a test again, and it costs nothing (2026-08-04)
+
+**`auth-smoke.mjs` — 1,314 lines, ~155 checks — was deleted on 2026-07-30 with
+the hand-built auth layer, and the Neon Auth replacement never got one.** So
+signup, login, logout, reset and THREE OF THE FIVE ACCESS LEVELS had no live
+coverage at all. That gap is exactly what let `admin` be described as writable
+everywhere while the database granted it SELECT and nothing else.
+
+**`test/integration/member-smoke.mjs` + CI `member smoke`** — against the
+deployed Worker, and **zero Anthropic spend**.
+
+**Why it is free, which is the whole reason it can exist at this size.** Both
+model calls on the build route are conditional:
+
+    if (!body.schema) { … designSiteSchema … }        ← an explicit schema skips it
+    if (brief && SITE_BUILD_CONTAINER && SITES_BUCKET) ← no brief skips page generation
+
+So `{schema, slug}` with no brief provisions a real Neon project, applies real
+RLS policies and grants, enables Neon Auth and publishes a placeholder, for
+nothing. **The test asserts `cost === 0`** — so if either call ever starts firing
+on this path, the bill arrives as a failed check rather than as a surprise. It
+does still burn a throwaway Neon project and Supabase user, both destroyed in the
+`finally`.
+
+**What it proves that nothing did:**
+
+- **The seam CLAUDE.md listed as unproven** — *"confirming the bearer token the
+  client stores is the same `session.token` the resolver looks up."* The test
+  reads the token with a COPY of the client's own extractor, so it asserts the
+  exact value a generated page would store opens a session. Reading it any other
+  way would prove the auth server works and leave the seam untouched.
+- **Own-rows scoping with TWO members.** Every naive implementation looks correct
+  with one account in the database, so a second signs up and must not see the
+  first's `user` rows — while a `feed` row must be visible to both. Without the
+  opposite level, "own rows" passing proves only that reads are scoped somewhere.
+- **`admin` reads and refuses writes**, which is the bug found this morning.
+- `display` readable by anyone, `collect` submittable and unreadable, a wrong
+  password and an unknown address both refused, sign-out killing the token, and a
+  reset answering identically for a member and a stranger.
+
+**The guard is derived from `rows.ts`, not a list.** It scans the client for
+every `useAuthAction("…")` and `authUrl("…")` and fails if the smoke test does
+not drive it — so adding a hook cannot silently add an untested endpoint, and a
+test that drifts from the client cannot pass while proving nothing about whether
+a generated site can sign anyone in.
+
+5 guards, 5 mutants, all caught — the last one only after tightening: `} finally
+{ if (false)` left both cleanup calls in the file and disabled them, and a check
+for their text passed. The block is now asserted to be REACHED, not present.
+
+860 unit tests.
+
+**Not yet run** — it needs `SUPABASE_SERVICE_KEY` and `NEON_API_KEY`, so it fires
+in CI after a deploy.
