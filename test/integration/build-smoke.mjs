@@ -588,6 +588,47 @@ try {
         ok("and the database accepted it",
           writes.length > 0 && writes.every((c) => c.status >= 200 && c.status < 300),
           JSON.stringify(writes));
+
+        // ── AND THE OWNER CAN READ IT BACK ──────────────────────────────────
+        //
+        // The half this test never had. A visitor's write was proved live and
+        // the OWNER'S DOOR onto the same rows — `/api/site/<slug>/rows` and
+        // `/rows/<table>`, which is exactly what the builder's Data panel calls
+        // — was covered only by unit tests against fakes. So "the booking
+        // landed" and "the shop can see the booking" were never joined up in
+        // one run, and a barber shop taking bookings nobody can read is the
+        // oldest failure this platform has had.
+        //
+        // It is also the door that reads `collect` tables, which the published
+        // site's public API refuses by design. Nothing else can see them.
+        const tRes = await fetch(`${BASE}/api/site/${slug}/rows`, { headers: { Authorization: `Bearer ${jwt}` } });
+        const tJson = await tRes.json().catch(() => ({}));
+        const ownerTables = Array.isArray(tJson.tables) ? tJson.tables : [];
+        ok("the owner's door lists the site's tables", tRes.status === 200 && ownerTables.length > 0,
+          `${tRes.status} ${JSON.stringify(tJson).slice(0, 200)}`);
+        console.log("   owner sees tables: " + ownerTables.map((t) => `${t.name}(${t.access})`).join(", "));
+
+        // The table the visitor actually wrote to, taken from the POST's own
+        // URL rather than guessed — the schema is designed per brief, so the
+        // name is not known ahead of time.
+        const wrote = writes[0] && String(writes[0].url || "");
+        const target = (wrote.match(/\/data\/([^?/]+)/) || [])[1];
+        if (target) {
+          const rRes = await fetch(`${BASE}/api/site/${slug}/rows/${encodeURIComponent(target)}`,
+            { headers: { Authorization: `Bearer ${jwt}` } });
+          const rJson = await rRes.json().catch(() => ({}));
+          const rows = Array.isArray(rJson.rows) ? rJson.rows : [];
+          ok(`the owner can read back the ${target} the visitor submitted`,
+            rRes.status === 200 && rows.length > 0, `${rRes.status} ${JSON.stringify(rJson).slice(0, 200)}`);
+          // THE ROW, not just A row. The browser types "Smoke Test" into every
+          // text field, so finding it proves this is the submission that was
+          // just made and not a seeded leftover — which a count alone cannot
+          // tell apart on a table that shipped with rows in it.
+          const mine = rows.some((r) => Object.values(r || {}).some((v) => String(v).includes("Smoke Test")));
+          ok("and it is the row that was just submitted, not a seeded one", mine,
+            JSON.stringify(rows.slice(0, 2)).slice(0, 300));
+          if (rows[0]) console.log("   owner reads row: " + JSON.stringify(rows[0]).slice(0, 220));
+        }
       }
 
       // The form page as it stands after the submit, THEN home. Two shots
