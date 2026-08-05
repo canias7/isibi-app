@@ -3530,6 +3530,19 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
         // The request-side allow-list above is about protecting isibi.ai's
         // cookies. These are the auth server's own answers to its own caller, and
         // withholding them just breaks the caller.
+        // WHAT THE AUTH SERVER ACTUALLY SENT, names only, and only when asked.
+        //
+        // Two fixes were built on documentation and both were wrong: the JWT is
+        // not an endpoint, and `set-auth-token` never arrives — so Better Auth's
+        // bearer plugin is not on in Neon's managed deployment. The client-side
+        // diagnostic could only show OUR response, which is rebuilt here, so it
+        // could not tell "the server did not send it" from "we dropped it".
+        //
+        // Gated on a request header so a public endpoint's normal response is
+        // unchanged, and NAMES only — a session cookie and a JWT are both
+        // credentials, and this reaches a public CI log.
+        ...(request.headers.get("x-isibi-debug") === "headers"
+          ? { "x-isibi-upstream": [...r.headers.keys()].join(",").slice(0, 500) } : {}),
         ...(r.headers.get("set-auth-token") ? { "set-auth-token": r.headers.get("set-auth-token") } : {}),
         ...(r.headers.get("set-auth-jwt") ? { "set-auth-jwt": r.headers.get("set-auth-jwt") } : {}),
       },

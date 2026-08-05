@@ -13211,3 +13211,51 @@ Prompt block 9,269 → 11,790 tokens, all cached — about $0.0008 more on a war
 build.
 
 870 unit tests, site-build 43/43, template typechecks clean.
+
+## The generator is 2/3 and booking is clean (2026-08-04)
+
+`page gen eval` after the three fixes:
+
+    booking (salon)     1/1 compiled, clean   ← was 0/1
+    menu (restaurant)   1/1 compiled, clean
+    tool (crm)          0/1
+
+Booking wrote **five pages including `manage.tsx`** — the claim flow, reachable
+for the first time — and every one compiled. Three causes found and three fixed:
+dangling links, named types, and `Row` values being `unknown`.
+
+The CRM is the hard shape and still fails on three distinct things, all the same
+family as what has been fixed:
+
+- `number` vs `string | undefined` — `row.id` compared to a route param. The
+  `RowId` asymmetry, which `@/lib/rows` already documents for arguments and does
+  not solve for comparisons.
+- `string | number | boolean | null` not assignable to `string | number | Date` —
+  progress, since it was `unknown` before, but a date column still needs
+  narrowing.
+- `onClick` where a component wants `{label, onSelect, destructive?}` — a
+  prop-shape guess on a component OUTSIDE the documented 282.
+
+## Member accounts: two fixes built on docs, both wrong
+
+`set-auth-token` never arrives, so **Better Auth's bearer plugin is not enabled in
+Neon's managed deployment** — which is what both fixes assumed. The evidence now
+fits cookie-based sessions: sign-in returns a token in the body, `get-session`
+answers `200 null`, and with no session there is no JWT to put in `set-auth-jwt`
+either.
+
+**But the client-side diagnostic could not prove that**, and this is the useful
+part. It listed the headers of OUR response — which `proxySiteService` REBUILDS —
+so every name it printed was Cloudflare's. It could not tell "the auth server
+never sent it" from "the proxy dropped it", which is exactly the question two
+wrong fixes turned on.
+
+The Worker now reports the UPSTREAM header names, gated on `x-isibi-debug:
+headers` so a public endpoint's normal response is unchanged, and names only —
+a session cookie and a JWT are both credentials and this reaches a public CI log.
+
+**Three guesses, then an instrument.** Worth naming as the lesson: two vendor
+documents both described a deployment that is not this one, and the way to find
+that out was to ask the deployment.
+
+870 unit tests.

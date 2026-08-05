@@ -192,8 +192,14 @@ try {
   // Header NAMES only, never values: a session cookie and a JWT are both
   // credentials and this output goes to a public CI log.
   const names = (res) => [...res.headers.keys()].join(", ");
-  console.log("   sign-up headers:   " + names(su));
-  console.log("   sign-in headers:   " + names(li));
+  // OURS tells us what the client can see; UPSTREAM tells us what the auth
+  // server sent. The first cannot distinguish "the server never sent it" from
+  // "the proxy dropped it", which is the question two wrong fixes turned on.
+  const upstream = (res) => res.headers.get("x-isibi-upstream") || "(not reported)";
+  const probe = await auth("get-session", { headers: { ...bearer(tokA), "x-isibi-debug": "headers" } });
+  console.log("   ours:     " + names(probe));
+  console.log("   upstream: " + upstream(probe));
+  console.log("   sign-in:  " + names(li));
   ok("sign-in answers with a bearer token in set-auth-token",
     !!suHeaderTok, "the proxy is stripping it, or the bearer plugin is off");
   const sessTok = suHeaderTok || tokA;
