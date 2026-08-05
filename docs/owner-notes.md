@@ -13131,3 +13131,50 @@ Prompt block 9,269 → 11,790 tokens, all cached — roughly $0.0008 more per wa
 build.
 
 866 unit tests, 4 mutants, all caught.
+
+## Member accounts: two tokens, two response headers, three places dropping them (2026-08-04)
+
+`member smoke` found signup working and every member READ and WRITE failing. The
+cause is one mistake made three times, and none of it was guessed — it was
+measured live, then confirmed against both vendors' own documentation.
+
+**There are TWO tokens and neither is in a response body.**
+
+- **Better Auth's bearer plugin**: *"After a successful sign-in, you'll receive a
+  session token in the response headers"* — `set-auth-token`. **That** is what
+  `get-session` accepts. The body's `token` field is a different value, and
+  sending it returned `200` with a **null session** — so a signed-in visitor read
+  as signed out on every generated site, and `useMember()` always answered null.
+- **Neon's Data API**: *"Call GET /get-session and copy the JWT from the
+  Set-Auth-Jwt response header."* A Better Auth session token is **not a JWT**,
+  and the Data API answers `400 not a valid JWT encoding` — so `user`, `feed` and
+  `admin`, all three member levels, failed on every site.
+
+**Three places dropped them:**
+
+1. `proxySiteService` returned only `content-type` and `content-range`, so both
+   headers were stripped and the client could never obtain either. The
+   REQUEST-side allow-list is about protecting isibi.ai's cookies; these are the
+   auth server's own answers to its own caller, and withholding them just breaks
+   the caller.
+2. The client stored the body's `token` as the session, so `get-session` refused.
+3. The client sent that same token to the Data API, which wants the JWT.
+
+Now: the proxy passes both back, `rows.ts` keeps them **apart** (`site_session_*`
+for the auth server, `site_jwt_*` for the Data API), `get-session` is where the
+JWT is refreshed — which is what any page showing member content calls anyway —
+and sign-out drops both, or the next person on a shared machine inherits a live
+JWT.
+
+**The probe this replaces was looking in the wrong place entirely.** It tried
+`token`, `jwt`, `get-token` and `session/token` as ENDPOINTS. Neither token is an
+endpoint. Reading the two vendors' docs took two fetches and cost nothing; the
+probe would have cost a deploy and a run to come back empty.
+
+The smoke test now asserts the JWT is **three dot-separated segments and not the
+session token** — without that, handing the same value to both servers looks
+exactly like success.
+
+869 unit tests, 6 mutants, all caught. Template typechecks clean.
+
+**Still unrun** — it needs a deploy.

@@ -145,6 +145,7 @@ try {
   console.log("\nsigning up and signing in…");
   const m1 = { email: `ada-${stamp}@example.com`, password: "correct-horse-battery", name: "Ada" };
   const su = await auth("sign-up/email", jsonPost(m1));
+  const suHeaderTok = su.headers.get("set-auth-token");
   const suBody = await su.json().catch(() => null);
   ok("signup succeeds", su.status >= 200 && su.status < 300, su.status + " " + JSON.stringify(suBody).slice(0, 200));
   const tokA = tokenOf(suBody);
@@ -154,12 +155,6 @@ try {
   // bearer token the client stores is the same session.token the resolver looks
   // up — the one seam only a real sign-in proves." `tokenOf` here is a copy of
   // the client's, so this asserts the exact value a generated page would store.
-  const me = await auth("get-session", { headers: bearer(tokA) });
-  const meBody = await me.json().catch(() => null);
-  ok("the token the CLIENT would store opens a session", me.status === 200 && !!(meBody && meBody.user),
-    me.status + " " + JSON.stringify(meBody).slice(0, 200));
-  ok("and the session names the member who signed up",
-    !!(meBody && meBody.user && meBody.user.email === m1.email), JSON.stringify(meBody && meBody.user).slice(0, 200));
 
   const li = await auth("sign-in/email", jsonPost({ email: m1.email, password: m1.password }));
   const tokA2 = tokenOf(await li.json().catch(() => null));
@@ -170,35 +165,39 @@ try {
   const ghost = await auth("sign-in/email", jsonPost({ email: `nobody-${stamp}@example.com`, password: "whatever-123" }));
   ok("and so is an address with no account", ghost.status >= 400, ghost.status);
 
-  // --- the token the DATA API needs ------------------------------------------
+  // --- the two tokens, from the two response headers ----------------------
   //
-  // BETTER AUTH'S SESSION TOKEN IS NOT A JWT, and Neon's Data API requires one:
-  // `400 "Provided authentication token is not a valid JWT encoding"`. Measured
-  // live 2026-08-04, and it makes every member-scoped read and write fail on
-  // every generated site — `user`, `feed` and `admin`, all three levels.
+  // MEASURED, THEN CONFIRMED AGAINST BOTH VENDORS' DOCS. An earlier version of
+  // this block probed `token`, `jwt`, `get-token` and `session/token` — all
+  // wrong. Neither token is in a body:
   //
-  // Provisioning creates a `jwks` table, so the auth server can mint one; what is
-  // not documented anywhere we control is WHERE. This probes the candidates and
-  // reports what each answered rather than guessing, so the fix is written
-  // against a measurement.
-  console.log("\nfinding the JWT the Data API wants…");
-  let jwtForData = null;
-  for (const path of ["token", "jwt", "get-token", "session/token"]) {
-    const res = await auth(path, { headers: bearer(tokA) }).catch(() => null);
-    if (!res) { console.log(`   ${path} → (no response)`); continue; }
-    const body = await res.json().catch(() => null);
-    const cand = body && (body.token || body.jwt || body.access_token);
-    // A JWT is three dot-separated base64url segments; a Better Auth session
-    // token is not, which is the whole point of this probe.
-    const looksJwt = typeof cand === "string" && cand.split(".").length === 3;
-    console.log(`   ${path} → ${res.status} ${looksJwt ? "JWT" : JSON.stringify(body).slice(0, 90)}`);
-    if (looksJwt && !jwtForData) jwtForData = cand;
-  }
-  ok("the auth server can mint a JWT for the Data API", !!jwtForData,
-    "no endpoint returned one — member reads cannot work until this is found");
-  // Everything below uses it when there is one, and falls back to the session
-  // token so the failure stays visible rather than turning into a skip.
-  const dataTok = jwtForData || tokA;
+  //   Better Auth's bearer plugin: "After a successful sign-in, you'll receive a
+  //   session token in the response headers" — `set-auth-token`. Sending the
+  //   body's `token` to get-session returned 200 with a null session.
+  //
+  //   Neon's Data API: "Call GET /get-session and copy the JWT from the
+  //   Set-Auth-Jwt response header." A bearer token is not a JWT, and the Data
+  //   API answered `400 not a valid JWT encoding`.
+  //
+  // Both headers also have to survive the Worker's proxy, which passed back only
+  // content-type and content-range — so this asserts the whole path, not just
+  // that the auth server produced them.
+  console.log("\nthe two tokens…");
+  ok("sign-in answers with a bearer token in set-auth-token",
+    !!suHeaderTok, "the proxy is stripping it, or the bearer plugin is off");
+  const sessTok = suHeaderTok || tokA;
+
+  const sess = await auth("get-session", { headers: bearer(sessTok) });
+  const sessBody = await sess.json().catch(() => null);
+  ok("and that token opens a session", sess.status === 200 && !!(sessBody && sessBody.user),
+    sess.status + " " + JSON.stringify(sessBody).slice(0, 160));
+  const dataTok = sess.headers.get("set-auth-jwt");
+  ok("get-session answers with the Data API's JWT in set-auth-jwt", !!dataTok,
+    "without it no member can read or write anything");
+  // A JWT is three dot-separated segments; a bearer token is not, which is the
+  // entire reason the two are kept apart.
+  ok("and it really is a JWT, not the session token again",
+    !!dataTok && dataTok.split(".").length === 3 && dataTok !== sessTok, String(dataTok).slice(0, 40));
 
   // --- a member's own rows ---------------------------------------------------
   console.log("\nwhat a member may see…");

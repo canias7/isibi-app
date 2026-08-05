@@ -184,7 +184,8 @@ function humanPgError(code: string | undefined, details?: string): string | null
 async function send<T>(url: string, init?: RequestInit): Promise<T> {
   // The member's session, when there is one. Sent on every call: a `user` table's
   // RLS policy answers with no rows without it, and that member's own rows with it.
-  const token = (() => { try { return localStorage.getItem(`site_session_${siteSlug()}`); } catch { return null; } })();
+  // THE DATA API WANTS THE JWT, not the bearer token the auth server wants.
+  const token = getJwt();
   const res = await fetch(url, {
     ...init,
     headers: {
@@ -385,12 +386,50 @@ export function useRpcAction<T = unknown>(fn: string) {
 // anyone signed in.
 
 const TOKEN_KEY = () => `site_session_${siteSlug()}`;
+const JWT_KEY = () => `site_jwt_${siteSlug()}`;
 
 export function getSessionToken(): string | null {
   try { return localStorage.getItem(TOKEN_KEY()); } catch { return null; }
 }
 function setSessionToken(token: string | null) {
   try { token ? localStorage.setItem(TOKEN_KEY(), token) : localStorage.removeItem(TOKEN_KEY()); } catch { /* private mode */ }
+}
+
+/**
+ * TWO TOKENS, BECAUSE THE TWO SERVERS WANT DIFFERENT THINGS — and getting this
+ * wrong made member accounts impossible on every generated site.
+ *
+ * The AUTH server takes Better Auth's bearer token, which arrives in the
+ * `set-auth-token` RESPONSE HEADER of a sign-in ("After a successful sign-in,
+ * you'll receive a session token in the response headers"). The body's `token`
+ * field is a different value: sending it got `200` with a null session, so a
+ * signed-in visitor read as signed out.
+ *
+ * The DATA API takes a JWT, which arrives in the `set-auth-jwt` response header
+ * of `get-session` ("copy the JWT from the Set-Auth-Jwt response header"). A
+ * bearer token is not a JWT — sending it got `400 not a valid JWT encoding`, so
+ * every `user`, `feed` and `admin` read and write failed.
+ *
+ * Both were measured live on 2026-08-04 and then confirmed against the two
+ * vendors' own documentation rather than guessed at.
+ *
+ * The JWT is refreshed every time `useMember()` refetches, which is what a page
+ * showing member content does anyway. It is deliberately NOT read from
+ * localStorage on the auth path: an expired JWT there must not outlive the
+ * session it came from.
+ */
+function getJwt(): string | null {
+  try { return localStorage.getItem(JWT_KEY()); } catch { return null; }
+}
+function setJwt(token: string | null) {
+  try { token ? localStorage.setItem(JWT_KEY(), token) : localStorage.removeItem(JWT_KEY()); } catch { /* private mode */ }
+}
+/** Whichever of the two headers a response carries, kept. */
+function keepAuthHeaders(r: Response) {
+  const bearer = r.headers.get("set-auth-token");
+  if (bearer) setSessionToken(bearer);
+  const jwt = r.headers.get("set-auth-jwt");
+  if (jwt) setJwt(jwt);
 }
 
 export type Member = {
@@ -444,9 +483,12 @@ export function useMember() {
     queryFn: async (): Promise<Member | null> => {
       if (!token) return null;
       const r = await fetch(authUrl("get-session"), { headers: { Authorization: `Bearer ${token}` } });
+      // THE JWT ARRIVES HERE, in a response header, and this is the only call
+      // that produces one. Every data read the page makes afterwards carries it.
+      keepAuthHeaders(r);
       // A token the server no longer accepts is cleared here rather than left to
       // fail every subsequent read with a 401 the page cannot explain.
-      if (r.status === 401) { setSessionToken(null); return null; }
+      if (r.status === 401) { setSessionToken(null); setJwt(null); return null; }
       if (!r.ok) throw new Error("could not check your sign-in");
       return memberOf(await r.json().catch(() => null));
     },
@@ -469,10 +511,18 @@ function useAuthAction(action: string) {
         const msg = (d as { message?: string; error?: string } | null);
         throw new Error(msg?.message || msg?.error || "that did not work");
       }
+      // THE HEADER FIRST. Better Auth's bearer plugin answers a sign-in with the
+      // token in `set-auth-token`, and that is what `get-session` accepts; the
+      // body's `token` is a different value and using it returned a null session
+      // — a signed-in visitor who reads as signed out.
+      //
+      // The body is still read as a fallback, because it costs nothing and a
+      // deployment without the bearer plugin would answer only that way.
+      keepAuthHeaders(r);
       const t = tokenOf(d);
       // Stored only when there IS one. Writing `undefined` would leave the page
       // believing it is signed in with a session nothing accepts.
-      if (t) setSessionToken(t);
+      if (t && !r.headers.get("set-auth-token")) setSessionToken(t);
       return d;
     },
     onSuccess: () => { qc.invalidateQueries(); },
@@ -505,6 +555,7 @@ export function useLogout() {
         }).catch(() => {});
       }
       setSessionToken(null);
+      setJwt(null);
     },
     onSuccess: () => { qc.invalidateQueries(); },
   });
