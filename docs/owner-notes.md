@@ -12944,3 +12944,32 @@ lint**: which of the 2,112 are usable is the owner's call, not a side effect of 
 prompt change.
 
 854 unit tests, 7 mutants across the two fixes, all caught.
+
+### Proving the link fix where it counts, for $0 (2026-08-04)
+
+The dangling-link fix was unit-tested against a regex; the claim that matters is
+that **the site builds**, and only the real container can say that. `site-build`
+does that with no model call, so it was free to prove properly. **43 checks now.**
+
+Written as a chain, with the NEGATIVE first: the pages exactly as the model wrote
+them are posted to the container and must **fail with `stage:"typecheck"` naming
+`/account`**. Without that half, "the rewritten pages build" would pass on a
+codebase where nothing had ever been broken. Then the same pages go through
+`validatePages` and must compile, publish, and keep the link to the page that
+does exist.
+
+Also run free and green: `kit-typecheck` 4/4, `theme-seam` 10/10.
+
+**And a staleness guard for the derived signatures.** `component-api.mjs` is
+extracted from the kit and committed, so it rots two ways: a component's props
+change, or — as happened today — the EXTRACTOR changes and the committed output
+keeps the old shape. Forgetting to re-run the generator would have left every
+enum in the prompt still truncated while the fix sat in the source looking done.
+The test re-runs the generator and requires the file to be byte-identical.
+
+Mutation-checking that guard took two attempts and the first one was worthless:
+the file escapes its quotes (`\"success\"`), my patch used bare quotes, nothing
+matched, and the suite passed — which I nearly recorded as the mutant being
+caught. A mutation that does not apply is not a passing test.
+
+855 unit tests, site-build 43/43.

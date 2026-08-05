@@ -16,6 +16,7 @@ import {
   schemaDigest, pagesPrompt, repairPrompt, validatePages, lintPages, briefForPages, ACCESS_NOTE,
 } from "../builder/page-gen.mjs";
 import { COMPONENT_API } from "../builder/component-api.mjs";
+import { build as buildApi, render as renderApi } from "../builder/gen-component-api.mjs";
 import * as api from "../builder/page-gen.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -1353,4 +1354,19 @@ test("a string-literal union is never truncated — a half-shown enum is worse t
   // The one that caused it, spelled out.
   assert.equal(COMPONENT_API["status-badge"],
     'StatusBadge(state?: "success" | "warning" | "danger" | "neutral" | "quiet" = "neutral", children: React.ReactNode)');
+});
+
+test("component-api.mjs is what the generator produces right now", () => {
+  // A DERIVED FILE THAT NOBODY REGENERATES IS A LIE THAT COMPILES. The
+  // signatures are extracted from the kit's source and committed, so they go
+  // stale two ways: a component's props change, or — as happened today — the
+  // EXTRACTOR changes and the committed output still carries the old shape.
+  //
+  // `shortType` was fixed so a string-literal union is never truncated. Without
+  // this check, forgetting to re-run the generator would leave every enum in the
+  // prompt still cut off mid-union while the fix sat in the source looking done.
+  const fresh = renderApi(buildApi());
+  const onDisk = fs.readFileSync(new URL("../builder/component-api.mjs", import.meta.url), "utf8");
+  assert.equal(fresh, onDisk,
+    "builder/component-api.mjs is stale — run `node builder/gen-component-api.mjs`");
 });
