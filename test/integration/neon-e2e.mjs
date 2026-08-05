@@ -418,6 +418,24 @@ try {
   // source — is the thing that reads the organization.
   ok("and the policy really widens to the organization",
     !!(pol[0] && /app_team_id\(\)/.test(String(pol[0].qual))), JSON.stringify(pol[0] || {}).slice(0, 300));
+  // OWNER_ID MUST FILL ITSELF IN. Nothing stamps it since the Worker's data path
+  // was deleted, so without a default every member insert carries NULL and the
+  // policy's WITH CHECK refuses it — read worked, write did not, on every site.
+  const ownerDef = await sqlQuery(db,
+    "SELECT column_default FROM information_schema.columns WHERE table_name='deals' AND column_name='owner_id'");
+  ok("owner_id defaults to the caller, or no member can write anything",
+    !!(ownerDef[0] && /app_user_id\(\)/.test(String(ownerDef[0].column_default))), JSON.stringify(ownerDef[0] || {}));
+
+  // REPORTED, not asserted: `team_id` is uuid and Better Auth's `organizationId`
+  // is whatever Neon's deployment made it. If it is uuid-shaped, that column can
+  // take `DEFAULT app_team_id()::uuid` and a team-mate's row would be shared on
+  // creation; if it is not, that default would make every write to a teamScope
+  // table throw, which is worse than the sharing quietly not happening. Deciding
+  // needs the real type, so this run answers it instead of a guess doing so.
+  const orgType = await sqlQuery(db,
+    "SELECT data_type FROM information_schema.columns WHERE table_schema='neon_auth' AND table_name='member' AND column_name='organizationId'");
+  console.log("   neon_auth.member.organizationId is: " + (orgType[0] ? orgType[0].data_type : "(no such column)"));
+
   const teamFn = await sqlQuery(db,
     "SELECT prosecdef, pg_get_functiondef(oid) AS def FROM pg_proc WHERE proname='app_team_id'");
   ok("app_team_id exists and reads neon_auth.member",

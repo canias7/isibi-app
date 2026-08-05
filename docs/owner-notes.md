@@ -13426,3 +13426,45 @@ written, because the failure was silent success.
 
 `member smoke` is 30/34: every credential problem is gone and all five remaining
 failures are one root cause, which is what this change removes.
+
+### And the member tier could read but never write
+
+The definer fix worked: `permission denied for schema auth` is gone, member smoke
+went **30/34 → 32/34**, and two things that had never been proved live now pass —
+admin reads, and a second member seeing none of the first member's rows.
+
+The three left are one cause. **`owner_id` had no default and nothing stamps it.**
+The Worker's data path used to, and it was deleted on 2026-07-30 with
+`site-data.mjs`; since then a member's insert reached Postgres with `owner_id`
+NULL, the policy's `WITH CHECK (owner_id = app_user_id())` evaluated NULL, and
+every write answered 403 — while every read worked, which is why it looked like
+a partial success rather than a missing column default.
+
+`owner_id UUID DEFAULT app_user_id()`, plus an explicit `ALTER COLUMN … SET
+DEFAULT` on the revise path, because `ADD COLUMN IF NOT EXISTS` does **nothing**
+when the column is already there and every site built before today has one.
+**The default and the policy are both needed**: the default fills the column in
+for a client that omits it, the WITH CHECK stops a client that sends one from
+claiming another member's id.
+
+**`data-table` was missing from the prompt entirely** — the extractor's generic
+pattern stops at the FIRST `>`, so `<T extends Record<string, unknown>>` never
+matched and the component was skipped in silence. The model guessed `data=`
+where the prop is `rows=`; with `T` unable to infer it fell back to the
+constraint and **every `cell: (row: Deal) => …` became a contravariance error —
+eight of that sample's nine, from one absent entry.** Exactly the failure that
+line's own comment records for the bare `<T>` case, one nesting level deeper.
+`template-fill` was the second. The guard is derived: any component in the kit
+that destructures a typed prop other than `className` must have a signature.
+
+`team_id` is deliberately NOT given a matching default yet. Without one a
+team-mate's row simply is not shared; with one, if `organizationId` turns out not
+to be uuid-shaped, **every write to a team table would throw** — and broken
+writes are worse than absent sharing. The e2e now prints the real column type, so
+the next run decides it instead of a guess.
+
+**And the menu sample produced nothing, with nothing to say why** — "(nothing
+usable)" covered three different problems (prose instead of a tool call, no call
+at all, a call with an empty list). The eval now reports the stop reason and the
+block types, which `generateSitePages` has done in production since yesterday;
+the eval was the half still silent.

@@ -352,3 +352,22 @@ test("the schema engine creates app_team_id", () => {
   // features ended up parsed, stored and acted on by nothing.
   assert.match(engine, /try \{ await sqlQuery\(uuid, APP_TEAM_FN\); \}/);
 });
+
+test("owner_id fills itself in, or the member tier can read and never write", () => {
+  // Nothing stamps it any more: the Worker's data path did, and it went with
+  // `site-data.mjs` on 2026-07-30. So a member's insert reached Postgres with
+  // `owner_id` NULL, `WITH CHECK (owner_id = app_user_id())` evaluated NULL, and
+  // every write answered 403 while every read worked. Measured live 2026-08-05.
+  const engine = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  assert.match(engine, /cols\.push\('"owner_id" UUID DEFAULT app_user_id\(\)'\)/,
+    "a fresh table's owner_id must fill itself in");
+  // The revise path needs its OWN statement — `ADD COLUMN IF NOT EXISTS` does
+  // nothing when the column is already there, so every site built before this
+  // would keep refusing writes forever.
+  assert.match(engine, /ALTER COLUMN "owner_id" SET DEFAULT app_user_id\(\)/,
+    "an existing table never gains the default from ADD COLUMN IF NOT EXISTS");
+  // AND THE POLICY STAYS. The default is for a client that omits the column; the
+  // WITH CHECK is what stops one that SENDS it claiming another member's id.
+  // Dropping either leaves a hole the other does not cover.
+  assert.match(sql(T({ access: "user" })), /FOR INSERT WITH CHECK \("things"\."owner_id" = app_user_id\(\)\)/);
+});

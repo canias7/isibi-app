@@ -190,7 +190,18 @@ async function generate(sc) {
   };
   if (j.stop_reason === "max_tokens") return { input: null, truncated: true, usage };
   const use = (Array.isArray(j.content) ? j.content : []).find((b) => b && b.type === "tool_use");
-  return { input: (use && use.input) || null, usage };
+  // WHY there are no pages, not merely that there are none. Measured 2026-08-05:
+  // the menu sample reported "(nothing usable)" and nothing anywhere said
+  // whether the model answered in prose, called no tool, or called the tool with
+  // an empty list — three different problems with one message.
+  // `generateSitePages` already captures this shape in production; the eval was
+  // the half still silent. Block TYPES and a stop reason only, never text: a
+  // response can quote the brief, and this goes to a public job log.
+  const shape = use ? null : {
+    stopReason: String(j.stop_reason || "").slice(0, 40),
+    blocks: (Array.isArray(j.content) ? j.content : []).map((b) => String(b && b.type)).slice(0, 6),
+  };
+  return { input: (use && use.input) || null, usage, shape };
 }
 
 // $3/M in, $15/M out, cache write 1.25x, cache read 0.1x — Sonnet 5's list price.
@@ -318,7 +329,15 @@ try {
       if (gen.usage) { row.usage = gen.usage; }
       if (gen.truncated) { row.stage = "truncated"; console.log(`  ${sc.key} ${n}. TRUNCATED at max_tokens`); results.push(row); continue; }
       const v = validatePages(gen.input);
-      if (!v.pages.length) { row.stage = "no-pages"; row.problems = v.problems; console.log(`  ${sc.key} ${n}. NO PAGES  ${v.problems.join(" | ") || "(nothing usable)"}`); results.push(row); continue; }
+      if (!v.pages.length) {
+        row.stage = "no-pages";
+        row.problems = v.problems;
+        const why = v.problems.join(" | ")
+          || (gen.shape ? "no tool_use — " + JSON.stringify(gen.shape) : "write_pages was called with no pages");
+        console.log(`  ${sc.key} ${n}. NO PAGES  ${why}`);
+        results.push(row);
+        continue;
+      }
 
       const problems = v.problems.concat(lintPages(v.pages, sc.spec));
       const built = await compile(v.pages, sc);

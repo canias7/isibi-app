@@ -1530,3 +1530,51 @@ test("an id put INTO a route without String() is caught", () => {
   // A search param that is not an id is not this rule's business.
   assert.deepEqual(lintPages(page('<Link to="/book" search={{ service: row.title }} />'), SPEC), []);
 });
+
+test("no component with typed props is silently skipped by the extractor", () => {
+  // `UI_SHORTLIST_API` does `if (!sig) continue`, so a component the extractor
+  // cannot parse simply is not described — no error, no gap in the list, nothing
+  // to notice. Measured live 2026-08-05: `data-table`'s
+  // `<T extends Record<string, unknown>>` defeated the match (the class stopped
+  // at the FIRST `>`), the model was given no signature, guessed `data=` where
+  // the prop is `rows=`, and with `T` unable to infer every
+  // `cell: (row: Deal) => …` became a contravariance error. **Eight of that
+  // sample's nine errors, from one absent entry.** `template-fill` was the
+  // second, found the same way.
+  //
+  // Derived from the files rather than from a list: any `export function X({…}:
+  // {` in the ui folder is a prop-driven component and must be described. The
+  // shadcn primitives take standard HTML props elsewhere and destructure nothing
+  // here, so they do not match and are correctly absent.
+  const dir = path.join(ROOT, "builder/lovable/template/src/components/ui");
+  const missing = [];
+  for (const file of fs.readdirSync(dir).filter((f) => f.endsWith(".tsx"))) {
+    const src = fs.readFileSync(path.join(dir, file), "utf8");
+    // The annotation is what makes it extractable at all; a component whose
+    // props are typed elsewhere is skipped on purpose and has no shape to print.
+    const ann = src.match(/export function \w+[\s\S]{0,200}?\}\s*:\s*\{([\s\S]{0,900}?)\}\s*\)/);
+    if (!ann) continue;
+    // And one whose ONLY prop is `className` is correctly absent: the extractor
+    // drops that everywhere, because all 2,000 take it and the rules say so once
+    // instead of two thousand times. Derived from the file rather than from the
+    // extractor, or this guard would be asking the thing under test whether it
+    // worked.
+    const names = [...ann[1].matchAll(/(?:^|[;{\n])\s*(\w+)\??\s*:/g)].map((x) => x[1]);
+    if (!names.some((n) => n !== "className")) continue;
+    const slug = file.replace(/\.tsx$/, "");
+    if (!COMPONENT_API[slug]) missing.push(slug);
+  }
+  assert.deepEqual(missing, [], "these have typed props and no signature in the prompt: " + missing.join(", "));
+});
+
+test("the extractor reads a generic with a nested constraint", () => {
+  // The regression itself, driven rather than asserted on the output — so this
+  // still fails if the kit ever loses its only nested generic.
+  const [found] = extractApi('export function Grid<T extends Record<string, unknown>>({ rows, empty }: { rows: T[]; empty?: string; }) { return null; }');
+  assert.ok(found, "a nested generic still hides the component");
+  assert.equal(found.name, "Grid");
+  assert.match(found.props.join(", "), /rows: T\[\]/);
+  // And the plain forms it already handled must keep working.
+  assert.ok(extractApi('export function A<T>({ x }: { x: T; }) { return null; }')[0]);
+  assert.ok(extractApi('export function B({ x }: { x: string; }) { return null; }')[0]);
+});
