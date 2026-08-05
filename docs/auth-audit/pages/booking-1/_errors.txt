@@ -1,0 +1,1 @@
+src/routes/account.tsx(31,10): error TS2305: Module '"@/lib/rows"' has no exported member 'activityFeedFallback'.

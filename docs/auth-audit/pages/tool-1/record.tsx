@@ -1,21 +1,14 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { useMember, useRows, useUpdateRow, type Row } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
+import { RecordHeader } from "@/components/ui/record-header";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { ActivityFeed, type Activity } from "@/components/ui/activity-feed";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Empty } from "@/components/ui/empty";
 import {
   Select,
   SelectContent,
@@ -23,10 +16,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { RecordHeader } from "@/components/ui/record-header";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { ActivityFeed } from "@/components/ui/activity-feed";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export const Route = createFileRoute("/record")({
   component: RecordPage,
@@ -39,13 +30,6 @@ type Deal = Row & { title: string; value: string | null; stage: string | null };
 
 const STAGES = ["New", "Qualifying", "Proposal", "Negotiation", "Won", "Lost"];
 
-const editSchema = z.object({
-  title: z.string().min(2, "Give the deal a name"),
-  value: z.string().min(1, "Enter a value"),
-  stage: z.string().min(1, "Pick a stage"),
-});
-type EditForm = z.infer<typeof editSchema>;
-
 function stageState(stage: string | null): "success" | "warning" | "danger" | "neutral" {
   if (stage === "Won") return "success";
   if (stage === "Lost") return "danger";
@@ -54,180 +38,169 @@ function stageState(stage: string | null): "success" | "warning" | "danger" | "n
 }
 
 function RecordPage() {
-  const { id } = Route.useSearch();
   const member = useMember();
-  const deals = useRows<Deal>("deals", { order: "id", dir: "desc" });
+  const { id } = Route.useSearch();
+  const deals = useRows<Deal>("deals");
   const update = useUpdateRow<Deal>("deals");
 
-  const deal = deals.data?.find((d) => String(d.id) === id);
+  const [titleDraft, setTitleDraft] = useState<string | null>(null);
+  const [valueDraft, setValueDraft] = useState<string | null>(null);
 
-  const form = useForm<EditForm>({
-    resolver: zodResolver(editSchema),
-    values: deal
-      ? { title: deal.title, value: deal.value ?? "", stage: deal.stage ?? "New" }
-      : { title: "", value: "", stage: "New" },
-  });
-
-  const onSave = (values: EditForm) => {
-    if (!deal) return;
-    update.mutate(
-      { id: deal.id, ...values },
-      {
-        onSuccess: () => toast.success("Deal updated"),
-        onError: (e: Error) => toast.error(e.message),
-      },
-    );
-  };
-
-  if (member.isPending || deals.isPending) {
+  if (member.isPending) {
     return (
-      <main className="mx-auto max-w-3xl p-8">
-        <Skeleton className="h-64 rounded-xl" />
-      </main>
+      <div className="flex min-h-screen items-center justify-center">
+        <p className="text-muted-foreground">Checking your sign-in…</p>
+      </div>
     );
   }
 
   if (!member.data) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-10 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">Halyard</h1>
-        <p className="text-muted-foreground">Sign in to open this record.</p>
-        <Button asChild>
-          <Link to="/">Sign in</Link>
-        </Button>
-      </main>
+      <div className="flex min-h-screen items-center justify-center p-10">
+        <div className="max-w-sm text-center">
+          <h1 className="text-2xl font-semibold tracking-tight">Halyard</h1>
+          <p className="mt-3 text-muted-foreground">Sign in to open this record.</p>
+          <Button asChild className="mt-6">
+            <Link to="/">Sign in</Link>
+          </Button>
+        </div>
+      </div>
     );
   }
 
   if (!id) {
     return (
-      <main className="mx-auto max-w-3xl p-8 text-center">
-        <p className="text-muted-foreground">No record selected.</p>
-        <Button asChild className="mt-4">
+      <div className="mx-auto max-w-lg px-6 py-16 text-center">
+        <Empty
+          title="No record chosen"
+          description="Open a deal from the records list to see it here."
+        />
+        <Button asChild className="mt-6">
           <Link to="/records">Back to records</Link>
         </Button>
-      </main>
+      </div>
+    );
+  }
+
+  if (deals.isPending) {
+    return (
+      <div className="mx-auto max-w-3xl px-6 py-16">
+        <Skeleton className="h-48 rounded-xl" />
+      </div>
     );
   }
 
   if (deals.isError) {
     return (
-      <main className="mx-auto max-w-3xl p-8">
-        <p className="text-sm text-destructive">Couldn't load this record. Refresh and try again.</p>
-      </main>
+      <div className="mx-auto max-w-lg px-6 py-16">
+        <p className="text-sm text-destructive">
+          Couldn't load this record. Refresh and try again.
+        </p>
+      </div>
     );
   }
+
+  const deal = deals.data?.find((d) => String(d.id) === id);
 
   if (!deal) {
     return (
-      <main className="mx-auto max-w-3xl p-8 text-center">
-        <p className="text-muted-foreground">
-          We couldn't find that record. It may not be yours to see, or it's been removed.
-        </p>
-        <Button asChild className="mt-4">
+      <div className="mx-auto max-w-lg px-6 py-16 text-center">
+        <Empty
+          title="Not found"
+          description="This deal doesn't exist, or isn't one your team can see."
+        />
+        <Button asChild className="mt-6">
           <Link to="/records">Back to records</Link>
         </Button>
-      </main>
+      </div>
     );
   }
 
+  const activity: Activity[] = [
+    {
+      who: member.data.name || member.data.email,
+      what: "opened this record",
+      at: deal.created_at ?? new Date(),
+    },
+  ];
+
+  const saveField = (patch: Partial<Deal>) => {
+    update.mutate(
+      { id: deal.id, ...patch },
+      {
+        onSuccess: () => toast.success("Saved"),
+        onError: (e) => toast.error(e.message),
+      },
+    );
+  };
+
   return (
-    <main className="mx-auto max-w-3xl p-8">
+    <div className="mx-auto max-w-3xl px-6 py-10">
       <Link to="/records" className="text-sm text-muted-foreground underline underline-offset-4">
         Back to records
       </Link>
 
-      <RecordHeader
-        className="mt-4"
-        title={deal.title}
-        subtitle="Shared with the team"
-        status={<StatusBadge state={stageState(deal.stage)}>{deal.stage ?? "New"}</StatusBadge>}
-      />
+      <div className="mt-4">
+        <RecordHeader
+          title={deal.title}
+          subtitle="Shared with the team"
+          status={<StatusBadge state={stageState(deal.stage)}>{deal.stage ?? "New"}</StatusBadge>}
+        />
+      </div>
 
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle className="text-base">Fields</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Form {...form}>
-            <form className="grid gap-4 sm:grid-cols-2" onSubmit={form.handleSubmit(onSave)}>
-              <FormField
-                control={form.control}
-                name="title"
-                render={({ field }) => (
-                  <FormItem className="sm:col-span-2">
-                    <FormLabel>Title</FormLabel>
-                    <FormControl>
-                      <Input {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="value"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Value</FormLabel>
-                    <FormControl>
-                      <Input {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="stage"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Stage</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Choose a stage" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {STAGES.map((s) => (
-                          <SelectItem key={s} value={s}>
-                            {s}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="sm:col-span-2">
-                <Button type="submit" className="motion-press" disabled={update.isPending}>
-                  {update.isPending ? "Saving…" : "Save changes"}
-                </Button>
-              </div>
-            </form>
-          </Form>
-        </CardContent>
-      </Card>
-
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle className="text-base">Activity</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ActivityFeed
-            items={[
-              {
-                who: member.data.name,
-                what: `opened this deal — currently "${deal.stage ?? "New"}"`,
-                at: deal.created_at,
-              },
-            ]}
-            empty="No activity recorded yet."
+      <div className="mt-8 grid gap-6 sm:grid-cols-2">
+        <div className="grid gap-1.5">
+          <Label htmlFor="deal-title">Title</Label>
+          <Input
+            id="deal-title"
+            value={titleDraft ?? deal.title}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={() => {
+              if (titleDraft !== null && titleDraft !== deal.title) {
+                saveField({ title: titleDraft });
+              }
+              setTitleDraft(null);
+            }}
           />
-        </CardContent>
-      </Card>
-    </main>
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="deal-value">Value</Label>
+          <Input
+            id="deal-value"
+            value={valueDraft ?? (deal.value ?? "")}
+            onChange={(e) => setValueDraft(e.target.value)}
+            onBlur={() => {
+              if (valueDraft !== null && valueDraft !== deal.value) {
+                saveField({ value: valueDraft });
+              }
+              setValueDraft(null);
+            }}
+          />
+        </div>
+        <div className="grid gap-1.5 sm:col-span-2">
+          <Label htmlFor="deal-stage">Stage</Label>
+          <Select
+            value={deal.stage ?? "New"}
+            onValueChange={(v) => saveField({ stage: v })}
+          >
+            <SelectTrigger id="deal-stage">
+              <SelectValue placeholder="Choose a stage" />
+            </SelectTrigger>
+            <SelectContent>
+              {STAGES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="mt-10">
+        <h2 className="text-sm font-medium text-muted-foreground">Activity</h2>
+        <ActivityFeed className="mt-3" items={activity} empty="Nothing logged on this record yet." />
+      </div>
+    </div>
   );
 }

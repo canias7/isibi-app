@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 
 import { useRows, type Row } from "@/lib/rows";
+import { SiteChrome } from "@/components/ui/site-chrome";
 import { AvailabilityGrid } from "@/components/ui/availability-grid";
 import { CtaBand } from "@/components/ui/cta-band";
 import { LocationCard } from "@/components/ui/location-card";
@@ -8,11 +10,10 @@ import { OpenNow } from "@/components/ui/open-now";
 import { OpeningHours, type DayHours } from "@/components/ui/opening-hours";
 import { PriceList } from "@/components/ui/price-list";
 import { SectionHeader } from "@/components/ui/section-header";
-import { SiteChrome } from "@/components/ui/site-chrome";
-import { Skeleton } from "@/components/ui/skeleton";
 import { TeamGrid } from "@/components/ui/team-grid";
 import { Testimonial } from "@/components/ui/testimonial";
 import { TrustStrip } from "@/components/ui/trust-strip";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Empty } from "@/components/ui/empty";
 
 export const Route = createFileRoute("/")({ component: Home });
@@ -21,10 +22,11 @@ type Teacher = Row & { name: string; bio: string | null; photo_url: string | nul
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm room, a good floor, six classes a week.",
+  tagline: "A calm room, a steady practice, every day of the week.",
   links: [
-    { label: "Timetable", href: "#timetable" },
+    { label: "Classes", href: "#classes" },
     { label: "Teachers", href: "#teachers" },
+    { label: "The studio", href: "#/work" },
     { label: "Find us", href: "#find-us" },
   ],
   action: { label: "Book now", href: "#/book" },
@@ -36,19 +38,12 @@ const HOURS: DayHours[] = [
   { day: 3, label: "Wednesday", open: "07:00", close: "20:30" },
   { day: 4, label: "Thursday", open: "07:00", close: "20:30" },
   { day: 5, label: "Friday", open: "07:00", close: "19:00" },
-  { day: 6, label: "Saturday", open: "08:30", close: "13:00" },
-  { day: 0, label: "Sunday", open: "09:00", close: "12:30" },
-];
-
-const CLASSES = [
-  { name: "Sunrise Flow", description: "A gentle vinyasa to wake the body up", price: 14, meta: "60 min" },
-  { name: "Hatha Fundamentals", description: "Slow, precise, good for beginners", price: 14, meta: "60 min" },
-  { name: "Power Vinyasa", description: "Stronger sequencing, breath-led", price: 16, meta: "75 min" },
-  { name: "Restorative & Yin", description: "Long holds, blankets and bolsters", price: 14, meta: "60 min" },
-  { name: "Prenatal", description: "Small class, all trimesters welcome", price: 15, meta: "55 min" },
+  { day: 6, label: "Saturday", open: "08:30", close: "14:00" },
+  { day: 0, label: "Sunday", open: "09:00", close: "13:00" },
 ];
 
 function Home() {
+  const [slot, setSlot] = useState<string | null>(null);
   const teachers = useRows<Teacher>("teachers", { order: "name", dir: "asc" });
 
   return (
@@ -61,35 +56,44 @@ function Home() {
                 Aurora Yoga
               </p>
               <h1 className="mt-3 text-5xl font-semibold tracking-tight text-balance">
-                A quiet room to come back to every week
+                Aurora Yoga
               </h1>
               <p className="mt-5 max-w-lg text-lg leading-relaxed text-muted-foreground">
-                Six classes a week, small groups, mats and props provided. First class is on us.
+                Slow flows, strong vinyasas, and a quiet room to land in between them.
+                Check today's classes below and book straight in.
               </p>
               <div className="mt-7 flex flex-wrap items-center gap-3">
                 <Link
                   to="/book"
-                  className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground motion-press"
+                  className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground"
                 >
                   Book now
                 </Link>
-                <Link to="/work" className="rounded-md border border-border px-5 py-2.5 text-sm font-medium">
-                  See the studio
-                </Link>
                 <OpenNow
-                  hours={HOURS.map((h) => ({ day: h.day, open: h.open!, close: h.close! }))}
+                  hours={HOURS.filter((h) => h.open && h.close).map((h) => ({
+                    day: h.day,
+                    open: h.open!,
+                    close: h.close!,
+                  }))}
                 />
               </div>
             </div>
             <div className="rounded-xl border bg-card p-6 shadow-sm">
               <p className="text-sm font-medium text-muted-foreground">Today's classes</p>
               <AvailabilityGrid
-                slots={["07:00", "09:00", "12:00", "17:30", "18:45", "20:00"]}
-                taken={["09:00"]}
+                slots={["07:00", "09:00", "12:15", "17:30", "18:30", "19:30"]}
+                taken={["09:00", "18:30"]}
+                value={slot}
+                onSelect={setSlot}
               />
-              <Link to="/book" className="mt-4 inline-block text-sm font-medium underline underline-offset-4">
-                Check availability →
-              </Link>
+              <p className="mt-4 text-sm text-muted-foreground">
+                {slot ? `Holding ${slot} — finish up on the booking page.` : "Tap a time to hold it."}
+              </p>
+              {slot && (
+                <Link to="/book" className="mt-2 inline-block text-sm font-medium underline underline-offset-4">
+                  Continue to book {slot} →
+                </Link>
+              )}
             </div>
           </div>
         </div>
@@ -98,56 +102,57 @@ function Home() {
       <section className="mx-auto max-w-6xl px-6 py-10">
         <TrustStrip
           items={[
-            { title: "Small classes", description: "Never more than fourteen on the mat" },
-            { title: "Props provided", description: "Mats, blocks and bolsters, all included" },
-            { title: "First class free", description: "Come see the room before you commit" },
+            { title: "Small classes", description: "Never more than sixteen mats" },
+            { title: "All levels welcome", description: "Every class notes who it suits" },
+            { title: "Mats and blocks provided", description: "Just bring yourself" },
           ]}
         />
       </section>
 
-      <section id="timetable" className="border-y border-border bg-muted/40">
+      <section id="classes" className="border-y border-border bg-muted/40">
         <div className="mx-auto max-w-6xl px-6 py-16">
           <SectionHeader
             eyebrow="The timetable"
             title="This week's classes"
-            description="Drop in or book ahead — a spot is held for ten minutes once you pick a time."
+            description="Drop in to any class, or book ahead to be sure of a mat."
           />
           <PriceList
             className="mt-8"
-            items={CLASSES}
-            action={{
-              label: "Book",
-              onSelect: (r) => {
-                window.location.hash = `#/book?service=${encodeURIComponent(r.name)}`;
-              },
-            }}
+            items={[
+              { name: "Sunrise Flow", description: "A gentle wake-up vinyasa", price: 12, meta: "Mon, Wed, Fri · 07:00" },
+              { name: "Vinyasa", description: "Strong and steady, all levels", price: 14, meta: "Tue, Thu · 18:30" },
+              { name: "Restorative", description: "Slow holds, props and quiet", price: 12, meta: "Sun · 09:00" },
+              { name: "Yin", description: "Long, still, deeply calming", price: 12, meta: "Wed · 19:30" },
+              { name: "Beginners' Foundations", description: "The basics, taught properly", price: 10, meta: "Sat · 08:30" },
+            ]}
+            action={{ label: "Book", onSelect: () => { window.location.hash = "#/book"; } }}
           />
         </div>
       </section>
 
       <section id="teachers" className="mx-auto max-w-6xl px-6 py-16">
         <SectionHeader
-          eyebrow="The teachers"
-          title="Who's on the mat"
+          eyebrow="Who teaches"
+          title="Meet the teachers"
           description="Every class is led by one of these four — ask for whoever suits your practice."
         />
-        {teachers.isPending && <Skeleton className="mt-8 h-48 rounded-xl" />}
+        {teachers.isPending && (
+          <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-48 rounded-xl" />
+            ))}
+          </div>
+        )}
         {teachers.isError && (
-          <p className="mt-8 text-sm text-destructive">
-            Couldn't load the teachers. Refresh and try again.
-          </p>
+          <p className="mt-8 text-sm text-destructive">Couldn't load the teachers. Refresh and try again.</p>
         )}
         {teachers.data?.length === 0 && (
-          <Empty className="mt-8" title="No teachers listed yet" description="Check back soon." />
+          <Empty className="mt-8" title="No teachers listed yet" description="Check back soon — the studio is adding profiles." />
         )}
         {!!teachers.data?.length && (
           <TeamGrid
             className="mt-8"
-            items={teachers.data.map((t) => ({
-              name: t.name,
-              role: t.bio,
-              photo: t.photo_url,
-            }))}
+            items={teachers.data.map((t) => ({ name: t.name, role: t.bio, photo: t.photo_url }))}
           />
         )}
       </section>
@@ -158,17 +163,16 @@ function Home() {
           <div className="mt-8 grid gap-5 sm:grid-cols-2">
             <Testimonial
               item={{
-                quote:
-                  "I was intimidated by yoga for years. The Hatha class made it make sense.",
+                quote: "I was terrified of my first Vinyasa class. Nobody made me feel behind — I go back every Tuesday now.",
                 name: "Priya Shah",
-                role: "Twice a week",
+                role: "Tuesday regular",
               }}
             />
             <Testimonial
               item={{
-                quote: "Restorative on a Sunday evening is the best hour of my week.",
-                name: "Callum Reed",
-                role: "Sunday regular",
+                quote: "The Yin class undid a year of desk posture in about six weeks.",
+                name: "Tom Reilly",
+                role: "Wednesday evenings",
               }}
             />
           </div>
@@ -177,21 +181,23 @@ function Home() {
 
       <section id="find-us" className="mx-auto grid max-w-6xl gap-10 px-6 py-16 sm:grid-cols-2">
         <div>
-          <SectionHeader eyebrow="Find us" title="Open seven days" />
-          <OpeningHours days={HOURS} className="mt-6" />
+          <SectionHeader eyebrow="Find us" title="In the studio" />
+          <div className="mt-6 max-w-sm">
+            <OpeningHours days={HOURS} />
+          </div>
         </div>
         <LocationCard
           className="self-start"
           name="Aurora Yoga"
-          address="22 Riverside Walk, Bristol BS1 6QR"
-          note="Above the deli, up one flight. Bike racks out front, no dedicated parking."
+          address="18 Willowbank Lane, Bristol BS6 5TF"
+          note="Above the health food shop. Bikes can be left in the yard behind."
         />
       </section>
 
       <section className="mx-auto max-w-6xl px-6 pb-20">
         <CtaBand
-          title="Your mat is usually free tonight"
-          description="Book in thirty seconds — we'll see you on the mat."
+          title="There's usually a mat free this week"
+          description="Book in thirty seconds — we confirm by email."
           action={{ label: "Book now", href: "#/book" }}
         />
       </section>

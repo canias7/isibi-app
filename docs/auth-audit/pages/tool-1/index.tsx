@@ -39,7 +39,7 @@ function Door() {
   const member = useMember();
   const login = useLogin();
   const signup = useSignup();
-  const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const form = useForm<Credentials>({
     resolver: zodResolver(credentials),
@@ -47,31 +47,21 @@ function Door() {
   });
 
   const submit = (action: typeof login, values: Credentials) => {
-    setError(null);
+    setFormError(null);
     action.mutate(values, {
-      onError: () => setError("That email and password didn't match."),
+      onSuccess: (data) => {
+        if (data && typeof data === "object" && "pending" in data) {
+          toast.message("Check your authenticator app to finish signing in.");
+          return;
+        }
+        form.reset();
+      },
+      onError: (e) => {
+        setFormError(e.message);
+        toast.error(e.message);
+      },
     });
   };
-
-  if (member.isPending) {
-    return (
-      <main className="flex min-h-screen items-center justify-center">
-        <p className="text-muted-foreground">Checking your sign-in…</p>
-      </main>
-    );
-  }
-
-  if (member.data) {
-    return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-10 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">Halyard</h1>
-        <p className="text-muted-foreground">Signed in as {member.data.name}.</p>
-        <Button asChild>
-          <Link to="/records">Go to records</Link>
-        </Button>
-      </main>
-    );
-  }
 
   return (
     <main className="grid min-h-screen md:grid-cols-2">
@@ -79,31 +69,36 @@ function Door() {
         <p className="text-lg font-semibold tracking-tight">Halyard</p>
         <div className="max-w-md py-12">
           <h1 className="text-3xl font-semibold tracking-tight text-balance">
-            Every deal your team is working, in one shared table
+            One table for every deal your team is working
           </h1>
           <p className="mt-4 text-muted-foreground">
-            Halyard is the internal tool for a small sales team: sign in, see the
-            deals your team is carrying, add your own, and keep one shared list
-            of accounts nobody has to re-type.
+            Halyard is the shared pipeline for small sales teams: deals live in
+            one record, the whole team reads and edits the same rows, and the
+            accounts you sell into are never scattered across five inboxes.
           </p>
-          <SafeImage className="mt-8" src={null} alt="The deal table, as the team sees it" ratio="16/10" />
+          <SafeImage
+            className="mt-8"
+            src={null}
+            alt="The team's deals, as a table"
+            ratio="16/10"
+          />
           <ul className="mt-8 space-y-4 text-sm">
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>The team's deals in one table — stage, value, who owns it</span>
+              <span>The team's deals in one table — search, filter, open any record</span>
             </li>
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>Every record opens with its own activity trail</span>
+              <span>A shared list of accounts everyone can read and add to</span>
             </li>
             <li className="flex items-start gap-3">
               <StatusBadge state="neutral">soon</StatusBadge>
-              <span>Kanban view across the whole pipeline</span>
+              <span>Deal stages rendered as a board, not just a table</span>
             </li>
           </ul>
         </div>
         <p className="text-xs text-muted-foreground">
-          Built for teams of five to fifteen. No seats to manage, no setup call.
+          Built for small teams — no seats to configure, no admin console to learn.
         </p>
       </section>
 
@@ -111,56 +106,82 @@ function Door() {
         <Card className="w-full max-w-sm">
           <CardHeader>
             <CardTitle>Sign in</CardTitle>
-            <CardDescription>Back to the pipeline in a field and a click.</CardDescription>
+            <CardDescription>
+              {member.data
+                ? `Signed in as ${member.data.name || member.data.email}.`
+                : "Back to the team's pipeline in one field and a click."}
+            </CardDescription>
           </CardHeader>
-          <CardContent>
-            <Form {...form}>
-              <form
-                className="grid gap-4"
-                onSubmit={form.handleSubmit((v) => submit(login, v))}
-              >
-                <FormField
-                  control={form.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Work email</FormLabel>
-                      <FormControl>
-                        <Input type="email" autoComplete="email" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
+          <CardContent className="grid gap-4">
+            {member.isPending && (
+              <p className="text-sm text-muted-foreground">Checking your sign-in…</p>
+            )}
+
+            {!member.isPending && member.data && (
+              <Button asChild>
+                <Link to="/records">Go to the records</Link>
+              </Button>
+            )}
+
+            {!member.isPending && !member.data && (
+              <Form {...form}>
+                <form
+                  className="grid gap-4"
+                  onSubmit={form.handleSubmit((v) => submit(login, v))}
+                >
+                  <FormField
+                    control={form.control}
+                    name="email"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Work email</FormLabel>
+                        <FormControl>
+                          <Input type="email" autoComplete="email" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="password"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Password</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="password"
+                            autoComplete="current-password"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  {formError && (
+                    <p className="text-sm text-destructive motion-enter">{formError}</p>
                   )}
-                />
-                <FormField
-                  control={form.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Password</FormLabel>
-                      <FormControl>
-                        <Input type="password" autoComplete="current-password" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                {error && <p className="text-sm text-destructive">{error}</p>}
-                <div className="flex gap-3">
-                  <Button type="submit" className="motion-press" disabled={login.isPending}>
-                    {login.isPending ? "Signing in…" : "Sign in"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={signup.isPending}
-                    onClick={form.handleSubmit((v) => submit(signup, v))}
-                  >
-                    {signup.isPending ? "Creating…" : "Create account"}
-                  </Button>
-                </div>
-              </form>
-            </Form>
+                  <div className="grid gap-2">
+                    <Button
+                      type="submit"
+                      className="motion-press"
+                      disabled={login.isPending}
+                    >
+                      {login.isPending ? "Signing in…" : "Sign in"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={signup.isPending}
+                      onClick={form.handleSubmit((v) => submit(signup, v))}
+                    >
+                      {signup.isPending ? "Creating account…" : "Create an account"}
+                    </Button>
+                  </div>
+                </form>
+              </Form>
+            )}
           </CardContent>
         </Card>
       </section>
