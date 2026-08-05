@@ -13577,3 +13577,57 @@ that made them survive so long.
 `user`, `feed` and `admin` all proved live: own-rows scoping across two real
 members, a shared feed, an admin table that reads and refuses writes, and a
 team-scoped row that stamps the caller's organization.
+
+---
+
+## 2026-08-05 — the builder's most expensive failure
+
+`build smoke` failed twice in the minutes before it went green, and the two
+failures are completely different things.
+
+**One is the guard working.** `container template 5407049a95fa != checkout
+c50e34b590a8` — Cloudflare's container rollout is asynchronous, so a build
+seconds after a deploy runs the PREVIOUS image. The digest check catches it and
+says so in its own failure message. Not a bug, but it does mean this suite fails
+spuriously on rapid merges and the answer is to re-run, not to investigate.
+
+**The other is the worst outcome the pipeline can produce.**
+
+    pages: [] → placeholder
+    genMs 67895 · credits 23
+    error: the generator called the tool with no pages in it
+
+Sixty-eight seconds, twenty-three credits, and a placeholder. Not a truncation,
+not prose instead of a tool call, not a page that failed to compile — **the model
+called `write_pages` correctly and handed it an empty array.** It costs exactly
+what a working site costs and delivers nothing, and the customer is charged
+before anything has been validated.
+
+**`required: ["pages"]` only demands the KEY.** `{"pages": []}` satisfies it
+completely, and there was no `minItems`. There is now.
+
+**Deliberately no `maxItems`.** The cap belongs in `validatePages`, which keeps
+the first `MAX_PAGES` and rewrites any link to a page it dropped — a working site
+minus one page. A schema ceiling would make a model that wanted seven produce an
+INVALID call, and an invalid call is the empty-array failure this is fixing.
+Refusing too much is the same bug as accepting nothing.
+
+**Two things this does NOT fix, and both are the owner's call.**
+
+- **A build that produces nothing still charges full price.** `charge()` runs
+  before `validatePages`, because the tokens really were spent — but a new
+  account is granted 20 credits and this took 23 for a placeholder. `credit_back`
+  already exists for exactly this shape (it reverses an orchestrator fee when the
+  Claude call failed) and is capped at 10 credits a call, so using it here needs
+  either several calls or a raised cap.
+- **A retry is not the repair pass that was removed.** That one bought a second
+  full generation to maybe rescue a page that half-worked, at ~2x for an uncertain
+  gain. This is different: the first call produced NOTHING, so its output is
+  already worthless, and the customer has already paid. A retry on an empty tool
+  call turns a total loss into a product. Still a cost decision, and still not
+  mine to make.
+
+**How often:** one empty call in roughly four real build-smoke generations today,
+plus one in twelve eval samples. Too few to put a number on, but if it holds it is
+the single largest product risk in the builder — every occurrence is a paying
+customer receiving a placeholder.
