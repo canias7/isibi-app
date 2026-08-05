@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -7,7 +7,13 @@ import { toast } from "sonner";
 
 import { useMember, useLogin, useSignup } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Form,
   FormControl,
@@ -18,6 +24,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { SafeImage } from "@/components/ui/safe-image";
 
 export const Route = createFileRoute("/")({ component: Door });
 
@@ -32,6 +39,7 @@ function Door() {
   const member = useMember();
   const login = useLogin();
   const signup = useSignup();
+  const navigate = useNavigate();
   const [mode, setMode] = useState<"login" | "signup">("login");
 
   const form = useForm<Credentials>({
@@ -39,33 +47,21 @@ function Door() {
     defaultValues: { email: "", password: "" },
   });
 
+  if (member.data) {
+    navigate({ to: "/records" });
+  }
+
   const action = mode === "login" ? login : signup;
 
   const onSubmit = (values: Credentials) => {
     action.mutate(values, {
-      onError: (e) => toast.error(e.message),
+      onSuccess: () => {
+        form.reset();
+        navigate({ to: "/records" });
+      },
+      onError: (e: Error) => toast.error(e.message),
     });
   };
-
-  if (member.isPending) {
-    return (
-      <main className="flex min-h-screen items-center justify-center">
-        <p className="text-sm text-muted-foreground">Checking your sign-in…</p>
-      </main>
-    );
-  }
-
-  if (member.data) {
-    return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-10 text-center">
-        <h1 className="text-3xl font-semibold tracking-tight">Halyard</h1>
-        <p className="text-muted-foreground">You're signed in as {member.data.name || member.data.email}.</p>
-        <Button asChild>
-          <Link to="/records">Go to the records</Link>
-        </Button>
-      </main>
-    );
-  }
 
   return (
     <main className="grid min-h-screen md:grid-cols-2">
@@ -73,41 +69,42 @@ function Door() {
         <p className="text-lg font-semibold tracking-tight">Halyard</p>
         <div className="max-w-md py-12">
           <h1 className="text-3xl font-semibold tracking-tight text-balance">
-            Every deal your team is working, one shared table
+            Halyard — the deals your team is working, in one shared table
           </h1>
           <p className="mt-4 text-muted-foreground">
-            Halyard is where a small sales team keeps its pipeline: deals move through
-            stages, accounts are shared across the desk, and the playbook sits one click
-            from the record it applies to.
+            Every deal the team is chasing lands in one place — stage, value, whoever's on
+            it — and the shared account list means nobody asks "who owns this client" in a
+            channel again.
           </p>
+          <SafeImage className="mt-8" src={null} alt="The team's pipeline, as a table" ratio="16/10" />
           <ul className="mt-8 space-y-4 text-sm">
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>The team's deals in one table — everyone reads and edits the same rows</span>
+              <span>One table for every deal the team is working — filter it, don't hunt for it</span>
             </li>
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>A shared account list, built by whoever spots the lead first</span>
+              <span>A shared account list everyone reads and adds to</span>
             </li>
             <li className="flex items-start gap-3">
-              <StatusBadge state="success">live</StatusBadge>
-              <span>Every record carries its own activity trail</span>
+              <StatusBadge state="neutral">soon</StatusBadge>
+              <span>Playbook notes surfaced right on the record you're working</span>
             </li>
           </ul>
         </div>
         <p className="text-xs text-muted-foreground">
-          Built for teams of five to fifteen — no seats to configure, no admin console to learn.
+          Built for a small sales team — no seats to configure, no admin console to learn.
         </p>
       </section>
 
       <section className="flex items-center justify-center p-10">
         <Card className="w-full max-w-sm">
           <CardHeader>
-            <CardTitle>{mode === "login" ? "Sign in" : "Create an account"}</CardTitle>
+            <CardTitle>{mode === "login" ? "Sign in" : "Create your account"}</CardTitle>
             <CardDescription>
               {mode === "login"
-                ? "Back to the pipeline in one field and a click."
-                : "Set a password and you're straight into the deals."}
+                ? "Back to the team's deals in one field and a click."
+                : "First time here? Set a password and you're in."}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -120,7 +117,7 @@ function Door() {
                     <FormItem>
                       <FormLabel>Work email</FormLabel>
                       <FormControl>
-                        <Input type="email" autoComplete="email" placeholder="you@company.com" {...field} />
+                        <Input type="email" autoComplete="email" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -143,17 +140,17 @@ function Door() {
                   {action.isPending
                     ? mode === "login"
                       ? "Signing in…"
-                      : "Creating…"
+                      : "Creating account…"
                     : mode === "login"
-                      ? "Sign in"
-                      : "Create account"}
+                    ? "Sign in"
+                    : "Create account"}
                 </Button>
                 <button
                   type="button"
-                  onClick={() => setMode(mode === "login" ? "signup" : "login")}
                   className="text-center text-xs text-muted-foreground underline underline-offset-4"
+                  onClick={() => setMode(mode === "login" ? "signup" : "login")}
                 >
-                  {mode === "login" ? "New here? Create an account" : "Already have an account? Sign in"}
+                  {mode === "login" ? "New to the team? Create an account" : "Already have an account? Sign in"}
                 </button>
               </form>
             </Form>

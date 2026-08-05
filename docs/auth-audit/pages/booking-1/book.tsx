@@ -28,8 +28,8 @@ import {
 
 export const Route = createFileRoute("/book")({
   component: Book,
-  validateSearch: (search: Record<string, unknown>): { service?: string } => ({
-    service: typeof search.service === "string" ? search.service : undefined,
+  validateSearch: (search: Record<string, unknown>): { class?: string } => ({
+    class: typeof search.class === "string" ? search.class : undefined,
   }),
 });
 
@@ -37,7 +37,7 @@ type Booking = Row;
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A quiet room, a good floor, classes that start on time.",
+  tagline: "A calm room, a steady practice.",
   links: [
     { label: "Home", href: "#/" },
     { label: "Book", href: "#/book" },
@@ -47,10 +47,17 @@ const CHROME = {
   action: { label: "Book now", href: "#/book" },
 };
 
-const CLASSES = ["Morning Flow", "Slow & Strong", "Restorative", "Beginners' Course"];
-const SLOTS = ["07:00", "08:15", "09:30", "12:00", "17:30", "18:45"];
+const CLASS_NAMES = [
+  "Slow Flow",
+  "Vinyasa",
+  "Restorative",
+  "Ashtanga (led)",
+  "Drop-in single class",
+];
 
-const booking = z.object({
+const SLOTS = ["07:00", "07:30", "09:00", "12:15", "17:30", "18:00", "18:45", "19:45"];
+
+const bookingSchema = z.object({
   class_name: z.string().min(1, "Pick a class"),
   customer_name: z.string().min(2, "Tell us your name"),
   customer_email: z.string().email("That doesn't look like an email address"),
@@ -58,15 +65,15 @@ const booking = z.object({
   slot_time: z.string().min(1, "Pick a time"),
 });
 
-type BookingForm = z.infer<typeof booking>;
+type BookingForm = z.infer<typeof bookingSchema>;
 
 function Book() {
-  const { service: preselected } = Route.useSearch();
+  const { class: preselected } = Route.useSearch();
   const create = useCreateRow<Booking>("bookings");
   const [booked, setBooked] = useState(false);
 
   const form = useForm<BookingForm>({
-    resolver: zodResolver(booking),
+    resolver: zodResolver(bookingSchema),
     defaultValues: {
       class_name: preselected ?? "",
       customer_name: "",
@@ -76,10 +83,10 @@ function Book() {
     },
   });
 
-  const slotDate = form.watch("slot_date");
+  const slot_date = form.watch("slot_date");
   const taken = usePublicRows<{ slot_date: string; slot_time: string }>(
     "bookings",
-    slotDate ? { slot_date: slotDate } : undefined,
+    slot_date ? { slot_date } : undefined,
   );
 
   const onSubmit = (values: BookingForm) => {
@@ -99,11 +106,10 @@ function Book() {
         <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
           <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
           <p className="mt-3 text-muted-foreground">
-            We've sent a confirmation to your email. Need to change plans? Just get in touch and
-            we'll sort it.
+            We've noted your class — check your email for the details. See you on the mat.
           </p>
           <Button asChild variant="outline" className="mt-6">
-            <Link to="/">Back to Aurora Yoga</Link>
+            <Link to="/">Back to the studio</Link>
           </Button>
         </div>
       </SiteChrome>
@@ -114,7 +120,7 @@ function Book() {
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-2xl px-6 py-14">
         <h1 className="text-3xl font-semibold tracking-tight">Book a class</h1>
-        <p className="mt-2 text-muted-foreground">We'll email you a confirmation straight away.</p>
+        <p className="mt-2 text-muted-foreground">We'll email to confirm your spot.</p>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -131,7 +137,7 @@ function Book() {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {CLASSES.map((c) => (
+                      {CLASS_NAMES.map((c) => (
                         <SelectItem key={c} value={c}>
                           {c}
                         </SelectItem>
@@ -194,11 +200,7 @@ function Book() {
                   <FormControl>
                     <AvailabilityGrid
                       slots={SLOTS}
-                      taken={
-                        taken.data
-                          ?.filter((t) => t.slot_date === slotDate)
-                          .map((t) => t.slot_time) ?? []
-                      }
+                      taken={taken.data?.map((t) => t.slot_time) ?? []}
                       value={field.value}
                       onSelect={field.onChange}
                     />
@@ -210,7 +212,7 @@ function Book() {
 
             <div className="sm:col-span-2">
               <Button type="submit" className="motion-press" disabled={create.isPending}>
-                {create.isPending ? "Booking…" : "Book this class"}
+                {create.isPending ? "Booking…" : "Book class"}
               </Button>
             </div>
           </form>

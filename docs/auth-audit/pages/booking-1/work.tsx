@@ -1,15 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
-
-import { Gallery } from "@/components/ui/gallery";
-import { CtaBand } from "@/components/ui/cta-band";
-import { SectionHeader } from "@/components/ui/section-header";
 import { SiteChrome } from "@/components/ui/site-chrome";
+import { Gallery } from "@/components/ui/gallery";
+import { SectionHeader } from "@/components/ui/section-header";
+import { CtaBand } from "@/components/ui/cta-band";
 
 export const Route = createFileRoute("/work")({ component: Work });
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A quiet room, a good floor, classes that start on time.",
+  tagline: "A calm room, a steady practice.",
   links: [
     { label: "Home", href: "#/" },
     { label: "Book", href: "#/book" },
@@ -22,32 +21,35 @@ const CHROME = {
 function Work() {
   return (
     <SiteChrome {...CHROME}>
-      <div className="mx-auto max-w-5xl px-6 py-16">
+      <section className="mx-auto max-w-6xl px-6 py-16 motion-reveal">
         <SectionHeader
-          eyebrow="The studio"
-          title="Inside Aurora Yoga"
-          description="The room, the mats, the mornings — a look at where the classes happen."
+          eyebrow="The work"
+          title="Inside the studio"
+          description="A look at the room, the classes and the people who show up week after week."
         />
         <Gallery
           className="mt-8"
           columns={3}
           items={[
-            { src: null, alt: "The main studio floor at sunrise" },
-            { src: null, alt: "Mats and blocks stacked before Morning Flow" },
-            { src: null, alt: "Restorative class, props laid out" },
-            { src: null, alt: "The window wall during Slow & Strong" },
-            { src: null, alt: "A quiet moment before the Beginners' Course" },
-            { src: null, alt: "The studio at dusk, empty and still" },
+            { src: null, alt: "Morning Slow Flow, mats laid out" },
+            { src: null, alt: "Restorative class, props and blankets" },
+            { src: null, alt: "Evening light across the studio floor" },
+            { src: null, alt: "Ashtanga led class, full room" },
+            { src: null, alt: "The studio before opening" },
+            { src: null, alt: "A quiet Saturday session" },
           ]}
         />
-      </div>
-      <div className="mx-auto max-w-5xl px-6 pb-20">
-        <CtaBand
-          title="Come see the room for yourself"
-          description="Book a class and try the space firsthand."
-          action={{ label: "Book now", href: "#/book" }}
-        />
-      </div>
+      </section>
+
+      <section className="border-t border-border bg-muted/40">
+        <div className="mx-auto max-w-6xl px-6 py-16">
+          <CtaBand
+            title="Come and see the room for yourself"
+            description="Book a class and try the space — first class is no different in price."
+            action={{ label: "Book now", href: "#/book" }}
+          />
+        </div>
+      </section>
     </SiteChrome>
   );
 }
