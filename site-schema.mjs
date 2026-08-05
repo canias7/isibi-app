@@ -690,6 +690,23 @@ export async function applySiteSchema(uuid, spec) {
   // ones are preserved. (A revise cannot silently drop a table this way.)
   await sqlQuery(uuid, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
   let mergedTables = norm;
+  // THE SAME MERGE THE TABLES GET, and it was missing — found 2026-08-05 by
+  // asking whether a "manage my booking" page could be added by a later EDIT.
+  // It can: the designer declares the claim function, `applySiteSchema` creates
+  // it, and the page gets built. But `metaOut.functions` was written from THIS
+  // run's spec alone, so the NEXT unrelated edit ("add a gallery") declared no
+  // functions, recorded none, and erased them from `_meta`.
+  //
+  // The functions themselves survive in Postgres — `CREATE OR REPLACE` persisted
+  // them and nothing drops them — so a published page kept working. What was
+  // lost is the generator's KNOWLEDGE of them: `schemaDigest` reads this list,
+  // the lint refuses a `useRpc` on a name it does not list, and the rules say to
+  // build the manage page only when the schema declares the functions. So the
+  // page would be built on one edit and silently dropped by the next.
+  //
+  // Exactly the failure the comment below describes for tables, which was fixed
+  // for tables and not for these.
+  let mergedFns = [];
   let rateLimits = spec.rateLimits || null; // this run's per-app rate config (if any)
   try {
     // Was `loadSiteSchema(env, uuid)` — a two-arg call left from the D1 era, and
@@ -705,6 +722,7 @@ export async function applySiteSchema(uuid, spec) {
       for (const t of norm) byName.set(String(t.name).toLowerCase(), t); // this run overrides
       mergedTables = Array.from(byName.values());
     }
+    if (prev && Array.isArray(prev.functions)) mergedFns = prev.functions.filter((f) => f && f.name);
     if (!rateLimits && prev && prev.rateLimits) rateLimits = prev.rateLimits; // preserve prior tuning when unspecified
   } catch {}
   // ── The declared functions ────────────────────────────────────────────────
@@ -737,7 +755,16 @@ export async function applySiteSchema(uuid, spec) {
   // The digest reads this to tell the generator which functions it may call, so
   // only the ones that REALLY EXIST are recorded. Naming a failed function would
   // point the model at a 404.
-  if (fnsMade.length) metaOut.functions = (spec.functions || []).filter((f) => fnsMade.includes(f.name)).map((f) => ({ name: f.name, args: f.args, returns: f.returns }));
+  // Keyed by name, this run overriding — the same shape as the table merge. A
+  // function that failed to re-create this run keeps its previous entry, which is
+  // correct: `CREATE OR REPLACE` failing leaves the working one in place.
+  {
+    const byName = new Map(mergedFns.map((f) => [String(f.name).toLowerCase(), f]));
+    for (const f of (spec.functions || [])) {
+      if (fnsMade.includes(f.name)) byName.set(String(f.name).toLowerCase(), { name: f.name, args: f.args, returns: f.returns });
+    }
+    if (byName.size) metaOut.functions = Array.from(byName.values());
+  }
   await sqlQuery(uuid, "INSERT INTO _meta (k,v) VALUES ('schema', ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", [JSON.stringify(metaOut)]);
   // The spec on disk just changed; anything this isolate remembered is stale.
   invalidateSiteSchema(uuid);
