@@ -114,7 +114,14 @@ test("6. only functions that REALLY got created are advertised", () => {
   // THE GUARD'S CONDITION IS PART OF THE ASSERTION. Without it, putting
   // `if (false)` in front of this line left the statement present and the check
   // green — a mutant that survived the first version of this test.
-  assert.match(src, /if \(fnsMade\.length\) metaOut\.functions = \(spec\.functions \|\| \[\]\)\.filter\(\(f\) => fnsMade\.includes\(f\.name\)\)/);
+  // THE INVARIANT, not the spelling. This pinned the whole statement, so adding
+  // the cross-revise merge broke it while the rule it names stayed exactly true.
+  // A guard that fires on a rewrite of the line it watches gets relaxed rather
+  // than read — the same lesson as the team_id DDL guard earlier today.
+  assert.match(src, /fnsMade\.includes\(f\.name\)/,
+    "a function that failed to create must not be advertised to the generator");
+  assert.match(src, /if \(byName\.size\) metaOut\.functions = /,
+    "and the recorded list must actually be written");
   assert.match(src, /fnErrors\.push/, "a failed function is swallowed with no way to see it");
   // ANCHORED TO A WHOLE LINE. `/made\.functions = fnsMade/` matched happily when
   // the statement sat behind `if (!Array.isArray(made))` — and `made` always IS
@@ -186,4 +193,27 @@ test("9. the tool describes a column the ENGINE can actually create", () => {
   const types = eng.slice(eng.indexOf("const PG_TYPES = {"), eng.indexOf("};", eng.indexOf("const PG_TYPES = {")));
   assert.ok(!/\buuid:/.test(types), "PG_TYPES gained uuid — the tool text can be simplified");
   assert.match(eng, /uuid: "\(gen_random_uuid\(\)::text\)"/, "the reserved default token is gone");
+});
+
+test("11. a later edit does not erase the functions an earlier one declared", () => {
+  // FOUND BY ASKING A PRODUCT QUESTION: can a "manage my booking" page be added
+  // by a later EDIT rather than built up front? It can — and it would not have
+  // survived the edit after that.
+  //
+  // `metaOut.tables` is merged with what was stored before, so a revise naming
+  // one table does not strip the rest. `metaOut.functions` was written from THIS
+  // run's spec alone, so a revise declaring no functions recorded none and wiped
+  // the list. The functions themselves survive in Postgres — CREATE OR REPLACE
+  // persisted them and nothing drops them — but `schemaDigest` reads this list to
+  // tell the generator what it may call, and the lint refuses a `useRpc` on a
+  // name the list does not carry. So the manage page gets built by one edit and
+  // silently dropped by the next.
+  const src = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  assert.match(src, /if \(prev && Array\.isArray\(prev\.functions\)\) mergedFns = prev\.functions/,
+    "the previously recorded functions must be read back");
+  // Carried into the written list, keyed by name so this run overrides.
+  assert.match(src, /const byName = new Map\(mergedFns\.map/);
+  // AND THE TABLE MERGE IT MIRRORS IS STILL THERE. Asserting one without the
+  // other lets the pair drift apart, which is how they got out of step.
+  assert.match(src, /for \(const t of prev\.tables\)/, "the table merge this mirrors has gone");
 });

@@ -13705,3 +13705,42 @@ credits` on the placeholder, with `usage` still reporting the 9,675 output token
 we spent. Yesterday that build would have taken ~23 credits for nothing.
 
 900 tests, 7 mutants, all caught.
+
+### Can the manage-booking page be added by an EDIT? Yes — and it would not have survived the next one
+
+Owner's point, and the right one: a site does not have to be complete on the
+first generation. So the question is whether a later edit can add what the first
+build left out. Traced rather than assumed, and it found a bug.
+
+**The chain works.** The designer can declare functions (`functions` on the
+schema tool), `applySiteSchema` creates them SECURITY DEFINER with a GRANT, the
+generator has `useRpc`/`useRpcAction`, and rule 10 tells it to build the manage
+page when the schema declares them. A revise is additive — `ADD COLUMN IF NOT
+EXISTS` for `claim_token`, `CREATE OR REPLACE FUNCTION` for the rest — so it can
+all be bolted onto a live site. `neon e2e` already proves the claim flow against
+a real database.
+
+**But `metaOut.functions` was written from THIS run's spec alone.** Tables are
+merged with what was stored before, precisely so a revise naming one table does
+not strip the others — the comment above that merge says so. Functions got no
+such merge, so the NEXT unrelated edit ("add a gallery") declared no functions,
+recorded none, and erased the list.
+
+The functions themselves survive in Postgres, so a published page kept working.
+What was lost is the generator's KNOWLEDGE of them: `schemaDigest` reads that
+list, the lint refuses a `useRpc` on a name it does not carry, and the rules say
+to build the manage page only when the schema declares the functions. **So the
+page gets built by one edit and silently dropped by the next.**
+
+Merged now, keyed by name with this run overriding. A function that failed to
+re-create keeps its previous entry, which is correct: a failed `CREATE OR
+REPLACE` leaves the working one in place.
+
+**One caveat that is not a bug and should be said anyway:** `claim_token` gets its
+uuid default for NEW rows. Bookings taken BEFORE the edit have NULL, so those
+customers still cannot manage theirs. A backfill would fix it and is not written.
+
+A guard had to be relaxed on the way — test 6 pinned the whole statement while
+claiming to check "only functions that really got created are advertised", so a
+rewrite of that line broke it for a reason unrelated to its rule. Same lesson as
+the `team_id` DDL guard earlier today. 901 tests, 4 mutants, all caught.
