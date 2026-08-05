@@ -2190,7 +2190,21 @@ export const SITE_PAGES_TOOL = {
     properties: {
       pages: {
         type: "array",
-        description: "One entry per route file. Must include index.tsx.",
+        // `minItems: 1`, because `required: ["pages"]` only demands the KEY —
+        // an empty array satisfies it perfectly. Measured live 2026-08-05: a
+        // build spent 68 seconds and 23 credits, called this tool correctly, and
+        // handed it `[]`. The customer was charged for a placeholder, which is
+        // the worst outcome the pipeline can produce: it costs what a working
+        // site costs and delivers nothing.
+        //
+        // There is deliberately NO `maxItems`. The cap belongs in
+        // `validatePages`, which keeps the first MAX_PAGES and rewrites any link
+        // to a page it dropped — a working site minus one page. A schema ceiling
+        // would instead make a model that wanted seven produce an INVALID call,
+        // and an invalid call is the empty-array failure this line exists to
+        // stop. Refusing too much is the same bug as accepting nothing.
+        minItems: 1,
+        description: "One entry per route file. At least one, and one of them MUST be index.tsx.",
         items: {
           type: "object",
           properties: {

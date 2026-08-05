@@ -1636,3 +1636,22 @@ test("a generic DEFAULT does not end the type-parameter list early", () => {
   // And a bare alias still says nothing worth the tokens.
   assert.ok(!extractTypesApi('export type Alias = string | number;').Alias);
 });
+
+test("the tool cannot be called with an empty page list", () => {
+  // `required: ["pages"]` only demands the KEY exists — `{"pages": []}` satisfies
+  // it perfectly, and that is exactly what came back on a real build: 68 seconds,
+  // 23 credits charged, a placeholder published. The most expensive possible
+  // outcome, because it costs what a working site costs and delivers nothing.
+  const pages = SITE_PAGES_TOOL.input_schema.properties.pages;
+  assert.equal(pages.minItems, 1, "an empty array is a legal call without this");
+  assert.deepEqual(SITE_PAGES_TOOL.input_schema.required, ["pages"], "and the key itself must still be required");
+  // NO ceiling, deliberately. The cap lives in validatePages, which keeps the
+  // first MAX_PAGES and rewrites any link to one it dropped — a working site
+  // minus a page. A schema ceiling would make a model that wanted more produce
+  // an INVALID call, which is the empty-array failure this guards against.
+  assert.equal(pages.maxItems, undefined,
+    "a maxItems here turns 'too many pages' into 'no pages', which is the worse failure");
+  // The description has to say it too: the schema is a constraint, the
+  // description is what the model reads while deciding.
+  assert.match(pages.description, /At least one/i);
+});
