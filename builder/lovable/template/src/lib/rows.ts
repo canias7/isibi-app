@@ -15,7 +15,23 @@ import {
   type UseQueryOptions,
 } from "@tanstack/react-query";
 
-export type Row = Record<string, unknown> & { id: number };
+// VALUES ARE SCALARS, for exactly the reason written out under `PublicRow`
+// below — and this type kept `unknown` while its sibling was fixed.
+//
+// `useRows<Row>("posts")` then gives every field the type `unknown`, so
+// `<li>{row.title}</li>` is `TS2322: unknown is not assignable to ReactNode`,
+// and handing `row.created_at` to anything expecting `string | number | Date` is
+// the same error one layer along. Measured live 2026-08-04: the generator got
+// the field NAMES exactly right — `{who, what, at}` against
+// `Activity = {who, what, at, avatar?}`, which is the named-type fix working —
+// and still failed, on `at: unknown` alone. One error, and it was the only thing
+// between the booking sample and a pass.
+//
+// The columns a site declares are text / integer / real / boolean, so this is
+// what actually comes back. A `json` column arrives as an object and is the one
+// inexact case; rendering one in JSX is wrong whatever its type says, so typing
+// for it would buy nothing and cost every ordinary page a compile error.
+export type Row = Record<string, string | number | boolean | null> & { id: number };
 
 /**
  * A row id being passed IN.

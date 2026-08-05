@@ -1404,3 +1404,21 @@ test("a type is read with balanced braces, not up to the first semicolon", () =>
     }
   }
 });
+
+test("Row and PublicRow agree that a column value is a SCALAR", () => {
+  // `PublicRow` was fixed on 2026-08-04 and `Row` was not, though the reasoning
+  // written under PublicRow applies to both word for word — it even names "the
+  // Row constraint" as the same class while Row itself still said `unknown`.
+  //
+  // With `unknown`, `useRows<Row>("posts")` types every field `unknown`, so
+  // `<li>{row.title}</li>` is TS2322 and handing `row.created_at` to anything
+  // expecting `string | number | Date` fails the same way. Measured: the
+  // generator got the field NAMES exactly right and still failed on `at: unknown`
+  // alone — the only error between the booking sample and a pass.
+  const src = fs.readFileSync(new URL("../builder/lovable/template/src/lib/rows.ts", import.meta.url), "utf8");
+  const scalar = "Record<string, string | number | boolean | null>";
+  assert.match(src, new RegExp("export type Row = " + scalar.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&") + " & \\{ id: number \\}"),
+    "Row's values are back to `unknown`, so an ordinary page cannot render one");
+  assert.ok(src.includes("export type PublicRow = " + scalar),
+    "PublicRow drifted from Row — they describe the same thing");
+});
