@@ -1,8 +1,0 @@
-src/routes/records.tsx(177,37): error TS2353: Object literal may only specify known properties, and 'render' does not exist in type 'Column<Deal>'.
-src/routes/records.tsx(177,46): error TS7006: Parameter 'r' implicitly has an 'any' type.
-src/routes/records.tsx(178,38): error TS2353: Object literal may only specify known properties, and 'render' does not exist in type 'Column<Deal>'.
-src/routes/records.tsx(178,47): error TS7006: Parameter 'r' implicitly has an 'any' type.
-src/routes/records.tsx(182,7): error TS2353: Object literal may only specify known properties, and 'render' does not exist in type 'Column<Deal>'.
-src/routes/records.tsx(182,16): error TS7006: Parameter 'r' implicitly has an 'any' type.
-src/routes/records.tsx(362,17): error TS2353: Object literal may only specify known properties, and 'render' does not exist in type 'Column<Deal>'.
-src/routes/records.tsx(362,26): error TS7006: Parameter 'r' implicitly has an 'any' type.

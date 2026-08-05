@@ -1,13 +1,20 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { useMember, useRows, useUpdateRow, useDeleteRow, type Row } from "@/lib/rows";
-import { ActivityFeed, type Activity } from "@/components/ui/activity-feed";
-import { Button } from "@/components/ui/button";
-import { Empty } from "@/components/ui/empty";
-import { Input } from "@/components/ui/input";
+import {
+  useMember,
+  useRows,
+  useUpdateRow,
+  type Row,
+} from "@/lib/rows";
 import { RecordHeader } from "@/components/ui/record-header";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { ActivityFeed } from "@/components/ui/activity-feed";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -15,20 +22,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { SiteChrome } from "@/components/ui/site-chrome";
-import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBadge } from "@/components/ui/status-badge";
 
 export const Route = createFileRoute("/record")({
   component: RecordPage,
-  validateSearch: (search: Record<string, unknown>): { id?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { table?: string; id?: string } => ({
+    table: typeof search.table === "string" ? search.table : undefined,
     id: typeof search.id === "string" ? search.id : undefined,
   }),
 });
 
 type Deal = Row & { title: string; value: string | null; stage: string | null };
+type Account = Row & { name: string; website: string | null; notes: string | null };
 
-const STAGES = ["new", "qualified", "proposal", "negotiation", "won", "lost"];
+const STAGES = ["lead", "qualified", "proposal", "negotiation", "won", "lost"];
 
 function stageState(stage: string | null): "success" | "warning" | "danger" | "neutral" {
   if (stage === "won") return "success";
@@ -37,196 +43,157 @@ function stageState(stage: string | null): "success" | "warning" | "danger" | "n
   return "neutral";
 }
 
-const CHROME = {
-  name: "Halyard",
-  tagline: "The team's shared pipeline",
-  links: [{ label: "Records", href: "#/records" }],
-  action: { label: "New record", href: "#/records" },
-};
-
 function RecordPage() {
+  const { table, id } = Route.useSearch();
   const member = useMember();
   const navigate = useNavigate();
-  const { id } = Route.useSearch();
-  const deals = useRows<Deal>("deals");
-  const update = useUpdateRow<Deal>("deals");
-  const del = useDeleteRow("deals");
+
+  const deals = useRows<Deal>("deals", table === "deals" ? { order: "id", dir: "desc" } : undefined);
+  const accounts = useRows<Account>(
+    "accounts",
+    table === "accounts" ? { order: "id", dir: "desc" } : undefined,
+  );
+
+  const updateDeal = useUpdateRow<Deal>("deals");
+  const updateAccount = useUpdateRow<Account>("accounts");
+
+  const deal = useMemo(
+    () => (table === "deals" ? deals.data?.find((d) => String(d.id) === id) : undefined),
+    [deals.data, table, id],
+  );
+  const account = useMemo(
+    () => (table === "accounts" ? accounts.data?.find((a) => String(a.id) === id) : undefined),
+    [accounts.data, table, id],
+  );
 
   const [titleDraft, setTitleDraft] = useState("");
   const [valueDraft, setValueDraft] = useState("");
-  const [editingFields, setEditingFields] = useState(false);
-  const [activity, setActivity] = useState<Activity[]>([]);
-
-  useEffect(() => {
-    if (!member.isPending && !member.data) {
-      navigate({ to: "/" });
-    }
-  }, [member.isPending, member.data, navigate]);
-
-  const deal = deals.data?.find((d) => String(d.id) === id);
-
-  useEffect(() => {
-    if (deal) {
-      setTitleDraft(deal.title);
-      setValueDraft(deal.value ?? "");
-    }
-  }, [deal?.id]);
+  const [notesDraft, setNotesDraft] = useState("");
+  const [websiteDraft, setWebsiteDraft] = useState("");
+  const [dirtyDeal, setDirtyDeal] = useState(false);
+  const [dirtyAccount, setDirtyAccount] = useState(false);
 
   if (member.isPending) {
     return (
-      <SiteChrome {...CHROME}>
-        <div className="px-6 py-10">
-          <Skeleton className="h-64 rounded-xl" />
-        </div>
-      </SiteChrome>
+      <div className="p-10">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="mt-6 h-64 w-full" />
+      </div>
     );
   }
 
   if (!member.data) {
-    return null;
-  }
-
-  if (!id) {
     return (
-      <SiteChrome {...CHROME}>
-        <div className="px-6 py-14">
-          <Empty
-            title="No record chosen"
-            description="Open a deal from the records table to see it here."
-          />
-          <Button asChild className="mt-4">
-            <Link to="/records">Back to records</Link>
-          </Button>
-        </div>
-      </SiteChrome>
+      <div className="mx-auto max-w-md px-6 py-24 text-center">
+        <h1 className="text-2xl font-semibold tracking-tight">Sign in required</h1>
+        <p className="mt-3 text-muted-foreground">Sign in to open this record.</p>
+        <Button asChild className="mt-6">
+          <Link to="/">Go to sign in</Link>
+        </Button>
+      </div>
     );
   }
 
-  if (deals.isPending) {
+  if (!table || !id || (table !== "deals" && table !== "accounts")) {
     return (
-      <SiteChrome {...CHROME}>
-        <div className="px-6 py-10">
-          <Skeleton className="h-64 rounded-xl" />
-        </div>
-      </SiteChrome>
+      <div className="mx-auto max-w-md px-6 py-24 text-center">
+        <h1 className="text-2xl font-semibold tracking-tight">No record chosen</h1>
+        <p className="mt-3 text-muted-foreground">
+          Open a record from the table instead of this link directly.
+        </p>
+        <Button asChild className="mt-6" variant="outline">
+          <Link to="/records">Back to records</Link>
+        </Button>
+      </div>
     );
   }
 
-  if (deals.isError) {
+  const loading = table === "deals" ? deals.isPending : accounts.isPending;
+  const errored = table === "deals" ? deals.isError : accounts.isError;
+  const notFound = table === "deals" ? !deal && !deals.isPending && !deals.isError : !account && !accounts.isPending && !accounts.isError;
+
+  if (loading) {
     return (
-      <SiteChrome {...CHROME}>
-        <div className="px-6 py-10">
-          <p className="text-sm text-destructive">Couldn't load this record. Refresh and try again.</p>
-        </div>
-      </SiteChrome>
+      <div className="p-10">
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="mt-6 h-96 w-full" />
+      </div>
     );
   }
 
-  if (!deal) {
+  if (errored) {
     return (
-      <SiteChrome {...CHROME}>
-        <div className="px-6 py-14">
-          <Empty
-            title="Not found"
-            description="This deal isn't in the team's pipeline, or it's been removed."
-          />
-          <Button asChild className="mt-4">
-            <Link to="/records">Back to records</Link>
-          </Button>
-        </div>
-      </SiteChrome>
+      <div className="p-10">
+        <p className="text-sm text-destructive">Couldn't load this record. Refresh and try again.</p>
+      </div>
     );
   }
 
-  const logActivity = (what: string) => {
-    setActivity((prev) => [{ who: "You", what, at: new Date() }, ...prev]);
-  };
-
-  const onStageChange = (stage: string) => {
-    update.mutate(
-      { id: deal.id, stage },
-      {
-        onSuccess: () => {
-          toast.success("Stage updated");
-          logActivity(`moved the deal to ${stage}`);
-        },
-        onError: (e) => toast.error(e.message),
-      },
+  if (notFound) {
+    return (
+      <div className="mx-auto max-w-md px-6 py-24 text-center">
+        <h1 className="text-2xl font-semibold tracking-tight">Not found</h1>
+        <p className="mt-3 text-muted-foreground">
+          That record isn't there — it may have been removed.
+        </p>
+        <Button asChild className="mt-6" variant="outline">
+          <Link to="/records">Back to records</Link>
+        </Button>
+      </div>
     );
-  };
+  }
 
-  const onSaveFields = () => {
-    update.mutate(
-      { id: deal.id, title: titleDraft, value: valueDraft },
-      {
-        onSuccess: () => {
-          toast.success("Saved");
-          logActivity("updated the deal details");
-          setEditingFields(false);
-        },
-        onError: (e) => toast.error(e.message),
-      },
-    );
-  };
+  if (table === "deals" && deal) {
+    const title = dirtyDeal ? titleDraft : deal.title;
+    const value = dirtyDeal ? valueDraft : deal.value ?? "";
 
-  const onDelete = () => {
-    del.mutate(deal.id, {
-      onSuccess: () => {
-        toast.success("Deal deleted");
-        navigate({ to: "/records" });
-      },
-      onError: (e) => toast.error(e.message),
-    });
-  };
-
-  return (
-    <SiteChrome {...CHROME}>
+    return (
       <div className="mx-auto max-w-3xl px-6 py-10">
+        <Button variant="ghost" className="mb-4" onClick={() => navigate({ to: "/records" })}>
+          Back to records
+        </Button>
         <RecordHeader
           title={deal.title}
-          subtitle="Shared with the team"
-          status={<StatusBadge state={stageState(deal.stage)}>{deal.stage ?? "new"}</StatusBadge>}
-          actions={
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setEditingFields((v) => !v)}>
-                {editingFields ? "Cancel" : "Edit"}
-              </Button>
-              <Button variant="destructive" onClick={onDelete} disabled={del.isPending}>
-                {del.isPending ? "Deleting…" : "Delete"}
-              </Button>
-            </div>
-          }
+          subtitle="A deal the team is working"
+          status={<StatusBadge state={stageState(deal.stage)}>{deal.stage ?? "lead"}</StatusBadge>}
         />
 
-        <div className="mt-8 grid gap-6 sm:grid-cols-2">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Title</p>
-            {editingFields ? (
-              <Input
-                className="mt-1"
-                value={titleDraft}
-                onChange={(e) => setTitleDraft(e.target.value)}
-              />
-            ) : (
-              <p className="mt-1">{deal.title}</p>
-            )}
+        <div className="mt-8 grid gap-6">
+          <div className="grid gap-2">
+            <label className="text-sm font-medium">Title</label>
+            <Input
+              value={title}
+              onChange={(e) => {
+                setDirtyDeal(true);
+                setTitleDraft(e.target.value);
+              }}
+            />
           </div>
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Value</p>
-            {editingFields ? (
-              <Input
-                className="mt-1"
-                value={valueDraft}
-                onChange={(e) => setValueDraft(e.target.value)}
-              />
-            ) : (
-              <p className="mt-1">{deal.value ?? "—"}</p>
-            )}
+          <div className="grid gap-2">
+            <label className="text-sm font-medium">Value</label>
+            <Input
+              value={value}
+              onChange={(e) => {
+                setDirtyDeal(true);
+                setValueDraft(e.target.value);
+              }}
+            />
           </div>
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Stage</p>
-            <Select value={deal.stage ?? "new"} onValueChange={onStageChange}>
-              <SelectTrigger className="mt-1 w-full">
+          <div className="grid gap-2">
+            <label className="text-sm font-medium">Stage</label>
+            <Select
+              value={deal.stage ?? "lead"}
+              onValueChange={(v) =>
+                updateDeal.mutate(
+                  { id: deal.id, stage: v },
+                  {
+                    onSuccess: () => toast.success("Stage updated"),
+                    onError: (e) => toast.error(e.message),
+                  },
+                )
+              }
+            >
+              <SelectTrigger className="w-48">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -238,23 +205,108 @@ function RecordPage() {
               </SelectContent>
             </Select>
           </div>
+          {dirtyDeal && (
+            <Button
+              className="w-fit motion-press"
+              disabled={updateDeal.isPending}
+              onClick={() =>
+                updateDeal.mutate(
+                  { id: deal.id, title: titleDraft || deal.title, value: valueDraft },
+                  {
+                    onSuccess: () => {
+                      toast.success("Deal updated");
+                      setDirtyDeal(false);
+                    },
+                    onError: (e) => toast.error(e.message),
+                  },
+                )
+              }
+            >
+              {updateDeal.isPending ? "Saving…" : "Save changes"}
+            </Button>
+          )}
         </div>
-
-        {editingFields && (
-          <Button className="mt-4 motion-press" onClick={onSaveFields} disabled={update.isPending}>
-            {update.isPending ? "Saving…" : "Save changes"}
-          </Button>
-        )}
 
         <div className="mt-10">
-          <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
-            Activity
-          </h2>
-          <div className="mt-3">
-            <ActivityFeed items={activity} empty="No activity yet on this deal." />
-          </div>
+          <h2 className="text-sm font-medium text-muted-foreground">Activity</h2>
+          <ActivityFeed
+            className="mt-3"
+            items={[
+              { who: "Team", what: `Deal created at stage "${deal.stage ?? "lead"}"`, at: deal.created_at ?? new Date() },
+            ]}
+            empty="No activity recorded yet."
+          />
         </div>
       </div>
-    </SiteChrome>
-  );
+    );
+  }
+
+  if (table === "accounts" && account) {
+    const notes = dirtyAccount ? notesDraft : account.notes ?? "";
+    const website = dirtyAccount ? websiteDraft : account.website ?? "";
+
+    return (
+      <div className="mx-auto max-w-3xl px-6 py-10">
+        <Button variant="ghost" className="mb-4" onClick={() => navigate({ to: "/records" })}>
+          Back to records
+        </Button>
+        <RecordHeader title={account.name} subtitle="Shared account" />
+
+        <div className="mt-8 grid gap-6">
+          <div className="grid gap-2">
+            <label className="text-sm font-medium">Website</label>
+            <Input
+              value={website}
+              onChange={(e) => {
+                setDirtyAccount(true);
+                setWebsiteDraft(e.target.value);
+              }}
+            />
+          </div>
+          <div className="grid gap-2">
+            <label className="text-sm font-medium">Notes</label>
+            <Textarea
+              rows={5}
+              value={notes}
+              onChange={(e) => {
+                setDirtyAccount(true);
+                setNotesDraft(e.target.value);
+              }}
+            />
+          </div>
+          {dirtyAccount && (
+            <Button
+              className="w-fit motion-press"
+              disabled={updateAccount.isPending}
+              onClick={() =>
+                updateAccount.mutate(
+                  { id: account.id, website: websiteDraft, notes: notesDraft },
+                  {
+                    onSuccess: () => {
+                      toast.success("Account updated");
+                      setDirtyAccount(false);
+                    },
+                    onError: (e) => toast.error(e.message),
+                  },
+                )
+              }
+            >
+              {updateAccount.isPending ? "Saving…" : "Save changes"}
+            </Button>
+          )}
+        </div>
+
+        <div className="mt-10">
+          <h2 className="text-sm font-medium text-muted-foreground">Activity</h2>
+          <ActivityFeed
+            className="mt-3"
+            items={[{ who: "Team", what: "Account added to the shared list", at: account.created_at ?? new Date() }]}
+            empty="No activity recorded yet."
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return null;
 }

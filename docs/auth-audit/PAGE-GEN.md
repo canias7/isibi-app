@@ -1,13 +1,13 @@
 # Page generator — compile rate
 
-**2/3 compiled**, 2 with no lint problems.
+**3/3 compiled**, 3 with no lint problems.
 
 Three site shapes, each with its own schema, family and layout directive — a booking site, a
 menu-only site with no form at all, and an internal tool where every page needs a signed-in member.
 
 - booking (salon): 1/1 compiled, 1 clean
 - menu (restaurant): 1/1 compiled, 1 clean
-- tool (crm): 0/1 compiled
+- tool (crm): 1/1 compiled, 1 clean
 
 No database and no publish — this measures the GENERATOR, not the build path around it.
 One call a sample, because a build makes one call: there is no repair pass, so this rate IS what the platform ships.
@@ -15,20 +15,11 @@ A single failure is variance; a column of the same error is a mismatch worth fix
 
 ## What it cost
 
-- output 10,409 tok/sample · fresh in 4,046 · cache read 32,251 · write 16,126
-- $0.2384 a sample at list price · comments are 0.0% of the source written
-
-## Distinct compile errors
-
-- **4×** `error TS2353: Object literal may only specify known properties, and 'X' does not exist in type 'X'.`
-- **4×** `error TS7006: Parameter 'X' implicitly has an 'X' type.`
+- output 9,960 tok/sample · fresh in 4,046 · cache read 32,287 · write 16,143
+- $0.2318 a sample at list price · comments are 0.0% of the source written
 
 ## Samples
 
-- **booking 1. ok** — index.tsx, book.tsx, manage.tsx, members.tsx, account.tsx
+- **booking 1. ok** — index.tsx, book.tsx, manage.tsx, work.tsx, account.tsx
 - **menu 1. ok** — index.tsx
-- **tool 1. typecheck** — index.tsx, records.tsx, record.tsx
-  - `src/routes/records.tsx(177,37): error TS2353: Object literal may only specify known properties, and 'render' does not exist in type 'Column<Deal>'.`
-  - `src/routes/records.tsx(177,46): error TS7006: Parameter 'r' implicitly has an 'any' type.`
-  - `src/routes/records.tsx(178,38): error TS2353: Object literal may only specify known properties, and 'render' does not exist in type 'Column<Deal>'.`
-  - `src/routes/records.tsx(178,47): error TS7006: Parameter 'r' implicitly has an 'any' type.`
+- **tool 1. ok** — index.tsx, records.tsx, record.tsx
