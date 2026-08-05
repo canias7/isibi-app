@@ -170,11 +170,41 @@ try {
   const ghost = await auth("sign-in/email", jsonPost({ email: `nobody-${stamp}@example.com`, password: "whatever-123" }));
   ok("and so is an address with no account", ghost.status >= 400, ghost.status);
 
+  // --- the token the DATA API needs ------------------------------------------
+  //
+  // BETTER AUTH'S SESSION TOKEN IS NOT A JWT, and Neon's Data API requires one:
+  // `400 "Provided authentication token is not a valid JWT encoding"`. Measured
+  // live 2026-08-04, and it makes every member-scoped read and write fail on
+  // every generated site — `user`, `feed` and `admin`, all three levels.
+  //
+  // Provisioning creates a `jwks` table, so the auth server can mint one; what is
+  // not documented anywhere we control is WHERE. This probes the candidates and
+  // reports what each answered rather than guessing, so the fix is written
+  // against a measurement.
+  console.log("\nfinding the JWT the Data API wants…");
+  let jwtForData = null;
+  for (const path of ["token", "jwt", "get-token", "session/token"]) {
+    const res = await auth(path, { headers: bearer(tokA) }).catch(() => null);
+    if (!res) { console.log(`   ${path} → (no response)`); continue; }
+    const body = await res.json().catch(() => null);
+    const cand = body && (body.token || body.jwt || body.access_token);
+    // A JWT is three dot-separated base64url segments; a Better Auth session
+    // token is not, which is the whole point of this probe.
+    const looksJwt = typeof cand === "string" && cand.split(".").length === 3;
+    console.log(`   ${path} → ${res.status} ${looksJwt ? "JWT" : JSON.stringify(body).slice(0, 90)}`);
+    if (looksJwt && !jwtForData) jwtForData = cand;
+  }
+  ok("the auth server can mint a JWT for the Data API", !!jwtForData,
+    "no endpoint returned one — member reads cannot work until this is found");
+  // Everything below uses it when there is one, and falls back to the session
+  // token so the failure stays visible rather than turning into a skip.
+  const dataTok = jwtForData || tokA;
+
   // --- a member's own rows ---------------------------------------------------
   console.log("\nwhat a member may see…");
-  const mine = await data("notes", jsonPost({ body: "ada's private note" }, tokA));
+  const mine = await data("notes", jsonPost({ body: "ada's private note" }, dataTok));
   ok("a member may write to a user table", mine.status >= 200 && mine.status < 300, mine.status);
-  const mineRead = await data("notes?select=*", { headers: bearer(tokA) });
+  const mineRead = await data("notes?select=*", { headers: bearer(dataTok) });
   const mineRows = await mineRead.json().catch(() => []);
   ok("and read it back", mineRead.status === 200 && Array.isArray(mineRows) && mineRows.length === 1,
     mineRead.status + " " + JSON.stringify(mineRows).slice(0, 200));
@@ -195,7 +225,7 @@ try {
 
     // `feed` is the opposite level and must behave the opposite way, or "own
     // rows" has simply been applied everywhere.
-    await data("posts", jsonPost({ body: "ada's public post" }, tokA));
+    await data("posts", jsonPost({ body: "ada's public post" }, dataTok));
     const bobFeed = await data("posts?select=*", { headers: bearer(tokB) });
     const feedRows = await bobFeed.json().catch(() => []);
     ok("but a feed row IS visible to every signed-in member",
@@ -205,9 +235,9 @@ try {
 
   // --- admin is READ-ONLY, which is what 2026-08-04 got wrong ---------------
   console.log("\nadmin…");
-  const adminRead = await data("notices?select=*", { headers: bearer(tokA) });
+  const adminRead = await data("notices?select=*", { headers: bearer(dataTok) });
   ok("a signed-in member may READ an admin table", adminRead.status === 200, adminRead.status);
-  const adminWrite = await data("notices", jsonPost({ body: "should not land" }, tokA));
+  const adminWrite = await data("notices", jsonPost({ body: "should not land" }, dataTok));
   ok("and may NOT write to it — it is granted SELECT and nothing else",
     adminWrite.status === 401 || adminWrite.status === 403, adminWrite.status);
 
