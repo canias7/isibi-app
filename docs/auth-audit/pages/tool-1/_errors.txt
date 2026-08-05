@@ -1,9 +1,9 @@
-src/routes/record.tsx(66,40): error TS2367: This comparison appears to be unintentional because the types 'number' and 'string | undefined' have no overlap.
-src/routes/record.tsx(271,40): error TS2322: Type '{ id: string; title: string; at: unknown; }[]' is not assignable to type 'Activity[]'.
-src/routes/records.tsx(384,19): error TS2353: Object literal may only specify known properties, and 'onClick' does not exist in type '{ label: string; onSelect: () => void; destructive?: boolean | undefined; }'.
-src/routes/records.tsx(410,26): error TS7006: Parameter 'd' implicitly has an 'any' type.
-src/routes/records.tsx(413,70): error TS2322: Type 'unknown' is not assignable to type 'string | undefined'.
-src/routes/records.tsx(415,49): error TS2322: Type '(d: Record<string, unknown>) => unknown' is not assignable to type '(row: Record<string, unknown>) => ReactNode'.
-src/routes/records.tsx(416,50): error TS2322: Type '(d: Record<string, unknown>) => {}' is not assignable to type '(row: Record<string, unknown>) => ReactNode'.
-src/routes/records.tsx(420,63): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'string | null'.
-src/routes/records.tsx(420,73): error TS2322: Type '{}' is not assignable to type 'ReactNode'.
+src/routes/record.tsx(113,40): error TS2367: This comparison appears to be unintentional because the types 'number' and 'string' have no overlap.
+src/routes/record.tsx(271,15): error TS2322: Type 'unknown' is not assignable to type 'string | number | Date'.
+src/routes/record.tsx(307,46): error TS2367: This comparison appears to be unintentional because the types 'number' and 'string' have no overlap.
+src/routes/record.tsx(455,15): error TS2322: Type 'unknown' is not assignable to type 'string | number | Date'.
+src/routes/records.tsx(377,53): error TS2353: Object literal may only specify known properties, and 'onClick' does not exist in type '{ label: string; onSelect: () => void; destructive?: boolean | undefined; }'.
+src/routes/records.tsx(415,76): error TS2322: Type 'number' is not assignable to type 'string'.
+src/routes/records.tsx(419,56): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
+src/routes/records.tsx(420,67): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
+src/routes/records.tsx(465,76): error TS2322: Type 'number' is not assignable to type 'string'.

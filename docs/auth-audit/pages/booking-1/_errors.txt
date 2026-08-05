@@ -1,0 +1,1 @@
+src/routes/account.tsx(183,15): error TS2322: Type '{ title: string; description: string | undefined; }[]' is not assignable to type 'Activity[]'.
