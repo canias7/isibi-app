@@ -111,13 +111,35 @@ export async function publishPages(deps, { spec, slug } = {}) {
     return out;
   }
 
-  // Charged on what the call actually used, and BEFORE the output is judged: the
-  // tokens were spent whether or not the result turns out to be usable.
+  // CHARGED FOR A PUBLISHED APP, NOT FOR A PLACEHOLDER — owner's call
+  // 2026-08-05, and the reversal of what this comment used to say ("BEFORE the
+  // output is judged: the tokens were spent whether or not the result turns out
+  // to be usable").
+  //
+  // That was true about our costs and wrong about the customer's. Measured live:
+  // a build spent 68 seconds, produced `pages: []`, published the placeholder,
+  // and took 23 credits — off an account granted 20. It cost exactly what a
+  // working site cost and delivered nothing, which is the most expensive
+  // possible outcome for the person paying.
+  //
+  // The rule is now one sentence anybody can check: **if the customer got the
+  // placeholder, the pages call is free.** It applies to all three ways of
+  // getting there — no pages, no home page, and a compile failure — because from
+  // the customer's side those are one event: they asked for a site and did not
+  // get one. `out.usage` is still reported on every path, so what WE spent with
+  // the model is still visible even when nothing is billed.
+  //
+  // The schema call is billed separately and still is: the database really is
+  // live and usable, and a revise reuses it.
   const charge = async (g) => {
     const c = pageCredits(g.usage);
     out.cost += c;
     try { await deps.useCredits(c); } catch { /* never fail a build over the ledger */ }
   };
+  // The sentence the customer reads. Appended to every placeholder note rather
+  // than left implicit — somebody who sees a fallback page AND a balance drop
+  // has been charged for nothing twice over, once in credits and once in trust.
+  const FREE = "You weren't charged for the pages on this attempt.";
 
   // `buildMs` is what the caller waited for. It was summed across attempts when
   // there were two; with one call it is simply that call, and the accumulator is
@@ -158,7 +180,6 @@ export async function publishPages(deps, { spec, slug } = {}) {
   // that actually costs money, reported a single number. Whether PAGE_RULES's
   // ~27k-token cached prefix is paying for itself is answerable only from these.
   out.usage = gen.usage || null;
-  await charge(gen);
   const v = validatePages(gen.input);
   if (!v.pages.length) {
     // THE ONE BRANCH THAT THREW ITS REASONS AWAY. `validatePages` works out
@@ -180,9 +201,9 @@ export async function publishPages(deps, { spec, slug } = {}) {
         ? "the model never called the tool — stop_reason " + gen.shape.stopReason +
           ", blocks [" + gen.shape.blocks.join(", ") + "]"
         : "the generator called the tool with no pages in it";
-    out.notes = gen.truncated
+    out.notes = (gen.truncated
       ? "The pages came out longer than one pass allows — try a simpler brief."
-      : "The generator didn't produce a usable page.";
+      : "The generator didn't produce a usable page.") + " " + FREE;
     return out;
   }
   // A SITE WITH NO HOME PAGE IS NOT A SITE. `validatePages` only FLAGS a missing
@@ -196,7 +217,7 @@ export async function publishPages(deps, { spec, slug } = {}) {
   // placeholder at least explains itself.
   if (!v.pages.some((p) => p.path === "index.tsx")) {
     out.problems = v.problems;
-    out.notes = "The pages came back without a home page, so the site is showing its data model for now — send it again to retry.";
+    out.notes = "The pages came back without a home page, so the site is showing its data model for now — send it again to retry. " + FREE;
     return out;
   }
 
@@ -235,7 +256,7 @@ export async function publishPages(deps, { spec, slug } = {}) {
     // The source is the caller's OWN site, so there is nothing to leak, and it
     // is capped hard: the first few citations, one line each.
     out.cited = citedLines(built.error, v.pages);
-    out.notes = [v.notes, "The pages didn't compile, so the site is showing its data model for now — send it again to retry."].filter(Boolean).join(" ");
+    out.notes = [v.notes, "The pages didn't compile, so the site is showing its data model for now — send it again to retry.", FREE].filter(Boolean).join(" ");
     return out;
   }
 
@@ -245,5 +266,10 @@ export async function publishPages(deps, { spec, slug } = {}) {
   await deps.publish(built.files);
   out.publishMs = Date.now() - tPub;
   out.page = "app";
+  // BILLED LAST, once the site is actually live. Every earlier return is a
+  // placeholder and costs the customer nothing; this is the one path where they
+  // received what they asked for. After `publish` rather than before, because a
+  // publish that throws leaves them with no site.
+  await charge(gen);
   return out;
 }

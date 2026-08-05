@@ -208,7 +208,13 @@ test("truncation is a failed generation, not a shipped half-file", async () => {
   assert.match(out.notes, /longer than one pass/);
   assert.equal(calls.compile.length, 0);
   assert.equal(calls.publish.length, 0);
-  assert.ok(out.cost > 0, "a truncated call still burned tokens and is still billed");
+  // BILLED NOTHING. The tokens really were spent on our side and `usage` still
+  // says so — but the customer asked for a site and got a placeholder, and
+  // charging the full price of a working site for that is the most expensive
+  // outcome the pipeline can hand them.
+  assert.equal(out.cost, 0, "a truncated call delivered nothing and must not be billed");
+  assert.ok(out.usage, "what WE spent is still reported, or the failure cannot be costed");
+  assert.match(out.notes, /weren't charged/);
 });
 
 test("no usable page stops before the container", async () => {
@@ -245,7 +251,11 @@ test("a compile failure is NOT retried — one call, no publish", async () => {
   assert.match(out.notes, /didn't compile/);
   // Still reports what it tried, so a failed build is debuggable from the response.
   assert.deepEqual(out.files, ["src/routes/index.tsx"]);
-  assert.equal(out.cost, pageCredits(USAGE), "one call, one charge");
+  // NO CHARGE. A page that does not compile is a placeholder, and a placeholder
+  // is not the thing the customer asked for. `usage` still carries what the call
+  // consumed, so the failure is still costable from the response.
+  assert.equal(out.cost, 0, "a compile failure delivered a placeholder and must not be billed");
+  assert.ok(out.usage);
 });
 
 test("a lint problem does NOT buy a second call — it ships and says so", async () => {
@@ -315,8 +325,11 @@ test("the worst case is one generation and one build", async () => {
     const { deps, calls } = harness({ generate: async () => gen([lintsWorse()]), compile });
     const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
     assert.equal(calls.generate.length, 1, "one model call, whatever went wrong");
-    assert.equal(calls.charges.length, 1, "and one charge");
-    assert.equal(out.cost, pageCredits(USAGE));
+    // AND NO CHARGE, on every one of them. The ceiling this test exists for is
+    // now zero on the failure side: every route to a placeholder is free, so a
+    // future branch that bills one fails here rather than on somebody's balance.
+    assert.equal(calls.charges.length, 0, "a placeholder is never billed, whatever produced it");
+    assert.equal(out.cost, 0);
     assert.equal(out.page, "placeholder");
   }
 });
@@ -502,9 +515,11 @@ test("a build that validated nothing says WHY, not just that it failed", async (
   assert.equal(out.stage, "validate", "the caller cannot tell this from a compile failure or an outage");
   assert.ok(out.problems.length > 0, "validatePages explained itself and the reasons were dropped");
   assert.match(out.error, /every page was refused/);
-  // The money was still spent, so the breakdown must survive — that is what says
-  // whether the model produced nothing or produced something unusable.
-  assert.ok(out.cost > 0 && out.usage, "a refused generation still cost credits");
+  // The money was still spent ON OUR SIDE, so the breakdown must survive — that
+  // is what says whether the model produced nothing or produced something
+  // unusable. The CUSTOMER is not billed for it: they got the placeholder.
+  assert.equal(out.cost, 0, "a refused generation delivered nothing and must not be billed");
+  assert.ok(out.usage, "usage is reported on every path, billed or not");
   // And nothing downstream ran.
   assert.equal(calls.compile.length, 0, "a build with no pages must not reach the container");
   assert.equal(calls.publish.length, 0);
@@ -547,4 +562,28 @@ test("and the WORKER really produces that shape — the fake above is not proof"
   // value is returned to the caller and logged.
   const at = w.indexOf("const shape = use ? null : {");
   assert.ok(!/b\.text/.test(w.slice(at, at + 400)), "the model's prose is being returned to the caller");
+});
+
+test("a published site IS billed, and billed AFTER it is live", async () => {
+  // THE OTHER HALF OF THE RULE, and without it "don't charge for a placeholder"
+  // is indistinguishable from "don't charge". The three failure tests above all
+  // assert zero, so a charge deleted outright would pass every one of them.
+  const { deps, calls } = harness();
+  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(out.page, "app");
+  assert.equal(calls.charges.length, 1, "a site that went live must be billed exactly once");
+  assert.equal(out.cost, pageCredits(USAGE));
+
+  // AFTER the publish, not before. A publish that throws leaves the customer
+  // with no site, and billing first would take their credits for it. Asserted on
+  // the source, because the ordering is invisible from the outside when both
+  // succeed — which is the only case a fake can produce.
+  const src = fs.readFileSync(new URL("../builder/publish-pages.mjs", import.meta.url), "utf8");
+  const pub = src.indexOf("await deps.publish(");
+  const chg = src.indexOf("await charge(gen)");
+  assert.ok(pub > 0 && chg > 0, "one of the two calls has been renamed");
+  assert.ok(chg > pub, "the charge must come after the publish, or a failed publish still bills");
+  // And exactly one charge site, or "billed once" is a property of this fake
+  // rather than of the code.
+  assert.equal((src.match(/await charge\(/g) || []).length, 1, "a second charge site can double-bill");
 });
