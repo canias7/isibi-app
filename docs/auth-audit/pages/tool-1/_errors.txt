@@ -1,7 +1,9 @@
-src/routes/record.tsx(86,40): error TS2367: This comparison appears to be unintentional because the types 'number' and 'string | undefined' have no overlap.
-src/routes/record.tsx(127,55): error TS2322: Type 'string | number | boolean | null' is not assignable to type 'string | number | Date'.
-src/routes/records.tsx(281,40): error TS2353: Object literal may only specify known properties, and 'onClick' does not exist in type '{ label: string; onSelect: () => void; destructive?: boolean | undefined; }'.
-src/routes/records.tsx(308,70): error TS2322: Type 'number' is not assignable to type 'string'.
-src/routes/records.tsx(313,50): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
-src/routes/records.tsx(315,37): error TS2345: Argument of type '(prev: string[]) => (string | number)[]' is not assignable to parameter of type 'SetStateAction<string[]>'.
-src/routes/records.tsx(316,83): error TS2367: This comparison appears to be unintentional because the types 'string' and 'number' have no overlap.
+src/routes/record.tsx(117,40): error TS2322: Type '{ who: string; what: string; at: string | number | boolean; }[]' is not assignable to type 'Activity[]'.
+src/routes/records.tsx(324,23): error TS2322: Type '(row: Deal) => React.JSX.Element' is not assignable to type '(row: Record<string, unknown>) => ReactNode'.
+src/routes/records.tsx(333,53): error TS2322: Type '(row: Deal) => string' is not assignable to type '(row: Record<string, unknown>) => ReactNode'.
+src/routes/records.tsx(334,54): error TS2322: Type '(row: Deal) => string' is not assignable to type '(row: Record<string, unknown>) => ReactNode'.
+src/routes/records.tsx(338,23): error TS2322: Type '(row: Deal) => React.JSX.Element' is not assignable to type '(row: Record<string, unknown>) => ReactNode'.
+src/routes/records.tsx(341,19): error TS2322: Type '(row: Deal) => void' is not assignable to type '(row: Record<string, unknown>) => void'.
+src/routes/records.tsx(425,55): error TS2322: Type '(row: Account) => string' is not assignable to type '(row: Record<string, unknown>) => ReactNode'.
+src/routes/records.tsx(426,58): error TS2322: Type '(row: Account) => string' is not assignable to type '(row: Record<string, unknown>) => ReactNode'.
+src/routes/records.tsx(427,54): error TS2322: Type '(row: Account) => string' is not assignable to type '(row: Record<string, unknown>) => ReactNode'.

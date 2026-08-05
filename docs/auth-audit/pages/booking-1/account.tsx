@@ -28,6 +28,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { SiteChrome } from "@/components/ui/site-chrome";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Empty } from "@/components/ui/empty";
+import { ActivityFeed } from "@/components/ui/activity-feed";
 
 export const Route = createFileRoute("/account")({ component: Account });
 
@@ -36,14 +37,13 @@ type Announcement = Row & { title: string; body: string };
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm, well-lit room for whatever your practice needs today.",
+  tagline: "Slow mornings, strong practice — a studio on the high street.",
   links: [
-    { label: "Home", href: "/" },
-    { label: "Book", href: "/book" },
-    { label: "The work", href: "/work" },
-    { label: "Account", href: "/account" },
+    { label: "Home", href: "#/" },
+    { label: "Book", href: "#/book" },
+    { label: "Account", href: "#/account" },
   ],
-  action: { label: "Book now", href: "/book" },
+  action: { label: "Book now", href: "#/book" },
 };
 
 const credentials = z.object({
@@ -95,7 +95,8 @@ function Account() {
           <>
             <h1 className="text-3xl font-semibold tracking-tight">Your account</h1>
             <p className="mt-2 text-muted-foreground">
-              Sign in to keep your own class notes, or make an account if you're new here.
+              Sign in to keep your own notes between classes — anything from goals to how a
+              particular pose feels this week.
             </p>
 
             <Form {...form}>
@@ -185,22 +186,21 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
           <CardTitle className="text-base">Studio announcements</CardTitle>
         </CardHeader>
         <CardContent>
-          {announcements.isPending && <Skeleton className="h-16 rounded-md" />}
+          {announcements.isPending && <Skeleton className="h-24 rounded-xl" />}
           {announcements.isError && (
             <p className="text-sm text-destructive">Couldn't load announcements right now.</p>
           )}
           {announcements.data?.length === 0 && (
-            <Empty title="Nothing posted yet" description="Studio news will appear here." />
+            <Empty title="Nothing posted yet" description="Studio news and schedule changes will show up here." />
           )}
           {!!announcements.data?.length && (
-            <ul className="grid gap-3 motion-stagger">
-              {announcements.data.map((a) => (
-                <li key={a.id} className="rounded-md border border-border p-3">
-                  <p className="text-sm font-medium">{a.title}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">{a.body}</p>
-                </li>
-              ))}
-            </ul>
+            <ActivityFeed
+              items={announcements.data.map((a) => ({
+                who: a.title,
+                what: a.body,
+                at: a.created_at,
+              }))}
+            />
           )}
         </CardContent>
       </Card>
@@ -210,15 +210,17 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
           <CardTitle className="text-base">Your notes</CardTitle>
         </CardHeader>
         <CardContent>
-          {notes.isPending && <Skeleton className="h-24 rounded-md" />}
-          {notes.isError && <p className="text-sm text-destructive">Couldn't load your notes.</p>}
+          {notes.isPending && <Skeleton className="h-24 rounded-xl" />}
+          {notes.isError && (
+            <p className="text-sm text-destructive">Couldn't load your notes. Refresh and try again.</p>
+          )}
           {notes.data?.length === 0 && (
-            <Empty title="No notes yet" description="Jot down what worked in class, or what to try next time." />
+            <Empty title="No notes yet" description="Jot down how a class felt, or what to work on next time." />
           )}
           {!!notes.data?.length && (
-            <ul className="grid gap-2 motion-stagger">
+            <ul className="grid gap-3 motion-stagger">
               {notes.data.map((n) => (
-                <li key={n.id} className="rounded-md border border-border p-3">
+                <li key={n.id} className="rounded-lg border border-border p-3">
                   <p className="text-sm font-medium">{n.title}</p>
                   <p className="mt-1 text-sm text-muted-foreground">{n.body}</p>
                 </li>
@@ -227,7 +229,7 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
           )}
 
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="mt-4 grid gap-3">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="mt-5 grid gap-3">
               <FormField
                 control={form.control}
                 name="title"

@@ -5,7 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 
-import { useCreateRow, usePublicRows, type Row } from "@/lib/rows";
+import { useRows, useCreateRow, usePublicRows, type Row } from "@/lib/rows";
 import { AvailabilityGrid } from "@/components/ui/availability-grid";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,34 +28,34 @@ import {
 
 export const Route = createFileRoute("/book")({
   component: Book,
-  validateSearch: (search: Record<string, unknown>): { service?: string } => ({
-    service: typeof search.service === "string" ? search.service : undefined,
+  validateSearch: (search: Record<string, unknown>): { class?: string } => ({
+    class: typeof search.class === "string" ? search.class : undefined,
   }),
 });
 
+type Teacher = Row & { name: string };
 type Appointment = Row;
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm, well-lit room for whatever your practice needs today.",
+  tagline: "Slow mornings, strong practice — a studio on the high street.",
   links: [
-    { label: "Home", href: "/" },
-    { label: "Book", href: "/book" },
-    { label: "The work", href: "/work" },
-    { label: "Account", href: "/account" },
+    { label: "Home", href: "#/" },
+    { label: "Book", href: "#/book" },
+    { label: "Account", href: "#/account" },
   ],
-  action: { label: "Book now", href: "/book" },
+  action: { label: "Book now", href: "#/book" },
 };
 
-const CLASS_NAMES = [
+const CLASSES = [
+  "Sunrise Vinyasa",
   "Slow Flow",
-  "Vinyasa",
+  "Power Hour",
   "Restorative",
-  "Beginners' Foundations",
-  "Private session",
+  "Beginners' Flow",
 ];
 
-const SLOTS = ["07:00", "08:00", "09:30", "11:00", "12:30", "17:30", "18:30", "19:30"];
+const SLOTS = ["07:00", "08:15", "09:30", "12:00", "17:30", "18:45"];
 
 const booking = z.object({
   class_name: z.string().min(1, "Pick a class"),
@@ -68,7 +68,7 @@ const booking = z.object({
 type Booking = z.infer<typeof booking>;
 
 function Book() {
-  const { service: preselected } = Route.useSearch();
+  const { class: preselected } = Route.useSearch();
   const create = useCreateRow<Appointment>("bookings");
   const [booked, setBooked] = useState(false);
 
@@ -106,7 +106,7 @@ function Book() {
         <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
           <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
           <p className="mt-3 text-muted-foreground">
-            We've sent a confirmation to your email. Need to move or cancel it? Use the link in that email.
+            We've saved your spot. Need to change it? Get in touch and we'll sort it.
           </p>
           <Button asChild variant="outline" className="mt-6">
             <Link to="/">Back to the studio</Link>
@@ -120,7 +120,7 @@ function Book() {
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-2xl px-6 py-14">
         <h1 className="text-3xl font-semibold tracking-tight">Book a class</h1>
-        <p className="mt-2 text-muted-foreground">Pick a class and a slot — we'll confirm by email.</p>
+        <p className="mt-2 text-muted-foreground">Pick a class, a date and a time — we'll hold your mat.</p>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -137,7 +137,7 @@ function Book() {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {CLASS_NAMES.map((c) => (
+                      {CLASSES.map((c) => (
                         <SelectItem key={c} value={c}>
                           {c}
                         </SelectItem>
@@ -212,7 +212,7 @@ function Book() {
 
             <div className="sm:col-span-2">
               <Button type="submit" className="motion-press" disabled={create.isPending}>
-                {create.isPending ? "Booking…" : "Book class"}
+                {create.isPending ? "Booking…" : "Request booking"}
               </Button>
             </div>
           </form>
