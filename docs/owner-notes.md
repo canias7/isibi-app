@@ -13661,3 +13661,47 @@ same price as a working site, for nothing.
 the failure paths, so a charge deleted outright would pass all of them — a fourth
 asserts a published site IS billed, exactly once, from exactly one call site.
 5 mutants, all caught.
+
+### A killed container is retried once (2026-08-05)
+
+`build smoke` failed with `vite build was killed by SIGTERM (no output)`, 2.5
+seconds into a bundle that normally takes 20. **Not the model and not the code:**
+the run started TWO SECONDS after a deploy finished, and Cloudflare rolls the
+container image out asynchronously — so the instance was being drained underneath
+a build that was already running. The same asynchrony that produces the "container
+template is behind" failure, wearing a different face. Typecheck had already
+passed, in 9.8s against 18.4s on the healthy run, which is what a warm
+pre-existing instance looks like.
+
+First occurrence in twelve smoke runs, and the container is `standard-1` with
+`max_instances: 5` — a memory wall would be OOM/SIGKILL and would repeat.
+
+**The retry is NOT the repair pass that was removed, and the distinction is the
+whole justification.** That one re-ran the MODEL — ~80% of what a build costs —
+to guess again at pages that had half-worked. This re-runs nothing but the
+container, on pages that already exist and have already passed typecheck. No
+model call, no tokens, ~15-40s.
+
+- **`stage: "typecheck"` is NEVER retried**, and that exclusion is what stops
+  this being a slow no-op on the common failure: a page that does not compile
+  does not compile the second time either, and the customer would wait another 40
+  seconds for the same placeholder.
+- **Anything at `stage: "build"` gets one more go** — including a thrown
+  `deps.compile`, which reaches the same stage by a different route and is
+  asserted separately. Being generous there costs one wasted container run on a
+  rare path; being narrow costs a list of signal names to keep up to date.
+- **No delay between the two.** Starting a fresh instance has its own cold start,
+  which is the spacing. A sleep would be a guess at how long a rollout takes,
+  tuned against nothing.
+- **Bounded at two, by construction rather than by a counter** — there is no
+  loop. The mutant that made it one hung the suite, which is its own kind of kill.
+- `builds` and `retriedBuild` are returned and printed by the smoke test, because
+  a build that succeeded on its second compile is otherwise indistinguishable
+  from one that succeeded on its first — and the failure this absorbs is exactly
+  the kind nobody would otherwise learn was happening.
+
+**And the pricing fix was confirmed by the same failing run**: `charged 0
+credits` on the placeholder, with `usage` still reporting the 9,675 output tokens
+we spent. Yesterday that build would have taken ~23 credits for nothing.
+
+900 tests, 7 mutants, all caught.

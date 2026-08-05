@@ -167,6 +167,46 @@ export async function publishPages(deps, { spec, slug } = {}) {
     return bd || { ok: false, stage: "build", error: "the build service returned nothing" };
   };
 
+  /**
+   * Compile, and try once more if the CONTAINER died rather than the code.
+   *
+   * NOT THE REPAIR PASS THAT WAS REMOVED, and the distinction is the whole
+   * justification: that one re-ran the MODEL, which is ~80% of what a build
+   * costs, to guess again at pages that had half-worked. This re-runs nothing but
+   * the container, on pages that already exist and have already passed
+   * typecheck. No model call, no tokens, ~15-40s.
+   *
+   * Measured live 2026-08-05: `vite build was killed by SIGTERM (no output)`,
+   * 2.5 seconds into a bundle that normally takes 20. `build smoke` had started
+   * two seconds after a deploy finished, and Cloudflare rolls the container image
+   * out ASYNCHRONOUSLY — so the instance was being drained underneath a build
+   * that was already running. The same asynchrony that produces the "container
+   * template is behind" failure, wearing a different face.
+   *
+   * `stage: "typecheck"` is NEVER retried, and that exclusion is what stops this
+   * being a slow no-op on the common failure: a page that does not compile does
+   * not compile the second time either, and the customer would wait another 40
+   * seconds for the same placeholder. Anything at `stage: "build"` gets one more
+   * go — a genuine bundler error (an import tsc allowed and vite cannot resolve)
+   * is deterministic too, so the cost of being generous here is one wasted
+   * container run on a rare path, against catching every future spelling of "the
+   * process was killed" without a list of signals to keep up to date.
+   *
+   * No delay between the two. Starting a fresh container instance has its own
+   * cold start, which is the spacing — and a sleep would be a guess at how long
+   * a rollout takes, tuned against nothing.
+   */
+  const compileWithRetry = async (pages) => {
+    let bd = await compile(pages);
+    out.builds = 1;
+    if (!bd.ok && bd.stage === "build") {
+      out.retriedBuild = String(bd.error || "").slice(0, 200);
+      bd = await compile(pages);
+      out.builds = 2;
+    }
+    return bd;
+  };
+
   // THE MODEL CALL, TIMED. It is the slowest single thing in a build and it was
   // folded into one `pages` number alongside the container compile and ~20 R2
   // puts, so "the build took four minutes" could not be attributed to any of
@@ -222,7 +262,7 @@ export async function publishPages(deps, { spec, slug } = {}) {
   }
 
   const problems = v.problems.concat(lintPages(v.pages, spec));
-  const built = await compile(v.pages);
+  const built = await compileWithRetry(v.pages);
 
   // THERE IS NO REPAIR PASS. Removed 2026-08-04, owner's call, on the first real
   // measurement of what a build costs: output is 80% of it, and a repair is a
