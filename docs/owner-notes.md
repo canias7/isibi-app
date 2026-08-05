@@ -13028,3 +13028,56 @@ for their text passed. The block is now asserted to be REACHED, not present.
 
 **Not yet run** — it needs `SUPABASE_SERVICE_KEY` and `NEON_API_KEY`, so it fires
 in CI after a deploy.
+
+## `member smoke`'s first run found two live breaks (2026-08-04)
+
+**NO GENERATED SITE COULD SIGN ANYBODY UP OR IN.** Every auth POST answered
+`400 MISSING_ORIGIN — "Origin header is required when callbackURL is not an
+absolute URL"`.
+
+`proxySiteService` forwards an ALLOW-LIST of headers — `content-type`,
+`authorization`, `accept`, `prefer` — and the reasoning behind it is sound and is
+about COOKIES: forwarding everything would carry isibi.ai's cookies to a third
+party. `Origin` is not a cookie. It is the caller's identity, it was dropped, and
+Better Auth refuses without it.
+
+**SET, not forwarded.** This endpoint is public, so forwarding trusts an
+attacker-chosen value straight into Better Auth's trusted-origins check. The
+request genuinely originates from this Worker, so it says so and a caller cannot
+influence it.
+
+**Sign-out was a POST with no content-type and no body**, which the auth server
+refuses as `415` before it looks at anything else. And `useLogout` swallows the
+failure by design — the local token is cleared either way — so **the page
+believed it had signed out while the session stayed live for anyone holding a
+copy of the token.**
+
+Everything before signup passed on the first run, which is worth saying: the
+build was free (`cost === 0`, asserted), every table was created and seeded, and
+all five access levels behaved correctly for a signed-out visitor.
+
+### The third layer that could not name its own failure
+
+`build smoke` fell back to the placeholder again — but now says `stage:"validate"`
+rather than `stage:-`, so the earlier fix worked. What it still could not say is
+WHY: `problems: []` with 9,810 output tokens and 22 credits spent.
+
+`generateSitePages` returns `input: null` in two completely different situations —
+the model answered in prose and never called the tool, or it called the tool with
+nothing in it — and they need different responses. It now captures `stop_reason`
+and the block TYPES when there is no `tool_use` block. **Never the text**: that is
+model-written prose about a customer's brief, and this value is returned to the
+caller and logged.
+
+**Two mutants survived the first sweep on the same gap**: the behavioural test
+hands `publishPages` a hand-made `shape`, so disabling the capture in `worker.js`
+and blanking the stop reason both passed. A fake is not evidence about the thing
+it stands in for — the second time that exact lesson has come up today.
+
+### And the generator moved
+
+`page gen eval` **1/3 → 2/3**. Booking recovered, which is the dangling-link fix
+working on a real generation. Menu clean both runs. The CRM is still the one that
+fails.
+
+863 unit tests, 5 mutants on this change, all caught.

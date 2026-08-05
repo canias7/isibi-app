@@ -3033,7 +3033,21 @@ async function generateSitePages(env, brief, spec, brand, family) {
   // rather than shipping a file that ends mid-expression.
   if (j.stop_reason === "max_tokens") return { input: null, truncated: true, ...used };
   const use = (Array.isArray(j.content) ? j.content : []).find((b) => b && b.type === "tool_use");
-  return { input: (use && use.input) || null, ...used };
+  // WHY THERE ARE NO PAGES, when there are none. Measured live 2026-08-04: a
+  // build spent 9,810 output tokens and 22 credits, `validatePages` got null, and
+  // the response could say only "the generator didn't produce a usable page" —
+  // which does not distinguish a model that answered in prose from one that
+  // called the tool with an empty argument. Third layer in a row where a failure
+  // could not name itself; the pages are gone the moment this returns, so the
+  // answer has to be captured here or not at all.
+  //
+  // `stop_reason` and the block TYPES only — never the text, which is
+  // model-written prose about a customer's brief.
+  const shape = use ? null : {
+    stopReason: String(j.stop_reason || "").slice(0, 40),
+    blocks: (Array.isArray(j.content) ? j.content : []).map((b) => String(b && b.type)).slice(0, 6),
+  };
+  return { input: (use && use.input) || null, ...(shape ? { shape } : {}), ...used };
 }
 
 // Placeholder published page. Deliberately plain: it reports what was actually
@@ -3410,6 +3424,22 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
     const v = request.headers.get(h);
     if (v) headers.set(h, v);
   }
+  // ORIGIN, SET RATHER THAN FORWARDED — and without it NO GENERATED SITE COULD
+  // SIGN ANYBODY UP. Measured live 2026-08-04, first run of `member smoke`:
+  // `400 MISSING_ORIGIN — "Origin header is required when callbackURL is not an
+  // absolute URL"`, on every auth call that is not a plain GET.
+  //
+  // The header was dropped by the allow-list above, whose reasoning is sound and
+  // is about COOKIES: forwarding everything would carry isibi.ai's cookies to a
+  // third party. `Origin` is not a cookie, it is the caller's identity, and the
+  // caller here really is this Worker.
+  //
+  // SET, not forwarded, on purpose. Forwarding trusts whatever the client sent —
+  // and this endpoint is public, so that is an attacker-chosen value reaching
+  // Better Auth's trusted-origins check. The request genuinely originates from
+  // this Worker's own origin, so that is what it says, and a caller cannot
+  // influence it.
+  headers.set("origin", url.origin);
   // A VISITOR HAS NO TOKEN, AND NEON WILL NOT SERVE A REQUEST WITHOUT ONE.
   //
   // Measured 2026-08-04: every public read answered

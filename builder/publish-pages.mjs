@@ -176,7 +176,10 @@ export async function publishPages(deps, { spec, slug } = {}) {
     out.problems = v.problems;
     out.error = v.problems.length
       ? "every page was refused: " + v.problems.slice(0, 3).join(" · ").slice(0, 300)
-      : "the generator returned no pages at all";
+      : gen.shape
+        ? "the model never called the tool — stop_reason " + gen.shape.stopReason +
+          ", blocks [" + gen.shape.blocks.join(", ") + "]"
+        : "the generator called the tool with no pages in it";
     out.notes = gen.truncated
       ? "The pages came out longer than one pass allows — try a simpler brief."
       : "The generator didn't produce a usable page.";
