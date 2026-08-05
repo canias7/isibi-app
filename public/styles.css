@@ -1393,7 +1393,30 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-card-meta { display: flex; flex-direction: column; gap: .15rem; padding: .7rem .85rem .8rem; }
 .st-card-name { font-size: .92rem; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .st-card-sub { font-size: .75rem; color: var(--muted); }
-.st-card-del { position: absolute; top: 8px; right: 8px; background: rgba(0, 0, 0, .55); }
+/* The small round "remove" control — a site card's corner and a scheduled
+   post's row. It had NO STYLES AT ALL: `.sch-del` appears twice in chat.js and
+   nowhere in this file, so both call sites were rendering a browser DEFAULT
+   button — default padding, default border, default font — with only a
+   translucent black fill layered on. That is the grey box with a hairline rim
+   that looked wrong on the card thumbnails. */
+.sch-del {
+  display: grid; place-items: center;
+  width: 24px; height: 24px; padding: 0;
+  border: 1px solid var(--line-2); border-radius: 999px;
+  background: var(--bg); color: var(--muted);
+  font-size: 15px; line-height: 1; cursor: pointer;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.sch-del:hover { background: #0a0a0a; border-color: #0a0a0a; color: #fff; }
+.sch-del:focus-visible { outline: 2px solid #0a0a0a; outline-offset: 2px; }
+/* Over a thumbnail it has to carry its own contrast: the page underneath is
+   whatever the model built, so a panel-coloured chip can disappear into it. */
+.st-card-del {
+  position: absolute; top: 8px; right: 8px;
+  background: rgba(10, 10, 10, .6); border-color: transparent; color: #fff;
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+}
+.st-card-del:hover { background: rgba(10, 10, 10, .88); border-color: transparent; }
 /* Workspace — mirrors Lovable's anatomy: top bar, slim chat rail, dominant
    preview card. isibi dark + pink→amber skin throughout. */
 .st-ws.st-lv { display: flex; flex-direction: column; gap: .7rem; width: 100%; height: calc(100vh - 88px); min-height: 480px; }
