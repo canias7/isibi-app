@@ -196,10 +196,18 @@ try {
   // server sent. The first cannot distinguish "the server never sent it" from
   // "the proxy dropped it", which is the question two wrong fixes turned on.
   const upstream = (res) => res.headers.get("x-isibi-upstream") || "(not reported)";
+  // BOTH CALLS, because they answer different halves. get-session READS a
+  // session; SIGN-IN is where one is established, so a cookie or a bearer token
+  // would be set there — and the first version of this probe asked only
+  // get-session, which is the one call that could never carry the answer.
+  const liProbe = await auth("sign-in/email", {
+    ...jsonPost({ email: m1.email, password: m1.password }),
+    headers: { "content-type": "application/json", "x-isibi-debug": "headers" },
+  });
+  console.log("   sign-in upstream:    " + upstream(liProbe) + "  (" + liProbe.status + ")");
   const probe = await auth("get-session", { headers: { ...bearer(tokA), "x-isibi-debug": "headers" } });
-  console.log("   ours:     " + names(probe));
-  console.log("   upstream: " + upstream(probe));
-  console.log("   sign-in:  " + names(li));
+  console.log("   get-session upstream: " + upstream(probe));
+  console.log("   what the client sees: " + names(probe));
   ok("sign-in answers with a bearer token in set-auth-token",
     !!suHeaderTok, "the proxy is stripping it, or the bearer plugin is off");
   const sessTok = suHeaderTok || tokA;
