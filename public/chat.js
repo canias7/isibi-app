@@ -10005,7 +10005,6 @@ function moreCloud(site) {
   // Flip a name out of DEAD_PANELS the moment its route exists again.
   const DEAD_PANELS = {
     security: 'Off since the audit log was removed',   // /events — routed nowhere
-    insights: 'Not rebuilt yet',                        // calls /backend/analytics; /analytics exists on another path
     backups: 'Not rebuilt yet',                         // /backend/backup*
     versions: 'Not rebuilt yet',                        // /backend/rollback
     functions: 'Not rebuilt yet',                       // /site/functions
@@ -10856,28 +10855,44 @@ async function siteInsights(site) {
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
   if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — insights show up here.'); return; }
   const { bodyEl } = stCloudModal('siteInsightsModal', 'Insights');
+  // REWRITTEN against the live route. This panel used to call
+  // /api/site/backend/analytics and /backend/metrics, both deleted with the D1
+  // runtime in July, and it asked for a shape nothing serves any more —
+  // byEvent / byPath / totals.reqs. Not a path fix: /api/site/<slug>/analytics
+  // answers {views, visitors, views7, visitors7, series}, which is different
+  // data and, unlike the old per-event tracking, is actually being recorded.
+  // site_hits has been written on every visit since the D1 era.
   try {
-    const [ar, mr] = await Promise.all([
-      apiFetch('/api/site/backend/analytics?slug=' + encodeURIComponent(slug) + '&days=30'),
-      apiFetch('/api/site/backend/metrics?slug=' + encodeURIComponent(slug) + '&days=30'),
-    ]);
-    const a = await ar.json().catch(() => ({})); const m = await mr.json().catch(() => ({}));
-    const evRows = Object.entries(a.byEvent || {}).sort((x, y) => y[1] - x[1]).slice(0, 8);
-    const pathRows = Object.entries(a.byPath || {}).sort((x, y) => y[1] - x[1]).slice(0, 8);
-    const reqs = (m.totals && m.totals.reqs) || 0, errs = (m.totals && m.totals.errs) || 0;
-    const bar = (rows) => rows.length ? rows.map(([k, v]) => '<div class="si-bar"><span class="si-bar-k">' + esc(k || '—') + '</span><span class="si-bar-t"><i style="width:' + Math.max(4, Math.round(v / (rows[0][1] || 1) * 100)) + '%"></i></span><span class="si-bar-v">' + v + '</span></div>').join('') : '<div class="si-empty">No data yet.</div>';
+    const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/analytics');
+    const d = await r.json().catch(() => ({}));
+    // 503 is the route saying it could not READ, and it says so rather than
+    // answering zeros — "nobody visited your site" is a very different and much
+    // worse thing to tell someone than "try again". Honour that here.
+    if (!r.ok) { bodyEl.innerHTML = '<div class="si-empty">Couldn\u2019t read your traffic just now — try again in a moment.</div>'; return; }
+    const n = (v) => Number.isFinite(+v) ? +v : 0;
+    const series = Array.isArray(d.series) ? d.series : [];
+    const peak = series.reduce((m, x) => Math.max(m, n(x.views)), 0);
+    const day = (iso) => { try { return new Date(iso + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }); } catch (e) { return ''; } };
+    // A bar per day, height by fill — no colour, so it survives greyscale.
+    // A zero day still draws a hairline, or an empty week looks like missing
+    // data rather than a quiet week.
+    const chart = series.length
+      ? '<div class="si-days">' + series.map((x) => '<div class="si-day" title="' + esc(String(x.day)) + ' \u00b7 ' + n(x.views) + '"><span class="si-day-bar"><i style="height:' + (peak ? Math.max(2, Math.round(n(x.views) / peak * 100)) : 2) + '%"></i></span><span class="si-day-k">' + esc(day(String(x.day))) + '</span></div>').join('') + '</div>'
+      : '<div class="si-empty">No visits recorded yet.</div>';
     bodyEl.innerHTML =
-      '<div class="si-stat-row"><div class="si-stat"><b>' + ((a.total) || 0) + '</b><span>views / actions · 30d</span></div>' +
-      '<div class="si-stat"><b>' + reqs + '</b><span>API requests</span></div>' +
-      '<div class="si-stat"><b>' + errs + '</b><span>errors</span></div></div>' +
-      '<div class="si-panel-sub">By event</div>' + bar(evRows) +
-      '<div class="si-panel-sub">Top pages</div>' + bar(pathRows) +
-      '<div class="si-note">Traffic is recorded when your app tracks views/actions. API counts are approximate.</div>';
-  } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load insights just now — try again.</div>'; }
+      '<div class="si-stat-row">' +
+        '<div class="si-stat"><b>' + n(d.views) + '</b><span>views \u00b7 all time</span></div>' +
+        '<div class="si-stat"><b>' + n(d.visitors) + '</b><span>visitors \u00b7 all time</span></div>' +
+      '</div>' +
+      '<div class="si-stat-row">' +
+        '<div class="si-stat"><b>' + n(d.views7) + '</b><span>views \u00b7 last 7 days</span></div>' +
+        '<div class="si-stat"><b>' + n(d.visitors7) + '</b><span>visitors \u00b7 last 7 days</span></div>' +
+      '</div>' +
+      '<div class="si-panel-sub">Last 7 days</div>' + chart +
+      '<div class="si-note">A visitor is counted once a day. Bots are not counted.</div>';
+  } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn\u2019t load insights just now — try again.</div>'; }
 }
 
-// Backups — snapshot the app's data to restore later. Owner-scoped. _users (logins) are
-// intentionally excluded from a snapshot, so a restore can never wipe accounts.
 async function siteBackups(site) {
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
   if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then back up your data.'); return; }

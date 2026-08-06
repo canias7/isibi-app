@@ -5507,3 +5507,12 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
    the same flex failure as the Data rail, which this session hit twice. */
 .pay-hook-row code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line); border-radius: 8px; padding: .45rem .6rem; font-size: .78rem; background: var(--panel-2); }
 .pay-hook-row .st-publish { flex: none; }
+
+/* Insights — a bar per day. Height carries the value, not colour, so it reads
+   in greyscale and in print. A zero day still draws a hairline: an empty week
+   must look like a quiet week, not like missing data. */
+.si-days { display: flex; align-items: flex-end; gap: .5rem; margin: .2rem 0 .4rem; }
+.si-day { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: .35rem; }
+.si-day-bar { width: 100%; height: 84px; display: flex; align-items: flex-end; border-radius: 6px; background: var(--panel); overflow: hidden; }
+.si-day-bar i { display: block; width: 100%; background: var(--split); border-radius: 6px 6px 0 0; }
+.si-day-k { font-size: .68rem; color: var(--muted); letter-spacing: .03em; }
