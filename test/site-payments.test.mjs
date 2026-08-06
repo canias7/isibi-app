@@ -468,3 +468,158 @@ test("both filters exist, and the DDL one is documented as the unreachable backs
   assert.match(src, /if \(normalizePayment\(t\)\) for \(const c of PAYMENT_COLUMNS\) MANAGED\.add\(c\);/, "the DDL backstop must exist");
   assert.match(src, /DEFENCE IN DEPTH, AND UNREACHABLE TODAY/, "and must say so");
 });
+
+// ── the two routes ───────────────────────────────────────────────────────────
+//
+// Derived from worker.js, which cannot be imported. Read RAW: strip() on a
+// six-thousand-line file eats from any /* inside a string or regex to the next
+// */ and reports present code as missing.
+
+const WORKER = fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8");
+const between = (from, to) => {
+  const a = WORKER.indexOf(from);
+  assert.ok(a > 0, "missing anchor: " + from);
+  const b = WORKER.indexOf(to, a);
+  assert.ok(b > a, "missing end anchor: " + to);
+  return WORKER.slice(a, b);
+};
+const checkout = () => between("async function handleCheckout(", "async function proxySiteService(");
+/**
+ * `a` must appear before `b`, WITH BOTH PROVEN PRESENT FIRST.
+ *
+ * A bare indexOf(a) < indexOf(b) passes vacuously when `a` is deleted, because
+ * indexOf returns -1 and -1 is less than everything. Three ordering assertions
+ * here were written that way and a mutation removing the signature check
+ * survived the whole suite as a result — the check whose entire job is to stop
+ * an unsigned body being believed.
+ */
+const orderedIn = (src, a, b, why) => {
+  const i = src.indexOf(a), j = src.indexOf(b);
+  assert.notEqual(i, -1, `missing: ${a}`);
+  assert.notEqual(j, -1, `missing: ${b}`);
+  assert.ok(i < j, why);
+};
+const webhookRoute = () => between('url.pathname.startsWith("/api/stripe/site/")', 'url.pathname === "/api/stripe/webhook"');
+
+test("checkout REFUSES a table that does not declare payment", () => {
+  // Otherwise this is a way to insert into any collect table while bypassing
+  // that table's own rate limit.
+  assert.match(checkout(), /const payment = table && normalizePayment\(table\);/);
+  assert.match(checkout(), /if \(!table \|\| !payment\) return Response\.json[^;]*404/);
+});
+
+test("checkout NEVER takes the total, the price or the currency from the body", () => {
+  const c = checkout();
+  // The only things read off the request are the table, the cart, and the
+  // declared form fields. A body key that could name money must not appear.
+  for (const k of ["body.total", "body.amount", "body.price", "body.currency", "body.unit_amount"]) {
+    assert.equal(c.includes(k), false, k);
+  }
+  assert.match(c, /const cart = parseCart\(body\)/);
+  assert.match(c, /await priceCart\(/);
+});
+
+test("checkout builds BOTH return URLs itself — a body-supplied one is an open redirect on our domain", () => {
+  const c = checkout();
+  assert.equal(/body\.success_url|body\.successUrl|body\.cancel_url|body\.cancelUrl|body\.return/.test(c), false);
+  assert.match(c, /successUrl: `\$\{base\}/);
+  assert.match(c, /cancelUrl: `\$\{base\}/);
+});
+
+test("payment.from must name a table the site DECLARED — otherwise it could read _secrets", () => {
+  assert.match(checkout(), /if \(!tables\.some\(\(t\) => String\(t\.name\)\.toLowerCase\(\) === from\)\)/);
+});
+
+test("the customer's fields are filtered to DECLARED columns", () => {
+  // The payment columns are not in that list (the schema engine strips them),
+  // so a body claiming payment_status cannot reach the row.
+  assert.match(checkout(), /declared\.has\(low\)/);
+});
+
+test("a key that will not DECRYPT is not treated as no key", () => {
+  // Calling Stripe with an empty key tells a customer with a good card that
+  // their payment failed. Absent is 503-and-say-so; broken is 503 too, but by a
+  // different path that logs.
+  const c = checkout();
+  assert.match(c, /catch \(e\)[\s\S]{0,400}?checkout key:/);
+  assert.match(c, /if \(!key\) return Response\.json/);
+});
+
+test("the order row is written BEFORE Stripe is called", () => {
+  const c = checkout();
+  orderedIn(c, "INSERT INTO", "api.stripe.com",
+    "a customer who paid while the callback was lost must still have an order");
+});
+
+test("the Stripe call is bounded and idempotent", () => {
+  const c = checkout();
+  assert.match(c, /AbortSignal\.timeout\(/);
+  assert.match(c, /"Idempotency-Key"/);
+});
+
+test("a Stripe error is logged, never echoed — the request carries the site's line items", () => {
+  const c = checkout();
+  const returned = c.slice(c.indexOf("if (!res.ok"));
+  const body = returned.match(/Response\.json\(\{ error: ([^}]*)\}/);
+  assert.ok(body, "the failure must return a Response");
+  assert.equal(/out\.error|e\.message|String\(e\)/.test(body[1]), false, body[1]);
+});
+
+test("the webhook verifies the HMAC against THAT SITE's own secret", () => {
+  const w = webhookRoute();
+  assert.match(w, /STRIPE_WEBHOOK_SECRET/);
+  assert.match(w, /verifyStripeSignature\(/);
+  assert.match(w, /secrets: \[secret\]/);
+  // Over the RAW bytes: re-serialising JSON changes them and the signature fails.
+  assert.match(w, /const raw = await request\.text\(\)/);
+  orderedIn(w, "request.text()", "JSON.parse(raw)", "the signature is over exact bytes");
+});
+
+test("THE WEBHOOK FAILS CLOSED with no secret — it is the thing that marks orders paid", () => {
+  const w = webhookRoute();
+  assert.match(w, /if \(!secret\) return Response\.json[^;]*503/);
+});
+
+test("a bad signature is refused before the body is believed", () => {
+  orderedIn(webhookRoute(), "if (!ver.ok)", "paidFromEvent",
+    "an unsigned body must never reach the thing that marks orders paid");
+});
+
+test("the event's own slug must be THIS site's", () => {
+  // Belt and braces over the signature — but the alternative is a slug from a
+  // request body reaching a connection lookup, which is never worth leaving open.
+  assert.match(webhookRoute(), /if \(paid\.slug !== wslug\)/);
+});
+
+test("the update is IDEMPOTENT — Stripe delivers at least once and retries", () => {
+  assert.match(webhookRoute(), /payment_status<>'paid'/);
+});
+
+test("an unknown slug answers 200, or Stripe retries for days and disables the endpoint", () => {
+  const w = webhookRoute();
+  assert.match(w, /if \(!wconn\) return Response\.json\(\{ ok: true/);
+});
+
+test("a failure to RECORD answers 500, so Stripe retries — the money is real", () => {
+  const w = webhookRoute();
+  const c = w.slice(w.indexOf("wh apply:"));
+  assert.match(c, /status: 500/);
+});
+
+test("the checkout rate limit is ACTED ON, not merely present", () => {
+  // api-auth.test.mjs asserts a limiter is mentioned in every /api/db block. A
+  // mutant deleting the refusal left `_dataLimiter.hit(` in place and survived
+  // it, so the endpoint was unlimited while the invariant read as satisfied.
+  const block = between('url.pathname.endsWith("/checkout")', 'url.pathname.endsWith("/uploads")');
+  assert.match(block, /_dataLimiter\.hit\(/);
+  assert.match(block, /if \(!chit\.ok\)[\s\S]{0,120}?tooMany\(chit\)/);
+  // And before the body is read, or a flood still gets us to buffer it.
+  orderedIn(block, "_dataLimiter.hit(", "request.json()", "limit before reading the body");
+});
+
+test("the two webhooks are separate handlers — one must never mint platform credits", () => {
+  // isibi's own billing and a barber shop's order are different accounts with
+  // different signing secrets.
+  const w = webhookRoute();
+  assert.equal(/add_credits|mintFromEvent|credit/i.test(w), false, "the per-site webhook must not touch the credit ledger");
+});
