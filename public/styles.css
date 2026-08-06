@@ -5051,8 +5051,13 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .mkt-crt .crt-screen{flex:1;min-height:clamp(360px,70vh,1040px);
   background:transparent;box-shadow:none;border-radius:0}
 /* nav lives INSIDE the screen, on the top bar (below the tiny REC/CH hud) */
-.crt-topbar{position:absolute;top:clamp(2.4rem,5vh,3.1rem);left:0;right:0;z-index:3;
-  display:flex;align-items:center;justify-content:space-between;padding:0 clamp(1.5rem,3.2vw,2.4rem)}
+.crt-topbar {position:absolute;top:clamp(2.4rem,5vh,3.1rem);left:0;right:0;z-index: 6;
+  display:flex;align-items:center;justify-content:space-between;padding:0 clamp(1.5rem,3.2vw,2.4rem)
+  /* Above .crt-crest, which is also z-index 3 and comes LATER in the DOM —
+     so at equal z-index the headline painted OVER the AI models dropdown,
+     straight through the middle of it. The nav belongs above a decorative
+     headline regardless. .crt-stage is 2, .crt-crest is 3. */
+}
 .crt-topbar .mkt-brand{font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;font-size:1.05rem;
   display:flex;align-items:center;gap:.5rem;color:var(--text)}
 .crt-topbar .mkt-brand .logo-mark{width:26px;height:26px}
@@ -5508,35 +5513,60 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 .pay-hook-row code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line); border-radius: 8px; padding: .45rem .6rem; font-size: .78rem; background: var(--panel-2); }
 .pay-hook-row .st-publish { flex: none; }
 
-/* ── The landing's "AI models" panel ─────────────────────────────────────────
-   Reuses .auth-gate's scrim and .auth-card's surface so the panel is visually
-   the same object as the sign-in popup — one overlay language on this page,
-   not two. Only the inner list is new.
+/* ── The landing's "AI models" dropdown ──────────────────────────────────────
+   A menu hanging off the nav item, not a modal. Visibility is pure CSS on the
+   wrapper's :hover / :focus-within — no open/close state to get stuck in, no
+   close-timer to race a mouse with, and it works before chat.js has run.
 
-   It holds every group at once (19 rows), so the GROUPS scroll while the title
-   stays put: a panel taller than the viewport that scrolls as a whole hides its
-   own heading the moment you look at the last model. */
-.mdl-card{max-width:560px;width:100%;text-align:left;padding:2rem 2rem 1.75rem;
-  display:flex;flex-direction:column;max-height:min(84vh,760px)}
-.mdl-title{margin:0 0 .3rem;font-size:1.45rem;font-weight:700;letter-spacing:-.02em;color:var(--text)}
-.mdl-sub{margin:0 0 1.15rem;font-size:.86rem;line-height:1.5;color:var(--muted);max-width:46ch}
-.mdl-groups{overflow-y:auto;min-height:0;display:flex;flex-direction:column;gap:1.35rem;
-  /* Room for the scrollbar so it never sits on top of a note. */
-  padding-right:.35rem;margin-right:-.35rem}
-/* flex-shrink:0 is the whole reason this renders. Without it every group is a
-   shrinkable flex item, so instead of the container scrolling, each list gets
-   CRUSHED to fit — twelve video models displayed as three and a half, and the
-   container reports no overflow because nothing overflowed. It looked like a
-   working panel with a short list. */
-.mdl-group{flex:0 0 auto;min-width:0}
-.mdl-gh{margin:0 0 .3rem;font-size:.74rem;font-weight:700;letter-spacing:.08em;
+   :focus-within is not decoration: hover alone is unreachable by keyboard and
+   by anyone who cannot use a mouse, and this is the only way to see the list.
+
+   The panel is a CHILD of the hovered wrapper and touches the button (the gap
+   is padding-top on the panel, inside its own hit area), so moving the pointer
+   down into it never crosses un-hovered ground and the menu never flickers
+   shut mid-travel. */
+.mkt-drop{position:relative;display:inline-flex}
+.mdl-drop{
+  position:absolute;top:100%;right:0;z-index:40;
+  /* The gap under the trigger is PADDING, not margin — margin would be dead
+     space that un-hovers the wrapper as the pointer crosses it. */
+  padding-top:.55rem;
+  opacity:0;visibility:hidden;transform:translateY(-4px);
+  transition:opacity .16s ease,transform .16s ease,visibility 0s linear .16s;
+  pointer-events:none;
+}
+.mkt-drop:hover .mdl-drop,
+.mkt-drop:focus-within .mdl-drop{
+  opacity:1;visibility:visible;transform:none;pointer-events:auto;
+  transition:opacity .16s ease,transform .16s ease,visibility 0s;
+}
+@media (prefers-reduced-motion:reduce){
+  .mdl-drop{transition:none;transform:none}
+  .mkt-drop:hover .mdl-drop,.mkt-drop:focus-within .mdl-drop{transition:none}
+}
+/* The card itself. Width is capped against the viewport as well as in px, and
+   the height against the CRT screen — .crt-screen is overflow:hidden, so a
+   panel taller than it is silently cut off rather than scrolled. */
+.mdl-drop > .mdl-inner{
+  width:min(620px,calc(100vw - 3rem));max-height:calc(100vh - 8.5rem);overflow-y:auto;
+  background:var(--bg);border:1px solid var(--line);border-radius:14px;
+  box-shadow:0 18px 46px rgba(0,0,0,.13),0 2px 6px rgba(0,0,0,.06);
+  padding:1.15rem 1.25rem 1.25rem;text-align:left}
+.mdl-sub{margin:0 0 .9rem;font-size:.78rem;color:var(--muted)}
+/* Two columns, so nineteen models read at a glance instead of down a tube.
+   break-inside:avoid keeps a group's heading with its own rows — a column
+   break between them labels the wrong list. */
+.mdl-groups{column-count:2;column-gap:1.5rem}
+@media (max-width:720px){ .mdl-groups{column-count:1} }
+.mdl-group{break-inside:avoid;-webkit-column-break-inside:avoid;margin:0 0 1.15rem;min-width:0}
+.mdl-gh{margin:0 0 .25rem;font-size:.7rem;font-weight:700;letter-spacing:.08em;
   text-transform:uppercase;color:var(--text)}
-.mdl-gsub{margin:0 0 .6rem;font-size:.79rem;line-height:1.45;color:var(--muted)}
+.mdl-gsub{margin:0 0 .5rem;font-size:.74rem;line-height:1.4;color:var(--muted)}
 .mdl-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px;
-  background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden}
-.mdl-row{display:flex;align-items:baseline;gap:.75rem;padding:.66rem .9rem;background:var(--bg);
+  background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.mdl-row{display:flex;align-items:baseline;gap:.6rem;padding:.42rem .62rem;background:var(--bg);
   /* A long note must wrap rather than push the name off — the flex-item
      min-width trap this file has hit three times. */
   min-width:0}
-.mdl-name{font-weight:600;font-size:.88rem;color:var(--text);white-space:nowrap}
-.mdl-note{font-size:.77rem;color:var(--muted);min-width:0;margin-left:auto;text-align:right}
+.mdl-name{font-weight:600;font-size:.79rem;color:var(--text);white-space:nowrap}
+.mdl-note{font-size:.7rem;color:var(--muted);min-width:0;margin-left:auto;text-align:right}

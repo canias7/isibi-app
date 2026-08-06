@@ -215,8 +215,8 @@ const MODEL_LISTS = {
 // the orchestrator routes by effort. Kept here, next to the others, so all four
 // tabs have one source.
 const LLM_MODELS = [
-  { label: 'Claude Sonnet 5', note: 'Anthropic · deep prompts, research, site builds' },
-  { label: 'Claude Haiku 4.5', note: 'Anthropic · fast · everyday chat and prompts' },
+  { label: 'Claude Sonnet 5', note: 'Anthropic · deep reasoning' },
+  { label: 'Claude Haiku 4.5', note: 'Anthropic · fast' },
 ];
 // The subtitle says WHAT THE CATEGORY IS, nothing else. This is the landing
 // page — the reader is signed out and has generated nothing — so instructions
@@ -233,8 +233,9 @@ const MODELS_TAB = {
   audio: { title: 'Audio models', sub: 'Text to speech.', list: () => MODEL_LISTS.audio },
 };
 
-// Render the AI models panel: every group, one after another, under a single
-// "AI models" tab.
+// Fill the AI models dropdown. Called ONCE at boot — the menu opens on hover
+// via CSS, so there is no click to render on, and a first hover that shows an
+// empty box while JavaScript catches up is worse than no menu.
 //
 // ONLY `label` and `note` are ever emitted — never `id`. That is not tidiness:
 // an id is `fal-ai/veo3.1`, and naming the provider is the one thing worker.js's
@@ -242,11 +243,9 @@ const MODELS_TAB = {
 // underlying model, provider, vendor, or any technical id"). The labels are
 // already public — they are what the in-app picker shows — the paths behind
 // them are not. A test asserts no id reaches the DOM.
-function openModelsPanel() {
-  const panel = document.getElementById('modelsPanel');
+function fillModelsMenu() {
   const host = document.getElementById('mdlList');
-  if (!panel || !host) return;
-  document.getElementById('mdlTitle').textContent = 'AI models';
+  if (!host) return;
   host.innerHTML = '';
   let total = 0;
   for (const key of MODELS_ORDER) {
@@ -254,8 +253,8 @@ function openModelsPanel() {
     const rows = ((g && g.list()) || []).filter((m) => m && m.label);
     if (!rows.length) continue;                    // an empty group is not a heading
     total += rows.length;
-    // Each group is ONE element, so the container's gap falls between groups
-    // rather than between a heading and its own subtitle.
+    // Each group is ONE element, so a column break can never land between a
+    // heading and the rows it labels.
     const sec = document.createElement('section');
     sec.className = 'mdl-group';
     const h = document.createElement('h3');
@@ -288,15 +287,27 @@ function openModelsPanel() {
   }
   // Counted from what was actually rendered, so the headline number cannot
   // disagree with the rows beneath it.
-  document.getElementById('mdlSub').textContent =
-    total + (total === 1 ? ' model' : ' models') + ' across video, image, voice and reasoning.';
-  panel.style.display = 'flex';
+  const sub = document.getElementById('mdlSub');
+  if (sub) sub.textContent = total + (total === 1 ? ' model' : ' models') + ' across video, image, voice and reasoning.';
 }
 
-function closeModelsPanel() {
-  const p = document.getElementById('modelsPanel');
-  if (p) p.style.display = 'none';
+// aria-expanded has to follow what CSS is actually doing, or it is a stale
+// claim — a screen reader announcing "collapsed" over an open menu is worse
+// than saying nothing. Hover and focus are BOTH synced because both open it.
+function wireModelsMenu() {
+  const wrap = document.querySelector('.mkt-drop');
+  const btn = wrap && wrap.querySelector('.mkt-drop-btn');
+  if (!wrap || !btn) return;
+  const set = (v) => btn.setAttribute('aria-expanded', v ? 'true' : 'false');
+  wrap.addEventListener('mouseenter', () => set(true));
+  wrap.addEventListener('mouseleave', () => set(false));
+  wrap.addEventListener('focusin', () => set(true));
+  wrap.addEventListener('focusout', () => set(false));
+  // Esc closes it for a keyboard user by moving focus out — :focus-within is
+  // what is holding it open, so blurring is the close.
+  wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape') btn.blur(); });
 }
+
 
 const GROUP_META = {
   seedance:  { label: 'Seedance 2.0', variant: () => '' },
@@ -9002,19 +9013,10 @@ function initAuthGate() {
   const resend = document.getElementById('authResend');
   if (resend) resend.addEventListener('click', resendAuthCode);
   renderAuthStep();
-  // The four model tabs. Closes the same three ways the auth gate does — ✕,
-  // backdrop, Esc — because a panel that only closes one way is the one people
-  // get stuck in.
-  document.querySelectorAll('[data-models]').forEach((el) => {
-    el.addEventListener('click', (e) => { e.preventDefault(); openModelsPanel(); });
-  });
-  const mdlClose = document.getElementById('mdlClose');
-  if (mdlClose) mdlClose.addEventListener('click', closeModelsPanel);
-  const mdlPanel = document.getElementById('modelsPanel');
-  if (mdlPanel) mdlPanel.addEventListener('click', (e) => { if (e.target === mdlPanel) closeModelsPanel(); });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && mdlPanel && mdlPanel.style.display !== 'none') closeModelsPanel();
-  });
+  // The AI models menu. It OPENS on hover via CSS, so there is nothing to wire
+  // for that — this fills it once and keeps aria-expanded honest.
+  fillModelsMenu();
+  wireModelsMenu();
   // Marketing CTAs (data-mkt="start"|"signin") open the gate; the gate's back
   // button returns to the landing.
   document.querySelectorAll('[data-mkt]').forEach((el) => {

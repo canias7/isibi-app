@@ -1,4 +1,4 @@
-// The landing page's "AI models" panel — one tab, four groups inside it.
+// The landing page's "AI models" dropdown — one nav item, four groups in it.
 //
 // Two properties, both of which fail SILENTLY and neither of which any other
 // test in this repo would notice, because the unit suite never loads chat.js.
@@ -27,10 +27,10 @@ const CSS = fs.readFileSync(path.join(import.meta.dirname, "..", "public", "styl
 // The renderer, isolated. Read as a slice rather than by importing, because
 // chat.js is a browser script with no exports.
 const renderer = (() => {
-  const i = CHAT.indexOf("function openModelsPanel");
-  assert.ok(i > 0, "openModelsPanel must exist — every check below is about it");
-  const j = CHAT.indexOf("\nfunction closeModelsPanel", i);
-  assert.ok(j > i, "openModelsPanel must be followed by closeModelsPanel");
+  const i = CHAT.indexOf("function fillModelsMenu");
+  assert.ok(i > 0, "fillModelsMenu must exist — every check below is about it");
+  const j = CHAT.indexOf("\nfunction wireModelsMenu", i);
+  assert.ok(j > i, "fillModelsMenu must be followed by wireModelsMenu");
   return CHAT.slice(i, j);
 })();
 
@@ -80,33 +80,76 @@ test("every group the order names is a group the panel can render", () => {
   }
 });
 
-test("the nav is ONE tab and it renders every group", () => {
+test("the nav is ONE item and the menu is filled at boot", () => {
   const nav = [...HTML.matchAll(/data-models="([a-z]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(nav, ["all"], "the landing has one AI models tab, not one per kind");
-  // And the renderer must not still be keyed off a kind argument, or the single
-  // tab passes "all" into a lookup that has no such entry and opens empty.
-  assert.match(CHAT, /function openModelsPanel\(\s*\)/, "openModelsPanel takes no kind — it renders all groups");
+  assert.deepEqual(nav, ["all"], "the landing has one AI models item, not one per kind");
+  // It opens on HOVER via CSS, so nothing renders it on click — it must be
+  // filled at boot or the first hover shows an empty box.
+  assert.match(CHAT, /\bfillModelsMenu\(\);/, "fillModelsMenu must be called at boot");
+  assert.match(CHAT, /\bwireModelsMenu\(\);/, "wireModelsMenu must be called at boot");
 });
 
-test("a group list cannot be crushed instead of scrolling", () => {
-  // Flex items shrink by default, so without flex:0 0 auto each group is
-  // squashed to fit the panel: twelve video models rendered as three and a
-  // half, and the container reported NO overflow, because nothing overflowed —
-  // everything had been compressed. It looked like a working panel with a
-  // short list.
+test("the menu OPENS on hover, in CSS, and is hidden until then", () => {
+  // The property that makes it a dropdown rather than a panel that is simply
+  // always there: hidden by default, revealed by the wrapper being hovered.
+  const drop = CSS.slice(CSS.indexOf(".mdl-drop{"), CSS.indexOf(".mkt-drop:hover"));
+  assert.match(drop, /visibility\s*:\s*hidden/, ".mdl-drop must start hidden");
+  const open = CSS.slice(CSS.indexOf(".mkt-drop:hover"));
+  assert.match(open.slice(0, 260), /visibility\s*:\s*visible/, "hover must reveal it");
+  // :focus-within is not optional — hover alone is unreachable by keyboard.
+  assert.match(CSS, /\.mkt-drop:focus-within \.mdl-drop/, "the menu must open on keyboard focus too");
+});
+
+test("the gap under the trigger is PADDING, never margin", () => {
+  // Margin there is dead space outside the hover area: the pointer un-hovers
+  // the wrapper on its way down and the menu shuts mid-travel.
+  const drop = CSS.slice(CSS.indexOf(".mdl-drop{"), CSS.indexOf(".mkt-drop:hover"));
+  assert.match(drop, /padding-top\s*:/, "the gap must be padding on .mdl-drop");
+  assert.equal(/margin-top\s*:/.test(drop), false, "a margin gap breaks the hover traverse");
+});
+
+test("the nav stacks above the landing headline", () => {
+  // .crt-topbar and .crt-crest were BOTH z-index 3, and the crest comes later
+  // in the DOM — so "Generate the impossible." painted straight through the
+  // middle of the open menu. Every geometry and DOM check passed while it did.
+  const zi = (sel) => {
+    // Anchored at LINE START. Unanchored, `.crt-crest` first matched
+    // `.mkt-crt .crt-crest{top:…}` — a compound selector carrying no z-index —
+    // and the check failed on a rule it was never asking about.
+    const m = CSS.match(new RegExp("^\\" + sel + "\\s*\\{([^}]*)\\}", "m"));
+    assert.ok(m, sel + " must exist as a rule of its own");
+    const z = m[1].match(/z-index\s*:\s*(\d+)/);
+    assert.ok(z, sel + " must declare a z-index for this comparison to mean anything");
+    return +z[1];
+  };
+  assert.ok(zi(".crt-topbar") > zi(".crt-crest"),
+    "the nav must paint above the headline, or the dropdown opens underneath it");
+});
+
+test("a column break cannot separate a heading from its own rows", () => {
+  // The groups are laid out in CSS columns. Without break-inside:avoid a group
+  // can split across the gap, leaving "AUDIO MODELS" at the foot of one column
+  // and its three models at the head of the next — a heading labelling nothing,
+  // above a list labelled by whatever sits above it.
   const grp = CSS.slice(CSS.indexOf(".mdl-group{"), CSS.indexOf(".mdl-gh{"));
-  assert.match(grp, /flex\s*:\s*0\s+0\s+auto/, ".mdl-group must not shrink, or its list gets clipped");
+  assert.match(grp, /break-inside\s*:\s*avoid/, ".mdl-group must not break across columns");
   const groups = CSS.slice(CSS.indexOf(".mdl-groups{"), CSS.indexOf(".mdl-group{"));
-  assert.match(groups, /overflow-y\s*:\s*auto/, "the group column is what scrolls");
-  assert.match(groups, /min-height\s*:\s*0/, "a flex child needs min-height:0 to scroll rather than grow");
+  assert.match(groups, /column-count\s*:\s*2/, "nineteen models read as two columns, not one long tube");
 });
 
-test("the panel's markup exists and the close button is wired", () => {
-  for (const id of ["modelsPanel", "mdlTitle", "mdlSub", "mdlList", "mdlClose"]) {
+test("the menu's markup exists and sits inside the hover wrapper", () => {
+  for (const id of ["modelsPanel", "mdlSub", "mdlList"]) {
     assert.match(HTML, new RegExp('id="' + id + '"'), "index.html is missing #" + id);
   }
-  assert.match(CHAT, /mdlClose[\s\S]{0,160}closeModelsPanel/, "the ✕ must call closeModelsPanel");
-  assert.match(CHAT, /Escape[\s\S]{0,120}closeModelsPanel/, "Esc must close it");
+  // There is no title element and no close button any more: the nav item IS the
+  // title, and the menu closes by the pointer leaving. What must hold is that
+  // the panel is a DESCENDANT of .mkt-drop — :hover on the wrapper is the only
+  // thing opening it, so a panel moved outside can never be shown at all.
+  const wrap = HTML.slice(HTML.indexOf('<div class="mkt-drop">'));
+  const close = wrap.indexOf("</nav>");
+  assert.ok(wrap.indexOf('id="modelsPanel"') > 0 && wrap.indexOf('id="modelsPanel"') < close,
+    "#modelsPanel must live inside .mkt-drop, or hover can never reveal it");
+  assert.match(HTML, /aria-haspopup/, "the trigger should announce that it opens a menu");
 });
 
 test("the panel's CSS uses only tokens this theme actually defines", () => {
@@ -120,8 +163,8 @@ test("the panel's CSS uses only tokens this theme actually defines", () => {
   // slice silently became one character — caught only because the vacuity
   // assertion below exists. A guard anchored on prose is a guard that stops
   // guarding the next time somebody edits the prose.
-  const at = CSS.indexOf(".mdl-card{");
-  assert.ok(at > 0, "the model-panel CSS block must be findable by its first rule");
+  const at = CSS.indexOf(".mkt-drop{");
+  assert.ok(at > 0, "the model-menu CSS block must be findable by its first rule");
   const block = CSS.slice(at);
   const used = new Set([...block.matchAll(/var\((--[a-z0-9-]+)\)/g)].map((m) => m[1]));
   const missing = [...used].filter((v) => !defined.has(v));
