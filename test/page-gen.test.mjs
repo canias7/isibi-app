@@ -1655,3 +1655,97 @@ test("the tool cannot be called with an empty page list", () => {
   // description is what the model reads while deciding.
   assert.match(pages.description, /At least one/i);
 });
+
+// ── paid tables ──────────────────────────────────────────────────────────────
+//
+// The failure class this lint exists for: it typechecks, it bundles, and it
+// 403s at a real customer holding a card. A paid table has NO public insert —
+// that missing grant is the whole reason a price cannot be forged — so
+// useCreateRow on one is refused by Postgres at the moment somebody buys.
+
+const PAID_SPEC = {
+  tables: [
+    { name: "products", access: "display", columns: [{ name: "name" }, { name: "price" }] },
+    { name: "orders", access: "collect", payment: { from: "products", price: "price", currency: "gbp" }, columns: [{ name: "customer_name" }, { name: "email" }] },
+    { name: "enquiries", access: "collect", columns: [{ name: "email" }] },
+  ],
+};
+
+test("the digest states PAID for every collect table, yes or no", () => {
+  // Never omitted. An absent line reads as an omission rather than an answer —
+  // which is precisely how a site came out as the placeholder when publicView
+  // was declarable, enforced, and unmentioned here.
+  const d = schemaDigest(PAID_SPEC);
+  assert.match(d, /PAID: YES/);
+  assert.match(d, /PAID: NO/);
+  assert.equal((d.match(/PAID: /g) || []).length, 2, "one line per collect table, and none for a display table");
+});
+
+test("the digest names the catalogue and the currency, so the model cannot guess them", () => {
+  const d = schemaDigest(PAID_SPEC);
+  assert.match(d, /priced in GBP/);
+  assert.match(d, /from products/);
+  assert.match(d, /useCheckout\("orders"\)/);
+});
+
+test("LINT: useCreateRow on a paid table is refused", () => {
+  const out = lintPages(page('const c = useCreateRow("orders");'), PAID_SPEC);
+  assert.equal(out.length, 1, JSON.stringify(out));
+  assert.match(out[0], /PAID/);
+  assert.match(out[0], /useCheckout\("orders"\)/);
+});
+
+test("...and useCreateRow on an ORDINARY collect table is fine", () => {
+  // Or every contact form on the platform gets flagged.
+  assert.deepEqual(lintPages(page('const c = useCreateRow("enquiries");'), PAID_SPEC), []);
+});
+
+test("LINT: useCheckout on a table that takes no payment is refused", () => {
+  // The route answers 404 for it, so the button would simply never work.
+  const out = lintPages(page('const c = useCheckout("enquiries");'), PAID_SPEC);
+  assert.equal(out.length, 1, JSON.stringify(out));
+  assert.match(out[0], /declares no payment/);
+});
+
+test("LINT: useCheckout on a table the schema never declared is refused", () => {
+  const out = lintPages(page('const c = useCheckout("baskets");'), PAID_SPEC);
+  assert.equal(out.length, 1, JSON.stringify(out));
+  assert.match(out[0], /does not declare/);
+});
+
+test("...and useCheckout on the paid table passes", () => {
+  assert.deepEqual(lintPages(page('const c = useCheckout("orders");'), PAID_SPEC), []);
+});
+
+test("the rule tells the model to send only id and qty", () => {
+  // The one sentence that stops a page posting a total. If it ever goes, the
+  // server still refuses — but the model would write a checkout that looks
+  // right and silently has its price ignored, which is worse to debug.
+  assert.ok(PAGE_RULES.includes("and NOTHING else per line — no price, no total, no currency"));
+  assert.match(PAGE_RULES, /is for DISPLAY only and is never sent/);
+});
+
+test("the rule says the return id is NOT proof of payment", () => {
+  // Anyone can type ?paid=7. A page that shows an order's contents from it is
+  // a way to read somebody else's order.
+  assert.match(PAGE_RULES, /NOT proof of payment/);
+});
+
+test("rule 14's example cites components that REALLY EXIST, with the right casing", () => {
+  // Written as `money(total, "GBP")` first. The kit exports `Money`, a
+  // component taking {amount, currency} — so the example the model is told to
+  // copy was TS2724, the page refused, the site published as the placeholder.
+  // Caught by compiling it, which is the only thing that could have.
+  const example = PAGE_RULES.slice(PAGE_RULES.indexOf("14. A TABLE MARKED"), PAGE_RULES.indexOf("15. NO EXPLANATORY"));
+  const kitDir = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
+  // `[\s/]` and not `>`, or `useRows<Product>` matches as a JSX tag — it is a
+  // generic type parameter, and the guard went looking for product.tsx.
+  for (const name of new Set([...example.matchAll(/<([A-Z]\w+)[\s/]/g)].map((m) => m[1]))) {
+    const file = name.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase() + ".tsx";
+    const src = fs.readFileSync(path.join(kitDir, file), "utf8");
+    assert.ok(new RegExp("export (?:function|const) " + name + "\\b").test(src),
+      name + " is cited by rule 14 but " + file + " does not export it");
+  }
+  // And the lower-case call form must not come back.
+  assert.equal(/\bmoney\s*\(/.test(example), false, "the kit exports Money, a component — not a money() function");
+});

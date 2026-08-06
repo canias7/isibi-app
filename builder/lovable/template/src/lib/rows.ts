@@ -360,6 +360,47 @@ export function useCreateRow<T = Row>(table: string) {
   });
 }
 
+/** One line of a basket. The ONLY two things a page may decide about money. */
+export type CartLine = { id: RowId; qty?: number };
+
+/**
+ * Send the visitor to Stripe to pay for a basket.
+ *
+ * The page NEVER sends a price, a total or a currency, and there is nowhere in
+ * this type to put one. The server reads the prices out of the site's own
+ * catalogue table and computes the total there, so a basket edited in the
+ * browser cannot change what is charged.
+ *
+ * `fields` is the customer's own details — name, email, address — and only the
+ * columns the table declared are kept. The payment columns are not among them.
+ *
+ * On success this REDIRECTS to Stripe, so nothing after `mutate` runs. Success
+ * and cancel both come back to the site's own root with `?paid=` or
+ * `?cancelled=` and the order id, which is what a thank-you page should read.
+ * That id is NOT proof of payment — anyone can type it — so a page must never
+ * treat it as more than "show a friendly message"; the order is marked paid by
+ * the shop's Stripe calling the platform, not by the browser coming back.
+ */
+export function useCheckout(table: string) {
+  return useMutation({
+    mutationFn: async (input: { items: CartLine[]; fields?: Record<string, string> }): Promise<void> => {
+      const res = await fetch(`/api/db/${siteSlug()}/checkout`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ table, items: input.items, fields: input.fields ?? {} }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.url) {
+        // The server's sentence is written for the customer ("this shop hasn't
+        // finished setting up payments yet"), so it is shown rather than
+        // replaced with a generic one.
+        throw new Error(data?.error || "We couldn't start that payment.");
+      }
+      window.location.href = data.url as string;
+    },
+  });
+}
+
 /** Edit a row. Only reaches rows the site's policies let this member reach. */
 export function useUpdateRow<T = Row>(table: string) {
   const qc = useQueryClient();
