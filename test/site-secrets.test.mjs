@@ -341,3 +341,26 @@ test("_secrets is NOT granted to the Data API roles — that is what keeps it of
   // into it, since a grant here would expose every key through the Data API.
   assert.equal(/grantsFor\([^)]*_secrets/.test(schema), false);
 });
+
+test("SITE_SECRETS_KEY is actually uploaded to the Worker by the deploy", () => {
+  // The failure this prevents: the code reads a secret the deploy never sends,
+  // so it is permanently undefined in production and the fallback path runs
+  // forever while everyone believes the dedicated key is in use. It has to
+  // appear TWICE in wrangler-action — once in the `secrets:` list and once in
+  // `env:` — and naming only one of them uploads nothing.
+  const deploy = fs.readFileSync(path.join(import.meta.dirname, "..", ".github", "workflows", "deploy.yml"), "utf8");
+  assert.match(deploy, /^\s+SITE_SECRETS_KEY$/m, "must be in wrangler-action's secrets: list");
+  assert.match(deploy, /SITE_SECRETS_KEY: \$\{\{ secrets\.SITE_SECRETS_KEY \}\}/, "must be in env:");
+  // And the name the workflow uploads must be the name the code reads.
+  const mod = fs.readFileSync(path.join(import.meta.dirname, "..", "site-secrets.mjs"), "utf8");
+  assert.ok(mod.includes("SITE_SECRETS_KEY"), "site-secrets.mjs must read the same name");
+});
+
+test("an UNSET SITE_SECRETS_KEY is safe — GitHub renders an absent secret as empty", () => {
+  // The deploy always sends the variable; when the repo has no such secret its
+  // value is "". That must read as "no v2 material" rather than as a key made
+  // of nothing, or every stored secret would be encrypted under the empty
+  // string while looking correctly versioned.
+  assert.equal(keyMaterial({ SITE_SECRETS_KEY: "" }, 2), null);
+  assert.equal(writeVersion({ SITE_SECRETS_KEY: "", SUPABASE_SERVICE_KEY: "svc" }), 1);
+});

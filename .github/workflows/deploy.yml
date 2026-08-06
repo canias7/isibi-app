@@ -43,6 +43,7 @@ jobs:
             SUPABASE_SERVICE_KEY
             COMPOSIO_API_KEY
             NEON_API_KEY
+            SITE_SECRETS_KEY
         env:
           FAL_KEY: ${{ secrets.FAL_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -58,6 +59,22 @@ jobs:
           # lazily on their first publish), one DATABASE inside it per site.
           # Replaced Cloudflare D1 on 2026-07-27 — see the shim in worker.js.
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          # Encrypts each SHOP OWNER's own Stripe key before it is stored in
+          # their site's Neon database (`_secrets`). Deliberately its OWN secret
+          # rather than deriving from SUPABASE_SERVICE_KEY, which is what
+          # site-secrets.mjs falls back to when this is unset: that fallback
+          # works, but it couples the vault to the database credential, so
+          # rotating SUPABASE_SERVICE_KEY would make every stored payment key
+          # undecryptable — silently, with every shop's checkout failing and
+          # nothing pointing at the cause.
+          #
+          # Generate with `openssl rand -hex 32`. Safe to add at any time: the
+          # ciphertext carries its key version, so rows written under the old
+          # derivation keep opening while new ones use this. UNSET IS ALSO SAFE
+          # — an empty value is falsy, site-secrets.mjs sees no v2 material and
+          # writes v1. What is NOT safe is changing it once secrets exist under
+          # it; that strands them, and there is no recovery but re-pasting keys.
+          SITE_SECRETS_KEY: ${{ secrets.SITE_SECRETS_KEY }}
           # Mail needs NO secret here. The Worker sends through Cloudflare Email
           # Service via the `send_email` binding in wrangler.jsonc (2026-07-30,
           # replacing Go Farther) — nothing to mint, upload each deploy, or rotate.
