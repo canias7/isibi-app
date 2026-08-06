@@ -1,0 +1,46 @@
+# The payment routes against the deployed Worker, at $0.
+#
+# WHAT IT PROVES AND WHAT IT DOES NOT, stated here as well as in the test,
+# because a green tick that means less than it looks like is worse than no tick:
+# it proves both routes are LIVE and every refusal fires — an unknown site, a
+# GET, a forged "paid" event with no signature, a bad signature, and that
+# nothing ever echoes a key or a connection string. It does NOT prove a purchase.
+# No card is charged and no site holds a Stripe key.
+#
+# The one check that separates "deployed" from "the whole feature is dark" is
+# that /api/stripe/site/<slug> is not a 404. Before this feature it was.
+#
+# No model call, no Neon project, no Stripe account, no secrets — so it can run
+# on every deploy without costing anything or needing a credential to be
+# rotated. That is the point: the money path should be checked continuously,
+# not once by hand on the day it shipped.
+name: payments smoke
+
+on:
+  workflow_run:
+    workflows: ["Deploy to Cloudflare"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Base URL to test against'
+        required: false
+        default: 'https://isibi.ai'
+
+jobs:
+  payments:
+    # A failed deploy has nothing new to test.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: The payment routes, live
+        env:
+          SMOKE_BASE: ${{ github.event.inputs.base_url || 'https://isibi.ai' }}
+        run: node test/integration/payments-smoke.mjs
