@@ -13967,3 +13967,51 @@ Each breaks something live if renamed, and the reason is in the source:
   test-mode Stripe key.
 - Five Cloud cards remain dead: Backups, Versions, Edge functions, Emails,
   Files. Backups is closest — `/api/site/<slug>/export` already works.
+
+---
+
+## 2026-08-06 — the line between what we run and what the owner brings (owner's call)
+
+**"The emails is only for our platform. If a user making a site wants email
+service in their own platform then they gotta bring their own keys."** Written
+down because it decides what gets BUILT: the answer to "a site can't do X" is
+only sometimes "build it", and whenever X is a third-party account it is "the
+owner pastes a key into Secrets".
+
+**What we run for a published site, with no credential from the owner** — and
+the list is longer than "hosting and a database", which is worth knowing because
+it is the actual product:
+
+- **Hosting** — the built React app on R2 at `/s/<slug>/`, plus their uploads at `/u/<slug>/`
+- **The database** — a Neon project per site, schema applied, `display` tables seeded
+- **The data API** — Neon's Data API plus the RLS policies the schema engine emits
+- **Sign-in for the site's own members** — Neon Auth, proxied through the Worker
+
+That fourth one is the easiest to forget and the biggest: a barber shop gets
+customer accounts on their own site without registering anything anywhere.
+
+**Bring-your-own, today: payments.** Already built that way — the owner's own
+Stripe key in Secrets, their account, their payouts, their fees. Not Connect, so
+the platform is never in the money flow and takes no cut.
+
+**Bring-your-own, when it exists: email from a site to its own customers.** A
+booking confirmation to the person who booked, an order receipt to the buyer —
+**none of that exists today**, and checking rather than assuming turned up
+something useful: `runSiteFunction`'s old `email` verb already says
+*"the platform has no fallback sender for a site — it's bring-your-own"* in its
+own comment, and it is unreachable anyway, since its only caller is the cron. So
+**no generated page can send an email at all right now.** When it is built it
+takes an owner key by the same route as Stripe.
+
+**`env.EMAIL` is OURS and is not a site feature.** It sends exactly two things,
+both to the person holding a Go Farther account, never to a visitor of a
+generated site: the login code, and the notification telling a site owner a
+booking arrived.
+
+**That second one is the exception, and it makes this a capacity question rather
+than only a philosophical one.** A submission on ANY published site spends OUR
+Cloudflare quota, which is **200/day for the entire platform**. It is already
+cooled to one mail per site per five minutes, claimed in the database rather
+than per-isolate so that many isolates cannot each send one. Anything that would
+put a *visitor* on our sender is a different order of volume and must move to the
+owner's key first.
