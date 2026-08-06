@@ -1,4 +1,4 @@
-// The landing page's four model tabs — LLM · Video · Image · Audio.
+// The landing page's "AI models" panel — one tab, four groups inside it.
 //
 // Two properties, both of which fail SILENTLY and neither of which any other
 // test in this repo would notice, because the unit suite never loads chat.js.
@@ -60,16 +60,45 @@ test("video, image and audio come FROM MODEL_LISTS, not a second copy", () => {
   }
 });
 
-test("every kind the nav offers is a kind the panel can render", () => {
-  // Derived at both ends. A tab whose kind has no entry opens an empty popup,
-  // which reads as a broken page rather than as a missing case.
-  const navKinds = [...HTML.matchAll(/data-models="([a-z]+)"/g)].map((m) => m[1]);
-  assert.ok(navKinds.length >= 4, "expected the four model tabs in index.html, found " + navKinds.length);
-  const i = CHAT.indexOf("const MODELS_TAB");
-  const tabs = CHAT.slice(i, CHAT.indexOf("\n};", i));
-  for (const k of navKinds) {
-    assert.match(tabs, new RegExp("^\\s*" + k + ":", "m"), "nav offers '" + k + "' but MODELS_TAB has no such key");
+test("every group the order names is a group the panel can render", () => {
+  // Derived at both ends. MODELS_ORDER drives the render loop, so a key in it
+  // with no MODELS_TAB entry is a group that silently never appears — and
+  // silently-absent is exactly how a whole tier of this codebase has died
+  // before. Checked the other way too: a defined group left out of the order is
+  // written, styled and unreachable.
+  const i = CHAT.indexOf("const MODELS_ORDER");
+  const order = [...CHAT.slice(i, CHAT.indexOf("\n", i)).matchAll(/'([a-z]+)'/g)].map((m) => m[1]);
+  assert.ok(order.length >= 4, "expected four groups in MODELS_ORDER, found " + order.length);
+  const j = CHAT.indexOf("const MODELS_TAB");
+  const tabs = CHAT.slice(j, CHAT.indexOf("\n};", j));
+  const defined = [...tabs.matchAll(/^\s*([a-z]+):\s*\{/gm)].map((m) => m[1]);
+  for (const k of order) {
+    assert.ok(defined.includes(k), "MODELS_ORDER names '" + k + "' but MODELS_TAB has no such key");
   }
+  for (const k of defined) {
+    assert.ok(order.includes(k), "MODELS_TAB defines '" + k + "' but MODELS_ORDER never renders it");
+  }
+});
+
+test("the nav is ONE tab and it renders every group", () => {
+  const nav = [...HTML.matchAll(/data-models="([a-z]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(nav, ["all"], "the landing has one AI models tab, not one per kind");
+  // And the renderer must not still be keyed off a kind argument, or the single
+  // tab passes "all" into a lookup that has no such entry and opens empty.
+  assert.match(CHAT, /function openModelsPanel\(\s*\)/, "openModelsPanel takes no kind — it renders all groups");
+});
+
+test("a group list cannot be crushed instead of scrolling", () => {
+  // Flex items shrink by default, so without flex:0 0 auto each group is
+  // squashed to fit the panel: twelve video models rendered as three and a
+  // half, and the container reported NO overflow, because nothing overflowed —
+  // everything had been compressed. It looked like a working panel with a
+  // short list.
+  const grp = CSS.slice(CSS.indexOf(".mdl-group{"), CSS.indexOf(".mdl-gh{"));
+  assert.match(grp, /flex\s*:\s*0\s+0\s+auto/, ".mdl-group must not shrink, or its list gets clipped");
+  const groups = CSS.slice(CSS.indexOf(".mdl-groups{"), CSS.indexOf(".mdl-group{"));
+  assert.match(groups, /overflow-y\s*:\s*auto/, "the group column is what scrolls");
+  assert.match(groups, /min-height\s*:\s*0/, "a flex child needs min-height:0 to scroll rather than grow");
 });
 
 test("the panel's markup exists and the close button is wired", () => {
@@ -86,7 +115,14 @@ test("the panel's CSS uses only tokens this theme actually defines", () => {
   // rows rendered as one grey block. It passed every check and was found by
   // looking — the same failure as the 70 charts that rendered grey.
   const defined = new Set([...CSS.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]));
-  const block = CSS.slice(CSS.indexOf("four model tabs"));
+  // Anchored on the first RULE of the block, not on its comment. The comment
+  // was renamed when the four tabs became one, indexOf returned -1, and the
+  // slice silently became one character — caught only because the vacuity
+  // assertion below exists. A guard anchored on prose is a guard that stops
+  // guarding the next time somebody edits the prose.
+  const at = CSS.indexOf(".mdl-card{");
+  assert.ok(at > 0, "the model-panel CSS block must be findable by its first rule");
+  const block = CSS.slice(at);
   const used = new Set([...block.matchAll(/var\((--[a-z0-9-]+)\)/g)].map((m) => m[1]));
   const missing = [...used].filter((v) => !defined.has(v));
   assert.deepEqual(missing, [], "undefined CSS variables in the model-tab block: " + missing.join(", "));

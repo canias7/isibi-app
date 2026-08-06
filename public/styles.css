@@ -5508,32 +5508,35 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 .pay-hook-row code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line); border-radius: 8px; padding: .45rem .6rem; font-size: .78rem; background: var(--panel-2); }
 .pay-hook-row .st-publish { flex: none; }
 
-/* Insights — a bar per day. Height carries the value, not colour, so it reads
-   in greyscale and in print. A zero day still draws a hairline: an empty week
-   must look like a quiet week, not like missing data. */
-.si-days { display: flex; align-items: flex-end; gap: .5rem; margin: .2rem 0 .4rem; }
-.si-day { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: .35rem; }
-.si-day-bar { width: 100%; height: 84px; display: flex; align-items: flex-end; border-radius: 6px; background: var(--panel); overflow: hidden; }
-.si-day-bar i { display: block; width: 100%; background: var(--split); border-radius: 6px 6px 0 0; }
-.si-day-k { font-size: .68rem; color: var(--muted); letter-spacing: .03em; }
-
-/* ── The landing's four model tabs (LLM / Video / Image / Audio) ──────────────
+/* ── The landing's "AI models" panel ─────────────────────────────────────────
    Reuses .auth-gate's scrim and .auth-card's surface so the panel is visually
    the same object as the sign-in popup — one overlay language on this page,
-   not two. Only the inner list is new. */
-.mdl-card{max-width:560px;width:100%;text-align:left;padding:2rem 2rem 1.5rem}
-.mdl-title{margin:0 0 .35rem;font-size:1.45rem;font-weight:700;letter-spacing:-.02em;color:var(--text)}
-.mdl-sub{margin:0 0 1.25rem;font-size:.86rem;line-height:1.5;color:var(--muted);max-width:44ch}
+   not two. Only the inner list is new.
+
+   It holds every group at once (19 rows), so the GROUPS scroll while the title
+   stays put: a panel taller than the viewport that scrolls as a whole hides its
+   own heading the moment you look at the last model. */
+.mdl-card{max-width:560px;width:100%;text-align:left;padding:2rem 2rem 1.75rem;
+  display:flex;flex-direction:column;max-height:min(84vh,760px)}
+.mdl-title{margin:0 0 .3rem;font-size:1.45rem;font-weight:700;letter-spacing:-.02em;color:var(--text)}
+.mdl-sub{margin:0 0 1.15rem;font-size:.86rem;line-height:1.5;color:var(--muted);max-width:46ch}
+.mdl-groups{overflow-y:auto;min-height:0;display:flex;flex-direction:column;gap:1.35rem;
+  /* Room for the scrollbar so it never sits on top of a note. */
+  padding-right:.35rem;margin-right:-.35rem}
+/* flex-shrink:0 is the whole reason this renders. Without it every group is a
+   shrinkable flex item, so instead of the container scrolling, each list gets
+   CRUSHED to fit — twelve video models displayed as three and a half, and the
+   container reports no overflow because nothing overflowed. It looked like a
+   working panel with a short list. */
+.mdl-group{flex:0 0 auto;min-width:0}
+.mdl-gh{margin:0 0 .3rem;font-size:.74rem;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--text)}
+.mdl-gsub{margin:0 0 .6rem;font-size:.79rem;line-height:1.45;color:var(--muted)}
 .mdl-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px;
   background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden}
-.mdl-row{display:flex;align-items:baseline;gap:.75rem;padding:.7rem .9rem;background:var(--bg);
+.mdl-row{display:flex;align-items:baseline;gap:.75rem;padding:.66rem .9rem;background:var(--bg);
   /* A long note must wrap rather than push the name off — the flex-item
      min-width trap this file has hit three times. */
   min-width:0}
-.mdl-name{font-weight:600;font-size:.9rem;color:var(--text);white-space:nowrap}
-.mdl-note{font-size:.78rem;color:var(--muted);min-width:0;margin-left:auto;text-align:right}
-.mdl-count{padding:.55rem .9rem;background:var(--panel);font-size:.74rem;font-weight:600;
-  letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
-.mdl-foot{margin:1rem 0 0;font-size:.76rem;color:var(--muted)}
-/* Seven items in the top bar is a lot; let them wrap rather than overflow. */
-.mkt-links{flex-wrap:wrap;justify-content:flex-end}
+.mdl-name{font-weight:600;font-size:.88rem;color:var(--text);white-space:nowrap}
+.mdl-note{font-size:.77rem;color:var(--muted);min-width:0;margin-left:auto;text-align:right}

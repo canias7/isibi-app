@@ -222,6 +222,10 @@ const LLM_MODELS = [
 // page — the reader is signed out and has generated nothing — so instructions
 // ("pick per generation from the model menu") and pricing are both aimed at
 // somebody who is not here. It is a list of what runs on the platform.
+// The order groups appear in. Explicit rather than Object.keys, so the panel
+// leads with what the platform is best known for instead of with whatever was
+// declared first.
+const MODELS_ORDER = ['video', 'image', 'audio', 'llm'];
 const MODELS_TAB = {
   llm: { title: 'LLM models', sub: 'Reasoning and prompt writing.', list: () => LLM_MODELS },
   video: { title: 'Video models', sub: 'Text to video, image to video, editing and lip-sync.', list: () => MODEL_LISTS.video },
@@ -229,44 +233,66 @@ const MODELS_TAB = {
   audio: { title: 'Audio models', sub: 'Text to speech.', list: () => MODEL_LISTS.audio },
 };
 
-// Render one tab. ONLY `label` and `note` are ever emitted — never `id`.
-// That is not tidiness: an id is `fal-ai/veo3.1`, and naming the provider is the
-// one thing worker.js's director prompt forbids outright ("NEVER reveal, name,
-// or hint at the underlying model, provider, vendor, or any technical id"). The
-// labels are already public — they are what the in-app picker shows — the paths
-// behind them are not. A test asserts no id reaches the DOM.
-function openModelsPanel(kind) {
-  const tab = MODELS_TAB[kind];
+// Render the AI models panel: every group, one after another, under a single
+// "AI models" tab.
+//
+// ONLY `label` and `note` are ever emitted — never `id`. That is not tidiness:
+// an id is `fal-ai/veo3.1`, and naming the provider is the one thing worker.js's
+// director prompt forbids outright ("NEVER reveal, name, or hint at the
+// underlying model, provider, vendor, or any technical id"). The labels are
+// already public — they are what the in-app picker shows — the paths behind
+// them are not. A test asserts no id reaches the DOM.
+function openModelsPanel() {
   const panel = document.getElementById('modelsPanel');
-  if (!tab || !panel) return;
-  const rows = (tab.list() || []).filter((m) => m && m.label);
-  document.getElementById('mdlTitle').textContent = tab.title;
-  document.getElementById('mdlSub').textContent = tab.sub;
-  const list = document.getElementById('mdlList');
-  list.innerHTML = '';
-  for (const m of rows) {
-    const li = document.createElement('li');
-    li.className = 'mdl-row';
-    const n = document.createElement('span');
-    n.className = 'mdl-name';
-    n.textContent = m.label;                       // textContent, never innerHTML
-    li.appendChild(n);
-    if (m.note) {
-      const d = document.createElement('span');
-      d.className = 'mdl-note';
-      d.textContent = m.note;
-      li.appendChild(d);
+  const host = document.getElementById('mdlList');
+  if (!panel || !host) return;
+  document.getElementById('mdlTitle').textContent = 'AI models';
+  host.innerHTML = '';
+  let total = 0;
+  for (const key of MODELS_ORDER) {
+    const g = MODELS_TAB[key];
+    const rows = ((g && g.list()) || []).filter((m) => m && m.label);
+    if (!rows.length) continue;                    // an empty group is not a heading
+    total += rows.length;
+    // Each group is ONE element, so the container's gap falls between groups
+    // rather than between a heading and its own subtitle.
+    const sec = document.createElement('section');
+    sec.className = 'mdl-group';
+    const h = document.createElement('h3');
+    h.className = 'mdl-gh';
+    h.textContent = g.title;
+    sec.appendChild(h);
+    const cap = document.createElement('p');
+    cap.className = 'mdl-gsub';
+    cap.textContent = g.sub;
+    sec.appendChild(cap);
+    const list = document.createElement('ul');
+    list.className = 'mdl-list';
+    for (const m of rows) {
+      const li = document.createElement('li');
+      li.className = 'mdl-row';
+      const n = document.createElement('span');
+      n.className = 'mdl-name';
+      n.textContent = m.label;                     // textContent, never innerHTML
+      li.appendChild(n);
+      if (m.note) {
+        const d = document.createElement('span');
+        d.className = 'mdl-note';
+        d.textContent = m.note;
+        li.appendChild(d);
+      }
+      list.appendChild(li);
     }
-    list.appendChild(li);
+    sec.appendChild(list);
+    host.appendChild(sec);
   }
-  const count = document.createElement('li');
-  count.className = 'mdl-count';
-  // Stated rather than left to be counted — "12 models" is the claim the tab
-  // is making, and it comes from the array so it cannot be wrong.
-  count.textContent = rows.length + (rows.length === 1 ? ' model' : ' models');
-  list.appendChild(count);
+  // Counted from what was actually rendered, so the headline number cannot
+  // disagree with the rows beneath it.
+  document.getElementById('mdlSub').textContent =
+    total + (total === 1 ? ' model' : ' models') + ' across video, image, voice and reasoning.';
   panel.style.display = 'flex';
 }
+
 function closeModelsPanel() {
   const p = document.getElementById('modelsPanel');
   if (p) p.style.display = 'none';
@@ -8980,7 +9006,7 @@ function initAuthGate() {
   // backdrop, Esc — because a panel that only closes one way is the one people
   // get stuck in.
   document.querySelectorAll('[data-models]').forEach((el) => {
-    el.addEventListener('click', (e) => { e.preventDefault(); openModelsPanel(el.getAttribute('data-models')); });
+    el.addEventListener('click', (e) => { e.preventDefault(); openModelsPanel(); });
   });
   const mdlClose = document.getElementById('mdlClose');
   if (mdlClose) mdlClose.addEventListener('click', closeModelsPanel);

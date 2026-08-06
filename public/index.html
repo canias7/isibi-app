@@ -42,10 +42,7 @@
           <header class="crt-topbar">
             <div class="mkt-brand"><img class="logo-mark" src="/logo.png" alt="" /> Go Farther</div>
             <nav class="mkt-links">
-              <button class="mkt-signin" data-models="llm" type="button">LLM models</button>
-              <button class="mkt-signin" data-models="video" type="button">Video models</button>
-              <button class="mkt-signin" data-models="image" type="button">Image models</button>
-              <button class="mkt-signin" data-models="audio" type="button">Audio models</button>
+              <button class="mkt-signin" data-models="all" type="button">AI models</button>
               <button class="mkt-signin" data-act="credits" type="button">Pricing</button>
               <button class="mkt-signin" data-mkt="signin" type="button">Sign in</button>
               <button class="mkt-cta" data-mkt="start" type="button">Sign up</button>
@@ -152,9 +149,9 @@
   <div id="modelsPanel" class="auth-gate mdl-gate" style="display:none">
     <div class="auth-card mdl-card">
       <button id="mdlClose" class="auth-home" type="button" aria-label="Close">✕</button>
-      <h2 id="mdlTitle" class="mdl-title">Video models</h2>
+      <h2 id="mdlTitle" class="mdl-title">AI models</h2>
       <p id="mdlSub" class="mdl-sub"></p>
-      <ul id="mdlList" class="mdl-list"></ul>
+      <div id="mdlList" class="mdl-groups"></div>
       <!-- No footer. Two earlier drafts put a line here about picking models
            and what a generation costs — both written at a reader who is signed
            in and generating. This is the landing page. The list IS the message. -->
