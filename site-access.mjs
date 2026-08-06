@@ -204,8 +204,8 @@ export function canWriteAccess(access) {
  * Exactly the booking-form failure: advertised at the prompt layer, refused at
  * the data layer.
  *
- * The owner still edits these tables — through their OWN door in isibi
- * (`site-owner.mjs`), which authenticates with an isibi session and is not
+ * The owner still edits these tables — through their OWN door in Go Farther
+ * (`site-owner.mjs`), which authenticates with an Go Farther session and is not
  * subject to the site's RLS. `admin` therefore means "staff can SEE it, the
  * owner maintains it", which is a coherent level and is now what it says.
  */

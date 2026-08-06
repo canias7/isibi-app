@@ -1,7 +1,7 @@
 // Telling the owner a booking arrived.
 //
 // Until now nobody did. A barber shop took an appointment and the only way to
-// find out was to log into isibi and look at the Data panel — which is a fine
+// find out was to log into Go Farther and look at the Data panel — which is a fine
 // place to review bookings and a terrible way to learn one exists.
 //
 // Three things make this harder than "send an email":

@@ -172,7 +172,7 @@ export function normalizeSchema(spec) {
   // allow-list, the body is capped, and the count is capped. The body itself is
   // arbitrary SQL and is NOT sanitised — it cannot be, and it does not need to
   // be: it runs inside the SITE'S OWN Neon project, which reaches no other site,
-  // no isibi table and no secret, and a wrong one breaks that site's own page.
+  // no Go Farther table and no secret, and a wrong one breaks that site's own page.
   const fnSrc = Array.isArray(spec.functions) ? spec.functions : [];
   const TYPES = new Set(["text", "int", "integer", "bigint", "numeric", "boolean", "uuid", "date", "timestamptz", "json", "jsonb"]);
   const ident = (x) => /^[a-z][a-z0-9_]{0,40}$/.test(String(x || "").toLowerCase()) ? String(x).toLowerCase() : null;

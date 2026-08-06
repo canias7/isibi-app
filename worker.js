@@ -662,7 +662,7 @@ async function chargeOwnerAI(env, ownerUid, credits) {
     return Number(await r.json());
   } catch { return -1; }
 }
-// Owner (isibi user) id for a built app, from the D1 backend ledger, then the source.
+// Owner (Go Farther user) id for a built app, from the D1 backend ledger, then the source.
 async function runSiteAI(env, ownerUid, opts) {
   const prompt = String((opts && opts.prompt) || "").slice(0, 6000);
   if (!prompt.trim()) return { error: "Ask a question first." };
@@ -926,7 +926,7 @@ function harden(res, request) {
 }
 
 // Pull the (possibly still-growing) "reply" string out of a partial tool-input
-// JSON buffer, so the ask step can stream isibi's reply as Sonnet writes it.
+// JSON buffer, so the ask step can stream Go Farther's reply as Sonnet writes it.
 function extractReplyPrefix(buf) {
   const m = buf.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)/);
   if (!m) return "";
@@ -2078,7 +2078,7 @@ let _mediaKeyPromise = null;
 function mediaSealKey(env) {
   if (!_mediaKeyPromise) {
     _mediaKeyPromise = (async () => {
-      const material = new TextEncoder().encode((env.FAL_KEY || "isibi") + "|media-proxy-v1");
+      const material = new TextEncoder().encode((env.FAL_KEY || "Go Farther") + "|media-proxy-v1");
       const digest = await crypto.subtle.digest("SHA-256", material);
       return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
     })();
@@ -2133,7 +2133,7 @@ async function openMediaToken(env, token) {
 // PBKDF2 password hashing + HMAC-signed stateless session tokens. The signing key
 // is derived from a server-only secret so no new secret is needed and it never
 // leaves the Worker. These accounts are the SITE'S members — wholly separate from
-// isibi's own auth.users (the builder). Same-origin (gofarther.dev/s/… → gofarther.dev/api),
+// Go Farther's own auth.users (the builder). Same-origin (gofarther.dev/s/… → gofarther.dev/api),
 // so the published-site CSP (connect-src 'self') already allows the calls.
 async function sha256hex(str) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
@@ -2165,7 +2165,7 @@ let _siteSecretKeyPromise = null;
 function siteSecretKey(env) {
   if (!_siteSecretKeyPromise) {
     _siteSecretKeyPromise = (async () => {
-      const material = new TextEncoder().encode((env.SUPABASE_SERVICE_KEY || env.FAL_KEY || "isibi") + "|site-secrets-v1");
+      const material = new TextEncoder().encode((env.SUPABASE_SERVICE_KEY || env.FAL_KEY || "Go Farther") + "|site-secrets-v1");
       const digest = await crypto.subtle.digest("SHA-256", material);
       return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
     })();
@@ -2498,7 +2498,7 @@ async function injectGameAssets(files, env, budget) {
 
 // ---- Layer-2: per-site backend on Neon Postgres ---------------------------------
 // Each built site that needs data/auth gets its OWN Postgres database — one Neon
-// project per isibi user, one database inside it per site — so a query for site A
+// project per Go Farther user, one database inside it per site — so a query for site A
 // can only ever reach site A's database. The slug→connection map lives in Supabase
 // (site_backends, service-key writes). Requires ONE Worker secret: NEON_API_KEY.
 // Provisioning and the query layer live in ./site-db.mjs.
@@ -2516,7 +2516,7 @@ async function siteExec(env, db, sql, params) { return sqlExec(db, sql, params);
 // Declared column type → Postgres type. TEXT/INTEGER/REAL/NUMERIC are spelled the
 // same in both dialects, so only the aliases below need mapping.
 function tableDef(spec, name) { return (spec && Array.isArray(spec.tables)) ? spec.tables.find((t) => t && String(t.name).toLowerCase() === String(name).toLowerCase()) : null; }
-// Does this isibi user own the React site <slug>? Proven from the generated source's
+// Does this Go Farther user own the React site <slug>? Proven from the generated source's
 // stored uid (sitesrc/<slug>.json), falling back to the D1 backend ledger.
 const _metBuf = new Map();
 function recordSiteHit(env, ctx, slug, status) {
@@ -2661,7 +2661,7 @@ const SITE_SCHEMA_TOOL = {
                 "'collect' = anyone submits, nobody reads it back (bookings, orders, enquiries). " +
                 "'user' = PRIVATE PER MEMBER: a signed-in visitor reads and writes only their own rows (saved recipes, my orders, a personal journal). " +
                 "'feed' = SHARED, MEMBER-AUTHORED: every signed-in member reads all rows and writes their own (reviews, comments, a community board). " +
-                "'admin' = SHARED, READ-ONLY FROM THE SITE: signed-in members read it and NOBODY writes it from a published page — the business maintains those rows from its isibi dashboard (announcements, staff notices). Pick it only when members should SEE something they never edit. " +
+                "'admin' = SHARED, READ-ONLY FROM THE SITE: signed-in members read it and NOBODY writes it from a published page — the business maintains those rows from its Go Farther dashboard (announcements, staff notices). Pick it only when members should SEE something they never edit. " +
                 "The last three require the visitor to have an account on the site — use them ONLY when the brief actually asks for members, sign-in, or 'their own' anything. A shop that just needs a menu and a booking form must not have them.",
             },
             columns: {
@@ -3623,7 +3623,7 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
     //
     // `notifyOwnerOfSubmission` lost its trigger point when `site-data.mjs` was
     // deleted on 2026-07-30 and had ZERO callers after it — so a barber shop took
-    // an appointment and the only way to find out was to log into isibi and look.
+    // an appointment and the only way to find out was to log into Go Farther and look.
     //
     // The note left behind said this needed a Postgres trigger writing to a queue
     // table plus the 2-minute cron, "because there is no `http` extension to call
@@ -3779,7 +3779,7 @@ async function claimNotify(env, slug) {
   return row ? { ok: true, owner_uid: row.uid } : { ok: false };
 }
 
-// The isibi account that owns the site. auth.users is not reachable through
+// The Go Farther account that owns the site. auth.users is not reachable through
 // PostgREST, so this is the GoTrue admin endpoint with the service key.
 async function ownerEmail(env, uid) {
   const r = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${encodeURIComponent(uid)}`, {
@@ -3807,7 +3807,7 @@ async function ownerEmail(env, uid) {
 async function sendMail(env, { to, subject, html, text }) {
   if (!env.EMAIL) throw new Error("mail not configured: no EMAIL binding");
   return env.EMAIL.send({
-    from: env.EMAIL_FROM || "isibi <login@gofarther.dev>",
+    from: env.EMAIL_FROM || "Go Farther <login@gofarther.dev>",
     to, subject, html,
     text: text || String(html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 4000),
   });
@@ -5102,7 +5102,7 @@ async function handleRequest(request, env, ctx) {
     }
 
     // A SITE's own Stripe telling us one of its orders was paid. Separate from
-    // /api/stripe/webhook, which is isibi's own billing: different account,
+    // /api/stripe/webhook, which is Go Farther's own billing: different account,
     // different signing secret, and mixing them would mean one handler deciding
     // whether an event mints platform credits or marks a barber shop's order.
     //
@@ -6087,7 +6087,7 @@ async function handleRequest(request, env, ctx) {
     }
 
     // A published site's sign-in. Public by the same reasoning as the rest of
-    // /api/db — a customer booking a haircut has no isibi account — and gated by
+    // /api/db — a customer booking a haircut has no Go Farther account — and gated by
     // a per-source rate limit, because it is an unauthenticated endpoint that
     // reaches a third party and costs a password hash on their side.
     if (url.pathname.startsWith("/api/db/") && url.pathname.includes("/auth/")) {
@@ -6556,8 +6556,8 @@ async function handleRequest(request, env, ctx) {
     // GET /api/site/<slug>/rows[/<table>] — the OWNER reading their own site.
     //
     // A different door from /api/db: that one is the published site's public API,
-    // where the caller is a visitor with no isibi account. This one is
-    // authenticated by the owner's isibi session, and it can read anything in
+    // where the caller is a visitor with no Go Farther account. This one is
+    // authenticated by the owner's Go Farther session, and it can read anything in
     // their own site — including `collect` tables, which the public API refuses
     // by design. That refusal is why, until now, a barber shop took bookings
     // nobody could ever see.
@@ -6964,7 +6964,7 @@ async function handleRequest(request, env, ctx) {
         if (lastR && lastR.role === "user") lastR.content += "\n" + askText;
         else rTurns.push({ role: "user", content: askText });
 
-        const rSystem = `You are the fact-checker for isibi, an AI ${kind} studio's prompt writer. The user's creative request depends on real-world facts that may have changed since your training. Use web_search to find the SPECIFIC, CURRENT facts needed to depict the subject accurately — the exact current product name and generation, notable design and visual details, colors or materials, key specs, and relevant dates. Keep it to 1-3 focused searches. Then reply with a SHORT factual brief: only the concrete facts that affect what to show, in a few plain sentences. No preamble, no markdown, and do NOT write a generation prompt.`;
+        const rSystem = `You are the fact-checker for Go Farther, an AI ${kind} studio's prompt writer. The user's creative request depends on real-world facts that may have changed since your training. Use web_search to find the SPECIFIC, CURRENT facts needed to depict the subject accurately — the exact current product name and generation, notable design and visual details, colors or materials, key specs, and relevant dates. Keep it to 1-3 focused searches. Then reply with a SHORT factual brief: only the concrete facts that affect what to show, in a few plain sentences. No preamble, no markdown, and do NOT write a generation prompt.`;
 
         let searchMsgs = rTurns;
         let facts = "";
@@ -7247,24 +7247,24 @@ async function handleRequest(request, env, ctx) {
         : "";
       const system = step === "ask"
         ? (kind === "audio"
-          ? `You are isibi, the voice side of an AI studio: the user types either words they want a TTS voice to SPEAK, or chat aimed at you. Always write a short, friendly reply in your own voice (1-2 sentences). Then decide:
+          ? `You are Go Farther, the voice side of an AI studio: the user types either words they want a TTS voice to SPEAK, or chat aimed at you. Always write a short, friendly reply in your own voice (1-2 sentences). Then decide:
 - Greeting, small talk, or a question aimed at you ("hey", "how are you", "why are you running"): set ready=false and use your reply to chat back and invite them to type the words they want voiced.
 - Words meant to be spoken aloud (a script, a line, a message, a caption): set ready=true. Their text will be voiced EXACTLY as written — never rewrite it and never ask clarifying questions.
 When genuinely unsure, set ready=true.`
-          : `You are isibi, a warm, easygoing creative director for an AI ${kind} generator, having a natural chat with the user. Always write a short, friendly reply in your own voice (1-2 sentences, like texting a creative friend). Then decide what they need:
+          : `You are Go Farther, a warm, easygoing creative director for an AI ${kind} generator, having a natural chat with the user. Always write a short, friendly reply in your own voice (1-2 sentences, like texting a creative friend). Then decide what they need:
 - If they're just greeting you, making small talk, or asking what you can do: set ready=false. Use your reply to warmly invite them to describe what they'd like to create.
 - If they've described something to create: DEFAULT to set ready=true and make every creative call yourself — a clear request should just get made, no back-and-forth.
 - The ONE exception: if a single genuinely important detail is missing or ambiguous AND you can't reasonably assume it — something that would materially change the result (a real product photo vs an illustration; one of two very different moods or settings; a specific brand, person or place you can't guess) — then set ready=false and end your reply with ONE short, specific question, offering a couple of concrete options when that helps them answer in a word. Ask at most one question, only when it truly earns the extra step; never interrogate, and never ask about things you can tastefully decide yourself.
 - NEVER ask twice in a row. If your previous turn asked a question and the user answers with ANYTHING — including "just make it", "you choose", or simply restating the request — that IS your answer: set ready=true and make every remaining call yourself.
 - A stack of varied attached references with an open brief ("make one using these") is NOT missing information — it's creative freedom. Pick the strongest coherent concept from them (using a compatible subset is fine), say what you're going for in one line, and go.
 Tailor everything to what THIS user is trying to make.
-NEVER reveal, name, or hint at the underlying model, provider, vendor, or any technical id (e.g. "fal", "fal-ai/…", raw model paths) — the user only knows isibi. If asked which model or service is used, say you use isibi's own studio engine and move on.${hasImage && imageCount <= 1 ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Reference what you actually see in your reply" : "a source image to edit (it's in the conversation — look at it). Reference what you actually see in your reply"}.` : ""}${imageCount > 1 ? `\nThe user attached ${imageCount} ${kind === "video" ? "REFERENCE images whose subjects carry into the generated video" : "images"}, shown to you labeled "Image 1"…"Image ${imageCount}" in the same order they see. When they name one by number ("image 5"), LOOK at that exact one before describing or acting on it — never assume they mean the first.${kind === "video" ? " A generation from these should feature ALL of them unless the user says otherwise." : ""}` : ""}${kind === "image" ? `\nTRANSPARENCY LIMIT: no model here can output a truly transparent (alpha) background — a "transparent background" request only paints a fake checkerboard into the picture. If they ask for one, say plainly it isn't possible and offer the closest real thing: a clean solid pure-white (or any solid color) seamless background.` : ""}${kind === "video" && soundCapable ? `\nSOUND: whether the video gets an audio track is controlled ONLY by the user's Sound toggle in the composer settings — you cannot change it and must never claim you did. If they ask for a silent / no-audio video (or ask to add sound), tell them in your reply to flip the Sound switch in the settings next to the model picker (silent renders can also cost fewer credits), and still proceed with ready=true when the creative request itself is clear.` : ""}${(hasClip || hasAvatar || hasAudio) ? `\nThe user has attached ${[hasClip ? (clipIsSeedanceRef ? "a VIDEO CLIP as a @Video1 reference (its motion/subject carries into a new generated scene)" : veoExtend ? "a source VIDEO CLIP the model will EXTEND — it generates the next 7 seconds continuing from the clip's final frame" : "a source VIDEO CLIP (for a video-to-video edit)") : "", hasAvatar ? "an AVATAR face image (a character to keep consistent)" : "", hasAudio ? "an AUDIO track (voice/music for lip-sync or soundtrack)" : ""].filter(Boolean).join(", ")}. ${hasClip || hasAudio ? "You can't play clips or audio yourself, but they ARE attached and the model will receive them" : "It IS attached and the model will receive it"} — so NEVER say you can't see/hear it or ask them to paste a link for something already attached. If what they want is unclear, ask what to DO with it (${clipIsSeedanceRef ? "what scene to build around the reference" : "restyle, swap a subject, relight, extend, lip-sync"}), not for the file itself.` : ""}${prevPrompt ? `\nThe user's PREVIOUS generation ran with this prompt: "${prevPrompt.slice(0, 600)}". Read their message against it and pick ONE signal:
+NEVER reveal, name, or hint at the underlying model, provider, vendor, or any technical id (e.g. "fal", "fal-ai/…", raw model paths) — the user only knows Go Farther. If asked which model or service is used, say you use Go Farther's own studio engine and move on.${hasImage && imageCount <= 1 ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Reference what you actually see in your reply" : "a source image to edit (it's in the conversation — look at it). Reference what you actually see in your reply"}.` : ""}${imageCount > 1 ? `\nThe user attached ${imageCount} ${kind === "video" ? "REFERENCE images whose subjects carry into the generated video" : "images"}, shown to you labeled "Image 1"…"Image ${imageCount}" in the same order they see. When they name one by number ("image 5"), LOOK at that exact one before describing or acting on it — never assume they mean the first.${kind === "video" ? " A generation from these should feature ALL of them unless the user says otherwise." : ""}` : ""}${kind === "image" ? `\nTRANSPARENCY LIMIT: no model here can output a truly transparent (alpha) background — a "transparent background" request only paints a fake checkerboard into the picture. If they ask for one, say plainly it isn't possible and offer the closest real thing: a clean solid pure-white (or any solid color) seamless background.` : ""}${kind === "video" && soundCapable ? `\nSOUND: whether the video gets an audio track is controlled ONLY by the user's Sound toggle in the composer settings — you cannot change it and must never claim you did. If they ask for a silent / no-audio video (or ask to add sound), tell them in your reply to flip the Sound switch in the settings next to the model picker (silent renders can also cost fewer credits), and still proceed with ready=true when the creative request itself is clear.` : ""}${(hasClip || hasAvatar || hasAudio) ? `\nThe user has attached ${[hasClip ? (clipIsSeedanceRef ? "a VIDEO CLIP as a @Video1 reference (its motion/subject carries into a new generated scene)" : veoExtend ? "a source VIDEO CLIP the model will EXTEND — it generates the next 7 seconds continuing from the clip's final frame" : "a source VIDEO CLIP (for a video-to-video edit)") : "", hasAvatar ? "an AVATAR face image (a character to keep consistent)" : "", hasAudio ? "an AUDIO track (voice/music for lip-sync or soundtrack)" : ""].filter(Boolean).join(", ")}. ${hasClip || hasAudio ? "You can't play clips or audio yourself, but they ARE attached and the model will receive them" : "It IS attached and the model will receive it"} — so NEVER say you can't see/hear it or ask them to paste a link for something already attached. If what they want is unclear, ask what to DO with it (${clipIsSeedanceRef ? "what scene to build around the reference" : "restyle, swap a subject, relight, extend, lip-sync"}), not for the file itself.` : ""}${prevPrompt ? `\nThe user's PREVIOUS generation ran with this prompt: "${prevPrompt.slice(0, 600)}". Read their message against it and pick ONE signal:
 - rerun=true if they want that same generation run again UNCHANGED, however they phrase it ("try again", "run it back", "didn't come out, go again", "one more", "do that again") — use your reply to say you're running it again.
 - revise=true if they want it CHANGED — feedback or a tweak on the result ("slower", "fix the text", "make it brighter", "again but at night") — use your reply to acknowledge the fix.
 - both false if it's a brand-new idea or just chat.` : ""}${brief ? `\nThis chat's running creative brief: "${brief}" — use it to make replies specific to this project.` : ""}${memoryLine}
 Also maintain the user's durable creative taste (the \`memory\` field): learn from what they SAY here, not only what they generate. If this message reveals a lasting preference — a look, format, subject, or a standing do/don't they gravitate to — fold it into the full updated memory list (deduped, ≤12 short phrases, no one-off project specifics); otherwise leave it unchanged or omit it.${ctxLine ? `\nContext: ${ctxLine}` : ""}`)
         : step === "studio"
-        ? `You are isibi, the director of a shot-based video studio. The user's project is an ordered list of SHOTS — each shot is either one AI video generation (3-10s) or a slice of an imported video. You act by returning actions; the app executes them.
+        ? `You are Go Farther, the director of a shot-based video studio. The user's project is an ordered list of SHOTS — each shot is either one AI video generation (3-10s) or a slice of an imported video. You act by returning actions; the app executes them.
 
 Current shots (JSON): ${JSON.stringify(shotsCtx)}
 ${brief ? `Project brief: "${brief}"` : "No project brief yet."}
@@ -7278,9 +7278,9 @@ Rules:
 - generate (n, or "all" for every draft) ONLY when the user explicitly asks to generate/run/make the shots — generation costs money; never trigger it uninvited.
 - reply: short and friendly, reference shots by number. If the user is just chatting or asking, reply with no actions.${ctxLine ? `\nContext: ${ctxLine}` : ""}`
         : step === "error"
-        ? `You are isibi, a warm creative director for an AI ${kind} studio. The user's generation just failed. From the raw pipeline error, explain in 1-2 friendly plain-language sentences what went wrong and what to do next — no jargon, no error codes, never blame the user. NEVER name any backend provider, vendor, or platform the raw error mentions (fal, fal.ai, replicate, etc.) and never point the user to an external dashboard or billing page — the user only knows isibi; call the infrastructure "our render servers" and for balance/capacity problems say generations are briefly paused and to check back soon. NEVER say the user's account, credits, or balance ran out unless the raw error literally says "not enough credits" — platform balance problems are OUR infrastructure, not theirs, and misblaming the user's credits steers them to buy credits they don't need. If — and ONLY if — rewording the prompt could fix it (content filter, prompt rejected as invalid), also return fixedPrompt: the failed prompt minimally reworded to avoid the trigger while keeping the creative intent. For balance, quota, timeout or model-availability problems, return no fixedPrompt.${ctxLine ? `\nContext: ${ctxLine}` : ""}`
+        ? `You are Go Farther, a warm creative director for an AI ${kind} studio. The user's generation just failed. From the raw pipeline error, explain in 1-2 friendly plain-language sentences what went wrong and what to do next — no jargon, no error codes, never blame the user. NEVER name any backend provider, vendor, or platform the raw error mentions (fal, fal.ai, replicate, etc.) and never point the user to an external dashboard or billing page — the user only knows Go Farther; call the infrastructure "our render servers" and for balance/capacity problems say generations are briefly paused and to check back soon. NEVER say the user's account, credits, or balance ran out unless the raw error literally says "not enough credits" — platform balance problems are OUR infrastructure, not theirs, and misblaming the user's credits steers them to buy credits they don't need. If — and ONLY if — rewording the prompt could fix it (content filter, prompt rejected as invalid), also return fixedPrompt: the failed prompt minimally reworded to avoid the trigger while keeping the creative intent. For balance, quota, timeout or model-availability problems, return no fixedPrompt.${ctxLine ? `\nContext: ${ctxLine}` : ""}`
         : step === "revise"
-        ? `You are the prompt writer for isibi, an AI ${kind} studio. The user generated a ${kind} with the previous prompt below and wants it adjusted. Rewrite the prompt applying ONLY what their feedback asks — keep every untouched part as close to word-for-word as possible, so the change is surgical, not a fresh rewrite. Return a single paragraph, nothing but the prompt.
+        ? `You are the prompt writer for Go Farther, an AI ${kind} studio. The user generated a ${kind} with the previous prompt below and wants it adjusted. Rewrite the prompt applying ONLY what their feedback asks — keep every untouched part as close to word-for-word as possible, so the change is surgical, not a fresh rewrite. Return a single paragraph, nothing but the prompt.
 
 Fix patterns:
 - Mangled or morphing on-screen text → pin it harder: all text stays exactly as printed, never changing.
@@ -7294,7 +7294,7 @@ ${prevPrompt}
 ${briefLine}${memoryLine}${refLine ? refLine + " Preserve the existing @ImageN tags exactly." : ""}
 Context: ${ctxLine}`
         : kind === "video" && veoExtend
-        ? `You are the continuation writer for isibi, an AI video studio. A source VIDEO CLIP is already attached and the model will EXTEND it — generating the NEXT 7 SECONDS that continue seamlessly from the clip's final frame. The model can already see the whole clip, so NEVER re-describe, re-narrate or re-establish anything that already happens in it — re-describing wastes the prompt on footage that already exists and makes the model try to replay those events, which causes glitchy, morphing extensions.
+        ? `You are the continuation writer for Go Farther, an AI video studio. A source VIDEO CLIP is already attached and the model will EXTEND it — generating the NEXT 7 SECONDS that continue seamlessly from the clip's final frame. The model can already see the whole clip, so NEVER re-describe, re-narrate or re-establish anything that already happens in it — re-describing wastes the prompt on footage that already exists and makes the model try to replay those events, which causes glitchy, morphing extensions.
 
 Write ONE paragraph describing ONLY the new 7 seconds of action: open from the exact state of the final frame ("from where he lands…", "as the car finishes turning…"), then one or two beats of NEW motion in the same tone, camera and art style as the clip — only state tone/camera/style when the user asks to CHANGE them. Any on-screen text stays exactly as printed. Never mention a total clip length — the extension is always 7 seconds of new footage. Phrase everything to pass strict automated content checkers (no visceral/fleshy or harm/impact wording when a neutral or comedic phrasing carries the same picture). Return nothing but the prompt.
 
@@ -7302,7 +7302,7 @@ Example of the register (never copy its content): "From where he lands in a heap
 - ${familyHint}` : ""}${effortLine}${briefLine}${memoryLine}
 Context: ${ctxLine}`
         : kind === "video" && hasClip && !clipIsSeedanceRef
-        ? `You are the edit writer for isibi, an AI video-to-video studio. A source VIDEO CLIP is already attached and the model will re-render THAT footage — this is an EDIT, not a new generation. The model can already see the clip, so never re-describe what's in it.
+        ? `You are the edit writer for Go Farther, an AI video-to-video studio. A source VIDEO CLIP is already attached and the model will re-render THAT footage — this is an EDIT, not a new generation. The model can already see the clip, so never re-describe what's in it.
 
 Write ONE direct instruction that states ONLY the change to apply: the new look, style, lighting, colour grade, or an element to swap. Name what to KEEP from the original vs. what to CHANGE. Its LENGTH follows the Effort line below — but at every effort the words go on the CHANGE, never on narrating the source footage. Return nothing but the instruction.
 
@@ -7310,7 +7310,7 @@ Examples of the register (never copy their content): "Restyle the footage into a
 - ${familyHint}` : ""}${effortLine}${briefLine}${memoryLine}${refLine}
 Context: ${ctxLine}`
         : kind === "video"
-        ? `You are the prompt writer for isibi, an AI video studio. Using the conversation, the request and the user's picks, write ONE video-generation prompt: a single paragraph of concrete visual language — no lists, no headers, nothing but the prompt.
+        ? `You are the prompt writer for Go Farther, an AI video studio. Using the conversation, the request and the user's picks, write ONE video-generation prompt: a single paragraph of concrete visual language — no lists, no headers, nothing but the prompt.
 
 Craft rules:
 - One continuous shot. Describe a single scene with continuous action — no cuts, montages or scene changes unless the user asked for them.
@@ -7328,7 +7328,7 @@ Example of the register (never copy its content): "Fixed camera, no camera movem
 ${effortLine}${briefLine}${factsLine}${memoryLine}${refLine}${elLine}${vidRefLine}${shotsLine}
 Context: ${ctxLine}`
         : kind === "image" && hasImage
-        ? `You are the edit writer for isibi, an AI image-editing studio. A source IMAGE is already attached (it's in the conversation — look at it) and the model will edit THAT picture — this is an EDIT, not a new generation. The model can already see it, so never re-describe the rest of the image.
+        ? `You are the edit writer for Go Farther, an AI image-editing studio. A source IMAGE is already attached (it's in the conversation — look at it) and the model will edit THAT picture — this is an EDIT, not a new generation. The model can already see it, so never re-describe the rest of the image.
 
 Write ONE direct instruction that states ONLY the change to make: name the existing content concretely as "the ..." ("the red car", not "the subject") and say exactly what to change or add. Its LENGTH follows the Effort line below — but at every effort the words go on the CHANGE (and what must stay untouched), never on re-describing the rest of the picture. Return nothing but the instruction.
 
@@ -7336,7 +7336,7 @@ Examples of the register (never copy their content): "Change the sky behind the 
 - ${familyHint}` : ""}${effortLine}${transparencyLine}${briefLine}${memoryLine}
 Context: ${ctxLine}`
         : kind === "image"
-        ? `You are the prompt writer for isibi, an AI image studio. Using the conversation, the request and the user's picks, write ONE image-generation prompt: a single paragraph — no lists, nothing but the prompt.
+        ? `You are the prompt writer for Go Farther, an AI image studio. Using the conversation, the request and the user's picks, write ONE image-generation prompt: a single paragraph — no lists, nothing but the prompt.
 
 Craft rules:
 - Name the medium and style explicitly (photograph, cinematic still, oil painting, anime, pixel art...) — unstated style yields generic digital art.
@@ -7346,7 +7346,7 @@ ${familyHint ? `
 - ${familyHint}` : ""}
 ${effortLine}${multiImgLine}${transparencyLine}${briefLine}${factsLine}${memoryLine}
 Context: ${ctxLine}`
-        : `You are the script writer for isibi, an AI text-to-speech voice studio. Your output is spoken ALOUD, verbatim, by a voice actor — so return ONLY what should be heard (the words and/or vocal sounds), nothing else: no quotes, no stage notes, no "make an audio of…", and NEVER repeat the user's instruction back to them.
+        : `You are the script writer for Go Farther, an AI text-to-speech voice studio. Your output is spoken ALOUD, verbatim, by a voice actor — so return ONLY what should be heard (the words and/or vocal sounds), nothing else: no quotes, no stage notes, no "make an audio of…", and NEVER repeat the user's instruction back to them.
 - If the user gives words to say, return exactly those words, lightly cleaned and punctuated for natural delivery.
 - If the user asks for a vocal SOUND rather than words (a scream, laugh, sob, gasp, sigh, whisper, moan), render it as a performable vocalization${/eleven-v3/.test(genModel) ? ` using ElevenLabs v3 audio tags in square brackets — e.g. a woman screaming → "[screams] Aaaaaahhh!", a laugh → "[laughs] Haha, no way!", a whisper → "[whispers] come closer…".` : ` written as onomatopoeia the voice can actually perform — e.g. a scream → "Aaaaaaahhhh!", a laugh → "Hahaha!".`}
 - If their phrasing asks for a DELIVERY change, set the matching tool fields (${tuneFull ? "speed: 0.8 slow / 1.15 fast; stability: ~0.3 emotional, ~0.85 steady; style: 0.6-0.9 expressive" : "stability: ~0.3 emotional/varied, ~0.85 steady"}); omit them all when the user didn't ask.
@@ -7394,7 +7394,7 @@ Return just the line to be voiced — keep it to what should actually come out o
             input_schema: {
               type: "object",
               properties: {
-                reply: { type: "string", description: "a short, friendly conversational message in isibi's voice" },
+                reply: { type: "string", description: "a short, friendly conversational message in Go Farther's voice" },
                 ready: { type: "boolean", description: "true if the user has given an actual thing to create; false for greetings or small talk" },
                 revise: { type: "boolean", description: "true if the user is asking to adjust the previous generation rather than describing something new" },
                 rerun: { type: "boolean", description: "true if the user wants the previous generation run again unchanged, in whatever words" },
@@ -7585,7 +7585,7 @@ Return just the line to be voiced — keep it to what should actually come out o
         return Response.json({ error: "director request failed" }, { status: 502 });
       }
 
-      // Streaming ask: forward isibi's reply as it's written, then the
+      // Streaming ask: forward Go Farther's reply as it's written, then the
       // full parsed payload as a final "done" event.
       if (wantStream && r.ok && r.body) {
         const { readable, writable } = new TransformStream();

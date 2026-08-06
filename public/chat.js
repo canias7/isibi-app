@@ -3660,7 +3660,7 @@ async function downloadMedia(url, kind) {
     // service's host in the address bar — users must never see the provider
     // (owner 2026-07-17). Only fall back to window.open for our own hosts
     // (Supabase storage, gofarther.dev); otherwise fail with a toast.
-    if (/^(blob:|data:)/i.test(url) || /(^|\.)(Go Farther\.ai|supabase\.co)(\/|$)/i.test((url.match(/^https?:\/\/([^/]+)/i) || [, ''])[1])) {
+    if (/^(blob:|data:)/i.test(url) || /(^|\.)(gofarther\.dev|supabase\.co)(\/|$)/i.test((url.match(/^https?:\/\/([^/]+)/i) || [, ''])[1])) {
       window.open(url, '_blank', 'noopener');
     } else if (typeof sbToast === 'function') {
       sbToast("Couldn't download that just now — try again in a moment.");
@@ -6765,7 +6765,7 @@ function renderSettings() {
         '<div class="sp-list">' +
           // Prefill the account email + version into the body so a support
           // reply never has to ask "which account, which version?".
-          '<a class="sp-item sp-tap" href="mailto:support@gofarther.dev?subject=Go Farther%20support&body=' +
+          '<a class="sp-item sp-tap" href="mailto:support@gofarther.dev?subject=Go%20Farther%20support&body=' +
             encodeURIComponent('\n\n—\nAccount: ' + email + ' · Go Farther ' + APP_VERSION) + '">' +
             '<span class="sp-item-l"><span class="sp-item-t">Contact support</span>' +
             '<span class="sp-item-s">support@gofarther.dev</span></span>' +

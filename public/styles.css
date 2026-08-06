@@ -225,7 +225,7 @@
       font-size: .95rem; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;
     }
     /* Bare-bar chat style — plain text with a pink→amber vertical accent bar on
-       the outer edge (right for the user, left for isibi). Scoped to text
+       the outer edge (right for the user, left for Go Farther). Scoped to text
        bubbles so generated-media / loading cards keep their framed look. */
     .msg.user,
     .msg.agent:not(.image):not(.video):not(.audio):not(.gen-loading) {
@@ -762,7 +762,7 @@
   background: rgba(255, 255, 255, .72);
   backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%);
 }
-/* isibi wordmark in the Website Builder top bar (the section tabs are hidden
+/* Go Farther wordmark in the Website Builder top bar (the section tabs are hidden
    there) — clicking it returns to the landing. Shown only in sites mode. */
 .st-home {
   display: none; align-items: center; gap: .5rem; cursor: pointer;
@@ -1418,7 +1418,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 }
 .st-card-del:hover { background: rgba(10, 10, 10, .88); border-color: transparent; }
 /* Workspace — mirrors Lovable's anatomy: top bar, slim chat rail, dominant
-   preview card. isibi dark + pink→amber skin throughout. */
+   preview card. Go Farther dark + pink→amber skin throughout. */
 .st-ws.st-lv { display: flex; flex-direction: column; gap: .7rem; width: 100%; height: calc(100vh - 88px); min-height: 480px; }
 .st-topbar { display: flex; align-items: center; gap: 1rem; padding: .35rem .35rem .35rem .2rem; }
 .st-tb-left { display: flex; align-items: center; gap: .6rem; min-width: 0; flex: 1 1 0; }
@@ -1619,7 +1619,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-bring { width: 32px; height: 32px; border-radius: 50%; border: 3px solid #211d30; border-top-color: #000000; animation: sbspin 1s linear infinite; }
 .st-building-t { font-size: .9rem; }
 @keyframes sbspin { to { transform: rotate(360deg); } }
-/* Composer — "Ask isibi…" card with a Build selector + round send. */
+/* Composer — "Ask Go Farther…" card with a Build selector + round send. */
 .st-comp { margin: .4rem .7rem .7rem; border: 1px solid var(--line-2); border-radius: 16px; background: rgba(255, 255, 255, .03); padding: .6rem .7rem .55rem; }
 .st-comp-in { width: 100%; font: inherit; font-size: .9rem; color: var(--text); background: none; border: none; resize: none; }
 .st-comp-in:focus { outline: none; }
@@ -4624,7 +4624,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   color:var(--muted);opacity:.8;margin-bottom:1.1rem}
 
 /* "Type your idea" chatbox under the filmstrip — a faithful mock of the real
-   isibi composer (reuses .composer/.composer-row/.mode-switch/.send). Clicking
+   Go Farther composer (reuses .composer/.composer-row/.mode-switch/.send). Clicking
    a filmstrip clip pastes its prompt in; the box itself starts sign-up. */
 .mkt-composer{margin:clamp(3.2rem,7vh,5.5rem) auto 0;max-width:780px;padding:0 1.1rem}
 /* laurel crest above the composer */
@@ -4649,7 +4649,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .mkt-composer .send svg{width:19px;height:19px}
 .mkt-fauxinput{flex:1;min-width:0;display:flex;align-items:center;color:var(--text);
   font-size:.98rem;line-height:1.5;padding:.45rem 0 1.2rem;white-space:nowrap;overflow:hidden}
-.mkt-fauxinput #mktTypeText:empty::before{content:"Message isibi.ai — say anything…";color:#5c5c66}
+.mkt-fauxinput #mktTypeText:empty::before{content:"Message Go Farther — say anything…";color:#5c5c66}
 .mkt-typebox-caret{display:inline-block;width:2px;height:1.15em;margin-left:1px;flex:0 0 auto;
   background:var(--neon);animation:mkt-blink 1.1s steps(1) infinite}
 /* mock controls are non-interactive (whole box → sign-up) but read as the real UI */
@@ -5178,7 +5178,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .lp-nosig-txt{position:relative;z-index:1;font-family:ui-monospace,Menlo,monospace;font-weight:700;
   letter-spacing:.18em;color:#ff7a6a;text-align:center;font-size:1rem}
 .lp-nosig-txt small{display:block;margin-top:.4rem;font-size:.62rem;letter-spacing:.24em;color:var(--muted)}
-/* GAME channel preview — live games isibi built, playing in mini arcade frames */
+/* GAME channel preview — live games Go Farther built, playing in mini arcade frames */
 .lp-game{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.8rem;padding:1rem;
   background:radial-gradient(70% 60% at 50% 40%,rgba(0,0,0,.07),transparent 70%),#0a0812}
 .lp-arcade{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;width:100%;max-width:440px}

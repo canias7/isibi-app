@@ -1,4 +1,4 @@
-# One-shot: is Cloudflare Email Service actually ready to send isibi's login codes?
+# One-shot: is Cloudflare Email Service actually ready to send Go Farther's login codes?
 #
 # Three things have to be true before the send-email hook can be switched off the
 # retired provider, and none of them can be checked from a dev container — the

@@ -55,7 +55,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           COMPOSIO_API_KEY: ${{ secrets.COMPOSIO_API_KEY }}
           # Layer-2 per-site backend: provision + query each built site's own
-          # Postgres database on Neon. One Neon PROJECT per isibi user (created
+          # Postgres database on Neon. One Neon PROJECT per Go Farther user (created
           # lazily on their first publish), one DATABASE inside it per site.
           # Replaced Cloudflare D1 on 2026-07-27 — see the shim in worker.js.
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}

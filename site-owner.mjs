@@ -6,8 +6,8 @@
 // for. A barber shop took appointments it could not see.
 //
 // This is a different door from /api/db. That one is the published site's public
-// API, where the caller is a visitor with no isibi account. This one is the
-// owner's, authenticated by their isibi session, and it can read anything in
+// API, where the caller is a visitor with no Go Farther account. This one is the
+// owner's, authenticated by their Go Farther session, and it can read anything in
 // their own site because it is their data.
 //
 // Injected like the rest, so the decisions run without Supabase, Neon or a
@@ -200,7 +200,7 @@ export async function handleOwnerWrite(deps, { slug, table, uid, method, rowId, 
 async function runWrite(deps, { db, def, access, tn, method, rowId, body }) {
   if (method === "POST") {
     // A `user`/`feed` row belongs to a MEMBER, and the owner is not one — their
-    // isibi account has no id in this database's `_users`. A row created here
+    // Go Farther account has no id in this database's `_users`. A row created here
     // would carry owner_id NULL: invisible to every `user` read (which scopes to
     // the caller's own id) and unattributable in a feed. Refused rather than
     // silently creating an orphan.
