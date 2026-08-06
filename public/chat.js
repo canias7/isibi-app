@@ -270,16 +270,11 @@ function fillModelsMenu() {
     for (const m of rows) {
       const li = document.createElement('li');
       li.className = 'mdl-row';
-      const n = document.createElement('span');
-      n.className = 'mdl-name';
-      n.textContent = m.label;                     // textContent, never innerHTML
-      li.appendChild(n);
-      if (m.note) {
-        const d = document.createElement('span');
-        d.className = 'mdl-note';
-        d.textContent = m.note;
-        li.appendChild(d);
-      }
+      // The NAME only. The per-model notes ("Google · audio · extend") are the
+      // in-app picker's job, where somebody is choosing between them; here the
+      // question is only what the platform runs. They are still on the objects
+      // in MODEL_LISTS — deliberately not read.
+      li.textContent = m.label;                    // textContent, never innerHTML
       list.appendChild(li);
     }
     sec.appendChild(list);
