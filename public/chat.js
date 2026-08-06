@@ -218,11 +218,15 @@ const LLM_MODELS = [
   { label: 'Claude Sonnet 5', note: 'Anthropic · deep prompts, research, site builds' },
   { label: 'Claude Haiku 4.5', note: 'Anthropic · fast · everyday chat and prompts' },
 ];
+// The subtitle says WHAT THE CATEGORY IS, nothing else. This is the landing
+// page — the reader is signed out and has generated nothing — so instructions
+// ("pick per generation from the model menu") and pricing are both aimed at
+// somebody who is not here. It is a list of what runs on the platform.
 const MODELS_TAB = {
-  llm: { title: 'LLM models', sub: 'The writer behind every prompt. Routed by how much thinking a request needs — you never pick one.', list: () => LLM_MODELS },
-  video: { title: 'Video models', sub: 'Pick per generation from the model menu. Notes are what each one is good for.', list: () => MODEL_LISTS.video },
-  image: { title: 'Image models', sub: 'Pick per generation from the model menu.', list: () => MODEL_LISTS.image },
-  audio: { title: 'Audio models', sub: 'Text to speech, with a voice picker and previews.', list: () => MODEL_LISTS.audio },
+  llm: { title: 'LLM models', sub: 'Reasoning and prompt writing.', list: () => LLM_MODELS },
+  video: { title: 'Video models', sub: 'Text to video, image to video, editing and lip-sync.', list: () => MODEL_LISTS.video },
+  image: { title: 'Image models', sub: 'Text to image, and image editing.', list: () => MODEL_LISTS.image },
+  audio: { title: 'Audio models', sub: 'Text to speech.', list: () => MODEL_LISTS.audio },
 };
 
 // Render one tab. ONLY `label` and `note` are ever emitted — never `id`.
