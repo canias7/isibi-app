@@ -13769,3 +13769,84 @@ drained it on the first tick, and the row cleared itself: zero attempts, no
 orphans.** Worth knowing because every fix made today applies at build or revise
 time — with nothing older in existence, there is no backfill to write and no
 sweep to run.
+
+---
+
+## Payments — the owner's OWN Stripe key (2026-08-06)
+
+**Not Stripe Connect, on your call.** A shop owner pastes their own `sk_live_…`
+into Secrets; the Worker decrypts it and calls Stripe **as them**. Their account,
+their payouts, their Stripe fees. isibi is never in the money flow and takes no
+cut. There is no platform account, no OAuth, no "Connect with Stripe" button.
+
+**Why this could not be left to the model**, which is the question you asked and
+the right one, given the stated direction is "make the substrate expressive, do
+not add verbs". Two hard walls, neither a judgement call:
+
+- **The database has no internet.** Measured 2026-07-30: `http` and `pg_net` are
+  not installable on Neon. Charging a card is an outbound HTTPS call. No
+  model-written SQL can make one — the same reason `site-notify.mjs` had to live
+  in the Worker.
+- **The key cannot be in the page.** A published site is static files on R2. A
+  page calling Stripe directly would ship `sk_live_` in the bundle, which is the
+  key stolen.
+
+So payments sit where sign-in sits: the model decides the site *has* the feature
+and builds the pages, the platform owns the credential and the network call. The
+model still decides, per site, whether the business takes card payment at all,
+which table holds the prices, which column, and the currency.
+
+**The keys live in the SITE's own Neon database**, per site per project, not in a
+central table — your call, and it was the better one. The checkout path must
+already hold that connection to price a basket from the site's own products, so
+reading the key costs no extra round trip on a path a customer is waiting on; a
+central table would restore the cross-region Supabase hop `site-routing.mjs`
+exists to remove. Deleting a site drops the database and the keys go with it,
+with no second cleanup path to forget — the class that left Neon projects billing
+forever after account deletion. And one customer's live key does not sit beside
+every other customer's. Safe because grants here are emitted **per declared
+table**: `_secrets` never passes through `grantsFor`, so `anonymous` and
+`authenticated` hold no privilege on it, and it is unreachable from the published
+site by construction. Values are encrypted with the platform key regardless, so a
+connection string alone yields ciphertext.
+
+**THE ONE RULE: the price comes from the site's own rows, never the browser.**
+The page sends `{ id, qty }` and there is nowhere in the type to put a price. A
+payable table gets **no public INSERT grant at all** — not a validation, a missing
+GRANT — so the only way an order can exist is the checkout route that priced it.
+Leave it insertable and anyone can POST an order with `payment_status: "paid"`
+and a total they chose.
+
+**What you still have to do:**
+
+1. **`SITE_SECRETS_KEY`** in GitHub Actions and in the Worker upload in
+   `deploy.yml` — generate it yourself with `openssl rand -hex 32`, I never see
+   it. Without it, keys encrypt under a value derived from `SUPABASE_SERVICE_KEY`,
+   which works but means rotating that would silently make every stored payment
+   credential undecryptable. The ciphertext carries its key version, so adding it
+   later breaks nothing already stored.
+2. **Each shop owner registers their own webhook** in their own Stripe dashboard
+   at `https://isibi.ai/api/stripe/site/<slug>` for `checkout.session.completed`,
+   and pastes the signing secret in as `STRIPE_WEBHOOK_SECRET`. The Payments panel
+   shows them that exact URL, copyable, because it is the one value that moves by
+   hand and a typo produces a shop that takes money and never marks an order paid
+   — which looks like our bug and stays silent for days.
+
+**NOT PROVEN YET: a real purchase.** Every piece is unit- and mutation-tested and
+`payments smoke` checks the live routes on every deploy at $0, but no card has
+been charged and no site holds a Stripe key. That needs one test-mode key on a
+real site and is a separate, deliberate spend.
+
+**Two pre-existing bugs fell out of building the panel**, both measured rather
+than guessed, and both affecting every panel using that markup rather than only
+this one: `.em-step span` is more specific than `.em-n`, so **every step number on
+the platform** painted near-black at 56% on a near-black gradient — invisible;
+and `.em-step b { display: block }` broke any sentence containing emphasis onto
+three lines. Fixed at the shared rule.
+
+**Worth keeping from the testing.** A mutation sweep found that "the client price
+is ignored" was only true because the parser stripped it — every test reached the
+pricing function *through* the stripper, so nothing held the layer that computes
+money. And `indexOf(a) < indexOf(b)` passes **vacuously** when `a` is deleted, so
+a mutation removing the webhook's **signature check** survived the whole suite.
+Both closed; the second is the one to remember.
