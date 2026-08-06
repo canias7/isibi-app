@@ -1715,7 +1715,19 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .sk-add .st-in { flex: 1; min-width: 0; }
 .sk-add .st-publish { flex: none; }
 .sk-item { display: flex; align-items: center; gap: .8rem; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); padding: .6rem .8rem; margin-bottom: .5rem; }
-.sk-name { font-family: ui-monospace, monospace; font-size: .85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The name is the part that gives: it is whatever the owner typed, while the
+   hint and the mode are bounded. Without min-width:0 the name refuses to shrink
+   below its content and pushes its own row's siblings out — the same flex
+   failure as the Data rail, and this row just gained two more of them. */
+.sk-name { font-family: ui-monospace, monospace; font-size: .85rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The hint, never the value: a public Stripe prefix and the last four. */
+.sk-hint { flex: none; font-family: ui-monospace, monospace; font-size: .74rem; color: var(--muted); letter-spacing: .02em; }
+/* Filled for live, outlined for test — the difference has to survive greyscale
+   and anyone who cannot see colour, so it is carried by FILL and by the word,
+   never by hue. This is the one badge on the platform where being wrong means
+   an owner thinks they are taking money and is not. */
+.sk-mode { flex: none; font-size: .62rem; text-transform: uppercase; letter-spacing: .06em; border-radius: 999px; padding: 2px 7px; border: 1px solid var(--line-2); color: var(--muted); }
+.sk-mode-live { background: #0a0a0a; border-color: #0a0a0a; color: #fff; }
 .sk-when { margin-left: auto; font-size: .74rem; color: var(--muted); flex: none; }
 .sk-del { flex: none; width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--muted); cursor: pointer; font-size: 1rem; line-height: 1; }
 .sk-del:hover { color: #c62828; border-color: rgba(255, 120, 120, .4); }

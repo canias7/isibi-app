@@ -10967,13 +10967,23 @@ async function siteSecrets(site) {
   const fmt = (t) => { try { return new Date(t).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); } catch (e) { return ''; } };
   const load = async () => {
     try {
-      const r = await apiFetch('/api/site/secrets?slug=' + encodeURIComponent(slug));
+      const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/secrets');
       const d = await r.json().catch(() => ({ secrets: [] }));
       const secs = Array.isArray(d.secrets) ? d.secrets : [];
       if (!secs.length) { listEl.innerHTML = '<div class="si-empty">No secrets yet.</div>'; return; }
-      listEl.innerHTML = secs.map((s) => '<div class="sk-item"><span class="sk-name">' + esc(s.name) + '</span><span class="sk-when">' + esc(fmt(s.created_at)) + '</span><button type="button" class="sk-del" data-del="' + esc(s.name) + '" title="Delete">×</button></div>').join('');
+      // The hint, never the value. `sk_live` against `sk_test` is the difference
+      // between a shop that takes money and one that quietly does not, and it is
+      // the single thing an owner cannot otherwise check without re-adding the key.
+      listEl.innerHTML = secs.map((s) => {
+        const bits = [s.prefix ? esc(s.prefix) : '', s.last4 ? '···· ' + esc(s.last4) : ''].filter(Boolean).join(' ');
+        const mode = s.mode ? '<span class="sk-mode sk-mode-' + esc(s.mode) + '">' + esc(s.mode) + '</span>' : '';
+        return '<div class="sk-item"><span class="sk-name">' + esc(s.name) + '</span>' +
+          (bits ? '<span class="sk-hint">' + bits + '</span>' : '') + mode +
+          '<span class="sk-when">' + esc(fmt(s.created_at)) + '</span>' +
+          '<button type="button" class="sk-del" data-del="' + esc(s.name) + '" title="Delete">×</button></div>';
+      }).join('');
       listEl.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
-        await apiFetch('/api/site/secrets?slug=' + encodeURIComponent(slug) + '&name=' + encodeURIComponent(b.dataset.del), { method: 'DELETE' });
+        await apiFetch('/api/site/' + encodeURIComponent(slug) + '/secrets/' + encodeURIComponent(b.dataset.del), { method: 'DELETE' });
         load();
       });
     } catch (e) { listEl.innerHTML = '<div class="si-empty">Couldn’t load secrets — try again.</div>'; }
@@ -10984,7 +10994,7 @@ async function siteSecrets(site) {
     errEl.style.display = 'none';
     if (!name || !val) { errEl.textContent = 'Enter a name and a value.'; errEl.style.display = ''; return; }
     try {
-      const r = await apiFetch('/api/site/secrets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, name, value: val }) });
+      const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/secrets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, value: val }) });
       const d = await r.json().catch(() => ({}));
       if (d && d.ok) { box.querySelector('#skName').value = ''; box.querySelector('#skVal').value = ''; load(); }
       else { errEl.textContent = (d && d.error) || 'Couldn’t save the secret.'; errEl.style.display = ''; }

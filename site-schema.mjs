@@ -689,6 +689,24 @@ export async function applySiteSchema(uuid, spec) {
   // drops it) but the data API would 404 them. Re-declared tables win; untouched
   // ones are preserved. (A revise cannot silently drop a table this way.)
   await sqlQuery(uuid, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
+  // The owner's own API keys — their Stripe key and its webhook secret — live in
+  // the SITE's database rather than in a central table, and created HERE rather
+  // than on a payments-only path for the reason `_sessions` had to move into
+  // `ensureSiteUsers`: a table that exists only where somebody used the feature
+  // 500s everywhere else the moment anything else reads it.
+  //
+  // Three things follow from it being per-site. The checkout route must already
+  // hold this connection to price a cart from the site's own products, so the
+  // key costs no extra round trip on a path a customer is waiting on. Deleting
+  // the site drops the database and takes the keys with it, with no second
+  // cleanup path to forget. And one customer's live key is not sitting beside
+  // every other customer's.
+  //
+  // It is deliberately NOT passed through `grantsFor` — only declared tables are
+  // — so `anonymous` and `authenticated` hold no privilege on it and it is
+  // unreachable through the Data API by construction. Values are encrypted with
+  // the PLATFORM key regardless, so a connection string alone yields ciphertext.
+  await sqlQuery(uuid, "CREATE TABLE IF NOT EXISTS _secrets (name TEXT PRIMARY KEY, cipher TEXT NOT NULL, hint TEXT, created_at TEXT DEFAULT to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS'))");
   let mergedTables = norm;
   // THE SAME MERGE THE TABLES GET, and it was missing — found 2026-08-05 by
   // asking whether a "manage my booking" page could be added by a later EDIT.

@@ -275,3 +275,69 @@ test("reading a secret that will not decrypt THROWS rather than yielding an empt
   const v = fakeVault([{ name: "K", cipher: await encryptSecret(ENV2, "sk_live_x") }]);
   await assert.rejects(() => readSecret(v, { SITE_SECRETS_KEY: "wrong".repeat(13) }, { slug: "s", name: "K" }));
 });
+
+// ── the wiring ───────────────────────────────────────────────────────────────
+//
+// Derived from worker.js, because the module's own guarantee ("a value is only
+// ever returned by readSecret") is only worth anything if the ROUTE honours it.
+// Read RAW: strip() on a six-thousand-line file eats from any /* inside a
+// string or regex to the next */ and reports present code as missing.
+import fs from "node:fs";
+import path from "node:path";
+
+const WORKER = fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8");
+const secretsBranch = (() => {
+  const start = WORKER.indexOf("if (sk) {");
+  assert.ok(start > 0, "the secrets branch must exist in worker.js");
+  const end = WORKER.indexOf("} else if (nt) {", start);
+  assert.ok(end > start, "the secrets branch must be bounded by the notify branch");
+  return WORKER.slice(start, end);
+})();
+
+test("the route NEVER calls readSecret — nothing owner-facing may decrypt", () => {
+  // readSecret is the one function that returns a value. It belongs to the
+  // checkout path and to nothing an owner's browser can reach.
+  assert.equal(/\breadSecret\s*\(/.test(secretsBranch), false);
+});
+
+test("the route only ever hands the three value-free vault functions to the client", () => {
+  const called = [...secretsBranch.matchAll(/\b(listSecrets|addSecret|deleteSecret|readSecret|decryptSecret)\s*\(/g)].map((m) => m[1]);
+  assert.deepEqual([...new Set(called)].sort(), ["addSecret", "deleteSecret", "listSecrets"]);
+});
+
+test("the SELECT for listing does not read the cipher column", () => {
+  // A `SELECT *` here would put the ciphertext one JSON.stringify from the wire.
+  const sel = secretsBranch.match(/SELECT ([^"]*) FROM _secrets ORDER BY name/);
+  assert.ok(sel, "the listing select must be findable");
+  assert.equal(/\bcipher\b|\*/.test(sel[1]), false, sel[1]);
+});
+
+test("the branch is inside the owner gate and calls assertOwner before any lookup", () => {
+  const gate = secretsBranch.indexOf("assertOwner");
+  const lookup = secretsBranch.indexOf("siteBackendBySlug");
+  assert.ok(gate > 0, "assertOwner must be called");
+  assert.ok(lookup > gate, "the backend lookup must come AFTER the ownership gate");
+});
+
+test("a caught error does not echo the provider message — a Postgres error quotes the statement", () => {
+  const c = secretsBranch.slice(secretsBranch.indexOf("catch (e)"));
+  const returned = c.match(/Response\.json\(([^;]*)\)/);
+  assert.ok(returned, "the catch must return a Response");
+  assert.equal(/e\.message|e\.detail|String\(e\)/.test(returned[1]), false, returned[1]);
+});
+
+test("_secrets is created by applySiteSchema, not by a payments-only path", () => {
+  // The _sessions lesson: a table created only where somebody used the feature
+  // 500s everywhere else the moment anything reads it.
+  const schema = fs.readFileSync(path.join(import.meta.dirname, "..", "site-schema.mjs"), "utf8");
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS _secrets \(/);
+});
+
+test("_secrets is NOT granted to the Data API roles — that is what keeps it off the public site", () => {
+  const rls = fs.readFileSync(path.join(import.meta.dirname, "..", "site-rls.mjs"), "utf8");
+  assert.equal(/_secrets/.test(rls), false, "site-rls.mjs must never mention _secrets");
+  const schema = fs.readFileSync(path.join(import.meta.dirname, "..", "site-schema.mjs"), "utf8");
+  // grantsFor is called on declared tables only; assert nothing routes _secrets
+  // into it, since a grant here would expose every key through the Data API.
+  assert.equal(/grantsFor\([^)]*_secrets/.test(schema), false);
+});

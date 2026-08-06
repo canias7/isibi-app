@@ -13,6 +13,7 @@ import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
 import { injectMeta } from "./site-meta.mjs";
+import { listSecrets, addSecret, deleteSecret, readSecret } from "./site-secrets.mjs";
 import { rescopeCookie } from "./site-cookie.mjs";
 import { drainTeardown } from "./site-teardown.mjs";
 import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
@@ -6313,7 +6314,7 @@ async function handleRequest(request, env, ctx) {
     // Ordered BEFORE the site-delete branch below on purpose: that one matches
     // any DELETE under /api/site/, so a row delete would otherwise be read as a
     // request to take the entire site down.
-    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads") || url.pathname.includes("/export") || url.pathname.includes("/notify"))) {
+    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads") || url.pathname.includes("/export") || url.pathname.includes("/notify") || url.pathname.includes("/secrets"))) {
       const om = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rows(?:\/([a-z_][a-z0-9_]{0,40})(?:\/([0-9]{1,18}))?)?$/i);
       // A member id is a UUID now, not the sequential integer this used to match.
       const mm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/members(?:\/([0-9a-f-]{36}))?$/i);
@@ -6321,10 +6322,14 @@ async function handleRequest(request, env, ctx) {
       const uf = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/uploads(?:\/([A-Za-z0-9._-]{1,80}))?$/i);
       const xp = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/export$/i);
       const nt = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/notify$/i);
-      if (om || mm || an || uf || xp || nt) {
+      // The owner's own API keys. A DELETE names the secret in the path, and the
+      // name is matched with the SAME alphabet normalizeSecretName produces, so
+      // anything that could not have been stored cannot even reach the handler.
+      const sk = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/secrets(?:\/([A-Za-z][A-Za-z0-9_]{0,63}))?$/i);
+      if (om || mm || an || uf || xp || nt || sk) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
-        const ownerSlug = (om || mm || an || uf || xp || nt)[1].toLowerCase();
+        const ownerSlug = (om || mm || an || uf || xp || nt || sk)[1].toLowerCase();
         const ownerDeps = {
           ownerOf: async (s2) => {
             const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s2)}&select=uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
@@ -6357,7 +6362,60 @@ async function handleRequest(request, env, ctx) {
         // no body otherwise — the same trap the PBKDF2 cap fell into.
         try {
           let r;
-          if (nt) {
+          if (sk) {
+            // The owner's own API keys. Every value goes through site-secrets.mjs,
+            // which is the only place one is ever decrypted; nothing here can
+            // return one, and a test asserts this branch never mentions a value.
+            const sslug = sk[1].toLowerCase();
+            const g = await assertOwner(ownerDeps, sslug, ou.id);
+            if (g.error) return Response.json(g.error.body, { status: g.error.status });
+            // Resolved AFTER the gate, so a stranger guessing slugs never costs
+            // a backend lookup. Fails closed: without a connection we cannot say
+            // what a site holds, and answering "no secrets" would read as an
+            // empty vault and invite somebody to re-add a key they already have.
+            const sconn = await siteBackendBySlug(env, sslug);
+            if (!sconn) return Response.json({ error: "publish the site first — then it can hold secrets" }, { status: 409 });
+            const vault = {
+              list: async () => {
+                const rows = await sqlQuery(sconn, "SELECT name, hint, created_at FROM _secrets ORDER BY name");
+                // A hint that will not parse is dropped, not thrown on: it is a
+                // display nicety, and losing the whole list because one row's
+                // hint is malformed would hide the key an owner came to rotate.
+                return (rows || []).map((r) => { let hint = {}; try { hint = JSON.parse(r.hint || "{}") || {}; } catch { /* shown without it */ } return { name: r.name, created_at: r.created_at, hint }; });
+              },
+              get: async (_s, name) => {
+                const rows = await sqlQuery(sconn, "SELECT cipher FROM _secrets WHERE name=?", [name]);
+                return (rows && rows[0] && rows[0].cipher) || null;
+              },
+              put: async (_s, name, cipher, hint) => {
+                await sqlExec(sconn, "INSERT INTO _secrets (name, cipher, hint) VALUES (?,?,?) ON CONFLICT (name) DO UPDATE SET cipher=excluded.cipher, hint=excluded.hint", [name, cipher, JSON.stringify(hint || {})]);
+              },
+              remove: async (_s, name) => {
+                const r = await sqlExec(sconn, "DELETE FROM _secrets WHERE name=?", [name]);
+                return { removed: !!(r && r.changes) };
+              },
+            };
+            try {
+              if (request.method === "GET") return Response.json(await listSecrets(vault, { slug: sslug }));
+              if (request.method === "POST") {
+                const sb = await request.json().catch(() => ({}));
+                const r = await addSecret(vault, env, { slug: sslug, name: sb.name, value: sb.value });
+                return Response.json(r.ok ? { ok: true, name: r.name, replaced: r.replaced } : { ok: false, error: r.error }, { status: r.ok ? 200 : (r.status || 400) });
+              }
+              if (request.method === "DELETE") {
+                // The name comes from the PATH, never a body: a DELETE with a
+                // body is not something every client sends, and the matcher
+                // above has already constrained the alphabet.
+                return Response.json(await deleteSecret(vault, { slug: sslug, name: sk[2] }));
+              }
+              return Response.json({ error: "method not allowed" }, { status: 405 });
+            } catch (e) {
+              // The message is never echoed — a Postgres error can quote the
+              // statement, and the statement binds the ciphertext.
+              console.error("secrets:", e && (e.detail || e.message));
+              return Response.json({ ok: false, error: "couldn't reach the secret store just now" }, { status: 503 });
+            }
+          } else if (nt) {
             // The off switch. Email the owner did not ask for, with no way to
             // stop it, is not something to ship.
             const nslug = nt[1].toLowerCase();
