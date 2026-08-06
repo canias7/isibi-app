@@ -9,9 +9,9 @@
 // Memberships. `credits` is the monthly refill AND what the webhook derives the
 // storage tier from, so these numbers must stay aligned with tierForCredits.
 export const PLANS = {
-  "25": { cents: 2499, credits: 2000, name: "isibi Plus — 2,000 credits / month" },
-  "50": { cents: 4999, credits: 4000, name: "isibi Pro — 4,000 credits / month" },
-  "100": { cents: 9999, credits: 8000, name: "isibi Max — 8,000 credits / month" },
+  "25": { cents: 2499, credits: 2000, name: "Go Farther Plus — 2,000 credits / month" },
+  "50": { cents: 4999, credits: 4000, name: "Go Farther Pro — 4,000 credits / month" },
+  "100": { cents: 9999, credits: 8000, name: "Go Farther Max — 8,000 credits / month" },
 };
 
 // One-time top-ups at $0.014/credit — dearer than membership on purpose.
@@ -75,8 +75,8 @@ export function checkoutForm(purchase, user) {
   const sub = purchase.kind === "plan";
   const form = new URLSearchParams({
     mode: sub ? "subscription" : "payment",
-    success_url: "https://isibi.ai/?credits=added",
-    cancel_url: "https://isibi.ai/",
+    success_url: "https://gofarther.dev/?credits=added",
+    cancel_url: "https://gofarther.dev/",
     "line_items[0][quantity]": "1",
     "line_items[0][price_data][currency]": "usd",
     "line_items[0][price_data][unit_amount]": String(purchase.cents),
@@ -87,7 +87,7 @@ export function checkoutForm(purchase, user) {
     form.set("subscription_data[metadata][user_id]", user.id);
     form.set("subscription_data[metadata][credits]", String(purchase.credits));
   } else {
-    form.set("line_items[0][price_data][product_data][name]", purchase.credits.toLocaleString("en-US") + " isibi credits");
+    form.set("line_items[0][price_data][product_data][name]", purchase.credits.toLocaleString("en-US") + " Go Farther credits");
     form.set("metadata[user_id]", user.id);
     form.set("metadata[credits]", String(purchase.credits));
   }

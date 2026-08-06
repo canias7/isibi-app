@@ -2,7 +2,7 @@
 //
 // Not Stripe Connect: the owner pastes their own `sk_live_…` into Secrets, the
 // Worker decrypts it and calls Stripe AS THEM. The charge lands in their
-// account, their payouts, their fees. isibi is never in the money flow.
+// account, their payouts, their fees. Go Farther is never in the money flow.
 //
 // The single rule this file exists to enforce: THE PRICE COMES FROM THE SITE'S
 // OWN DATABASE, NEVER FROM THE BROWSER. The client sends {id, qty} and nothing

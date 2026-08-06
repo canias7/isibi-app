@@ -16,7 +16,7 @@ on:
       base_url:
         description: 'Base URL to sweep against'
         required: false
-        default: 'https://isibi.ai'
+        default: 'https://gofarther.dev'
 
 permissions:
   contents: read

@@ -240,7 +240,7 @@ test("the session carries slug, table and order id in BOTH the reference and met
   const a = checkoutSessionArgs({
     slug: "store", table: "orders", orderId: 42, currency: "gbp",
     lines: [{ name: "Gyuto", unit: 28500, qty: 1 }],
-    successUrl: "https://isibi.ai/s/store/thanks", cancelUrl: "https://isibi.ai/s/store/basket",
+    successUrl: "https://gofarther.dev/s/store/thanks", cancelUrl: "https://gofarther.dev/s/store/basket",
   });
   assert.equal(a.client_reference_id, "store:orders:42");
   assert.deepEqual(a.metadata, { isibi_slug: "store", isibi_table: "orders", isibi_order: "42" });

@@ -9,7 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readJsonBody, clampFields, MAX_JSON_BODY, MAX_FIELD_CHARS, MAX_BODY_KEYS } from "../request-limits.mjs";
 
-const req = (body, headers = {}) => new Request("https://isibi.ai/x", {
+const req = (body, headers = {}) => new Request("https://gofarther.dev/x", {
   method: "POST",
   headers: { "content-type": "application/json", ...headers },
   body,

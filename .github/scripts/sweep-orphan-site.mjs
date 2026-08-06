@@ -20,7 +20,7 @@
 //   SUPABASE_SERVICE_KEY=… node .github/scripts/sweep-orphan-site.mjs <slug>
 import { dbNameForSite } from "../../site-db.mjs";
 
-const BASE = process.env.SWEEP_BASE_URL || "https://isibi.ai";
+const BASE = process.env.SWEEP_BASE_URL || "https://gofarther.dev";
 // Overridable for the same reason BASE is: it lets the whole flow — including
 // the refuse-a-live-site guard, which must never be exercised for the first time
 // against real data — run against a stub. See test/sweep-orphan.test.mjs.
@@ -60,7 +60,7 @@ try {
   console.log(`/s/${slug}/ currently returns ${before.status} — sweeping…`);
 
   const stamp = Date.now().toString(36);
-  const email = `sweep-${stamp}@isibi.ai`;
+  const email = `sweep-${stamp}@gofarther.dev`;
   const password = `Sw33p-${stamp}-${Math.random().toString(36).slice(2, 10)}`;
 
   const mk = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {

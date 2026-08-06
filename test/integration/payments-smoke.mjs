@@ -12,7 +12,7 @@
 // worth running on every deploy rather than once by hand.
 //
 // $0: no model call, no Neon project, no Stripe account.
-const BASE = process.env.SMOKE_BASE || "https://isibi.ai";
+const BASE = process.env.SMOKE_BASE || "https://gofarther.dev";
 
 let failed = 0;
 const ok = (label, cond, detail) => {

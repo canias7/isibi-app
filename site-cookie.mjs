@@ -7,12 +7,12 @@
 //
 // The cookie cannot be passed through untouched, for two separate reasons:
 //
-//   `Domain` names the AUTH SERVER'S host. Arriving from isibi.ai, a browser
+//   `Domain` names the AUTH SERVER'S host. Arriving from gofarther.dev, a browser
 //   refuses a cookie for a domain it is not on — so the session would be dropped
 //   silently and every later call would look signed out.
 //
 //   `Path` is the security one. Every published site is served from ONE origin,
-//   so a cookie at `Path=/` is sent to every other site on isibi.ai: one barber
+//   so a cookie at `Path=/` is sent to every other site on gofarther.dev: one barber
 //   shop's customer session travelling to a stranger's site, by construction.
 //   Pinned to `/api/db/<slug>/` it reaches that slug's auth and data calls and
 //   nothing else.

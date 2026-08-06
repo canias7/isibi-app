@@ -169,7 +169,7 @@
       font-size: .95rem; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;
     }
     /* Bare-bar chat style — plain text with a pink→amber vertical accent bar on
-       the outer edge (right for the user, left for isibi). Scoped to text
+       the outer edge (right for the user, left for Go Farther). Scoped to text
        bubbles so generated-media / loading cards keep their framed look. */
     .msg.user,
     .msg.agent:not(.image):not(.video):not(.audio):not(.gen-loading) {
@@ -3726,7 +3726,7 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   color:var(--muted);opacity:.8;margin-bottom:1.1rem}
 
 /* "Type your idea" chatbox under the filmstrip — a faithful mock of the real
-   isibi composer (reuses .composer/.composer-row/.mode-switch/.send). Clicking
+   Go Farther composer (reuses .composer/.composer-row/.mode-switch/.send). Clicking
    a filmstrip clip pastes its prompt in; the box itself starts sign-up. */
 .mkt-composer{margin:clamp(3.2rem,7vh,5.5rem) auto 0;max-width:780px;padding:0 1.1rem}
 /* laurel crest above the composer */
@@ -3751,7 +3751,7 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .mkt-composer .send svg{width:19px;height:19px}
 .mkt-fauxinput{flex:1;min-width:0;display:flex;align-items:center;color:var(--text);
   font-size:.98rem;line-height:1.5;padding:.45rem 0 1.2rem;white-space:nowrap;overflow:hidden}
-.mkt-fauxinput #mktTypeText:empty::before{content:"Message isibi.ai — say anything…";color:#5c5c66}
+.mkt-fauxinput #mktTypeText:empty::before{content:"Message Go Farther — say anything…";color:#5c5c66}
 .mkt-typebox-caret{display:inline-block;width:2px;height:1.15em;margin-left:1px;flex:0 0 auto;
   background:var(--neon);animation:mkt-blink 1.1s steps(1) infinite}
 /* mock controls are non-interactive (whole box → sign-up) but read as the real UI */

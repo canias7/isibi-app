@@ -3,7 +3,7 @@
 // `/u/<slug>/<file>` has served uploads from R2 since the D1 era and NOTHING
 // ever wrote one, so no site the builder produces can have a photo. This is the
 // write half — and it is a route that takes arbitrary bytes from a caller and
-// serves them back from isibi.ai, so most of what is tested here is what it
+// serves them back from gofarther.dev, so most of what is tested here is what it
 // refuses.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -69,7 +69,7 @@ test("every type we claim to accept is actually accepted", async () => {
 // ──────────────────────────────────────────────────────────── what it refuses
 
 test("SVG is refused — it would be stored XSS on our own origin", async () => {
-  // /u/ serves with content-disposition: inline from isibi.ai, and an SVG is a
+  // /u/ serves with content-disposition: inline from gofarther.dev, and an SVG is a
   // document that can carry <script>. nosniff does not help: the type would be
   // honestly declared as image/svg+xml.
   const { deps, puts } = harness();
@@ -318,7 +318,7 @@ test("deleting a file that is not there is 404, not a silent success", async () 
 // A different thing entirely from the owner's. This one is unauthenticated by
 // design — a customer attaching a photo to a booking has no account — which
 // makes it a public endpoint that accepts arbitrary bytes and serves them back
-// from isibi.ai. Everything above still applies; these are the limits that exist
+// from gofarther.dev. Everything above still applies; these are the limits that exist
 // only because the caller is a stranger.
 
 const VSPEC = {

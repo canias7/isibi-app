@@ -1,6 +1,6 @@
 // Supabase Auth "Send Email" hook → Cloudflare Email Service.
 // Auth: standard-webhooks signature (SEND_EMAIL_HOOK_SECRET), not JWT.
-// Links point at isibi.ai/confirm (verifies token_hash directly), so
+// Links point at gofarther.dev/confirm (verifies token_hash directly), so
 // they work regardless of the project's Site URL setting.
 //
 // Moved off Go Farther 2026-07-30 (owner stopped the account). This runs on
@@ -19,12 +19,12 @@ const cfEndpoint = (accountId: string) =>
   `https://api.cloudflare.com/client/v4/accounts/${accountId}/email/sending/send`;
 
 const SUBJECTS: Record<string, string> = {
-  signup: "Confirm your isibi account",
-  magiclink: "Your isibi sign-in code",
-  email: "Your isibi sign-in code",
-  recovery: "Reset your isibi password",
+  signup: "Confirm your Go Farther account",
+  magiclink: "Your Go Farther sign-in code",
+  email: "Your Go Farther sign-in code",
+  recovery: "Reset your Go Farther password",
   email_change: "Confirm your new email",
-  invite: "You're invited to isibi",
+  invite: "You're invited to Go Farther",
 };
 
 Deno.serve(async (req) => {
@@ -71,7 +71,7 @@ Deno.serve(async (req) => {
 
   const kind = email_data.email_action_type || "email";
   const token = email_data.token || "";
-  const link = `https://isibi.ai/confirm?token_hash=${encodeURIComponent(email_data.token_hash || "")}&type=${encodeURIComponent(kind)}`;
+  const link = `https://gofarther.dev/confirm?token_hash=${encodeURIComponent(email_data.token_hash || "")}&type=${encodeURIComponent(kind)}`;
 
   // The platform's own tokens: white ground, near-black ink, a black accent.
   // This was the last surface still wearing the retired dark brand (#0a0a0b with a
@@ -84,7 +84,7 @@ Deno.serve(async (req) => {
   <div style="margin:0;padding:32px 16px;background:#f4f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
     <div style="max-width:440px;margin:0 auto;background:#ffffff;border:1px solid rgba(0,0,0,.11);border-radius:18px;padding:32px 30px">
       <div style="font-weight:700;font-size:17px;color:#0b0b0e;margin-bottom:26px">
-        <span style="display:inline-block;background:#000000;color:#ffffff;border-radius:7px;padding:2px 9px;margin-right:7px;font-weight:800">i</span>isibi
+        <span style="display:inline-block;background:#000000;color:#ffffff;border-radius:7px;padding:2px 9px;margin-right:7px;font-weight:800">G</span>Go Farther
       </div>
       <p style="font-size:15px;color:rgba(11,11,14,.56);margin:0 0 6px">${SUBJECTS[kind] || "Your code"}</p>
       <div style="font-size:36px;font-weight:800;letter-spacing:9px;color:#0b0b0e;margin:10px 0 22px">${token}</div>
@@ -93,7 +93,7 @@ Deno.serve(async (req) => {
         The code expires in 1 hour. If you didn't ask for it, you can ignore this email.
       </p>
     </div>
-    <p style="max-width:440px;margin:16px auto 0;font-size:12px;color:rgba(11,11,14,.42);text-align:center">isibi.ai</p>
+    <p style="max-width:440px;margin:16px auto 0;font-size:12px;color:rgba(11,11,14,.42);text-align:center">gofarther.dev</p>
   </div>`;
   const text = `${SUBJECTS[kind] || "Your code"}: ${token}\n\nExpires in 1 hour. Or open: ${link}`;
 
@@ -109,9 +109,9 @@ Deno.serve(async (req) => {
     method: "POST",
     headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      from: Deno.env.get("EMAIL_FROM") || "isibi <login@isibi.ai>",
+      from: Deno.env.get("EMAIL_FROM") || "Go Farther <login@gofarther.dev>",
       to: user.email,
-      subject: SUBJECTS[kind] || "Your isibi code",
+      subject: SUBJECTS[kind] || "Your Go Farther code",
       html,
       text,
     }),

@@ -84,7 +84,7 @@ test("it cleans up the billed resources it created", () => {
 test("the proxy SETS Origin rather than forwarding what a caller sent", () => {
   // MEASURED LIVE 2026-08-04, first run of member smoke: every signup answered
   // `400 MISSING_ORIGIN`. The proxy's header allow-list is about COOKIES — it
-  // exists so isibi.ai's cookies never reach a third party — and it dropped
+  // exists so gofarther.dev's cookies never reach a third party — and it dropped
   // `Origin`, which is not a cookie. No generated site could sign anybody up.
   //
   // SET, not forwarded: this endpoint is public, so forwarding trusts an

@@ -1,6 +1,6 @@
 // Per-site Postgres on Neon.
 //
-// Shape: one Neon PROJECT per isibi user, one DATABASE inside that project per
+// Shape: one Neon PROJECT per Go Farther user, one DATABASE inside that project per
 // site the user builds. A user's project is created lazily the first time they
 // build anything; each new site adds a database to it. Sites belonging to
 // different users therefore sit in different projects (independent compute,

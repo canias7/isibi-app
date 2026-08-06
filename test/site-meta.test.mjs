@@ -10,14 +10,14 @@ import assert from "node:assert/strict";
 import { injectMeta, metaTags } from "../site-meta.mjs";
 
 const PAGE = `<!doctype html><html lang="en"><head><meta charset="UTF-8" /><title>Sharp Fade</title><link rel="stylesheet" href="./a.css"></head><body><div id="root"></div></body></html>`;
-const META = { brand: "Sharp Fade Barbershop", description: "Skin fades and hot-towel shaves in Lisbon. Book online.", url: "https://isibi.ai/s/sharp-fade/", image: "/u/sharp-fade/abc.png" };
+const META = { brand: "Sharp Fade Barbershop", description: "Skin fades and hot-towel shaves in Lisbon. Book online.", url: "https://gofarther.dev/s/sharp-fade/", image: "/u/sharp-fade/abc.png" };
 
 test("a shared link gets a name, a description and a picture", async () => {
   const out = injectMeta(PAGE, META);
   assert.match(out, /<meta name="description" content="Skin fades[^"]*">/);
   assert.match(out, /<meta property="og:title" content="Sharp Fade Barbershop">/);
   assert.match(out, /<meta property="og:description" content="Skin fades/);
-  assert.match(out, /<meta property="og:url" content="https:\/\/isibi\.ai\/s\/sharp-fade\/">/);
+  assert.match(out, /<meta property="og:url" content="https:\/\/gofarther\.dev\/s\/sharp-fade\/">/);
   assert.match(out, /<meta property="og:image" content="\/u\/sharp-fade\/abc\.png">/);
 });
 

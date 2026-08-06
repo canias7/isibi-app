@@ -389,7 +389,7 @@ test("the published index.html carries the share tags", async () => {
   // silently stop happening.
   const { injectMeta } = await import("../site-meta.mjs");
   const dist = { "index.html": { t: "<html><head><title>Shop</title></head><body></body></html>" } };
-  const meta = { brand: "Sharp Fade", description: "Skin fades in Lisbon.", url: "https://isibi.ai/s/x/" };
+  const meta = { brand: "Sharp Fade", description: "Skin fades in Lisbon.", url: "https://gofarther.dev/s/x/" };
   dist["index.html"].t = injectMeta(dist["index.html"].t, meta);
   assert.match(dist["index.html"].t, /og:title" content="Sharp Fade"/);
   assert.match(dist["index.html"].t, /name="description" content="Skin fades in Lisbon."/);

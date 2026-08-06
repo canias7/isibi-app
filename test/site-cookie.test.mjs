@@ -7,7 +7,7 @@ const IN = "better-auth.session_token=abc123; Domain=ep-x.neon.tech; Path=/; Htt
 
 test("the cookie is pinned to ONE site's prefix", () => {
   // THE SECURITY ONE. Every published site is served from the same origin, so a
-  // cookie at `Path=/` is sent to every OTHER site on isibi.ai — one barber
+  // cookie at `Path=/` is sent to every OTHER site on gofarther.dev — one barber
   // shop's customer session travelling to a stranger's site, by construction and
   // not by mistake.
   const out = rescopeCookie(IN, "/api/db/cafe/");
@@ -17,7 +17,7 @@ test("the cookie is pinned to ONE site's prefix", () => {
 });
 
 test("Domain is stripped, or the browser drops the cookie entirely", () => {
-  // It names the AUTH SERVER'S host. Arriving from isibi.ai a browser refuses a
+  // It names the AUTH SERVER'S host. Arriving from gofarther.dev a browser refuses a
   // cookie for a domain it is not on — silently — so the session would die at
   // birth and every later call would look signed out.
   const out = rescopeCookie(IN, "/api/db/cafe/");

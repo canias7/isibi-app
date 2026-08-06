@@ -1083,7 +1083,7 @@ function showApInfo(kind, ev, el) {
   if (kind === 'imgref') txt = txt.replace('{N}', String(((currentOpts() || {}).caps || {}).maxImages || 14));
   // Reference-capable models: teach the @ImageN syntax right where the refs live.
   if (kind === 'ref' && refTagBinding()) {
-    txt += ' Cite them in your message as @Image1, @Image2… where each should appear — isibi makes sure the model gets them either way.';
+    txt += ' Cite them in your message as @Image1, @Image2… where each should appear — Go Farther makes sure the model gets them either way.';
   }
   pop.textContent = txt;
   pop.dataset.for = kind;
@@ -1124,7 +1124,7 @@ document.addEventListener('click', (e) => {
   if (thread) thread.addEventListener('scroll', () => updateScrollDown(thread), { passive: true });
 })();
 
-// ── Image source chooser: device files or the isibi gallery ──
+// ── Image source chooser: device files or the Go Farther gallery ──
 let imgPickTarget = 'main'; // which slot the chosen image lands in
 
 function openImgSrc(target, ev, btn) {
@@ -1143,7 +1143,7 @@ function openImgSrc(target, ev, btn) {
   // not just the gallery or a device file.
   const sources = [];
   if (IMAGE_MULTI_MODELS.has(model)) { sources.push(['avatar', 'Avatar']); }
-  sources.push(['gallery', 'isibi gallery'], ['device', 'Your device']);
+  sources.push(['gallery', 'Go Farther gallery'], ['device', 'Your device']);
   menu.innerHTML = sources.map(([pick, label]) =>
     '<div class="model-item" data-act="img-pick" data-pick="' + pick + '"><span>' + label + '</span><span class="check">›</span></div>').join('');
   wireActions(menu); // bind the freshly-built items
@@ -1163,7 +1163,7 @@ function imgSrcPick(src, ev) {
 
 // ── Universal source chooser for EVERY attach slot (owner 2026-07-17: "for
 // every picker it asks for both") — video-mode slots used to jump straight
-// to the device dialog. Each slot now offers isibi gallery + Your device
+// to the device dialog. Each slot now offers Go Farther gallery + Your device
 // (image slots also offer saved Avatars), kind-aware: the clip slot lists
 // gallery VIDEOS, the audio slot gallery AUDIO. A gallery pick is fetched
 // into a File and fed through the SAME hidden-input change path as a device
@@ -1194,7 +1194,7 @@ function openSrcMenu(fileId, ev, btn) {
   }
   const sources = [];
   if (cfg.avatar && loadAvatars().length) sources.push(['slot-avatar', 'Avatar']);
-  sources.push(['slot-gallery', 'isibi gallery'], ['slot-device', 'Your device']);
+  sources.push(['slot-gallery', 'Go Farther gallery'], ['slot-device', 'Your device']);
   menu.innerHTML = sources.map(([pick, label]) =>
     '<div class="model-item" data-act="slot-pick" data-pick="' + pick + '" data-slot="' + fileId + '"><span>' + label + '</span><span class="check">›</span></div>').join('');
   wireActions(menu);
@@ -2225,8 +2225,8 @@ function setEffort(level) {
 // Shown in Settings → About.
 const APP_VERSION = '1.0.0';
 // Prompt-help mode chip (top-right of the composer). Three modes:
-//   auto — isibi.ai composes and makes every creative call, never asks
-//   plan — isibi.ai interviews first (the question popup), then composes
+//   auto — gofarther.dev composes and makes every creative call, never asks
+//   plan — gofarther.dev interviews first (the question popup), then composes
 //   off  — raw prompting: the text goes to the model exactly as typed,
 //          and the director surcharge disappears from the price
 // The orchestrator (the Sonnet/Haiku layer) is now an explicit on/off switch on
@@ -2235,8 +2235,8 @@ const APP_VERSION = '1.0.0';
 // how it behaves; Plan only exists while the orchestrator is on.
 const DIR_MODE_KEY = 'zephyr_director_mode';
 const DIR_MODES = {
-  auto: { icon: '', label: 'Auto', desc: 'isibi.ai writes the prompt and generates right away' },
-  plan: { icon: '', label: 'Plan', desc: 'isibi.ai shows you the plan to approve before generating' },
+  auto: { icon: '', label: 'Auto', desc: 'gofarther.dev writes the prompt and generates right away' },
+  plan: { icon: '', label: 'Plan', desc: 'gofarther.dev shows you the plan to approve before generating' },
   off:  { icon: '</>', label: 'Raw', desc: 'No prompt help — your words go to the model exactly as typed' },
 };
 // Default OFF (free raw prompting) — the Orchestrator spends credits per call,
@@ -2258,7 +2258,7 @@ function renderOrchSwitch() {
     sw.classList.toggle('on', on);
     sw.classList.remove('locked');
     sw.setAttribute('aria-checked', on ? 'true' : 'false');
-    sw.title = 'Orchestrator — isibi reads your message, picks the model and writes the prompt (spends credits per use). Off = raw prompting, free.';
+    sw.title = 'Orchestrator — Go Farther reads your message, picks the model and writes the prompt (spends credits per use). Off = raw prompting, free.';
     const ctl = sw.closest('.orch-ctl');
     if (ctl) { ctl.classList.toggle('on', on); ctl.classList.remove('locked'); }
   }
@@ -2396,7 +2396,7 @@ function toggleEffortMenu(e) {
   document.querySelectorAll('.model-menu.open').forEach((m) => { if (m !== menu) m.classList.remove('open'); });
   menu.classList.toggle('open');
 }
-// The effort picker only shapes the prompt isibi.ai writes, so it greys out in
+// The effort picker only shapes the prompt gofarther.dev writes, so it greys out in
 // raw mode AND when the AI Orchestrator add-on isn't active (no writer at all).
 function renderEffortLock() {
   const pick = document.querySelector('.effort-pick');
@@ -2409,7 +2409,7 @@ function renderEffortLock() {
   pick.querySelector('.opt-btn').title = !subbed
     ? 'Effort is part of the AI Orchestrator add-on ($19.99/mo)'
     : directorMode === 'off'
-    ? 'Effort applies when isibi.ai writes the prompt — turn the orchestrator on to use it'
+    ? 'Effort applies when gofarther.dev writes the prompt — turn the orchestrator on to use it'
     : 'How detailed the written prompt gets';
   if (off) document.getElementById('effortMenu').classList.remove('open');
 }
@@ -2785,7 +2785,7 @@ function newChat() {
   document.getElementById('input').focus();
 }
 
-// Wall-clock caption under a bubble, e.g. "11:03 PM" (user) / "isibi.ai · 11:03 PM" (agent).
+// Wall-clock caption under a bubble, e.g. "11:03 PM" (user) / "gofarther.dev · 11:03 PM" (agent).
 function fmtTime(ts) {
   const d = ts ? new Date(ts) : new Date();
   let h = d.getHours();
@@ -2796,7 +2796,7 @@ function fmtTime(ts) {
 function msgStamp(kind, ts) {
   const t = document.createElement('div');
   t.className = 'msg-time ' + kind;
-  t.textContent = kind === 'agent' ? 'isibi.ai · ' + fmtTime(ts) : fmtTime(ts);
+  t.textContent = kind === 'agent' ? 'gofarther.dev · ' + fmtTime(ts) : fmtTime(ts);
   return t;
 }
 
@@ -2856,7 +2856,7 @@ function addMsg(kind, text) {
     dots.className = 'dots';
     div.appendChild(dots);
   } else if (kind === 'agent' && text && !prefersReducedMotion()) {
-    typeText(div, text); // isibi's replies type out word-by-word
+    typeText(div, text); // Go Farther's replies type out word-by-word
   } else {
     div.textContent = text;
   }
@@ -3659,8 +3659,8 @@ async function downloadMedia(url, kind) {
     // Cross-origin fetch failed. Opening the raw URL would put the render
     // service's host in the address bar — users must never see the provider
     // (owner 2026-07-17). Only fall back to window.open for our own hosts
-    // (Supabase storage, isibi.ai); otherwise fail with a toast.
-    if (/^(blob:|data:)/i.test(url) || /(^|\.)(isibi\.ai|supabase\.co)(\/|$)/i.test((url.match(/^https?:\/\/([^/]+)/i) || [, ''])[1])) {
+    // (Supabase storage, gofarther.dev); otherwise fail with a toast.
+    if (/^(blob:|data:)/i.test(url) || /(^|\.)(gofarther\.dev|supabase\.co)(\/|$)/i.test((url.match(/^https?:\/\/([^/]+)/i) || [, ''])[1])) {
       window.open(url, '_blank', 'noopener');
     } else if (typeof sbToast === 'function') {
       sbToast("Couldn't download that just now — try again in a moment.");
@@ -4104,7 +4104,7 @@ function parseQrDirective(text, durSec) {
   return { want: !remove, remove, url, start, end, pos, clean };
 }
 
-// Burn the "✦ isibi.ai" mark into an image client-side (bottom-right), returning
+// Burn the "✦ gofarther.dev" mark into an image client-side (bottom-right), returning
 // a JPEG data URI. Used for FREE accounts, whose images can't be saved (so the
 // server-side mark never runs) — they still get a watermarked copy on the temp
 // link. Returns null if the source can't be drawn (CORS/decode) so the caller
@@ -4126,7 +4126,7 @@ async function burnImageWatermark(url) {
     c.textAlign = 'right'; c.textBaseline = 'bottom';
     c.shadowColor = 'rgba(0,0,0,.55)'; c.shadowBlur = Math.round(fs * 0.5); c.shadowOffsetY = 1;
     c.fillStyle = 'rgba(255,255,255,.92)';
-    c.fillText('✦ isibi.ai', w - pad, h - pad);
+    c.fillText('✦ gofarther.dev', w - pad, h - pad);
     return canvas.toDataURL('image/jpeg', 0.9);
   } catch { return null; }
 }
@@ -4527,13 +4527,13 @@ const CRED_ARC_LEN = 37.7; // half-circle path length (π × r12)
 // (Image watermarks don't depend on this — the server burns them on /api/save.)
 let isPaid = false;
 let paidKnown = false;
-// The on-screen "✦ isibi.ai" mark free accounts see over video players —
+// The on-screen "✦ gofarther.dev" mark free accounts see over video players —
 // chat thread, gallery cards and the lightbox all carry it (class wm-spot
 // marks the non-chat containers).
 function wmBadge() {
   const wm = document.createElement('span');
   wm.className = 'wm-badge';
-  wm.textContent = '✦ isibi.ai';
+  wm.textContent = '✦ gofarther.dev';
   return wm;
 }
 // Toggle the on-screen video badge on already-rendered clips once we learn the
@@ -4692,7 +4692,7 @@ function maybeShowWelcome(balance) {
     ov.innerHTML = '<div class="wm-box">' +
       '<button type="button" class="wm-x" aria-label="Close">✕</button>' +
       '<div class="wm-star">✦</div>' +
-      '<h2 class="wm-title">Welcome to isibi</h2>' +
+      '<h2 class="wm-title">Welcome to Go Farther</h2>' +
       '<div class="wm-grant">' + balance + ' free credits, on us</div>' +
       '<p class="wm-sub">Enough for a few images or a voice line — every model, one balance. Ready for video? Plans start at $24.99/mo.</p>' +
       '<button type="button" class="wm-cta">Start generating</button>' +
@@ -4754,7 +4754,7 @@ function openCredits(topupsOnly) {
   const ov = document.createElement('div');
   ov.className = 'credits-overlay' + (topupsOnly ? '' : ' up-overlay');
   // Full "Upgrade your plan" page: promo hero + three plan cards with feature
-  // lists, modelled on the pricing mockup and kept in the isibi theme.
+  // lists, modelled on the pricing mockup and kept in the Go Farther theme.
   const cards = MEMBERSHIPS.map((p) =>
     '<button type="button" class="up-card ' + p.klass + '" data-plan="' + p.plan + '">' +
       (p.pop ? '<div class="up-badge">★ Most popular</div>' : '') +
@@ -4894,7 +4894,7 @@ async function cancelGen(chatId) {
   deliverAgent(chatId, '⏹ Cancelled.');
 }
 
-// Failures become a conversation: isibi.ai explains what went wrong in plain
+// Failures become a conversation: gofarther.dev explains what went wrong in plain
 // words and, when a rewording could fix it, offers a corrected prompt.
 // Returns false if the director can't help so the generic message shows.
 async function explainFailure(origin, kind, genPrompt, job) {
@@ -5408,7 +5408,7 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
   }
 }
 
-// ── Director flow (isibi.ai) ───────────────────────────────────────────────
+// ── Director flow (gofarther.dev) ───────────────────────────────────────────────
 // Sonnet 5 drives the director via /api/direct. If the key isn't set (501)
 // or the call fails, we fall back to these local placeholders so the flow
 // still works.
@@ -5622,7 +5622,7 @@ function directorContext() {
 
 // The composer returns an updated per-chat creative brief AND an evolved
 // universal taste list with each prompt; both only commit when the user
-// APPROVES that prompt (so abandoned drafts never teach isibi anything).
+// APPROVES that prompt (so abandoned drafts never teach Go Farther anything).
 let pendingBrief = null;
 let pendingMemory = null;
 // A multi-shot list (Kling t2v cut sequence) the composer may return alongside
@@ -5881,14 +5881,14 @@ async function startDirector(text) {
     ctx: directorContext(),
     img: await directorImage(),
   };
-  const thinking = addMsg('agent typing', 'isibi.ai is thinking');
-  // isibi.ai's reply is delivered through the normal path when the call ends,
+  const thinking = addMsg('agent typing', 'gofarther.dev is thinking');
+  // gofarther.dev's reply is delivered through the normal path when the call ends,
   // which types it out word-by-word (like every other agent message).
   let res;
   try { res = await directorAsk(text, history, null, snap); } finally { thinking.remove(); }
-  // isibi.ai's conversational reply (greetings, small talk, or a lead-in).
+  // gofarther.dev's conversational reply (greetings, small talk, or a lead-in).
   if (res.reply) deliverAgent(origin, res.reply);
-  // The user moved to another chat while isibi.ai was thinking: a creative
+  // The user moved to another chat while gofarther.dev was thinking: a creative
   // request still gets composed in the background (the finished card lands in
   // this chat, waiting for approval). Rerun/revise anchor on the live chat's
   // last prompt, so those stop here rather than act on the wrong thread.
@@ -6339,7 +6339,7 @@ function friendlyAuthErr(e) {
 }
 
 const AUTH_TITLES = {
-  in:    { creds: 'Sign in to isibi.ai',   code: 'Check your email' },
+  in:    { creds: 'Sign in to gofarther.dev',   code: 'Check your email' },
   up:    { creds: 'Create your account', code: 'Check your email' },
   reset: { creds: 'Reset your password', code: 'Check your email', newpass: 'Set a new password' },
 };
@@ -6765,10 +6765,10 @@ function renderSettings() {
         '<div class="sp-list">' +
           // Prefill the account email + version into the body so a support
           // reply never has to ask "which account, which version?".
-          '<a class="sp-item sp-tap" href="mailto:support@isibi.ai?subject=isibi%20support&body=' +
-            encodeURIComponent('\n\n—\nAccount: ' + email + ' · isibi ' + APP_VERSION) + '">' +
+          '<a class="sp-item sp-tap" href="mailto:support@gofarther.dev?subject=Go%20Farther%20support&body=' +
+            encodeURIComponent('\n\n—\nAccount: ' + email + ' · Go Farther ' + APP_VERSION) + '">' +
             '<span class="sp-item-l"><span class="sp-item-t">Contact support</span>' +
-            '<span class="sp-item-s">support@isibi.ai</span></span>' +
+            '<span class="sp-item-s">support@gofarther.dev</span></span>' +
             '<span class="sp-item-r"><span class="st-chev">›</span></span>' +
           '</a>' +
           '<a class="sp-item sp-tap" href="/terms.html" target="_blank" rel="noopener">' +
@@ -6838,7 +6838,7 @@ function renderSettings() {
         const u = cd.until ? fmt(cd.until) : null;
         if (note) note.textContent = u ? ('Membership cancelled. You keep access until ' + u + '.') : 'Membership cancelled. You keep access until the end of your paid period.';
       } else {
-        if (note) note.textContent = 'Couldn’t cancel just now — email support@isibi.ai and we’ll sort it.';
+        if (note) note.textContent = 'Couldn’t cancel just now — email support@gofarther.dev and we’ll sort it.';
       }
     } catch {
       if (note) note.textContent = 'Couldn’t reach billing — try again in a moment.';
@@ -6883,7 +6883,7 @@ function renderSettings() {
 
   view.querySelector('#spDelete').onclick = async (e) => {
     const btn = e.currentTarget;
-    if (!confirm('Delete your isibi account? This permanently removes your chats, saved media and remaining credits.')) return;
+    if (!confirm('Delete your Go Farther account? This permanently removes your chats, saved media and remaining credits.')) return;
     if (!confirm('Last check — this cannot be undone. Delete everything?')) return;
     btn.disabled = true;
     try {
@@ -8117,7 +8117,7 @@ async function schPickFile(file) {
       : '<div class="sch-urlprev">🎬 ' + esc(file.name || 'video') + '</div>';
   }
 }
-// A picked isibi-gallery item (already a hosted URL) → stage it + preview. The
+// A picked Go Farther-gallery item (already a hosted URL) → stage it + preview. The
 // URL doubles as the thumb for images; a video uses its poster if there is one.
 function schSelectGalleryMedia(it) {
   const kind = it.kind === 'video' ? 'video' : 'image';
@@ -9097,9 +9097,9 @@ function paintCrt() {
   const active = live || builder;
   if (box) box.classList.toggle('crt-chatbox-soon', !active);
   if (inp) inp.placeholder = kind === 'game'
-    ? 'Describe a game — press Enter and isibi builds it →'
+    ? 'Describe a game — press Enter and Go Farther builds it →'
     : kind === 'website'
-      ? 'Describe a website or app — press Enter and isibi builds it →'
+      ? 'Describe a website or app — press Enter and Go Farther builds it →'
       : live
         ? 'a neon tiger prowling a rainy Tokyo alley, cinematic'
         : 'Coming soon — pick Video / Image / Voice to create';
@@ -9638,7 +9638,7 @@ function switchSitePage(path) {
   const menu = document.getElementById('stPageMenu');
   if (menu) { menu.hidden = true; menu.querySelectorAll('[data-path]').forEach((b) => b.classList.toggle('on', b.dataset.path === path)); }
   const chip = document.querySelector('.st-frame-url');
-  if (chip) chip.textContent = s.slug ? ('isibi.ai/s/' + s.slug + (path !== '/' ? path : '')) : 'Draft preview — publish to get a live link';
+  if (chip) chip.textContent = s.slug ? ('gofarther.dev/s/' + s.slug + (path !== '/' ? path : '')) : 'Draft preview — publish to get a live link';
   const f = document.getElementById('stFrame');
   sitePreviewErrs[s.id + '|' + path] = []; // fresh page → clear stale errors
   if (f && target.html) loadSitePreview(f, target.html, s.slug);
@@ -9656,7 +9656,7 @@ function renderSites() {
     '<div class="st-page">' +
       '<div class="st-hero">' +
         '<h1>What are we <span class="st-grad">building</span>?</h1>' +
-        '<p>Describe a site and isibi builds it — then refine it by chatting. <span class="sch-flag">Beta</span></p>' +
+        '<p>Describe a site and Go Farther builds it — then refine it by chatting. <span class="sch-flag">Beta</span></p>' +
       '<div class="st-new">' +
         '<textarea id="stPrompt" class="st-in" rows="2" placeholder="Describe the website you want — “a landing page for my sneaker brand, dark, bold type, waitlist form”…"></textarea>' +
         '<div class="st-attach" id="stAttach"></div>' +
@@ -9722,7 +9722,7 @@ function stStamp(ts) {
   try { return new Date(ts || Date.now()).toLocaleString('en-US', { month: 'short', day: 'numeric' }) + ' at ' + new Date(ts || Date.now()).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); }
   catch { return ''; }
 }
-// ── Workspace stage views (frontend chrome, isibi-skinned) ────────────────────
+// ── Workspace stage views (frontend chrome, Go Farther-skinned) ────────────────────
 // Preview / Code / More(Analytics·Cloud·Security·SEO). Real data where we have it
 // (the page HTML, the live URL); tasteful "coming soon" where the backend isn't
 // wired yet. All visual for now — owner reference 2026-07-18 (Lovable).
@@ -9833,7 +9833,7 @@ async function loadSiteData(site) {
   const host = document.getElementById('stData'); if (!host) return;
   // The owner's door onto their own site: /api/site/<slug>/rows[/<table>[/<id>]]
   // and /api/site/<slug>/members. A different caller from the published site's
-  // public /api/db — that one is an anonymous visitor, this one is the isibi
+  // public /api/db — that one is an anonymous visitor, this one is the Go Farther
   // account that OWNS the site, so it can read `collect` submissions (which the
   // public API refuses by design) and correct `display` content.
   const base = '/api/site/' + encodeURIComponent(site.slug || '');
@@ -9993,6 +9993,24 @@ function moreCloud(site) {
   const dataLive = isReact ? hasBackend : !!site.slug;
   const fnLive = !!site.slug;                       // Secrets + Edge functions: any published site
   const auxLive = isReact ? false : !!site.slug;    // Emails/Payments/Files dedicated panels: static only for now
+  // WHAT IS ACTUALLY SERVED, audited 2026-08-06 against worker.js's route
+  // matcher. The owner block answers exactly: /rows /members /analytics
+  // /uploads /export /notify /secrets. Everything else these cards call was
+  // deleted with the D1 runtime in July and 404s.
+  //
+  // The dead ones are marked UNAVAILABLE rather than removed. Removing them
+  // deletes the record of what this console is meant to do, and these are
+  // features the platform still wants; a card that says why it is off is
+  // honest, whereas one that looks live and 404s reads as a broken product.
+  // Flip a name out of DEAD_PANELS the moment its route exists again.
+  const DEAD_PANELS = {
+    security: 'Off since the audit log was removed',   // /events — routed nowhere
+    backups: 'Not rebuilt yet',                         // /backend/backup*
+    versions: 'Not rebuilt yet',                        // /backend/rollback
+    functions: 'Not rebuilt yet',                       // /site/functions
+    emails: 'Not rebuilt yet',                          // /site/emails
+    files: 'Not rebuilt yet',                           // /site/files
+  };
   const cards = [
     ['users', 'Members', dataLive ? 'Accounts that sign up in your app' : (isReact ? 'Add a login to your app to collect members' : 'Publish to enable member accounts'), dataLive, 'members'],
     ['key', 'Security log', dataLive ? 'Sign-ins, failures and what you changed' : (isReact ? 'Add a login to your app to see this' : 'Publish to enable the security log'), dataLive, 'security'],
@@ -10009,8 +10027,14 @@ function moreCloud(site) {
   ];
   return '<div class="st-panel"><div class="st-panel-head"><h3>Cloud</h3></div>' +
     '<div class="st-cards">' + cards.map((c) => {
-      const clickable = c[3] && c[4] && site.slug;
-      return '<div class="st-cloudcard' + (c[3] ? ' live' : '') + (clickable ? ' st-clickable' : '') + '"' + (clickable ? ' role="button" tabindex="0" data-cloud="' + c[4] + '"' : '') + '><span class="st-cc-ic">' + ic(c[0], 20) + '</span><div class="st-cc-tx"><b>' + c[1] + (c[3] ? '<span class="st-badge-live">Live</span>' : '<span class="st-badge-soon">Soon</span>') + '</b><span>' + c[2] + '</span></div></div>';
+      // A dead panel is NOT clickable and does not claim to be Live. It used to
+      // pass both tests — `dataLive` is about the site having a backend, not
+      // about the route existing — so seven cards said "Live", opened, and 404ed.
+      const dead = DEAD_PANELS[c[4]];
+      const clickable = !dead && c[3] && c[4] && site.slug;
+      const badge = dead ? '<span class="st-badge-soon">Off</span>'
+        : (c[3] ? '<span class="st-badge-live">Live</span>' : '<span class="st-badge-soon">Soon</span>');
+      return '<div class="st-cloudcard' + (c[3] && !dead ? ' live' : '') + (clickable ? ' st-clickable' : '') + '"' + (clickable ? ' role="button" tabindex="0" data-cloud="' + c[4] + '"' : '') + '><span class="st-cc-ic">' + ic(c[0], 20) + '</span><div class="st-cc-tx"><b>' + c[1] + badge + '</b><span>' + (dead || c[2]) + '</span></div></div>';
     }).join('') +
     '</div></div>';
 }
@@ -10046,7 +10070,7 @@ function siteSecurityScan(site) {
 }
 function moreSeo(site) {
   return '<div class="st-panel"><div class="st-panel-head"><h3>SEO &amp; social</h3></div>' +
-    '<div class="st-field"><label>Title</label><div class="st-inp">' + esc(site.name || 'Your site') + ' — built with isibi</div></div>' +
+    '<div class="st-field"><label>Title</label><div class="st-inp">' + esc(site.name || 'Your site') + ' — built with Go Farther</div></div>' +
     '<div class="st-field"><label>Description</label><div class="st-inp st-inp-area">A short, on-brand description of your site for search engines and social shares.</div></div>' +
     '<div class="st-field"><label>Social image</label><div class="st-social"><div class="st-social-ph">1200 × 630</div><div class="st-social-btns"><button type="button" class="st-gen2" disabled>Upload · soon</button><button type="button" class="st-gen2" disabled>Generate · soon</button></div></div></div>' +
   '</div>';
@@ -10066,7 +10090,7 @@ function siteHistoryRail(site) {
 // republish/copy. Unpublish + edit-settings are visual placeholders for now.
 function sitePublishPanel(site) {
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
-  const url = site.liveUrl || (slug ? 'https://isibi.ai/s/' + slug : '');
+  const url = site.liveUrl || (slug ? 'https://gofarther.dev/s/' + slug : '');
   const published = !!site.published;
   let box = document.getElementById('sitePubModal'); if (box) box.remove();
   box = document.createElement('div'); box.id = 'sitePubModal'; box.className = 'si-modal';
@@ -10077,7 +10101,7 @@ function sitePublishPanel(site) {
         '<div class="sp-row"><span class="sp-k">Visitors</span><span class="sp-v">0</span></div>' +
         '<div class="sp-actions"><button type="button" class="st-publish" id="spUpdate">Republish</button><button type="button" class="st-share" id="spCopy">Copy link</button><button type="button" class="st-share sp-unpub" id="spUnpub">Unpublish</button></div>'
       : '<p class="sp-intro">Publish to put your site live on the web at a real link.</p>' +
-        (slug ? '<div class="sp-row"><span class="sp-k">Your link</span><span class="sp-v">isibi.ai/s/' + esc(slug) + '</span></div>' : '') +
+        (slug ? '<div class="sp-row"><span class="sp-k">Your link</span><span class="sp-v">gofarther.dev/s/' + esc(slug) + '</span></div>' : '') +
         '<div class="sp-actions"><button type="button" class="st-publish" id="spUpdate">Publish now</button></div>') +
   '</div></div>';
   document.body.appendChild(box);
@@ -10108,7 +10132,7 @@ function siteUnpublish(site) {
 }
 // The workspace mirrors Lovable's anatomy (owner reference 2026-07-18): a top
 // bar (project name + view tabs · devices, Share, Publish), a slim chat rail,
-// and the stage (Preview / Code / More). Skinned in isibi's own dark + pink→amber.
+// and the stage (Preview / Code / More). Skinned in Go Farther's own dark + pink→amber.
 function renderSiteWorkspace(view, site) {
   const pages = sitePages(site);
   const active = siteActivePage(site);
@@ -10117,7 +10141,7 @@ function renderSiteWorkspace(view, site) {
   const hasSite = !!curHtml || isReact;
   // Browser-frame URL chip: the live path once published (drafts have a slug too).
   const previewUrl = site.slug
-    ? 'isibi.ai/s/' + site.slug + (active && active.path && active.path !== '/' ? active.path : '')
+    ? 'gofarther.dev/s/' + site.slug + (active && active.path && active.path !== '/' ? active.path : '')
     : 'Draft preview — publish to get a live link';
   const picker = pages.length > 1
     ? '<div class="st-pagepick"><button type="button" class="st-pagebtn" id="stPageBtn">' + esc(active ? active.name : 'Home') + ' <span class="st-cv">▾</span></button>' +
@@ -10168,7 +10192,7 @@ function renderSiteWorkspace(view, site) {
             : '<div class="st-date">' + esc(stStamp(site.updatedAt || site.createdAt)) + '</div>' +
               '<div class="st-thread" id="stThread"></div>' +
               '<div class="st-comp">' +
-                '<textarea id="stRevise" class="st-comp-in" rows="2" placeholder="Ask isibi…"></textarea>' +
+                '<textarea id="stRevise" class="st-comp-in" rows="2" placeholder="Ask Go Farther…"></textarea>' +
                 '<div class="st-attach" id="stAttach"></div>' +
                 '<div class="st-comp-row">' +
                   '<button type="button" class="st-plus" id="stPlus" title="Attach a logo or reference image" aria-label="Attach image">+</button>' +
@@ -10341,7 +10365,7 @@ function renderSiteWorkspace(view, site) {
     if (site.liveUrl) { try { navigator.clipboard.writeText(site.liveUrl); } catch (e) {} if (typeof sbToast === 'function') sbToast('Live link copied — ' + site.liveUrl); }
     else if (typeof sbToast === 'function') sbToast('Publish it first, then you can share the live link.');
   };
-  // Publish: push the site live to isibi.ai/s/<slug> (or Republish to update).
+  // Publish: push the site live to gofarther.dev/s/<slug> (or Republish to update).
   const pb = document.getElementById('stPub');
   if (pb) {
     if (site.liveUrl) pb.textContent = 'Republish';
@@ -10715,7 +10739,7 @@ function siteStop() {
   if (siteAbort) { try { siteAbort.abort(); } catch (e) {} }
 }
 
-// Publish the site live: every page → R2, served at isibi.ai/s/<slug>. Republish
+// Publish the site live: every page → R2, served at gofarther.dev/s/<slug>. Republish
 // reuses the same URL. The live link lands in the thread + a toast.
 function sitePublish(site) {
   const pages = sitePages(site);
@@ -10831,28 +10855,44 @@ async function siteInsights(site) {
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
   if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — insights show up here.'); return; }
   const { bodyEl } = stCloudModal('siteInsightsModal', 'Insights');
+  // REWRITTEN against the live route. This panel used to call
+  // /api/site/backend/analytics and /backend/metrics, both deleted with the D1
+  // runtime in July, and it asked for a shape nothing serves any more —
+  // byEvent / byPath / totals.reqs. Not a path fix: /api/site/<slug>/analytics
+  // answers {views, visitors, views7, visitors7, series}, which is different
+  // data and, unlike the old per-event tracking, is actually being recorded.
+  // site_hits has been written on every visit since the D1 era.
   try {
-    const [ar, mr] = await Promise.all([
-      apiFetch('/api/site/backend/analytics?slug=' + encodeURIComponent(slug) + '&days=30'),
-      apiFetch('/api/site/backend/metrics?slug=' + encodeURIComponent(slug) + '&days=30'),
-    ]);
-    const a = await ar.json().catch(() => ({})); const m = await mr.json().catch(() => ({}));
-    const evRows = Object.entries(a.byEvent || {}).sort((x, y) => y[1] - x[1]).slice(0, 8);
-    const pathRows = Object.entries(a.byPath || {}).sort((x, y) => y[1] - x[1]).slice(0, 8);
-    const reqs = (m.totals && m.totals.reqs) || 0, errs = (m.totals && m.totals.errs) || 0;
-    const bar = (rows) => rows.length ? rows.map(([k, v]) => '<div class="si-bar"><span class="si-bar-k">' + esc(k || '—') + '</span><span class="si-bar-t"><i style="width:' + Math.max(4, Math.round(v / (rows[0][1] || 1) * 100)) + '%"></i></span><span class="si-bar-v">' + v + '</span></div>').join('') : '<div class="si-empty">No data yet.</div>';
+    const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/analytics');
+    const d = await r.json().catch(() => ({}));
+    // 503 is the route saying it could not READ, and it says so rather than
+    // answering zeros — "nobody visited your site" is a very different and much
+    // worse thing to tell someone than "try again". Honour that here.
+    if (!r.ok) { bodyEl.innerHTML = '<div class="si-empty">Couldn\u2019t read your traffic just now — try again in a moment.</div>'; return; }
+    const n = (v) => Number.isFinite(+v) ? +v : 0;
+    const series = Array.isArray(d.series) ? d.series : [];
+    const peak = series.reduce((m, x) => Math.max(m, n(x.views)), 0);
+    const day = (iso) => { try { return new Date(iso + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }); } catch (e) { return ''; } };
+    // A bar per day, height by fill — no colour, so it survives greyscale.
+    // A zero day still draws a hairline, or an empty week looks like missing
+    // data rather than a quiet week.
+    const chart = series.length
+      ? '<div class="si-days">' + series.map((x) => '<div class="si-day" title="' + esc(String(x.day)) + ' \u00b7 ' + n(x.views) + '"><span class="si-day-bar"><i style="height:' + (peak ? Math.max(2, Math.round(n(x.views) / peak * 100)) : 2) + '%"></i></span><span class="si-day-k">' + esc(day(String(x.day))) + '</span></div>').join('') + '</div>'
+      : '<div class="si-empty">No visits recorded yet.</div>';
     bodyEl.innerHTML =
-      '<div class="si-stat-row"><div class="si-stat"><b>' + ((a.total) || 0) + '</b><span>views / actions · 30d</span></div>' +
-      '<div class="si-stat"><b>' + reqs + '</b><span>API requests</span></div>' +
-      '<div class="si-stat"><b>' + errs + '</b><span>errors</span></div></div>' +
-      '<div class="si-panel-sub">By event</div>' + bar(evRows) +
-      '<div class="si-panel-sub">Top pages</div>' + bar(pathRows) +
-      '<div class="si-note">Traffic is recorded when your app tracks views/actions. API counts are approximate.</div>';
-  } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load insights just now — try again.</div>'; }
+      '<div class="si-stat-row">' +
+        '<div class="si-stat"><b>' + n(d.views) + '</b><span>views \u00b7 all time</span></div>' +
+        '<div class="si-stat"><b>' + n(d.visitors) + '</b><span>visitors \u00b7 all time</span></div>' +
+      '</div>' +
+      '<div class="si-stat-row">' +
+        '<div class="si-stat"><b>' + n(d.views7) + '</b><span>views \u00b7 last 7 days</span></div>' +
+        '<div class="si-stat"><b>' + n(d.visitors7) + '</b><span>visitors \u00b7 last 7 days</span></div>' +
+      '</div>' +
+      '<div class="si-panel-sub">Last 7 days</div>' + chart +
+      '<div class="si-note">A visitor is counted once a day. Bots are not counted.</div>';
+  } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn\u2019t load insights just now — try again.</div>'; }
 }
 
-// Backups — snapshot the app's data to restore later. Owner-scoped. _users (logins) are
-// intentionally excluded from a snapshot, so a restore can never wipe accounts.
 async function siteBackups(site) {
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
   if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then back up your data.'); return; }
@@ -11042,7 +11082,7 @@ async function siteFunctions(site) {
         const chips = steps.map((s) => '<span class="fn-step">' + stepLabel(s) + '</span>').join('<span class="fn-arrow">→</span>');
         const sm = parseInt(f.schedule_minutes, 10);
         const schBadge = sm > 0 ? '<span class="fn-sch">' + ic('history', 12) + ' ' + esc(schLabel(sm)) + '</span>' : '';
-        const hookUrl = 'https://isibi.ai/api/site/hook/' + slug + '/' + f.name;
+        const hookUrl = 'https://gofarther.dev/api/site/hook/' + slug + '/' + f.name;
         return '<div class="fn-item"><div class="fn-top"><span class="fn-ic">' + ic('zap', 15) + '</span><b class="fn-name">' + esc(f.name) + '</b><span class="fn-trig">HTTP</span>' + schBadge + (f.enabled === false ? '<span class="st-badge-soon">Paused</span>' : '<span class="st-badge-live">Live</span>') + '<button type="button" class="sk-del" data-del="' + esc(f.name) + '" title="Delete">×</button></div><div class="fn-flow">' + (chips || '<span class="fn-step">no steps</span>') + '</div><div class="fn-hook"><span class="fn-hook-label">Webhook</span><code class="fn-hook-url">' + esc(hookUrl.replace(/^https:\/\//, '')) + '</code><button type="button" class="fn-hook-copy" data-hook="' + esc(hookUrl) + '">Copy</button></div></div>';
       }).join('');
       listEl.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
@@ -11137,7 +11177,7 @@ function sitePayments(site) {
   // paid — which looks like our bug and is silent for days.
   const hookUrl = location.origin + '/api/stripe/site/' + slug;
   box.innerHTML = '<div class="si-card"><div class="si-head"><b>Payments</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body">' +
-    '<p class="sp-intro">Take payments with <b>your own</b> Stripe account. Money goes straight to you — isibi never touches it and takes no cut.</p>' +
+    '<p class="sp-intro">Take payments with <b>your own</b> Stripe account. Money goes straight to you — Go Farther never touches it and takes no cut.</p>' +
     '<div id="payState">Checking…</div>' +
   '</div></div>';
   document.body.appendChild(box);
@@ -12005,7 +12045,7 @@ function renderGames() {
     body =
       '<div class="gs-compose">' +
         '<h1 class="gs-h1">What are we <span class="gs-grad">playing</span>?</h1>' +
-        '<p class="gs-sub">Describe a game. isibi writes it, compiles it, and play-tests it before you see it.</p>' +
+        '<p class="gs-sub">Describe a game. Go Farther writes it, compiles it, and play-tests it before you see it.</p>' +
         '<div class="gs-chips">' + chips + '</div>' +
         artToggle +
         '<div class="gs-box">' +
