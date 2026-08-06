@@ -36,7 +36,7 @@ function findChromium() {
   return found[0] || null;
 }
 
-const BASE = process.env.SMOKE_BASE_URL || "https://isibi.ai";
+const BASE = process.env.SMOKE_BASE_URL || "https://gofarther.dev";
 const SUPABASE_URL = "https://ujrqdmmtcptvimazlhom.supabase.co";
 // Public by design — it is shipped in the browser bundle. Kept inline so the
 // workflow needs no extra secret.
@@ -55,7 +55,7 @@ const ok = (name, cond, extra) => {
 const svc = (extra) => ({ apikey: SVC, Authorization: `Bearer ${SVC}`, "content-type": "application/json", ...(extra || {}) });
 
 const stamp = Date.now().toString(36);
-const email = `smoke-${stamp}@isibi.ai`;
+const email = `smoke-${stamp}@gofarther.dev`;
 const password = `Sm0ke-${stamp}-${Math.random().toString(36).slice(2, 10)}`;
 // `jwt` is hoisted because cleanup needs it: taking the published site down is
 // an authenticated call, so it has to happen in `finally` while the throwaway

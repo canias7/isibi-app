@@ -1,4 +1,4 @@
-// isibi.ai — k6 load test
+// gofarther.dev — k6 load test
 // ---------------------------------------------------------------------------
 // Exercises the paths that actually matter under concurrency, WITHOUT spending
 // any generation money (no /api/video|image|audio, no /api/direct):
@@ -8,14 +8,14 @@
 //                          hits your real database + auth, i.e. the bottleneck
 //                          you care about. It is read-only (no charge).
 //
-// ⚠️  This hits PRODUCTION (isibi.ai) and its live Supabase by default. It is
+// ⚠️  This hits PRODUCTION (gofarther.dev) and its live Supabase by default. It is
 //     read-only and spends no fal/Anthropic money, but it IS real load on your
 //     DB — run it deliberately, and Ctrl-C to stop at any time.
 //
 // USAGE
 //   1. Install k6:  https://k6.io/docs/get-started/installation/
 //      (macOS: `brew install k6`)
-//   2. Grab a session token — open isibi.ai signed in, then in the browser
+//   2. Grab a session token — open gofarther.dev signed in, then in the browser
 //      console:  JSON.parse(localStorage.zephyr_session_v1).access_token
 //   3. Raise the file-descriptor limit for high VU counts:  ulimit -n 250000
 //   4. Run (safe defaults — page ramps to 1000, credits to 100):
@@ -32,7 +32,7 @@ import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Rate, Trend } from 'k6/metrics';
 
-const BASE      = __ENV.BASE_URL  || 'https://isibi.ai';
+const BASE      = __ENV.BASE_URL  || 'https://gofarther.dev';
 const TOKEN     = __ENV.TOKEN     || '';                       // Supabase access_token (optional)
 const PAGE_VUS  = parseInt(__ENV.PAGE_VUS || '1000', 10);       // peak VUs for the static path
 const API_VUS   = parseInt(__ENV.API_VUS  || '100', 10);        // peak VUs for the authed read path

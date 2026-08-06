@@ -1,4 +1,4 @@
-// ── isibi.ai Studio: on-device video editing (ffmpeg.wasm) ───────────────────
+// ── gofarther.dev Studio: on-device video editing (ffmpeg.wasm) ───────────────────
 // Free, private, in-browser video edits — nothing leaves the tab, no credits.
 // ffmpeg is self-hosted under /vendor/ffmpeg (script-src 'self') and the 32 MB
 // core wasm ships gzipped (9.75 MB, under Cloudflare's 25 MiB asset cap) and is

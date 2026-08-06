@@ -6,7 +6,7 @@
 #
 #   1. the token has Email Sending permission
 #   2. Email Sending is enabled on the account (it is beta, Workers Paid)
-#   3. isibi.ai is a verified sending domain
+#   3. gofarther.dev is a verified sending domain
 #
 # There is no documented API for listing or verifying domains, so this does not try
 # to guess one. It sends ONE message and reads the answer, because the failure codes
@@ -33,7 +33,7 @@ on:
       from:
         description: "Sender. Must be on the verified domain."
         required: false
-        default: "isibi <login@isibi.ai>"
+        default: "Go Farther <login@gofarther.dev>"
 
 permissions:
   contents: read
@@ -68,7 +68,7 @@ jobs:
           {
             "from": "${FROM}",
             "to": "${TO}",
-            "subject": "isibi mail probe",
+            "subject": "Go Farther mail probe",
             "html": "<p>If you are reading this, Cloudflare Email Service can send as this domain and the login-code hook can be switched over.</p>",
             "text": "If you are reading this, Cloudflare Email Service can send as this domain and the login-code hook can be switched over."
           }
@@ -103,7 +103,7 @@ jobs:
               case "$body" in
                 *E_SENDER_NOT_VERIFIED*)
                   echo "::error::The sender domain is not verified. Add and verify the domain in"
-                  echo "Cloudflare → Email Service → Domains. isibi.ai is already on Cloudflare,"
+                  echo "Cloudflare → Email Service → Domains. gofarther.dev is already on Cloudflare,"
                   echo "so the DKIM/SPF records should be one click rather than manual DNS."
                   ;;
                 *E_RECIPIENT_SUPPRESSED*)

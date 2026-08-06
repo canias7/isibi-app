@@ -39,7 +39,7 @@ async function run() {
       user: data.user || null,
     }));
     title.textContent = 'Confirmed ✓';
-    text.textContent = 'You’re signed in — taking you to isibi.ai…';
+    text.textContent = 'You’re signed in — taking you to gofarther.dev…';
     setTimeout(() => location.replace('/'), 900);
   } catch (e) {
     title.textContent = 'Link expired';

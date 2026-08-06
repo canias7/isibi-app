@@ -26,7 +26,7 @@ on:
       base_url:
         description: 'Base URL to test against'
         required: false
-        default: 'https://isibi.ai'
+        default: 'https://gofarther.dev'
 
 jobs:
   payments:
@@ -42,5 +42,5 @@ jobs:
 
       - name: The payment routes, live
         env:
-          SMOKE_BASE: ${{ github.event.inputs.base_url || 'https://isibi.ai' }}
+          SMOKE_BASE: ${{ github.event.inputs.base_url || 'https://gofarther.dev' }}
         run: node test/integration/payments-smoke.mjs

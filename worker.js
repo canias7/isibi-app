@@ -888,7 +888,7 @@ function harden(res, request) {
   let pathname = "";
   try { pathname = new URL(request.url).pathname; } catch {}
   const sameOriginFrame = pathname.startsWith("/mkt/demo");
-  // A published Website-Builder site (isibi.ai/s/<slug>) is a real end-user
+  // A published Website-Builder site (gofarther.dev/s/<slug>) is a real end-user
   // website — it needs its OWN inline <style>/<script>, Google Fonts, and the
   // Supabase-hosted images, so it gets a permissive website CSP, not the strict
   // app policy. Still same-origin-only for scripts/connect (no external code).
@@ -1165,7 +1165,7 @@ async function readCapped(resp, maxBytes) {
 }
 
 // ── Free-tier watermark, burned server-side ────────────────────────────────
-// The "✦ isibi.ai" badge PNG lives in public/; fetched once per isolate via the
+// The "✦ gofarther.dev" badge PNG lives in public/; fetched once per isolate via the
 // ASSETS binding and cached. Composited bottom-right, scaled to ~26% of the
 // image width (matching the client's width-relative mark).
 let _wmBadge = null;
@@ -1986,7 +1986,7 @@ function agentSystemPrompt(connected) {
     for (const [slug, desc] of Object.entries(acts)) lines.push(`  • ${slug}: ${desc}`);
   }
   return [
-    "You are the Media Agent for Zephyr (isibi.ai) — a helpful assistant that manages the user's Instagram and YouTube accounts.",
+    "You are the Media Agent for Zephyr (gofarther.dev) — a helpful assistant that manages the user's Instagram and YouTube accounts.",
     "You can inspect their accounts by calling run_action with one of the allowed action slugs and its arguments. All actions are READ-ONLY right now; you cannot post, upload, comment, or delete yet — if asked to, say that publishing is coming soon.",
     "Chain actions when needed (e.g. get the IG account id before listing media). Keep answers concise and concrete — cite real numbers you fetched. Format lists cleanly. Never invent metrics; if an action fails, say what happened.",
     "\nAllowed actions:", lines.join("\n"),
@@ -2133,7 +2133,7 @@ async function openMediaToken(env, token) {
 // PBKDF2 password hashing + HMAC-signed stateless session tokens. The signing key
 // is derived from a server-only secret so no new secret is needed and it never
 // leaves the Worker. These accounts are the SITE'S members — wholly separate from
-// isibi's own auth.users (the builder). Same-origin (isibi.ai/s/… → isibi.ai/api),
+// isibi's own auth.users (the builder). Same-origin (gofarther.dev/s/… → gofarther.dev/api),
 // so the published-site CSP (connect-src 'self') already allows the calls.
 async function sha256hex(str) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
@@ -3417,7 +3417,7 @@ async function siteServiceBase(db, key) {
  *
  *   - the page never learns the auth endpoint or any key, so nothing has to be
  *     decided about what is safe to publish into a static bundle;
- *   - it is SAME-ORIGIN. A published site is served from isibi.ai, so a direct
+ *   - it is SAME-ORIGIN. A published site is served from gofarther.dev, so a direct
  *     call would need CORS on Neon's side and a cross-site cookie in the browser,
  *     which is the configuration most likely to work in development and fail in
  *     Safari;
@@ -3566,7 +3566,7 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
   const target = base + "/" + path + (url.search || "");
   const headers = new Headers();
   // Only what the auth server needs. Forwarding the whole header set would carry
-  // cookies for isibi.ai into a third party.
+  // cookies for gofarther.dev into a third party.
   // `prefer` carries PostgREST's return=representation, which is how an insert
   // answers with the row it created rather than an empty body.
   for (const h of ["content-type", "authorization", "accept", "prefer", "cookie"]) {
@@ -3579,7 +3579,7 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
   // absolute URL"`, on every auth call that is not a plain GET.
   //
   // The header was dropped by the allow-list above, whose reasoning is sound and
-  // is about COOKIES: forwarding everything would carry isibi.ai's cookies to a
+  // is about COOKIES: forwarding everything would carry gofarther.dev's cookies to a
   // third party. `Origin` is not a cookie, it is the caller's identity, and the
   // caller here really is this Worker.
   //
@@ -3676,7 +3676,7 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
         //   token is NOT a JWT, and the Data API answers `400 not a valid JWT
         //   encoding` — so every `user`, `feed` and `admin` read and write failed.
         //
-        // The request-side allow-list above is about protecting isibi.ai's
+        // The request-side allow-list above is about protecting gofarther.dev's
         // cookies. These are the auth server's own answers to its own caller, and
         // withholding them just breaks the caller.
         // WHAT THE AUTH SERVER ACTUALLY SENT, names only, and only when asked.
@@ -3704,11 +3704,11 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
         // TWO REWRITES, and the second is a security matter, not tidiness:
         //
         //   `Domain` is stripped, or the browser refuses a cookie scoped to the
-        //   auth server's host when it arrives from isibi.ai.
+        //   auth server's host when it arrives from gofarther.dev.
         //
         //   `Path` is pinned to this site's own prefix. Every published site is
         //   served from the SAME origin, so a cookie at `Path=/` would be sent
-        //   to every other site on isibi.ai — one barber shop's customer session
+        //   to every other site on gofarther.dev — one barber shop's customer session
         //   travelling to a stranger's site. Scoped here it reaches this slug's
         //   auth and data calls and nothing else.
         //
@@ -3796,7 +3796,7 @@ async function ownerEmail(env, uid) {
  *
  * The BINDING, not the REST API — so there is no token to mint, keep in GitHub
  * Actions, upload each deploy, or rotate. `env.EMAIL` is undefined until Email
- * Sending is enabled on the account and isibi.ai is a verified sending domain, so
+ * Sending is enabled on the account and gofarther.dev is a verified sending domain, so
  * this reports that rather than throwing an unhelpful TypeError at a call site
  * that only wanted to send a notification.
  *
@@ -3807,7 +3807,7 @@ async function ownerEmail(env, uid) {
 async function sendMail(env, { to, subject, html, text }) {
   if (!env.EMAIL) throw new Error("mail not configured: no EMAIL binding");
   return env.EMAIL.send({
-    from: env.EMAIL_FROM || "isibi <login@isibi.ai>",
+    from: env.EMAIL_FROM || "isibi <login@gofarther.dev>",
     to, subject, html,
     text: text || String(html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 4000),
   });
@@ -3999,7 +3999,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       }
     },
     publish: (dist) => writeSiteDistToR2(env, slug, dist, {
-      brand, description: siteDescription, url: "https://isibi.ai/s/" + slug + "/", image: ogImage,
+      brand, description: siteDescription, url: "https://gofarther.dev/s/" + slug + "/", image: ogImage,
     }),
     readCredits: () => readCredits(auth),
     useCredits: (n) => useCredits(auth, n),
@@ -4027,7 +4027,7 @@ async function handleRequest(request, env, ctx) {
     }
 
 
-    // Serve a PUBLISHED Website-Builder site from R2: isibi.ai/s/<slug>/<page>.
+    // Serve a PUBLISHED Website-Builder site from R2: gofarther.dev/s/<slug>/<page>.
     // STATIC sites: each page is one HTML object (rest with no extension → .html).
     // REACT sites: the compiled dist — root/no-extension → index.html (HashRouter
     // handles the client routes), and a path WITH an extension (assets/x.js|css,
@@ -4058,7 +4058,7 @@ async function handleRequest(request, env, ctx) {
       if (sm) return new Response("Not found", { status: 404 });
     }
 
-    // Serve a PUBLISHED game from R2: isibi.ai/g/<slug>/… — the compiled kaplay
+    // Serve a PUBLISHED game from R2: gofarther.dev/g/<slug>/… — the compiled kaplay
     // dist (index.html + assets/*). Root/no-extension → index.html; a path with an
     // extension → that exact asset. Mirrors the /s/ React-site branch.
     {
@@ -4085,7 +4085,7 @@ async function handleRequest(request, env, ctx) {
       if (gm) return new Response("Not found", { status: 404 });
     }
 
-    // Serve a builder DRAFT preview: isibi.ai/preview/<uid>/<nonce>. The workspace
+    // Serve a builder DRAFT preview: gofarther.dev/preview/<uid>/<nonce>. The workspace
     // iframe loads this (not a blob) so the generated page runs its OWN inline
     // <script>/<style> under the website CSP (see harden()), exactly like it will
     // once published — blob/srcdoc inherit the app's strict script-src and blank
@@ -4101,7 +4101,7 @@ async function handleRequest(request, env, ctx) {
       if (pv) return new Response("Not found", { status: 404 });
     }
 
-    // Serve a visitor-uploaded file from R2: isibi.ai/u/<slug>/<file>. Public,
+    // Serve a visitor-uploaded file from R2: gofarther.dev/u/<slug>/<file>. Public,
     // long-cached, content-type from what was stored. Never lists a directory.
     {
       const um = url.pathname.match(/^\/u\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9._-]{1,80})$/);
@@ -4121,7 +4121,7 @@ async function handleRequest(request, env, ctx) {
     }
 
     // Serve a builder attachment (logo / reference the owner attached when
-    // building) from R2: isibi.ai/a/<siteId>/<file>. Same shape as /u/.
+    // building) from R2: gofarther.dev/a/<siteId>/<file>. Same shape as /u/.
     {
       const am = url.pathname.match(/^\/a\/([a-z0-9][a-z0-9_-]{0,80})\/([A-Za-z0-9._-]{1,80})$/i);
       if (am && env.SITES_BUCKET) {
@@ -6054,7 +6054,7 @@ async function handleRequest(request, env, ctx) {
     // the rest of /api/db is: a customer booking a haircut has no account.
     //
     // Which makes this a public endpoint that accepts arbitrary bytes and serves
-    // them back from isibi.ai, so the answer to "may I?" is narrow: the table
+    // them back from gofarther.dev, so the answer to "may I?" is narrow: the table
     // must be one a visitor can WRITE and must DECLARE somewhere to put a
     // picture. A barber shop whose booking form is six text fields accepts
     // nothing, which is the answer for most sites — and is what keeps this from
@@ -6419,7 +6419,7 @@ async function handleRequest(request, env, ctx) {
             if (env.SITES_BUCKET) {
               const objs = await siteUploadList(env, slug);
               const first = objs.find((o) => o && !o.visitor) || objs[0];
-              if (first) ogImage = "https://isibi.ai/u/" + slug + "/" + first.key.split("/").pop();
+              if (first) ogImage = "https://gofarther.dev/u/" + slug + "/" + first.key.split("/").pop();
             }
           } catch (e) { console.error("og image lookup failed:", slug, e && e.message); }
           tr.at("og");
@@ -8075,7 +8075,7 @@ Return just the line to be voiced — keep it to what should actually come out o
         }
         ct = (media.headers.get("content-type") || "application/octet-stream").split(";")[0];
       }
-      // Free accounts get the "✦ isibi.ai" mark burned in server-side. The
+      // Free accounts get the "✦ gofarther.dev" mark burned in server-side. The
       // decision is driven by SNIFFED magic bytes, never the client `kind` or
       // the upstream Content-Type (a fal image served as octet-stream must not
       // dodge the mark). Only content whose CT is clearly video/audio streams

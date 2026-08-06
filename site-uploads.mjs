@@ -27,7 +27,7 @@ export const MAX_SITE_BYTES = 100_000_000;
  * Content-Type, which the caller writes and can lie about.
  *
  * **SVG is deliberately absent.** `/u/` serves with `content-disposition:
- * inline` from isibi.ai, and an SVG is a document that can carry <script>. That
+ * inline` from gofarther.dev, and an SVG is a document that can carry <script>. That
  * is stored XSS on the platform's own origin, and `nosniff` does not help
  * because the type would be honestly declared as image/svg+xml. There is no
  * safe way to serve visitor-supplied SVG from this origin without a separate
@@ -152,7 +152,7 @@ export async function handleUploadDelete(deps, { slug, uid, file } = {}) {
 // A different thing entirely from the owner's, and treated as such. This one is
 // unauthenticated by design — a customer attaching a photo to a booking has no
 // account — which makes it a public endpoint that accepts arbitrary bytes and
-// serves them back from isibi.ai. Everything above still applies (bytes decide
+// serves them back from gofarther.dev. Everything above still applies (bytes decide
 // the type, no SVG, we name the file); these are the additional limits that
 // exist only because the caller is a stranger.
 

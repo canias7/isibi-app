@@ -432,7 +432,7 @@ function showApInfo(kind, ev, el) {
   if (!txt) return;
   // Reference-capable models: teach the @ImageN syntax right where the refs live.
   if (kind === 'ref' && refTagBinding()) {
-    txt += ' Cite them in your message as @Image1, @Image2… where each should appear — isibi makes sure the model gets them either way.';
+    txt += ' Cite them in your message as @Image1, @Image2… where each should appear — Go Farther makes sure the model gets them either way.';
   }
   pop.textContent = txt;
   pop.dataset.for = kind;
@@ -473,7 +473,7 @@ document.addEventListener('click', (e) => {
   if (thread) thread.addEventListener('scroll', () => updateScrollDown(thread), { passive: true });
 })();
 
-// ── Image source chooser: device files or the isibi gallery ──
+// ── Image source chooser: device files or the Go Farther gallery ──
 let imgPickTarget = 'main'; // which slot the chosen image lands in
 
 function openImgSrc(target, ev) {
@@ -987,8 +987,8 @@ function setEffort(level) {
 // Shown in Settings → About.
 const APP_VERSION = '1.0.0';
 // Prompt-help mode chip (top-right of the composer). Three modes:
-//   auto — isibi.ai composes and makes every creative call, never asks
-//   plan — isibi.ai interviews first (the question popup), then composes
+//   auto — gofarther.dev composes and makes every creative call, never asks
+//   plan — gofarther.dev interviews first (the question popup), then composes
 //   off  — raw prompting: the text goes to the model exactly as typed,
 //          and the director surcharge disappears from the price
 // The orchestrator (the Sonnet/Haiku layer) is now an explicit on/off switch on
@@ -997,8 +997,8 @@ const APP_VERSION = '1.0.0';
 // how it behaves; Plan only exists while the orchestrator is on.
 const DIR_MODE_KEY = 'zephyr_director_mode';
 const DIR_MODES = {
-  auto: { icon: '', label: 'Auto', desc: 'isibi.ai writes the prompt and generates right away' },
-  plan: { icon: '', label: 'Plan', desc: 'isibi.ai shows you the plan to approve before generating' },
+  auto: { icon: '', label: 'Auto', desc: 'gofarther.dev writes the prompt and generates right away' },
+  plan: { icon: '', label: 'Plan', desc: 'gofarther.dev shows you the plan to approve before generating' },
   off:  { icon: '</>', label: 'Raw', desc: 'No prompt help — your words go to the model exactly as typed' },
 };
 let directorMode = DIR_MODES[localStorage.getItem(DIR_MODE_KEY)] ? localStorage.getItem(DIR_MODE_KEY) : 'auto';
@@ -1021,7 +1021,7 @@ function renderOrchSwitch() {
     sw.classList.toggle('locked', !subbed); // padlock look for non-subscribers
     sw.setAttribute('aria-checked', on ? 'true' : 'false');
     sw.title = subbed
-      ? 'Orchestrator — isibi reads your message, picks the model and writes the prompt. Off = raw prompting.'
+      ? 'Orchestrator — Go Farther reads your message, picks the model and writes the prompt. Off = raw prompting.'
       : 'AI Orchestrator is an add-on ($19.99/mo) — tap to unlock prompt help, effort levels and research.';
     const ctl = sw.closest('.orch-ctl');
     if (ctl) { ctl.classList.toggle('on', on); ctl.classList.toggle('locked', !subbed); }
@@ -1098,7 +1098,7 @@ const PRESET_CATS = [
     { label: 'Product Animation', kind: 'video', desc: 'Show your product in motion.',
       model: 'bytedance/seedance-2.0/text-to-video', ratio: '16:9', dur: 10, res: '720p',
       prompt: 'Photoreal exploded-view product animation of [your product]: the product hangs centered in a rich dark gradient void, then separates into its individual components in slow synchronized motion — every part suspended mid-air in perfect formation, rotating subtly, dramatic rim light tracing each piece against the glow. The camera drifts slowly through the suspended field, then every component glides back along its own path and reassembles seamlessly into the intact product, ending on a locked hero shot with the label clean and readable for the final second. Premium engineering-ad aesthetic, tasteful motion blur, no text or watermarks; parts move rigidly and never deform.' },
-    { label: 'From product URL', kind: 'video', desc: 'Paste a store link — isibi does the rest.',
+    { label: 'From product URL', kind: 'video', desc: 'Paste a store link — Go Farther does the rest.',
       urlScan: true, model: 'bytedance/seedance-2.0/text-to-video', ratio: '9:16', dur: 10, res: '720p',
       prompt: 'Premium photoreal vertical social ad built around the attached product image — the product is the hero and must faithfully match the attachment: container, colors, label. Open on a tight appetizing detail of the product, then one elegant continuous camera move pulls back to reveal it centered in a styled scene that matches its category and vibe, warm premium lighting with a soft rim, subtle atmosphere. Settle into a final hero framing with the label clean and readable for the last two seconds. Ad-grade and concrete, no on-screen text or watermarks; the product stays intact and undeformed.' },
   ] },
@@ -1206,7 +1206,7 @@ function usePreset(it) {
   const box = document.getElementById('lpInput');
   if (box) {
     box.placeholder = it.urlScan
-      ? 'Paste the product page URL — isibi reads it and builds the ad…'
+      ? 'Paste the product page URL — Go Farther reads it and builds the ad…'
       : 'Your idea — the “' + it.label + '” preset shapes it…';
     box.focus();
     box.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -1216,7 +1216,7 @@ function clearLpPreset() {
   lpPreset = null;
   renderLpChip();
   const box = document.getElementById('lpInput');
-  if (box) box.placeholder = 'Describe a video, image, or a voice line — isibi takes it from here…';
+  if (box) box.placeholder = 'Describe a video, image, or a voice line — Go Farther takes it from here…';
 }
 // The machinery behind a preset card: apply its rig — mode, model, and the
 // settings it runs best on — right before the send fires. Every value is
@@ -1258,7 +1258,7 @@ function toggleEffortMenu(e) {
   document.querySelectorAll('.model-menu.open').forEach((m) => { if (m !== menu) m.classList.remove('open'); });
   menu.classList.toggle('open');
 }
-// The effort picker only shapes the prompt isibi.ai writes, so it greys out in
+// The effort picker only shapes the prompt gofarther.dev writes, so it greys out in
 // raw mode AND when the AI Orchestrator add-on isn't active (no writer at all).
 function renderEffortLock() {
   const pick = document.querySelector('.effort-pick');
@@ -1269,7 +1269,7 @@ function renderEffortLock() {
   pick.querySelector('.opt-btn').title = !subbed
     ? 'Effort is part of the AI Orchestrator add-on ($19.99/mo)'
     : off
-    ? 'Effort applies when isibi.ai writes the prompt — turn the orchestrator on to use it'
+    ? 'Effort applies when gofarther.dev writes the prompt — turn the orchestrator on to use it'
     : 'How detailed the written prompt gets';
   if (off) document.getElementById('effortMenu').classList.remove('open');
 }
@@ -1582,7 +1582,7 @@ function newChat() {
   document.getElementById('input').focus();
 }
 
-// Wall-clock caption under a bubble, e.g. "11:03 PM" (user) / "isibi.ai · 11:03 PM" (agent).
+// Wall-clock caption under a bubble, e.g. "11:03 PM" (user) / "gofarther.dev · 11:03 PM" (agent).
 function fmtTime(ts) {
   const d = ts ? new Date(ts) : new Date();
   let h = d.getHours();
@@ -1593,7 +1593,7 @@ function fmtTime(ts) {
 function msgStamp(kind, ts) {
   const t = document.createElement('div');
   t.className = 'msg-time ' + kind;
-  t.textContent = kind === 'agent' ? 'isibi.ai · ' + fmtTime(ts) : fmtTime(ts);
+  t.textContent = kind === 'agent' ? 'gofarther.dev · ' + fmtTime(ts) : fmtTime(ts);
   return t;
 }
 
@@ -2499,7 +2499,7 @@ function parseQrDirective(text, durSec) {
   return { want: !remove, remove, url, start, end, pos, clean };
 }
 
-// Burn the "✦ isibi.ai" mark into an image client-side (bottom-right), returning
+// Burn the "✦ gofarther.dev" mark into an image client-side (bottom-right), returning
 // a JPEG data URI. Used for FREE accounts, whose images can't be saved (so the
 // server-side mark never runs) — they still get a watermarked copy on the temp
 // link. Returns null if the source can't be drawn (CORS/decode) so the caller
@@ -2521,7 +2521,7 @@ async function burnImageWatermark(url) {
     c.textAlign = 'right'; c.textBaseline = 'bottom';
     c.shadowColor = 'rgba(0,0,0,.55)'; c.shadowBlur = Math.round(fs * 0.5); c.shadowOffsetY = 1;
     c.fillStyle = 'rgba(255,255,255,.92)';
-    c.fillText('✦ isibi.ai', w - pad, h - pad);
+    c.fillText('✦ gofarther.dev', w - pad, h - pad);
     return canvas.toDataURL('image/jpeg', 0.9);
   } catch { return null; }
 }
@@ -2677,13 +2677,13 @@ const CRED_ARC_LEN = 37.7; // half-circle path length (π × r12)
 // (Image watermarks don't depend on this — the server burns them on /api/save.)
 let isPaid = false;
 let paidKnown = false;
-// The on-screen "✦ isibi.ai" mark free accounts see over video players —
+// The on-screen "✦ gofarther.dev" mark free accounts see over video players —
 // chat thread, gallery cards and the lightbox all carry it (class wm-spot
 // marks the non-chat containers).
 function wmBadge() {
   const wm = document.createElement('span');
   wm.className = 'wm-badge';
-  wm.textContent = '✦ isibi.ai';
+  wm.textContent = '✦ gofarther.dev';
   return wm;
 }
 // Toggle the on-screen video badge on already-rendered clips once we learn the
@@ -2790,7 +2790,7 @@ function maybeShowWelcome(balance) {
     ov.innerHTML = '<div class="wm-box">' +
       '<button type="button" class="wm-x" aria-label="Close">✕</button>' +
       '<div class="wm-star">✦</div>' +
-      '<h2 class="wm-title">Welcome to isibi</h2>' +
+      '<h2 class="wm-title">Welcome to Go Farther</h2>' +
       '<div class="wm-grant">' + balance + ' free credits, on us</div>' +
       '<p class="wm-sub">Enough for a few images or a voice line — every model, one balance. Ready for video? Plans start at $24.99/mo.</p>' +
       '<button type="button" class="wm-cta">Start generating</button>' +
@@ -2863,7 +2863,7 @@ function openOrchestratorUpsell() {
       '<button type="button" class="cp-close">✕</button>' +
       '<div class="orch-up-head"><span class="orch-up-spark">✦</span><div class="orch-up-name">AI Orchestrator</div>' +
         '<div class="orch-up-price">$19.99<span>/mo</span></div></div>' +
-      '<p class="orch-up-lead">Let isibi direct your generations — it reads your message, picks the model, writes the prompt, and researches real subjects when it matters. Every effort level and all prompt help runs on this.</p>' +
+      '<p class="orch-up-lead">Let Go Farther direct your generations — it reads your message, picks the model, writes the prompt, and researches real subjects when it matters. Every effort level and all prompt help runs on this.</p>' +
       '<ul class="orch-up-feat">' +
         '<li>Auto &amp; Plan prompt-writing</li>' +
         '<li>All five effort levels (Low → Max)</li>' +
@@ -2904,7 +2904,7 @@ function openVideoEditorUpsell() {
       '<button type="button" class="cp-close">✕</button>' +
       '<div class="orch-up-head"><span class="orch-up-spark">✦</span><div class="orch-up-name">Video Editor</div>' +
         '<div class="orch-up-price">$19.99<span>/mo</span></div></div>' +
-      '<p class="orch-up-lead">Edit by chat in the Studio — just tell isibi what you want and it cuts, retimes, reframes, captions, adds transitions and exports for you. The editing runs on your device, so your files stay private and free.</p>' +
+      '<p class="orch-up-lead">Edit by chat in the Studio — just tell Go Farther what you want and it cuts, retimes, reframes, captions, adds transitions and exports for you. The editing runs on your device, so your files stay private and free.</p>' +
       '<ul class="orch-up-feat">' +
         '<li>Chat-driven trim, speed &amp; reframe</li>' +
         '<li>Burn-in captions, crossfades &amp; fades</li>' +
@@ -2941,7 +2941,7 @@ function openCredits(topupsOnly) {
   const ov = document.createElement('div');
   ov.className = 'credits-overlay' + (topupsOnly ? '' : ' up-overlay');
   // Full "Upgrade your plan" page: promo hero + three plan cards with feature
-  // lists, modelled on the pricing mockup and kept in the isibi theme.
+  // lists, modelled on the pricing mockup and kept in the Go Farther theme.
   const cards = MEMBERSHIPS.map((p) =>
     '<button type="button" class="up-card ' + p.klass + '" data-plan="' + p.plan + '">' +
       (p.pop ? '<div class="up-badge">★ Most popular</div>' : '') +
@@ -3000,16 +3000,16 @@ function openCredits(topupsOnly) {
       '<div class="addon-env-row">' +
         '<div class="addon-env">' +
           '<div class="addon-env-badge">' +
-            '<img class="apb" src="/img/badge-orchestrator-cut.webp" alt="isibi.ai orchestrator" loading="lazy" />' +
+            '<img class="apb" src="/img/badge-orchestrator-cut.webp" alt="gofarther.dev orchestrator" loading="lazy" />' +
           '</div>' +
           '<div class="addon-badge-name">AI Orchestrator <span class="addon-tag">at cost</span></div>' +
-          '<div class="addon-badge-desc">isibi writes your prompts, picks the right models &amp; researches for you.</div>' +
+          '<div class="addon-badge-desc">Go Farther writes your prompts, picks the right models &amp; researches for you.</div>' +
           '<div class="addon-badge-foot"><span class="addon-badge-price">$19.99<small>/mo</small></span>' +
           '<button type="button" class="addon-badge-buy" data-addon="orch">Add →</button></div>' +
         '</div>' +
         '<div class="addon-env">' +
           '<div class="addon-env-badge">' +
-            '<img class="apb b" src="/img/badge-video-editor-cut.webp" alt="isibi.ai video editor" loading="lazy" />' +
+            '<img class="apb b" src="/img/badge-video-editor-cut.webp" alt="gofarther.dev video editor" loading="lazy" />' +
           '</div>' +
           '<div class="addon-badge-name">Video Editor</div>' +
           '<div class="addon-badge-desc">Cut, retime, reframe, caption &amp; export — raw clips to finished film.</div>' +
@@ -3121,7 +3121,7 @@ async function cancelGen(chatId) {
   deliverAgent(chatId, '⏹ Cancelled.');
 }
 
-// Failures become a conversation: isibi.ai explains what went wrong in plain
+// Failures become a conversation: gofarther.dev explains what went wrong in plain
 // words and, when a rewording could fix it, offers a corrected prompt.
 // Returns false if the director can't help so the generic message shows.
 async function explainFailure(origin, kind, genPrompt, job) {
@@ -3447,7 +3447,7 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
   }
 }
 
-// ── Director flow (isibi.ai) ───────────────────────────────────────────────
+// ── Director flow (gofarther.dev) ───────────────────────────────────────────────
 // Sonnet 5 drives the director via /api/direct. If the key isn't set (501)
 // or the call fails, we fall back to these local placeholders so the flow
 // still works.
@@ -3545,7 +3545,7 @@ function directorContext() {
 
 // The composer returns an updated per-chat creative brief AND an evolved
 // universal taste list with each prompt; both only commit when the user
-// APPROVES that prompt (so abandoned drafts never teach isibi anything).
+// APPROVES that prompt (so abandoned drafts never teach Go Farther anything).
 let pendingBrief = null;
 let pendingMemory = null;
 
@@ -3708,8 +3708,8 @@ async function startDirector(text) {
   clearQDock(); // a fresh message supersedes any question still waiting
   addMsg('user', text);
   await pushRefStrip();
-  const thinking = addMsg('agent typing', 'isibi.ai is thinking');
-  // isibi.ai's reply streams into a live bubble; the final text is re-delivered
+  const thinking = addMsg('agent typing', 'gofarther.dev is thinking');
+  // gofarther.dev's reply streams into a live bubble; the final text is re-delivered
   // through the normal path (persisted, stamped) when the stream ends.
   let live = null;
   const onDelta = (d) => {
@@ -3727,9 +3727,9 @@ async function startDirector(text) {
   };
   let res;
   try { res = await directorAsk(text, history, onDelta); } finally { thinking.remove(); if (live) live.remove(); }
-  // isibi.ai's conversational reply (greetings, small talk, or a lead-in).
+  // gofarther.dev's conversational reply (greetings, small talk, or a lead-in).
   if (res.reply) deliverAgent(origin, res.reply);
-  // If the user moved to another chat while isibi.ai was thinking, stop here —
+  // If the user moved to another chat while gofarther.dev was thinking, stop here —
   // don't pop question cards into the wrong thread.
   if (chatStore.active !== origin) return;
   // The director read the message as "run that again": the last prompt was
@@ -4031,7 +4031,7 @@ function friendlyAuthErr(e) {
 }
 
 const AUTH_TITLES = {
-  in:    { creds: 'Sign in to isibi.ai',   code: 'Check your email' },
+  in:    { creds: 'Sign in to gofarther.dev',   code: 'Check your email' },
   up:    { creds: 'Create your account', code: 'Check your email' },
   reset: { creds: 'Reset your password', code: 'Check your email', newpass: 'Set a new password' },
 };
@@ -4406,10 +4406,10 @@ function renderSettings() {
         '<div class="sp-list">' +
           // Prefill the account email + version into the body so a support
           // reply never has to ask "which account, which version?".
-          '<a class="sp-item sp-tap" href="mailto:support@isibi.ai?subject=isibi%20support&body=' +
-            encodeURIComponent('\n\n—\nAccount: ' + email + ' · isibi ' + APP_VERSION) + '">' +
+          '<a class="sp-item sp-tap" href="mailto:support@gofarther.dev?subject=Go Farther%20support&body=' +
+            encodeURIComponent('\n\n—\nAccount: ' + email + ' · Go Farther ' + APP_VERSION) + '">' +
             '<span class="sp-item-l"><span class="sp-item-t">Contact support</span>' +
-            '<span class="sp-item-s">support@isibi.ai</span></span>' +
+            '<span class="sp-item-s">support@gofarther.dev</span></span>' +
             '<span class="sp-item-r"><span class="st-chev">›</span></span>' +
           '</a>' +
           '<a class="sp-item sp-tap" href="/terms.html" target="_blank" rel="noopener">' +
@@ -4479,7 +4479,7 @@ function renderSettings() {
         const u = cd.until ? fmt(cd.until) : null;
         if (note) note.textContent = u ? ('Membership cancelled. You keep access until ' + u + '.') : 'Membership cancelled. You keep access until the end of your paid period.';
       } else {
-        if (note) note.textContent = 'Couldn’t cancel just now — email support@isibi.ai and we’ll sort it.';
+        if (note) note.textContent = 'Couldn’t cancel just now — email support@gofarther.dev and we’ll sort it.';
       }
     } catch {
       if (note) note.textContent = 'Couldn’t reach billing — try again in a moment.';
@@ -4524,7 +4524,7 @@ function renderSettings() {
 
   view.querySelector('#spDelete').onclick = async (e) => {
     const btn = e.currentTarget;
-    if (!confirm('Delete your isibi account? This permanently removes your chats, saved media and remaining credits.')) return;
+    if (!confirm('Delete your Go Farther account? This permanently removes your chats, saved media and remaining credits.')) return;
     if (!confirm('Last check — this cannot be undone. Delete everything?')) return;
     btn.disabled = true;
     try {
@@ -4565,7 +4565,7 @@ function renderLanding() {
       '<div class="lp-presets" id="landingPresets"></div>' +
       '<div class="lp-compose"><div class="composer">' +
         '<div class="composer-top">' +
-          '<textarea id="lpInput" rows="1" placeholder="Describe a video, image, or a voice line — isibi takes it from here…"></textarea>' +
+          '<textarea id="lpInput" rows="1" placeholder="Describe a video, image, or a voice line — Go Farther takes it from here…"></textarea>' +
         '</div>' +
         '<div class="composer-row">' +
           '<span id="lpChipHost"></span>' +
@@ -4744,7 +4744,7 @@ function renderAvatar() {
         '<div class="av-choices">' +
           '<button type="button" class="av-choice" data-act="generate">' +
             '<span class="av-choice-t">Generate with AI</span>' +
-            '<span class="av-choice-s">Describe a person and isibi creates the avatar.</span></button>' +
+            '<span class="av-choice-s">Describe a person and Go Farther creates the avatar.</span></button>' +
           '<button type="button" class="av-choice" data-act="import"><span class="av-choice-ico">⬆</span>' +
             '<span class="av-choice-t">Import</span>' +
             '<span class="av-choice-s">Upload your own portrait photo.</span></button>' +

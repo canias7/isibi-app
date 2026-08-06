@@ -68,7 +68,7 @@ export function submissionEmail({ slug, table, row, extra = 0 } = {}) {
       `<p>Someone just submitted your <strong>${escapeHtml(String(table).replace(/_/g, " "))}</strong> form on <strong>${escapeHtml(slug)}</strong>.</p>` +
       (rows ? `<table style="border-collapse:collapse;font:14px system-ui,sans-serif">${rows}</table>` : "") +
       more +
-      `<p><a href="https://isibi.ai/">Open it in isibi</a></p>` +
+      `<p><a href="https://gofarther.dev/">Open it in Go Farther</a></p>` +
       `<p style="color:#999;font-size:12px">You can turn these off in the site's Data panel.</p>`,
   };
 }

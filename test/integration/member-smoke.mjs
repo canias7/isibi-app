@@ -27,7 +27,7 @@
 // in the environment.
 import { dropUserProject } from "../../site-db.mjs";
 
-const BASE = process.env.SMOKE_BASE_URL || "https://isibi.ai";
+const BASE = process.env.SMOKE_BASE_URL || "https://gofarther.dev";
 const SUPABASE_URL = "https://ujrqdmmtcptvimazlhom.supabase.co";
 const ANON = process.env.SUPABASE_ANON_KEY ||
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVqcnFkbW10Y3B0dmltYXpsaG9tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3ODUyNTUsImV4cCI6MjA5NDM2MTI1NX0.F-af9iC-BWTZN2hQ5cD1Keke8qXARhqPwxOgSHhNLK4";
@@ -61,7 +61,7 @@ const SCHEMA = {
 const SEED = { services: [{ title: "Cut", price: 20 }, { title: "Shave", price: 15 }] };
 
 const stamp = Date.now().toString(36);
-const email = `member-smoke-${stamp}@isibi.ai`;
+const email = `member-smoke-${stamp}@gofarther.dev`;
 const password = `Ms-${stamp}-${Math.random().toString(36).slice(2, 10)}`;
 let userId = null, slug = null, jwt = null;
 

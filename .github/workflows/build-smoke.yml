@@ -18,7 +18,7 @@ on:
       base_url:
         description: 'Base URL to test against'
         required: false
-        default: 'https://isibi.ai'
+        default: 'https://gofarther.dev'
 
 jobs:
   smoke:
@@ -44,7 +44,7 @@ jobs:
 
       - name: build smoke
         env:
-          SMOKE_BASE_URL: ${{ inputs.base_url || 'https://isibi.ai' }}
+          SMOKE_BASE_URL: ${{ inputs.base_url || 'https://gofarther.dev' }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
