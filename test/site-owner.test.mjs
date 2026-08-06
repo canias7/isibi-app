@@ -137,9 +137,22 @@ test("the listing counts what is waiting in each table", async () => {
   const r = await handleOwnerTables(deps, { slug: "cafe", uid: "owner-1" });
   assert.equal(r.status, 200);
   assert.deepEqual(r.body.tables, [
-    { name: "bookings", access: "collect", rows: 3, columns: ["customer_name", "email"] },
-    { name: "services", access: "display", rows: 3, columns: ["title", "price"] },
+    { name: "bookings", access: "collect", rows: 3, columns: ["customer_name", "email"], paid: false },
+    { name: "services", access: "display", rows: 3, columns: ["title", "price"], paid: false },
   ]);
+});
+
+test("the listing says which tables take card payments", async () => {
+  // The Payments panel reads this to say what is actually for sale. `false` is
+  // sent rather than omitted: an absent field is falsy too, so a reader could
+  // not tell "not paid" from "this route is too old to know".
+  const spec = { tables: [
+    { name: "orders", access: "collect", payment: { from: "products" }, columns: [{ name: "email" }] },
+    { name: "enquiries", access: "collect", columns: [{ name: "email" }] },
+  ] };
+  const { deps } = harness({ deps: { loadSchema: async () => spec, query: async () => [{ n: 0 }] } });
+  const r = await handleOwnerTables(deps, { slug: "cafe", uid: "owner-1" });
+  assert.deepEqual(r.body.tables.map((t) => [t.name, t.paid]), [["orders", true], ["enquiries", false]]);
 });
 
 test("the listing carries the columns an edit form is built from", async () => {

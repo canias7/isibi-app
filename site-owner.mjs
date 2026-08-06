@@ -146,6 +146,11 @@ export async function handleOwnerTables(deps, { slug, uid } = {}) {
     tables.push({
       name: t.name, access: t.access, rows: count,
       columns: columnNames(t).filter((c) => !isManagedColumn(c)),
+      // Whether this table takes card payments. A BOOLEAN, not the declaration:
+      // the panel only needs to say which tables are paid, and `payment.from`
+      // is the site's own business rather than something to widen this payload
+      // for. The Data panel already renders every field it is given.
+      paid: !!t.payment,
     });
   }
   return json({ tables });

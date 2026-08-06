@@ -10004,7 +10004,7 @@ function moreCloud(site) {
     ['key', 'Secrets', isReact ? 'API keys for payments, email + integrations (kept server-side)' : 'Encrypted keys for server-side features', fnLive, 'secrets'],
     ['zap', 'Edge functions', 'Custom server logic your app builds', fnLive, 'functions'],
     ['mail', 'Emails', 'Send email from your own provider', auxLive, 'emails'],
-    ['card', 'Payments', 'Sell with your own Stripe', auxLive, 'payments'],
+    ['card', 'Payments', dataLive ? 'Sell with your own Stripe' : (isReact ? 'Publish your app to take payments' : 'Publish to take payments'), fnLive, 'payments'],
     ['image', 'Files', 'Images + PDFs uploaded to your site', auxLive, 'files'],
   ];
   return '<div class="st-panel"><div class="st-panel-head"><h3>Cloud</h3></div>' +
@@ -11131,28 +11131,88 @@ function sitePayments(site) {
   box = document.createElement('div');
   box.id = 'sitePayModal';
   box.className = 'si-modal';
+  // The webhook URL the owner registers in THEIR Stripe dashboard. Shown
+  // literally and copyable, because it is the one value they have to move by
+  // hand and a typo produces a shop that takes money and never marks an order
+  // paid — which looks like our bug and is silent for days.
+  const hookUrl = location.origin + '/api/stripe/site/' + slug;
   box.innerHTML = '<div class="si-card"><div class="si-head"><b>Payments</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body">' +
-    '<p class="sp-intro">Take payments with <b>your own</b> Stripe account — one-time or subscriptions. You keep 100%; isibi takes no cut.</p>' +
-    '<div class="em-steps">' +
-      '<div class="em-step"><span class="em-n">1</span><div><b>Add your Stripe key in Secrets</b><span>From your Stripe dashboard (Developers → API keys) copy your <b>secret</b> key and paste it into <b>Cloud → Secrets</b> as <code>STRIPE_KEY</code>.</span></div></div>' +
-      '<div class="em-step"><span class="em-n">2</span><div><b>Ask the builder</b><span>“Add a Buy button for $29”, “sell a monthly membership”. It builds a real Stripe checkout using your key and redirects buyers to pay.</span></div></div>' +
-      '<div class="em-step"><span class="em-n">3</span><div><b>Track paid orders (optional)</b><span>The builder makes an order function; its webhook URL appears in <b>Cloud → Edge functions</b>. In Stripe (Developers → Webhooks) add that URL for the <code>checkout.session.completed</code> event, and add your signing secret to Secrets as <code>STRIPE_WEBHOOK_SECRET</code>. isibi verifies Stripe’s signature so fake orders can’t slip in.</span></div></div>' +
-    '</div>' +
-    '<p class="sp-intro" style="margin-top:1rem">Your keys stay encrypted and are used server-side only — never exposed on the page.</p>' +
+    '<p class="sp-intro">Take payments with <b>your own</b> Stripe account. Money goes straight to you — isibi never touches it and takes no cut.</p>' +
+    '<div id="payState">Checking…</div>' +
   '</div></div>';
   document.body.appendChild(box);
   const close = () => box.remove();
   box.querySelector('.si-x').onclick = close;
   box.addEventListener('click', (e) => { if (e.target === box) close(); });
+  const host = box.querySelector('#payState');
+
+  const step = (n, done, title, body) =>
+    '<div class="em-step' + (done ? ' em-done' : '') + '"><span class="em-n">' + (done ? '&#10003;' : n) + '</span><div><b>' + title + '</b><span>' + body + '</span></div></div>';
+
+  (async () => {
+    let secrets = [], tables = [], failed = false;
+    try {
+      const [sr, tr] = await Promise.all([
+        apiFetch('/api/site/' + encodeURIComponent(slug) + '/secrets'),
+        apiFetch('/api/site/' + encodeURIComponent(slug) + '/rows'),
+      ]);
+      const sd = await sr.json().catch(() => ({}));
+      const td = await tr.json().catch(() => ({}));
+      secrets = Array.isArray(sd.secrets) ? sd.secrets : [];
+      tables = Array.isArray(td.tables) ? td.tables : [];
+      if (!sr.ok) failed = true;
+    } catch (e) { failed = true; }
+    // Fails LOUD rather than showing an empty checklist: "no keys yet" and
+    // "we could not look" are very different things to tell someone whose shop
+    // may or may not be taking money right now.
+    if (failed) { host.innerHTML = '<div class="si-empty">Couldn\u2019t check your payment setup just now \u2014 try again.</div>'; return; }
+
+    const byName = (n) => secrets.find((x) => x.name === n) || null;
+    const key = byName('STRIPE_SECRET_KEY');
+    const hook = byName('STRIPE_WEBHOOK_SECRET');
+    const paidTables = tables.filter((t) => t && t.paid);
+
+    const keyLine = key
+      ? 'Added' + (key.mode ? ' \u2014 <b>' + esc(key.mode) + ' mode</b>' : '') + (key.last4 ? ' (\u00b7\u00b7\u00b7\u00b7 ' + esc(key.last4) + ')' : '') + '.'
+      : 'In Stripe go to <b>Developers \u2192 API keys</b>, copy your <b>secret</b> key, and add it in <b>Cloud \u2192 Secrets</b> as <code>STRIPE_SECRET_KEY</code>.';
+    const hookLine = hook
+      ? 'Added.'
+      : 'In Stripe go to <b>Developers \u2192 Webhooks</b>, add the URL below for the <code>checkout.session.completed</code> event, then paste the signing secret into Secrets as <code>STRIPE_WEBHOOK_SECRET</code>.';
+
+    host.innerHTML =
+      // The one thing that decides whether real money can move, said first and
+      // said plainly. A test key looks identical everywhere else in Stripe.
+      (key && key.mode === 'test'
+        ? '<div class="pay-warn">Your key is a <b>test</b> key \u2014 real cards will be declined. Swap it for the live one when you are ready to sell.</div>'
+        : '') +
+      // NOT shown on a test key, even though all three steps are done. It said
+      // "Ready" directly under "real cards will be declined", which is the
+      // panel contradicting itself about the only question that matters.
+      (key && key.mode !== 'test' && hook && paidTables.length
+        ? '<div class="pay-ok">Ready \u2014 ' + paidTables.map((t) => '<code>' + esc(t.name) + '</code>').join(', ') + ' ' + (paidTables.length === 1 ? 'takes' : 'take') + ' card payments.</div>'
+        : '') +
+      '<div class="em-steps">' +
+        step(1, !!key, 'Your Stripe secret key', keyLine) +
+        step(2, !!hook, 'Tell Stripe where to confirm payments', hookLine) +
+        step(3, paidTables.length > 0,
+          'Ask the builder to sell something',
+          paidTables.length
+            ? 'Selling from ' + paidTables.map((t) => '<code>' + esc(t.name) + '</code>').join(', ') + '.'
+            : '\u201cLet customers buy the products online\u201d. Until you ask, nothing on the site charges a card.') +
+      '</div>' +
+      '<div class="pay-hook"><label>Your webhook URL</label><div class="pay-hook-row"><code id="payHook">' + esc(hookUrl) + '</code><button type="button" class="st-publish" id="payCopy">Copy</button></div></div>' +
+      // Said out loud because it is the question every owner asks and the
+      // answer is the reason to paste a live key into somebody else\u2019s box.
+      '<p class="sp-intro" style="margin-top:1rem">Your key is encrypted and only ever used on our server \u2014 it is never sent to the page, and never shown back to you. Prices always come from your own data, so a customer cannot change what they are charged.</p>';
+
+    const cp = host.querySelector('#payCopy');
+    if (cp) cp.onclick = () => {
+      try { navigator.clipboard.writeText(hookUrl); } catch (e) {}
+      if (typeof sbToast === 'function') sbToast('Webhook URL copied');
+    };
+  })();
 }
 
-// ── Gallery view: every generation across all (synced) chats ──
-let galFilter = 'all';   // all | video | image | audio
-let galSort = 'new';     // new | old
-
-// A permanent, gallery-saved URL lives in Supabase Storage. Temp links (fal)
-// and client-burned free-tier copies (data: URLs) are NOT saved, so they must
-// never appear in the gallery — free tier can't save, period.
 function isSavedMedia(url) {
   return typeof url === 'string' && typeof SUPABASE_URL === 'string' &&
     url.startsWith(SUPABASE_URL + '/storage/');
