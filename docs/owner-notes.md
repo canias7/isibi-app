@@ -13994,14 +13994,35 @@ customer accounts on their own site without registering anything anywhere.
 Stripe key in Secrets, their account, their payouts, their fees. Not Connect, so
 the platform is never in the money flow and takes no cut.
 
-**Bring-your-own, when it exists: email from a site to its own customers.** A
-booking confirmation to the person who booked, an order receipt to the buyer —
-**none of that exists today**, and checking rather than assuming turned up
-something useful: `runSiteFunction`'s old `email` verb already says
-*"the platform has no fallback sender for a site — it's bring-your-own"* in its
-own comment, and it is unreachable anyway, since its only caller is the cron. So
-**no generated page can send an email at all right now.** When it is built it
-takes an owner key by the same route as Stripe.
+**Bring-your-own: email from a site to its own customers** — a booking
+confirmation to the person who booked, an order receipt to the buyer.
+
+**The sender is BUILT and correct. What is broken is everything upstream of
+it.** `runSiteFunction`'s `email` step resolves the key BY NAME out of the site's
+own secrets — an owner pastes `RESEND_KEY` (or SendGrid, or Postmark) into
+Secrets and the site sends as their business, exactly the Stripe shape. Secrets
+are read lazily and never returned to a caller. Its own comment already states
+the rule: *"the platform has no fallback sender for a site — it's
+bring-your-own."*
+
+**The chain is declare -> parse -> persist -> cron -> send, and two links are
+gone:**
+
+- `site-schema.mjs` **ends at line 959 with the parser's doc comment and no
+  function under it.** The body went in the D1 teardown and the comment was left
+  behind — still describing what it returns, still naming its own consumer
+  ("ready for `persistSiteFunctions`").
+- **`persistSiteFunctions` has zero callers.** Nothing writes the row the cron
+  reads.
+
+So no site can get a function row, and nothing sends. Dead at two layers, which
+is the failure this codebase keeps producing.
+
+**One limit that survives reconnecting it:** the only trigger is the 2-minute
+**cron**, on a schedule. There is no request-triggered path — `/api/site/fn`
+went with the D1 runtime. So a nightly digest is reachable and *"email the
+customer the moment they book"* is not — and the second one is what a booking
+site actually wants. That needs a trigger, not just the parser back.
 
 **`env.EMAIL` is OURS and is not a site feature.** It sends exactly two things,
 both to the person holding a Go Farther account, never to a visitor of a
