@@ -1557,12 +1557,21 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-data-count { color: var(--muted, #8b849e); font-size: .8rem; font-family: ui-monospace, Menlo, monospace; }
 .st-data-head .st-icon { margin-left: auto; }
 .st-data-body { flex: 1; display: flex; min-height: 0; }
-.st-data-side { width: 190px; flex: none; border-right: 1px solid var(--line, #211d30); padding: 10px; display: flex; flex-direction: column; gap: 4px; overflow: auto; }
+/* 240px is MEASURED, not chosen: the widest realistic pairing a schema produces
+   is a 13-character table name beside SUBMISSIONS, which wants 220px of tab.
+   At the old 190 even `bookings SUBMISSIONS` was one pixel over and spilled
+   silently — invisible until the name was given an ellipsis to spill INTO. */
+.st-data-side { width: 240px; flex: none; border-right: 1px solid var(--line, #211d30); padding: 10px; display: flex; flex-direction: column; gap: 4px; overflow: auto; }
 .st-data-tab { display: flex; align-items: center; gap: 8px; text-align: left; padding: 9px 11px; border-radius: 9px; border: 1px solid transparent; background: none; color: var(--text, #ece9f5); font-size: .85rem; cursor: pointer; }
 .st-data-tab:hover { background: rgba(255,255,255,.04); }
 .st-data-tab.on { background: rgba(255,255,255,.05); border-color: var(--line, #211d30); }
-.st-data-tn { font-weight: 500; }
-.st-data-acc { margin-left: auto; font-size: .66rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+/* The table name is the part that gives, because the access label is a fixed
+   vocabulary of five words and the name is whatever the schema designer chose.
+   Without min-width:0 a flex item refuses to shrink below its content, so a
+   long name pushed its own label out past the rail — measured at 184px of
+   content in a 169px tab on `announcements`. */
+.st-data-tn { font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-data-acc { flex: none; margin-left: auto; font-size: .66rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .st-data-main { flex: 1; min-width: 0; overflow: auto; padding: 14px 16px; }
 .st-data-tablewrap { overflow-x: auto; border: 1px solid var(--line, #211d30); border-radius: 10px; }
 .st-data-grid { border-collapse: collapse; width: 100%; font-size: .8rem; }
