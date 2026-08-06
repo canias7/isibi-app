@@ -9993,6 +9993,25 @@ function moreCloud(site) {
   const dataLive = isReact ? hasBackend : !!site.slug;
   const fnLive = !!site.slug;                       // Secrets + Edge functions: any published site
   const auxLive = isReact ? false : !!site.slug;    // Emails/Payments/Files dedicated panels: static only for now
+  // WHAT IS ACTUALLY SERVED, audited 2026-08-06 against worker.js's route
+  // matcher. The owner block answers exactly: /rows /members /analytics
+  // /uploads /export /notify /secrets. Everything else these cards call was
+  // deleted with the D1 runtime in July and 404s.
+  //
+  // The dead ones are marked UNAVAILABLE rather than removed. Removing them
+  // deletes the record of what this console is meant to do, and these are
+  // features the platform still wants; a card that says why it is off is
+  // honest, whereas one that looks live and 404s reads as a broken product.
+  // Flip a name out of DEAD_PANELS the moment its route exists again.
+  const DEAD_PANELS = {
+    security: 'Off since the audit log was removed',   // /events — routed nowhere
+    insights: 'Not rebuilt yet',                        // calls /backend/analytics; /analytics exists on another path
+    backups: 'Not rebuilt yet',                         // /backend/backup*
+    versions: 'Not rebuilt yet',                        // /backend/rollback
+    functions: 'Not rebuilt yet',                       // /site/functions
+    emails: 'Not rebuilt yet',                          // /site/emails
+    files: 'Not rebuilt yet',                           // /site/files
+  };
   const cards = [
     ['users', 'Members', dataLive ? 'Accounts that sign up in your app' : (isReact ? 'Add a login to your app to collect members' : 'Publish to enable member accounts'), dataLive, 'members'],
     ['key', 'Security log', dataLive ? 'Sign-ins, failures and what you changed' : (isReact ? 'Add a login to your app to see this' : 'Publish to enable the security log'), dataLive, 'security'],
@@ -10009,8 +10028,14 @@ function moreCloud(site) {
   ];
   return '<div class="st-panel"><div class="st-panel-head"><h3>Cloud</h3></div>' +
     '<div class="st-cards">' + cards.map((c) => {
-      const clickable = c[3] && c[4] && site.slug;
-      return '<div class="st-cloudcard' + (c[3] ? ' live' : '') + (clickable ? ' st-clickable' : '') + '"' + (clickable ? ' role="button" tabindex="0" data-cloud="' + c[4] + '"' : '') + '><span class="st-cc-ic">' + ic(c[0], 20) + '</span><div class="st-cc-tx"><b>' + c[1] + (c[3] ? '<span class="st-badge-live">Live</span>' : '<span class="st-badge-soon">Soon</span>') + '</b><span>' + c[2] + '</span></div></div>';
+      // A dead panel is NOT clickable and does not claim to be Live. It used to
+      // pass both tests — `dataLive` is about the site having a backend, not
+      // about the route existing — so seven cards said "Live", opened, and 404ed.
+      const dead = DEAD_PANELS[c[4]];
+      const clickable = !dead && c[3] && c[4] && site.slug;
+      const badge = dead ? '<span class="st-badge-soon">Off</span>'
+        : (c[3] ? '<span class="st-badge-live">Live</span>' : '<span class="st-badge-soon">Soon</span>');
+      return '<div class="st-cloudcard' + (c[3] && !dead ? ' live' : '') + (clickable ? ' st-clickable' : '') + '"' + (clickable ? ' role="button" tabindex="0" data-cloud="' + c[4] + '"' : '') + '><span class="st-cc-ic">' + ic(c[0], 20) + '</span><div class="st-cc-tx"><b>' + c[1] + badge + '</b><span>' + (dead || c[2]) + '</span></div></div>';
     }).join('') +
     '</div></div>';
 }
