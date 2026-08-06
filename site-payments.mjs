@@ -73,6 +73,14 @@ export const MAX_CART_LINES = 50;
 export const MAX_LINE_QTY = 999;
 
 /**
+ * The columns a payable table carries. Platform-managed: written by the
+ * checkout route and the webhook, by nothing else, and never by a form. Named
+ * here rather than in the schema engine so the engine, the lint and the
+ * generator's rules all read one list.
+ */
+export const PAYMENT_COLUMNS = ["payment_status", "payment_ref", "amount_total", "currency", "paid_at"];
+
+/**
  * The `payment` block on a `collect` table, normalised.
  *
  * `from` is the DISPLAY table the prices are read out of, and it must be a real

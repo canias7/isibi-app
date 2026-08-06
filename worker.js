@@ -2783,6 +2783,22 @@ const SITE_SCHEMA_TOOL = {
                 on: { type: "array", items: { type: "string" }, description: "Columns that scope it — e.g. [\"appointment_date\"] or [\"room\"]." },
               },
             },
+            payment: {
+              type: "object",
+              description:
+                "The visitor PAYS BY CARD when they submit this table. Declare it ONLY when the brief says money changes hands online — an online shop, paid tickets, a deposit. " +
+                "A shop that takes orders and invoices later, or a barber shop that is paid in the chair, does NOT declare this. " +
+                "The table stays `collect`; it gains payment_status / payment_ref / amount_total / currency / paid_at, all set by the platform — never declare those columns yourself and never put them on a form. " +
+                "`from` must name a `display` table on this same site whose rows carry the prices, because the total is computed from THOSE rows on the server: the browser only ever says which row and how many. " +
+                "The site owner pastes their own Stripe key in Settings; until they do, the checkout answers politely that payments are not set up yet.",
+              properties: {
+                from: { type: "string", description: "The `display` table holding the priced items, e.g. \"products\" or \"tickets\"." },
+                price: { type: "string", description: "The column on that table holding the price, as a plain decimal like \"12.50\". Default \"price\"." },
+                name: { type: "string", description: "The column holding the item name shown on the Stripe page. Default \"name\"." },
+                currency: { type: "string", description: "Three-letter ISO code, lowercase — \"gbp\", \"eur\", \"usd\". Pick the one the business actually trades in." },
+              },
+              required: ["from"],
+            },
           },
           required: ["name", "access", "columns"],
         },

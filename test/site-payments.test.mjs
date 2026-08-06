@@ -341,3 +341,130 @@ test("the per-site webhook reuses stripe-webhook.mjs rather than a second verifi
   const src = fs.readFileSync(path.join(import.meta.dirname, "..", "site-payments.mjs"), "utf8");
   assert.equal(/hmac|createHmac|subtle\.sign/i.test(src), false, "site-payments.mjs must not hand-roll a signature check");
 });
+
+// ── the schema side ──────────────────────────────────────────────────────────
+//
+// This feature has to be reachable at every layer or it joins the eleven
+// documented in CLAUDE.md that parse, persist, and are acted on by nothing.
+// Asserted as a CHAIN, because each of those was fine at four links out of five.
+
+import { normalizeSchema, parseSchemaSpec } from "../site-schema.mjs";
+import { grantsFor } from "../site-rls.mjs";
+import { PAYMENT_COLUMNS } from "../site-payments.mjs";
+
+const payableSpec = {
+  tables: [
+    { name: "products", access: "display", columns: [{ name: "name" }, { name: "price" }] },
+    { name: "orders", access: "collect", payment: { from: "products", price: "price", currency: "gbp" }, columns: [{ name: "customer_name" }, { name: "email" }] },
+  ],
+};
+
+test("link 1: the declaration SURVIVES the normaliser's allow-list", () => {
+  // coerceTable builds its output field by field, so a property nobody added to
+  // that literal is dropped silently on every build — the build succeeds, the
+  // site works, and the guarantee is simply absent. teamScope was dead here for
+  // five separate layers.
+  const norm = normalizeSchema(payableSpec).tables;
+  const orders = norm.find((t) => t.name === "orders");
+  assert.ok(orders, "orders must survive normalisation");
+  assert.deepEqual(orders.payment, { from: "products", price: "price", name: "name", currency: "gbp" });
+});
+
+test("link 2: A PAYABLE TABLE GETS NO PUBLIC INSERT — the hole closes by construction", () => {
+  const norm = normalizeSchema(payableSpec).tables;
+  const orders = norm.find((t) => t.name === "orders");
+  assert.deepEqual(grantsFor(orders), []);
+});
+
+test("...while an ORDINARY collect table keeps its public INSERT", () => {
+  // Or every contact form on the platform stops working.
+  const plain = normalizeSchema({ tables: [{ name: "enquiries", access: "collect", columns: [{ name: "email" }] }] }).tables[0];
+  const g = grantsFor(plain);
+  assert.equal(g.length, 2);
+  assert.ok(g.every((s) => /GRANT INSERT/.test(s)), g.join(" "));
+});
+
+test("link 3: the payment columns are dropped from the DECLARED list, not only the DDL", () => {
+  // Both matter and they are different functions. The DDL filter stops a
+  // CREATE TABLE collision; this one stops the column reaching _meta and so
+  // schemaDigest, which prints every declared column with no managed filter —
+  // a declared payment_status would be described to the generator as an
+  // ordinary field and land on the checkout form.
+  const withClash = normalizeSchema({
+    tables: [{
+      name: "orders", access: "collect", payment: { from: "products" },
+      columns: [{ name: "email" }, ...PAYMENT_COLUMNS.map((c) => ({ name: c }))],
+    }],
+  }).tables[0];
+  const names = withClash.columns.map((c) => c.name.toLowerCase());
+  for (const c of PAYMENT_COLUMNS) assert.equal(names.includes(c), false, c);
+  assert.ok(names.includes("email"));
+});
+
+test("...and they are NOT managed on a table that is not payable", () => {
+  // A shop may legitimately have a `currency` column of its own on a non-payable
+  // table; the reservation is scoped to the feature that owns those columns.
+  const plain = normalizeSchema({ tables: [{ name: "quotes", access: "collect", columns: [{ name: "currency" }, { name: "amount_total" }] }] }).tables[0];
+  const names = plain.columns.map((c) => c.name.toLowerCase());
+  assert.ok(names.includes("currency") && names.includes("amount_total"));
+});
+
+test("link 4: the DDL really emits the payment columns", () => {
+  const src = fs.readFileSync(path.join(import.meta.dirname, "..", "site-schema.mjs"), "utf8");
+  const block = src.slice(src.indexOf("if (t.payment) {"), src.indexOf("if (t.trash)"));
+  assert.ok(block.length > 40, "the payment DDL block must exist");
+  for (const c of PAYMENT_COLUMNS) assert.ok(block.includes(`"${c}"`), c);
+  // pending by default: the row is created BEFORE the customer reaches Stripe,
+  // so a lost webhook leaves an order to reconcile rather than nothing at all.
+  assert.match(block, /"payment_status" TEXT NOT NULL DEFAULT \\'pending\\'/);
+  // An integer of the minor unit, so it compares exactly against Stripe.
+  assert.match(block, /"amount_total" INTEGER/);
+});
+
+test("link 5: ONE list of payment columns, not two that drift", () => {
+  // The engine, the lint and the generator's rules must ask the same question.
+  const schema = fs.readFileSync(path.join(import.meta.dirname, "..", "site-schema.mjs"), "utf8");
+  assert.match(schema, /import \{[^}]*PAYMENT_COLUMNS[^}]*\} from "\.\/site-payments\.mjs"/);
+  assert.equal(/PAYMENT_COLUMNS\s*=/.test(schema), false, "site-schema.mjs must not define its own copy");
+});
+
+test("the whole chain holds from the file a build actually posts", () => {
+  // parseSchemaSpec reads the declaration file; normalizeSchema is what every
+  // later layer sees. Driven end to end so a break anywhere between shows here.
+  const spec = parseSchemaSpec({ "isibi.schema.json": JSON.stringify(payableSpec) });
+  assert.ok(spec, "the schema file must parse");
+  const orders = normalizeSchema(spec).tables.find((t) => t.name === "orders");
+  assert.ok(orders && orders.payment, "payment must reach the normalised table");
+  assert.equal(orders.payment.from, "products");
+  assert.deepEqual(grantsFor(orders), [], "and the table must still lose its public INSERT");
+});
+
+test("link 0: THE DESIGNER CAN DECLARE IT — otherwise the whole chain is unreachable", () => {
+  // `unique`, `noOverlap`, `maxRows` and `uniqueCI` were fully implemented,
+  // tested and UNREACHABLE on every site the builder ever made, because the
+  // designer's tool never offered them. Measured consequence: two customers
+  // booked the same 14:00 slot and both were accepted.
+  const src = fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8");
+  const tool = src.slice(src.indexOf('name: "design_schema"'), src.indexOf('tool_choice: { type: "tool", name: "design_schema" }'));
+  assert.ok(tool.length > 500, "the design_schema tool must be findable");
+  assert.match(tool, /payment: \{/);
+  assert.match(tool, /required: \["from"\]/);
+  // The model must be told the platform owns these columns, or it will put
+  // payment_status on the checkout form for the customer to set.
+  for (const c of PAYMENT_COLUMNS) assert.ok(tool.includes(c), c);
+  // And told NOT to declare it for a business that is paid in person, or every
+  // barber shop gets a card form it never asked for.
+  assert.match(tool, /invoices later|paid in the chair/);
+});
+
+test("both filters exist, and the DDL one is documented as the unreachable backstop", () => {
+  // A mutant removing the DDL-layer guard SURVIVES on purpose: coerceTable
+  // strips those columns first, so it cannot fire on any spec built today. It
+  // is kept for a spec read back from an older `_meta`, where a duplicate
+  // column would fail CREATE TABLE and take the whole backend with it. Asserted
+  // so that reason cannot quietly become "nobody remembers why this is here".
+  const src = fs.readFileSync(path.join(import.meta.dirname, "..", "site-schema.mjs"), "utf8");
+  assert.match(src, /if \(normalizePayment\(def\)\) cols = cols\.filter/, "the declared-list filter must exist");
+  assert.match(src, /if \(normalizePayment\(t\)\) for \(const c of PAYMENT_COLUMNS\) MANAGED\.add\(c\);/, "the DDL backstop must exist");
+  assert.match(src, /DEFENCE IN DEPTH, AND UNREACHABLE TODAY/, "and must say so");
+});

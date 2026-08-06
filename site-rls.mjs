@@ -274,7 +274,23 @@ export function grantsFor(t) {
   const tn = q(t.name);
   const { anon, user } = DATA_API_ROLES;
   if (access === "display") return [`GRANT SELECT ON ${tn} TO ${anon};`, `GRANT SELECT ON ${tn} TO ${user};`];
-  if (access === "collect") return [`GRANT INSERT ON ${tn} TO ${anon};`, `GRANT INSERT ON ${tn} TO ${user};`];
+  if (access === "collect") {
+    // A PAYABLE TABLE GETS NO PUBLIC INSERT AT ALL, and this is the whole
+    // security model rather than an optimisation.
+    //
+    // An order carries payment_status. Leave the table publicly insertable and
+    // anyone can POST /data/orders with payment_status "paid" and a total they
+    // chose — goods marked sold with no money behind them. Column-level grants
+    // could carve the payment columns out, but then the row still exists at a
+    // price nobody computed, and every future column has to remember to opt out.
+    //
+    // With no grant, the ONLY way an order can exist is POST /api/db/<slug>/checkout,
+    // which prices the basket from the site's own rows and inserts through the
+    // owner's connection. The hole closes by construction rather than by
+    // validation somebody has to keep getting right.
+    if (t && t.payment) return [];
+    return [`GRANT INSERT ON ${tn} TO ${anon};`, `GRANT INSERT ON ${tn} TO ${user};`];
+  }
   if (access === "admin") return [`GRANT SELECT ON ${tn} TO ${user};`];
   return [`GRANT SELECT, INSERT, UPDATE, DELETE ON ${tn} TO ${user};`];
 }
