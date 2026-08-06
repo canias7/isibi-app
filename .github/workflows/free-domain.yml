@@ -1,0 +1,46 @@
+# Free a zone's apex and www so the Worker can bind them as Custom Domains.
+#
+# gofarther.dev was serving a Lovable site from a proxied apex record. A Workers
+# Custom Domain creates its own DNS record and Cloudflare refuses to create one
+# on a hostname that already has a conflicting A/AAAA/CNAME, so the deploy would
+# fail at the binding step. This removes the conflict — and nothing else.
+#
+# It only ever considers A, AAAA and CNAME on the apex and on www. The apex also
+# carries the MX and TXT records for Cloudflare Email Sending (routing, SPF,
+# DKIM, DMARC), which have exactly the same name; the type filter is what keeps
+# this from deleting the platform's own auth mail. Subdomains are out of scope.
+#
+# Dry run by default. Run it once to see what it would remove, then again with
+# apply=true. The listing it prints is the only record of what was there.
+name: free domain
+
+on:
+  workflow_dispatch:
+    inputs:
+      zone:
+        description: 'Apex domain to free (e.g. gofarther.dev)'
+        required: true
+        default: 'gofarther.dev'
+      apply:
+        description: 'Actually delete. Leave false to see what it would do first.'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+
+jobs:
+  free:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: free the apex and www
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ZONE_NAME: ${{ inputs.zone }}
+          APPLY: ${{ inputs.apply }}
+        run: node .github/scripts/free-domain.mjs
