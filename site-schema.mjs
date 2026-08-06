@@ -745,7 +745,7 @@ export async function applySiteSchema(uuid, spec) {
   // — so `anonymous` and `authenticated` hold no privilege on it and it is
   // unreachable through the Data API by construction. Values are encrypted with
   // the PLATFORM key regardless, so a connection string alone yields ciphertext.
-  await sqlQuery(uuid, "CREATE TABLE IF NOT EXISTS _secrets (name TEXT PRIMARY KEY, cipher TEXT NOT NULL, hint TEXT, created_at TEXT DEFAULT to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS'))");
+  await sqlQuery(uuid, "CREATE TABLE IF NOT EXISTS _secrets (name TEXT PRIMARY KEY, cipher TEXT NOT NULL, hint TEXT, created_at TEXT DEFAULT (to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')))");
   let mergedTables = norm;
   // THE SAME MERGE THE TABLES GET, and it was missing — found 2026-08-05 by
   // asking whether a "manage my booking" page could be added by a later EDIT.
