@@ -5516,3 +5516,24 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 .si-day-bar { width: 100%; height: 84px; display: flex; align-items: flex-end; border-radius: 6px; background: var(--panel); overflow: hidden; }
 .si-day-bar i { display: block; width: 100%; background: var(--split); border-radius: 6px 6px 0 0; }
 .si-day-k { font-size: .68rem; color: var(--muted); letter-spacing: .03em; }
+
+/* ── The landing's four model tabs (LLM / Video / Image / Audio) ──────────────
+   Reuses .auth-gate's scrim and .auth-card's surface so the panel is visually
+   the same object as the sign-in popup — one overlay language on this page,
+   not two. Only the inner list is new. */
+.mdl-card{max-width:560px;width:100%;text-align:left;padding:2rem 2rem 1.5rem}
+.mdl-title{margin:0 0 .35rem;font-size:1.45rem;font-weight:700;letter-spacing:-.02em;color:var(--text)}
+.mdl-sub{margin:0 0 1.25rem;font-size:.86rem;line-height:1.5;color:var(--muted);max-width:44ch}
+.mdl-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px;
+  background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.mdl-row{display:flex;align-items:baseline;gap:.75rem;padding:.7rem .9rem;background:var(--bg);
+  /* A long note must wrap rather than push the name off — the flex-item
+     min-width trap this file has hit three times. */
+  min-width:0}
+.mdl-name{font-weight:600;font-size:.9rem;color:var(--text);white-space:nowrap}
+.mdl-note{font-size:.78rem;color:var(--muted);min-width:0;margin-left:auto;text-align:right}
+.mdl-count{padding:.55rem .9rem;background:var(--panel);font-size:.74rem;font-weight:600;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.mdl-foot{margin:1rem 0 0;font-size:.76rem;color:var(--muted)}
+/* Seven items in the top bar is a lot; let them wrap rather than overflow. */
+.mkt-links{flex-wrap:wrap;justify-content:flex-end}

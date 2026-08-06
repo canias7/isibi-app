@@ -42,6 +42,10 @@
           <header class="crt-topbar">
             <div class="mkt-brand"><img class="logo-mark" src="/logo.png" alt="" /> Go Farther</div>
             <nav class="mkt-links">
+              <button class="mkt-signin" data-models="llm" type="button">LLM models</button>
+              <button class="mkt-signin" data-models="video" type="button">Video models</button>
+              <button class="mkt-signin" data-models="image" type="button">Image models</button>
+              <button class="mkt-signin" data-models="audio" type="button">Audio models</button>
               <button class="mkt-signin" data-act="credits" type="button">Pricing</button>
               <button class="mkt-signin" data-mkt="signin" type="button">Sign in</button>
               <button class="mkt-cta" data-mkt="start" type="button">Sign up</button>
@@ -142,6 +146,19 @@
   </div>
 
   <!-- Auth popup — a modal over the marketing landing (backdrop/Esc/✕ close it). -->
+  <!-- The four model tabs on the landing open this. Content is BUILT from
+       MODEL_LISTS in chat.js — the same list the in-app picker renders — so the
+       marketing page cannot drift from what the app actually offers. -->
+  <div id="modelsPanel" class="auth-gate mdl-gate" style="display:none">
+    <div class="auth-card mdl-card">
+      <button id="mdlClose" class="auth-home" type="button" aria-label="Close">✕</button>
+      <h2 id="mdlTitle" class="mdl-title">Video models</h2>
+      <p id="mdlSub" class="mdl-sub"></p>
+      <ul id="mdlList" class="mdl-list"></ul>
+      <p class="mdl-foot">Pick any of them per generation. Your plan sets the credits, not the model.</p>
+    </div>
+  </div>
+
   <div id="authGate" class="auth-gate" style="display:none">
     <div class="auth-card">
       <button id="authHome" class="auth-home" type="button" aria-label="Close">✕</button>

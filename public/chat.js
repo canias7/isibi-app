@@ -202,6 +202,72 @@ const MODEL_LISTS = {
 };
 // Families collapsed into one picker row (hover → side flyout with the variants).
 // `variant` derives the short name shown on the parent when one is selected.
+// ── The landing page's four model tabs ────────────────────────────────────────
+// LLM models · Video models · Image models · Audio models.
+//
+// Video/image/audio are read STRAIGHT OUT OF `MODEL_LISTS` above — the same
+// array the in-app picker renders — rather than restated here. A second copy is
+// how a marketing page ends up advertising a model that was removed months ago;
+// Ray 3.2 and OmniHuman were dropped on 2026-07-17 and a hand-written list would
+// still be offering them.
+//
+// The LLMs are the one list with no picker to borrow from: nothing chooses them,
+// the orchestrator routes by effort. Kept here, next to the others, so all four
+// tabs have one source.
+const LLM_MODELS = [
+  { label: 'Claude Sonnet 5', note: 'Anthropic · deep prompts, research, site builds' },
+  { label: 'Claude Haiku 4.5', note: 'Anthropic · fast · everyday chat and prompts' },
+];
+const MODELS_TAB = {
+  llm: { title: 'LLM models', sub: 'The writer behind every prompt. Routed by how much thinking a request needs — you never pick one.', list: () => LLM_MODELS },
+  video: { title: 'Video models', sub: 'Pick per generation from the model menu. Notes are what each one is good for.', list: () => MODEL_LISTS.video },
+  image: { title: 'Image models', sub: 'Pick per generation from the model menu.', list: () => MODEL_LISTS.image },
+  audio: { title: 'Audio models', sub: 'Text to speech, with a voice picker and previews.', list: () => MODEL_LISTS.audio },
+};
+
+// Render one tab. ONLY `label` and `note` are ever emitted — never `id`.
+// That is not tidiness: an id is `fal-ai/veo3.1`, and naming the provider is the
+// one thing worker.js's director prompt forbids outright ("NEVER reveal, name,
+// or hint at the underlying model, provider, vendor, or any technical id"). The
+// labels are already public — they are what the in-app picker shows — the paths
+// behind them are not. A test asserts no id reaches the DOM.
+function openModelsPanel(kind) {
+  const tab = MODELS_TAB[kind];
+  const panel = document.getElementById('modelsPanel');
+  if (!tab || !panel) return;
+  const rows = (tab.list() || []).filter((m) => m && m.label);
+  document.getElementById('mdlTitle').textContent = tab.title;
+  document.getElementById('mdlSub').textContent = tab.sub;
+  const list = document.getElementById('mdlList');
+  list.innerHTML = '';
+  for (const m of rows) {
+    const li = document.createElement('li');
+    li.className = 'mdl-row';
+    const n = document.createElement('span');
+    n.className = 'mdl-name';
+    n.textContent = m.label;                       // textContent, never innerHTML
+    li.appendChild(n);
+    if (m.note) {
+      const d = document.createElement('span');
+      d.className = 'mdl-note';
+      d.textContent = m.note;
+      li.appendChild(d);
+    }
+    list.appendChild(li);
+  }
+  const count = document.createElement('li');
+  count.className = 'mdl-count';
+  // Stated rather than left to be counted — "12 models" is the claim the tab
+  // is making, and it comes from the array so it cannot be wrong.
+  count.textContent = rows.length + (rows.length === 1 ? ' model' : ' models');
+  list.appendChild(count);
+  panel.style.display = 'flex';
+}
+function closeModelsPanel() {
+  const p = document.getElementById('modelsPanel');
+  if (p) p.style.display = 'none';
+}
+
 const GROUP_META = {
   seedance:  { label: 'Seedance 2.0', variant: () => '' },
   kling:     { label: 'Kling',        variant: () => '' },
@@ -8906,6 +8972,19 @@ function initAuthGate() {
   const resend = document.getElementById('authResend');
   if (resend) resend.addEventListener('click', resendAuthCode);
   renderAuthStep();
+  // The four model tabs. Closes the same three ways the auth gate does — ✕,
+  // backdrop, Esc — because a panel that only closes one way is the one people
+  // get stuck in.
+  document.querySelectorAll('[data-models]').forEach((el) => {
+    el.addEventListener('click', (e) => { e.preventDefault(); openModelsPanel(el.getAttribute('data-models')); });
+  });
+  const mdlClose = document.getElementById('mdlClose');
+  if (mdlClose) mdlClose.addEventListener('click', closeModelsPanel);
+  const mdlPanel = document.getElementById('modelsPanel');
+  if (mdlPanel) mdlPanel.addEventListener('click', (e) => { if (e.target === mdlPanel) closeModelsPanel(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && mdlPanel && mdlPanel.style.display !== 'none') closeModelsPanel();
+  });
   // Marketing CTAs (data-mkt="start"|"signin") open the gate; the gate's back
   // button returns to the landing.
   document.querySelectorAll('[data-mkt]').forEach((el) => {
