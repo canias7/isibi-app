@@ -13878,3 +13878,92 @@ deploy that went out was one commit older than `main`, and the
 `SITE_SECRETS_KEY` wiring in `deploy.yml` was not in it. If a deploy ever seems
 to have "worked" but a just-added change is missing, check WHICH commit actually
 deployed rather than assuming it was the tip.
+
+---
+
+## 2026-08-06 — Go Farther, and the DNS blocker that never existed
+
+**The platform is `gofarther.dev` and the product is Go Farther** (owner's call
+— rename everything, and drop `isibi.ai` rather than redirect it, because the
+old Go Farther site at that domain was to be replaced, not preserved).
+
+**Nothing had to be deleted in Cloudflare, and working that out is the useful
+part.** `wrangler.jsonc` declares both hostnames as `custom_domain: true`, and a
+Workers Custom Domain creates its own DNS record — so the zone's existing
+proxied apex and `www` records, which were serving a Lovable site, looked like a
+hard blocker. They are not. wrangler 4.107.0, `publishCustomDomains`:
+
+    if (!process.stdout.isTTY) {
+      options.override_existing_origin = true;
+      options.override_existing_dns_record = true;
+    }
+
+GitHub Actions has no TTY, so the deploy overrides the record itself. The
+"Publishing to Custom Domain … was skipped, fix conflict and try again" refusal
+is the `else` branch — it only fires in a terminal, where a human can be asked.
+
+A whole operator workflow was built to clear those records (11 tests, 6
+mutations, all caught) and then **deleted on measuring this**. It also needed
+`Zone:DNS:Edit`, a WIDER permission than the deploy's own zone access, so any
+zone where it could run is one where the deploy had already succeeded. It is in
+git history if a stray record ever survives a binding.
+
+**Where the Pages hunt went wrong, worth remembering:** the domain was assumed
+to belong to the Cloudflare Pages project of the same name, and its Custom
+domains page was empty — nothing attached. The site was served by plain DNS
+records, and the `_lovable` TXT rows in the zone were what actually named the
+host. **Read the zone, not the product page.**
+
+### The rename bit three times, always the same way
+
+A blanket rename is safe on prose and unsafe wherever a name is also a
+**pattern**. Three instances, one per layer:
+
+1. `visibility` contains `isibi` — 21 identifiers became `vGo Fartherlity`, a
+   syntax error that stopped `chat.js` parsing. **All 1022 tests passed**, because
+   the unit suite never loads `chat.js`. Caught only by opening the page.
+2. `parseSchemaSpec` matched `/isibi\.schema\.json$/` and became
+   `/Go Farther\.schema\.json$/` — matches nothing, so a build could not find its
+   own schema file. The protect-list held the literal `isibi.schema.json`, which
+   does not match the **escaped** form. Caught by the payments chain test.
+3. `chat.js` tested a download URL's host against `/(isibi\.ai|supabase\.co)/`,
+   renamed to `Go Farther\.ai` — a host regex containing a SPACE, so the
+   same-origin fallback could never fire. This one shipped to the branch
+   uncaught; the comment above it already said `gofarther.dev`, so the code and
+   its own comment disagreed.
+
+**So: after any rename, grep for the new name inside regexes, URLs and
+identifiers, and open the page.** A green suite is not evidence here.
+
+### The names kept on purpose
+
+Each breaks something live if renamed, and the reason is in the source:
+
+- `isibi:meta` — the fence around the injected `<head>` block. Change it and
+  every published site gets a SECOND meta block on its next republish.
+- `$isibi$` — the dollar-quote tag around model-written SQL bodies.
+- `isibi-analytics-v1` — a hash salt. Changing it re-buckets every visitor
+  already counted.
+- `isibi-<slug>` — the Stripe Idempotency-Key.
+- `isibi-app` (the Worker name — a rename is a NEW Worker), `isibi-sites` (the
+  R2 bucket), `isibi-user-*` (Neon projects that already exist),
+  `isibi.schema.json` / `isibi.functions.json`.
+
+### Also in this merge
+
+- **Legal pages onto the black-and-white brand.** Terms, Privacy and
+  Data-deletion were still the retired dark look with the pink→amber badge.
+- **The Cloud panel audit.** Seven of twelve cards claimed "Live" and 404ed: the
+  liveness check asked whether the SITE has a backend, not whether the ROUTE
+  exists. Insights is rebuilt against the analytics route that does exist.
+
+### Still open after this
+
+- The **Stripe webhook** endpoint was repointed to `gofarther.dev` by the owner
+  before the merge.
+- `SITE_SECRETS_KEY` is in GitHub Actions; confirm it reached the Worker on this
+  deploy (the previous one deployed an older commit — see the entry above).
+- Signature verification and a real charge still need a published site holding a
+  test-mode Stripe key.
+- Five Cloud cards remain dead: Backups, Versions, Edge functions, Emails,
+  Files. Backups is closest — `/api/site/<slug>/export` already works.
