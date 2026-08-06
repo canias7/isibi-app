@@ -13850,3 +13850,31 @@ pricing function *through* the stripper, so nothing held the layer that computes
 money. And `indexOf(a) < indexOf(b)` passes **vacuously** when `a` is deleted, so
 a mutation removing the webhook's **signature check** survived the whole suite.
 Both closed; the second is the one to remember.
+
+**Payments went LIVE 2026-08-06 19:21 UTC**, after a five-hour GitHub Actions
+outage (incident `qcvjkzcs7j74`, Critical) held every deploy queued. Worth
+recording because it cost the session about two hours and produced three wrong
+diagnoses from me before I checked the status page — which was one request and
+would have answered it immediately. The signature: jobs sat 15 minutes and were
+cancelled despite the workflows setting 5- and 10-minute timeouts, which is only
+possible if they never got a runner. Short jobs squeezed through, long ones
+starved, so `unit tests` passed on the same commit `site build` died on.
+
+`payments smoke` against the deployed Worker is **17/17**: both routes exist, an
+unknown slug answers correctly on each, GET is refused on both, checkout does not
+demand an isibi session, all three secrets routes require one, and no response
+leaks a key prefix, a ciphertext envelope or a connection string.
+
+**Two things it deliberately SKIPS rather than claims.** Signature verification
+is unreachable without a real published site — the route resolves the slug first
+and answers `200 ignored:"no such site"`, so probing a fake slug never reaches
+the check. The first live run reported those as FAILURES, naming a refusal the
+code was never asked to make. And no card has been charged. Both need a
+published site holding a real test-mode Stripe key.
+
+**Recovery quirk to know about:** when Actions came back it processed only the
+NEWEST commit in the backlog and silently skipped the three after it. So the
+deploy that went out was one commit older than `main`, and the
+`SITE_SECRETS_KEY` wiring in `deploy.yml` was not in it. If a deploy ever seems
+to have "worked" but a just-added change is missing, check WHICH commit actually
+deployed rather than assuming it was the tip.
