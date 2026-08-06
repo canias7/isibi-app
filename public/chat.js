@@ -202,6 +202,108 @@ const MODEL_LISTS = {
 };
 // Families collapsed into one picker row (hover → side flyout with the variants).
 // `variant` derives the short name shown on the parent when one is selected.
+// ── The landing page's four model tabs ────────────────────────────────────────
+// LLM models · Video models · Image models · Audio models.
+//
+// Video/image/audio are read STRAIGHT OUT OF `MODEL_LISTS` above — the same
+// array the in-app picker renders — rather than restated here. A second copy is
+// how a marketing page ends up advertising a model that was removed months ago;
+// Ray 3.2 and OmniHuman were dropped on 2026-07-17 and a hand-written list would
+// still be offering them.
+//
+// The LLMs are the one list with no picker to borrow from: nothing chooses them,
+// the orchestrator routes by effort. Kept here, next to the others, so all four
+// tabs have one source.
+const LLM_MODELS = [
+  { label: 'Claude Sonnet 5', note: 'Anthropic · deep reasoning' },
+  { label: 'Claude Haiku 4.5', note: 'Anthropic · fast' },
+];
+// The subtitle says WHAT THE CATEGORY IS, nothing else. This is the landing
+// page — the reader is signed out and has generated nothing — so instructions
+// ("pick per generation from the model menu") and pricing are both aimed at
+// somebody who is not here. It is a list of what runs on the platform.
+// The order groups appear in. Explicit rather than Object.keys, so the panel
+// leads with what the platform is best known for instead of with whatever was
+// declared first.
+const MODELS_ORDER = ['video', 'image', 'audio', 'llm'];
+const MODELS_TAB = {
+  llm: { title: 'LLM models', sub: 'Reasoning and prompt writing.', list: () => LLM_MODELS },
+  video: { title: 'Video models', sub: 'Text to video, image to video, editing and lip-sync.', list: () => MODEL_LISTS.video },
+  image: { title: 'Image models', sub: 'Text to image, and image editing.', list: () => MODEL_LISTS.image },
+  audio: { title: 'Audio models', sub: 'Text to speech.', list: () => MODEL_LISTS.audio },
+};
+
+// Fill the AI models dropdown. Called ONCE at boot — the menu opens on hover
+// via CSS, so there is no click to render on, and a first hover that shows an
+// empty box while JavaScript catches up is worse than no menu.
+//
+// ONLY `label` and `note` are ever emitted — never `id`. That is not tidiness:
+// an id is `fal-ai/veo3.1`, and naming the provider is the one thing worker.js's
+// director prompt forbids outright ("NEVER reveal, name, or hint at the
+// underlying model, provider, vendor, or any technical id"). The labels are
+// already public — they are what the in-app picker shows — the paths behind
+// them are not. A test asserts no id reaches the DOM.
+function fillModelsMenu() {
+  const host = document.getElementById('mdlList');
+  if (!host) return;
+  host.innerHTML = '';
+  let total = 0;
+  for (const key of MODELS_ORDER) {
+    const g = MODELS_TAB[key];
+    const rows = ((g && g.list()) || []).filter((m) => m && m.label);
+    if (!rows.length) continue;                    // an empty group is not a heading
+    total += rows.length;
+    // Each group is ONE element, so a column break can never land between a
+    // heading and the rows it labels.
+    const sec = document.createElement('section');
+    sec.className = 'mdl-group';
+    const h = document.createElement('h3');
+    h.className = 'mdl-gh';
+    h.textContent = g.title;
+    sec.appendChild(h);
+    const cap = document.createElement('p');
+    cap.className = 'mdl-gsub';
+    cap.textContent = g.sub;
+    sec.appendChild(cap);
+    const list = document.createElement('ul');
+    list.className = 'mdl-list';
+    for (const m of rows) {
+      const li = document.createElement('li');
+      li.className = 'mdl-row';
+      // The NAME only. The per-model notes ("Google · audio · extend") are the
+      // in-app picker's job, where somebody is choosing between them; here the
+      // question is only what the platform runs. They are still on the objects
+      // in MODEL_LISTS — deliberately not read.
+      li.textContent = m.label;                    // textContent, never innerHTML
+      list.appendChild(li);
+    }
+    sec.appendChild(list);
+    host.appendChild(sec);
+  }
+  // Counted from what was actually rendered, so the headline number cannot
+  // disagree with the rows beneath it.
+  const sub = document.getElementById('mdlSub');
+  if (sub) sub.textContent = total + (total === 1 ? ' model' : ' models') + ' across video, image, voice and reasoning.';
+}
+
+// aria-expanded has to follow what CSS is actually doing, or it is a stale
+// claim — a screen reader announcing "collapsed" over an open menu is worse
+// than saying nothing. Hover and focus are BOTH synced because both open it.
+function wireModelsMenu() {
+  const wrap = document.querySelector('.mkt-drop');
+  const btn = wrap && wrap.querySelector('.mkt-drop-btn');
+  if (!wrap || !btn) return;
+  const set = (v) => btn.setAttribute('aria-expanded', v ? 'true' : 'false');
+  wrap.addEventListener('mouseenter', () => set(true));
+  wrap.addEventListener('mouseleave', () => set(false));
+  wrap.addEventListener('focusin', () => set(true));
+  wrap.addEventListener('focusout', () => set(false));
+  // Esc closes it for a keyboard user by moving focus out — :focus-within is
+  // what is holding it open, so blurring is the close.
+  wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape') btn.blur(); });
+}
+
+
 const GROUP_META = {
   seedance:  { label: 'Seedance 2.0', variant: () => '' },
   kling:     { label: 'Kling',        variant: () => '' },
@@ -8906,6 +9008,10 @@ function initAuthGate() {
   const resend = document.getElementById('authResend');
   if (resend) resend.addEventListener('click', resendAuthCode);
   renderAuthStep();
+  // The AI models menu. It OPENS on hover via CSS, so there is nothing to wire
+  // for that — this fills it once and keeps aria-expanded honest.
+  fillModelsMenu();
+  wireModelsMenu();
   // Marketing CTAs (data-mkt="start"|"signin") open the gate; the gate's back
   // button returns to the landing.
   document.querySelectorAll('[data-mkt]').forEach((el) => {

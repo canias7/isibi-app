@@ -42,6 +42,25 @@
           <header class="crt-topbar">
             <div class="mkt-brand"><img class="logo-mark" src="/logo.png" alt="" /> Go Farther</div>
             <nav class="mkt-links">
+              <!-- Hover (or keyboard focus) opens this — a dropdown hanging off the
+                   nav item, not a modal over the page. Visibility is CSS on the
+                   wrapper's :hover/:focus-within, so there is no open/close state
+                   to get stuck and no timer to race. The list is filled in once at
+                   boot, so the first hover is not a blank box. -->
+              <div class="mkt-drop">
+                <button class="mkt-signin mkt-drop-btn" data-models="all" type="button"
+                        aria-haspopup="true" aria-expanded="false">AI models</button>
+                <div id="modelsPanel" class="mdl-drop" role="group" aria-label="AI models">
+                  <!-- .mdl-inner is the visible card. The gap under the trigger is
+                       padding on .mdl-drop, OUTSIDE this box but INSIDE the hover
+                       area, so the pointer never crosses dead ground on its way
+                       down and the menu cannot flicker shut. -->
+                  <div class="mdl-inner">
+                    <p id="mdlSub" class="mdl-sub"></p>
+                    <div id="mdlList" class="mdl-groups"></div>
+                  </div>
+                </div>
+              </div>
               <button class="mkt-signin" data-act="credits" type="button">Pricing</button>
               <button class="mkt-signin" data-mkt="signin" type="button">Sign in</button>
               <button class="mkt-cta" data-mkt="start" type="button">Sign up</button>
