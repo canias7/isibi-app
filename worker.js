@@ -13,6 +13,8 @@ import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
 import { injectMeta } from "./site-meta.mjs";
+import { listSecrets, addSecret, deleteSecret, readSecret } from "./site-secrets.mjs";
+import { normalizePayment, parseCart, priceCart, checkoutSessionArgs, formEncode, paidFromEvent } from "./site-payments.mjs";
 import { rescopeCookie } from "./site-cookie.mjs";
 import { drainTeardown } from "./site-teardown.mjs";
 import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
@@ -2782,6 +2784,22 @@ const SITE_SCHEMA_TOOL = {
                 on: { type: "array", items: { type: "string" }, description: "Columns that scope it — e.g. [\"appointment_date\"] or [\"room\"]." },
               },
             },
+            payment: {
+              type: "object",
+              description:
+                "The visitor PAYS BY CARD when they submit this table. Declare it ONLY when the brief says money changes hands online — an online shop, paid tickets, a deposit. " +
+                "A shop that takes orders and invoices later, or a barber shop that is paid in the chair, does NOT declare this. " +
+                "The table stays `collect`; it gains payment_status / payment_ref / amount_total / currency / paid_at, all set by the platform — never declare those columns yourself and never put them on a form. " +
+                "`from` must name a `display` table on this same site whose rows carry the prices, because the total is computed from THOSE rows on the server: the browser only ever says which row and how many. " +
+                "The site owner pastes their own Stripe key in Settings; until they do, the checkout answers politely that payments are not set up yet.",
+              properties: {
+                from: { type: "string", description: "The `display` table holding the priced items, e.g. \"products\" or \"tickets\"." },
+                price: { type: "string", description: "The column on that table holding the price, as a plain decimal like \"12.50\". Default \"price\"." },
+                name: { type: "string", description: "The column holding the item name shown on the Stripe page. Default \"name\"." },
+                currency: { type: "string", description: "Three-letter ISO code, lowercase — \"gbp\", \"eur\", \"usd\". Pick the one the business actually trades in." },
+              },
+              required: ["from"],
+            },
           },
           required: ["name", "access", "columns"],
         },
@@ -3294,6 +3312,12 @@ const VISITOR_UPLOADS_PER_MIN = 5;
 // through our proxy is not free. Better Auth throttles on its own side too; this
 // is about not being the open front door to it.
 const AUTH_PROXY_PER_MIN = 20;
+// Checkouts per source per site. A real customer starts one, maybe two if they
+// go back and change the basket; nobody legitimately starts ten a minute. Each
+// one writes an order row AND calls Stripe on the owner's account, so an
+// unlimited version fills their orders list with pending rows and burns their
+// API rate limit — an attack on the shop, using their own credentials.
+const CHECKOUT_PER_MIN = 6;
 // Data reads per source per site. A page legitimately renders several lists, so
 // this is generous — the budget it protects is Neon compute, and RLS is what
 // protects the rows.
@@ -3404,6 +3428,130 @@ async function siteServiceBase(db, key) {
  * client sees, including its errors — a proxy that reinterprets them is a second
  * place where "wrong password" has to be spelled, and the two drift.
  */
+/**
+ * A visitor paying by card, with the SITE OWNER'S own Stripe key.
+ *
+ * The order of operations is the security model, so it is worth stating:
+ *
+ *   1. the table must DECLARE `payment` — otherwise this endpoint is a way to
+ *      insert into any collect table while bypassing its rate limit
+ *   2. the basket is reduced to {id, qty} and NOTHING else the client sent
+ *   3. the total is computed from the site's OWN rows
+ *   4. the row is written with that total, at status `pending`
+ *   5. only then is Stripe called
+ *
+ * The row exists BEFORE the customer reaches Stripe on purpose. Written on the
+ * webhook instead, a customer who paid while the callback was lost would have
+ * no order at all and the owner would hold money with nothing to ship against.
+ * A pending row that never completes is the recoverable direction.
+ */
+async function handleCheckout({ env, conn, slug, body, origin, schema }) {
+  const tables = (schema && Array.isArray(schema.tables) ? schema.tables : []);
+  const table = tables.find((t) => t && String(t.name).toLowerCase() === String(body.table || "").toLowerCase());
+  // 404 rather than 400 for a table that is not payable: whether a given table
+  // takes card payments is not something this endpoint should confirm to
+  // somebody enumerating names.
+  const payment = table && normalizePayment(table);
+  if (!table || !payment) return Response.json({ error: "that isn't something you can pay for here" }, { status: 404 });
+
+  const cart = parseCart(body);
+  if (!cart.ok) return Response.json({ error: cart.error }, { status: 400 });
+
+  const priced = await priceCart({
+    readRows: async (from, ids) => {
+      // `from` and the two column names came through normalizePayment's
+      // identifier check, and `from` is additionally required to be a table
+      // this site DECLARED — a payment block naming `_secrets` would otherwise
+      // read the vault. The ids are bound parameters.
+      if (!tables.some((t) => String(t.name).toLowerCase() === from)) {
+        throw Object.assign(new Error("payment.from names no declared table"), { detail: from });
+      }
+      const ph = ids.map(() => "?").join(",");
+      return sqlQuery(conn, `SELECT id, ${sqlIdent(payment.name)}, ${sqlIdent(payment.price)} FROM ${sqlIdent(from)} WHERE id IN (${ph})`, ids);
+    },
+  }, { payment, items: cart.items });
+  if (!priced.ok) return Response.json({ error: priced.error }, { status: priced.status || 409 });
+
+  // The owner's key. Absent is the ordinary case for a site whose owner has not
+  // set payments up yet, and it deserves a plain answer rather than a 500.
+  let key = null;
+  try {
+    key = await readSecret({ get: async (_s, name) => {
+      const rows = await sqlQuery(conn, "SELECT cipher FROM _secrets WHERE name=?", [name]);
+      return (rows && rows[0] && rows[0].cipher) || null;
+    } }, env, { slug, name: "STRIPE_SECRET_KEY" });
+  } catch (e) {
+    // A key that will not decrypt is NOT the same as no key, and must not read
+    // as one: calling Stripe with an empty key tells a customer with a good
+    // card that their payment failed.
+    console.error("checkout key:", slug, e && e.message);
+    return Response.json({ error: "payments are not available on this site right now" }, { status: 503 });
+  }
+  if (!key) return Response.json({ error: "this shop hasn't finished setting up payments yet" }, { status: 503 });
+
+  // The customer's own fields — name, address, notes — filtered to the columns
+  // this table DECLARED, the way the data API does. The payment columns are not
+  // in that list (the schema engine strips them), so a body claiming
+  // payment_status cannot reach the row.
+  const declared = new Set((table.columns || []).map((c) => String(typeof c === "string" ? c : c.name).toLowerCase()));
+  const fields = {};
+  for (const [k, v] of Object.entries(body.fields || {})) {
+    const low = String(k).toLowerCase();
+    if (declared.has(low) && v != null && typeof v !== "object") fields[low] = String(v).slice(0, 2000);
+  }
+
+  const cols = ["payment_status", "amount_total", "currency", ...Object.keys(fields)];
+  const vals = ["pending", priced.total, priced.currency, ...Object.values(fields)];
+  const ins = await sqlQuery(
+    conn,
+    `INSERT INTO ${sqlIdent(table.name)} (${cols.map(sqlIdent).join(",")}) VALUES (${cols.map(() => "?").join(",")}) RETURNING id`,
+    vals,
+  );
+  const orderId = ins && ins[0] && ins[0].id;
+  if (!orderId) throw new Error("order row was not created");
+
+  // Both URLs are built HERE from the site's own origin and never taken from
+  // the body. A caller-supplied success_url is an open redirect on our domain,
+  // and the obvious use of one is a payment page that returns the customer to
+  // somewhere that looks like the shop and asks for the card again.
+  const base = `${origin}/s/${encodeURIComponent(slug)}/`;
+  const args = checkoutSessionArgs({
+    slug, table: table.name, orderId,
+    lines: priced.lines, currency: priced.currency,
+    successUrl: `${base}?paid=${orderId}`,
+    cancelUrl: `${base}?cancelled=${orderId}`,
+    email: fields.email || fields.customer_email || null,
+  });
+
+  const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+      // Stripe replays a retried request rather than charging twice. Keyed on
+      // the order row, which is unique per attempt.
+      "Idempotency-Key": `isibi-${slug}-${table.name}-${orderId}`,
+    },
+    body: formEncode(args),
+    signal: AbortSignal.timeout(15000),
+  });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok || !out.url) {
+    // The owner's problem, not the customer's: log what Stripe said, tell the
+    // customer something true and useless to an attacker. The order row stays,
+    // pending, so the owner can see the attempt.
+    console.error("stripe checkout:", slug, res.status, out && out.error && out.error.message);
+    return Response.json({ error: "we couldn't start that payment — please try again" }, { status: 502 });
+  }
+  // Best-effort: the customer is already on their way to Stripe and must not be
+  // blocked by our bookkeeping. Without it the webhook still finds the row, by
+  // the id in client_reference_id.
+  try { await sqlExec(conn, `UPDATE ${sqlIdent(table.name)} SET payment_ref=? WHERE id=?`, [String(out.id || ""), orderId]); }
+  catch (e) { console.error("checkout ref:", slug, e && e.message); }
+
+  return Response.json({ ok: true, url: out.url, orderId });
+}
+
 async function proxySiteService(env, request, url, slug, path, which, ctx) {
   const db = await siteBackendBySlug(env, slug);
   if (!db) return Response.json({ error: "no such site" }, { status: 404 });
@@ -4953,6 +5101,76 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // A SITE's own Stripe telling us one of its orders was paid. Separate from
+    // /api/stripe/webhook, which is isibi's own billing: different account,
+    // different signing secret, and mixing them would mean one handler deciding
+    // whether an event mints platform credits or marks a barber shop's order.
+    //
+    // Unauthenticated, like the platform one and for the same reason — Stripe
+    // cannot hold a session. What authenticates it is the HMAC over the raw
+    // body, verified against THIS SITE'S OWN webhook secret, which the owner
+    // pasted in. So a signature valid for one shop proves nothing about another.
+    if (url.pathname.startsWith("/api/stripe/site/") && request.method === "POST") {
+      const wm = url.pathname.match(/^\/api\/stripe\/site\/([a-z0-9][a-z0-9-]{0,80})$/i);
+      if (wm) {
+        const wslug = wm[1].toLowerCase();
+        const wconn = await siteBackendBySlug(env, wslug);
+        // 200 on an unknown slug, deliberately. Stripe retries a non-2xx for
+        // days and disables an endpoint that keeps failing; a deleted site
+        // whose owner left the endpoint registered would otherwise generate
+        // retries forever. There is nothing to do and nothing was lost.
+        if (!wconn) return Response.json({ ok: true, ignored: "no such site" });
+        // The RAW body, not a parsed one: the signature is over exact bytes and
+        // re-serialising JSON changes them.
+        const raw = await request.text();
+        let secret = null;
+        try {
+          secret = await readSecret({ get: async (_s, name) => {
+            const rows = await sqlQuery(wconn, "SELECT cipher FROM _secrets WHERE name=?", [name]);
+            return (rows && rows[0] && rows[0].cipher) || null;
+          } }, env, { slug: wslug, name: "STRIPE_WEBHOOK_SECRET" });
+        } catch (e) { console.error("wh secret:", wslug, e && e.message); }
+        // FAILS CLOSED. Without the secret we cannot tell Stripe from anyone
+        // else who found the URL, and this endpoint's whole job is to mark
+        // things as paid.
+        if (!secret) return Response.json({ error: "not configured" }, { status: 503 });
+        const ver = await verifyStripeSignature({
+          header: request.headers.get("Stripe-Signature") || "",
+          raw, secrets: [secret], nowMs: Date.now(),
+        });
+        if (!ver.ok) return Response.json({ error: "bad signature" }, { status: 400 });
+        let event = null;
+        try { event = JSON.parse(raw); } catch { return Response.json({ error: "bad body" }, { status: 400 }); }
+        const paid = paidFromEvent(event);
+        if (!paid) return Response.json({ ok: true, ignored: true });
+        // The event names its own slug, and it must be THIS one. The signature
+        // already proves the sender holds this site's secret, so this is belt
+        // and braces — but the alternative is a slug from a request body
+        // reaching a connection lookup, and that is never worth leaving open.
+        if (paid.slug !== wslug) return Response.json({ ok: true, ignored: "slug mismatch" });
+        try {
+          const sch = await loadSiteSchema(wconn);
+          const t = (sch && Array.isArray(sch.tables) ? sch.tables : []).find((x) => String(x.name).toLowerCase() === paid.table && normalizePayment(x));
+          if (!t) return Response.json({ ok: true, ignored: "not a payable table" });
+          // Idempotent, and that is required rather than tidy: Stripe delivers
+          // at least once and retries anything it does not get a 2xx for, so the
+          // same event arrives more than once as a matter of course. The WHERE
+          // makes a second delivery a no-op instead of a second `paid_at`.
+          await sqlExec(
+            wconn,
+            `UPDATE ${sqlIdent(t.name)} SET payment_status='paid', payment_ref=?, paid_at=to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') WHERE id=? AND payment_status<>'paid'`,
+            [paid.ref, paid.orderId],
+          );
+        } catch (e) {
+          // A 500 here makes Stripe retry, which is what we want: the money is
+          // real and the row must eventually catch up.
+          console.error("wh apply:", wslug, e && (e.detail || e.message));
+          return Response.json({ error: "could not record that payment" }, { status: 500 });
+        }
+        return Response.json({ ok: true });
+      }
+    }
+
     if (url.pathname === "/api/stripe/webhook" && request.method === "POST") {
       // add_credits is now REVOKEd from anon/authenticated, so the webhook must
       // call it with the service_role key — require that secret too.
@@ -5892,6 +6110,46 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // A visitor paying by card. Public and unauthenticated for the same reason
+    // the rest of /api/db is: somebody buying a knife has no account here.
+    //
+    // This is the ONLY way a row in a payable table can be created — grantsFor
+    // gives such a table no public INSERT — so everything that decides what is
+    // owed happens on this side of the wire.
+    if (url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/checkout")) {
+      const cm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/checkout$/i);
+      if (cm) {
+        if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
+        const cslug = cm[1].toLowerCase();
+        // Before the body is read and before anything is looked up: this
+        // endpoint reaches Stripe, so an unlimited one spends someone else's
+        // rate budget from our origin. CF-Connecting-IP only — the
+        // X-Forwarded-For fallback used elsewhere is client-settable and would
+        // let one caller mint a fresh bucket per request.
+        const chit = _dataLimiter.hit(
+          bucketKey({ ip: request.headers.get("CF-Connecting-IP") || "", slug: cslug, table: "checkout", method: "POST" }),
+          CHECKOUT_PER_MIN,
+        );
+        if (!chit.ok) { const t = tooMany(chit); return Response.json(t.body, { status: t.status, headers: t.headers }); }
+        const cconn = await siteBackendBySlug(env, cslug);
+        if (!cconn) return Response.json({ error: "no such site" }, { status: 404 });
+        try {
+          return await handleCheckout({
+            env, conn: cconn, slug: cslug,
+            body: await request.json().catch(() => ({})),
+            origin: url.origin,
+            schema: await loadSiteSchema(cconn),
+          });
+        } catch (e) {
+          // Never echoed: a Stripe error can quote the request, and the request
+          // carries the site's own line items; a Postgres error quotes the
+          // statement. Logged so a failing shop is diagnosable from our side.
+          console.error("checkout:", cslug, e && (e.detail || e.message));
+          return Response.json({ error: "we couldn't start that payment — please try again" }, { status: 502 });
+        }
+      }
+    }
+
     if (url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/uploads")) {
       const vm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/uploads$/i);
       if (vm) {
@@ -6313,7 +6571,7 @@ async function handleRequest(request, env, ctx) {
     // Ordered BEFORE the site-delete branch below on purpose: that one matches
     // any DELETE under /api/site/, so a row delete would otherwise be read as a
     // request to take the entire site down.
-    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads") || url.pathname.includes("/export") || url.pathname.includes("/notify"))) {
+    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads") || url.pathname.includes("/export") || url.pathname.includes("/notify") || url.pathname.includes("/secrets"))) {
       const om = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rows(?:\/([a-z_][a-z0-9_]{0,40})(?:\/([0-9]{1,18}))?)?$/i);
       // A member id is a UUID now, not the sequential integer this used to match.
       const mm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/members(?:\/([0-9a-f-]{36}))?$/i);
@@ -6321,10 +6579,14 @@ async function handleRequest(request, env, ctx) {
       const uf = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/uploads(?:\/([A-Za-z0-9._-]{1,80}))?$/i);
       const xp = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/export$/i);
       const nt = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/notify$/i);
-      if (om || mm || an || uf || xp || nt) {
+      // The owner's own API keys. A DELETE names the secret in the path, and the
+      // name is matched with the SAME alphabet normalizeSecretName produces, so
+      // anything that could not have been stored cannot even reach the handler.
+      const sk = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/secrets(?:\/([A-Za-z][A-Za-z0-9_]{0,63}))?$/i);
+      if (om || mm || an || uf || xp || nt || sk) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
-        const ownerSlug = (om || mm || an || uf || xp || nt)[1].toLowerCase();
+        const ownerSlug = (om || mm || an || uf || xp || nt || sk)[1].toLowerCase();
         const ownerDeps = {
           ownerOf: async (s2) => {
             const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s2)}&select=uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
@@ -6357,7 +6619,60 @@ async function handleRequest(request, env, ctx) {
         // no body otherwise — the same trap the PBKDF2 cap fell into.
         try {
           let r;
-          if (nt) {
+          if (sk) {
+            // The owner's own API keys. Every value goes through site-secrets.mjs,
+            // which is the only place one is ever decrypted; nothing here can
+            // return one, and a test asserts this branch never mentions a value.
+            const sslug = sk[1].toLowerCase();
+            const g = await assertOwner(ownerDeps, sslug, ou.id);
+            if (g.error) return Response.json(g.error.body, { status: g.error.status });
+            // Resolved AFTER the gate, so a stranger guessing slugs never costs
+            // a backend lookup. Fails closed: without a connection we cannot say
+            // what a site holds, and answering "no secrets" would read as an
+            // empty vault and invite somebody to re-add a key they already have.
+            const sconn = await siteBackendBySlug(env, sslug);
+            if (!sconn) return Response.json({ error: "publish the site first — then it can hold secrets" }, { status: 409 });
+            const vault = {
+              list: async () => {
+                const rows = await sqlQuery(sconn, "SELECT name, hint, created_at FROM _secrets ORDER BY name");
+                // A hint that will not parse is dropped, not thrown on: it is a
+                // display nicety, and losing the whole list because one row's
+                // hint is malformed would hide the key an owner came to rotate.
+                return (rows || []).map((r) => { let hint = {}; try { hint = JSON.parse(r.hint || "{}") || {}; } catch { /* shown without it */ } return { name: r.name, created_at: r.created_at, hint }; });
+              },
+              get: async (_s, name) => {
+                const rows = await sqlQuery(sconn, "SELECT cipher FROM _secrets WHERE name=?", [name]);
+                return (rows && rows[0] && rows[0].cipher) || null;
+              },
+              put: async (_s, name, cipher, hint) => {
+                await sqlExec(sconn, "INSERT INTO _secrets (name, cipher, hint) VALUES (?,?,?) ON CONFLICT (name) DO UPDATE SET cipher=excluded.cipher, hint=excluded.hint", [name, cipher, JSON.stringify(hint || {})]);
+              },
+              remove: async (_s, name) => {
+                const r = await sqlExec(sconn, "DELETE FROM _secrets WHERE name=?", [name]);
+                return { removed: !!(r && r.changes) };
+              },
+            };
+            try {
+              if (request.method === "GET") return Response.json(await listSecrets(vault, { slug: sslug }));
+              if (request.method === "POST") {
+                const sb = await request.json().catch(() => ({}));
+                const r = await addSecret(vault, env, { slug: sslug, name: sb.name, value: sb.value });
+                return Response.json(r.ok ? { ok: true, name: r.name, replaced: r.replaced } : { ok: false, error: r.error }, { status: r.ok ? 200 : (r.status || 400) });
+              }
+              if (request.method === "DELETE") {
+                // The name comes from the PATH, never a body: a DELETE with a
+                // body is not something every client sends, and the matcher
+                // above has already constrained the alphabet.
+                return Response.json(await deleteSecret(vault, { slug: sslug, name: sk[2] }));
+              }
+              return Response.json({ error: "method not allowed" }, { status: 405 });
+            } catch (e) {
+              // The message is never echoed — a Postgres error can quote the
+              // statement, and the statement binds the ciphertext.
+              console.error("secrets:", e && (e.detail || e.message));
+              return Response.json({ ok: false, error: "couldn't reach the secret store just now" }, { status: 503 });
+            }
+          } else if (nt) {
             // The off switch. Email the owner did not ask for, with no way to
             // stop it, is not something to ship.
             const nslug = nt[1].toLowerCase();

@@ -1551,18 +1551,34 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-ithumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .st-ithumb em { position: absolute; left: 5px; right: 5px; bottom: 4px; font-size: .58rem; font-style: normal; line-height: 1.25; color: #f0ecf8; text-shadow: 0 1px 3px #000; max-height: 2.5em; overflow: hidden; }
 /* Data / Users panel (React sites with a backend) */
-.st-datawrap { flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
+/* min-width:0 on BOTH, or a wide table takes the whole panel with it. A schema
+   with seven columns (an orders table) made .st-data-body size to its content
+   instead of to the stage — measured 1610px in a 1468px slot — and .st-stage
+   centres what it cannot fit and clips both edges, so the TABLE RAIL was
+   clipped out of existence and there was no way back to another table.
+   .st-data-main already has min-width:0 and overflow:auto: once these two stop
+   growing, the grid scrolls, which is what was always intended. */
+.st-datawrap { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
 .st-data-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line, #211d30); }
 .st-data-title { font-weight: 600; font-size: .95rem; }
 .st-data-count { color: var(--muted, #8b849e); font-size: .8rem; font-family: ui-monospace, Menlo, monospace; }
 .st-data-head .st-icon { margin-left: auto; }
-.st-data-body { flex: 1; display: flex; min-height: 0; }
-.st-data-side { width: 190px; flex: none; border-right: 1px solid var(--line, #211d30); padding: 10px; display: flex; flex-direction: column; gap: 4px; overflow: auto; }
+.st-data-body { flex: 1; min-width: 0; display: flex; min-height: 0; }
+/* 240px is MEASURED, not chosen: the widest realistic pairing a schema produces
+   is a 13-character table name beside SUBMISSIONS, which wants 220px of tab.
+   At the old 190 even `bookings SUBMISSIONS` was one pixel over and spilled
+   silently — invisible until the name was given an ellipsis to spill INTO. */
+.st-data-side { width: 240px; flex: none; border-right: 1px solid var(--line, #211d30); padding: 10px; display: flex; flex-direction: column; gap: 4px; overflow: auto; }
 .st-data-tab { display: flex; align-items: center; gap: 8px; text-align: left; padding: 9px 11px; border-radius: 9px; border: 1px solid transparent; background: none; color: var(--text, #ece9f5); font-size: .85rem; cursor: pointer; }
 .st-data-tab:hover { background: rgba(255,255,255,.04); }
 .st-data-tab.on { background: rgba(255,255,255,.05); border-color: var(--line, #211d30); }
-.st-data-tn { font-weight: 500; }
-.st-data-acc { margin-left: auto; font-size: .66rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+/* The table name is the part that gives, because the access label is a fixed
+   vocabulary of five words and the name is whatever the schema designer chose.
+   Without min-width:0 a flex item refuses to shrink below its content, so a
+   long name pushed its own label out past the rail — measured at 184px of
+   content in a 169px tab on `announcements`. */
+.st-data-tn { font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-data-acc { flex: none; margin-left: auto; font-size: .66rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .st-data-main { flex: 1; min-width: 0; overflow: auto; padding: 14px 16px; }
 .st-data-tablewrap { overflow-x: auto; border: 1px solid var(--line, #211d30); border-radius: 10px; }
 .st-data-grid { border-collapse: collapse; width: 100%; font-size: .8rem; }
@@ -1699,7 +1715,19 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .sk-add .st-in { flex: 1; min-width: 0; }
 .sk-add .st-publish { flex: none; }
 .sk-item { display: flex; align-items: center; gap: .8rem; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); padding: .6rem .8rem; margin-bottom: .5rem; }
-.sk-name { font-family: ui-monospace, monospace; font-size: .85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The name is the part that gives: it is whatever the owner typed, while the
+   hint and the mode are bounded. Without min-width:0 the name refuses to shrink
+   below its content and pushes its own row's siblings out — the same flex
+   failure as the Data rail, and this row just gained two more of them. */
+.sk-name { font-family: ui-monospace, monospace; font-size: .85rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The hint, never the value: a public Stripe prefix and the last four. */
+.sk-hint { flex: none; font-family: ui-monospace, monospace; font-size: .74rem; color: var(--muted); letter-spacing: .02em; }
+/* Filled for live, outlined for test — the difference has to survive greyscale
+   and anyone who cannot see colour, so it is carried by FILL and by the word,
+   never by hue. This is the one badge on the platform where being wrong means
+   an owner thinks they are taking money and is not. */
+.sk-mode { flex: none; font-size: .62rem; text-transform: uppercase; letter-spacing: .06em; border-radius: 999px; padding: 2px 7px; border: 1px solid var(--line-2); color: var(--muted); }
+.sk-mode-live { background: #0a0a0a; border-color: #0a0a0a; color: #fff; }
 .sk-when { margin-left: auto; font-size: .74rem; color: var(--muted); flex: none; }
 .sk-del { flex: none; width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--muted); cursor: pointer; font-size: 1rem; line-height: 1; }
 .sk-del:hover { color: #c62828; border-color: rgba(255, 120, 120, .4); }
@@ -1737,7 +1765,16 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .em-step { display: flex; gap: .8rem; align-items: flex-start; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: .8rem .9rem; }
 .em-n { flex: none; width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; font-weight: 700; font-size: .85rem; color: var(--on-accent); background: var(--split); }
 .em-step b { display: block; font-size: .9rem; margin-bottom: .2rem; }
+/* The BODY's bolds stay inline. `.em-step b` was written when a step's only bold
+   was its title, so emphasis inside the description became a block and broke
+   every sentence containing one onto three lines. */
+.em-step span b { display: inline; font-size: inherit; margin-bottom: 0; }
 .em-step span { color: var(--muted); font-size: .82rem; line-height: 1.5; }
+/* `.em-n` is a span inside `.em-step`, so `.em-step span` (0,1,1) beat `.em-n`
+   (0,1,0) and painted the step number near-black at 56% on a near-black
+   gradient — invisible, in every panel using this markup. Measured, not
+   guessed: computed color was rgba(11,11,14,.56). */
+.em-step .em-n { color: var(--on-accent); }
 .em-step code { font-family: ui-monospace, monospace; font-size: .78rem; background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; padding: 0 .3rem; }
 /* Browser frame around the live preview — just a URL chip, no window dots. */
 .st-frame { display: flex; flex-direction: column; width: 100%; height: 100%; border: 1px solid var(--line-2); border-radius: 16px; overflow: hidden; background: var(--bg); box-shadow: 0 18px 44px -22px rgba(0, 0, 0, .8); }
@@ -5453,3 +5490,20 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 .st-pillbtn.on,.st-dev.on,.st-vtab.on,.st-pageitem.on,.st-msg.u{color:var(--on-accent)}
 /* clean light landing — drop the CRT scanline texture */
 .mkt-crt .crt-scan{display:none}
+
+/* Payments panel — the setup checklist and the one URL an owner must move by
+   hand. Monochrome like the rest: state is carried by fill and by a word, never
+   by hue alone, so it survives greyscale and anyone who cannot see colour. */
+.em-step.em-done .em-n { background: #0a0a0a; border-color: #0a0a0a; color: #fff; }
+.pay-ok, .pay-warn { border: 1px solid var(--line-2); border-radius: 10px; padding: .6rem .8rem; margin-bottom: .9rem; font-size: .85rem; }
+/* A live shop reads as settled; a test key reads as unfinished. The filled rule
+   on the left is the difference, not a colour. */
+.pay-ok { border-left: 3px solid #0a0a0a; }
+.pay-warn { border-left: 3px solid #0a0a0a; background: rgba(10, 10, 10, .04); }
+.pay-hook { margin-top: 1rem; }
+.pay-hook label { display: block; font-size: .74rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: .35rem; }
+.pay-hook-row { display: flex; align-items: center; gap: .5rem; }
+/* min-width:0 so the URL ellipsizes instead of pushing Copy off the card —
+   the same flex failure as the Data rail, which this session hit twice. */
+.pay-hook-row code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line); border-radius: 8px; padding: .45rem .6rem; font-size: .78rem; background: var(--panel-2); }
+.pay-hook-row .st-publish { flex: none; }

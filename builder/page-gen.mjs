@@ -26,6 +26,7 @@ import { FAMILY_EXEMPLARS } from "./family-exemplars.mjs";
 // Reachable only this way — the model has no filesystem, and importing a demo
 // is the defect the lint refuses.
 import { CHART_USAGE } from "./chart-usage.mjs";
+import { normalizePayment } from "../site-payments.mjs";
 
 /**
  * The house motion set. Spec and reasoning: builder/MOTION.md.
@@ -2033,7 +2034,35 @@ ${UI_SHORTLIST_API()}
     so \`useRow(TABLE, id)\` with the string straight off the URL is correct. Do not wrap it
     in \`Number()\`.
 
-14. NO EXPLANATORY COMMENTS IN THE PAGES YOU WRITE. The examples above are commented
+14. A TABLE MARKED \`PAID: YES\` IS BOUGHT, NOT SUBMITTED. The digest says so per table.
+    \`useCreateRow\` on one returns 403 — a paid table has no public insert at all, which is
+    exactly what stops a price being forged — so use \`useCheckout\` and let the server price it:
+      const checkout = useCheckout("orders")
+      const { data: products = [] } = useRows<Product>("products")
+      const [cart, setCart] = useState<Record<number, number>>({})
+      ...
+      <BusyButton
+        busy={checkout.isPending}
+        onClick={() =>
+          checkout.mutate({
+            items: Object.entries(cart).map(([id, qty]) => ({ id: Number(id), qty })),
+            fields: { customer_name: name, email },
+          })
+        }
+      >Pay <Money amount={total} currency="GBP" /></BusyButton>
+    Send \`{ id, qty }\` and NOTHING else per line — no price, no total, no currency. The
+    server reads the prices out of the catalogue table itself, so a total computed in the
+    page is for DISPLAY only and is never sent. \`fields\` carries the customer's own
+    details and only declared columns survive; never put \`payment_status\` or
+    \`amount_total\` on a form, they are the platform's.
+    \`mutate\` REDIRECTS to Stripe, so nothing after it runs — no toast, no navigate. The
+    customer returns to \`/?paid=<id>\` or \`/?cancelled=<id>\`; read it with
+    \`Route.useSearch()\` to say thank you. That id is NOT proof of payment, so never show
+    an order's contents from it — the shop's own Stripe tells the platform when it is paid.
+    Show the error \`checkout.error\` carries rather than a generic one: it is written for
+    the customer, and says so when the shop has not finished setting payments up.
+
+15. NO EXPLANATORY COMMENTS IN THE PAGES YOU WRITE. The examples above are commented
     because they are teaching you; the files you return are a customer's website and
     nobody reads its source. Output costs five times what input costs, and comments are
     27% of the example set — so a comment is the single most expensive thing here, and
@@ -2304,6 +2333,18 @@ export function schemaDigest(spec) {
         ? "  usePublicRows: YES — anyone may read " + t.publicView.columns.join(", ") + " from this table"
         : "  usePublicRows: NO — this table has no public view; calling it is a 404, so build the page without it");
     }
+    // Stated for EVERY collect table, YES or NO, never omitted. An absent line
+    // reads as an omission rather than an answer — the exact failure that made
+    // a whole site come out as the placeholder when `publicView` was declarable,
+    // enforced, and never mentioned in this digest.
+    if (access === "collect") {
+      const pay = normalizePayment(t);
+      lines.push(pay
+        ? "  PAID: YES — the visitor pays by card. Do NOT call useCreateRow on this table; it has no public insert and would 403. "
+          + "Use useCheckout(\"" + t.name + "\") with the rows they chose from " + pay.from + ", priced in " + pay.currency.toUpperCase() + ". "
+          + "The page sends only { id, qty } per line — never a price, total or currency — plus the customer's own declared fields."
+        : "  PAID: NO — this is an ordinary form. Submit it with useCreateRow; there is no payment on this table.");
+    }
     return lines.join("\n");
   }).join("\n\n");
   return tableLines + fnLines;
@@ -2524,6 +2565,28 @@ export function lintPages(pages, spec) {
         say(path, 'edits "' + m[1] + '", which is access "' + t.access + '" — PATCH and DELETE on it return 403. Only `user` and `feed` rows have an owner who may change them.');
       } else if (!/\buseMember\b/.test(code)) {
         say(path, 'edits "' + m[1] + '" without useMember(). Only a signed-in member can change a row, and only their own — put the edit UI behind a sign-in.');
+      }
+    }
+    // PAYING IS CHECKED PER TABLE, for the same reason editing is.
+    //
+    // This is the class of failure this lint exists for: it typechecks, it
+    // bundles, and it 403s at a real customer. A payable table has NO public
+    // INSERT — that missing grant is the whole reason a price cannot be forged
+    // — so useCreateRow on one is refused by Postgres at the moment somebody
+    // tries to buy something.
+    for (const m of code.matchAll(/\buseCreateRow\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
+      const t = tables.get(m[1].toLowerCase());
+      if (t && normalizePayment(t)) {
+        say(path, 'submits "' + m[1] + '" with useCreateRow, but that table is PAID — it has no public insert and the write returns 403. Use useCheckout("' + m[1] + '") instead, sending { id, qty } for each item.');
+      }
+    }
+    // And the other way round: checkout on a table that takes no payment. The
+    // route answers 404 for it, so the button would simply never work.
+    for (const m of code.matchAll(/\buseCheckout\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
+      const t = tables.get(m[1].toLowerCase());
+      if (!t) { say(path, 'takes payment for table "' + m[1] + '", which the schema does not declare.'); continue; }
+      if (!normalizePayment(t)) {
+        say(path, 'calls useCheckout("' + m[1] + '"), but that table declares no payment — checkout answers 404 for it. Submit it with useCreateRow.');
       }
     }
     // The table name is not always a literal. Keep the blunt checks for the calls
