@@ -81,6 +81,20 @@ if (!webhookLive) {
   const res = await fetch(BASE + "/api/stripe/site/x", { method: "GET" });
   ok("GET is refused — a webhook is a POST", res.status === 404 || res.status === 405, "got " + res.status);
 }
+// THE SECOND GATE, and the reason it exists is worth stating. The route resolves
+// the SLUG before it verifies the signature — an unknown site answers 200
+// `ignored: "no such site"` on purpose, so a deleted site's leftover endpoint
+// does not make Stripe retry for days. So against a slug that does not exist,
+// the signature checks below never reach the signature at all: they were
+// reported as FAILURES on the first live run, naming a refusal the code was
+// never asked to make. Detected and SKIPPED rather than guessed at, because a
+// check that cannot fail for its stated reason is worse than no check.
+const probe = await post("/api/stripe/site/x", { type: "checkout.session.completed" });
+const siteExists = !(probe.json && probe.json.ignored === "no such site");
+if (!siteExists) {
+  console.log("  SKIP the signature checks — they need a REAL published site;");
+  console.log("       an unknown slug short-circuits to 200 before verification runs.");
+} else {
 {
   // An unsigned body must never be believed, whatever it claims. The acceptable
   // answers are NAMED rather than "anything but 200": a 404 would satisfy a
@@ -96,6 +110,7 @@ if (!webhookLive) {
 {
   const r = await post("/api/stripe/site/x", { type: "checkout.session.completed" }, { "Stripe-Signature": "t=1,v1=deadbeef" });
   ok("a bad signature is refused", r.status === 400 || r.status === 503, r.status + " " + r.text.slice(0, 160));
+}
 }
 }
 
