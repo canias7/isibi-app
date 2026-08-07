@@ -148,6 +148,21 @@ const SCHEMA = normalizeSchema({
       body: "SELECT * FROM enquiries WHERE claim_token = tok" },
     { name: "cancel_enquiry_by_claim", args: [{ name: "tok", type: "text" }], returns: "void",
       body: "DELETE FROM enquiries WHERE claim_token = tok" },
+    // AN INTERNAL FUNCTION — the confirmation-email case, and the one whose
+    // failure is silent. A `confirm: {fn}` function reads a `collect` row and
+    // returns the customer's address, subject and body; the platform calls it on
+    // the owner's connection when a booking lands. `internal: true` withholds the
+    // EXECUTE grant precisely so it is NOT one of the site's public RPCs, because
+    // a caller who could invoke it would be reading customer records out of a
+    // write-only table by guessing row ids.
+    //
+    // Every layer above this was asserted without a database — the designer can
+    // declare it, the normaliser keeps the flag, `functionSql` skips the GRANT —
+    // and all three pass on a build where the grant is emitted anyway. Only
+    // Postgres can say whether the privilege is actually absent.
+    { name: "confirm_enquiry", args: [{ name: "row_id", type: "integer" }], returns: "setof enquiries",
+      internal: true,
+      body: "SELECT * FROM enquiries WHERE id = row_id" },
   ],
 });
 
@@ -473,8 +488,11 @@ try {
   // model is told, the lint checks the name — and all five would pass on a
   // function that returns nothing at runtime.
   console.log("\nthe claim flow…");
-  ok("applySiteSchema reports which functions it made", Array.isArray(made.functions) && made.functions.length === 2,
-    JSON.stringify(made.functions || null));
+  // Derived from the fixture, not a remembered number — adding a function must
+  // not fail a test about whether functions are reported at all.
+  ok("applySiteSchema reports which functions it made",
+    Array.isArray(made.functions) && made.functions.length === SCHEMA.functions.length,
+    `${(made.functions || []).length} of ${SCHEMA.functions.length}`);
   ok("and reports no failures", !made.functionErrors, JSON.stringify(made.functionErrors || null));
 
   const fnRows = await sqlQuery(db,
@@ -503,6 +521,63 @@ try {
     "has_table_privilege('anonymous', 'enquiries', 'INSERT') AS ins");
   ok("but may NOT select the table it reads from", canRead[0].sel === false, JSON.stringify(canRead[0]));
   ok("and may still submit the form", canRead[0].ins === true, JSON.stringify(canRead[0]));
+
+  // ── `internal: true` withholds the grant ─────────────────────────────────
+  //
+  // The confirmation-email function. It exists and the platform calls it on the
+  // owner's connection; what must NOT be true is that the internet can. Asserted
+  // as a PAIR with the public function above — "anonymous cannot execute it" is
+  // also what you get from a function that was never created, from a typo in the
+  // privilege string, or from an account where nothing is granted to anybody, so
+  // on its own it passes for all the wrong reasons.
+  const internalExists = await sqlQuery(db,
+    "SELECT p.proname, p.prosecdef FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace " +
+    "WHERE n.nspname='public' AND p.proname='confirm_enquiry'");
+  ok("the internal function was created", internalExists.length === 1, JSON.stringify(internalExists));
+
+  const internalExec = await sqlQuery(db,
+    "SELECT has_function_privilege('anonymous', 'confirm_enquiry(integer)', 'EXECUTE') AS anon, " +
+    "has_function_privilege('authenticated', 'confirm_enquiry(integer)', 'EXECUTE') AS auth");
+  ok("a signed-out visitor may NOT execute an internal function",
+    internalExec[0].anon === false, JSON.stringify(internalExec[0]));
+  ok("and neither may a signed-in member",
+    internalExec[0].auth === false, JSON.stringify(internalExec[0]));
+  // The contrast is the assertion. Same database, same roles, same call — one
+  // function is reachable and one is not, which is the only way to show the flag
+  // did the work rather than the environment.
+  ok("while the public function next to it still is",
+    canExec[0].anon === true && internalExec[0].anon === false,
+    `public=${canExec[0].anon} internal=${internalExec[0].anon}`);
+
+  // The platform still has to be able to CALL it — an internal function nobody
+  // can invoke sends no confirmation, which is the failure this whole tier keeps
+  // producing. The Worker connects as the owner, which is this connection.
+  await sqlQuery(db, 'INSERT INTO "enquiries" ("customer_name","message") VALUES (?,?)', ["Grace", "confirm me"]);
+  const target = await sqlQuery(db, 'SELECT id FROM "enquiries" WHERE customer_name=?', ["Grace"]);
+  const built = await sqlQuery(db, "SELECT * FROM confirm_enquiry(?)", [target[0].id]);
+  ok("but the owner's own connection can call it",
+    built.length === 1 && built[0].customer_name === "Grace", JSON.stringify(built).slice(0, 200));
+
+  // ── the vault is not a table the site can reach ──────────────────────────
+  //
+  // `_secrets` holds the owner's Stripe and mail keys and lives in this same
+  // database, beside the declared tables. It is safe only because grants are
+  // emitted PER DECLARED TABLE and it is not one — there is no GRANT ON ALL
+  // TABLES and no USAGE on the schema for the Data API roles. That is an
+  // argument about code; this is the measurement.
+  const vault = await sqlQuery(db,
+    "SELECT to_regclass('public._secrets') IS NOT NULL AS present, " +
+    "has_table_privilege('anonymous','public._secrets','SELECT') AS anon_sel, " +
+    "has_table_privilege('authenticated','public._secrets','SELECT') AS auth_sel, " +
+    "has_table_privilege('anonymous','public._secrets','INSERT') AS anon_ins");
+  // Created by applySiteSchema on EVERY build — the `_sessions` lesson, where a
+  // table existing only where somebody used a feature 500s everywhere else. If
+  // it were absent the privilege checks below would error rather than pass, but
+  // stating it separately is what makes their result mean something.
+  ok("_secrets exists on every site", vault[0].present === true, JSON.stringify(vault[0]));
+  ok("no anonymous SELECT on the vault", vault[0].anon_sel === false, JSON.stringify(vault[0]));
+  ok("no member SELECT on the vault", vault[0].auth_sel === false, JSON.stringify(vault[0]));
+  ok("and no anonymous INSERT either", vault[0].anon_ins === false, JSON.stringify(vault[0]));
 
   await sqlQuery(db, 'INSERT INTO "enquiries" ("customer_name","message") VALUES (?,?)', ["Ada", "10:30"]);
   const mine = await sqlQuery(db, 'SELECT claim_token FROM "enquiries" WHERE customer_name=?', ["Ada"]);
