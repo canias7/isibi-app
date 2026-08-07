@@ -545,15 +545,33 @@ try {
   ok("no HTTP client in Postgres — http and pg_net both absent",
     !have.has("http") && !have.has("pg_net"), "present: " + [...have].join(", "));
 
-  // The honest counterweight, printed so nobody re-derives "the database cannot
-  // reach the network" from the line above. That inference HAS been drawn, in
-  // this repo, twice — and it is wrong.
-  const egress = ["dblink", "postgres_fdw"].filter((n) => have.has(n));
-  console.log("  note EGRESS IS OPEN via: " + (egress.join(", ") || "(neither present)") +
-    " — 'no HTTP' is the claim, never 'no internet'");
+  // LISTED IS NOT INSTALLABLE, and the first version of this probe conflated
+  // them. `pg_available_extensions` is the CATALOG; Neon refuses several of the
+  // things in it at CREATE time. Measured here: file_fdw is listed and Neon's
+  // own docs call it unsupported ("files would not remain accessible when Neon
+  // scales to zero"), which is exactly the pair that exposes the difference.
+  //
+  // So absence is read from the catalog — not listed means it cannot possibly
+  // be installed — and presence is proved by actually running CREATE EXTENSION.
+  // Anything less makes "egress is open" an inference, and inference is what
+  // put two contradictions in CLAUDE.md.
+  const installable = async (n) => {
+    if (!have.has(n)) return "absent from the catalog";
+    try { await sqlQuery(db, "CREATE EXTENSION IF NOT EXISTS " + n); return "INSTALLED"; }
+    catch (e) { return "listed, REFUSED: " + String((e && (e.detail || e.message)) || e).slice(0, 60); }
+  };
+  const state = {};
   for (const n of ["dblink", "postgres_fdw", "pg_cron", "plpython3u", "plperlu", "file_fdw"]) {
-    console.log("  note " + n.padEnd(13) + (have.has(n) ? "available" : "absent"));
+    state[n] = await installable(n);
+    console.log("  note " + n.padEnd(13) + state[n]);
   }
+
+  // The honest counterweight, printed so nobody re-derives "the database cannot
+  // reach the network" from the assertion above. That inference HAS been drawn
+  // in this repo, twice, and it is wrong both times.
+  const egress = ["dblink", "postgres_fdw"].filter((n) => state[n] === "INSTALLED");
+  console.log("  note EGRESS IS " + (egress.length ? "OPEN via: " + egress.join(", ") : "CLOSED — no outbound extension installed") +
+    " — 'no HTTP' is the claim, never 'no internet'");
 
 } catch (e) {
   failed++;
