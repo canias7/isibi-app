@@ -10111,6 +10111,7 @@ function moreCloud(site) {
   // Flip a name out of DEAD_PANELS the moment its route exists again.
   const DEAD_PANELS = {
     security: 'Off since the audit log was removed',        // /events — routed nowhere
+    versions: 'No build history is kept yet',              // /backend/rollback — nothing records builds
     functions: 'Set up by your app, nothing to configure', // jobs are declared in the schema, not here
     emails: 'Set up in Secrets — add your provider key',   // no route; the key lives under Secrets
   };
@@ -11046,31 +11047,22 @@ async function siteVersions(site) {
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
   if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — versions show up here.'); return; }
   const { bodyEl } = stCloudModal('siteVersionsModal', 'Versions');
-  // ONE previous build, and the wording says so rather than implying a history
-  // that does not exist. The old panel listed saved builds from a D1-era route
-  // deleted in July, so it showed "no saved builds" forever on a site that had
-  // been published ten times.
-  bodyEl.innerHTML =
-    '<div class="si-panel-sub">Every publish keeps the build it replaced, so a change you don\u2019t like can be undone.</div>' +
-    '<div class="si-item"><div class="si-item-top"><span class="si-form">Undo the last publish</span></div>' +
-    '<div class="si-empty" style="margin:6px 0 10px">Swaps your live site back to the previous build. Doing it again puts this one back \u2014 your data and tables are untouched either way.</div>' +
-    '<button type="button" class="st-hi-restore" id="stRollback">Undo last publish</button></div>';
-  const btn = bodyEl.querySelector('#stRollback');
-  btn.onclick = async () => {
-    if (!confirm('Put your live site back to the previous build?')) return;
-    btn.disabled = true; btn.textContent = 'Rolling back\u2026';
+  const load = async () => {
     try {
-      const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/rollback', { method: 'POST' });
+      const r = await apiFetch('/api/site/backend/builds?slug=' + encodeURIComponent(slug));
       const d = await r.json().catch(() => ({}));
-      if (typeof sbToast === 'function') {
-        // The 409 case is not a failure and is not phrased as one: a site built
-        // once has nothing to go back to, which is most sites most of the time.
-        sbToast(d.ok ? 'Rolled back \u2014 your live site is the previous build.' : (d.error || 'Roll back failed.'));
-      }
-    } catch (e) { if (typeof sbToast === 'function') sbToast('Roll back failed \u2014 try again.'); }
-    btn.disabled = false; btn.textContent = 'Undo last publish';
+      const list = (d && d.builds) || [];
+      bodyEl.innerHTML = list.length ? '<div class="si-panel-sub">' + list.length + ' saved build' + (list.length === 1 ? '' : 's') + ' · newest first</div>' + list.map((b, i) =>
+        '<div class="si-item"><div class="si-item-top"><span class="si-form">' + (i === 0 ? 'Current version' : esc(stFmtTime(b.uploaded))) + '</span><span class="si-when">' + Math.max(1, Math.round((b.size || 0) / 1024)) + ' KB</span></div>' + (i === 0 ? '' : '<button type="button" class="st-hi-restore" data-key="' + esc(b.key) + '">Roll back</button>') + '</div>').join('')
+        : '<div class="si-empty">No saved builds yet. Each publish archives a version you can roll back to.</div>';
+      bodyEl.querySelectorAll('[data-key]').forEach((el) => el.onclick = async () => { if (!confirm('Roll the live site back to this build?')) return; el.disabled = true; el.textContent = 'Rolling back…'; try { const rr = await apiFetch('/api/site/backend/rollback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, key: el.dataset.key }) }); const rd = await rr.json().catch(() => ({})); if (typeof sbToast === 'function') sbToast(rd.ok ? 'Rolled back — your live site is updated.' : 'Roll back failed.'); } catch (e) { } load(); });
+    } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load versions — try again.</div>'; }
   };
+  load();
 }
+
+// Database — the site's collections (public records it saves + shows). Owner view,
+// grouped by collection, RLS-scoped by their JWT.
 async function siteDatabase(site) {
   // React sites: the site's real database is its own D1, shown in the Data panel —
   // just switch to it (no separate legacy-collections modal).
