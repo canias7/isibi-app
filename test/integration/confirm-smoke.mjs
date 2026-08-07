@@ -500,7 +500,17 @@ try {
   const goodText = await good.text();
   ok("a declared read reaches the real service", good.status === 200, good.status + " " + goodText.slice(0, 120));
   // Cloudflare's trace endpoint answers key=value lines; `fl=` is on every one.
-  ok("and hands back what that service actually sent", /(^|\n)fl=/.test(goodText), goodText.slice(0, 160));
+  //
+  // PARSED FIRST, because the route answers `Response.json(body)` whatever the
+  // service sent — a text/plain upstream arrives as a JSON *string*, newlines
+  // and all, so a regex looking for a real newline never matches. That is the
+  // contract a page gets (`useApi<string>` for a text service, `useApi<T>` for a
+  // JSON one) and it is worth asserting rather than assuming: the first draft of
+  // this check tested the raw body and failed against a perfectly good response.
+  let goodBody = null;
+  try { goodBody = JSON.parse(goodText); } catch { /* not json at all */ }
+  ok("and hands back what that service actually sent",
+    typeof goodBody === "string" && /(^|\n)fl=/.test(goodBody), goodText.slice(0, 160));
 
   // THE PARAMETER REALLY REACHED THE URL. A different value is a different
   // path, so the STATUS moves — which is the one way to see substitution from
