@@ -7978,7 +7978,15 @@ async function handleRequest(request, env, ctx) {
           return Response.json(r.body, { status: r.status });
         } catch (e) {
           console.error("owner data failed:", url.pathname, request.method, (e && (e.stack || e.message)) || e);
-          return Response.json({ error: "Something went wrong reaching your site's data." }, { status: 500 });
+          // THE ERROR'S NAME, NEVER ITS MESSAGE — the same rule `cfHostname`
+          // states for its own catch, and for the same reason: these requests
+          // carry the service key and a provider message can quote the request.
+          // A name is a class (`TypeError`, `SyntaxError`) and cannot be a
+          // secret. Added because a bare "something went wrong" made three
+          // different faults in one route indistinguishable, and the only way
+          // to tell them apart was a Cloudflare log nobody could reach from
+          // where the failure was seen.
+          return Response.json({ error: "Something went wrong reaching your site's data.", kind: String((e && e.name) || "Error").slice(0, 40) }, { status: 500 });
         }
       }
     }
