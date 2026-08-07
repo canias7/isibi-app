@@ -3,6 +3,7 @@
 // call. Bundled by wrangler at deploy (see package.json).
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { sendConfirmation, recipient, pickProvider } from "./site-mail.mjs";
+import { sendSms } from "./site-sms.mjs";
 import { dueJobs, runJob } from "./site-jobs.mjs";
 import { hostIsBlocked, blockedReason } from "./site-ssrf.mjs";
 import { deliverWebhook, firesFor, signPayload, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
@@ -2152,6 +2153,53 @@ async function postProviderEmail(provider, key, from, to, subject, html) {
     return { ok: resp.status >= 200 && resp.status < 300, status: resp.status };
   } catch { return { ok: false, status: 0 }; }
 }
+/**
+ * Send one text through whichever provider the owner configured.
+ *
+ * Three shapes, kept as data rather than three code paths, because they differ
+ * only in where the credential and the fields go. Twilio is form-encoded and
+ * basic-auth'd; MessageBird and Vonage are JSON.
+ *
+ * NEVER THROWS — `sendSms` treats a falsy `ok` as a refusal and the booking has
+ * already succeeded either way.
+ */
+async function postProviderSms(provider, key, secret, from, to, body) {
+  let url, headers, payload, form = false;
+  if (provider === "twilio") {
+    url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(key)}/Messages.json`;
+    headers = { Authorization: "Basic " + btoa(key + ":" + secret), "Content-Type": "application/x-www-form-urlencoded" };
+    payload = new URLSearchParams({ From: from, To: to, Body: body }).toString();
+    form = true;
+  } else if (provider === "vonage") {
+    url = "https://rest.nexmo.com/sms/json";
+    headers = { "Content-Type": "application/json" };
+    // Vonage carries its credential IN THE BODY rather than a header — the one
+    // real irregularity here, and the reason this is a switch and not a table.
+    payload = { api_key: key, api_secret: secret, from, to: to.replace(/^\+/, ""), text: body };
+  } else {
+    url = "https://rest.messagebird.com/messages";
+    headers = { Authorization: "AccessKey " + key, "Content-Type": "application/json" };
+    payload = { originator: from, recipients: [to], body };
+  }
+  try {
+    const resp = await fetch(url, {
+      method: "POST", headers,
+      body: form ? payload : JSON.stringify(payload),
+      signal: AbortSignal.timeout(12000),
+    });
+    const text = await readCapped(resp, 4096);
+    // VONAGE ANSWERS 200 ON FAILURE. Its `messages[].status` is "0" for
+    // success and a numeric error code otherwise, so trusting the HTTP status
+    // here would report every rejected message as sent — and the owner would
+    // be told their customer was texted when nobody was.
+    if (provider === "vonage") {
+      let j = null; try { j = JSON.parse(text); } catch { /* not json */ }
+      const first = j && Array.isArray(j.messages) && j.messages[0];
+      return { ok: !!(first && String(first.status) === "0"), status: resp.status };
+    }
+    return { ok: resp.status >= 200 && resp.status < 300, status: resp.status };
+  } catch { return { ok: false, status: 0 }; }
+}
 // Register a site's scheduled jobs. Reuses the `site_functions` table, whose
 // shape (slug, name, spec, schedule_minutes, last_run) is exactly a schedule
 // registry — it was the eight-verb SPEC that was the wrong design, not the row.
@@ -2707,6 +2755,29 @@ const SITE_SCHEMA_TOOL = {
               // other". Which arrived is decided by normalizeConfirm, and a
               // half-declaration of either is refused there rather than
               // half-applied.
+            },
+            sms: {
+              type: "object",
+              description:
+                "TEXT THE PERSON WHO SUBMITTED. The same idea as `confirm` and a separate declaration, so a table may have either or both — " +
+                "an emailed receipt AND a texted reminder. Declare it on a `collect` table whose form asks for a PHONE NUMBER. " +
+                "Worth it where a text is read and an email is not: a booking confirmation for a barber, a garage or a restaurant, " +
+                "an appointment reminder, an order-is-ready message. " +
+                "`to` must be one of THIS table's own columns. `body` is PLAIN TEXT — no HTML, no links unless they matter — and " +
+                "{column} inserts a value from the submitted row. Keep it under 160 characters: a text is billed per 160-character segment. " +
+                "The site owner pastes their own Twilio, MessageBird or Vonage credentials in Settings, plus the number or sender name to send from; " +
+                "until they do, nothing is sent and the form still works normally. " +
+                "The visitor's number must be given in full international form (+44…, +1…) — ask for it that way on the form, because a local number cannot be sent to. " +
+                "Do NOT declare this for a plain contact form, and do not declare it for marketing: every message costs the owner money and unsolicited texts are regulated.",
+              properties: {
+                fn: { type: "string", description:
+                  "OPTIONAL, and the more capable form. Instead of to/body, name a function you ALSO declare in `functions` with `internal: true`, " +
+                  "taking one bigint argument (the new row's id) and returning `json` shaped {to, body}. Use it when the message depends on anything " +
+                  "beyond the row — the stylist's name, the slot time formatted properly, a different message for a first-time customer. " +
+                  "`internal: true` matters: without it any visitor could call it and read anyone's phone number by guessing an id." },
+                to: { type: "string", description: "The column on this table holding the visitor's phone number — e.g. \"mobile\". Omit when using `fn`." },
+                body: { type: "string", description: "Short plain-text message. {column} is replaced from the submitted row." },
+              },
             },
             payment: {
               type: "object",
@@ -3595,6 +3666,10 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
           // already on this path, which is why this can fire on the booking
           // rather than up to two minutes later on a cron.
           confirmSubmitter(env, ctx, { slug, db, def, row: row || {} });
+          // …and by text, if the site declared one. Independent of the mail
+          // above: a site may declare either or both, and one provider being
+          // misconfigured must not silently take the other with it.
+          smsSubmitter(env, ctx, { slug, db, def, row: row || {} });
           // And outward, if the site declared it. Same branch again: the row
           // exists, the visitor has their answer, and anything else that wants
           // to know is somebody else's server.
@@ -3811,6 +3886,11 @@ async function sendMail(env, { to, subject, html, text }) {
 // this path is the write rate limit, since reaching this code at all costs an
 // insert into the owner's own table, which they can see.
 const confirmSeen = new Map();
+// The same, for text messages, and deliberately a SEPARATE map. Both are keyed
+// by recipient, and an address and a phone number are different recipients even
+// for the same person — shared, an emailed confirmation would suppress the text
+// that was the whole reason for declaring both.
+const smsSeen = new Map();
 // The site's webhook configuration, decrypted, cached ~60s per isolate.
 //
 // WHY THIS EXISTS AT ALL. Every emitting insert used to cost TWO sequential
@@ -4219,6 +4299,65 @@ function confirmSubmitter(env, ctx, { slug, db, def, row }) {
     // uninteresting reasons — no key, nothing declared — stay quiet.
     if (!out.sent && !["no confirm declared", "no provider key in Secrets", "not a collect table"].includes(out.reason)) {
       console.error("confirm:", slug, out.reason, out.error || out.status || "");
+    }
+  })();
+  if (ctx && ctx.waitUntil) ctx.waitUntil(p); else p.catch(() => {});
+}
+
+/**
+ * …and by text message, on the owner's own SMS account.
+ *
+ * A SEPARATE CALL rather than a channel inside `confirmSubmitter`, because a
+ * site may want either or both — an emailed receipt AND a texted reminder — and
+ * because folding them together means one provider being down or misconfigured
+ * silently takes the other with it. They are independent failures and they
+ * report independently.
+ *
+ * Same never-throws contract: the booking already succeeded.
+ */
+function smsSubmitter(env, ctx, { slug, db, def, row }) {
+  const p = (async () => {
+    const out = await sendSms({
+      // Only the names this channel needs, decrypted lazily and never returned
+      // to a caller — the same door the mail key and the Stripe key come
+      // through.
+      loadSecrets: async () => {
+        const get = async (_s, name) => {
+          const rows = await sqlQuery(db, "SELECT cipher FROM _secrets WHERE name=?", [name]);
+          return (rows && rows[0] && rows[0].cipher) || null;
+        };
+        const map = {};
+        for (const name of ["TWILIO_SID", "TWILIO_TOKEN", "MESSAGEBIRD_KEY", "VONAGE_KEY", "VONAGE_SECRET", "SMS_FROM"]) {
+          try { const v = await readSecret({ get }, env, { slug, name }); if (v) map[name] = v; } catch { /* skip */ }
+        }
+        return map;
+      },
+      send: ({ provider, key, secret, from, to, body }) => postProviderSms(provider, key, secret, from, to, body),
+      // A SEPARATE COOLDOWN LEDGER from the mail one, and deliberately: they are
+      // keyed by recipient, and an address and a phone number are different
+      // recipients even for the same person. Sharing the map would let an email
+      // confirmation suppress the text that was the point of declaring both.
+      recentlySent: async (s2, to) => {
+        const k = s2 + "|" + to, now = Date.now();
+        const at = smsSeen.get(k);
+        if (at && now - at < 600000) return true;      // 10 minutes
+        if (smsSeen.size > 5000) smsSeen.clear();      // bounded, not a cache
+        return false;
+      },
+      markSent: async (s2, to) => { smsSeen.set(s2 + "|" + to, Date.now()); },
+      // The model's own builder, on the OWNER connection — which is why the
+      // function needs no EXECUTE grant and must not have one: granted to
+      // `anonymous` it reads any customer's phone number by guessing a row id.
+      callFn: async (name, rowId) => {
+        if (rowId == null) return null;
+        if (!/^[a-z][a-z0-9_]{0,40}$/.test(String(name))) return null;
+        const rows = await sqlQuery(db, "SELECT " + sqlIdent(name) + "(?) AS out", [rowId]);
+        const out2 = rows && rows[0] && rows[0].out;
+        return typeof out2 === "string" ? JSON.parse(out2) : out2;
+      },
+    }, { def, row, slug });
+    if (!out.sent && !["no sms declared", "no provider key in Secrets", "not a collect table"].includes(out.reason)) {
+      console.error("sms:", slug, out.reason);
     }
   })();
   if (ctx && ctx.waitUntil) ctx.waitUntil(p); else p.catch(() => {});
