@@ -367,9 +367,15 @@ try {
   console.log("\na destination outside our own zone…");
   await setSecret("WEBHOOK_URL", "https://example.com/hook");
   await data("bookings", jsonPost({ who: "Kit", email: "kit@example.com", slot: "12:00" }));
+  // Polled past the cache TTL, not just past the request. Repointing a
+  // destination only invalidates the isolate that served the WRITE; the isolate
+  // that serves the next booking heals by expiry, so a check that samples for
+  // two seconds reads the previous destination and reports it refused — which is
+  // exactly what the first version of this did.
   let ext = null;
-  for (let i = 0; i < 10 && !(ext && ext.at > attemptAt); i++) {
-    await new Promise((r) => setTimeout(r, 1200));
+  for (let i = 0; i < 18 && !(ext && ext.at > attemptAt && ext.reason !== "destination refused: that host is not reachable from here"); i++) {
+    await new Promise((r) => setTimeout(r, 1500));
+    await data("bookings", jsonPost({ who: "Kit" + i, email: "kit@example.com", slot: "12:0" + (i % 10) }));
     ext = await note();
   }
   console.log("   external destination:", JSON.stringify(ext));

@@ -3772,7 +3772,22 @@ const confirmSeen = new Map();
 // to a minute. That is the same trade `loadSiteSchema` already makes at 15s, and
 // the cheaper direction — a booking delivered to the old destination for one
 // minute is recoverable, while a round trip per booking forever is not.
-const webhookCfg = makeCache({ ttlMs: 60_000, max: 500 });
+// 15s, MATCHING `loadSiteSchema`, and the reason is the one that file already
+// gives: invalidation here is ISOLATE-LOCAL, so every other isolate heals only
+// by expiry, and the TTL is therefore the real worst case for a configuration
+// change — not the explicit delete, which only helps the isolate that happened
+// to serve the write.
+//
+// Measured: at 60s a run repointed the destination and the next booking landed
+// on a different isolate, which served the previous URL and reported it refused.
+// An owner changing their webhook hits exactly that, and "I changed it and it
+// still goes to the old place" is the kind of thing that gets reported as data
+// loss rather than as staleness.
+//
+// The cost of the shorter window is one extra query per site per 15s under
+// sustained traffic, which is nothing against the four round trips per event
+// this cache exists to remove.
+const webhookCfg = makeCache({ ttlMs: 15_000, max: 500 });
 // SLUG FIRST, and that ordering is load-bearing rather than style. `memoize`
 // keys on the FIRST argument, so `(env, db, slug)` would key every site on the
 // same `env` object and serve one site's destination and signing secret to every
