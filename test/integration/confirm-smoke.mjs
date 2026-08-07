@@ -198,11 +198,23 @@ try {
     { headers: svc() });
   const jobs = await jr.json().catch(() => []);
   const names = (Array.isArray(jobs) ? jobs : []).map((j) => j.name).sort();
-  ok("the valid job was registered", names.includes("reminders"), JSON.stringify(jobs).slice(0, 300));
-  // The cross-reference, which is the whole safety of the feature: a job may only
-  // name a function the schema declared AND marked internal.
-  ok("a job naming a NON-internal function was dropped", !names.includes("leaky"), JSON.stringify(names));
-  ok("a job naming a function that does not exist was dropped", !names.includes("ghost"), JSON.stringify(names));
+  const registered = names.includes("reminders");
+  ok("the valid job was registered", registered, JSON.stringify(jobs).slice(0, 300));
+
+  // The cross-reference is the whole safety of the feature — a job may only name
+  // a function the schema declared AND marked internal — but the negative checks
+  // are ANCHORED on a job having registered at all, because `!includes()` is
+  // trivially true against an empty list.
+  //
+  // That is not hypothetical: on this file's FIRST run both of these reported ok
+  // while `site_functions` was completely empty, and the only reason the run
+  // failed was the positive check beside them. Same shape as the webhook
+  // ordering assertions, where `indexOf(a) < indexOf(b)` passed vacuously once
+  // `a` was deleted — a negative assertion needs proof its subject exists.
+  ok("a job naming a NON-internal function was dropped",
+    registered && !names.includes("leaky"), JSON.stringify(names));
+  ok("a job naming a function that does not exist was dropped",
+    registered && !names.includes("ghost"), JSON.stringify(names));
   const reg = (Array.isArray(jobs) ? jobs : []).find((j) => j.name === "reminders");
   ok("and it carries the schedule and function it declared",
     !!(reg && reg.schedule_minutes === 60 && reg.spec && reg.spec.fn === "confirm_booking" && reg.enabled === true),

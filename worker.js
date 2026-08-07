@@ -6379,7 +6379,11 @@ async function handleRequest(request, env, ctx) {
       try {
         const jobs = Array.isArray(spec.jobs) ? spec.jobs : [];
         if (jobs.length) {
-          await persistSiteJobs(env, uid, slug, jobs);
+          // `bu.id`, NOT `uid` — which was never bound in this scope and threw a
+          // ReferenceError straight into the catch below, so NOT ONE JOB HAS
+          // EVER REGISTERED. Dead at the last link with every layer above it
+          // correct, and silent because this block is best-effort by design.
+          await persistSiteJobs(env, bu.id, slug, jobs);
           tr.at("jobs", { n: jobs.length });
         }
       } catch (e) { console.error("jobs persist:", slug, e && e.message); }

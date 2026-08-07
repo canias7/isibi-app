@@ -216,8 +216,16 @@ test("THE CHAIN: a job is declarable and reaches the runner", () => {
   assert.equal(normalizeSchema({ tables: T2, functions: [{ ...F, internal: false }], jobs: [J] }).jobs, undefined,
     "a function a visitor can call must not be a job");
 
-  // 3. persisted at build time
-  assert.match(worker, /persistSiteJobs\(env, uid, slug, jobs\)/, "the apply path must register them");
+  // 3. persisted at build time.
+  //
+  // THIS LINE PINNED THE BUG IN PLACE. It asserted the literal text
+  // `persistSiteJobs(env, uid, slug, jobs)` — and `uid` is bound nowhere in that
+  // route, so the call threw a ReferenceError into a best-effort catch and no
+  // job ever registered. The chain test written to prove the feature reaches the
+  // runner was matching a call that could not run, because a source-text match
+  // cannot tell a bound identifier from an unbound one. The argument is checked
+  // properly in its own test below; here it is enough that the call is there.
+  assert.match(worker, /await persistSiteJobs\(env, bu\.id, slug, jobs\)/, "the apply path must register them");
   // 4. drained by the cron
   assert.match(worker, /ctx\.waitUntil\(runScheduledSiteJobs\(env, ctx\)\)/, "the cron must drive it");
   assert.match(worker, /runJob\(\{/, "and it must call the runner");
@@ -251,4 +259,48 @@ test("THE EIGHT-VERB RUNNER IS GONE, and stays gone", () => {
   for (const v of ["st.do", "steps", "checkout", "respond"]) {
     assert.equal(jobs.includes(v), false, "site-jobs must not grow a step menu: " + v);
   }
+});
+
+test("the build hands persistSiteJobs an owner id that the route actually binds", () => {
+  // THE BUG THIS EXISTS FOR, found by `confirm smoke` on its first run: the call
+  // passed `uid`, which is bound NOWHERE in that scope — every other line of the
+  // route uses `bu.id`, and `uid` is only ever a parameter name in other
+  // functions. So it threw `ReferenceError: uid is not defined` straight into the
+  // enclosing catch, and NOT ONE JOB HAD EVER REGISTERED on any site.
+  //
+  // Three things made it invisible, and all three are the point of this guard.
+  // The block is best-effort by design, so the throw is swallowed and the build
+  // reports success. `node --check` cannot see it, because an unbound identifier
+  // is a runtime error and not a syntax one. And there is no linter in this
+  // repo, so `no-undef` — which catches this whole class in one rule — is not
+  // running anywhere.
+  //
+  // Asserted on the ARGUMENT rather than on the call existing, because the call
+  // existed the entire time it was broken.
+  const worker = fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8");
+  // `await persistSiteJobs(` — the CALL. Matching the bare name finds the
+  // `async function persistSiteJobs(env, ownerId, …)` DEFINITION first, since it
+  // is earlier in the file, and then happily reports the parameter name as the
+  // argument. The first draft of this test did exactly that and passed against
+  // the broken call.
+  const m = worker.match(/await persistSiteJobs\s*\(\s*env\s*,\s*([A-Za-z_$][\w$.]*)\s*,/);
+  assert.ok(m, "the build must still register declared jobs");
+  assert.equal(m[1], "bu.id",
+    `persistSiteJobs is passed \`${m && m[1]}\`, which the build route does not bind — ` +
+    "it authenticates as `bu` and the owner is `bu.id`");
+
+  // And the identifier really is bound by the route, derived rather than
+  // trusted: if the route is ever rewritten to name the user something else,
+  // this fails and says so instead of pinning a stale spelling forever.
+  //
+  // Sliced to the CALL, not to the bare name — `persistSiteJobs` first occurs at
+  // its own definition thousands of lines EARLIER than this route, so slicing to
+  // that index runs backwards and yields an empty string, which then fails to
+  // match for a reason that has nothing to do with the property under test. That
+  // is the third time in this one change that a definition was mistaken for a
+  // call site; when a helper and its caller share a name, anchor on the call.
+  const start = worker.indexOf('"/api/site/react-build"');
+  const end = worker.indexOf("await persistSiteJobs");
+  assert.ok(start !== -1 && end > start, "the route must precede the call it makes");
+  assert.match(worker.slice(start, end), /\bconst bu\b\s*=/, "the route must bind `bu` before using bu.id");
 });
