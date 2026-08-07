@@ -10,7 +10,8 @@
 // staying shut to everyone except the one account that owns the site.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers, handleOwnerAnalytics } from "../site-owner.mjs";
+import fs from "node:fs";
+import { assertOwner, handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers, handleOwnerAnalytics } from "../site-owner.mjs";
 
 const SPEC = {
   tables: [
@@ -719,4 +720,39 @@ test("paging is clamped", async () => {
 test("anything but GET/PATCH/DELETE is 405", async () => {
   const { deps } = memHarness();
   assert.equal((await mems(deps, { method: "PUT", memberId: MEM.id })).status, 405);
+});
+
+// `assertOwner` HAS NO `ok` FIELD, and one call site believed it did.
+//
+// It answers `{}` on success and `{error: <Response>}` on failure. The domains
+// route tested `if (!g.ok)`, which is true on SUCCESS as well — so it returned
+// 404 to everybody, the rightful owner included, while looking exactly like the
+// deliberate 404-not-403 this function is documented for. Two dead layers in one
+// feature: the dispatch made the route unreachable, and this made it useless the
+// moment it was reachable.
+//
+// Asserted on the CONTRACT first, then on every call site, because either alone
+// passes while the other rots.
+test("assertOwner signals failure through `error`, and success carries no flag", async () => {
+  const deps = { ownerOf: async () => "u1" };
+  const ok = await assertOwner(deps, "s", "u1");
+  assert.equal(ok.error, undefined, "success must not carry an error");
+  // The trap, spelled out: there is no `ok`, so `!g.ok` is true here too.
+  assert.equal(ok.ok, undefined, "adding an `ok` field would silently fix the wrong call sites");
+
+  const no = await assertOwner(deps, "s", "u2");
+  assert.ok(no.error, "a mismatch must carry a Response");
+  assert.equal(no.error.status, 404, "404 not 403 — the slug space is public and guessable");
+});
+
+test("no caller tests assertOwner's result for a field it does not have", () => {
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const calls = [...src.matchAll(/const (\w+) = await assertOwner\([^)]*\);\n([^\n]*)/g)];
+  assert.ok(calls.length >= 3, `only found ${calls.length} assertOwner call sites — the scan broke`);
+  for (const [, name, next] of calls) {
+    assert.ok(next.includes(`${name}.error`),
+      `the line after \`${name} = await assertOwner(...)\` does not test \`${name}.error\` — it reads: ${next.trim()}`);
+    assert.ok(!new RegExp(`${name}\\.ok\\b`).test(next),
+      `\`${name}.ok\` is always undefined — that branch fires on success too`);
+  }
 });

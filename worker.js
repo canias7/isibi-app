@@ -7590,8 +7590,13 @@ async function handleRequest(request, env, ctx) {
             // Behind `assertOwner` like every other route here, which is what
             // stops somebody attaching a domain to a site that is not theirs.
             const dslug = dm2[1].toLowerCase();
+            // `assertOwner` answers `{}` on success and `{error: <Response>}` on
+            // failure — there is NO `ok` field. This read `!g.ok`, which is true
+            // on success as well, so the route answered 404 to everybody
+            // including the rightful owner. Second dead layer in one feature:
+            // the dispatch above made it reachable, and this made it useless.
             const g = await assertOwner(ownerDeps, dslug, ou.id);
-            if (!g.ok) return Response.json({ error: g.error || "not found" }, { status: g.status || 404 });
+            if (g.error) return Response.json(g.error.body, { status: g.error.status });
             const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, "Content-Type": "application/json" };
             const rest = (q, init) => fetch(`${SUPABASE_URL}/rest/v1/site_domains${q}`, { ...(init || {}), headers: { ...svc, ...((init || {}).headers || {}) }, signal: AbortSignal.timeout(10000) });
 
