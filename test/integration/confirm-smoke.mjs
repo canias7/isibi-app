@@ -69,6 +69,37 @@ const SCHEMA = {
       // The feature under test: the FUNCTION form, where model-written SQL
       // decides the whole message rather than filling three blanks.
       confirm: { fn: "confirm_booking" },
+      // …and outward. Declared for `created` only, so the list form is exercised
+      // rather than the `true` shortcut.
+      webhooks: ["created"],
+    },
+    // THE RECEIVER, and it is this site's own Data API through our own proxy.
+    //
+    // A webhook is the one feature that dials OUT, so proving it needs somewhere
+    // real for the delivery to land. A public request-bin would put a
+    // customer's name and address on a third party's server on every CI run and
+    // make the check depend on somebody else's uptime; our own proxy is public
+    // HTTPS, passes the same SSRF guard as any other destination, and turns the
+    // delivery into a ROW that can be read back through the owner's door.
+    //
+    // Its columns are exactly the payload's keys, because PostgREST refuses an
+    // insert naming a column that does not exist — so this table doubles as an
+    // assertion about the payload's SHAPE. If `shapePayload` ever renames a
+    // field, the delivery 400s and the row never arrives.
+    //
+    // It declares NO webhooks of its own, which is what stops the obvious
+    // disaster: a receiver that itself emits is an infinite loop, and the
+    // assertion below proves the `firesFor` gate is what prevents it.
+    {
+      name: "hook_log",
+      access: "collect",
+      columns: [
+        { name: "site", type: "text" },
+        { name: "table", type: "text" },
+        { name: "action", type: "text" },
+        { name: "at", type: "text" },
+        { name: "data", type: "json" },
+      ],
     },
   ],
   functions: [
@@ -105,6 +136,17 @@ let userId = null, slug = null, jwt = null;
 
 const data = (path, init) => fetch(`${BASE}/api/db/${slug}/data/${path}`, init);
 const jsonPost = (body) => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+/**
+ * Read a table through the OWNER'S door, which is the only door a `collect`
+ * table has — nobody may SELECT it publicly, by design, which is exactly why a
+ * webhook receiver built out of one cannot be read back any other way.
+ */
+const ownerRows = async (table) => {
+  const r = await fetch(`${BASE}/api/site/${slug}/rows/${table}?limit=50`, { headers: { Authorization: `Bearer ${jwt}` } });
+  const j = await r.json().catch(() => ({}));
+  return Array.isArray(j) ? j : (Array.isArray(j.rows) ? j.rows : []);
+};
 
 try {
   const mk = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
@@ -190,6 +232,77 @@ try {
   ok("an internal function is NOT callable by a visitor",
     priv.status === 404 || priv.status === 401 || priv.status === 403,
     priv.status + " " + (await priv.text().catch(() => "")).slice(0, 160));
+
+  // --- the outbound webhook, actually delivered ----------------------------
+  //
+  // The three bookings above were submitted with NO WEBHOOK_URL configured, so
+  // they already proved the quiet half live: a table can declare `webhooks` and
+  // a site with no destination simply writes the row. That is the state of every
+  // site that never wanted this.
+  console.log("\nthe outbound webhook…");
+  const hookUrl = `${BASE}/api/db/${slug}/data/hook_log`;
+  const setSecret = async (name, value) => fetch(`${BASE}/api/site/${slug}/secrets`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${jwt}`, "content-type": "application/json" },
+    body: JSON.stringify({ name, value }),
+  });
+  const sec = await setSecret("WEBHOOK_URL", hookUrl);
+  ok("the owner can store a destination", sec.status >= 200 && sec.status < 300,
+    sec.status + " " + (await sec.text().catch(() => "")).slice(0, 200));
+
+  const before = await ownerRows("hook_log");
+  const fired = await data("bookings", jsonPost({ who: "Iris", email: "iris@example.com", slot: "11:00" }));
+  ok("the booking that should emit was accepted", fired.status >= 200 && fired.status < 300, fired.status);
+
+  // Detached under waitUntil, so it is not delivered by the time the response
+  // returns. Polled rather than slept once: a fixed wait is either flaky or slow
+  // and this is the only place the test has to wait for anything.
+  let logged = [];
+  for (let i = 0; i < 12 && !logged.length; i++) {
+    await new Promise((r) => setTimeout(r, 1200));
+    logged = (await ownerRows("hook_log")).filter((r) => !before.some((b) => b.id === r.id));
+  }
+  ok("the webhook was DELIVERED", logged.length === 1, `${logged.length} rows: ` + JSON.stringify(logged).slice(0, 300));
+
+  const ev = logged[0] || {};
+  ok("and it names the table and action", ev.table === "bookings" && ev.action === "created", JSON.stringify(ev).slice(0, 200));
+  ok("and it names the site", ev.site === slug, String(ev.site));
+  const payload = typeof ev.data === "string" ? JSON.parse(ev.data || "{}") : (ev.data || {});
+  ok("and carries the row that caused it", payload.who === "Iris" && payload.email === "iris@example.com",
+    JSON.stringify(payload).slice(0, 200));
+  ok("and the id, which is the whole point of a reference", payload.id != null, JSON.stringify(payload).slice(0, 200));
+  // The one thing that must never leave our network. Asserted on the delivered
+  // bytes rather than on `shapePayload`'s return, because the unit test already
+  // covers the function and this covers the WIRE.
+  for (const gone of ["owner_id", "claim_token", "_fts"]) {
+    ok(`and never ${gone}`, !(gone in payload), JSON.stringify(payload).slice(0, 200));
+  }
+
+  // THE LOOP GUARD. Writing to `hook_log` is itself an insert on a collect
+  // table, so it runs the same hook — and `hook_log` declares no webhooks, so
+  // nothing more may fire. Without the `firesFor` gate this is unbounded.
+  await new Promise((r) => setTimeout(r, 2500));
+  const after = (await ownerRows("hook_log")).filter((r) => !before.some((b) => b.id === r.id));
+  ok("a receiver that declares no webhook does not emit one — no loop",
+    after.length === 1, `${after.length} rows after settling`);
+
+  // THE DESTINATION IS RE-CHECKED AT FIRE TIME. Repointed at the cloud metadata
+  // endpoint — the address this whole guard exists for, since on several
+  // providers it hands credentials to anything that asks. Storing it SUCCEEDS on
+  // purpose: an owner may paste anything, and a value refused at rest leaves no
+  // record for them to find, while one refused at delivery is checked against
+  // wherever the name resolves TODAY. That difference is the whole of DNS
+  // rebinding.
+  const bad = await setSecret("WEBHOOK_URL", "https://169.254.169.254/latest/meta-data/");
+  ok("a bad destination can still be stored", bad.status >= 200 && bad.status < 300, bad.status);
+  const stillOk = await data("bookings", jsonPost({ who: "Jo", email: "jo@example.com", slot: "11:30" }));
+  // The booking must not care. A refused webhook is a background failure and the
+  // customer has already been served.
+  ok("a booking whose webhook is refused still succeeds", stillOk.status >= 200 && stillOk.status < 300, stillOk.status);
+  await new Promise((r) => setTimeout(r, 3000));
+  const blocked = (await ownerRows("hook_log")).filter((r) => !before.some((b) => b.id === r.id));
+  ok("and nothing was delivered to the blocked host",
+    blocked.length === 1, `${blocked.length} rows — a second means the guard did not fire`);
 
   // --- the jobs that should and should not have registered -----------------
   console.log("\nwhich jobs registered…");
