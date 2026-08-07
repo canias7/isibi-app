@@ -116,8 +116,28 @@ export async function deliverWebhook(deps, { slug, table, action, row, now }) {
     // `rateLimit` is generous.
     if (deps.tooMany && (await deps.tooMany(slug))) return { sent: false, reason: "rate capped" };
 
-    const secrets = await deps.loadSecrets();
-    const url = secrets && typeof secrets.WEBHOOK_URL === "string" ? secrets.WEBHOOK_URL.trim() : "";
+    // ONE call, and the caller decides whether it hit a cache. Asking for the
+    // whole set rather than name-by-name is what makes caching possible at all:
+    // per-name lookups cannot be memoized as a unit, and the per-table fallback
+    // below would otherwise turn one event into four round trips and four
+    // decrypts on the write path — worse than the single destination it
+    // replaces.
+    const secrets = (await deps.loadSecrets()) || {};
+
+    // PER-TABLE FIRST, THEN THE SITE-WIDE DEFAULT. A site with one destination
+    // sets `WEBHOOK_URL` and nothing changes; one that needs bookings in a CRM
+    // and enquiries in Slack sets `WEBHOOK_URL_BOOKINGS` and the rest still fall
+    // through. Routing without a subscriptions table, and — the part that is not
+    // obvious — it is the option that scales BETTER: a table has at most one
+    // destination, so an event is always exactly one outbound call, where a
+    // subscription list multiplies calls per event inside a single waitUntil.
+    const suffix = String(table || "").toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+    const pick = (base) => {
+      const specific = suffix ? secrets[base + "_" + suffix] : null;
+      const v = typeof specific === "string" && specific.trim() ? specific : secrets[base];
+      return typeof v === "string" ? v.trim() : "";
+    };
+    const url = pick("WEBHOOK_URL");
     // Not an error, and not logged as one: no URL is the state of every site
     // that never wanted this, which is most of them.
     if (!url) return { sent: false, reason: "no WEBHOOK_URL in Secrets" };
@@ -140,7 +160,11 @@ export async function deliverWebhook(deps, { slug, table, action, row, now }) {
     // people actually reach for unusable. So the secret is optional, and when it
     // is absent the receiver's protection is that the URL is unguessable, which
     // is the security model those services already chose.
-    const secret = secrets && typeof secrets.WEBHOOK_SECRET === "string" ? secrets.WEBHOOK_SECRET.trim() : "";
+    // Paired with the URL it signs — a per-table destination gets its own secret
+    // when one is set, or the site-wide one. Mismatching these would sign a
+    // CRM's payload with Slack's key, which fails in the one way that looks like
+    // a bug in the receiver rather than in us.
+    const secret = pick("WEBHOOK_SECRET");
     const sig = secret ? await deps.sign(secret, body, ts) : null;
 
     const headers = {

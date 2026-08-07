@@ -3756,6 +3756,46 @@ async function sendMail(env, { to, subject, html, text }) {
 // this path is the write rate limit, since reaching this code at all costs an
 // insert into the owner's own table, which they can see.
 const confirmSeen = new Map();
+// The site's webhook configuration, decrypted, cached ~60s per isolate.
+//
+// WHY THIS EXISTS AT ALL. Every emitting insert used to cost TWO sequential
+// Postgres round trips plus two key derivations and two AES-GCM decrypts, on the
+// write path, per event — and per-table routing would have made that four. That
+// is the wrong direction for the one feature whose cost scales with a site's
+// traffic rather than with its size.
+//
+// ONE query for the whole set rather than one per name, which is also what makes
+// caching possible: per-name reads cannot be memoized as a unit, and the routing
+// fallback needs to see which names exist before it can choose between them.
+//
+// The staleness is REAL and bounded: an owner who repoints their webhook waits up
+// to a minute. That is the same trade `loadSiteSchema` already makes at 15s, and
+// the cheaper direction — a booking delivered to the old destination for one
+// minute is recoverable, while a round trip per booking forever is not.
+const webhookCfg = makeCache({ ttlMs: 60_000, max: 500 });
+// SLUG FIRST, and that ordering is load-bearing rather than style. `memoize`
+// keys on the FIRST argument, so `(env, db, slug)` would key every site on the
+// same `env` object and serve one site's destination and signing secret to every
+// other one. Every other memoized caller here puts the identity-bearing argument
+// first for exactly this reason.
+const webhookSecrets = memoize(webhookCfg, async (slug, env, db) => {
+  const map = {};
+  let rows = [];
+  // LIKE on the name, so a site with twelve destinations is still one read.
+  try { rows = await sqlQuery(db, "SELECT name, cipher FROM _secrets WHERE name LIKE 'WEBHOOK%'", []); } catch { return map; }
+  for (const r of (rows || []).slice(0, 32)) {
+    const name = r && r.name;
+    if (!name) continue;
+    // One unreadable row must not stop the others being found — the same call
+    // `confirmSubmitter` makes for its four names.
+    try {
+      const v = await readSecret({ get: async () => r.cipher }, env, { slug, name });
+      if (v) map[name] = v;
+    } catch { /* skip */ }
+  }
+  return map;
+});
+
 // One site's outbound deliveries per minute, per isolate. Bounded and cleared
 // wholesale rather than kept as a cache: this only has to stop the cheap flood.
 const webhookHits = new Map();
@@ -3772,19 +3812,7 @@ function emitWebhook(env, ctx, { slug, db, def, table, action, row }) {
   const p = (async () => {
     const out = await deliverWebhook({
       firesFor: (a) => firesFor(def, a),
-      loadSecrets: async () => {
-        const get = async (_s, name) => {
-          const rows = await sqlQuery(db, "SELECT cipher FROM _secrets WHERE name=?", [name]);
-          return (rows && rows[0] && rows[0].cipher) || null;
-        };
-        const map = {};
-        for (const name of ["WEBHOOK_URL", "WEBHOOK_SECRET"]) {
-          // One unreadable row must not stop the other being found — the same
-          // call `confirmSubmitter` makes for its four names.
-          try { const v = await readSecret({ get }, env, { slug, name }); if (v) map[name] = v; } catch { /* skip */ }
-        }
-        return map;
-      },
+      loadSecrets: () => webhookSecrets(slug, env, db),
       blockedReason: (u) => blockedReason(u),
       sign: (secret, body, ts) => signPayload(secret, body, ts),
       tooMany: async (s) => {

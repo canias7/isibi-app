@@ -244,8 +244,12 @@ test("the Worker wires the webhook to the same branch as the confirmation", () =
   // 4. the destination comes from the VAULT and never from the schema or body —
   //    a URL a model can choose is a request generator aimed by whoever wrote
   //    the brief.
-  const raw = worker.slice(worker.indexOf("function emitWebhook("), worker.indexOf("function confirmSubmitter("));
-  assert.ok(raw.length > 500, "the helper must sit before confirmSubmitter, or this slice is empty");
+  // From the CACHE, not from `emitWebhook` — the vault read lives in
+  // `webhookSecrets` above it now, so a slice starting at the handler misses the
+  // very thing this asserts. Anchored on the earlier of the two so the region
+  // covers the whole feature rather than whichever half moved last.
+  const raw = worker.slice(worker.indexOf("const webhookCfg = "), worker.indexOf("function confirmSubmitter("));
+  assert.ok(raw.length > 500, "the webhook helpers must sit before confirmSubmitter, or this slice is empty");
   // COMMENTS BLANKED, NOT REMOVED, so offsets stay valid — and because these are
   // claims about CODE. Caught by mutation: the helper explains `redirect:
   // "manual"` in prose directly above the line that sets it, so switching the
@@ -314,4 +318,80 @@ test("a DELETE reports what it matched, not a row it never had", () => {
   assert.equal(p.action, "deleted");
   assert.equal(p.data.filter, "id=eq.4");
   assert.equal("id" in p.data, false, "a delete has no row of its own");
+});
+
+test("a per-table destination wins, and everything else falls through", async () => {
+  const secrets = {
+    WEBHOOK_URL: "https://default.example.com/all",
+    WEBHOOK_URL_BOOKINGS: "https://crm.example.com/bookings",
+  };
+  const d1 = deps({ loadSecrets: async () => secrets });
+  await fire(d1, { table: "bookings" });
+  assert.equal(d1.calls[0].url, "https://crm.example.com/bookings", "the specific one wins");
+
+  const d2 = deps({ loadSecrets: async () => secrets });
+  await fire(d2, { table: "enquiries" });
+  assert.equal(d2.calls[0].url, "https://default.example.com/all", "everything else still falls through");
+
+  // A site with ONE destination must be untouched by any of this.
+  const d3 = deps({ loadSecrets: async () => ({ WEBHOOK_URL: "https://only.example.com/x" }) });
+  await fire(d3, { table: "bookings" });
+  assert.equal(d3.calls[0].url, "https://only.example.com/x");
+});
+
+test("the signing secret is paired with the URL it signs", async () => {
+  // Mismatched, a CRM's payload would be signed with Slack's key — which fails
+  // in the one way that looks like a bug in the receiver rather than in us.
+  const secrets = {
+    WEBHOOK_URL: "https://default.example.com/all", WEBHOOK_SECRET: "site-wide",
+    WEBHOOK_URL_BOOKINGS: "https://crm.example.com/b", WEBHOOK_SECRET_BOOKINGS: "per-table",
+  };
+  const seen = [];
+  const d = deps({ loadSecrets: async () => secrets, sign: async (s) => { seen.push(s); return "a".repeat(64); } });
+  await fire(d, { table: "bookings" });
+  assert.deepEqual(seen, ["per-table"]);
+
+  const d2 = deps({ loadSecrets: async () => secrets, sign: async (s) => { seen.push(s); return "a".repeat(64); } });
+  await fire(d2, { table: "enquiries" });
+  assert.deepEqual(seen, ["per-table", "site-wide"]);
+});
+
+test("an empty per-table value falls through rather than silencing the table", async () => {
+  // An owner who clears a per-table destination means "use the default", not
+  // "stop sending" — and a blank string is what a cleared form field produces.
+  const d = deps({ loadSecrets: async () => ({ WEBHOOK_URL: "https://default.example.com/x", WEBHOOK_URL_BOOKINGS: "   " }) });
+  const out = await fire(d, { table: "bookings" });
+  assert.equal(out.sent, true);
+  assert.equal(d.calls[0].url, "https://default.example.com/x");
+});
+
+test("the secret set is fetched ONCE per event, not once per name", async () => {
+  // Per-name reads are what made routing expensive: four round trips and four
+  // decrypts on the write path, per insert. They also cannot be memoized as a
+  // unit, so this shape is what makes the cache above possible at all.
+  let n = 0;
+  const d = deps({ loadSecrets: async () => { n++; return { WEBHOOK_URL: "https://x.example.com/y", WEBHOOK_SECRET: "s" }; } });
+  await fire(d, { table: "bookings" });
+  assert.equal(n, 1, "one call for the whole configuration");
+});
+
+test("THE CACHE IS KEYED ON THE SITE, or one site's destination serves them all", () => {
+  // `memoize` keys on its FIRST argument. Written `(env, db, slug)` every site
+  // keys on the same `env` object, and the first site to fire would hand its
+  // destination AND its signing secret to every other site on the platform.
+  // Caught before it shipped; asserted because the failure is invisible in
+  // testing (one site behaves perfectly) and total in production.
+  const worker = fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8");
+  const def = worker.match(/memoize\(webhookCfg, async \(([^)]*)\)/);
+  assert.ok(def, "the webhook config must still be memoized");
+  assert.equal(def[1].split(",")[0].trim(), "slug", "the cache key must be the site");
+  const call = worker.match(/webhookSecrets\(([^)]*)\)/);
+  assert.ok(call);
+  assert.equal(call[1].split(",")[0].trim(), "slug", "and the call must pass it first");
+
+  // Derived rather than special-cased: EVERY memoized helper here takes an
+  // identity-bearing first argument, and `env` is never one.
+  for (const m of worker.matchAll(/= memoize\([A-Za-z_$][\w$]*, async \(([^)]*)\)/g)) {
+    assert.notEqual(m[1].split(",")[0].trim(), "env", "no memoized helper may key on env: " + m[0]);
+  }
 });
