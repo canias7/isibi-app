@@ -1778,6 +1778,10 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .sd-dns { font-size: .78rem; color: var(--text); margin-top: .5rem; line-height: 1.5; }
 .sd-dns-warn { border-left: 2px solid var(--ink, #000); padding-left: .55rem; }
 .sd-dns-ok { border-left: 2px solid var(--line-2); padding-left: .55rem; color: var(--muted); }
+/* Who holds the DNS, and the way in. A ROW rather than a sentence, because the
+   link is the point — the words only exist to say which button this is. */
+.sd-prov { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-top: .5rem; font-size: .78rem; color: var(--muted); }
+.sd-prov .sd-visit { flex: none; }
 .sd-recs { margin-top: .6rem; padding-top: .6rem; border-top: 1px solid var(--line); display: grid; gap: .55rem; }
 .sd-rec { display: grid; gap: .35rem; }
 .sd-rt { justify-self: start; font-size: .6rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line-2); border-radius: 999px; padding: .1rem .45rem; }

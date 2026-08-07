@@ -11235,13 +11235,22 @@ async function siteDomains(site) {
         //
         // `unknown` is OUR resolver failing, not their domain, so it is worded
         // as such and marked plain rather than as a problem.
+        // WHO HOLDS THEIR DNS, and a way straight into the right page. The
+        // link is the automation that actually exists: it does not need a
+        // credential, it works for every provider on the list, and being
+        // dropped on the correct screen is most of what people are stuck on.
+        const provRow = (!live && x.providerNote)
+          ? '<div class="sd-prov"><span>' + esc(x.providerNote) + '</span>' +
+            (x.providerUrl ? '<a class="sd-visit" href="' + esc(x.providerUrl) + '" target="_blank" rel="noreferrer">Open ' + esc(x.provider || 'DNS') + ' \u2192</a>' : '') +
+            '</div>'
+          : '';
         const dnsRow = (!live && x.dnsNote)
           ? '<div class="sd-dns' + (x.dns === 'elsewhere' ? ' sd-dns-warn' : x.dns === 'ok' ? ' sd-dns-ok' : '') + '">' + esc(x.dnsNote) + '</div>'
           : '';
         return '<div class="sd-item"><div class="sd-top">' + ic('globe', 15) + '<b class="sd-host">' + esc(x.hostname) + '</b>' + badge +
           (live ? '<a class="sd-visit" href="https://' + esc(x.hostname) + '" target="_blank" rel="noreferrer">Visit</a>' : '') +
           '<button type="button" class="sk-del" data-del="' + esc(x.hostname) + '" title="Remove">×</button></div>' +
-          (x.error ? '<div class="sd-err">' + esc(x.error) + '</div>' : '') + dnsRow +
+          (x.error ? '<div class="sd-err">' + esc(x.error) + '</div>' : '') + dnsRow + provRow +
           (recs ? '<div class="sd-recs">' + recs + '</div>' : '') + '</div>';
       }).join('');
       listEl.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => {

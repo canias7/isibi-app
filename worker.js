@@ -11,6 +11,7 @@ import { takeToken, verify as turnstileVerify, TOKEN_FIELD as TURNSTILE_FIELD } 
 import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_PER_MIN } from "./site-inbound.mjs";
 import { normalizeHostname, isOwnHostname, claimRefusal, dnsInstructions, readStatus } from "./site-domains.mjs";
 import { checkDns, dnsSentence } from "./site-dns.mjs";
+import { detectProvider, providerSentence } from "./site-registrar.mjs";
 import { callApi, apiFor, secretsNeeded, takeParams, MAX_PER_MINUTE as SITE_API_PER_MIN, MAX_TTL as SITE_API_MAX_TTL } from "./site-apis.mjs";
 import { Container, getContainer } from "@cloudflare/containers";
 import { makeCache, memoize } from "./ttl-cache.mjs";
@@ -7607,9 +7608,25 @@ async function handleRequest(request, env, ctx) {
                 // definition, and spending two lookups to confirm what the
                 // certificate already proves is a slower panel for nothing.
                 if (item.status !== "live") {
-                  const chk = await checkDns({ fetch: (u, i) => fetch(u, i) }, { hostname: row.hostname, target: saasTarget(env) });
+                  const dnsDeps = { fetch: (u, i) => fetch(u, i) };
+                  // Two independent lookups, run TOGETHER rather than in
+                  // sequence: neither needs the other's answer, and a panel
+                  // listing three domains would otherwise pay for six round
+                  // trips one after another.
+                  const [chk, who] = await Promise.all([
+                    checkDns(dnsDeps, { hostname: row.hostname, target: saasTarget(env) }),
+                    detectProvider(dnsDeps, row.hostname),
+                  ]);
                   item.dns = chk.state;
                   item.dnsNote = dnsSentence(chk, saasTarget(env));
+                  // WHO HOLDS THEIR DNS. "Add a CNAME at whoever you bought the
+                  // domain from" is the sentence that loses people — they do
+                  // not always know who that is, and the page is four clicks
+                  // deep behind a name like "Manage Zones". The nameservers say
+                  // exactly who, publicly, with no credential from anybody.
+                  const note = providerSentence(who);
+                  if (note) item.providerNote = note;
+                  if (who.provider) { item.provider = who.provider.name; item.providerUrl = who.provider.dns || null; }
                 }
                 out.push(item);
               }

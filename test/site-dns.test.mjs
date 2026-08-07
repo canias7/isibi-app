@@ -176,7 +176,7 @@ const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf
 const has = (src, re, why) => assert.ok(re.test(src), why);
 
 test("the panel asks what the domain really points at", () => {
-  has(worker, /checkDns\(\{ fetch:/, "the list route resolves it live");
+  has(worker, /checkDns\(dnsDeps, \{ hostname/, "the list route resolves it live");
   has(worker, /item\.dnsNote = dnsSentence\(/, "and hands over the sentence");
 });
 
@@ -184,7 +184,7 @@ test("…but only while it is unresolved", () => {
   // A live domain resolves to us by definition. Two lookups to confirm what the
   // certificate already proves is a slower panel for nothing.
   const i = worker.indexOf("if (item.status !== \"live\") {");
-  const j = worker.indexOf("checkDns({ fetch:");
+  const j = worker.indexOf("checkDns(dnsDeps, { hostname");
   assert.ok(i > 0 && j > i, "the check is inside the not-live branch");
 });
 
@@ -224,6 +224,12 @@ test("a failed LOOKUP is not a failed DOMAIN", () => {
 test("the batch is bounded, because it shares a tick with three other jobs", () => {
   const i = worker.indexOf("async function runDomainWatch(");
   assert.ok(/&limit=20/.test(worker.slice(i, i + 4200)));
+});
+
+test("the two lookups run TOGETHER, not one after the other", () => {
+  // Neither needs the other's answer, and a panel listing three domains would
+  // otherwise pay for six round trips in sequence while somebody watches.
+  has(worker, /const \[chk, who\] = await Promise\.all\(\[/, "issued in parallel");
 });
 
 test("the panel says the owner can leave", () => {
