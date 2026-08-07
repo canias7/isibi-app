@@ -14150,6 +14150,16 @@ and the check is `get_edge_function`, not `git log`.
   called* — a real `/auth/v1/otp` produced `"Hook ran successfully","success":true`,
   which is the only proof the hook is enabled and pointed here, and nothing in the
   repo asserts it. The FUNCTION log answers *did the provider accept*, and only on
-  failure, because the Cloudflare call is detached under `EdgeRuntime.waitUntil`.
-  Only the INBOX answers *did it arrive*. "No error logged" is not evidence of
-  success when the log has not surfaced the invocation yet.
+  failure, because the Cloudflare call is detached under `EdgeRuntime.waitUntil` —
+  and it was never established that console output reaches that stream at all, so
+  "no error logged" was evidence of NOTHING. Only the INBOX answers *did it
+  arrive*.
+- **It arrived.** The owner received the code at 21:47 local, the send triggered at
+  01:47 UTC. That closes the fifth link and the whole chain with it: sign-in works
+  again after eight days dark, and `EMAIL_FROM` is confirmed absent or correct,
+  since a stale `isibi.ai` value there would have overridden the right default and
+  Cloudflare would have refused the sender.
+- **The check that would have caught this on day one costs one HTTP call**, and
+  is now written down rather than left as a habit: `get_edge_function` and compare
+  the deployed source against the repo. `git log` cannot see this class of drift,
+  and neither can any test in the suite.
