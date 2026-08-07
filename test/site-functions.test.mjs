@@ -61,7 +61,7 @@ test("3. the ENGINE creates it and grants EXECUTE", () => {
   // MUTANTS SURVIVED IT: commenting the GRANT out still matched, so did changing
   // the opening $isibi$ to $$, so did deleting SECURITY DEFINER — that last one
   // matched the words inside a COMMENT explaining why it is needed.
-  const [create, g1, g2] = functionSql({
+  const [create, revoke, g1, g2] = functionSql({
     name: "booking_by_claim", args: [{ name: "tok", type: "uuid" }],
     returns: "setof appointments", body: "SELECT * FROM appointments WHERE claim_token = tok",
     language: "sql", definer: true,
@@ -73,6 +73,12 @@ test("3. the ENGINE creates it and grants EXECUTE", () => {
   // BOTH delimiters, or a half-renamed pair passes while the body breaks.
   assert.equal((create.match(/\$isibi\$/g) || []).length, 2, create);
   assert.ok(!create.includes("$" + "$"), "a model-written body containing a dollar-quote would end the literal early");
+  // Postgres grants EXECUTE to PUBLIC on every new function, so this REVOKE is
+  // what makes the two grants below the ACTUAL reach of the function rather than
+  // decoration on top of a default that already admitted everybody. Its absence
+  // is invisible here — a public function behaves identically either way — and
+  // fatal for `internal`, which has nothing else protecting it.
+  assert.equal(revoke, 'REVOKE ALL ON FUNCTION "booking_by_claim"(uuid) FROM PUBLIC');
   // A function nobody may EXECUTE exists and answers 404 — publicView, one object over.
   assert.equal(g1, 'GRANT EXECUTE ON FUNCTION "booking_by_claim"(uuid) TO anonymous');
   assert.equal(g2, 'GRANT EXECUTE ON FUNCTION "booking_by_claim"(uuid) TO authenticated');

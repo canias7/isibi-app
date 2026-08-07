@@ -5,6 +5,17 @@ name: neon e2e
 
 on:
   push:
+    # main ONLY, and this is a cost control rather than tidiness. Work here lands
+    # by pushing the feature branch and then fast-forwarding main, which is TWO
+    # pushes of one commit — and with no branch filter both matched, so every
+    # change provisioned TWO real Neon projects instead of one. Projects are
+    # capped per Neon ACCOUNT (100 on the current plan) and per-site projects
+    # already consume that cap, so doubling the throwaways is the one form of CI
+    # waste here that can actually block a customer's build. Observed 2026-08-07:
+    # runs 31140860698 and 31140861548, same commit, one second apart.
+    # `deploy` and `page-gen-eval` — the other two workflows that spend real
+    # money — were already filtered this way.
+    branches: [main]
     paths:
       - 'site-db.mjs'
       - 'site-schema.mjs'

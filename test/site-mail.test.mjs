@@ -275,16 +275,43 @@ test("a row with no id cannot invoke the function", async () => {
 
 test("A CONFIRM FUNCTION IS NEVER CALLABLE BY A VISITOR", async () => {
   // Every model function is SECURITY DEFINER. This one takes a row id and hands
-  // back somebody's email address and message — so granted to `anonymous` it
-  // reads any customer's confirmation by counting. The protection is a MISSING
-  // GRANT, not a validation, exactly like `_secrets` never passing through
-  // `grantsFor`.
+  // back somebody's email address and message — so callable by `anonymous` it
+  // reads any customer's confirmation by counting.
+  //
+  // THE ASSERTION THAT USED TO BE HERE WAS "no GRANT is emitted", AND IT WAS
+  // TRUE WHILE THE FUNCTION WAS WIDE OPEN. Postgres grants EXECUTE on a new
+  // function to PUBLIC by default, so withholding ours withholds nothing —
+  // `neon e2e` measured `{anon:true, auth:true}` on a real database against a
+  // build this test called safe. The protection is the REVOKE; the missing GRANT
+  // is only what stops it being handed back.
   const { functionSql } = await import("../site-rls.mjs");
-  const internal = functionSql(FN_DEF).filter((x) => x.startsWith("GRANT"));
-  assert.deepEqual(internal, [], "an internal function must get no EXECUTE grant");
-  // And the inverse, or the check passes on a build that grants nothing at all.
-  const ordinary = functionSql({ ...FN_DEF, internal: false }).filter((x) => x.startsWith("GRANT"));
-  assert.equal(ordinary.length, 2, "an ordinary function is still reachable by a page");
+  const internal = functionSql(FN_DEF);
+  const revoke = internal.filter((x) => x.startsWith("REVOKE"));
+  assert.equal(revoke.length, 1, "an internal function must REVOKE the default PUBLIC grant");
+  assert.match(revoke[0], /FROM PUBLIC$/, revoke[0]);
+  // The signature must be on the REVOKE too: `REVOKE ... ON FUNCTION f FROM
+  // PUBLIC` without argument types is ambiguous the moment a site declares two
+  // functions of one name, and Postgres refuses rather than guessing.
+  // Derived from the fixture, not spelled out — the first draft hardcoded
+  // `integer` against a fixture declaring `bigint` and failed on correct output.
+  assert.ok(revoke[0].includes(`"${FN_DEF.name}"(${FN_DEF.args.map((a) => a.type).join(", ")})`), revoke[0]);
+  assert.deepEqual(internal.filter((x) => x.startsWith("GRANT")), [],
+    "and it must not then be granted back");
+
+  // The inverse, or the check passes on a build that grants nothing at all —
+  // and note an ordinary function is revoked FIRST as well, so that its two
+  // grants are the only way it is reachable rather than a decoration on top of
+  // a default that already let everybody in.
+  const ordinary = functionSql({ ...FN_DEF, internal: false });
+  assert.equal(ordinary.filter((x) => x.startsWith("REVOKE")).length, 1,
+    "a public function is revoked from PUBLIC too, so its grants are what reach it");
+  assert.equal(ordinary.filter((x) => x.startsWith("GRANT")).length, 2,
+    "an ordinary function is still reachable by a page");
+  // Order is load-bearing: granted first and revoked after, the REVOKE takes the
+  // privilege straight back off and every public function 404s.
+  assert.ok(ordinary.findIndex((x) => x.startsWith("REVOKE")) <
+            ordinary.findIndex((x) => x.startsWith("GRANT")),
+    "the REVOKE must come before the GRANTs:\n" + ordinary.join("\n"));
 });
 
 test("confirm.fn is dropped when the function is missing or callable", () => {

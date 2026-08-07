@@ -458,17 +458,36 @@ export function functionSql(f) {
     (f.definer === false ? "" : " SECURITY DEFINER") +
     " AS $isibi$ " + f.body + " $isibi$",
   ];
-  // Without EXECUTE the function exists and the Data API answers 404 — the
-  // publicView failure, one object over.
+  // POSTGRES GRANTS EXECUTE ON A NEW FUNCTION TO `PUBLIC` BY DEFAULT, so the
+  // REVOKE is not tidiness — it is the only thing that makes `internal` mean
+  // anything at all. Withholding our GRANT withholds nothing: the privilege is
+  // already there, held by a role every other role belongs to.
   //
-  // AN INTERNAL FUNCTION GETS NO GRANT, and that is the whole of its protection.
-  // It is called by the Worker on the owner's connection, which bypasses grants,
-  // so withholding EXECUTE costs it nothing and closes the hole that would
-  // otherwise open: a confirmation builder takes a row id and returns somebody's
-  // email address and message, and every model function is SECURITY DEFINER — so
-  // granted to `anonymous` it is a way to read any customer's confirmation by
-  // guessing a number. Same reasoning as `_secrets` never passing through
-  // `grantsFor`: not a validation, a missing GRANT.
+  // Measured 2026-08-07 by `neon e2e` against a real database: an `internal`
+  // function reported `{anon:true, auth:true}` for EXECUTE. That is a live read
+  // of a write-only table — a confirmation builder takes a row id and returns
+  // somebody's name, message and email address, every model function is SECURITY
+  // DEFINER so it runs as the owner and bypasses RLS, and ids are sequential.
+  // Anyone who could reach the Data API could have walked the whole collect
+  // table by counting. The claim-token design exists precisely to stop that.
+  //
+  // This is the third layer of the same lesson: `internal` was declarable, the
+  // normaliser kept it, and `functionSql` skipped the GRANT — three correct
+  // layers over a default that undid all of them. Only Postgres could say so,
+  // which is why the assertion lives in the e2e and not only in a unit test.
+  //
+  // AND THE ANALOGY THAT CAUSED IT, stated so nobody re-derives it: the design
+  // was copied from `_secrets`, which is safe by simply never passing through
+  // `grantsFor`. That works for a TABLE, which Postgres grants to nobody by
+  // default. It does NOT transfer to a FUNCTION, which Postgres grants to
+  // PUBLIC. Omission protects one and not the other; only the table half of
+  // that pair was ever true.
+  out.push("REVOKE ALL ON FUNCTION " + q(f.name) + "(" + argTypes + ") FROM PUBLIC");
+
+  // Now the grant means what it says, in both directions. Without EXECUTE a
+  // public function exists and the Data API answers 404 — the publicView
+  // failure, one object over. An internal one is called by the Worker on the
+  // owner's connection, which bypasses grants entirely, so it loses nothing.
   if (!f.internal) {
     for (const role of [DATA_API_ROLES.anon, DATA_API_ROLES.user]) {
       out.push("GRANT EXECUTE ON FUNCTION " + q(f.name) + "(" + argTypes + ") TO " + role);
