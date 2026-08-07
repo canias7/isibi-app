@@ -250,6 +250,31 @@ try {
   ok("the owner can store a destination", sec.status >= 200 && sec.status < 300,
     sec.status + " " + (await sec.text().catch(() => "")).slice(0, 200));
 
+  // ── DISCRIMINATING STEP, before the webhook is involved at all ───────────
+  //
+  // The first run of this delivered nothing, and there were two candidate causes
+  // that look identical from outside: the receiver cannot accept this body (a
+  // column PostgREST does not recognise), or the Worker cannot make the call (a
+  // Worker fetching its own zone is a self-referential subrequest, which
+  // Cloudflare handles badly). Guessing between them and changing the test is how
+  // you fix the wrong thing and believe you are done.
+  //
+  // So: post the EXACT payload shape by hand first. If this lands, the receiver
+  // and the columns are fine and the fault is the call. If it does not, the
+  // shape is wrong and no amount of changing the destination would have helped.
+  const probeBody = {
+    site: slug, table: "bookings", action: "created",
+    at: new Date().toISOString(), data: { id: 1, who: "Probe" },
+  };
+  const probe = await fetch(hookUrl, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(probeBody),
+  });
+  const probeText = await probe.text().catch(() => "");
+  ok("the receiver accepts the payload shape by hand",
+    probe.status >= 200 && probe.status < 300,
+    probe.status + " " + probeText.slice(0, 300));
+  console.log("   probe status:", probe.status, probeText.slice(0, 200));
+
   const before = await ownerRows("hook_log");
   const fired = await data("bookings", jsonPost({ who: "Iris", email: "iris@example.com", slot: "11:00" }));
   ok("the booking that should emit was accepted", fired.status >= 200 && fired.status < 300, fired.status);
