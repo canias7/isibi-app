@@ -231,8 +231,14 @@ test("the Worker wires the webhook to the same branch as the confirmation", () =
   // 1. declarable — the schema already parsed `webhooks` before any of this existed
   const schema = fs.readFileSync(path.join(import.meta.dirname, "..", "site-schema.mjs"), "utf8");
   assert.match(schema, /webhooks:/, "the normaliser must keep the declaration");
-  // 2. called on the successful-POST branch, beside confirmSubmitter
-  assert.match(worker, /emitWebhook\(env, ctx, \{[^}]*action: "created"/);
+  // 2. called on a successful write, with the action MAPPED from the method.
+  //
+  // This asserted `action: "created"` as a literal, which pinned the narrowness
+  // it was meant to guard — the same way the jobs chain test pinned an unbound
+  // `uid` while claiming to prove the feature reached the runner. A test that
+  // spells out today's behaviour cannot notice that today's behaviour is too
+  // small; the derived check below is what actually holds this.
+  assert.match(worker, /emitWebhook\(env, ctx, \{[^}]*action,/);
   // 3. the helper exists and is not merely referenced
   assert.match(worker, /function emitWebhook\(/);
   // 4. the destination comes from the VAULT and never from the schema or body —
@@ -256,4 +262,56 @@ test("the Worker wires the webhook to the same branch as the confirmation", () =
   // 6. redirects are NOT followed — that would reopen the host question a hop later
   assert.match(helper, /redirect: "manual"/);
   assert.equal(/redirect: "follow"/.test(helper), false);
+});
+
+test("EVERY declarable action is actually emitted — derived, not listed", () => {
+  // THE BUG THIS EXISTS FOR, and it was mine. The schema has always let a table
+  // declare created/updated/deleted, `firesFor` honours all three, and the first
+  // cut of the wiring emitted `created` and nothing else — so a site setting
+  // `webhooks: true` got two thirds of nothing, on a flag it was allowed to set,
+  // with no error anywhere. Declared, validated, honoured at two layers, dead at
+  // the last.
+  //
+  // Derived at BOTH ends rather than pinned to a list: the actions come out of
+  // the schema's own declaration allow-list, so adding a fourth there fails this
+  // until the Worker emits it too. A hardcoded triple would pass forever on a
+  // vocabulary that had grown.
+  const schema = fs.readFileSync(path.join(import.meta.dirname, "..", "site-schema.mjs"), "utf8");
+  const m = schema.match(/\["created", "updated", "deleted"\]/);
+  assert.ok(m, "the declaration allow-list must still be findable");
+  const declarable = JSON.parse(m[0]);
+  assert.ok(declarable.length >= 3);
+
+  const worker = fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8");
+  // Comments blanked — this file explains the three actions in prose right above
+  // the code that maps them, which is exactly how the redirect guard passed on a
+  // sentence instead of a line.
+  const code = worker
+    .replace(/\/\*[\s\S]*?\*\//g, (x) => x.replace(/[^\n]/g, " "))
+    .replace(/(^|[^:])\/\/[^\n]*/g, (x, p1) => p1 + " ".repeat(x.length - p1.length));
+
+  for (const action of declarable) {
+    assert.ok(code.includes('"' + action + '"'),
+      `the Worker never emits "${action}" — it is declarable and dead`);
+  }
+  // And each is reached by a real method, or all three could be present as dead
+  // string literals in one unreachable branch.
+  for (const method of ["POST", "PATCH", "DELETE"]) {
+    assert.ok(code.includes('request.method === "' + method + '"'),
+      `nothing maps ${method} to an action`);
+  }
+  // firesFor must agree with the schema, or a declaration survives normalisation
+  // and is then refused at the gate.
+  const mod = fs.readFileSync(path.join(import.meta.dirname, "..", "site-webhooks.mjs"), "utf8");
+  for (const action of declarable) assert.ok(mod.includes('"' + action + '"'), action + " missing from ACTIONS");
+});
+
+test("a DELETE reports what it matched, not a row it never had", () => {
+  // PostgREST identifies the target in the query string and returns no body, so
+  // there is no row to send. Sending `{}` as `data` would tell a receiver a
+  // record was deleted with no fields, which is a different and false claim.
+  const p = shapePayload({ slug: "s", table: "t", action: "deleted", at: "z", row: { filter: "id=eq.4" } });
+  assert.equal(p.action, "deleted");
+  assert.equal(p.data.filter, "id=eq.4");
+  assert.equal("id" in p.data, false, "a delete has no row of its own");
 });

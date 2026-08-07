@@ -3543,9 +3543,47 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
           // And outward, if the site declared it. Same branch again: the row
           // exists, the visitor has their answer, and anything else that wants
           // to know is somebody else's server.
-          emitWebhook(env, ctx, { slug, db, def, table, action: "created", row: row || {} });
         }
       } catch (e) { console.error("notify hook:", slug, e && e.message); }
+    }
+
+    // …AND OUTWARD, ON EVERY ACTION THE TABLE DECLARED — not only inserts.
+    //
+    // A SEPARATE BLOCK, deliberately. The notification above is POST-to-`collect`
+    // by design: it means "a stranger filled in your form". A webhook is not that
+    // — the schema has always let a table declare `created`, `updated` and
+    // `deleted`, and the first cut of this emitted `created` and nothing else. So
+    // a site declaring `webhooks: true` got two thirds of nothing, silently, on a
+    // flag it was allowed to set. That is the same declared-and-dead shape this
+    // file documents over and over, and it was reintroduced here within hours of
+    // being written down twice.
+    //
+    // On PATCH the row is the representation the caller asked for, or what they
+    // sent. On DELETE there is no row at all — PostgREST identifies it in the
+    // QUERY STRING — so the filter is what goes on the wire, and it is sent as
+    // `filter` rather than dressed up as `data`: a receiver must be able to tell
+    // "this row, with these values" from "whatever matched this".
+    if (which === "data" && r.status >= 200 && r.status < 300) {
+      const action = request.method === "POST" ? "created"
+        : request.method === "PATCH" || request.method === "PUT" ? "updated"
+        : request.method === "DELETE" ? "deleted" : null;
+      if (action) {
+        try {
+          const table = String(path).split("/")[0].toLowerCase();
+          const spec = await loadSiteSchema(db);
+          const def = (spec && spec.tables || []).find((t) => String(t.name).toLowerCase() === table);
+          if (def) {
+            let row = null;
+            if (action === "deleted") {
+              row = { filter: String(url.search || "").replace(/^\?/, "").slice(0, 500) };
+            } else {
+              try { const j = JSON.parse(body); row = Array.isArray(j) ? j[0] : j; } catch { /* not json */ }
+              if (!row) { try { row = JSON.parse(sent || "null"); } catch { row = null; } }
+            }
+            emitWebhook(env, ctx, { slug, db, def, table, action, row: row || {} });
+          }
+        } catch (e) { console.error("webhook hook:", slug, e && e.message); }
+      }
     }
 
     return new Response(body, {
