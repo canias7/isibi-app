@@ -13783,10 +13783,19 @@ cut. There is no platform account, no OAuth, no "Connect with Stripe" button.
 the right one, given the stated direction is "make the substrate expressive, do
 not add verbs". Two hard walls, neither a judgement call:
 
-- **The database has no internet.** Measured 2026-07-30: `http` and `pg_net` are
-  not installable on Neon. Charging a card is an outbound HTTPS call. No
+- **The database cannot speak HTTP.** Measured 2026-07-30: `http` and `pg_net`
+  are not installable on Neon. Charging a card is an outbound HTTPS call, and no
   model-written SQL can make one — the same reason `site-notify.mjs` had to live
   in the Worker.
+
+  **Say "no HTTP", never "no internet"** (corrected 2026-08-07). `dblink` and
+  `postgres_fdw` ARE installable — both are outbound Postgres connections — so
+  network egress is OPEN. The wider claim was made once before, measured, and
+  found false; this note repeated it anyway and then contradicted the
+  sandbox-boundary entry elsewhere in this file. The conclusion never changed:
+  Stripe is HTTPS, and there is no HTTP client in Postgres. It was the REASON
+  that was broader than the evidence, and a security claim is exactly where that
+  matters.
 - **The key cannot be in the page.** A published site is static files on R2. A
   page calling Stripe directly would ship `sk_live_` in the bundle, which is the
   key stolen.
