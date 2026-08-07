@@ -1,0 +1,57 @@
+# The confirmation email and scheduled jobs against the deployed Worker — and it
+# spends NO model credits.
+#
+# `site-mail.mjs` and `site-jobs.mjs` have 41 unit tests between them and every
+# one drives an injected fake. What none of them touches is the WIRING —
+# `confirmSubmitter` on the insert path and `persistSiteJobs` on the build, both
+# living in `worker.js`, which cannot be imported. So the only way to exercise
+# either is over HTTP against a real site, and without this both were one call
+# away from the failure this repo keeps producing: correct at every layer and
+# reachable at none.
+#
+# The check that matters most is the plainest: a form submission still works.
+# `confirmSubmitter` is a branch on the successful-POST path, so if it throws
+# synchronously instead of settling into its reason-returning shape, every form
+# on every published site breaks — and no unit test can see that, because they
+# call the module directly and never go through the branch that calls it.
+#
+# Free for the same reason `member smoke` is: an explicit `schema` skips the
+# designer and no `brief` skips page generation, so a real Neon project gets real
+# DDL, policies and grants for zero Anthropic spend. `cost === 0` is asserted, so
+# a model call appearing on this path fails a check rather than quietly billing.
+#
+# It DOES burn a throwaway Neon project and a Supabase user per run, both
+# destroyed in the test's `finally`.
+name: confirm smoke
+
+on:
+  workflow_run:
+    workflows: ["Deploy to Cloudflare"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Base URL to test against'
+        required: false
+        default: 'https://gofarther.dev'
+
+jobs:
+  confirm:
+    # A failed deploy has nothing new to test.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Confirmations and scheduled jobs, end to end
+        env:
+          SMOKE_BASE_URL: ${{ github.event.inputs.base_url || 'https://gofarther.dev' }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        run: node test/integration/confirm-smoke.mjs
