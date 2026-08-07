@@ -287,6 +287,20 @@ try {
     await new Promise((r) => setTimeout(r, 1200));
     logged = (await ownerRows("hook_log")).filter((r) => !before.some((b) => b.id === r.id));
   }
+  // The Worker's own account of what happened, which is the difference between
+  // "0 rows" and a cause. Read before asserting, so a failure REPORTS itself
+  // rather than sending somebody back to guess between a bad payload, a blocked
+  // host and a call that never left.
+  const note = async () => {
+    const r = await fetch(`${BASE}/api/site/${slug}/secrets`, { headers: { Authorization: `Bearer ${jwt}` } });
+    const j = await r.json().catch(() => ({}));
+    return j && j.webhook ? j.webhook : null;
+  };
+  const attempt = await note();
+  console.log("   worker's own account:", JSON.stringify(attempt));
+  ok("the Worker recorded the attempt at all", !!attempt,
+    "nothing recorded — the emit never ran, which is a different fault from a refused delivery");
+  ok("and it reports the delivery as sent", !!(attempt && attempt.ok), JSON.stringify(attempt));
   ok("the webhook was DELIVERED", logged.length === 1, `${logged.length} rows: ` + JSON.stringify(logged).slice(0, 300));
 
   const ev = logged[0] || {};

@@ -3830,10 +3830,37 @@ function emitWebhook(env, ctx, { slug, db, def, table, action, row }) {
       // following one would reopen the host question after it was answered.
       post: (url, init) => fetch(url, { ...init, redirect: "manual", signal: AbortSignal.timeout(5000) }),
     }, { slug, table, action, row, now: Date.now() });
-    // Logged rather than returned: this runs detached, so an owner whose
-    // integration never fires has nothing else to look at.
-    if (!out.sent && out.reason !== "no WEBHOOK_URL in Secrets" && out.reason !== "table does not emit this action") {
-      console.error("webhook:", slug, table, action, out.reason || "", out.status || "");
+    // RECORDED, not only logged.
+    //
+    // Everything about a webhook is invisible from outside: it runs detached, so
+    // the caller gets no answer, and its only other trace was a console.error
+    // nobody can read — not the owner whose integration silently stopped, and
+    // not a test trying to establish whether it works. Debugging something that
+    // reports nothing is how this feature stayed unfalsifiable through three
+    // rounds; the owner's version of that is worse, because they find out from a
+    // customer.
+    //
+    // One row in the site's own `_meta`, overwritten each time. Not a log: a log
+    // needs pruning, and the question an owner actually has is "is it working
+    // right now", which the last attempt answers completely.
+    //
+    // Skipped for the two quiet outcomes — no URL, and a table that does not
+    // emit — because those are the resting state of most sites and writing them
+    // would put a database round trip on every insert on the platform to record
+    // that nothing happened.
+    if (out.reason !== "no WEBHOOK_URL in Secrets" && out.reason !== "table does not emit this action") {
+      if (!out.sent) console.error("webhook:", slug, table, action, out.reason || "", out.status || "");
+      // Best-effort, and it must not throw: the delivery already happened or
+      // already failed, and losing the note is strictly better than turning it
+      // into a second failure.
+      try {
+        await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('webhook_last', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
+          [JSON.stringify({
+            at: new Date().toISOString(), table, action,
+            ok: !!out.sent, status: out.status || 0,
+            reason: out.reason || null, signed: !!out.signed,
+          })]);
+      } catch (e) { console.error("webhook note:", slug, e && e.message); }
     }
   })();
   if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(p); else p.catch(() => {});
@@ -6753,7 +6780,23 @@ async function handleRequest(request, env, ctx) {
               },
             };
             try {
-              if (request.method === "GET") return Response.json(await listSecrets(vault, { slug: sslug }));
+              if (request.method === "GET") {
+                const listed = await listSecrets(vault, { slug: sslug });
+                // The last webhook attempt rides along with the names, because
+                // this route IS the webhook configuration surface — an owner
+                // looking at WEBHOOK_URL is exactly the person asking whether it
+                // works. Additive: the panel reads `.secrets` and is untouched.
+                // Best-effort, because a missing note must not fail the listing.
+                try {
+                  const sdb = await siteBackendBySlug(env, sslug);
+                  if (sdb) {
+                    const rows = await sqlQuery(sdb, "SELECT v FROM _meta WHERE k='webhook_last'", []);
+                    const v = rows && rows[0] && rows[0].v;
+                    if (v) listed.webhook = typeof v === "string" ? JSON.parse(v) : v;
+                  }
+                } catch { /* the names are the answer either way */ }
+                return Response.json(listed);
+              }
               if (request.method === "POST") {
                 const sb = await request.json().catch(() => ({}));
                 const r = await addSecret(vault, env, { slug: sslug, name: sb.name, value: sb.value });
