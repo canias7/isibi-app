@@ -1,0 +1,39 @@
+# Turn Cloudflare for SaaS on for the zone, or report exactly what is stopping it.
+#
+# Custom domains are built and cannot work until the zone has a fallback origin
+# record, the fallback origin set, and a `*/*` Worker route. This does the first
+# two and verifies the third.
+#
+# DRY RUN BY DEFAULT — it edits DNS on the live zone, so `apply` has to be asked
+# for. Run it once with apply off to read the report, then again with it on.
+#
+# It is also the diagnostic: run it whenever a custom domain misbehaves. The
+# preflight names the exact token permission that is missing rather than leaving
+# a 403 to be interpreted.
+name: cloudflare for saas setup
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Actually make the changes (off = report only)'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: setup
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node .github/scripts/saas-setup.mjs ${{ inputs.apply && '--apply' || '' }}
