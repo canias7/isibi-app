@@ -1749,3 +1749,96 @@ test("rule 14's example cites components that REALLY EXIST, with the right casin
   // And the lower-case call form must not come back.
   assert.equal(/\bmoney\s*\(/.test(example), false, "the kit exports Money, a component — not a money() function");
 });
+
+// ── The attach button ──────────────────────────────────────────────────────
+//
+// It shipped dead. The composer collected up to three images and posted them on
+// every build and revise, and the route read them zero times — so a control with
+// a tooltip promising "a logo or reference image" did nothing at all, and the
+// obvious way to say "make it look like this" was equally dead.
+
+const IMG = (n) => ({ type: "image", source: { type: "base64", media_type: "image/png", data: "AAA" + n } });
+
+test("with no images the content stays a plain string", () => {
+  // Not cosmetic. Every existing caller and test sees a string here, so a
+  // feature nobody used must not change the request shape of every build that
+  // does not use it.
+  const req = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe" });
+  assert.equal(typeof req.messages[0].content, "string");
+  // ...and an empty or junk array is the same as none.
+  for (const images of [[], null, undefined, [null, false]]) {
+    assert.equal(typeof api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe", images }).messages[0].content, "string");
+  }
+});
+
+test("attached images ride in the user message, before the text", () => {
+  const req = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe", images: [IMG(1), IMG(2)] });
+  const content = req.messages[0].content;
+  assert.ok(Array.isArray(content), "images did not reach the request at all");
+  assert.deepEqual(content.slice(0, 2), [IMG(1), IMG(2)]);
+  assert.equal(content[2].type, "text");
+  assert.equal(content.length, 3);
+});
+
+test("images do NOT touch the cached blocks", () => {
+  // The system block is ~27,000 tokens and is cached on its bytes. Putting an
+  // attachment anywhere in `system` or `tools` would make every build with an
+  // image a cache miss on all of it — costing far more than the pictures do.
+  const bare = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe" });
+  const withImgs = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe", images: [IMG(1)] });
+  assert.deepEqual(withImgs.system, bare.system, "the cached system block changed when an image was attached");
+  assert.deepEqual(withImgs.tools, bare.tools, "the cached tool block changed when an image was attached");
+  assert.deepEqual(withImgs.tool_choice, bare.tool_choice);
+});
+
+test("the prompt TELLS the model the images are there, and what they are for", () => {
+  // An image block with no text about it is a picture whose purpose the model
+  // has to guess — and the two things people attach here want opposite
+  // treatment: a logo is a palette, a screenshot is a layout.
+  const none = api.pagesPrompt("a cafe", SPEC, "Cafe");
+  const one = api.pagesPrompt("a cafe", SPEC, "Cafe", null, 1);
+  const two = api.pagesPrompt("a cafe", SPEC, "Cafe", null, 2);
+  assert.ok(!/WHAT THE USER ATTACHED/.test(none), "the note appears with no images attached");
+  assert.match(one, /WHAT THE USER ATTACHED/);
+  assert.match(one, /1 image is in this message/);
+  assert.match(two, /2 images are in this message/);
+  // Both attachment kinds are named, or the model applies one reading to both.
+  assert.match(one, /logo or brand mark/i);
+  assert.match(one, /screenshot or photo of a website/i);
+});
+
+test("an attachment outranks the generic trade example", () => {
+  // They are both "references" and they can disagree — one is about THIS
+  // business, the other is a shape for the trade. Unstated, the model is left
+  // to arbitrate between the customer's own logo and a stock exemplar.
+  const p = api.pagesPrompt("a studio", SPEC, "A", "salon", 1);
+  assert.match(p, /override the trade example below/);
+  assert.ok(p.indexOf("WHAT THE USER ATTACHED") < p.indexOf("A SITE OF THIS TRADE"),
+    "the attachment note must come before the exemplar it overrides");
+});
+
+test("words inside an image are not this site's content", () => {
+  // The failure the deleted examples tier actually shipped, arriving through a
+  // picture instead: a real customer's page carrying a stranger's copy.
+  assert.match(api.pagesPrompt("a cafe", SPEC, "Cafe", null, 1), /not this one's/);
+});
+
+test("the count is a count, whatever it is handed", () => {
+  for (const bad of [-3, "2", 1.7, NaN, null, undefined, {}]) {
+    assert.doesNotThrow(() => api.pagesPrompt("a cafe", SPEC, "Cafe", null, bad));
+  }
+  assert.ok(!/WHAT THE USER ATTACHED/.test(api.pagesPrompt("a cafe", SPEC, "Cafe", null, -3)));
+  assert.match(api.pagesPrompt("a cafe", SPEC, "Cafe", null, "2"), /2 images are/);
+});
+
+test("the images the caller validated are the ones the model gets", () => {
+  // The chain from the request body to the model call. Asserted here because
+  // every link in it was dead for the whole life of the React engine. The
+  // validator itself lives in builder/site-context.mjs and is tested by
+  // RUNNING it — this only holds the wiring between the two.
+  const gen = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(gen, /const attached = imageBlocks\(body\.images\)/, "the route never validates body.images");
+  assert.match(gen, /images: attached/, "the validated blocks never reach buildAndPublishPages");
+  assert.match(gen, /pagesRequest\(\{[^}]*\bimages\b[^}]*\}\)/s, "pagesRequest is not given the images");
+  assert.match(gen, /\bimageBlocks\b[^\n]*from "\.\/builder\/site-context\.mjs"/, "imageBlocks is not imported");
+});

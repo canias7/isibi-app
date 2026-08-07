@@ -39,9 +39,34 @@ export const RATES = {
 };
 const CREDIT_USD = 0.008;
 
+// A web search is billed PER SEARCH and not in tokens, so it is invisible to
+// every other number here — a research call that ran four searches reports a few
+// hundred tokens and costs $0.04 on top, five credits of it. Counting only the
+// tokens would have understated a searching build by more than the tokens cost.
+// $10 per 1,000 searches.
+export const SEARCH_USD = 0.01;
+
 /** Dollars at list price. Exported so nothing has to keep a second copy. */
-export const pageCost = ({ in: fresh = 0, out = 0, cacheRead = 0, cacheWrite = 0 } = {}) =>
-  fresh * RATES.in + out * RATES.out + cacheRead * RATES.cacheRead + cacheWrite * RATES.cacheWrite;
+export const pageCost = ({ in: fresh = 0, out = 0, cacheRead = 0, cacheWrite = 0, searches = 0 } = {}) =>
+  fresh * RATES.in + out * RATES.out + cacheRead * RATES.cacheRead + cacheWrite * RATES.cacheWrite +
+  searches * SEARCH_USD;
+
+/**
+ * Add up usage from more than one call.
+ *
+ * Research and generation are two separate model calls whose costs land on one
+ * bill, and summing them has to happen on the OBJECT — adding the credit totals
+ * instead would round each up to a whole credit and charge twice for the
+ * rounding. Same reason `pageCredits` takes the object rather than two numbers.
+ */
+export const sumUsage = (...parts) => {
+  const total = { in: 0, out: 0, cacheRead: 0, cacheWrite: 0, searches: 0 };
+  for (const p of parts) {
+    if (!p) continue;
+    for (const k of Object.keys(total)) total[k] += Number(p[k]) || 0;
+  }
+  return total;
+};
 
 // Whole credits, minimum one — a generation that produced anything at all was
 // not free. Takes the usage OBJECT, not two summed numbers: summing is what
@@ -97,8 +122,16 @@ export function citedLines(error, pages, max = 4) {
  *   publish(dist)   → void                                     write to storage
  *   readCredits()   → number
  *   useCredits(n)   → void
+ *
+ * `priorUsage` is what an EARLIER model call in this same build already spent —
+ * today that is the web-research step, which runs before page generation. It is
+ * carried here rather than billed where it happens so that it obeys the same
+ * one-sentence rule as everything else on this path: **if the customer got the
+ * placeholder, they were not charged.** Billing it at its own call site would
+ * mean a build that searched the web and then failed to publish took credits for
+ * nothing, which is precisely the outcome this function was rewritten to stop.
  */
-export async function publishPages(deps, { spec, slug } = {}) {
+export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
   const out = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
 
   // Fails CLOSED: if the ledger cannot be read we do not generate. A caller who
@@ -132,7 +165,7 @@ export async function publishPages(deps, { spec, slug } = {}) {
   // The schema call is billed separately and still is: the database really is
   // live and usable, and a revise reuses it.
   const charge = async (g) => {
-    const c = pageCredits(g.usage);
+    const c = pageCredits(sumUsage(g.usage, priorUsage));
     out.cost += c;
     try { await deps.useCredits(c); } catch { /* never fail a build over the ledger */ }
   };
@@ -220,6 +253,12 @@ export async function publishPages(deps, { spec, slug } = {}) {
   // that actually costs money, reported a single number. Whether PAGE_RULES's
   // ~27k-token cached prefix is paying for itself is answerable only from these.
   out.usage = gen.usage || null;
+  // KEPT APART from `out.usage`, deliberately. Two model calls with different
+  // models and different rates land on one bill, and folding them into one
+  // number would make the question the four-kind split exists to answer — is the
+  // cached prefix paying for itself — unanswerable again the moment a build
+  // searches.
+  if (priorUsage) out.priorUsage = priorUsage;
   const v = validatePages(gen.input);
   if (!v.pages.length) {
     // THE ONE BRANCH THAT THREW ITS REASONS AWAY. `validatePages` works out

@@ -1512,6 +1512,13 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-msg.u { align-self: flex-end; max-width: 88%; border-radius: 14px 14px 4px 14px; padding: .55rem .85rem; background: var(--split); border: 1px solid transparent; }
 .st-msg.a { align-self: stretch; color: var(--text); padding: 0 .1rem; }
 .st-msg.a .st-acts { display: block; margin-top: .35rem; }
+/* What was READ for a build — a linked page, a web lookup, or a link we could
+   not reach. Its own block, above the result, because a newline inside the
+   message text collapses (there is no pre-wrap here) and the sentence that
+   matters most is the one saying a link was NOT read. Muted and ruled rather
+   than coloured: the platform is monochrome, and a caveat that depends on hue
+   says nothing in greyscale. */
+.st-note { font-size: .8rem; color: var(--muted); line-height: 1.45; margin: 0 0 .45rem; padding-left: .6rem; border-left: 2px solid var(--line); }
 .st-act { font: inherit; font-size: .8rem; background: none; border: none; color: var(--muted); cursor: pointer; padding: 0; }
 .st-act:hover { color: var(--text); }
 .st-msg.st-busy { color: var(--muted); }

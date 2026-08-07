@@ -40,6 +40,7 @@ import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlI
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
 import { publishPages, pageCredits } from "./builder/publish-pages.mjs";
+import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, imageBlocks, MAX_QUERIES } from "./builder/site-context.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
 import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
 import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis, eoqCalc, breakevenCalc, demandForecast, installmentPlan, taxCalc, commissionCalc } from "./worker-finance.mjs";
@@ -3001,6 +3002,33 @@ const SITE_SCHEMA_TOOL = {
           "How the pages are ARRANGED — optional. Every family already has a sensible default, so leave this out " +
           "unless the brief asks for a shape that is not the usual one for this kind of site.\n\n" + structuresForPrompt(),
       },
+      // THE WEB-SEARCH GATE, RIDING ON A CALL THAT ALREADY HAPPENS. Searching
+      // costs real money per search and is worth it on a small minority of
+      // briefs, so it has to be gated — and the obvious way to gate it, a small
+      // classifier call, is a third model call on every build to answer "no"
+      // almost every time. This step already reads the brief and already returns
+      // structured output, so the gate is two extra fields and costs nothing.
+      //
+      // Both are OPTIONAL and absent means no. A build that answers nothing here
+      // behaves exactly as the platform did before the feature existed, which is
+      // the right default for the overwhelming majority of sites.
+      needsWeb: {
+        type: "boolean",
+        description:
+          "Does writing this site's CONTENT require facts you may not have, or that may have changed since your training? " +
+          "Almost always NO. A barber shop, a café, a plumber, a gym — their content is the brief plus the owner's own prices, " +
+          "and no search helps. Say YES only when the pages must state something real and current that the brief does not " +
+          "supply: this season's fixtures, a live specification, a regulation, an event's dates, a named product's actual " +
+          "details. Do NOT say yes merely because a real company is mentioned, and never to check a fact you would only " +
+          "restate as marketing copy.",
+      },
+      webQueries: {
+        type: "array",
+        description:
+          "Only when needsWeb is true: 1-3 specific search queries. Write what you would type into a search box, not a " +
+          "sentence — 'Six Nations 2026 fixtures dates' rather than 'please find the fixtures'.",
+        items: { type: "string" },
+      },
     },
     required: ["brand", "slug", "tables", "seed", "description", "fonts", "theme", "family"],
   },
@@ -3104,6 +3132,151 @@ async function designSiteSchema(env, brief) {
 }
 
 
+// Bytes read from a page a user linked in their brief. Generous — a marketing
+// page with inlined styles is routinely several hundred KB, and `pageText`
+// throws almost all of it away — but bounded, because the far end chooses how
+// much to send us.
+const SITE_LINK_BYTES = 1_500_000;
+
+/**
+ * Fetch one page the user pointed at, for `readLinkedPages`.
+ *
+ * The whole of the safety here is `safeFetch`, which is the same SSRF guard the
+ * gallery importer and the outbound webhook use: it refuses loopback, RFC1918,
+ * CGNAT and the cloud metadata address across every encoding of them, and
+ * re-checks on each redirect hop. A URL out of a brief is exactly as
+ * attacker-chosen as one out of the import box, so it gets exactly the same
+ * treatment and not a second, gentler copy of it.
+ *
+ * Never throws, and distinguishes the three outcomes a caller can say something
+ * useful about: unreachable (no status), refused (a status), and read.
+ */
+async function siteReadUrl(url) {
+  let r;
+  try {
+    r = await safeFetch(url, {
+      // A real browser UA, for the reason the importer needs one: a plain fetch
+      // agent is walled by a large share of the sites somebody would actually
+      // ask us to look at, and being walled reads as "your site is broken".
+      headers: {
+        "User-Agent": CHROME_UA,
+        Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+      // BOUNDED, because this sits on the critical path of a build the customer
+      // is watching. A slow site must cost them twelve seconds, not a timeout of
+      // the whole request.
+      signal: AbortSignal.timeout(12000),
+    });
+  } catch { return { ok: false }; }
+  // safeFetch answers null for a blocked host, a non-http scheme, or a redirect
+  // chain that ran too long. No status, so the caller says "we couldn't reach
+  // it" — which is true and does not tell a prober which hosts we refuse.
+  if (!r) return { ok: false };
+  if (!r.ok) return { ok: false, status: r.status };
+  const contentType = ((r.headers.get("content-type") || "").split(";")[0] || "").trim().toLowerCase();
+  let body = "";
+  try { body = new TextDecoder().decode(await readCapped(r, SITE_LINK_BYTES)); }
+  catch { return { ok: false, status: r.status }; }
+  return { ok: true, status: r.status, contentType, body };
+}
+
+/**
+ * Look up current facts for a brief that needs them.
+ *
+ * Gated by `needsWeb` on the schema designer's own output, so this call does not
+ * happen on the overwhelming majority of builds — see the tool description for
+ * why the gate lives there rather than in a classifier call of its own.
+ *
+ * Returns usage as well as facts, because a search is billed BOTH in tokens and
+ * per search, and the caller has to be able to charge for it. `searches` comes
+ * from the API's own `server_tool_use` count rather than from the number of
+ * queries we asked for — the model decides how many it actually runs, and
+ * billing on our request instead of its behaviour would be a guess.
+ *
+ * Never throws. Research is an enhancement to a build that can succeed without
+ * it, and the lesson this codebase keeps relearning is that losing the whole
+ * thing over one optional step is the more expensive failure.
+ */
+async function siteWebResearch(env, brief, queries) {
+  const empty = { facts: "", sources: [], usage: null, searches: 0 };
+  const qs = normalizeQueries(queries);
+  if (!qs.length || !env.ANTHROPIC_API_KEY) return empty;
+
+  const system = "You are researching for a website builder. The pages about to be written need real, current facts that " +
+    "the brief does not supply. Run the searches you are given, then reply with a SHORT factual brief: only concrete facts " +
+    "that will appear on the site — names, dates, numbers, specifications — in plain sentences. No preamble, no markdown, " +
+    "no marketing language, and do not write any page copy or suggest a layout. If the searches find nothing solid, say so " +
+    "in one sentence rather than filling the gap.";
+
+  let msgs = [{
+    role: "user",
+    content: "SITE BRIEF\n" + String(brief || "").slice(0, 2000) +
+      "\n\nSEARCH FOR\n" + qs.map((q, i) => (i + 1) + ". " + q).join("\n"),
+  }];
+  let facts = "";
+  const sources = [];
+  const usage = { in: 0, out: 0, cacheRead: 0, cacheWrite: 0, searches: 0 };
+
+  // The server-side search loop can pause mid-run (stop_reason "pause_turn");
+  // the continuation is the assistant turn resent unchanged.
+  for (let round = 0; round < 4; round++) {
+    let r;
+    try {
+      r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-5",
+          max_tokens: 1200,
+          system,
+          tools: [{ type: "web_search_20250305", name: "web_search", max_uses: MAX_QUERIES + 1 }],
+          messages: msgs,
+        }),
+        signal: AbortSignal.timeout(120000),
+      });
+    } catch { break; }
+    if (!r.ok) break;
+    const j = await r.json().catch(() => null);
+    if (!j) break;
+    const u = j.usage || {};
+    usage.in += u.input_tokens || 0;
+    usage.out += u.output_tokens || 0;
+    usage.cacheRead += u.cache_read_input_tokens || 0;
+    usage.cacheWrite += u.cache_creation_input_tokens || 0;
+    // THE API'S OWN COUNT of searches actually performed. A search is $0.01 and
+    // is invisible in the token numbers, so without this a searching build
+    // under-reports its cost by more than the tokens came to.
+    usage.searches += (u.server_tool_use && u.server_tool_use.web_search_requests) || 0;
+    const content = Array.isArray(j.content) ? j.content : [];
+    for (const c of content) {
+      if (c && c.type === "text" && typeof c.text === "string") facts += c.text;
+      if (c && c.type === "web_search_tool_result" && Array.isArray(c.content)) {
+        for (const s of c.content) {
+          if (s && s.type === "web_search_result" && s.url) {
+            sources.push({ url: String(s.url).slice(0, 300), title: String(s.title || "").slice(0, 160) });
+          }
+        }
+      }
+    }
+    if (j.stop_reason === "pause_turn") { msgs = msgs.concat([{ role: "assistant", content }]); continue; }
+    break;
+  }
+
+  const seen = new Set();
+  const uniq = [];
+  for (const s of sources) {
+    if (seen.has(s.url)) continue;
+    seen.add(s.url);
+    uniq.push(s);
+    if (uniq.length >= 6) break;
+  }
+  // Usage is returned even when nothing came back: tokens were spent whether or
+  // not the answer was useful, and reporting zero would hide a search that ran
+  // and found nothing.
+  return { facts: facts.trim().slice(0, 2500), sources: uniq, usage, searches: usage.searches };
+}
+
 // The pages themselves. Same tool-use shape as designSiteSchema directly above:
 // the model fills in a tool whose input_schema IS the return type, so there is no
 // prose to parse and no half-written file to repair out of a reply.
@@ -3114,14 +3287,14 @@ async function designSiteSchema(env, brief) {
 //
 // ONE call per build. There is no repair pass — see builder/publish-pages.mjs
 // for the measurement it was removed on.
-async function generateSitePages(env, brief, spec, brand, family) {
+async function generateSitePages(env, brief, spec, brand, family, images) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
     // One definition, shared with the eval harness — see pagesRequest. Restating
     // it here would mean the harness tunes against a different request from the
     // one production runs.
-    body: JSON.stringify(pagesRequest({ brief, spec, brand, family })),
+    body: JSON.stringify(pagesRequest({ brief, spec, brand, family, images })),
     // No timeout — see designSiteSchema. This is the call it mattered most for:
     // three pages against a 24,000-token ceiling is the one that runs long.
   });
@@ -4723,7 +4896,7 @@ async function fetchSiteFonts(pair) {
 // all? — live in builder/publish-pages.mjs, which takes every side effect as an
 // injected function so they can be driven against fakes in test/publish-pages.test.mjs.
 // This is only the wiring that supplies the real ones.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, family, structure, mark }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, family, structure, images, priorUsage, mark }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
@@ -4745,7 +4918,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // and sent the bare brief — ~287 tokens of layout that every real build
       // carries and no sample ever did, so the compile rate described a prompt
       // the platform does not send.
-      return generateSitePages(env, briefWithLayout({ brief, family, structure }), spec, brand, family);
+      return generateSitePages(env, briefWithLayout({ brief, family, structure }), spec, brand, family, images);
     },
     compile: async (pages) => {
       const files = {};
@@ -4790,7 +4963,10 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
     }),
     readCredits: () => readCredits(auth),
     useCredits: (n) => useCredits(auth, n),
-  }, { spec, slug });
+    // What the web-research step already spent, so it is billed by the same rule
+    // as generation: charged when a real app publishes, free when the customer
+    // ends up with the placeholder.
+  }, { spec, slug, priorUsage });
   if (out.page !== "app" && out.error) console.error("site page build failed:", slug, out.stage, out.error);
   return out;
 }
@@ -7163,6 +7339,32 @@ async function handleRequest(request, env, ctx) {
       // IF NOT EXISTS), so both take the same path.
       const brief = String(body.brief || body.prompt || body.instruction || "").trim().slice(0, 4000);
 
+      // THE IMAGES THE USER ATTACHED, validated here and carried to page
+      // generation. The composer has always sent these and nothing has ever read
+      // them — see `siteImageBlocks` for what that meant in practice.
+      const attached = imageBlocks(body.images);
+
+      // READING THE LINKS IN THE BRIEF. No model call, so no gate: if there is a
+      // URL in there, somebody meant us to look at it.
+      //
+      // BEFORE the designer, deliberately. A linked page is mostly evidence
+      // about what a site STORES — a menu, a price list, a booking form — and
+      // the designer is the step that decides the tables. Reading it afterwards
+      // would leave the schema guessing from the domain name, which is the
+      // failure this whole change exists to fix.
+      //
+      // The cost is that it sits on the critical path: at most two fetches,
+      // twelve seconds each, and only on a brief that contains a link.
+      let linked = [];
+      if (brief) {
+        try { linked = await readLinkedPages(brief, { readUrl: siteReadUrl }); }
+        catch (e) { console.error("link read failed:", e && e.message); linked = []; }
+        if (linked.length) tr.at("links", { n: linked.length, ok: linked.filter((p) => p.ok).length });
+      }
+      // What the DESIGNER sees. Page generation gets this plus the researched
+      // facts, which do not exist yet.
+      const briefWithLinks = linked.some((p) => p.ok) ? contextBrief(brief, { pages: linked }) : brief;
+
       // A brief means "design the schema"; an explicit schema skips the model.
       let designed = null;
       // MEASURED, NOT BILLED ON. The fee stays flat at SITE_BUILD_FEE; this is
@@ -7188,7 +7390,7 @@ async function handleRequest(request, env, ctx) {
         tr.at("gate");
 
         try {
-          const dz = await designSiteSchema(env, brief);
+          const dz = await designSiteSchema(env, briefWithLinks);
           designed = dz && dz.input;
           schemaUsage = (dz && dz.usage) || null;
           tr.at("design", schemaUsage ? { out: schemaUsage.out, in: schemaUsage.in } : undefined);
@@ -7225,6 +7427,29 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, msg: "That brief didn't describe anything to store — try naming what the site keeps track of." }, { status: 422 });
         }
       }
+
+      // WEB RESEARCH, STARTED HERE AND AWAITED MUCH LATER — the gap is the point.
+      //
+      // Everything between this line and the page generation is Neon: creating a
+      // project, applying the schema, seeding rows, reading the merged schema
+      // back. That is seconds of waiting on somebody else's API, and a search
+      // running alongside it is free in wall-clock terms. Awaited where it is
+      // needed instead, it would add its own latency to a build the customer is
+      // watching, for a step most builds skip entirely.
+      //
+      // Gated on the designer's own `needsWeb`, so an explicit-schema build (no
+      // designer, no gate) never searches — which is correct: that path is the
+      // test harness sending a schema it already knows.
+      //
+      // `.catch` is attached IMMEDIATELY rather than at the await. An unhandled
+      // rejection in the interval would be an unhandled rejection, and this is a
+      // best-effort enhancement — the build must survive it.
+      const researchPromise = shouldSearch(designed)
+        ? siteWebResearch(env, brief, designed.webQueries).catch((e) => {
+            console.error("web research failed:", e && e.message);
+            return null;
+          })
+        : null;
 
       const slug = String(body.slug || (designed && designed.slug) || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60)
         || ("site-" + Math.random().toString(36).slice(2, 8));
@@ -7357,6 +7582,22 @@ async function handleRequest(request, env, ctx) {
 
       tr.at("merge");
 
+      // The research that has been running alongside every Neon call above.
+      // `null` on every path that did not search, and on one that searched and
+      // failed — both mean the same thing here: write the pages without it.
+      const researched = researchPromise ? await researchPromise : null;
+      if (researchPromise) tr.at("research", researched ? { searches: researched.searches } : undefined);
+      // ONE SUMMARY, used twice: it goes on the response so the client can say
+      // what was and was not read, and its usage is what gets billed. Built from
+      // the same two objects both times, so the sentence a customer reads and
+      // the credits they are charged can never describe different work.
+      const context = contextSummary({
+        pages: linked,
+        facts: (researched && researched.facts) || "",
+        sources: (researched && researched.sources) || [],
+        searches: (researched && researched.searches) || 0,
+      });
+
       let pages = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
       if (brief && env.SITE_BUILD_CONTAINER && env.SITES_BUCKET) {
         try {
@@ -7379,8 +7620,19 @@ async function handleRequest(request, env, ctx) {
           } catch (e) { console.error("og image lookup failed:", slug, e && e.message); }
           tr.at("og");
           pages = await buildAndPublishPages(env, {
-            brief: briefForPages({ brief, priorBrief }), spec: pageSpec, slug, brand,
+            // The linked pages and the researched facts ride on the brief, which
+            // both model calls already take — so neither had to learn a new
+            // shape. `briefForPages` composes the revise anchor first; the
+            // context wraps whatever that produced.
+            brief: contextBrief(briefForPages({ brief, priorBrief }), {
+              pages: linked,
+              facts: (researched && researched.facts) || "",
+              sources: (researched && researched.sources) || [],
+            }),
+            spec: pageSpec, slug, brand,
             siteDescription, ogImage,
+            images: attached,
+            priorUsage: (researched && researched.usage) || null,
             fonts: (designed && designed.fonts) || (body && body.fonts) || null,
             // Same fallback chain as fonts, and it matters most on a REVISE:
             // the designer sees only the instruction then, so it names no theme
@@ -7463,6 +7715,23 @@ async function handleRequest(request, env, ctx) {
         // Rows per display table. An empty object means the site published with
         // empty lists — which reads as a working build and is not one.
         seeded: (seeded && seeded.seeded) || {},
+        // WHAT WAS READ FOR THIS BUILD, and what could not be. The whole reason
+        // link-reading exists is that the old behaviour — a URL in the brief
+        // that nothing fetched — was invisible: the model inferred a business
+        // from the domain name and the customer got a plausible invention with
+        // no sign a fetch had not happened. A read that fails silently would
+        // reproduce exactly that, so the failures travel as far as the
+        // successes, all the way into the chat message.
+        //
+        // Omitted entirely on the ordinary build that linked nothing and
+        // searched nothing, so this adds no noise to the common case.
+        context: (context.read.length || context.failed.length || context.searched) ? context : undefined,
+        // THE SAME THING AS A SENTENCE, composed HERE rather than in the client.
+        // The client is a plain script and cannot import this module, so a
+        // sentence built there would be a second copy of this logic that drifts
+        // — and the direction it drifts in is a build that read nothing while
+        // still claiming it did. One function, one answer, rendered verbatim.
+        contextNote: contextSentence(context) || undefined,
         page: pages.page, files: pages.files, notes: pages.notes || undefined,
         problems: pages.problems.length ? pages.problems : undefined,
         // WHY it fell back, when it did. publish-pages.mjs has returned these

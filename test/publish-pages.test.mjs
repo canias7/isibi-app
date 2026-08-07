@@ -11,7 +11,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { publishPages, pageCredits, pageCost, citedLines, RATES, MIN_CREDITS } from "../builder/publish-pages.mjs";
+import { publishPages, pageCredits, pageCost, citedLines, sumUsage, RATES, SEARCH_USD, MIN_CREDITS } from "../builder/publish-pages.mjs";
 
 const SPEC = {
   tables: [
@@ -662,4 +662,105 @@ test("a thrown container is retried too — it is the same event", async () => {
   assert.equal(calls.compile.length, 2);
   assert.equal(out.page, "app");
   assert.match(out.retriedBuild, /unreachable|boot timeout/);
+});
+
+// ── The web-research call ──────────────────────────────────────────────────
+//
+// Research runs BEFORE page generation, so it is a second model call whose cost
+// lands on the same bill. The rule it has to obey is the one this whole file is
+// built around and it is a single sentence: **if the customer got the
+// placeholder, they were not charged.** Billing it where it happens would break
+// that — a build that searched the web and then failed to publish would take
+// credits and deliver nothing, which is the exact outcome this function was
+// rewritten to stop.
+
+test("a search is priced per search, not in tokens", () => {
+  // It is invisible in the token counts — a research call reports a few hundred
+  // tokens and can cost $0.04 on top. Counting only tokens would under-report a
+  // searching build by more than the tokens came to.
+  assert.equal(pageCost({ searches: 1 }), SEARCH_USD);
+  assert.equal(pageCost({ searches: 4 }), SEARCH_USD * 4);
+  assert.equal(pageCost({}), 0, "no searches must cost nothing");
+  assert.equal(pageCost({ searches: 0 }), 0);
+  // Four searches is five credits — worth more than a small generation's input.
+  assert.equal(pageCredits({ searches: 4 }), 5);
+});
+
+test("usage from two calls is summed on the OBJECT, not as credits", () => {
+  // Adding credit totals would round each up to a whole credit and charge twice
+  // for the rounding — the same mistake as summing the four token kinds.
+  assert.deepEqual(sumUsage({ in: 1, out: 2 }, { in: 10, searches: 3 }),
+    { in: 11, out: 2, cacheRead: 0, cacheWrite: 0, searches: 3 });
+  assert.deepEqual(sumUsage(null, undefined, {}), { in: 0, out: 0, cacheRead: 0, cacheWrite: 0, searches: 0 });
+  assert.deepEqual(sumUsage(), { in: 0, out: 0, cacheRead: 0, cacheWrite: 0, searches: 0 });
+  // A single small usage rounds to one credit; two of them summed still round
+  // once, not twice.
+  assert.equal(pageCredits(sumUsage({ in: 1 }, { in: 1 })), 1);
+});
+
+test("research is charged when the site actually publishes", async () => {
+  const { deps, calls } = harness();
+  const research = { in: 2000, out: 500, searches: 3 };
+  const out = await publishPages(deps, { spec: SPEC, slug: "s", priorUsage: research });
+  assert.equal(out.page, "app");
+  assert.equal(calls.charges.length, 1, "exactly one charge");
+  assert.equal(calls.charges[0], pageCredits(sumUsage(USAGE, research)));
+  // Strictly more than generation alone, or the research rode along free.
+  assert.ok(calls.charges[0] > pageCredits(USAGE), "the research was not billed at all");
+});
+
+test("research is FREE on every path that ends in the placeholder", async () => {
+  const research = { in: 9000, out: 9000, searches: 4 };
+  // No pages at all.
+  {
+    const { deps, calls } = harness({ generate: async () => gen([]) });
+    const out = await publishPages(deps, { spec: SPEC, slug: "s", priorUsage: research });
+    assert.equal(out.page, "placeholder");
+    assert.deepEqual(calls.charges, [], "a search was billed on a build that produced nothing");
+  }
+  // Pages, but no home page.
+  {
+    const { deps, calls } = harness({ generate: async () => gen([good("about.tsx")]) });
+    const out = await publishPages(deps, { spec: SPEC, slug: "s", priorUsage: research });
+    assert.equal(out.page, "placeholder");
+    assert.deepEqual(calls.charges, []);
+  }
+  // Compiled and failed.
+  {
+    const { deps, calls } = harness({ compile: async () => ({ ok: false, stage: "typecheck", error: "TS2322" }) });
+    const out = await publishPages(deps, { spec: SPEC, slug: "s", priorUsage: research });
+    assert.equal(out.page, "placeholder");
+    assert.deepEqual(calls.charges, []);
+  }
+  // Could not afford the generation — no model call ran, so nothing to bill.
+  {
+    const { deps, calls } = harness({ readCredits: async () => 0 });
+    const out = await publishPages(deps, { spec: SPEC, slug: "s", priorUsage: research });
+    assert.equal(out.page, "placeholder");
+    assert.deepEqual(calls.charges, []);
+  }
+});
+
+test("a build with no research is billed exactly as before", async () => {
+  // The feature must be invisible on the overwhelming majority of builds.
+  const a = harness();
+  await publishPages(a.deps, { spec: SPEC, slug: "s" });
+  const b = harness();
+  await publishPages(b.deps, { spec: SPEC, slug: "s", priorUsage: null });
+  assert.deepEqual(a.calls.charges, b.calls.charges);
+  assert.deepEqual(a.calls.charges, [pageCredits(USAGE)]);
+});
+
+test("the two calls' usage is reported apart, not merged", async () => {
+  // Merging them would make the question the four-kind split exists to answer —
+  // is the cached prefix paying for itself — unanswerable the moment a build
+  // searches.
+  const research = { in: 2000, out: 500, searches: 3 };
+  const { deps } = harness();
+  const out = await publishPages(deps, { spec: SPEC, slug: "s", priorUsage: research });
+  assert.deepEqual(out.usage, USAGE, "generation usage was contaminated by the research");
+  assert.deepEqual(out.priorUsage, research);
+  // And absent entirely when there was none.
+  const plain = await publishPages(harness().deps, { spec: SPEC, slug: "s" });
+  assert.equal(plain.priorUsage, undefined);
 });

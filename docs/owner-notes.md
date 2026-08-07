@@ -10,6 +10,63 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-08-07 — The builder can read a link and search the web; the Attach button was dead
+
+Owner asked: *"can that chatbot read url, for example when user says copy this
+site? Can it search on the web too?"* — then **"Fix the attach buttons and let
+the ai search web and read url."** Both original answers were no, and checking
+turned up a third thing that was broken.
+
+**The Attach button had never worked on the React engine.** The composer collects
+up to three images and posts them as `images` on every build and revise; the
+route read them zero times, and neither `page-gen.mjs` nor `publish-pages.mjs`
+mentioned images anywhere. So a control the product ships, tooltip promising "a
+logo or reference image", did nothing at all — and the obvious workaround for
+"copy this look", screenshotting a site and attaching it, was equally dead.
+
+**A URL in the brief was just characters.** Nothing fetched it, so the model read
+the domain name, inferred a trade, and invented a business. The failure mode is
+the bad kind: it does not error, it produces a plausible answer that is not a
+copy, and nothing anywhere says a fetch did not happen. That is why the reporting
+is now half the feature — a link that could not be read travels as "could not
+read it" all the way into the chat, and a failed read is never silent.
+
+**No web search, and it was structural.** Both model calls force one tool with
+`tool_choice: {type:"tool", name:…}`, which forbids any other tool — so adding a
+search tool to the array would not have been enough on its own.
+
+What went in:
+
+- **`builder/site-context.mjs`** — the third input tier, as a plain testable
+  module: link extraction (bare hostnames included, because "copy
+  sharpfadebarbers.com" is how people write it), HTML → readable text, the search
+  gate, image validation, and the sentence the customer reads.
+- **The search gate rides on `design_schema`**, which already reads the brief and
+  already returns structured output — so gating costs no extra model call. A
+  barber shop needs no current facts and never searches.
+- **Research overlaps provisioning.** Started right after the designer and
+  awaited just before page generation, so the seconds spent creating a Neon
+  project and applying a schema absorb it.
+- **Images go to page generation only**, in the user message after the cached
+  blocks, so an attachment does not bust the ~27k-token prompt cache. Not to the
+  schema call: that fee is flat, so tokens there are unrecovered cost.
+- **Billing obeys the existing one-sentence rule** — research is charged when a
+  real app publishes and is free on every path that ends in the placeholder.
+  Search is priced per search (`SEARCH_USD`), because it is invisible in tokens.
+
+**Two things were found by not trusting the first result, and both are the
+lesson.** The mutation sweep initially reported 31/32 caught with nearly every
+mutant blamed on the same test — because the baseline was already red from a
+stale assertion, so the sweep proved nothing. It checks the baseline first now.
+And the chat note rendered as one run-on paragraph, burying "couldn't read your
+link" mid-sentence, because `.st-msg` has no `white-space: pre-wrap`; every test
+passed and it was caught by looking at a render.
+
+**NOT PROVEN LIVE.** The Anthropic account still has no balance, so every build
+503s at `stage:"design"` before any of this executes. 1443 unit tests and 35/35
+mutations from a verified-green baseline; the first funded build is what confirms
+it end to end.
+
 ## 2026-08-03 — VARIANTS ARE ALT PAGES INSIDE THE FAMILY APP (owner's call)
 
 **"I think the variants should be pages inside the app reference."** The axis

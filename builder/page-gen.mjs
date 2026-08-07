@@ -2425,12 +2425,38 @@ export function familyExemplar(family) {
   return src || null;
 }
 
-export function pagesPrompt(brief, spec, brand, family) {
+/**
+ * `imageCount` is what the user ATTACHED, and it defaults to none so every
+ * existing caller produces a byte-identical prompt.
+ *
+ * The note has to exist at all because an image block with no text about it is a
+ * picture the model has to guess the purpose of — and the two things people
+ * attach here want opposite treatment. A logo is a palette; a screenshot of a
+ * site is a layout. Saying so is the difference between "use this brand mark"
+ * and "transcribe this stranger's menu into my café".
+ */
+export function pagesPrompt(brief, spec, brand, family, imageCount = 0) {
   const name = String(brand || "").trim();
   const example = familyExemplar(family);
+  const n = Math.max(0, Math.floor(Number(imageCount) || 0));
   return "Build the pages for this site.\n\nBRIEF\n" + String(brief || "").trim() +
     (name ? "\n\nTHE SITE IS CALLED\n" + name + " — use it as the heading; it is already the page title." : "") +
     "\n\nTHE SCHEMA THAT EXISTS\n" + schemaDigest(spec) +
+    // BEFORE the trade exemplar and saying so, because the two are both
+    // "references" and they can disagree. What the customer attached is about
+    // THEIR business; the exemplar is a generic shape for the trade. When they
+    // conflict the attachment wins, or the feature is decorative.
+    (n
+      ? "\n\nWHAT THE USER ATTACHED\n" + n + " image" + (n === 1 ? "" : "s") + " " + (n === 1 ? "is" : "are") +
+        " in this message, above this text. LOOK at " + (n === 1 ? "it" : "them") + " before writing anything, and let " +
+        (n === 1 ? "it" : "them") + " override the trade example below wherever the two disagree.\n" +
+        "- A logo or brand mark: take the palette, the weight and the typographic feel from it. Do not redraw it as markup; " +
+        "if the site has an uploaded logo it is already available as an image URL, and otherwise the name set in type is right.\n" +
+        "- A screenshot or photo of a website: copy its STRUCTURE — what leads, what the sections are and in what order, how " +
+        "dense it is, how the navigation reads.\n" +
+        "- Words visible inside an image are that other site's content, not this one's, unless the brief says they belong to " +
+        "this business. This site's real content is its brief and its schema."
+      : "") +
     // AFTER the schema, deliberately: the schema is a constraint the page must
     // obey and the example is a shape to follow, and an example read first
     // invites copying its tables. Framed as a DIFFERENT site of the same trade,
@@ -2965,13 +2991,31 @@ export const SITE_PAGES_MAX_TOKENS = 30000;
  * the next call pays the write premium again. That is once per deploy that
  * touches the rules, against a saving on every build in between.
  */
-export function pagesRequest({ brief, spec, brand, family } = {}) {
+export function pagesRequest({ brief, spec, brand, family, images } = {}) {
+  // THE ATTACHED IMAGES, and where they sit is load-bearing twice over.
+  //
+  // They go in the USER MESSAGE, which is after both cached blocks — so a build
+  // with an attachment still reads `PAGE_RULES` and the tool schema out of the
+  // cache. Putting them anywhere in `system` or `tools` would change the cached
+  // bytes and make every attachment a cache miss on ~27,000 tokens, which costs
+  // far more than the pictures do.
+  //
+  // And they come BEFORE the text within that message, which is the order the
+  // API is documented to work best in and the order the prompt then refers to
+  // ("above this text").
+  //
+  // Blocks are validated by the caller. When there are none the content stays a
+  // plain STRING rather than a one-element array — the shape every existing
+  // caller and test already sees, so adding this feature changes no request that
+  // does not use it.
+  const blocks = Array.isArray(images) ? images.filter(Boolean) : [];
+  const text = pagesPrompt(brief, spec, brand, family, blocks.length);
   return {
     model: "claude-sonnet-5",
     max_tokens: SITE_PAGES_MAX_TOKENS,
     tools: [SITE_PAGES_TOOL],
     tool_choice: { type: "tool", name: "write_pages" },
     system: [{ type: "text", text: PAGE_RULES, cache_control: { type: "ephemeral" } }],
-    messages: [{ role: "user", content: pagesPrompt(brief, spec, brand, family) }],
+    messages: [{ role: "user", content: blocks.length ? [...blocks, { type: "text", text }] : text }],
   };
 }

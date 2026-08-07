@@ -10343,7 +10343,7 @@ function renderSiteWorkspace(view, site) {
     const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
     thread.innerHTML = (site.msgs || []).map((m) => m.r === 'u'
       ? '<div class="st-msg u">' + esc(m.t) + '</div>'
-      : '<div class="st-msg a">' + linkify(m.t) + (m.build ? reactStepsHTML(m.build) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
+      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + linkify(m.t) + (m.build ? reactStepsHTML(m.build) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
     ).join('') + (siteBusy
       ? (siteBuild
           ? (siteBuild.react
@@ -10604,10 +10604,17 @@ async function readReactStream(r, origin) {
 }
 // Finish a React build/revise: stop the live log, append the assistant message
 // WITH its step data (so the collapsed rows persist in the thread), re-render.
-function siteFinishBuild(origin, reply, build) {
+function siteFinishBuild(origin, reply, build, note) {
   siteBusy = false; siteBuildMsg = ''; siteBuildStop();
   const s = siteById(origin); if (!s) return;
-  s.msgs.push({ r: 'a', t: reply, build: build });
+  // `note` is its OWN field rather than being prepended to `t` with a blank
+  // line. `.st-msg` has no `white-space: pre-wrap`, so a newline inside the
+  // text collapses to a space and the note runs into the result as one
+  // paragraph — which buries exactly the sentence that has to be noticed
+  // ("couldn't read your link"). Caught by looking at a render; every test
+  // passed. Stored on the message so it survives a reload, since the thread is
+  // rebuilt from localStorage.
+  s.msgs.push({ r: 'a', t: reply, note: note || undefined, build: build });
   s.updatedAt = Date.now(); sitesSave();
   if (siteOpenId === origin) renderSites();
 }
@@ -10636,7 +10643,14 @@ function reactSend(site, t, origin, mode, imgs, finish) {
       siteErr = null;
       const build = { files: (siteBuild && siteBuild.filesSeen && siteBuild.filesSeen.length) ? siteBuild.filesSeen.slice() : (d.files || []), images: (siteBuild && siteBuild.images) ? siteBuild.images.slice() : [], buildMs: d.buildMs, cost: d.cost, slug: d.slug, revised: mode === 'revise', backend: !!d.backend };
       const name = (siteById(origin) || {}).name;
-      siteFinishBuild(origin, (mode === 'revise' ? '✅ Updated — the preview’s refreshed.' : '✅ Built ' + (name ? '“' + name + '”' : 'your site') + '. Tell me what to change.') + used, build);
+      // What was READ for this build — a linked page, a web lookup, or a link
+      // we could not reach. Composed server-side (see contextSentence) because
+      // this file cannot import the module that decides it, and a second copy
+      // here would eventually claim a link was read when it wasn't. Sits on its
+      // own line ahead of the result so a failed read is not buried after the
+      // credit count.
+      const note = (d && typeof d.contextNote === 'string') ? d.contextNote.trim() : '';
+      siteFinishBuild(origin, (mode === 'revise' ? '✅ Updated — the preview’s refreshed.' : '✅ Built ' + (name ? '“' + name + '”' : 'your site') + '. Tell me what to change.') + used, build, note);
     } else if (r.status === 402 || (d && d.need === 'credits')) {
       finish('⚡ You don’t have enough credits to build this right now. Tap your ✦ balance up top to get more.');
     } else if (d && d.need === 'rebuild') {
