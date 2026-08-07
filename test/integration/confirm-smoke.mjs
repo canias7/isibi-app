@@ -297,6 +297,7 @@ try {
     return j && j.webhook ? j.webhook : null;
   };
   const attempt = await note();
+  const attemptAt = (attempt && attempt.at) || "";
   console.log("   worker's own account:", JSON.stringify(attempt));
   ok("the Worker recorded the attempt at all", !!attempt,
     "nothing recorded — the emit never ran, which is a different fault from a refused delivery");
@@ -348,6 +349,33 @@ try {
   const blocked = (await ownerRows("hook_log")).filter((r) => !before.some((b) => b.id === r.id));
   ok("and nothing was delivered to the blocked host",
     blocked.length === 1, `${blocked.length} rows — a second means the guard did not fire`);
+
+  // ── THE CALL REALLY LEAVES OUR NETWORK ───────────────────────────────────
+  //
+  // The receiver above is `gofarther.dev`, which is THIS WORKER'S OWN ZONE, and a
+  // Worker fetching its own zone is a self-referential subrequest that Cloudflare
+  // does not complete — measured, not assumed: the record came back
+  // `status: 522`, its "connection timed out". Everything before that point is
+  // therefore proved (the secret read, the routing, the SSRF guard, the call
+  // being made) and delivery to a real destination is not, because no real
+  // destination is our own domain.
+  //
+  // `example.com` is IANA's reserved domain: stable, foreign, and it answers a
+  // POST. What matters is not the body — it discards it — but that a genuine
+  // HTTP status comes back from outside our network, which is the one link the
+  // self-fetch made untestable. Only synthetic data ever reaches it.
+  console.log("\na destination outside our own zone…");
+  await setSecret("WEBHOOK_URL", "https://example.com/hook");
+  await data("bookings", jsonPost({ who: "Kit", email: "kit@example.com", slot: "12:00" }));
+  let ext = null;
+  for (let i = 0; i < 10 && !(ext && ext.at > attemptAt); i++) {
+    await new Promise((r) => setTimeout(r, 1200));
+    ext = await note();
+  }
+  console.log("   external destination:", JSON.stringify(ext));
+  ok("the Worker reached a host outside its own zone",
+    !!(ext && ext.status > 0 && ext.status !== 522),
+    JSON.stringify(ext) + " — 522 is Cloudflare failing a self-referential subrequest, 0 is no response at all");
 
   // --- the jobs that should and should not have registered -----------------
   console.log("\nwhich jobs registered…");
