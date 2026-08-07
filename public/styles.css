@@ -1746,7 +1746,14 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .fn-sch svg { width: 12px; height: 12px; }
 .fn-hook { display: flex; align-items: center; gap: .5rem; margin-top: .55rem; padding-top: .55rem; border-top: 1px solid var(--line); }
 .fn-hook-label { font-size: .64rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); flex: none; }
-.fn-hook-url { font-family: ui-monospace, monospace; font-size: .72rem; color: var(--dim, #a49fb5); background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: .2rem .45rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+/* FULL-STRENGTH INK. `--dim` is not defined anywhere, so this fell through to a
+   hardcoded #a49fb5 — a dark-theme lavender-grey, left behind by the 2026-07-23
+   move to the light theme. On the white surface it reads as PLACEHOLDER text,
+   and this is the webhook URL: the one string on the card an owner is here to
+   copy. Same fix and same reasoning as `.sd-rf code` in the Domains panel.
+   (`.si-count` is the other `--dim` reference and is fine — it falls back to
+   `var(--muted)`, which is a real token in this theme.) */
+.fn-hook-url { font-family: ui-monospace, monospace; font-size: .74rem; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: .22rem .45rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
 .fn-hook-copy { flex: none; font: inherit; font-size: .72rem; font-weight: 600; color: var(--text, #e8e6ef); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 7px; padding: .2rem .6rem; cursor: pointer; }
 .fn-hook-copy:hover { border-color: var(--amber, #000000); color: #fff; }
 /* Domains panel (Cloud → Domains) — the owner's own web address.
