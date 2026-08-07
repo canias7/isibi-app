@@ -9762,13 +9762,11 @@ function renderSites() {
     '<div class="st-page">' +
       '<div class="st-hero">' +
         '<h1>What are we <span class="st-grad">building</span>?</h1>' +
-        '<p>Describe a site and Go Farther builds it — then refine it by chatting. <span class="sch-flag">Beta</span></p>' +
       '<div class="st-new">' +
         '<textarea id="stPrompt" class="st-in" rows="2" placeholder="Describe the website you want — “a landing page for my sneaker brand, dark, bold type, waitlist form”…"></textarea>' +
         '<div class="st-attach" id="stAttach"></div>' +
         '<div class="st-new-foot">' +
           '<button type="button" class="st-attbtn" id="stAttachBtn" title="Attach a logo or reference image">' + ic('image', 15) + ' Attach</button>' +
-          '<span class="st-hint">Credits are used as you build — refunded if a build fails.</span>' +
           '<button type="button" class="st-gen" id="stGen" aria-label="Build it" title="Build it"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>' +
         '</div>' +
       '</div></div>' +
