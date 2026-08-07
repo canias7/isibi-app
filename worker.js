@@ -7,6 +7,7 @@ import { dueJobs, runJob } from "./site-jobs.mjs";
 import { hostIsBlocked, blockedReason } from "./site-ssrf.mjs";
 import { deliverWebhook, firesFor, signPayload, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
 import { takeToken, verify as turnstileVerify, TOKEN_FIELD as TURNSTILE_FIELD } from "./site-turnstile.mjs";
+import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_PER_MIN } from "./site-inbound.mjs";
 import { Container, getContainer } from "@cloudflare/containers";
 import { makeCache, memoize } from "./ttl-cache.mjs";
 import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
@@ -2481,7 +2482,14 @@ const SITE_SCHEMA_TOOL = {
           "random uuid, and the column is TEXT, so the function's argument is type 'text' too — plus a function taking that " +
           "token and returning exactly the matching row, then " +
           "the site can offer a link back to it. Declare a second to cancel by the same token. Skip this entirely for a " +
-          "plain contact form, which nobody returns to. Bodies are plain SQL over this site's own tables.",
+          "plain contact form, which nobody returns to. Bodies are plain SQL over this site's own tables.\n\n" +
+          "RECEIVING DATA FROM ANOTHER SYSTEM. A function named `hook_<something>` taking exactly one jsonb argument and " +
+          "marked internal:true is reachable at POST /api/db/<slug>/hook/<something>, behind a shared secret the OWNER " +
+          "stores. Use it when the brief says another system sends this site data — a supplier's stock feed, a booking " +
+          "platform syncing appointments, an order marked shipped, a form service like Typeform or Zapier. The body does " +
+          "whatever the payload means: INSERT, UPDATE, or nothing. Make it IDEMPOTENT — senders retry, so declare a unique " +
+          "column for the sender's own event/order id and use ON CONFLICT DO NOTHING, or the same delivery lands twice. " +
+          "The `hook_` prefix is what makes it reachable; without it the function stays private to the platform.",
         items: {
           type: "object",
           required: ["name", "returns", "body"],
@@ -2502,7 +2510,7 @@ const SITE_SCHEMA_TOOL = {
             returns: { type: "string", description: "'setof <table>' for rows of a table this schema declares, else one of void/text/int/bigint/numeric/boolean/uuid/date/timestamptz/json/jsonb." },
             body: { type: "string", description: "The SQL body only — no CREATE FUNCTION, no $$ wrapper. e.g. SELECT * FROM bookings WHERE claim_token = tok" },
             internal: { type: "boolean", description:
-              "Set true when the function is for the PLATFORM to call, never a page — today that means a `confirm: {fn}` message builder. " +
+              "Set true when the function is for the PLATFORM to call, never a page — a `confirm: {fn}` message builder, or a `hook_*` inbound webhook handler. " +
               "An internal function gets no EXECUTE grant, so no visitor can call it. That matters: it takes a row id and returns somebody's " +
               "email address and message, so left callable a stranger reads any customer's confirmation by guessing a number. " +
               "Leave it off for anything a page calls by name, like a claim lookup." },
@@ -3870,6 +3878,47 @@ const webhookHits = new Map();
 // after switching OFF, real submissions are refused — which is why the delete
 // path clears this cache as well as the webhook one.
 const turnstileCfg = makeCache({ ttlMs: 15_000, max: 500 });
+
+/**
+ * The real side effects for an inbound webhook, supplied to `site-inbound.mjs`
+ * the way `publish-pages.mjs` and `site-provision.mjs` take theirs.
+ *
+ * ON THE OWNER CONNECTION, and that is what makes a hook function safe to leave
+ * ungranted. It is declared `internal`, so `functionSql` REVOKEs EXECUTE from
+ * PUBLIC and hands it to neither Data API role — meaning the ONLY way to reach
+ * it is this route, behind the shared secret. The owner connection bypasses
+ * grants, so the function loses nothing by having none.
+ */
+function inboundDeps(env, slug, db) {
+  return {
+    loadSchema: () => loadSiteSchema(db),
+    loadSecrets: async (names) => {
+      const map = {};
+      for (const name of names) {
+        try {
+          const rows = await sqlQuery(db, "SELECT cipher FROM _secrets WHERE name=?", [name]);
+          const cipher = rows && rows[0] && rows[0].cipher;
+          if (!cipher) continue;
+          // One unreadable row must not stop the other being found — the same
+          // call `confirmSubmitter` makes for its four names.
+          const v = await readSecret({ get: async () => cipher }, env, { slug, name });
+          if (v) map[name] = v;
+        } catch { /* absent */ }
+      }
+      return map;
+    },
+    // The name is re-checked against the schema by `functionFor` before it gets
+    // here, and quoted on the way in regardless: a stored schema is only as
+    // good as whatever last wrote it, and this is the boundary.
+    callFn: async (name, payload) => {
+      const rows = await sqlQuery(db, "SELECT " + sqlIdent(name) + "(?::jsonb) AS out", [JSON.stringify(payload)]);
+      const out = rows && rows[0] && rows[0].out;
+      return typeof out === "string" ? JSON.parse(out) : (out ?? null);
+    },
+    throttle: async (key) => _dataLimiter.hit("inbound|" + key, INBOUND_PER_MIN),
+    log: (...a) => console.error(...a),
+  };
+}
 
 /**
  * Forget everything this isolate remembers about a site's Secrets.
@@ -6370,6 +6419,45 @@ async function handleRequest(request, env, ctx) {
           return Response.json(t.body, { status: t.status, headers: t.headers });
         }
         return proxySiteService(env, request, url, slug, dpath, "data", ctx);
+      }
+    }
+
+    // SOMEBODY ELSE'S SYSTEM PUSHING DATA INTO A PUBLISHED SITE.
+    //
+    // The mirror of the outbound webhook: that one told the world something
+    // happened here, this one lets the world tell the site. It exists in the
+    // platform for the same two reasons everything else on this list does — it
+    // needs an HTTP endpoint, which Postgres cannot serve, and it needs a shared
+    // secret, which a public bundle cannot hold.
+    //
+    // What it does with the payload is NOT the platform's business: it is handed
+    // to `hook_<name>(payload jsonb)`, a function the model wrote at build time.
+    // No field mapping here, no menu of verbs.
+    if (url.pathname.startsWith("/api/db/") && url.pathname.includes("/hook/")) {
+      const hm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/hook\/([a-z][a-z0-9_-]{0,40})$/i);
+      if (hm) {
+        // POST only, and 405 rather than 404: a sender misconfigured to GET
+        // should learn that, where a stranger guessing names should not.
+        if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
+        const slug = hm[1].toLowerCase();
+        const hname = hm[2].toLowerCase().replace(/-/g, "_");
+        const hdb = await siteBackendBySlug(env, slug);
+        if (!hdb) return Response.json({ error: "no such hook" }, { status: 404 });
+        // READ THE RAW BYTES. An HMAC is over exactly what was sent, and
+        // re-serialising a parse changes key order and whitespace — every real
+        // signature would fail while every hand-built test payload passed.
+        const raw = await request.text();
+        const out = await handleInbound(inboundDeps(env, slug, hdb), {
+          slug, name: hname, headers: request.headers, body: raw,
+          // CF-Connecting-IP only: the `X-Forwarded-For` fallback used
+          // elsewhere is client-settable, so a caller varying it mints a fresh
+          // rate-limit bucket per request.
+          ip: request.headers.get("CF-Connecting-IP") || "",
+        });
+        return Response.json(out.body, {
+          status: out.status,
+          headers: out.retryAfter ? { "retry-after": String(out.retryAfter) } : undefined,
+        });
       }
     }
 

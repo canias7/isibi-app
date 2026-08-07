@@ -30,6 +30,11 @@
 // It costs a throwaway Neon project and a Supabase user, both destroyed in the
 // `finally`. Needs SUPABASE_SERVICE_KEY and NEON_API_KEY.
 import { dropUserProject } from "../../site-db.mjs";
+// The signer, imported rather than rewritten. Unlike `site-otp.mjs` — where the
+// test writes its own authenticator, because importing the implementation under
+// test proves only that it agrees with itself — HMAC-SHA256 is a published
+// standard with one right answer, and the thing under test here is the ROUTE.
+import { hmacHex } from "../../site-inbound.mjs";
 
 const BASE = process.env.SMOKE_BASE_URL || "https://gofarther.dev";
 const SUPABASE_URL = "https://ujrqdmmtcptvimazlhom.supabase.co";
@@ -101,6 +106,22 @@ const SCHEMA = {
         { name: "data", type: "json" },
       ],
     },
+    // Where an INBOUND delivery lands. `collect`, so nothing public can read
+    // it back — the assertions go through the owner's door, which is the same
+    // path a real owner would use to see what a supplier sent.
+    {
+      name: "stock",
+      access: "collect",
+      columns: [
+        { name: "sku", type: "text" },
+        { name: "qty", type: "int" },
+        { name: "event_id", type: "text" },
+      ],
+      // IDEMPOTENCY, which is the whole difference between a retried delivery
+      // and a duplicate order. Every webhook sender retries; the schema is
+      // where that is expressed, and the function below leans on it.
+      unique: ["event_id"],
+    },
   ],
   functions: [
     {
@@ -114,6 +135,34 @@ const SCHEMA = {
       args: [{ name: "want", type: "text" }],
       returns: "text", language: "sql",
       body: "SELECT 'we have ' || want",
+    },
+    // THE INBOUND HANDLER. Named `hook_*`, internal, one jsonb argument — the
+    // four properties `functionFor` demands, all of which have to hold together
+    // for the route to reach it at all.
+    //
+    // `ON CONFLICT DO NOTHING` against the unique `event_id` is what makes a
+    // retried delivery harmless, and it is model-written SQL rather than
+    // anything the platform provides. That is the point of the design: the
+    // platform owns the endpoint and the secret, the site owns the meaning.
+    {
+      name: "hook_stock",
+      args: [{ name: "payload", type: "jsonb" }],
+      returns: "json", language: "sql", internal: true,
+      body: `WITH ins AS (
+        INSERT INTO stock (sku, qty, event_id)
+        VALUES (payload->>'sku', (payload->>'qty')::int, payload->>'event_id')
+        ON CONFLICT (event_id) DO NOTHING
+        RETURNING id
+      ) SELECT json_build_object('stored', (SELECT count(*) FROM ins))`,
+    },
+    // Internal, one jsonb argument — and NOT named `hook_`, so the route must
+    // refuse it even to a caller holding the shared secret. This is the
+    // enumeration boundary in the same shape as `confirm_booking`.
+    {
+      name: "private_peek",
+      args: [{ name: "payload", type: "jsonb" }],
+      returns: "json", language: "sql", internal: true,
+      body: "SELECT json_build_object('leaked', (SELECT count(*) FROM bookings))",
     },
   ],
   jobs: [
@@ -327,6 +376,95 @@ try {
   const stillOk = await data("bookings", jsonPost({ who: "Jo", email: "jo@example.com", slot: "23:30" }));
   ok("a booking whose webhook is refused still succeeds",
     stillOk.status >= 200 && stillOk.status < 300, stillOk.status);
+
+  // --- INBOUND: somebody else's system pushing data in ---------------------
+  //
+  // The mirror of everything above. Proved live, and free: no model call, no
+  // third party, and the delivery lands as a real row in the site's own
+  // Postgres which is read back through the owner's door.
+  console.log("\ninbound webhooks…");
+  const HOOK_SECRET = "whsec_" + stamp + "_" + Math.random().toString(36).slice(2, 12);
+  const hookUrl = (n) => `${BASE}/api/db/${slug}/hook/${n}`;
+  const deliver = (n, headers, body) => fetch(hookUrl(n), {
+    method: "POST", headers: { "content-type": "application/json", ...headers },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+  // Through the OWNER's door: `stock` is `collect`, so nothing public reads it.
+  const stockRows = async () => {
+    const r = await fetch(`${BASE}/api/site/${slug}/rows/stock`, { headers: { Authorization: `Bearer ${jwt}` } });
+    const j = await r.json().catch(() => ({}));
+    return Array.isArray(j.rows) ? j.rows : [];
+  };
+
+  // FAILS CLOSED BEFORE THE SECRET EXISTS, which is the opposite of the spam
+  // gate and deliberately so: this one writes to the owner's database on behalf
+  // of a stranger, so unproven means refused.
+  const unsecured = await deliver("stock", { authorization: "Bearer " + HOOK_SECRET }, { sku: "A", qty: 1, event_id: "e0" });
+  ok("with no secret stored the hook does not exist", unsecured.status === 404, unsecured.status);
+  ok("and nothing was written", (await stockRows()).length === 0);
+
+  const hs = await setSecret("HOOK_SECRET_STOCK", HOOK_SECRET);
+  ok("the owner can store the hook's secret", hs.status >= 200 && hs.status < 300, hs.status);
+
+  // The shared secret, the way most systems offer to send one.
+  const d1 = await deliver("stock", { authorization: "Bearer " + HOOK_SECRET }, { sku: "AB-1", qty: 4, event_id: "evt_1" });
+  const d1b = await d1.json().catch(() => ({}));
+  ok("a delivery with the right secret is accepted", d1.status === 200, d1.status + " " + JSON.stringify(d1b));
+  ok("and the function's own answer comes back", d1b && d1b.stored === 1, JSON.stringify(d1b));
+  let rows = await stockRows();
+  ok("the row really landed in Postgres", rows.length === 1 && rows[0].sku === "AB-1", JSON.stringify(rows).slice(0, 200));
+
+  // AN HMAC OVER THE RAW BODY — the stronger proof, and the one GitHub, Shopify
+  // and most payment providers send.
+  const rawBody = JSON.stringify({ sku: "CD-2", qty: 9, event_id: "evt_2" });
+  const sig = await hmacHex(HOOK_SECRET, rawBody);
+  const d2 = await deliver("stock", { "x-hub-signature-256": "sha256=" + sig }, rawBody);
+  ok("a signed delivery is accepted", d2.status === 200, d2.status);
+  ok("and it landed too", (await stockRows()).length === 2);
+
+  // A signature over DIFFERENT bytes must not open the door — that is the only
+  // thing an HMAC buys over a shared secret.
+  const tampered = JSON.stringify({ sku: "CD-2", qty: 9000, event_id: "evt_3" });
+  const d3 = await deliver("stock", { "x-hub-signature-256": "sha256=" + sig }, tampered);
+  ok("a signature over other bytes is refused", d3.status === 401, d3.status);
+  ok("and nothing was written", (await stockRows()).length === 2);
+
+  const d4 = await deliver("stock", { authorization: "Bearer not-the-secret" }, { sku: "X", qty: 1, event_id: "evt_4" });
+  ok("a wrong secret is refused", d4.status === 401, d4.status);
+
+  const d5 = await deliver("stock", {}, { sku: "X", qty: 1, event_id: "evt_5" });
+  ok("no credential at all is refused", d5.status === 401, d5.status);
+  ok("still nothing written", (await stockRows()).length === 2);
+
+  // RETRIES ARE THE NORMAL CASE. Every sender redelivers on a timeout; the
+  // model's ON CONFLICT is what stops the second one becoming a duplicate.
+  const d6 = await deliver("stock", { authorization: "Bearer " + HOOK_SECRET }, { sku: "AB-1", qty: 4, event_id: "evt_1" });
+  const d6b = await d6.json().catch(() => ({}));
+  ok("a redelivered event is accepted", d6.status === 200, d6.status);
+  ok("and says it stored nothing", d6b && d6b.stored === 0, JSON.stringify(d6b));
+  rows = await stockRows();
+  ok("so the retry did not duplicate the row", rows.length === 2, JSON.stringify(rows.map((r) => r.event_id)));
+
+  // THE PREFIX IS THE BOUNDARY, and this is the check that matters: knowing the
+  // shared secret must not become a way to call every other internal function.
+  // `private_peek` is internal and takes one jsonb argument — it satisfies
+  // everything except the name.
+  const peek = await deliver("private_peek", { authorization: "Bearer " + HOOK_SECRET }, {});
+  ok("an internal function without the hook_ prefix is unreachable", peek.status === 404, peek.status);
+  const peekBody = await peek.text();
+  ok("even holding the secret", !/leaked/.test(peekBody), peekBody.slice(0, 120));
+  // And the confirmation builder, which is the real-world version of the same.
+  const conf = await deliver("booking", { authorization: "Bearer " + HOOK_SECRET }, { row_id: 1 });
+  ok("nor is the confirmation builder", conf.status === 404, conf.status);
+
+  const wrongMethod = await fetch(hookUrl("stock"), { headers: { authorization: "Bearer " + HOOK_SECRET } });
+  ok("a GET is 405, so a misconfigured sender learns why", wrongMethod.status === 405, wrongMethod.status);
+
+  const notJson = await deliver("stock", { authorization: "Bearer " + HOOK_SECRET }, "this is not json");
+  ok("a body that is not json is the caller's fault", notJson.status === 400, notJson.status);
+
+  const unknown = await deliver("nothing_here", { authorization: "Bearer " + HOOK_SECRET }, {});
+  ok("an undeclared hook is 404", unknown.status === 404, unknown.status);
 
   // --- the jobs that should and should not have registered -----------------
   console.log("\nwhich jobs registered…");
