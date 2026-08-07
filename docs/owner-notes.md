@@ -14275,3 +14275,76 @@ not the first, which reaches production looking like an intermittent form
 failure); an internal function is not callable by a visitor while the ordinary
 one beside it is; and exactly the declared job registers, with the two invalid
 ones dropped.
+
+## The four things the model cannot do for a site (2026-08-07)
+
+Owner's direction: *"things that the model won't be able to do by itself, like the
+email thing we did."* Four built, in one sitting. Every one of them is here for
+**the same two walls**, and it is worth stating once because it decides the answer
+every time this question comes up: a published page is public files on R2, so it
+cannot hold a key; and Postgres has no HTTP client on Neon, so model-written SQL
+cannot make a call. Anything needing a credential AND a network call is platform
+code. Everything else stays the model's.
+
+**1. Spam protection (Cloudflare Turnstile).** A generated site's form is a public
+URL that writes to a database. The owner pastes `TURNSTILE_SITE_KEY` +
+`TURNSTILE_SECRET` into Secrets; the widget mounts itself at the app root and
+`useCreateRow` attaches the token. **Not a kit component on purpose** — the first
+form the model forgot it on would be an unprotected form on a site whose owner
+believed it was protected, which is exactly the trap `safe-image` exists to close.
+**Fails OPEN**: Cloudflare down, or the owner's secret wrong, and the booking goes
+through. Off for every site today.
+
+**2. Inbound webhooks.** `POST /api/db/<slug>/hook/<name>` → a `hook_<name>(payload
+jsonb)` function the model wrote. A supplier's stock feed, a booking platform, a
+Zapier delivery. **Fails CLOSED** — the opposite call from spam protection, because
+this WRITES to the owner's database for a stranger. The `hook_` prefix is a
+security boundary, not a convention: without it, the shared secret would be the
+only thing between a stranger and `confirm_booking(id)`, which returns a
+customer's name and address. Proved live in `confirm smoke`, 27 new checks.
+
+**3. Third-party reads.** `useApi("rates", {base})` → the site declares the whole
+request with `{{SECRET}}` placeholders and the Worker substitutes from the vault.
+One primitive, so a courier, a currency feed and a stock system are the same
+feature. Parameters are an allow-list and URL-encoded — a caller may change the
+postcode, never the host.
+
+**4. SMS.** `sms: {fn}` beside `confirm: {fn}`, on the owner's own Twilio /
+MessageBird / Vonage. A texted booking confirmation is read where an emailed one
+is not, and for a barber or a garage that is the whole point. Separate from
+`confirm` so a site can have both.
+
+### What this cost, and the two live bugs it turned up
+
+**`_meta` dropped `internal`, so EVERY inbound hook was dead the hour it shipped.**
+`applySiteSchema` recorded `{name, args, returns}`, and `_meta` is the only copy
+the request path ever sees. Build succeeded, function existed in Postgres, feature
+unreachable. The sixth time this file has recorded that exact shape. Now guarded
+at both ends — the reader's requirement and the writer's output are asserted to
+agree, which is the only form of this guard that cannot rot.
+
+**A test anchored on `metaOut.functions` and read the wrong window** — the first
+mention of that name in `site-schema.mjs` is a comment eighty lines above the
+code. Same family as blanking comments in `worker.js`. Anchor on an assignment or
+a call, never a bare name.
+
+**Timing properties are invisible to behavioural tests.** Two mutations on the
+webhook secret comparison — replacing it with `===`, and with a loop that exits on
+the first differing byte — survived the entire suite, because every assertion only
+reads the ANSWER and the property is how long it takes. Asserted on the source
+instead. Weaker, and the strongest thing available.
+
+**A vacuous pass that took two attempts to isolate.** The SMS "two numbers in one
+field" case was `+1 555 0000, +1 555 1111`, refused for being twenty digits — so
+removing the separator check entirely still passed. Rewritten as `+1555000, +1444`
+it was refused for its second `+`. Only `+1555000,1444`, whose sole illegal
+character is the separator, actually holds the property.
+
+### Still to do
+
+- **Turnstile has no live proof.** 24 unit tests and 11 mutations, but no real bot
+  turned away — that needs a Turnstile key on a published site.
+- **SMS has no live proof either**, and cannot have a free one: it needs a real
+  Twilio account and every message costs money.
+- Inbound webhooks and third-party reads are covered by `confirm smoke`, which is
+  free and runs on every deploy.
