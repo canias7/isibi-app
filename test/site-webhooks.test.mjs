@@ -258,8 +258,12 @@ test("the Worker wires the webhook to the same branch as the confirmation", () =
   const helper = raw
     .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
     .replace(/(^|[^:])\/\/[^\n]*/g, (m, p1) => p1 + " ".repeat(m.length - p1.length));
-  assert.match(helper, /WEBHOOK_URL/);
-  assert.match(helper, /_secrets/, "it must read the site's own vault");
+  // The Worker fetches the WEBHOOK-prefixed set and `site-webhooks.mjs` picks
+  // between them, so the specific name lives in the module now. Asserted as the
+  // PREFIX here and as the name there, which is what each file is responsible
+  // for — pinning `WEBHOOK_URL` in both places would just be one fact twice.
+  assert.match(helper, /WEBHOOK%/, "it must read the webhook configuration");
+  assert.match(helper, /_secrets/, "from the site's own vault");
   assert.equal(/body\.(webhook|url)/i.test(helper), false, "never from the request");
   // 5. detached, so a slow receiver is not something a customer waits on
   assert.match(helper, /ctx\.waitUntil\(/);

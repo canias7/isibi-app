@@ -3848,7 +3848,14 @@ function emitWebhook(env, ctx, { slug, db, def, table, action, row }) {
     // emit — because those are the resting state of most sites and writing them
     // would put a database round trip on every insert on the platform to record
     // that nothing happened.
-    if (out.reason !== "no WEBHOOK_URL in Secrets" && out.reason !== "table does not emit this action") {
+    // RECORDED FOR EVERY OUTCOME ONCE THE TABLE EMITS. The first version also
+    // skipped "no WEBHOOK_URL", on the reasoning that an unconfigured site is
+    // the common case — and that is true, but it made the single most useful
+    // diagnostic invisible: a site that HAS a destination and cannot read it
+    // looks identical to one that never set one. Only "this table does not emit"
+    // is skipped now, which is the genuine resting state of the platform and the
+    // one that would put a write on every insert everywhere.
+    if (out.reason !== "table does not emit this action") {
       if (!out.sent) console.error("webhook:", slug, table, action, out.reason || "", out.status || "");
       // Best-effort, and it must not throw: the delivery already happened or
       // already failed, and losing the note is strictly better than turning it
@@ -3859,6 +3866,9 @@ function emitWebhook(env, ctx, { slug, db, def, table, action, row }) {
             at: new Date().toISOString(), table, action,
             ok: !!out.sent, status: out.status || 0,
             reason: out.reason || null, signed: !!out.signed,
+            // Which WEBHOOK* names the vault returned — the difference between
+            // "never configured", "read came back empty" and "would not decrypt".
+            found: out.found || null,
           })]);
       } catch (e) { console.error("webhook note:", slug, e && e.message); }
     }

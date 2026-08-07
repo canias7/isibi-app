@@ -138,9 +138,13 @@ export async function deliverWebhook(deps, { slug, table, action, row, now }) {
       return typeof v === "string" ? v.trim() : "";
     };
     const url = pick("WEBHOOK_URL");
-    // Not an error, and not logged as one: no URL is the state of every site
-    // that never wanted this, which is most of them.
-    if (!url) return { sent: false, reason: "no WEBHOOK_URL in Secrets" };
+    // `found` names what the vault actually returned. Without it, "no
+    // WEBHOOK_URL" is indistinguishable between three very different faults: the
+    // owner never set one, the read came back empty, or it came back and would
+    // not decrypt. Names only — never values — since this is reported to a
+    // caller and written to a row.
+    const found = Object.keys(secrets);
+    if (!url) return { sent: false, reason: "no WEBHOOK_URL in Secrets", found };
 
     // Checked HERE and not only when it was saved. A hostname resolves to
     // whatever it resolves to TODAY, so a destination that was public when the
