@@ -1749,6 +1749,37 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .fn-hook-url { font-family: ui-monospace, monospace; font-size: .72rem; color: var(--dim, #a49fb5); background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: .2rem .45rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
 .fn-hook-copy { flex: none; font: inherit; font-size: .72rem; font-weight: 600; color: var(--text, #e8e6ef); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 7px; padding: .2rem .6rem; cursor: pointer; }
 .fn-hook-copy:hover { border-color: var(--amber, #000000); color: #fff; }
+/* Domains panel (Cloud → Domains) — the owner's own web address.
+   Built from the same parts as .fn-item so the two panels read as one product;
+   the only new shape is the RECORD, which is a thing to copy rather than read. */
+.sd-item { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: .7rem .85rem; margin-bottom: .6rem; }
+.sd-top { display: flex; align-items: center; gap: .55rem; }
+.sd-top > svg { color: var(--muted); flex: none; }
+.sd-host { font-family: ui-monospace, monospace; font-size: .86rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sd-top .sk-del { margin-left: auto; }
+.sd-visit { font-size: .72rem; font-weight: 600; color: var(--text); text-decoration: none; border: 1px solid var(--line-2); border-radius: 7px; padding: .2rem .55rem; flex: none; }
+.sd-visit:hover { border-color: var(--ink, #000); }
+/* NEEDS ATTENTION IS NOT "LIVE" AND NOT "SOON". It is the one state where the
+   owner has to go and do something, and on a monochrome platform that cannot be
+   carried by colour — so it is an outlined pill with its own words. */
+.sd-bad { flex: none; font-size: .6rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--text); border: 1px solid var(--ink, #000); border-radius: 999px; padding: .12rem .45rem; }
+.sd-err { font-size: .78rem; color: var(--muted); margin-top: .5rem; }
+.sd-recs { margin-top: .6rem; padding-top: .6rem; border-top: 1px solid var(--line); display: grid; gap: .55rem; }
+.sd-rec { display: grid; gap: .35rem; }
+.sd-rt { justify-self: start; font-size: .6rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line-2); border-radius: 999px; padding: .1rem .45rem; }
+/* Name and value each get their own row and their own button: those are the two
+   fields people mistype, and one "copy all" produces a blob that has to be taken
+   apart again in the form they are pasting into. */
+.sd-rf { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.sd-rl { flex: none; width: 3.1rem; font-size: .64rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+/* FULL-STRENGTH INK, not `--dim`. Copied from `.fn-hook-url`, these rendered in
+   a dark-theme grey (#a49fb5) that on the white surface reads as PLACEHOLDER
+   text — and these strings are the entire payload of the panel: the four values
+   an owner has to retype into a form on another website. Caught by looking at
+   the render; nothing in the markup says which colour a token resolves to. */
+.sd-rf code { flex: 1; min-width: 0; font-family: ui-monospace, monospace; font-size: .74rem; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: .22rem .45rem; overflow-x: auto; white-space: nowrap; }
+.sd-note { font-size: .74rem; color: var(--muted); line-height: 1.45; }
+
 /* Files panel (Cloud → Files) */
 .fl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: .7rem; }
 .fl-item { position: relative; border: 1px solid var(--line); border-radius: 11px; overflow: hidden; background: var(--panel); }

@@ -10128,6 +10128,10 @@ function moreCloud(site) {
     ['mail', 'Emails', 'Send email from your own provider', auxLive, 'emails'],
     ['card', 'Payments', dataLive ? 'Sell with your own Stripe' : (isReact ? 'Publish your app to take payments' : 'Publish to take payments'), fnLive, 'payments'],
     ['image', 'Files', 'Pictures on your site — yours and your visitors\u2019', dataLive, 'files'],
+    // Needs only a PUBLISHED site, not a backend: a brochure site with no data
+    // wants its own domain just as much as an app does, and gating this on
+    // `dataLive` would hide it from exactly those owners.
+    ['globe', 'Domains', site.slug ? 'Put this on your own web address' : 'Publish first, then add your own address', !!site.slug, 'domains'],
   ];
   return '<div class="st-panel"><div class="st-panel-head"><h3>Cloud</h3></div>' +
     '<div class="st-cards">' + cards.map((c) => {
@@ -10406,6 +10410,7 @@ function renderSiteWorkspace(view, site) {
     else if (b.dataset.cloud === 'files') siteFiles(site);
     else if (b.dataset.cloud === 'emails') siteEmails(site);
     else if (b.dataset.cloud === 'payments') sitePayments(site);
+    else if (b.dataset.cloud === 'domains') siteDomains(site);
     else siteInbox(site);
   });
   // Deep security scan (Opus).
@@ -11153,6 +11158,104 @@ async function siteSecrets(site) {
       if (d && d.ok) { box.querySelector('#skName').value = ''; box.querySelector('#skVal').value = ''; load(); }
       else { errEl.textContent = (d && d.error) || 'Couldn’t save the secret.'; errEl.style.display = ''; }
     } catch (e) { errEl.textContent = 'Couldn’t save the secret.'; errEl.style.display = ''; }
+  };
+  load();
+}
+
+// Custom domains — the owner's own web address instead of gofarther.dev/s/<slug>/.
+//
+// THE WHOLE JOB OF THIS PANEL IS THE DNS STEP. Adding the domain here takes one
+// click; what actually decides whether it works is two records typed correctly
+// into a form on somebody else's website, from memory, ten minutes later. So
+// the records are shown as a copyable table rather than described in a
+// sentence, each with its own Copy button, and the panel says which of the two
+// independent things — DNS, or the certificate — is still outstanding.
+async function siteDomains(site) {
+  const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
+  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then you can put it on your own address.'); return; }
+  let box = document.getElementById('siteDomModal');
+  if (box) box.remove();
+  box = document.createElement('div');
+  box.id = 'siteDomModal';
+  box.className = 'si-modal';
+  box.innerHTML = '<div class="si-card"><div class="si-head"><b>Domains</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body">' +
+    '<p class="sp-intro">Serve this site on your own web address. Add the domain here, then add the records it gives you at whoever you bought the domain from. The certificate is issued automatically.</p>' +
+    '<div class="sk-add"><input class="st-in" id="sdHost" placeholder="sharpfadebarbers.com" autocomplete="off" spellcheck="false"><button type="button" class="st-publish" id="sdAdd">Add domain</button></div>' +
+    '<div class="si-count" id="sdErr" style="display:none"></div>' +
+    '<div id="sdList">Loading…</div></div></div>';
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  box.querySelector('.si-x').onclick = close;
+  box.addEventListener('click', (e) => { if (e.target === box) close(); });
+  const listEl = box.querySelector('#sdList');
+  const errEl = box.querySelector('#sdErr');
+
+  // One record, as something to copy rather than something to read. The name
+  // and the value are the two things people get wrong, so each gets its own
+  // button — a single "copy all" produces a blob that has to be taken apart
+  // again on the other side.
+  const recRow = (r) => '<div class="sd-rec">' +
+    '<span class="sd-rt">' + esc(r.kind) + '</span>' +
+    '<div class="sd-rf"><span class="sd-rl">Name</span><code>' + esc(r.name) + '</code><button type="button" class="fn-hook-copy" data-copy="' + esc(r.name) + '">Copy</button></div>' +
+    '<div class="sd-rf"><span class="sd-rl">Value</span><code>' + esc(r.value) + '</code><button type="button" class="fn-hook-copy" data-copy="' + esc(r.value) + '">Copy</button></div>' +
+    (r.note ? '<span class="sd-note">' + esc(r.note) + '</span>' : '') + '</div>';
+
+  const load = async () => {
+    try {
+      const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/domains');
+      const d = await r.json().catch(() => ({}));
+      const list = Array.isArray(d.domains) ? d.domains : [];
+      if (!list.length) {
+        listEl.innerHTML = '<div class="si-empty">No custom domain yet. Your site is live at <code>gofarther.dev/s/' + esc(slug) + '/</code>.</div>';
+        return;
+      }
+      listEl.innerHTML = list.map((x) => {
+        // Three states and they read differently on purpose: live is done,
+        // failed needs the owner to do something, and pending is NORMAL — a
+        // certificate takes minutes and telling somebody it failed sends them
+        // to delete and re-add, which starts the clock again.
+        const live = x.status === 'live';
+        const failed = x.status === 'failed';
+        const badge = live ? '<span class="st-badge-live">Live</span>'
+          : failed ? '<span class="sd-bad">Needs attention</span>'
+          : '<span class="st-badge-soon">' + esc(x.stage || 'setting up') + '</span>';
+        // The records still outstanding, plus the CNAME that always applies.
+        // Hidden once it is live: spent records on screen read as work to do.
+        const recs = live ? '' : (x.records || []).concat(x.pending || []).map(recRow).join('');
+        return '<div class="sd-item"><div class="sd-top">' + ic('globe', 15) + '<b class="sd-host">' + esc(x.hostname) + '</b>' + badge +
+          (live ? '<a class="sd-visit" href="https://' + esc(x.hostname) + '" target="_blank" rel="noreferrer">Visit</a>' : '') +
+          '<button type="button" class="sk-del" data-del="' + esc(x.hostname) + '" title="Remove">×</button></div>' +
+          (x.error ? '<div class="sd-err">' + esc(x.error) + '</div>' : '') +
+          (recs ? '<div class="sd-recs">' + recs + '</div>' : '') + '</div>';
+      }).join('');
+      listEl.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => {
+        try { navigator.clipboard.writeText(b.dataset.copy); b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy'; }, 1400); } catch (e) { /* no clipboard */ }
+      });
+      listEl.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
+        // REMOVING A DOMAIN IS NOT UNDOABLE IN ONE CLICK — the certificate is
+        // released and re-adding starts the wait over — so it asks first.
+        if (!window.confirm('Remove ' + b.dataset.del + '? The site stays published at its gofarther.dev address.')) return;
+        await apiFetch('/api/site/' + encodeURIComponent(slug) + '/domains/' + encodeURIComponent(b.dataset.del), { method: 'DELETE' });
+        load();
+      });
+    } catch (e) { listEl.innerHTML = '<div class="si-empty">Couldn\u2019t load domains — try again.</div>'; }
+  };
+
+  box.querySelector('#sdAdd').onclick = async () => {
+    const btn = box.querySelector('#sdAdd');
+    const host = box.querySelector('#sdHost').value.trim();
+    errEl.style.display = 'none';
+    if (!host) { errEl.textContent = 'Enter the domain you want to use.'; errEl.style.display = ''; return; }
+    // Registering calls Cloudflare, which is not instant. Without this the
+    // owner presses again and gets "already in use" for their own domain.
+    btn.disabled = true; btn.textContent = 'Adding…';
+    try {
+      const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/domains', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hostname: host }) });
+      const d = await r.json().catch(() => ({}));
+      if (d && d.ok) { box.querySelector('#sdHost').value = ''; load(); }
+      else { errEl.textContent = (d && d.error) || 'Couldn\u2019t add that domain.'; errEl.style.display = ''; }
+    } catch (e) { errEl.textContent = 'Couldn\u2019t add that domain.'; errEl.style.display = ''; }
+    btn.disabled = false; btn.textContent = 'Add domain';
   };
   load();
 }
