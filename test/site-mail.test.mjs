@@ -216,3 +216,95 @@ test("it is NOT a new verb runner — the deleted eight-verb menu stays deleted"
   }
   assert.equal(MAIL_PROVIDERS.length, 3, "three providers is a credential choice, not a verb list");
 });
+
+// ── the function form: the model writes the message, not just fills blanks ────
+
+const FN_TABLE = { name: "bookings", access: "collect", columns: ["customer_email"], confirm: { fn: "confirm_booking" } };
+const FN_DEF = { name: "confirm_booking", returns: "json", language: "sql", internal: true,
+                 args: [{ name: "rid", type: "bigint" }], body: "SELECT json_build_object('to', 'x')" };
+
+test("a function decides the whole message", async () => {
+  const { sent, d } = deps({
+    callFn: async (name, rowId) => {
+      assert.equal(name, "confirm_booking");
+      assert.equal(rowId, 42, "it is given the new row's id");
+      return { to: "ada@example.com", subject: "See you Saturday, Ada", body: "<p>Parking is free at weekends.</p>" };
+    },
+  });
+  const out = await sendConfirmation(d, { def: FN_TABLE, row: { id: 42 }, slug: "s" });
+  assert.equal(out.sent, true);
+  assert.equal(sent[0].subject, "See you Saturday, Ada");
+  assert.equal(sent[0].html, "<p>Parking is free at weekends.</p>");
+});
+
+test("a function's address gets the SAME scrutiny as a form field", async () => {
+  // Computed does not mean trusted. A function returning two recipients is
+  // header injection exactly as a form field would be.
+  const { sent, d } = deps({ callFn: async () => ({ to: "a@b.com, evil@x.com", subject: "s", body: "b" }) });
+  const out = await sendConfirmation(d, { def: FN_TABLE, row: { id: 1 }, slug: "s" });
+  assert.equal(out.sent, false);
+  assert.equal(sent.length, 0);
+});
+
+test("a function returning nothing usable sends nothing", async () => {
+  for (const got of [null, undefined, "text", {}, { to: "a@b.com", subject: "", body: "b" },
+                     { to: "a@b.com", subject: "s", body: "" }]) {
+    const { sent, d } = deps({ callFn: async () => got });
+    const out = await sendConfirmation(d, { def: FN_TABLE, row: { id: 1 }, slug: "s" });
+    assert.equal(out.sent, false, JSON.stringify(got));
+    assert.equal(sent.length, 0);
+  }
+});
+
+test("a runaway body is clipped rather than billed", async () => {
+  const { sent, d } = deps({ callFn: async () => ({ to: "a@b.com", subject: "x".repeat(9999), body: "y".repeat(99999) }) });
+  await sendConfirmation(d, { def: FN_TABLE, row: { id: 1 }, slug: "s" });
+  assert.ok(sent[0].subject.length <= 200);
+  assert.ok(sent[0].html.length <= 4000);
+});
+
+test("a row with no id cannot invoke the function", async () => {
+  let called = false;
+  const { d } = deps({ callFn: async () => { called = true; return null; } });
+  const out = await sendConfirmation(d, { def: FN_TABLE, row: {}, slug: "s" });
+  assert.equal(called, false);
+  assert.equal(out.sent, false);
+});
+
+// ── the leak this design hinges on ───────────────────────────────────────────
+
+test("A CONFIRM FUNCTION IS NEVER CALLABLE BY A VISITOR", async () => {
+  // Every model function is SECURITY DEFINER. This one takes a row id and hands
+  // back somebody's email address and message — so granted to `anonymous` it
+  // reads any customer's confirmation by counting. The protection is a MISSING
+  // GRANT, not a validation, exactly like `_secrets` never passing through
+  // `grantsFor`.
+  const { functionSql } = await import("../site-rls.mjs");
+  const internal = functionSql(FN_DEF).filter((x) => x.startsWith("GRANT"));
+  assert.deepEqual(internal, [], "an internal function must get no EXECUTE grant");
+  // And the inverse, or the check passes on a build that grants nothing at all.
+  const ordinary = functionSql({ ...FN_DEF, internal: false }).filter((x) => x.startsWith("GRANT"));
+  assert.equal(ordinary.length, 2, "an ordinary function is still reachable by a page");
+});
+
+test("confirm.fn is dropped when the function is missing or callable", () => {
+  // Both failures are silent: a site that looks like it confirms and does not,
+  // or one that confirms while exposing every customer's message.
+  const ok = normalizeSchema({ tables: [FN_TABLE], functions: [FN_DEF] }).tables[0];
+  assert.deepEqual(ok.confirm, { fn: "confirm_booking" });
+  assert.equal(normalizeSchema({ tables: [FN_TABLE] }).tables[0].confirm, null, "no such function");
+  assert.equal(normalizeSchema({ tables: [FN_TABLE], functions: [{ ...FN_DEF, internal: false }] }).tables[0].confirm, null,
+    "a function a visitor can call must not be a confirmation builder");
+});
+
+test("THE CHAIN, function form: declarable end to end", () => {
+  const worker = noComments(fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8"));
+  const tool = worker.slice(worker.indexOf('name: "design_schema"'), worker.indexOf('tool_choice: { type: "tool", name: "design_schema" }'));
+  // Without BOTH of these the function form is unreachable — the model cannot
+  // name a function it has no way to mark internal, and an un-internal one is
+  // dropped by the cross-reference above. That is the fifth-layer death this
+  // repo keeps producing.
+  assert.match(tool, /fn: \{ type: "string"/, "the designer must be able to name a confirm function");
+  assert.match(tool, /internal: \{ type: "boolean"/, "and must be able to mark it internal");
+  assert.match(worker, /callFn: async \(name, rowId\)/, "the Worker must supply the runner");
+});

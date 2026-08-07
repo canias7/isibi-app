@@ -227,7 +227,20 @@ export function normalizeSchema(spec) {
     if (/\b_(secrets|meta|users|sessions|invites|identities|credentials|auth_codes|auth_events|audit|teams)\b/i.test(body)) {
       continue;
     }
-    functions.push({ name, args, returns, body, language: lang, definer: f.definer !== false });
+    functions.push({ name, args, returns, body, language: lang, definer: f.definer !== false, /* An internal function is created but NEVER granted to the Data API roles. A confirmation builder takes a row id and returns somebody's address and message, and every model function is SECURITY DEFINER — granted to `anonymous` it reads any customer's confirmation by guessing a number. The Worker calls it on the owner's connection, which bypasses grants, so withholding EXECUTE costs nothing. */ internal: !!f.internal });
+  }
+
+  // A `confirm: {fn}` naming a function that does not exist — or one a visitor
+  // could call — is dropped here rather than published. Both failures are the
+  // silent kind: the site looks as though it confirms and never does, or it
+  // confirms while exposing every customer's message to anyone who can count.
+  // This is the one place both halves are visible; coerceTable sees a single
+  // table and never the function list.
+  const confirmFns = new Map(functions.map((f) => [f.name, f]));
+  for (const t of out) {
+    if (!t.confirm || !t.confirm.fn) continue;
+    const f = confirmFns.get(t.confirm.fn);
+    if (!f || !f.internal) t.confirm = null;
   }
 
   const extra = {};

@@ -460,8 +460,19 @@ export function functionSql(f) {
   ];
   // Without EXECUTE the function exists and the Data API answers 404 — the
   // publicView failure, one object over.
-  for (const role of [DATA_API_ROLES.anon, DATA_API_ROLES.user]) {
-    out.push("GRANT EXECUTE ON FUNCTION " + q(f.name) + "(" + argTypes + ") TO " + role);
+  //
+  // AN INTERNAL FUNCTION GETS NO GRANT, and that is the whole of its protection.
+  // It is called by the Worker on the owner's connection, which bypasses grants,
+  // so withholding EXECUTE costs it nothing and closes the hole that would
+  // otherwise open: a confirmation builder takes a row id and returns somebody's
+  // email address and message, and every model function is SECURITY DEFINER — so
+  // granted to `anonymous` it is a way to read any customer's confirmation by
+  // guessing a number. Same reasoning as `_secrets` never passing through
+  // `grantsFor`: not a validation, a missing GRANT.
+  if (!f.internal) {
+    for (const role of [DATA_API_ROLES.anon, DATA_API_ROLES.user]) {
+      out.push("GRANT EXECUTE ON FUNCTION " + q(f.name) + "(" + argTypes + ") TO " + role);
+    }
   }
   return out;
 }

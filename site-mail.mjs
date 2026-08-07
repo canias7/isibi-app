@@ -49,6 +49,24 @@ export function normalizeConfirm(def) {
   const c = def && def.confirm;
   if (!c || typeof c !== "object" || Array.isArray(c)) return null;
 
+  // THE FUNCTION FORM. `{fn: "confirm_booking"}` hands the whole decision to
+  // model-written SQL: it takes the row id and returns the address, subject and
+  // body, computed from anything on the site. Mention the parking only for a
+  // Saturday. Thank a returning customer by counting their earlier rows. Name
+  // the stylist by joining another table.
+  //
+  // This is the form that matches the standing direction — the model writes the
+  // backend — and the template form below is the narrow special case of it.
+  // Neither can send: the platform still owns the key and the connection,
+  // because a published page is public files and Postgres has no HTTP client.
+  //
+  // The cross-reference (does that function exist, and is it internal?) cannot
+  // be checked here: `coerceTable` sees one table, not `spec.functions`. It is
+  // resolved in normalizeSchema once both exist, which is why this returns the
+  // name unverified and the later pass drops it if it does not resolve.
+  const fn = String(c.fn || c.function || "").toLowerCase();
+  if (fn) return /^[a-z][a-z0-9_]{0,40}$/.test(fn) && !fn.startsWith("_") ? { fn } : null;
+
   // The recipient column must be one THIS table declares. Without that the model
   // could name a column that does not exist (every send silently has no
   // recipient) or an internal one. Managed columns are excluded too — `id` is
@@ -144,8 +162,38 @@ export async function sendConfirmation(deps, { def, row, slug }) {
     const conf = normalizeConfirm(def);
     if (!conf) return { sent: false, reason: "no confirm declared" };
 
-    const to = recipient(row, conf.to);
-    if (!to) return { sent: false, reason: "no usable address in " + conf.to };
+    // Either the model's function decides the whole message, or the templates
+    // do. Resolved to the same three fields, so everything after this point —
+    // the address check, the cooldown, whose key, whose sender — is identical.
+    // A message the model COMPUTED gets no weaker validation than one it wrote
+    // out: the address still has to survive `recipient`, because a function
+    // returning "a@b.com, evil@x.com" is header injection exactly like a form
+    // field would be.
+    let built;
+    if (conf.fn) {
+      if (!deps.callFn) return { sent: false, reason: "no function runner" };
+      // No id, no call. The function looks the row up BY id, so invoking it with
+      // nothing is a query that can only return nothing — and the decision
+      // belongs here, in the module that is tested, rather than only in the
+      // Worker's runner where it was first written and could not be exercised.
+      const rowId = row && row.id;
+      if (rowId == null) return { sent: false, reason: "no row id to build from" };
+      const got = await deps.callFn(conf.fn, rowId);
+      if (!got || typeof got !== "object") return { sent: false, reason: "confirm function returned nothing" };
+      built = {
+        to: recipient(got, "to"),
+        // Clipped, not trusted: the function is model-written and its output is
+        // never seen by the caller, so a runaway body would otherwise be a
+        // silent bill on the owner's provider.
+        subject: String(got.subject == null ? "" : got.subject).slice(0, MAX_SUBJECT),
+        html: String(got.body == null ? "" : got.body).slice(0, MAX_BODY),
+      };
+      if (!built.subject || !built.html) return { sent: false, reason: "confirm function returned no subject or body" };
+    } else {
+      built = { to: recipient(row, conf.to), subject: fill(conf.subject, row), html: fill(conf.body, row) };
+    }
+    const to = built.to;
+    if (!to) return { sent: false, reason: "no usable address" };
 
     // Best-effort, and SAID to be: it is per-isolate, so a distributed flood
     // still gets through. The real control is the write limit already on this
@@ -174,8 +222,8 @@ export async function sendConfirmation(deps, { def, row, slug }) {
       key: picked.key,
       from,
       to,
-      subject: fill(conf.subject, row),
-      html: fill(conf.body, row),
+      subject: built.subject,
+      html: built.html,
     });
     if (deps.markSent) { try { await deps.markSent(slug, to); } catch { /* best effort */ } }
     return out && out.ok

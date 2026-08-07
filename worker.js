@@ -2645,6 +2645,11 @@ const SITE_SCHEMA_TOOL = {
             },
             returns: { type: "string", description: "'setof <table>' for rows of a table this schema declares, else one of void/text/int/bigint/numeric/boolean/uuid/date/timestamptz/json/jsonb." },
             body: { type: "string", description: "The SQL body only — no CREATE FUNCTION, no $$ wrapper. e.g. SELECT * FROM bookings WHERE claim_token = tok" },
+            internal: { type: "boolean", description:
+              "Set true when the function is for the PLATFORM to call, never a page — today that means a `confirm: {fn}` message builder. " +
+              "An internal function gets no EXECUTE grant, so no visitor can call it. That matters: it takes a row id and returns somebody's " +
+              "email address and message, so left callable a stranger reads any customer's confirmation by guessing a number. " +
+              "Leave it off for anything a page calls by name, like a claim lookup." },
           },
         },
       },
@@ -2796,11 +2801,20 @@ const SITE_SCHEMA_TOOL = {
                 "The site owner pastes their own email provider key (Resend, SendGrid or Postmark) in Settings — until they do, nothing is sent and the form still works normally. " +
                 "Do NOT declare this to notify the OWNER: they are told about every submission already.",
               properties: {
-                to: { type: "string", description: "The column on this table holding the visitor's email address — e.g. \"customer_email\"." },
+                fn: { type: "string", description:
+                  "OPTIONAL, and the more capable form. Instead of to/subject/body, name a function you ALSO declare in `functions` with `internal: true`, " +
+                  "taking one bigint argument (the new row's id) and returning `json` shaped {to, subject, body}. " +
+                  "Use it whenever the message depends on anything beyond the row itself — join the stylist's name, count the customer's previous bookings to greet a regular, " +
+                  "say something different for a Saturday. `internal: true` matters: without it the function is callable by any visitor, who could then read anyone's confirmation by guessing an id." },
+                to: { type: "string", description: "The column on this table holding the visitor's email address — e.g. \"customer_email\". Omit when using `fn`." },
                 subject: { type: "string", description: "Subject line. {column} is replaced from the submitted row." },
                 body: { type: "string", description: "Short HTML body. {column} is replaced from the submitted row." },
               },
-              required: ["to", "subject", "body"],
+              // Nothing is required: `fn` and the to/subject/body trio are
+              // alternatives, and a schema tool cannot express "one or the
+              // other". Which arrived is decided by normalizeConfirm, and a
+              // half-declaration of either is refused there rather than
+              // half-applied.
             },
             payment: {
               type: "object",
@@ -3875,6 +3889,24 @@ function confirmSubmitter(env, ctx, { slug, db, def, row }) {
         return false;
       },
       markSent: async (s2, to) => { confirmSeen.set(s2 + "|" + to, Date.now()); },
+      // Run the model's own confirmation builder. It gets the row id and returns
+      // {to, subject, body} as json, computed from anything on the site — so the
+      // MESSAGE is model-written per site, and the platform still owns only the
+      // key and the connection.
+      //
+      // Called on the OWNER connection, which is why the function needs no
+      // EXECUTE grant and must not have one: granted to `anonymous` it reads any
+      // customer's confirmation by guessing a row id.
+      callFn: async (name, rowId) => {
+        if (rowId == null) return null;
+        // The name reaches SQL, so it is re-checked here rather than trusted
+        // from `_meta` — a stored schema is only as good as whatever last wrote
+        // it, and this is the boundary.
+        if (!/^[a-z][a-z0-9_]{0,40}$/.test(String(name))) return null;
+        const rows = await sqlQuery(db, "SELECT " + sqlIdent(name) + "(?) AS out", [rowId]);
+        const out = rows && rows[0] && rows[0].out;
+        return typeof out === "string" ? JSON.parse(out) : out;
+      },
     }, { def, row, slug });
     // It runs detached, so nothing else would ever see why it did not send. The
     // uninteresting reasons — no key, nothing declared — stay quiet.

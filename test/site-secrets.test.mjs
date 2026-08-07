@@ -334,8 +334,18 @@ test("_secrets is created by applySiteSchema, not by a payments-only path", () =
 });
 
 test("_secrets is NOT granted to the Data API roles — that is what keeps it off the public site", () => {
-  const rls = fs.readFileSync(path.join(import.meta.dirname, "..", "site-rls.mjs"), "utf8");
-  assert.equal(/_secrets/.test(rls), false, "site-rls.mjs must never mention _secrets");
+  // Comments BLANKED, not removed, so offsets stay valid — and because the
+  // property is about CODE. This first fired on a comment in `functionSql`
+  // explaining that an internal function withholds its GRANT "the same way
+  // `_secrets` never passes through grantsFor": an accurate note about the very
+  // invariant under test, read as a violation of it. A guard that cannot tell
+  // code from prose punishes explaining yourself.
+  const raw = fs.readFileSync(path.join(import.meta.dirname, "..", "site-rls.mjs"), "utf8");
+  const rls = raw
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/(^|[^:])\/\/[^\n]*/g, (m, p1) => p1 + " ".repeat(m.length - p1.length));
+  assert.ok(/_secrets/.test(raw), "the comment naming _secrets is expected here — if it goes, this check is testing nothing");
+  assert.equal(/_secrets/.test(rls), false, "site-rls.mjs must never mention _secrets in CODE");
   const schema = fs.readFileSync(path.join(import.meta.dirname, "..", "site-schema.mjs"), "utf8");
   // grantsFor is called on declared tables only; assert nothing routes _secrets
   // into it, since a grant here would expose every key through the Data API.
