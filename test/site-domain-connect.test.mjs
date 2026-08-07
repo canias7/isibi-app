@@ -318,7 +318,9 @@ test("SIGNED OR NOT OFFERED — never an unsigned link", () => {
   // The template declares `syncPubKeyDomain`, so a provider REFUSES an unsigned
   // apply URL. Falling back to one would be a button that always fails; falling
   // back to nothing leaves the copyable records, which work.
-  const i = worker.indexOf("const signed = built && signer");
+  // Anchored on the SHAPE, not the variable's name — a rename broke this once
+  // and a rename must not be able to break a security assertion.
+  const i = worker.search(/const signed = built && \w+ \? await dcSign\(/);
   assert.ok(i > 0, "the link is signed");
   const after = worker.slice(i, i + 400);
   assert.ok(/if \(signed\) \{ item\.oneClick/.test(after), "and only a signed one is offered");
@@ -488,4 +490,29 @@ test("the logo the template advertises actually exists in the build", () => {
   const m = String(t.logoUrl).match(/^https:\/\/gofarther\.dev\/(.+)$/);
   assert.ok(m, "served from our own origin: " + t.logoUrl);
   assert.ok(fs.existsSync(new URL("../public/" + m[1], import.meta.url)), "public/" + m[1] + " must exist");
+});
+
+test("the signer is built ONCE per request, not once per domain", () => {
+  // Importing an RSA key is not free and this built the same signer inside the
+  // per-domain loop. Anchored on the loop boundary rather than on a line count,
+  // so it stays true if the block moves.
+  // From AFTER the hoisted build to the response — the slice must not contain
+  // the one legitimate call, or "no calls in the loop" is false by construction.
+  const hoisted = worker.indexOf("const dcSign1 = env.DOMAIN_CONNECT_KEY");
+  assert.ok(hoisted > 0, "the hoisted signer is gone");
+  const loop = worker.slice(worker.indexOf("\n", hoisted), worker.indexOf("signing: !!dcSign1"));
+  const builds = loop.match(/await dcSigner\(/g) || [];
+  assert.equal(builds.length, 0, "dcSigner is called again inside the loop");
+  assert.match(worker, /const dcSign1 = env\.DOMAIN_CONNECT_KEY \? await dcSigner\(env\.DOMAIN_CONNECT_KEY\) : null;/);
+});
+
+test("the panel is TOLD whether this platform can sign at all", () => {
+  // Without it, no button is ambiguous: "your DNS provider does not support
+  // this" and "this platform has no signing key" look identical, and only the
+  // second is our fault. That ambiguity is how a missing key stays missing —
+  // which is the failure mode this whole file keeps recording.
+  has(worker, /signing: !!dcSign1/, "the domains response reports it");
+  // A BOOLEAN, never the key or any part of it.
+  assert.ok(!/DOMAIN_CONNECT_KEY[^\n]*body|body[^\n]*DOMAIN_CONNECT_KEY/.test(worker),
+    "the key itself must never reach a response body");
 });

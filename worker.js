@@ -7621,6 +7621,15 @@ async function handleRequest(request, env, ctx) {
               // Cloudflare knows whether the certificate came through, and an
               // owner refreshing this page is asking exactly that. Best-effort
               // per row, so one unreachable lookup does not empty the list.
+              // HOISTED OUT OF THE LOOP: importing an RSA key is not free, and
+              // this built one PER DOMAIN to produce the same signer every time.
+              //
+              // It also makes the answer observable. Without `signing`, a panel
+              // showing no button cannot distinguish "your DNS provider does not
+              // support this" from "this platform has no signing key" — and the
+              // second is our fault, not the owner's. That ambiguity is how a
+              // missing key stays missing.
+              const dcSign1 = env.DOMAIN_CONNECT_KEY ? await dcSigner(env.DOMAIN_CONNECT_KEY) : null;
               const out = [];
               for (const row of (Array.isArray(rows) ? rows : []).slice(0, 20)) {
                 const item = { hostname: row.hostname, status: row.status, error: row.last_error || null, ...dnsInstructions(row.hostname, saasTarget(env)) };
@@ -7719,8 +7728,7 @@ async function handleRequest(request, env, ctx) {
                       // It is also the security property: unsigned, anybody
                       // could build an apply URL under our provider name
                       // pointing a stranger's domain wherever they liked.
-                      const signer = env.DOMAIN_CONNECT_KEY ? await dcSigner(env.DOMAIN_CONNECT_KEY) : null;
-                      const signed = built && signer ? await dcSign({ sign: signer }, built.query, DC_KEY_ID) : null;
+                      const signed = built && dcSign1 ? await dcSign({ sign: dcSign1 }, built.query, DC_KEY_ID) : null;
                       if (signed) { item.oneClick = built.base + "?" + signed; item.oneClickProvider = offer.provider; }
                     } else if (offer.asyncOnly) {
                       // Said rather than folded into silence: their provider
@@ -7736,7 +7744,7 @@ async function handleRequest(request, env, ctx) {
                 }
                 out.push(item);
               }
-              r = { body: { ok: true, domains: out, target: saasTarget(env) }, status: 200 };
+              r = { body: { ok: true, domains: out, target: saasTarget(env), signing: !!dcSign1 }, status: 200 };
             } else if (request.method === "POST") {
               const b = await request.json().catch(() => ({}));
               const refusal = claimRefusal(b && b.hostname);
