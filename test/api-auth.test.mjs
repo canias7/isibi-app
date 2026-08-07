@@ -383,3 +383,61 @@ test("the page-generation catch returns the stage, not only a note", () => {
     .replace(/upstreamKind\(e && e\.detail\)/, "");
   assert.ok(!/e\.detail/.test(rest), "the raw upstream detail must not be returned: " + rest);
 });
+
+// EVERY OWNER-SCOPED MATCHER MUST BE DISPATCHED, not merely gated.
+//
+// `/api/site/<slug>/domains` was defined, handled, and reachable by NOTHING:
+// `dm2` was missing from the `if (om || mm || …)` that guards the block its
+// handler lives in, so every request fell through to the router's 404. The
+// whole custom-domains feature was dead — the panel called it, the Cloudflare
+// zone was configured for it, and the answer was always 404.
+//
+// The existing gate test could not see it. It asserts each route sits behind
+// `authUser`, and this one did — inside a block it could never enter. That is
+// the guard watching the layer below the break, which this codebase keeps
+// recording. This one runs the other way: from the matchers that EXIST to the
+// condition that admits them.
+//
+// It is also invisible from outside: `assertOwner` answers 404 for a slug that
+// is not yours, so a live probe of an undispatched route and a correctly
+// refused one look identical.
+test("every owner-scoped route matcher appears in the dispatch condition", () => {
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+
+  // The matchers: `const <name> = url.pathname.match(/^\/api\/site\/…` — found
+  // by shape rather than by a list, or this restates the thing it guards.
+  const matchers = [...src.matchAll(/const (\w+) = url\.pathname\.match\(\/\^\\\/api\\\/site\\\//g)].map((m) => m[1]);
+  assert.ok(matchers.length >= 7, `only found ${matchers.length} /api/site matchers — the scan broke`);
+  assert.ok(matchers.includes("dm2"), "the domains matcher is gone or renamed");
+
+  const cond = src.match(/if \(((?:\w+ \|\| )+\w+)\) \{\n\s*const ou = await authUser\(request\);/);
+  assert.ok(cond, "the owner dispatch condition is gone or reshaped");
+  const dispatched = new Set(cond[1].split("||").map((s) => s.trim()));
+
+  // BOTH DIRECTIONS. The loop below walks matchers → condition, and on its own
+  // it passes when the SCAN stops seeing a matcher: the count check is a floor,
+  // not a census, so one dropping out simply goes unchecked. Walking
+  // condition → matchers makes the scan's own coverage self-verifying, since
+  // every name the condition admits must be a matcher the scan actually found.
+  // Caught by mutation — renaming one matcher's `.match(` passed everything else.
+  for (const name of dispatched) {
+    assert.ok(matchers.includes(name),
+      `the dispatch admits ${name} but the matcher scan never found it — the scan is covering less than it looks`);
+  }
+
+  for (const name of matchers) {
+    // `sm` and friends that belong to other dispatches are fine — what must
+    // hold is that anything HANDLED inside this block is admitted by it.
+    if (!new RegExp(`if \\(${name}\\)`).test(src)) continue;
+    assert.ok(dispatched.has(name),
+      `${name} is handled inside the owner block but not in its dispatch condition — ` +
+      `every request to that route 404s`);
+  }
+
+  // The same list appears twice, and a name in one but not the other throws a
+  // TypeError on a live route instead of 404ing it.
+  const slugPick = src.match(/const ownerSlug = \(((?:\w+ \|\| )+\w+)\)\[1\]/);
+  assert.ok(slugPick, "ownerSlug no longer picks from the matcher list");
+  assert.deepEqual(new Set(slugPick[1].split("||").map((s) => s.trim())), dispatched,
+    "the dispatch condition and the ownerSlug list disagree");
+});

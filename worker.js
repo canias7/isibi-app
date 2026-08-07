@@ -7537,10 +7537,21 @@ async function handleRequest(request, env, ctx) {
       // name is matched with the SAME alphabet normalizeSecretName produces, so
       // anything that could not have been stored cannot even reach the handler.
       const sk = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/secrets(?:\/([A-Za-z][A-Za-z0-9_]{0,63}))?$/i);
-      if (om || mm || an || uf || xp || nt || sk) {
+      // EVERY owner-scoped matcher above has to appear here, and `dm2` did not —
+      // so `/api/site/<slug>/domains` was dispatched by nothing and fell through
+      // to the 404 at the bottom of the router. Custom domains were unreachable
+      // end to end: the panel called it, Cloudflare was configured for it, and
+      // the answer was always 404. The `if (dm2)` handler below sits INSIDE this
+      // block, which is why it looked gated and was simply dead.
+      //
+      // A 404 is also what `assertOwner` answers for a slug that is not yours,
+      // so from outside the two are indistinguishable — which is how this
+      // survived a live probe until the dispatch was read.
+      // `test/api-auth.test.mjs` holds the list against the matchers now.
+      if (om || mm || an || uf || xp || nt || sk || dm2) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
-        const ownerSlug = (om || mm || an || uf || xp || nt || sk)[1].toLowerCase();
+        const ownerSlug = (om || mm || an || uf || xp || nt || sk || dm2)[1].toLowerCase();
         const ownerDeps = {
           ownerOf: async (s2) => {
             const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s2)}&select=uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
