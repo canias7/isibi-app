@@ -116,6 +116,18 @@ openssl pkcs8 -topk8 -nocrypt -in dc.pem -outform DER | base64 -w0
 openssl rsa -in dc.pem -pubout -outform DER | base64 -w0
 ```
 
+**PUBLISHED AND PROVEN 2026-08-07.** `_dck1.gofarther.dev` carries the key, and
+the whole chain was verified rather than inferred: a query signed with the
+private half verifies against the public half **read back out of live DNS**, and
+the same signature over a tampered `target` is rejected.
+
+**A TXT record over 255 bytes is SPLIT BY DNS**, and anything comparing it has to
+rejoin the chunks. Ours is 394 bytes and comes back as 255 + 139. A naive
+quote-strip leaves the separator in and reports a one-character mismatch against
+a record that is byte-for-byte correct — which is exactly what happened on the
+first check here. Resolvers concatenate the strings with nothing between them,
+so providers see the right key.
+
 **Rotating means publishing a SECOND label** — `_dck2` and so on — and changing
 `DC_KEY_ID`, never editing the existing record in place. Every link already in
 somebody's browser was signed under the old key and stops verifying the moment
