@@ -19,6 +19,7 @@ import { policiesFor, grantsFor, publicViewSql, functionSql, SESSION_JWT_EXT, SE
 import { normalizePayment, PAYMENT_COLUMNS } from "./site-payments.mjs";
 import { normalizeConfirm } from "./site-mail.mjs";
 import { normalizeJob } from "./site-jobs.mjs";
+import { normalizeApi } from "./site-apis.mjs";
 import { isManagedColumn } from "./site-access.mjs";
 import { makeCache } from "./ttl-cache.mjs";
 
@@ -262,10 +263,24 @@ export function normalizeSchema(spec) {
     jobs.push(j);
   }
 
+  // Third-party reads. Normalised HERE, in the one function every schema passes
+  // through, rather than at request time — `normalizeSchema` is an ALLOW-LIST,
+  // so anything not copied out explicitly is dropped silently on every build,
+  // which is how `teamScope` stayed dead at a fifth layer.
+  const apis = [];
+  const apiNames = new Set();
+  for (const raw of (Array.isArray(spec.apis) ? spec.apis : []).slice(0, 8)) {
+    const a = normalizeApi(raw);
+    if (!a || apiNames.has(a.name)) continue;
+    apiNames.add(a.name);
+    apis.push(a);
+  }
+
   const extra = {};
   if (rateLimits) extra.rateLimits = rateLimits;
   if (functions.length) extra.functions = functions;
   if (jobs.length) extra.jobs = jobs;
+  if (apis.length) extra.apis = apis;
   return { tables: out, ...extra };
 }
 
@@ -867,6 +882,11 @@ export async function applySiteSchema(uuid, spec) {
   }
 
   const metaOut = { tables: mergedTables }; if (rateLimits) metaOut.rateLimits = rateLimits;
+  // Declared third-party reads. Recorded whole, and unlike a function there is
+  // nothing to "make" — no DDL runs, so there is no created/not-created split to
+  // filter on. A revise REPLACES the list rather than merging, because a
+  // declaration the new schema dropped is one the site no longer offers.
+  if (Array.isArray(spec.apis) && spec.apis.length) metaOut.apis = spec.apis;
   // The digest reads this to tell the generator which functions it may call, so
   // only the ones that REALLY EXIST are recorded. Naming a failed function would
   // point the model at a 404.
@@ -876,7 +896,14 @@ export async function applySiteSchema(uuid, spec) {
   {
     const byName = new Map(mergedFns.map((f) => [String(f.name).toLowerCase(), f]));
     for (const f of (spec.functions || [])) {
-      if (fnsMade.includes(f.name)) byName.set(String(f.name).toLowerCase(), { name: f.name, args: f.args, returns: f.returns });
+      // `internal` TRAVELS WITH IT, and dropping it was a live break the moment
+      // anything read this back. `_meta` is the only copy the request path ever
+      // sees — the parsed spec is gone by then — so the inbound-webhook route,
+      // which requires a hook function to BE internal, resolved null for every
+      // hook on every site. The build succeeded, the function existed in
+      // Postgres, and the feature was simply unreachable: the exact shape this
+      // codebase has recorded five times over.
+      if (fnsMade.includes(f.name)) byName.set(String(f.name).toLowerCase(), { name: f.name, args: f.args, returns: f.returns, internal: !!f.internal });
     }
     if (byName.size) metaOut.functions = Array.from(byName.values());
   }

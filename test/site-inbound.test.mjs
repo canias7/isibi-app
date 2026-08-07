@@ -326,6 +326,28 @@ test("the DESIGNER can declare one, or nothing ever reaches this route", () => {
   assert.ok(/ON CONFLICT DO NOTHING/.test(field), "retries are named as the sender's normal behaviour");
 });
 
+test("`internal` survives into _meta, which is the only copy this route sees", () => {
+  // FOUND AS A LIVE BREAK, an hour after shipping the route. `functionFor`
+  // demands `internal`, and `applySiteSchema` wrote `{name, args, returns}` —
+  // so the build succeeded, the function existed in Postgres, and EVERY hook on
+  // EVERY site resolved to null. The parsed spec is long gone by request time;
+  // `_meta` is all there is.
+  //
+  // Asserted at both ends rather than on one file: the property is that the
+  // reader's requirement and the writer's output agree.
+  const schema = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  const mod = fs.readFileSync(new URL("../site-inbound.mjs", import.meta.url), "utf8");
+  assert.ok(/!f\.internal/.test(mod), "the reader requires it");
+  // The ASSIGNMENT, not the name: the first mention of `metaOut.functions` in
+  // this file is inside a comment 80 lines above the code, so a bare-name
+  // anchor lands on prose and reads the wrong window. Same trap as every other
+  // source guard here.
+  const i = schema.indexOf("metaOut.functions = Array.from(");
+  assert.ok(i > 0, "the writer exists");
+  const writer = schema.slice(Math.max(0, i - 1200), i);
+  assert.ok(/internal: !!f\.internal/.test(writer), "…and the writer records it");
+});
+
 test("the raw body is what is verified", () => {
   const i = worker.indexOf("handleInbound(");
   const block = worker.slice(Math.max(0, i - 1200), i + 400);

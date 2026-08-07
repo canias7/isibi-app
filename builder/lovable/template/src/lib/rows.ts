@@ -515,6 +515,36 @@ export function useRpcAction<T = unknown>(fn: string) {
   });
 }
 
+/**
+ * Read a third-party API the site declared.
+ *
+ * Live data that is not in this site's database and is not fixed at build time:
+ * today's exchange rate, a courier's delivery slots, a supplier's stock level.
+ * The request itself — url, headers, which secret goes where — is declared in
+ * the schema and performed by the platform, because the key cannot be in this
+ * bundle: these files are public on a CDN.
+ *
+ * So the answer comes back EXACTLY as that service sent it. There is no
+ * envelope of ours around it and no shape imposed on it; write the page against
+ * the service's real response.
+ *
+ * `params` are only the names the declaration listed. Anything else is dropped
+ * rather than forwarded — a page may change the postcode, never the host.
+ */
+export function useApi<T = unknown>(name: string, params?: Record<string, string | number | undefined>) {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params ?? {})) if (v != null) qs.set(k, String(v));
+  const suffix = qs.toString() ? `?${qs}` : "";
+  return useQuery<T>({
+    queryKey: ["api", siteSlug(), name, params ?? {}],
+    queryFn: () => send<T>(`/api/db/${siteSlug()}/api/${name}${suffix}`),
+    // The platform already caches by the window the declaration asked for, so a
+    // second identical read here costs nothing upstream either way. This just
+    // stops a remount refetching something the page already has.
+    staleTime: 30_000,
+  });
+}
+
 // ── Visitor accounts ────────────────────────────────────────────────────────
 //
 // The site's own members — a barber shop's customers — nothing to do with isibi

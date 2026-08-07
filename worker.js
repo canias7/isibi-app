@@ -8,6 +8,7 @@ import { hostIsBlocked, blockedReason } from "./site-ssrf.mjs";
 import { deliverWebhook, firesFor, signPayload, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
 import { takeToken, verify as turnstileVerify, TOKEN_FIELD as TURNSTILE_FIELD } from "./site-turnstile.mjs";
 import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_PER_MIN } from "./site-inbound.mjs";
+import { callApi, apiFor, secretsNeeded, takeParams, MAX_PER_MINUTE as SITE_API_PER_MIN, MAX_TTL as SITE_API_MAX_TTL } from "./site-apis.mjs";
 import { Container, getContainer } from "@cloudflare/containers";
 import { makeCache, memoize } from "./ttl-cache.mjs";
 import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
@@ -2472,6 +2473,33 @@ const SITE_SCHEMA_TOOL = {
           },
         },
       },
+      apis: {
+        type: "array",
+        description:
+          "OPTIONAL third-party APIs this site reads at request time. Use one ONLY when the brief needs live data that is " +
+          "not in this site's own database and is not fixed at build time: today's exchange rate, a courier's delivery " +
+          "slots, a supplier's stock level, the weather for an outdoor venue. Do NOT use it for anything a table can hold.\n\n" +
+          "Write the WHOLE request and put `{{SECRET_NAME}}` wherever a credential belongs — the site OWNER stores that " +
+          "value in Secrets and it is substituted server-side, so no key is ever in the page. Name the secret after the " +
+          "service, e.g. `{{WEATHER_KEY}}`. Anything a page needs to vary goes in `params` and is written `{{param.x}}`; " +
+          "values are URL-encoded, and a parameter not listed is ignored. A page then calls `useApi(\"<name>\", {x})`. " +
+          "The response comes back exactly as the service sent it, so write the page against that service's real shape. " +
+          "Set `cacheSeconds` to how long the answer stays good — an exchange rate is 3600, a stock level maybe 30 — " +
+          "because every uncached read spends the owner's own quota.",
+        items: {
+          type: "object",
+          required: ["name", "url"],
+          properties: {
+            name: { type: "string", description: "lowercase identifier the page calls by, e.g. exchange_rates" },
+            url: { type: "string", description: "https only. e.g. https://api.example.com/v1/latest?base={{param.base}}&key={{RATES_KEY}}" },
+            method: { type: "string", enum: ["GET", "POST"] },
+            headers: { type: "object", description: "e.g. {\"Authorization\":\"Bearer {{RATES_KEY}}\"}" },
+            body: { type: "string", description: "POST only. The request body, with the same {{SECRET}} and {{param.x}} placeholders." },
+            params: { type: "array", items: { type: "string" }, description: "Names a page may pass. Anything else is dropped." },
+            cacheSeconds: { type: "integer", description: "0-3600. How long one answer stays good. Every uncached read costs the owner." },
+          },
+        },
+      },
       functions: {
         type: "array",
         description:
@@ -3917,6 +3945,52 @@ function inboundDeps(env, slug, db) {
     },
     throttle: async (key) => _dataLimiter.hit("inbound|" + key, INBOUND_PER_MIN),
     log: (...a) => console.error(...a),
+  };
+}
+
+// One cache for every site's third-party reads. Per isolate, so a busy site on
+// a busy PoP is well served and a quiet one still pays the owner's quota now and
+// then — the honest description, and it is the same limitation `ttl-cache`
+// carries everywhere else here. The declaration's own TTL decides how long an
+// entry lives, so this only bounds how MANY are kept.
+// The OUTER window is the longest a declaration may ask for, so it bounds
+// memory and never silently shortens a declared hour to a minute; the entry
+// carries its own `until`, which is what actually decides. Written the other way
+// round — a 60s cache under a `cacheSeconds: 3600` declaration — the declaration
+// would be quietly ignored and the owner's quota spent sixty times over.
+const siteApiCache = makeCache({ ttlMs: SITE_API_MAX_TTL * 1000, max: 2000 });
+
+/**
+ * The real side effects for a third-party read.
+ *
+ * ONLY THE SECRETS THIS DECLARATION NAMES are decrypted — the rest of the vault
+ * is never touched, which is the same discipline `confirmSubmitter` follows for
+ * its four names, and it matters more here because the answer travels out to a
+ * third party.
+ */
+async function siteApiDeps(env, slug, db, api) {
+  const secrets = {};
+  for (const name of secretsNeeded(api)) {
+    try {
+      const rows = await sqlQuery(db, "SELECT cipher FROM _secrets WHERE name=?", [name]);
+      const cipher = rows && rows[0] && rows[0].cipher;
+      if (!cipher) continue;
+      const v = await readSecret({ get: async () => cipher }, env, { slug, name });
+      if (v) secrets[name] = v;
+    } catch { /* absent — `callApi` refuses rather than sending an empty one */ }
+  }
+  return {
+    secrets,
+    fetch: (u, init) => fetch(u, init),
+    blockedReason: (u) => blockedReason(u),
+    cacheGet: async (k) => {
+      const e = siteApiCache.get(k);
+      return e && e.until > Date.now() ? e.v : null;
+    },
+    // The declaration's TTL, not the cache's: a rate that is good for an hour
+    // and a stock level that is good for ten seconds are the same feature, and
+    // only the declaration knows which this is.
+    cacheSet: async (k, v, ms) => { siteApiCache.set(k, { v, until: Date.now() + ms }); },
   };
 }
 
@@ -6419,6 +6493,48 @@ async function handleRequest(request, env, ctx) {
           return Response.json(t.body, { status: t.status, headers: t.headers });
         }
         return proxySiteService(env, request, url, slug, dpath, "data", ctx);
+      }
+    }
+
+    // A PUBLISHED SITE READING SOMEBODY ELSE'S API.
+    //
+    // Live delivery slots, today's exchange rate, a supplier's stock level, the
+    // weather for an outdoor venue. Here for the usual two reasons: the key
+    // cannot be in a public bundle and Postgres has no HTTP client.
+    //
+    // ONE PRIMITIVE, NOT A LIST OF INTEGRATIONS. The site declares the whole
+    // request with `{{SECRET}}` placeholders; the Worker substitutes them out of
+    // the site's own vault. A courier and a currency feed are the same feature.
+    if (url.pathname.startsWith("/api/db/") && url.pathname.includes("/api/")) {
+      const am2 = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/api\/([a-z][a-z0-9_-]{0,40})$/i);
+      if (am2) {
+        if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
+        const slug = am2[1].toLowerCase();
+        const aname = am2[2].toLowerCase().replace(/-/g, "_");
+        // THIS SPENDS THE OWNER'S THIRD-PARTY QUOTA on behalf of anyone who
+        // finds the URL, so the limit is not a formality. Before any lookup.
+        const ahit = _dataLimiter.hit(
+          bucketKey({ ip: request.headers.get("CF-Connecting-IP") || "", slug, table: "extapi", method: "GET" }),
+          SITE_API_PER_MIN,
+        );
+        if (!ahit.ok) {
+          const t = tooMany(ahit);
+          return Response.json(t.body, { status: t.status, headers: t.headers });
+        }
+        const adb = await siteBackendBySlug(env, slug);
+        if (!adb) return Response.json({ error: "no such connection" }, { status: 404 });
+        const spec = await loadSiteSchema(adb).catch(() => null);
+        const api = apiFor(spec, aname);
+        if (!api) return Response.json({ error: "no such connection" }, { status: 404 });
+        const params = takeParams(api, url.searchParams);
+        const out = await callApi(await siteApiDeps(env, slug, adb, api), { slug, api, params });
+        // The owner's half of the story goes to the log, never to the visitor:
+        // `missing` names a secret and `refused` names a destination.
+        if (out.missing || out.refused) console.error("site api:", slug, aname, out.missing || out.refused);
+        // ONLY status and body. `out` also carries those two fields, and
+        // returning the whole object would put the name of the site's own
+        // credential into a public response.
+        return Response.json(out.body, { status: out.status });
       }
     }
 
