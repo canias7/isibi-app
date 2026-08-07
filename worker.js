@@ -12,7 +12,7 @@ import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_
 import { normalizeHostname, isOwnHostname, claimRefusal, dnsInstructions, readStatus } from "./site-domains.mjs";
 import { checkDns, dnsSentence } from "./site-dns.mjs";
 import { detectProvider, providerSentence } from "./site-registrar.mjs";
-import { offerFor as dcOfferFor, applyUrl as dcApplyUrl } from "./site-domain-connect.mjs";
+import { offerFor as dcOfferFor, applyUrl as dcApplyUrl, signQuery as dcSign, rsaSigner as dcSigner } from "./site-domain-connect.mjs";
 import { callApi, apiFor, secretsNeeded, takeParams, MAX_PER_MINUTE as SITE_API_PER_MIN, MAX_TTL as SITE_API_MAX_TTL } from "./site-apis.mjs";
 import { Container, getContainer } from "@cloudflare/containers";
 import { makeCache, memoize } from "./ttl-cache.mjs";
@@ -4199,6 +4199,12 @@ const CF_API = "https://api.cloudflare.com/client/v4";
 // provider's end, which is why they are named once here rather than inline.
 const DC_PROVIDER = "gofarther.dev";
 const DC_SERVICE = "site";
+// The label our public key is published under, as a TXT record at
+// `<DC_KEY_ID>.<syncPubKeyDomain>` — so `_dck1.gofarther.dev`. Providers fetch
+// it to verify the signature; rotating means publishing a second label and
+// changing this, never editing the record in place, or every link already in
+// flight stops verifying.
+const DC_KEY_ID = "_dck1";
 // Where Cloudflare for SaaS sends custom-hostname traffic. Overridable, with a
 // default rather than a hard requirement: an unset value would make every DNS
 // instruction we hand out wrong in a way the owner cannot detect.
@@ -7655,12 +7661,25 @@ async function handleRequest(request, env, ctx) {
                     const sub = parts.slice(0, -2).join(".");
                     const offer = await dcOfferFor(dnsDeps, zone).catch(() => ({ supported: false }));
                     if (offer.supported) {
-                      const link = dcApplyUrl(offer.settings, {
+                      const built = dcApplyUrl(offer.settings, {
                         provider: DC_PROVIDER, serviceId: DC_SERVICE,
                         domain: zone, host: sub,
                         params: { target: saasTarget(env) },
                       });
-                      if (link) { item.oneClick = link; item.oneClickProvider = offer.provider; }
+                      // SIGNED OR NOT OFFERED AT ALL.
+                      //
+                      // The template declares `syncPubKeyDomain`, so providers
+                      // will REQUIRE a signature and an unsigned link is
+                      // refused at their end. Falling back to an unsigned one
+                      // would be a button that always fails; falling back to
+                      // nothing leaves the copyable records, which work.
+                      //
+                      // It is also the security property: unsigned, anybody
+                      // could build an apply URL under our provider name
+                      // pointing a stranger's domain wherever they liked.
+                      const signer = env.DOMAIN_CONNECT_KEY ? await dcSigner(env.DOMAIN_CONNECT_KEY) : null;
+                      const signed = built && signer ? await dcSign({ sign: signer }, built.query, DC_KEY_ID) : null;
+                      if (signed) { item.oneClick = built.base + "?" + signed; item.oneClickProvider = offer.provider; }
                     } else if (offer.asyncOnly) {
                       // Said rather than folded into silence: their provider
                       // does support this, through a sign-in we have not built.

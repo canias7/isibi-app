@@ -45,6 +45,7 @@ jobs:
             NEON_API_KEY
             SITE_SECRETS_KEY
             CLOUDFLARE_API_TOKEN
+            DOMAIN_CONNECT_KEY
         env:
           FAL_KEY: ${{ secrets.FAL_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -83,6 +84,15 @@ jobs:
           # and without that every registration answers a permission error,
           # which the route reports rather than swallows.
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          # The RSA private key (PKCS#8, base64) that signs Domain Connect apply
+          # links. Its PUBLIC half is published as a TXT record at
+          # `_dck1.gofarther.dev`, which is what providers fetch to verify.
+          #
+          # Unset, the one-click button is simply not offered — the panel falls
+          # back to the copyable records, which work. That is deliberate: the
+          # template declares `syncPubKeyDomain`, so providers REFUSE an
+          # unsigned link, and offering one would be a button that always fails.
+          DOMAIN_CONNECT_KEY: ${{ secrets.DOMAIN_CONNECT_KEY }}
           # Mail needs NO secret here. The Worker sends through Cloudflare Email
           # Service via the `send_email` binding in wrangler.jsonc (2026-07-30,
           # replacing Go Farther) — nothing to mint, upload each deploy, or rotate.

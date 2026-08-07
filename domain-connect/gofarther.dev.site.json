@@ -7,8 +7,8 @@
   "logoUrl": "https://gofarther.dev/logo.png",
   "description": "Point this domain at the website you built with Go Farther.",
   "variableDescription": "target: the Go Farther hostname this domain is served from.",
+  "syncPubKeyDomain": "gofarther.dev",
   "syncRedirectDomain": "gofarther.dev,www.gofarther.dev",
-  "warnPhishing": true,
   "hostRequired": false,
   "shared": false,
   "records": [

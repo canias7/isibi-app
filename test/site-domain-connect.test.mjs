@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
-  discover, safeHost, settings, parseSettings, httpsUrl, applyUrl, offerFor, DISCOVERY_PREFIX,
+  discover, safeHost, settings, parseSettings, httpsUrl, applyUrl, offerFor,
+  signQuery, rsaSigner, DISCOVERY_PREFIX,
 } from "../site-domain-connect.mjs";
 
 const GD = {
@@ -110,7 +111,7 @@ test("the apply URL is the provider's own consent screen", () => {
     provider: "gofarther.dev", serviceId: "site", domain: "shop.com", host: "www",
     params: { target: "saas.gofarther.dev" },
   });
-  const p = new URL(u);
+  const p = new URL(u.url);
   assert.equal(p.origin, "https://dcc.godaddy.com");
   assert.ok(p.pathname.includes("/v2/domainTemplates/providers/gofarther.dev/services/site/apply"), p.pathname);
   assert.equal(p.searchParams.get("domain"), "shop.com");
@@ -126,7 +127,7 @@ test("NO CREDENTIAL OF OURS TRAVELS IN IT", () => {
     provider: "gofarther.dev", serviceId: "site", domain: "shop.com",
     params: { target: "saas.gofarther.dev" },
   });
-  assert.ok(!/key|secret|token|password|bearer/i.test(u), u);
+  assert.ok(!/key|secret|token|password|bearer/i.test(u.url), u.url);
 });
 
 test("an empty host is OMITTED, never sent blank", () => {
@@ -134,7 +135,7 @@ test("an empty host is OMITTED, never sent blank", () => {
   // reject and others apply at the apex. Those are the two worst outcomes to be
   // picking between silently.
   const u = applyUrl(base, { provider: "p", serviceId: "s", domain: "shop.com", host: "" });
-  assert.equal(new URL(u).searchParams.has("host"), false);
+  assert.equal(new URL(u.url).searchParams.has("host"), false);
 });
 
 test("template values are ENCODED, and junk keys dropped", () => {
@@ -144,7 +145,7 @@ test("template values are ENCODED, and junk keys dropped", () => {
     provider: "p", serviceId: "s", domain: "shop.com",
     params: { target: "a&redirect_uri=https://evil.example", "bad key": "x", ok: null },
   });
-  const p = new URL(u);
+  const p = new URL(u.url);
   assert.equal(p.searchParams.get("target"), "a&redirect_uri=https://evil.example");
   assert.equal(p.searchParams.get("redirect_uri"), null, "it did not become its own parameter");
   assert.equal(p.searchParams.has("bad key"), false);
@@ -153,13 +154,13 @@ test("template values are ENCODED, and junk keys dropped", () => {
 
 test("a return URL must be https, and state rides only with one", () => {
   const good = applyUrl(base, { provider: "p", serviceId: "s", domain: "shop.com", redirectUri: "https://gofarther.dev/back", state: "abc" });
-  assert.equal(new URL(good).searchParams.get("redirect_uri"), "https://gofarther.dev/back");
-  assert.equal(new URL(good).searchParams.get("state"), "abc");
+  assert.equal(new URL(good.url).searchParams.get("redirect_uri"), "https://gofarther.dev/back");
+  assert.equal(new URL(good.url).searchParams.get("state"), "abc");
   const bad = applyUrl(base, { provider: "p", serviceId: "s", domain: "shop.com", redirectUri: "http://evil.example", state: "abc" });
-  assert.equal(new URL(bad).searchParams.has("redirect_uri"), false);
+  assert.equal(new URL(bad.url).searchParams.has("redirect_uri"), false);
   // WITHOUT the return URL the state proves nothing and must not be sent — it
   // would be an identifier handed to a third party for no purpose.
-  assert.equal(new URL(bad).searchParams.has("state"), false);
+  assert.equal(new URL(bad.url).searchParams.has("state"), false);
 });
 
 test("missing pieces produce no URL rather than a broken one", () => {
@@ -223,7 +224,7 @@ const has = (src, re, why) => assert.ok(re.test(src), why);
 
 test("the route offers one-click where the provider supports it", () => {
   has(worker, /dcOfferFor\(dnsDeps, zone\)/, "discovery runs per domain");
-  has(worker, /item\.oneClick = link/, "and the link is handed over");
+  has(worker, /item\.oneClick = built\.base \+ "\?" \+ signed/, "and the SIGNED link is handed over");
 });
 
 test("discovery asks at the ZONE, not the hostname", () => {
@@ -254,6 +255,34 @@ test("it is not offered once DNS already points here", () => {
   const i = worker.indexOf('if (chk.state !== "ok") {');
   const j = worker.indexOf("dcOfferFor(dnsDeps, zone)");
   assert.ok(i > 0 && j > i, "the offer is inside the not-ok branch");
+});
+
+test("SIGNED OR NOT OFFERED — never an unsigned link", () => {
+  // The template declares `syncPubKeyDomain`, so a provider REFUSES an unsigned
+  // apply URL. Falling back to one would be a button that always fails; falling
+  // back to nothing leaves the copyable records, which work.
+  const i = worker.indexOf("const signed = built && signer");
+  assert.ok(i > 0, "the link is signed");
+  const after = worker.slice(i, i + 400);
+  assert.ok(/if \(signed\) \{ item\.oneClick/.test(after), "and only a signed one is offered");
+  // No branch anywhere hands over `built.url`, which is the unsigned form.
+  assert.ok(!/item\.oneClick = built\.url/.test(worker), "the unsigned URL is never offered");
+});
+
+test("the key id is named once, and matches what gets published in DNS", () => {
+  // Providers fetch the public half from `<DC_KEY_ID>.<syncPubKeyDomain>`.
+  has(worker, /const DC_KEY_ID = "_dck1";/, "declared");
+  assert.equal((worker.match(/const DC_KEY_ID =/g) || []).length, 1, "once");
+  const t = JSON.parse(fs.readFileSync(new URL("../domain-connect/gofarther.dev.site.json", import.meta.url), "utf8"));
+  assert.equal(t.syncPubKeyDomain, "gofarther.dev", "and the template names the zone it lives in");
+});
+
+test("the signing key is a deployed secret, not something in the repo", () => {
+  const deploy = fs.readFileSync(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
+  assert.ok(/DOMAIN_CONNECT_KEY: \$\{\{ secrets\.DOMAIN_CONNECT_KEY \}\}/.test(deploy), "uploaded from GitHub secrets");
+  has(worker, /env\.DOMAIN_CONNECT_KEY/, "and read from env");
+  // A private key checked in would be a private key in git forever.
+  assert.ok(!/BEGIN (RSA )?PRIVATE KEY/.test(worker), "no key material in the source");
 });
 
 test("an async-only provider is SAID, not silently dropped", () => {
@@ -322,6 +351,72 @@ test("providerId is a domain we actually control", () => {
   // What a reviewer checks, and the only thing tying the template to us.
   const t = JSON.parse(fs.readFileSync(new URL("../domain-connect/gofarther.dev.site.json", import.meta.url), "utf8"));
   assert.equal(t.providerId, "gofarther.dev");
+});
+
+// --------------------------------------------------------------- signing
+
+test("the signature covers the query EXACTLY as it will be sent", async () => {
+  // Rebuilt for signing, the bytes could differ from the bytes on the wire —
+  // different escaping, different parameter order — and every signature would
+  // fail verification for a reason nobody could see from either end.
+  const seen = [];
+  const built = applyUrl(base, {
+    provider: "p", serviceId: "s", domain: "shop.com", host: "www",
+    params: { target: "saas.gofarther.dev" },
+  });
+  const signed = await signQuery({ sign: async (q) => { seen.push(q); return "SIGVALUE=="; } }, built.query, "_dck1");
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0], built.query, "signed the string that goes on the wire");
+  assert.ok(!/[?]/.test(seen[0]), "the query only, without the leading ?");
+  assert.ok(!/(^|&)(sig|key)=/.test(seen[0]), "and without sig/key, which are added after");
+  const u = new URL(built.base + "?" + signed);
+  assert.equal(u.searchParams.get("sig"), "SIGVALUE==");
+  assert.equal(u.searchParams.get("key"), "_dck1");
+});
+
+test("no signature means no signed URL, rather than an unsigned one passed off as signed", async () => {
+  assert.equal(await signQuery({ sign: async () => null }, "domain=x"), null);
+  assert.equal(await signQuery({}, "domain=x"), null);
+  assert.equal(await signQuery({ sign: async () => "s" }, ""), null);
+});
+
+test("the signer produces a verifiable RSA-SHA256 signature", async () => {
+  // Driven with a REAL key pair rather than a fake, and verified with WebCrypto
+  // — the same lesson as the passkey tests: a signer checked against itself
+  // proves only that it agrees with itself, and a provider will not.
+  const pair = await crypto.subtle.generateKey(
+    { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+    true, ["sign", "verify"]);
+  const pkcs8 = Buffer.from(await crypto.subtle.exportKey("pkcs8", pair.privateKey)).toString("base64");
+  const sign = await rsaSigner(pkcs8);
+  assert.ok(sign, "the key imported");
+  const query = "domain=shop.com&host=www&target=saas.gofarther.dev";
+  const sig = await sign(query);
+  assert.ok(sig && sig.length > 100, "something came back");
+  const ok = await crypto.subtle.verify("RSASSA-PKCS1-v1_5", pair.publicKey,
+    Uint8Array.from(atob(sig), (c) => c.charCodeAt(0)), new TextEncoder().encode(query));
+  assert.equal(ok, true, "and it verifies against the public half");
+  // A DIFFERENT query must not verify, or the signature is decoration.
+  const bad = await crypto.subtle.verify("RSASSA-PKCS1-v1_5", pair.publicKey,
+    Uint8Array.from(atob(sig), (c) => c.charCodeAt(0)), new TextEncoder().encode(query + "&evil=1"));
+  assert.equal(bad, false);
+});
+
+test("a key that will not import is null, not a crash on a public route", async () => {
+  for (const bad of ["", null, "not base64 at all!!", "aGVsbG8="]) {
+    assert.equal(await rsaSigner(bad), null, JSON.stringify(bad));
+  }
+});
+
+test("THE TEMPLATE SIGNS RATHER THAN WARNS, and the two cannot coexist", () => {
+  // Their reviewer checklist: `syncPubKeyDomain` is mandatory and omitting it
+  // needs justification or the PR is rejected; `warnPhishing` must not appear
+  // alongside it. The first draft had exactly the wrong pair — no key domain
+  // and a phishing warning — which would have been rejected AND left our own
+  // legitimate flow showing an interstitial.
+  const t = JSON.parse(fs.readFileSync(new URL("../domain-connect/gofarther.dev.site.json", import.meta.url), "utf8"));
+  assert.equal(t.syncPubKeyDomain, "gofarther.dev", "signed");
+  assert.equal(t.warnPhishing, undefined, "and therefore no phishing warning");
 });
 
 test("the template conforms to the published JSON Schema", () => {

@@ -191,7 +191,69 @@ export function applyUrl(set, { serviceId, provider, domain, host, params, redir
       if (state) u.searchParams.set("state", String(state).slice(0, 120));
     }
   }
-  return u.toString();
+  // RETURNED AS TWO PARTS so the signature can be taken over the query exactly
+  // as it will be sent. Rebuilt for signing, the bytes could differ from the
+  // bytes on the wire — different escaping, different order — and every
+  // signature would fail verification for a reason nobody could see.
+  const query = u.search.replace(/^\?/, "");
+  return { url: u.toString(), base: u.origin + u.pathname, query };
+}
+
+/**
+ * SIGN THE APPLY REQUEST.
+ *
+ * WHY THIS IS NOT OPTIONAL, which their own reviewer checklist taught me and my
+ * first draft had wrong. An unsigned template can be invoked by ANYBODY: the
+ * apply URL is a plain GET, so a stranger can build
+ * `…/providers/gofarther.dev/services/site/apply?domain=victim.com&target=evil.example`,
+ * mail it to a GoDaddy customer, and the provider will offer to apply it —
+ * under OUR provider name, on the customer's real domain. The standard offers
+ * exactly two answers and they are mutually exclusive: `warnPhishing`, where the
+ * provider shows a scary interstitial on every apply including ours, or a
+ * SIGNATURE, where forged links simply do not verify. The first draft took the
+ * first because it needed no key. That was the wrong trade — it makes our own
+ * legitimate flow look dangerous AND still lets the forgery through if somebody
+ * clicks past the warning.
+ *
+ * The signature covers the query string EXACTLY as it will be sent, in order,
+ * with `sig` and `key` excluded — a provider re-serialising it differently would
+ * verify a different string, so the signed bytes and the sent bytes are produced
+ * from the same place and never rebuilt.
+ */
+export async function signQuery(deps, query, keyId) {
+  if (!deps || !deps.sign || !query) return null;
+  const sig = await deps.sign(query);
+  if (!sig) return null;
+  return query + "&key=" + encodeURIComponent(String(keyId || "_dck1")) + "&sig=" + encodeURIComponent(sig);
+}
+
+/**
+ * RSA-SHA256 over the query, base64 — the algorithm the standard specifies.
+ *
+ * The private key never leaves the Worker and never touches a page: the browser
+ * receives a finished URL, and the only thing it could do with the signature is
+ * replay the exact request it was already being sent to.
+ */
+export async function rsaSigner(pkcs8Base64) {
+  const raw = String(pkcs8Base64 || "").replace(/-----[A-Z ]+-----/g, "").replace(/\s+/g, "");
+  if (!raw) return null;
+  let key;
+  try {
+    // THE DECODE IS INSIDE THE TRY, and it was outside in the first draft.
+    // `atob` throws on anything that is not base64, so a mistyped key crashed
+    // here instead of returning null — and this is reached from a public route,
+    // where an uncaught throw is a bare 1101 with no body. Found by a test that
+    // fed it junk.
+    const der = Uint8Array.from(atob(raw), (c) => c.charCodeAt(0));
+    key = await crypto.subtle.importKey("pkcs8", der,
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  } catch { return null; }
+  return async (text) => {
+    try {
+      const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(text));
+      return btoa(String.fromCharCode(...new Uint8Array(sig)));
+    } catch { return null; }
+  };
 }
 
 /**
