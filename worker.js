@@ -4,6 +4,8 @@
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { sendConfirmation, recipient, pickProvider } from "./site-mail.mjs";
 import { dueJobs, runJob } from "./site-jobs.mjs";
+import { hostIsBlocked, blockedReason } from "./site-ssrf.mjs";
+import { deliverWebhook, firesFor, signPayload, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
 import { Container, getContainer } from "@cloudflare/containers";
 import { makeCache, memoize } from "./ttl-cache.mjs";
 import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
@@ -1035,68 +1037,9 @@ function pageImageCandidates(html, pageUrl) {
 // targets across the usual encodings (bracketed IPv6, IPv4-mapped,
 // decimal/octal/hex IPv4, trailing dot). Re-checked on every redirect hop by
 // safeFetch. ──
-function ipv4Blocked(o) {
-  const [a, b] = o;
-  if (o.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return true;
-  if (a === 0) return true;                          // 0.0.0.0/8 "this network"
-  if (a === 10) return true;                         // private
-  if (a === 127) return true;                        // loopback
-  if (a === 169 && b === 254) return true;           // link-local / cloud metadata
-  if (a === 172 && b >= 16 && b <= 31) return true;  // private
-  if (a === 192 && b === 168) return true;           // private
-  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
-  return false;
-}
-function parseIPv4(h) {
-  const toInt = (p) =>
-    /^0x[0-9a-f]+$/i.test(p) ? parseInt(p, 16) :
-    /^0[0-7]+$/.test(p) ? parseInt(p, 8) :
-    /^\d+$/.test(p) ? parseInt(p, 10) : NaN;
-  const parts = h.split(".");
-  if (parts.length === 4) {
-    const o = parts.map(toInt);
-    if (o.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) return o;
-  }
-  // Single-integer form (decimal / 0x-hex / 0-octal) → 32-bit dotted quad.
-  const n = /^0x[0-9a-f]+$/i.test(h) ? parseInt(h, 16) : /^0[0-7]+$/.test(h) ? parseInt(h, 8) : /^\d+$/.test(h) ? parseInt(h, 10) : NaN;
-  if (Number.isInteger(n) && n >= 0 && n <= 0xffffffff) return [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
-  return null;
-}
-// Extract the embedded IPv4 from an IPv4-mapped (::ffff:…) or NAT64 (64:ff9b::…)
-// IPv6 host, in dotted OR the hex form new URL() normalizes to (::ffff:7f00:1).
-function embeddedIPv4(h) {
-  const dotted = h.match(/(?:^|:)((?:\d{1,3}\.){3}\d{1,3})$/);
-  if (dotted) return parseIPv4(dotted[1]);
-  if (/(^|:)ffff:[0-9a-f]{1,4}(:[0-9a-f]{1,4})?$/i.test(h) || /^64:ff9b:/i.test(h)) {
-    const g = h.split(":").filter((x) => x !== "");
-    const last = g.slice(-2).map((x) => parseInt(x, 16));
-    const w1 = last.length === 2 ? last[0] : 0;
-    const w2 = last.length === 2 ? last[1] : last[0];
-    if (Number.isInteger(w1) && Number.isInteger(w2) && w1 <= 0xffff && w2 <= 0xffff) {
-      return [(w1 >> 8) & 255, w1 & 255, (w2 >> 8) & 255, w2 & 255];
-    }
-  }
-  return null;
-}
-function hostIsBlocked(rawHost) {
-  let h = (rawHost || "").toLowerCase().trim();
-  if (!h) return true;
-  if (h.endsWith(".")) h = h.slice(0, -1);           // trailing-dot FQDN
-  if (h.startsWith("[")) { const e = h.indexOf("]"); h = e > 0 ? h.slice(1, e) : h.slice(1); }
-  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".internal") ||
-      h.endsWith(".local") || h === "metadata.google.internal") return true;
-  if (h.includes(":")) {                             // IPv6
-    if (h === "::1" || h === "::") return true;       // loopback / unspecified
-    if (/^fe[89ab]/.test(h)) return true;            // link-local fe80::/10
-    if (/^f[cd]/.test(h)) return true;               // unique-local fc00::/7
-    const embedded = embeddedIPv4(h);                // IPv4-mapped / NAT64 (dotted or hex-normalized)
-    if (embedded && ipv4Blocked(embedded)) return true;
-    return false;                                    // other public IPv6
-  }
-  const ip = parseIPv4(h);
-  if (ip) return ipv4Blocked(ip);
-  return false;                                      // regular hostname
-}
+// `hostIsBlocked` lives in `site-ssrf.mjs` now: the outbound webhook asks the
+// same question, and a second copy drifts in the direction of one caller
+// quietly permitting a host the other refuses.
 // Fetch that won't be redirected onto a blocked host: follows up to `max` hops
 // manually, re-validating scheme + host on each Location.
 async function safeFetch(startUrl, opts = {}, max = 4) {
@@ -3597,6 +3540,10 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
           // already on this path, which is why this can fire on the booking
           // rather than up to two minutes later on a cron.
           confirmSubmitter(env, ctx, { slug, db, def, row: row || {} });
+          // And outward, if the site declared it. Same branch again: the row
+          // exists, the visitor has their answer, and anything else that wants
+          // to know is somebody else's server.
+          emitWebhook(env, ctx, { slug, db, def, table, action: "created", row: row || {} });
         }
       } catch (e) { console.error("notify hook:", slug, e && e.message); }
     }
@@ -3771,6 +3718,61 @@ async function sendMail(env, { to, subject, html, text }) {
 // this path is the write rate limit, since reaching this code at all costs an
 // insert into the owner's own table, which they can see.
 const confirmSeen = new Map();
+// One site's outbound deliveries per minute, per isolate. Bounded and cleared
+// wholesale rather than kept as a cache: this only has to stop the cheap flood.
+const webhookHits = new Map();
+
+/**
+ * Fire the site's declared webhook. Detached, never awaited by the response —
+ * a receiver being slow must not be something a customer waits on.
+ *
+ * The destination and signing secret come from the SITE'S OWN Neon vault, the
+ * same door the Stripe key and the mail key come through. Two names, decrypted
+ * lazily and never returned to a caller.
+ */
+function emitWebhook(env, ctx, { slug, db, def, table, action, row }) {
+  const p = (async () => {
+    const out = await deliverWebhook({
+      firesFor: (a) => firesFor(def, a),
+      loadSecrets: async () => {
+        const get = async (_s, name) => {
+          const rows = await sqlQuery(db, "SELECT cipher FROM _secrets WHERE name=?", [name]);
+          return (rows && rows[0] && rows[0].cipher) || null;
+        };
+        const map = {};
+        for (const name of ["WEBHOOK_URL", "WEBHOOK_SECRET"]) {
+          // One unreadable row must not stop the other being found — the same
+          // call `confirmSubmitter` makes for its four names.
+          try { const v = await readSecret({ get }, env, { slug, name }); if (v) map[name] = v; } catch { /* skip */ }
+        }
+        return map;
+      },
+      blockedReason: (u) => blockedReason(u),
+      sign: (secret, body, ts) => signPayload(secret, body, ts),
+      tooMany: async (s) => {
+        const now = Date.now();
+        const b = webhookHits.get(s);
+        if (!b || now >= b.resetAt) { webhookHits.set(s, { n: 1, resetAt: now + 60000 }); return false; }
+        // The expiry is FIXED at the first hit and never re-stamped — the bug
+        // `authThrottle` had, where a blocked caller extended their own window
+        // and never recovered.
+        b.n++;
+        if (webhookHits.size > 5000) webhookHits.clear();
+        return b.n > WEBHOOK_PER_MIN;
+      },
+      // `redirect: "manual"` so a 3xx is a result rather than another hop —
+      // following one would reopen the host question after it was answered.
+      post: (url, init) => fetch(url, { ...init, redirect: "manual", signal: AbortSignal.timeout(5000) }),
+    }, { slug, table, action, row, now: Date.now() });
+    // Logged rather than returned: this runs detached, so an owner whose
+    // integration never fires has nothing else to look at.
+    if (!out.sent && out.reason !== "no WEBHOOK_URL in Secrets" && out.reason !== "table does not emit this action") {
+      console.error("webhook:", slug, table, action, out.reason || "", out.status || "");
+    }
+  })();
+  if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(p); else p.catch(() => {});
+}
+
 function confirmSubmitter(env, ctx, { slug, db, def, row }) {
   const p = (async () => {
     const out = await sendConfirmation({
