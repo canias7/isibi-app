@@ -399,3 +399,37 @@ test("THE CACHE IS KEYED ON THE SITE, or one site's destination serves them all"
     assert.notEqual(m[1].split(",")[0].trim(), "env", "no memoized helper may key on env: " + m[0]);
   }
 });
+
+test("A MISS IS NEVER CACHED, and a write invalidates", () => {
+  // MEASURED, not theorised. A run submitted three bookings before the owner had
+  // stored a destination, which cached `{}` for sixty seconds; the secret was
+  // then stored and the next booking read the cached empty set and reported "no
+  // WEBHOOK_URL in Secrets". For an owner that is worse than a failing test —
+  // they paste a URL, submit their own form to check, and see nothing, which is
+  // the moment they decide the feature does not work.
+  //
+  // The rule already existed in this repo for `siteBackendBySlug`: never cache
+  // null, because an absent answer is usually a state that is about to change.
+  const worker = fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8");
+  const code = worker
+    .replace(/\/\*[\s\S]*?\*\//g, (x) => x.replace(/[^\n]/g, " "))
+    .replace(/(^|[^:])\/\/[^\n]*/g, (x, p1) => p1 + " ".repeat(x.length - p1.length));
+
+  // 1. an unconfigured result is dropped rather than kept
+  assert.match(code, /webhookCfg\.delete\(slug\)/, "a configuration with no destination must not stick");
+  // 2. …and that check is on the URL specifically, not merely on emptiness — a
+  //    site with only WEBHOOK_SECRET set is still unconfigured.
+  assert.match(code, /startsWith\("WEBHOOK_URL"\)/);
+  // 3. storing a secret invalidates, or the owner waits out the TTL at exactly
+  //    the moment they are testing it.
+  // The window is generous because comment-blanking PRESERVES length: the
+  // explanation between these two statements becomes ~250 characters of spaces,
+  // so a tight bound fails on correct code for a reason that has nothing to do
+  // with the property.
+  // THE CONDITION IS PART OF THE ASSERTION. Matching only the call let a mutant
+  // wrapping it in `if (false)` survive — the text was still there and the
+  // behaviour was gone, which is the same "matches prose, not code" family as
+  // the redirect guard, one level in.
+  assert.match(code, /addSecret\([\s\S]{0,900}?if \(r && r\.ok\) webhookCfg\.delete\(sslug\)/,
+    "adding a secret must invalidate the cached configuration, and only on success");
+});

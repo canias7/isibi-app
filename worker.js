@@ -3778,7 +3778,7 @@ const webhookCfg = makeCache({ ttlMs: 60_000, max: 500 });
 // same `env` object and serve one site's destination and signing secret to every
 // other one. Every other memoized caller here puts the identity-bearing argument
 // first for exactly this reason.
-const webhookSecrets = memoize(webhookCfg, async (slug, env, db) => {
+const _webhookSecrets = memoize(webhookCfg, async (slug, env, db) => {
   const map = {};
   let rows = [];
   // LIKE on the name, so a site with twelve destinations is still one read.
@@ -3795,6 +3795,27 @@ const webhookSecrets = memoize(webhookCfg, async (slug, env, db) => {
   }
   return map;
 });
+
+/**
+ * NEVER CACHE A MISS, which is the rule `siteBackendBySlug` already follows —
+ * "a slug that does not resolve is usually one whose build is still finishing".
+ *
+ * Measured, not theorised: a run submitted three bookings before the owner had
+ * stored a destination, which cached `{}` for sixty seconds; the secret was then
+ * stored and the next booking read the cached empty set and reported "no
+ * WEBHOOK_URL in Secrets". For an owner that is worse than a test failure — they
+ * paste a URL, submit their own form to check, and see nothing happen, which is
+ * exactly the moment they conclude the feature is broken.
+ *
+ * So a configuration with no destination is dropped from the cache immediately.
+ * It costs one read per event only on sites that never configured one, and those
+ * sites do not reach here at all — `firesFor` refuses first.
+ */
+async function webhookSecrets(slug, env, db) {
+  const map = await _webhookSecrets(slug, env, db);
+  if (!map || !Object.keys(map).some((k) => k.startsWith("WEBHOOK_URL"))) webhookCfg.delete(slug);
+  return map;
+}
 
 // One site's outbound deliveries per minute, per isolate. Bounded and cleared
 // wholesale rather than kept as a cache: this only has to stop the cheap flood.
@@ -6810,6 +6831,13 @@ async function handleRequest(request, env, ctx) {
               if (request.method === "POST") {
                 const sb = await request.json().catch(() => ({}));
                 const r = await addSecret(vault, env, { slug: sslug, name: sb.name, value: sb.value });
+                // The owner just changed the configuration, so anything this
+                // isolate remembered is wrong. Without this they wait out the TTL
+                // — and the moment they are most likely to submit their own form
+                // to check is the sixty seconds immediately after saving.
+                // Isolate-local, like every other invalidation here: other PoPs
+                // heal by expiry.
+                if (r && r.ok) webhookCfg.delete(sslug);
                 return Response.json(r.ok ? { ok: true, name: r.name, replaced: r.replaced } : { ok: false, error: r.error }, { status: r.ok ? 200 : (r.status || 400) });
               }
               if (request.method === "DELETE") {
