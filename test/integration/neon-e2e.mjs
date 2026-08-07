@@ -522,6 +522,39 @@ try {
   const after = await sqlQuery(db, "SELECT * FROM enquiry_by_claim(?)", [tok]);
   ok("cancelling by the same token removes it", after.length === 0, JSON.stringify(after));
 
+  // ── the sandbox boundary, MEASURED rather than quoted from a note ──────────
+  //
+  // This lived only in CLAUDE.md, from one uncommitted session, and in the gap
+  // it drifted into two self-contradictions: the file said `pg_cron` was
+  // unavailable while another entry said it was, and said "the database has no
+  // internet" while another entry recorded that exact claim being measured and
+  // found FALSE. Both were being used to justify where platform code lives.
+  //
+  // The four that ARE allowed are REPORTED, not asserted. Neon curates that
+  // list; it is their platform property, not our invariant, and a test that
+  // goes red because a vendor added an extension is a test that gets muted.
+  console.log("\nsandbox boundary");
+  const extRows = await sqlQuery(db,
+    "SELECT name FROM pg_available_extensions WHERE name IN " +
+    "('http','pg_net','dblink','postgres_fdw','pg_cron','plpython3u','plperlu','file_fdw')");
+  const have = new Set((extRows || []).map((r) => r.name));
+
+  // THE LOAD-BEARING ONE, and the only assertion here. Payments and site email
+  // live in the Worker because Postgres cannot make an HTTPS call. If that ever
+  // stops being true the decision is worth revisiting, so it fails loudly.
+  ok("no HTTP client in Postgres — http and pg_net both absent",
+    !have.has("http") && !have.has("pg_net"), "present: " + [...have].join(", "));
+
+  // The honest counterweight, printed so nobody re-derives "the database cannot
+  // reach the network" from the line above. That inference HAS been drawn, in
+  // this repo, twice — and it is wrong.
+  const egress = ["dblink", "postgres_fdw"].filter((n) => have.has(n));
+  console.log("  note EGRESS IS OPEN via: " + (egress.join(", ") || "(neither present)") +
+    " — 'no HTTP' is the claim, never 'no internet'");
+  for (const n of ["dblink", "postgres_fdw", "pg_cron", "plpython3u", "plperlu", "file_fdw"]) {
+    console.log("  note " + n.padEnd(13) + (have.has(n) ? "available" : "absent"));
+  }
+
 } catch (e) {
   failed++;
   console.log("\nUNCAUGHT: " + (e && (e.detail || e.message || e)));
