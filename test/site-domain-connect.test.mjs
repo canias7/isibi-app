@@ -274,3 +274,91 @@ test("the button says the owner keeps their password", () => {
   // and the reason it is safe is that the sign-in is THEIRS.
   has(chat, /never see your password/, "stated in the panel");
 });
+
+// ------------------------------------------------------- the template itself
+//
+// It is a file a THIRD PARTY reviews and every DNS provider then ingests, so a
+// mistake in it is not something we can fix by deploying — it is a resubmission
+// and another review cycle.
+
+test("the template matches what the code asks providers for", () => {
+  const t = JSON.parse(fs.readFileSync(new URL("../domain-connect/gofarther.dev.site.json", import.meta.url), "utf8"));
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  // THE PATH A PROVIDER LOOKS US UP BY. If these drift from the constants the
+  // apply URL is built with, every button 404s at the provider's end — and the
+  // template cannot be corrected without another review.
+  assert.ok(worker.includes('const DC_PROVIDER = "' + t.providerId + '"'), "providerId matches DC_PROVIDER");
+  assert.ok(worker.includes('const DC_SERVICE = "' + t.serviceId + '"'), "serviceId matches DC_SERVICE");
+  // And the variable the apply URL sends must be one the template declares.
+  assert.ok(worker.includes("params: { target: saasTarget(env) }"), "the code sends `target`");
+  assert.ok(JSON.stringify(t.records).includes("%target%"), "and the template consumes it");
+});
+
+test("the template declares only what it needs", () => {
+  const t = JSON.parse(fs.readFileSync(new URL("../domain-connect/gofarther.dev.site.json", import.meta.url), "utf8"));
+  assert.equal(t.records.length, 1, "one CNAME — see the README for why");
+  assert.equal(t.records[0].type, "CNAME");
+  assert.equal(t.records[0].host, "@");
+  assert.ok(t.records[0].ttl > 0, "a record with no TTL is rejected on review");
+  // `hostRequired: false` with `host: "@"` is what lets one template serve both
+  // the apex and `www` — the apply URL's `host` decides.
+  assert.equal(t.hostRequired, false);
+});
+
+test("syncRedirectDomain is set, and is not a wildcard", () => {
+  // It is the allow-list of hosts a provider will honour in `redirect_uri`.
+  // Absent or wildcarded, the apply URL is an open redirect anybody can aim
+  // anywhere, on the provider's domain, carrying our template's name.
+  const t = JSON.parse(fs.readFileSync(new URL("../domain-connect/gofarther.dev.site.json", import.meta.url), "utf8"));
+  assert.ok(typeof t.syncRedirectDomain === "string" && t.syncRedirectDomain.length, "declared");
+  assert.ok(!t.syncRedirectDomain.includes("*"), "never a wildcard");
+  for (const h of t.syncRedirectDomain.split(",")) {
+    assert.ok(/^[a-z0-9.-]+$/.test(h.trim()), h);
+    assert.ok(h.trim().endsWith("gofarther.dev"), h + " must be ours");
+  }
+});
+
+test("providerId is a domain we actually control", () => {
+  // What a reviewer checks, and the only thing tying the template to us.
+  const t = JSON.parse(fs.readFileSync(new URL("../domain-connect/gofarther.dev.site.json", import.meta.url), "utf8"));
+  assert.equal(t.providerId, "gofarther.dev");
+});
+
+test("the template conforms to the published JSON Schema", () => {
+  // Field lists read off `template.schema` in Domain-Connect/Templates rather
+  // than remembered. Getting this wrong is not a deploy away from fixed: the
+  // file is reviewed by a third party and then ingested by every provider, so a
+  // rejected field costs another review cycle.
+  const t = JSON.parse(fs.readFileSync(new URL("../domain-connect/gofarther.dev.site.json", import.meta.url), "utf8"));
+  const REQUIRED = ["providerId", "providerName", "serviceId", "serviceName", "records"];
+  const ALLOWED = new Set([...REQUIRED, "version", "logoUrl", "description", "variableDescription",
+    "syncBlock", "shared", "sharedProviderName", "sharedServiceName", "syncRedirectDomain",
+    "syncPubKeyDomain", "multiInstance", "warnPhishing", "hostRequired"]);
+  for (const k of REQUIRED) assert.ok(t[k] !== undefined, "missing required " + k);
+  for (const k of Object.keys(t)) assert.ok(ALLOWED.has(k), "unknown top-level field " + k);
+
+  const REC_REQUIRED = ["type", "host", "pointsTo", "ttl"];
+  const REC_ALLOWED = new Set([...REC_REQUIRED, "groupId", "essential"]);
+  for (const r of t.records) {
+    for (const k of REC_REQUIRED) assert.ok(r[k] !== undefined, "record missing " + k);
+    for (const k of Object.keys(r)) assert.ok(REC_ALLOWED.has(k), "unknown record field " + k);
+  }
+});
+
+test("the file is named the way the repository requires", () => {
+  // `providerId.serviceId.json` in the repository ROOT. The first draft of the
+  // README said `templates/`, which is wrong and would have been a review
+  // comment rather than a merge.
+  const t = JSON.parse(fs.readFileSync(new URL("../domain-connect/gofarther.dev.site.json", import.meta.url), "utf8"));
+  const names = fs.readdirSync(new URL("../domain-connect/", import.meta.url));
+  assert.ok(names.includes(t.providerId + "." + t.serviceId + ".json"), names.join(", "));
+});
+
+test("the logo the template advertises actually exists in the build", () => {
+  // A reviewer opens it. A 404 there is a bounced submission for a reason that
+  // has nothing to do with DNS.
+  const t = JSON.parse(fs.readFileSync(new URL("../domain-connect/gofarther.dev.site.json", import.meta.url), "utf8"));
+  const m = String(t.logoUrl).match(/^https:\/\/gofarther\.dev\/(.+)$/);
+  assert.ok(m, "served from our own origin: " + t.logoUrl);
+  assert.ok(fs.existsSync(new URL("../public/" + m[1], import.meta.url)), "public/" + m[1] + " must exist");
+});

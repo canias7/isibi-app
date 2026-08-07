@@ -1,0 +1,23 @@
+{
+  "providerId": "gofarther.dev",
+  "providerName": "Go Farther",
+  "serviceId": "site",
+  "serviceName": "Go Farther website",
+  "version": 1,
+  "logoUrl": "https://gofarther.dev/logo.png",
+  "description": "Point this domain at the website you built with Go Farther.",
+  "variableDescription": "target: the Go Farther hostname this domain is served from.",
+  "syncRedirectDomain": "gofarther.dev,www.gofarther.dev",
+  "warnPhishing": true,
+  "hostRequired": false,
+  "shared": false,
+  "records": [
+    {
+      "type": "CNAME",
+      "host": "@",
+      "pointsTo": "%target%",
+      "ttl": 1800,
+      "groupId": "site"
+    }
+  ]
+}
