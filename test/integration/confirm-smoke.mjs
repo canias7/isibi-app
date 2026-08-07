@@ -274,8 +274,14 @@ try {
   // The one thing that must never leave our network. Asserted on the delivered
   // bytes rather than on `shapePayload`'s return, because the unit test already
   // covers the function and this covers the WIRE.
+  // ANCHORED on a payload having arrived. `!(x in {})` is true for every name,
+  // so on the run where nothing was delivered all three of these reported ok —
+  // the same vacuous-pass shape as the dropped-jobs checks, in a file that
+  // already carries a comment about it. A negative assertion needs proof its
+  // subject exists, and writing that down once is evidently not enough.
+  const arrived = Object.keys(payload).length > 0;
   for (const gone of ["owner_id", "claim_token", "_fts"]) {
-    ok(`and never ${gone}`, !(gone in payload), JSON.stringify(payload).slice(0, 200));
+    ok(`and never ${gone}`, arrived && !(gone in payload), JSON.stringify(payload).slice(0, 200));
   }
 
   // THE LOOP GUARD. Writing to `hook_log` is itself an insert on a collect
