@@ -14045,3 +14045,111 @@ cooled to one mail per site per five minutes, claimed in the database rather
 than per-isolate so that many isolates cannot each send one. Anything that would
 put a *visitor* on our sender is a different order of volume and must move to the
 owner's key first.
+
+## 2026-08-07 — a site can email its own customers, and it can do it on a clock
+
+The section above says the chain is dead at two layers and that "email the
+customer the moment they book" is structurally out of reach. Both are now false,
+and the way they were fixed matters more than the fact that they were.
+
+**The trigger was never the cron.** The note assumed the Worker had left the
+write path, so it prescribed a Postgres trigger writing to a queue table drained
+by the two-minute cron. The Worker has NOT left the write path — `proxySiteService`
+is the write path, every insert a published site makes goes through it, and
+`notifyOwnerOfSubmission` already hooks there. So a customer confirmation is one
+branch beside it, fire-and-forget under `waitUntil`, sent the moment the booking
+lands. The prescribed design would have built a queue, a trigger and a cron
+dependency to reach a place the code was already standing in.
+
+**`site-mail.mjs` — the confirmation.** The model declares, per table, that it
+confirms: which column holds the address, the subject, the words, and which of
+the row's own values appear in them. The platform owns exactly one thing, and
+only because there is no alternative: holding the key and opening the connection.
+A published page is public files, so a key in it is a key given away, and
+Postgres has no HTTP client. That is arithmetic, not a preference, and it is the
+whole of the exception.
+
+- **The function form is the real one, and the template form is its special
+  case.** `{fn: "confirm_booking"}` hands the whole message to model-written SQL:
+  take the row id, return the address, subject and body, computed from anything
+  on the site. Mention the parking only on a Saturday. Thank a returning customer
+  by counting their earlier rows. Name the stylist by joining another table. Three
+  blanks in a template cannot do any of that, and a menu of options for it is the
+  eight-verb runner again.
+- **A COMPUTED message gets no weaker validation than a written one.** The
+  address still goes through the same `recipient` check, because a function
+  returning `"a@b.com, evil@x.com"` is header injection exactly as a form field
+  would be — and the subject and body are clipped, because the function's output
+  is never seen by a caller and a runaway body is a silent bill on the owner's
+  provider.
+- **The cross-reference is the guard that makes it safe.** A `confirm.fn` naming
+  a function that does not exist, or one that is not `internal`, is dropped in
+  `normalizeSchema` — where both lists are visible for the first time. Half-valid
+  is worse than absent: it publishes a site whose form looks like it confirms and
+  does not, and nobody learns otherwise until a customer says they got nothing.
+- **A model-written function may never name an internal table.** `_secrets` lives
+  in the site's own database beside the declared tables, so a function body
+  mentioning it would read the vault through a door built for business logic.
+  Refused at parse, and `internal: true` withholds the Data API grant so the
+  function is callable by the platform and not by the internet.
+
+**`site-jobs.mjs` — the clock.** The model writes a SELECT returning the messages
+and a schedule; the platform runs it and puts the result on a wire. There is
+nothing here to extend when somebody wants a different kind of scheduled work —
+they write different SQL. That is the difference from a verb.
+
+- **`stamp` runs BEFORE sending, and the ordering is the whole design.** Stamped
+  afterwards, a job that dies mid-send is due again on the next tick and mails
+  everyone it already reached. Losing a run is recoverable; sending a reminder
+  four times is not.
+- **The floor is 15 minutes and the request is CLAMPED, not refused.** A model
+  asking for every five minutes wants "often", and refusing the whole job over
+  the number loses the reminder entirely — but the stored value is the real one,
+  so nobody is told they got what they asked for.
+- **Overflow is reported, never silent.** A job quietly capped at 100 messages
+  looks exactly like a job that worked, and the hundred-and-first customer is the
+  one who turns up without a reminder.
+
+**The eight-verb runner is gone.** `runSiteFunction` — `read save fetch ai email
+notify checkout respond` — was the design that had already been tried and
+deleted, and rebuilding it was very nearly what happened here before the owner
+said "hold up". A menu is finite and somebody has to extend it forever.
+
+## 2026-08-07 — the login email had been dead for eight days
+
+**Nobody could create an account, and every test in the repo was green.**
+
+The rebrand updated `supabase/functions/send-email/index.ts` on 2026-07-30. The
+DEPLOYED function was still v11: sender `isibi <login@isibi.ai>`, confirm link
+`https://isibi.ai/confirm`. Both point at a domain that stopped resolving the day
+the rebrand landed — an unverified sender Cloudflare will refuse, and a dead link
+for anyone who got one anyway.
+
+**The cause is structural and will happen again unless it is remembered:
+`deploy.yml` runs wrangler, which touches Cloudflare only. Supabase Edge
+Functions are outside the deploy path entirely.** So the repo source and the live
+function drift with nothing to notice, and the file LOOKS maintained — it was
+correct in git the whole time. Anything that edits it has to be deployed by hand,
+and the check is `get_edge_function`, not `git log`.
+
+- **Deployed v12 and preserved `verify_jwt: false`** — this is a GoTrue webhook
+  authenticated by a standard-webhooks signature, not a JWT. Turning verification
+  on would have refused every call from GoTrue itself.
+- **The config check runs before the signature check, which makes an unsigned
+  POST a free probe.** `401 invalid signature` means both `CF_ACCOUNT_ID` and
+  `CF_EMAIL_TOKEN` are set — it got past the config gate. `200 {}` means one is
+  missing and the log names which. Nothing is sent either way. Measured: 401.
+- **A missing mailer returns 200, not 500, and the previous note in CLAUDE.md had
+  this backwards.** GoTrue treats any non-2xx from this hook as failure of the
+  whole auth operation, so 500 on a missing secret means one wrong character stops
+  people signing up at all — strictly worse than mail not arriving. Only a missing
+  `SEND_EMAIL_HOOK_SECRET` refuses, because that is the only thing proving the
+  caller is GoTrue and not a stranger.
+- **Three log surfaces answer three different questions, and reading one as
+  another is how this lasted eight days.** The AUTH log answers *was the hook
+  called* — a real `/auth/v1/otp` produced `"Hook ran successfully","success":true`,
+  which is the only proof the hook is enabled and pointed here, and nothing in the
+  repo asserts it. The FUNCTION log answers *did the provider accept*, and only on
+  failure, because the Cloudflare call is detached under `EdgeRuntime.waitUntil`.
+  Only the INBOX answers *did it arrive*. "No error logged" is not evidence of
+  success when the log has not surfaced the invocation yet.
