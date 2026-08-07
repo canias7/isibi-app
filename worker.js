@@ -2,7 +2,8 @@
 // instantiates the wasm synchronously on import, so the functions are ready to
 // call. Bundled by wrangler at deploy (see package.json).
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
-import { sendConfirmation } from "./site-mail.mjs";
+import { sendConfirmation, recipient, pickProvider } from "./site-mail.mjs";
+import { dueJobs, runJob } from "./site-jobs.mjs";
 import { Container, getContainer } from "@cloudflare/containers";
 import { makeCache, memoize } from "./ttl-cache.mjs";
 import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
@@ -2003,7 +2004,7 @@ export default {
   // Cron trigger (see wrangler.jsonc): drive the DM auto-reply engine.
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runAutoReply(env));
-    ctx.waitUntil(runScheduledSiteFunctions(env, ctx));
+    ctx.waitUntil(runScheduledSiteJobs(env, ctx));
     // Drain the Neon teardown queue. This side is the ONLY one that can: the
     // rows are written by a Postgres trigger as a project's record disappears,
     // and Postgres cannot call the Neon API.
@@ -2181,20 +2182,6 @@ async function decryptSecret(env, packed) {
   return new TextDecoder().decode(pt);
 }
 
-// ── Site "edge functions" (Path A): the generator DECLARES a function-SPEC (a
-// bounded trigger→steps recipe), never arbitrary code. The Worker interprets the
-// spec against primitives we already own (collections, secrets, external fetch),
-// so nothing user-authored ever executes — there is no code to sandbox. ──
-function resolveStr(s, data, secrets) {
-  return String(s).replace(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g, (m, path) => {
-    const parts = path.split(".");
-    if (parts[0] === "secret") { const name = parts[1] || ""; return secrets && Object.prototype.hasOwnProperty.call(secrets, name) ? String(secrets[name]) : ""; }
-    let cur = parts[0] === "input" ? data.input : parts[0] === "steps" ? data.steps : undefined;
-    for (let i = 1; i < parts.length && cur != null; i++) cur = cur[parts[i]];
-    if (cur == null) return "";
-    return typeof cur === "object" ? JSON.stringify(cur) : String(cur);
-  }).slice(0, 6000);
-}
 // Resolve one path to its RAW value (not stringified) — used when a template value
 // is a SOLE `{{placeholder}}`, so `"{{steps.list.records}}"` embeds the actual array
 // (a function can respond with structured data), not a JSON string of it.
@@ -2204,27 +2191,6 @@ function resolveRaw(path, data, secrets) {
   let cur = parts[0] === "input" ? data.input : parts[0] === "steps" ? data.steps : undefined;
   for (let i = 1; i < parts.length && cur != null; i++) cur = cur[parts[i]];
   return cur;
-}
-function resolveTempl(v, data, secrets) {
-  if (typeof v === "string") {
-    const sole = v.match(/^\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}$/); // the whole value is ONE placeholder → preserve its type
-    if (sole) { const raw = resolveRaw(sole[1], data, secrets); if (raw !== undefined) return raw; }
-    return resolveStr(v, data, secrets);
-  }
-  if (Array.isArray(v)) return v.map((x) => resolveTempl(x, data, secrets));
-  if (v && typeof v === "object") { const o = {}; for (const k of Object.keys(v)) o[k] = resolveTempl(v[k], data, secrets); return o; }
-  return v;
-}
-// Decrypt this site's secrets into a name→plaintext map (server-only, per run).
-async function loadSiteSecrets(env, ownerId, slug) {
-  const map = {};
-  try {
-    const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY };
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/site_secrets?owner_id=eq.${ownerId}&slug=eq.${encodeURIComponent(slug)}&select=name,value_encrypted&limit=100`, { headers: svc, signal: AbortSignal.timeout(8000) });
-    const rows = await r.json().catch(() => []);
-    for (const row of (Array.isArray(rows) ? rows : [])) { try { map[row.name] = await decryptSecret(env, row.value_encrypted); } catch {} }
-  } catch {}
-  return map;
 }
 // Send an email through a provider (Resend/SendGrid/Postmark) — shared by the
 // `email` function action and password-reset. Key + recipient go only to the
@@ -2240,165 +2206,102 @@ async function postProviderEmail(provider, key, from, to, subject, html) {
     return { ok: resp.status >= 200 && resp.status < 300, status: resp.status };
   } catch { return { ok: false, status: 0 }; }
 }
-// Send using the site owner's configured email secrets (convention: EMAIL_FROM +
-// one of RESEND_KEY / SENDGRID_KEY / POSTMARK_KEY). Returns false if unconfigured
-// — the platform has no fallback sender for a site (it's bring-your-own).
-async function runSiteFunction(env, row, input, slug) {
-  const steps = Array.isArray(row.spec && row.spec.steps) ? row.spec.steps.slice(0, 8) : [];
-  const data = { input: input && typeof input === "object" && !Array.isArray(input) ? input : {}, steps: {} };
-  const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY };
-  let secrets = null, response = null;
-  // React sites have their OWN D1 database — a function's read/save should target
-  // the app's real tables (record a Stripe order, read app data for a digest), not
-  // the legacy collections store. Looked up once, lazily; sites with no D1 fall back
-  // to site_collections (unchanged). D1 read/save only touch DECLARED tables.
-  let d1uuid = undefined, d1schema = null; // undefined=not looked up yet, null=no D1
-  const getD1 = async () => {
-    if (d1uuid === undefined) {
-      d1uuid = null;
-      if (siteDbConfigured(env)) { try { const u = await siteBackendBySlug(env, slug); if (u) { d1uuid = u; d1schema = await loadSiteSchema(u); } } catch {} }
-    }
-    return d1uuid;
-  };
-  const d1Cols = (def) => { const managed = new Set(["id", "created_at", "owner_id"]); return (Array.isArray(def.columns) ? def.columns : []).map((c) => (typeof c === "string" ? c : c && c.name)).filter((n) => n && !managed.has(String(n).toLowerCase())); };
-  for (const st of steps) {
-    try {
-      if (st.do === "read") {
-        const uuid = await getD1();
-        const def = uuid ? tableDef(d1schema, String(st.collection || "")) : null;
-        if (uuid && def) {
-          const lim = Math.min(200, Math.max(1, parseInt(st.limit || 20, 10) || 20));
-          const rows = await siteQuery(env, uuid, "SELECT * FROM " + sqlIdent(def.name) + " ORDER BY id DESC LIMIT ?", [lim]);
-          data.steps[st.as] = { records: rows, count: rows.length };
-        } else {
-          const r = await fetch(`${SUPABASE_URL}/rest/v1/site_collections?slug=eq.${encodeURIComponent(slug)}&collection=eq.${encodeURIComponent(st.collection)}&select=data,created_at&order=created_at.desc&limit=${st.limit || 20}`, { headers: svc, signal: AbortSignal.timeout(8000) });
-          const rows = await r.json().catch(() => []);
-          const records = Array.isArray(rows) ? rows.map((x) => x.data) : [];
-          data.steps[st.as] = { records, count: records.length };
-        }
-      } else if (st.do === "save") {
-        const rec = resolveTempl(st.data, data, null); // secrets never saved to a public store
-        const uuid = await getD1();
-        const def = uuid ? tableDef(d1schema, String(st.collection || "")) : null;
-        if (uuid && def) {
-          const use = d1Cols(def).filter((c) => rec && rec[c] !== undefined);
-          if (use.length) { await siteQuery(env, uuid, "INSERT INTO " + sqlIdent(def.name) + " (" + use.map(sqlIdent).join(",") + ") VALUES (" + use.map(() => "?").join(",") + ")", use.map((c) => rec[c])); }
-          data.steps[st.as || "saved"] = { ok: true };
-        } else {
-          // Legacy collections. Bound abuse: same ≤500-per-(slug,collection) cap as /api/site/data.
-          let total = 0;
-          try { const c = await fetch(`${SUPABASE_URL}/rest/v1/site_collections?slug=eq.${encodeURIComponent(slug)}&collection=eq.${encodeURIComponent(st.collection)}&select=id`, { headers: { ...svc, Prefer: "count=exact", Range: "0-0" }, signal: AbortSignal.timeout(8000) }); total = parseInt(((c.headers.get("content-range") || "").split("/")[1] || "0"), 10) || 0; } catch {}
-          if (total < 500) { try { await fetch(`${SUPABASE_URL}/rest/v1/site_collections`, { method: "POST", headers: { ...svc, "Content-Type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify({ published_site_id: row.published_site_id || null, owner_id: row.owner_id, slug, collection: st.collection, data: rec && typeof rec === "object" ? rec : {} }), signal: AbortSignal.timeout(8000) }); } catch {} }
-          data.steps[st.as || "saved"] = { ok: true };
-        }
-      } else if (st.do === "ai") {
-        // Platform LLM call, metered to this app's owner. Prompt/system may template
-        // in earlier steps + input; the result lands as {{steps.<as>.text}}.
-        const prompt = resolveStr(String(st.prompt || ""), data, null);
-        const system = st.system ? resolveStr(String(st.system), data, null) : "";
-        const res = await runSiteAI(env, row.owner_id, { prompt, system });
-        data.steps[st.as || "ai"] = (res.text != null) ? { text: res.text } : { error: res.error || "ai unavailable" };
-      } else if (st.do === "fetch") {
-        if (secrets === null) secrets = await loadSiteSecrets(env, row.owner_id, slug);
-        const url = resolveStr(st.url, data, secrets);
-        const headers = resolveTempl(st.headers, data, secrets) || {};
-        let out; if (st.body != null) { const b = resolveTempl(st.body, data, secrets); out = typeof b === "string" ? b : JSON.stringify(b); }
-        const resp = await safeFetch(url, { method: st.method, headers, body: (st.method === "GET" || st.method === "DELETE") ? undefined : out, signal: AbortSignal.timeout(8000) });
-        let status = 0, parsed = null;
-        if (resp) { status = resp.status; const txt = new TextDecoder().decode(await readCapped(resp, 32768)); try { parsed = JSON.parse(txt); } catch { parsed = txt; } }
-        data.steps[st.as] = { status, body: parsed };
-      } else if (st.do === "checkout") {
-        // Create a Stripe Checkout Session with the owner's key (from the vault).
-        // Key goes ONLY to api.stripe.com; only the returned url/id is captured.
-        if (secrets === null) secrets = await loadSiteSecrets(env, row.owner_id, slug);
-        const key = st.secret && Object.prototype.hasOwnProperty.call(secrets, st.secret) ? secrets[st.secret] : "";
-        const amount = parseInt(resolveStr(String(st.amount || ""), data, null), 10);
-        if (!key || !(amount > 0)) { data.steps[st.as] = { error: "checkout not configured — add your Stripe key in Secrets and a valid amount" }; continue; }
-        const name = (resolveStr(st.name || "Purchase", data, null) || "Purchase").slice(0, 250);
-        const currency = (st.currency || "usd").toLowerCase().replace(/[^a-z]/g, "").slice(0, 3) || "usd";
-        const form = new URLSearchParams();
-        form.set("mode", st.mode === "subscription" ? "subscription" : "payment");
-        const su = resolveStr(st.success_url || "", data, null), cu = resolveStr(st.cancel_url || "", data, null);
-        if (su) form.set("success_url", su.slice(0, 600));
-        if (cu) form.set("cancel_url", cu.slice(0, 600));
-        form.set("line_items[0][quantity]", String(st.quantity || 1));
-        form.set("line_items[0][price_data][currency]", currency);
-        form.set("line_items[0][price_data][unit_amount]", String(amount));
-        form.set("line_items[0][price_data][product_data][name]", name);
-        if (st.mode === "subscription") form.set("line_items[0][price_data][recurring][interval]", st.interval || "month");
-        try {
-          const resp = await fetch("https://api.stripe.com/v1/checkout/sessions", { method: "POST", headers: { Authorization: "Bearer " + key, "Content-Type": "application/x-www-form-urlencoded" }, body: form.toString(), signal: AbortSignal.timeout(12000) });
-          const txt = new TextDecoder().decode(await readCapped(resp, 32768));
-          let j = null; try { j = JSON.parse(txt); } catch {}
-          data.steps[st.as] = (j && j.url) ? { url: j.url, id: j.id } : { error: (j && j.error && j.error.message) || "checkout failed" };
-        } catch { data.steps[st.as] = { error: "checkout failed" }; }
-      } else if (st.do === "email") {
-        // Send through the owner's OWN email provider (key from the vault). Key +
-        // recipients go only to the provider; only status/ok is captured.
-        if (secrets === null) secrets = await loadSiteSecrets(env, row.owner_id, slug);
-        const key = st.secret && Object.prototype.hasOwnProperty.call(secrets, st.secret) ? secrets[st.secret] : "";
-        const to = resolveStr(st.to || "", data, null).slice(0, 200);
-        const from = resolveStr(st.from || "", data, null).slice(0, 200);
-        const subject = resolveStr(st.subject || "", data, null).slice(0, 300);
-        const html = resolveStr(st.html || "", data, null).slice(0, 20000);
-        if (!key || !to || !from) { data.steps[st.as] = { error: "email not configured — add your email provider key in Secrets and set from/to" }; continue; }
-        const er = await postProviderEmail(st.provider, key, from, to, subject, html);
-        data.steps[st.as] = { ok: er.ok, status: er.status };
-      } else if (st.do === "notify") {
-        // Create an in-app notification for a member (server-side only). `to` is a
-        // member id (templated from earlier steps/input). No secret exposure.
-        const uuid = await getD1();
-        if (uuid) {
-          const to = resolveStr(String(st.to != null ? st.to : ""), data, null);
-          const text = resolveStr(String(st.text || ""), data, null);
-          const link = resolveStr(String(st.link || ""), data, null);
-          try { await createNotification(env, uuid, to, { type: st.type, text, link }); } catch {}
-        }
-        data.steps[st.as || "notified"] = { ok: true };
-      } else if (st.do === "respond") {
-        response = resolveTempl(st.data, data, null); // NEVER expose secrets to the caller
-      }
-    } catch { data.steps[st.as || "_err"] = { error: true }; }
-  }
-  return response != null ? response : { ok: true };
-}
-// Persist declared functions (service-key upsert on owner+slug+name). Called at
-// build/revise time; declared functions overwrite prior versions, none are auto-
-// deleted (the owner removes them from the Cloud panel).
-async function persistSiteFunctions(env, ownerId, slug, fns) {
-  if (!env.SUPABASE_SERVICE_KEY || !slug || !ownerId || !fns.length) return;
+// Register a site's scheduled jobs. Reuses the `site_functions` table, whose
+// shape (slug, name, spec, schedule_minutes, last_run) is exactly a schedule
+// registry — it was the eight-verb SPEC that was the wrong design, not the row.
+//
+// Upsert on (owner_id, slug, name); nothing is auto-deleted, so the runner
+// re-reads the site's schema and skips a job the spec no longer declares.
+async function persistSiteJobs(env, ownerId, slug, jobs) {
+  if (!env.SUPABASE_SERVICE_KEY || !slug || !ownerId || !jobs.length) return;
   const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, "Content-Type": "application/json" };
   const now = new Date().toISOString();
-  const rows = fns.slice(0, 20).map((f) => ({ owner_id: ownerId, slug, name: f.name, spec: f.spec, enabled: true, updated_at: now, schedule_minutes: (f.spec && f.spec.schedule && f.spec.schedule.everyMinutes) || null }));
-  try { await fetch(`${SUPABASE_URL}/rest/v1/site_functions?on_conflict=owner_id,slug,name`, { method: "POST", headers: { ...svc, Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(rows), signal: AbortSignal.timeout(10000) }); } catch {}
+  const rows = jobs.slice(0, 8).map((j) => ({
+    owner_id: ownerId, slug, name: j.name, spec: { fn: j.fn }, enabled: true,
+    updated_at: now, schedule_minutes: j.everyMinutes,
+  }));
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?on_conflict=owner_id,slug,name`, {
+    method: "POST", headers: { ...svc, Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify(rows), signal: AbortSignal.timeout(10000),
+  });
+  // Reported rather than swallowed: an unregistered job is a reminder that
+  // never fires, and the owner has no way to tell from the site.
+  if (!r.ok) throw new Error("site_functions upsert " + r.status);
 }
-// Best-effort per-slug rate limit (per isolate) — a coarse backstop on top of the
-// hard per-run bounds, since /api/site/fn is public like /api/site/form.
-async function runScheduledSiteFunctions(env, ctx) {
+// Drain the scheduled jobs that are due, on the existing 2-minute cron.
+//
+// A job is a SCHEDULE plus one model-written function returning the messages to
+// send. That is the whole vocabulary — there is nothing here to extend when
+// somebody wants a different kind of scheduled work, because they write
+// different SQL. It replaces the eight-verb runner (`read save fetch ai email
+// notify checkout respond`), which is deleted: a fixed menu means the model can
+// only ever do what was imagined in advance.
+async function runScheduledSiteJobs(env, ctx) {
   if (!env.SUPABASE_SERVICE_KEY) return;
   const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY };
   let rows = [];
   try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?enabled=is.true&schedule_minutes=not.is.null&select=owner_id,published_site_id,slug,name,spec,schedule_minutes,last_run&limit=200`, { headers: svc, signal: AbortSignal.timeout(10000) });
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?enabled=is.true&schedule_minutes=not.is.null&select=owner_id,slug,name,spec,schedule_minutes,last_run&limit=200`, { headers: svc, signal: AbortSignal.timeout(10000) });
     rows = await r.json().catch(() => []);
   } catch { return; }
   if (!Array.isArray(rows)) return;
-  const now = Date.now();
-  const due = rows.filter((row) => {
-    const mins = parseInt(row.schedule_minutes, 10); if (!(mins > 0)) return false;
-    if (!row.last_run) return true;
-    const last = Date.parse(row.last_run); if (!Number.isFinite(last)) return true;
-    return (now - last) >= (mins * 60000 - 30000); // 30s grace so a 2-min tick doesn't skip an hourly job
-  }).slice(0, 50); // bound work per tick
-  for (const row of due) {
-    try {
-      // Stamp last_run FIRST so a slow run can't double-fire on the next tick.
-      await fetch(`${SUPABASE_URL}/rest/v1/site_functions?slug=eq.${encodeURIComponent(row.slug)}&name=eq.${encodeURIComponent(row.name)}`, {
-        method: "PATCH", headers: { ...svc, "Content-Type": "application/json", Prefer: "return=minimal" },
-        body: JSON.stringify({ last_run: new Date().toISOString() }), signal: AbortSignal.timeout(8000),
-      });
-      await runSiteFunction(env, row, { scheduled: true }, row.slug);
-    } catch {}
+
+  for (const row of dueJobs(rows, Date.now())) {
+    const out = await runJob({
+      // Stamped FIRST, inside runJob, and that ordering is load-bearing: stamped
+      // after sending, a job that dies mid-batch is due again on the next tick
+      // and mails everyone it already reached. Losing a run is recoverable;
+      // sending a reminder four times is not.
+      stamp: async (r2) => {
+        await fetch(`${SUPABASE_URL}/rest/v1/site_functions?slug=eq.${encodeURIComponent(r2.slug)}&name=eq.${encodeURIComponent(r2.name)}`, {
+          method: "PATCH", headers: { ...svc, "Content-Type": "application/json", Prefer: "return=minimal" },
+          body: JSON.stringify({ last_run: new Date().toISOString() }), signal: AbortSignal.timeout(8000),
+        });
+      },
+      // Re-read the SITE'S OWN schema rather than trusting the registry row.
+      // Nothing auto-deletes a job, so a revise that drops one leaves the row
+      // behind; the schema is what the site actually declares today, and a job
+      // it no longer declares must stop running.
+      callFn: async (fn) => {
+        const conn = await siteNeonProject(env, row.slug);
+        if (!conn) return null;
+        const spec = await loadSiteSchema(conn);
+        const declared = (spec && Array.isArray(spec.jobs) ? spec.jobs : []).some((j) => j && j.name === row.name && j.fn === fn);
+        if (!declared) return null;
+        if (!/^[a-z][a-z0-9_]{0,40}$/.test(String(fn))) return null;
+        const got = await sqlQuery(conn, "SELECT " + sqlIdent(fn) + "() AS out");
+        const v = got && got[0] && got[0].out;
+        return typeof v === "string" ? JSON.parse(v) : v;
+      },
+      credentials: async () => {
+        const conn = await siteNeonProject(env, row.slug);
+        if (!conn) return null;
+        const get = async (_s, name) => {
+          const r2 = await sqlQuery(conn, "SELECT cipher FROM _secrets WHERE name=?", [name]);
+          return (r2 && r2[0] && r2[0].cipher) || null;
+        };
+        const secrets = {};
+        for (const name of ["RESEND_KEY", "SENDGRID_KEY", "POSTMARK_KEY", "EMAIL_FROM"]) {
+          try { const v = await readSecret({ get }, env, { slug: row.slug, name }); if (v) secrets[name] = v; } catch { /* skip */ }
+        }
+        const picked = pickProvider(secrets);
+        // Bring-your-own: no key and no from address means no send, quietly.
+        // Our own sender is never substituted — see site-mail.mjs.
+        if (!picked || !secrets.EMAIL_FROM) return null;
+        return { provider: picked.provider, key: picked.key, from: secrets.EMAIL_FROM };
+      },
+      send: ({ provider, key, from, to, subject, html }) => postProviderEmail(provider, key, from, to, subject, html),
+      recipient,
+    }, row);
+
+    // It runs detached on a cron, so an unlogged failure is invisible forever.
+    // A job that sent nothing because nothing was due is not news; anything else
+    // is.
+    if (!out.ok || out.failed || out.overflow) {
+      console.error("job:", row.slug, out.name, JSON.stringify(out).slice(0, 300));
+    } else if (out.sent) {
+      console.log("job:", row.slug, out.name, "sent", out.sent);
+    }
   }
 }
 
@@ -2544,18 +2447,6 @@ async function flushSiteMetrics(env, slug, agg) {
 // D1-era site-functions runner still calls this, and that runner is a separate
 // feature from auth — removing it is a different decision from this one.
 const _notifsReady = new Set();
-async function ensureNotifications(env, uuid) {
-  if (_notifsReady.has(uuid)) return;
-  await siteQuery(env, uuid, "CREATE TABLE IF NOT EXISTS _notifications (id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, user_id INTEGER NOT NULL, type TEXT, text TEXT, link TEXT, read INTEGER DEFAULT 0, created_at TEXT)");
-  _notifsReady.add(uuid);
-}
-async function createNotification(env, uuid, userId, n) {
-  const uid = parseInt(userId, 10);
-  if (!(uid > 0)) return false;
-  await ensureNotifications(env, uuid);
-  await siteQuery(env, uuid, "INSERT INTO _notifications (user_id,type,text,link,created_at) VALUES (?,?,?,?,?)", [uid, String(n.type || "").slice(0, 40), String(n.text || "").slice(0, 500), String(n.link || "").slice(0, 400), new Date().toISOString()]);
-  return true;
-}
 // Invite-only signup — the owner can require a valid invite code to register.
 // Flag in _meta ('invite_only'='1'); codes live in `_invites` (code, uses_left).
 const _sbEnc = new TextEncoder();
@@ -2615,6 +2506,27 @@ const SITE_SCHEMA_TOOL = {
     properties: {
       brand: { type: "string", description: "Short display name for the site." },
       slug: { type: "string", description: "url-safe-name, lowercase, hyphens only." },
+      jobs: {
+        type: "array",
+        description:
+          "OPTIONAL scheduled work — the site doing something on a timer, with nobody there. THE CASE THIS EXISTS FOR: reminding tomorrow's " +
+          "customers today, so they turn up. Also a weekly digest to the owner, or chasing an unpaid invoice. Skip it entirely for a site " +
+          "that only takes enquiries. " +
+          "Each job names a function you ALSO declare in `functions` with `internal: true`, taking NO arguments and returning `json` — an ARRAY of " +
+          "{to, subject, body}, one per message to send. Return an empty array when there is nothing to do, which is most runs. " +
+          "The function is ordinary SQL, so decide whatever you like inside it: who is due, what it says, joined to anything on the site. " +
+          "The site owner pastes their own email provider key in Settings; until they do, the job runs and sends nothing. " +
+          "Minimum interval is 15 minutes and anything shorter is rounded up to it — for a day-before reminder use 1440.",
+        items: {
+          type: "object",
+          required: ["name", "fn", "everyMinutes"],
+          properties: {
+            name: { type: "string", description: "lowercase identifier, e.g. remind_tomorrow" },
+            fn: { type: "string", description: "The internal function returning the messages, e.g. bookings_due_tomorrow" },
+            everyMinutes: { type: "integer", description: "How often to run. 1440 = daily, 60 = hourly. Minimum 15." },
+          },
+        },
+      },
       functions: {
         type: "array",
         description:
@@ -3863,9 +3775,7 @@ function confirmSubmitter(env, ctx, { slug, db, def, row }) {
   const p = (async () => {
     const out = await sendConfirmation({
       // From the SITE'S OWN Neon vault, the same door the checkout key comes
-      // through — NOT `loadSiteSecrets`, which reads a central Supabase table
-      // from the D1 era and would have needed an owner id this path does not
-      // have. Only the four names that matter are decrypted; the rest of the
+      // through. Only the four names that matter are decrypted; the rest of the
       // vault is never touched.
       loadSecrets: async () => {
         const get = async (_s, name) => {
@@ -6458,6 +6368,21 @@ async function handleRequest(request, env, ctx) {
         console.error("schema apply failed:", slug, e && (e.detail || e.message));
         return Response.json({ ok: false, error: "could not apply the schema", detail: String(e && (e.detail || e.message)).slice(0, 300) }, { status: 502 });
       }
+
+      // Register the site's scheduled jobs. Best-effort and non-fatal for the
+      // same reason seeding is: a site whose reminders are not registered still
+      // works, and failing the build here would throw away a live database over
+      // background work. Declared jobs OVERWRITE by (slug, name); none are
+      // auto-deleted, so a revise that drops a job leaves it registered — which
+      // is why the runner re-reads the schema and skips a job the spec no longer
+      // declares, rather than trusting the row.
+      try {
+        const jobs = Array.isArray(spec.jobs) ? spec.jobs : [];
+        if (jobs.length) {
+          await persistSiteJobs(env, uid, slug, jobs);
+          tr.at("jobs", { n: jobs.length });
+        }
+      } catch (e) { console.error("jobs persist:", slug, e && e.message); }
 
       // Starter content for the display tables. Best-effort and non-fatal: a site
       // with a live database and an empty menu is still a site, but one WITH the

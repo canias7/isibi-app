@@ -18,6 +18,7 @@ import { sqlQuery, sqlQuery as realSqlQuery } from "./site-db.mjs";
 import { policiesFor, grantsFor, publicViewSql, functionSql, SESSION_JWT_EXT, SESSION_JWT_GRANTS, APP_TEAM_FN, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK } from "./site-rls.mjs";
 import { normalizePayment, PAYMENT_COLUMNS } from "./site-payments.mjs";
 import { normalizeConfirm } from "./site-mail.mjs";
+import { normalizeJob } from "./site-jobs.mjs";
 import { isManagedColumn } from "./site-access.mjs";
 import { makeCache } from "./ttl-cache.mjs";
 
@@ -243,9 +244,28 @@ export function normalizeSchema(spec) {
     if (!f || !f.internal) t.confirm = null;
   }
 
+  // Scheduled work: a schedule plus an internal function returning the messages.
+  // Same cross-reference and same reason as `confirm.fn` — a job naming a
+  // function that does not exist never runs, and one naming a function a visitor
+  // could call hands out every recipient's address and message to anyone who
+  // asks. Both silent. Names are unique, last declaration winning, because two
+  // jobs of one name collide on the (slug, name) key they are stored under.
+  const jobs = [];
+  const jobNames = new Set();
+  for (const raw of (Array.isArray(spec.jobs) ? spec.jobs : []).slice(0, 8)) {
+    const j = normalizeJob(raw);
+    if (!j) continue;
+    const f = confirmFns.get(j.fn);
+    if (!f || !f.internal) continue;
+    if (jobNames.has(j.name)) jobs.splice(jobs.findIndex((x) => x.name === j.name), 1);
+    jobNames.add(j.name);
+    jobs.push(j);
+  }
+
   const extra = {};
   if (rateLimits) extra.rateLimits = rateLimits;
   if (functions.length) extra.functions = functions;
+  if (jobs.length) extra.jobs = jobs;
   return { tables: out, ...extra };
 }
 

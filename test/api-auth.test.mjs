@@ -205,7 +205,11 @@ test("the schema designer is told what makes a form able to accept a file", () =
   // site. A feature that can never trigger is not a shipped feature.
   const i = SRC.indexOf('name: "design_schema"');
   assert.ok(i > 0, "the schema tool moved");
-  const tool = SRC.slice(i, i + 6000);
+  // Bounded by where the tool actually ENDS, not by a magic 6000 characters.
+  // Adding the `jobs` block near the top of the tool pushed the columns
+  // description past that window and this went red on a change that had nothing
+  // to do with it — the check was measuring a byte offset, not a fact.
+  const tool = SRC.slice(i, SRC.indexOf('tool_choice: { type: "tool", name: "design_schema" }', i));
   assert.match(tool, /A picture is a 'text' column whose value is a URL/);
   assert.match(tool, /ONLY when the brief says the VISITOR sends a picture/);
   assert.match(tool, /photo, image_url, avatar/);
