@@ -5570,3 +5570,40 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
    widening it. */
 .mdl-row{padding:.4rem .62rem;background:var(--bg);min-width:0;
   font-weight:600;font-size:.79rem;color:var(--text)}
+
+/* ── Cloud → Export data, and Cloud → Files ──────────────────────────────────
+   Both panels were dark until 2026-08-07: Export offered snapshot/restore/import
+   against routes deleted in July, and Files pointed at /api/site/files, gone the
+   same day. Only the two that have real routes were wired; the rest still say
+   plainly that they are off. */
+.bk-rows{display:flex;flex-direction:column;gap:1px;background:var(--line);
+  border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.bk-row{display:flex;align-items:center;gap:1rem;padding:.7rem .9rem;background:var(--bg);min-width:0}
+.bk-tx{display:flex;flex-direction:column;min-width:0}
+.bk-tx b{font-size:.88rem;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bk-tx span{font-size:.75rem;color:var(--muted)}
+.bk-btns{margin-left:auto;display:flex;gap:.4rem;flex:0 0 auto}
+.bk-dl{border:1px solid var(--line-2);background:var(--bg);color:var(--text);border-radius:8px;
+  padding:.3rem .6rem;font-size:.74rem;font-weight:600;cursor:pointer}
+.bk-dl:hover{background:var(--panel)}
+
+.fl-bar{display:flex;align-items:baseline;gap:.75rem;margin:0 0 .75rem;font-size:.8rem;color:var(--text)}
+.fl-bar span{margin-left:auto;color:var(--muted);font-size:.75rem}
+/* auto-fill, not auto-fit: one picture stays one tile rather than stretching
+   across the whole modal. */
+.fl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:.7rem}
+.fl-item{margin:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg);min-width:0}
+.fl-item img{display:block;width:100%;aspect-ratio:1;object-fit:cover;background:var(--panel)}
+.fl-item figcaption{display:flex;align-items:center;gap:.4rem;padding:.4rem .5rem;min-width:0}
+.fl-nm{font-size:.72rem;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.fl-sz{font-size:.68rem;color:var(--muted);flex:0 0 auto}
+.fl-del{margin-left:auto;flex:0 0 auto;border:0;background:none;color:var(--muted);
+  font-size:1rem;line-height:1;cursor:pointer;padding:0 .1rem}
+.fl-del:hover{color:var(--text)}
+.fl-del:disabled{opacity:.4;cursor:default}
+/* A file whose thumbnail would not load. The tile keeps its size so the grid
+   does not reflow, and says which one is missing instead of showing a torn-page
+   icon that reads as a broken panel. */
+.fl-item.fl-gone a{display:flex;align-items:center;justify-content:center;
+  aspect-ratio:1;background:var(--panel);font-size:.7rem;color:var(--muted)}
+.fl-item.fl-gone a::after{content:"not found"}

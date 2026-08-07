@@ -10110,12 +10110,10 @@ function moreCloud(site) {
   // honest, whereas one that looks live and 404s reads as a broken product.
   // Flip a name out of DEAD_PANELS the moment its route exists again.
   const DEAD_PANELS = {
-    security: 'Off since the audit log was removed',   // /events — routed nowhere
-    backups: 'Not rebuilt yet',                         // /backend/backup*
-    versions: 'Not rebuilt yet',                        // /backend/rollback
-    functions: 'Not rebuilt yet',                       // /site/functions
-    emails: 'Not rebuilt yet',                          // /site/emails
-    files: 'Not rebuilt yet',                           // /site/files
+    security: 'Off since the audit log was removed',        // /events — routed nowhere
+    versions: 'No build history is kept yet',              // /backend/rollback — nothing records builds
+    functions: 'Set up by your app, nothing to configure', // jobs are declared in the schema, not here
+    emails: 'Set up in Secrets — add your provider key',   // no route; the key lives under Secrets
   };
   const cards = [
     ['users', 'Members', dataLive ? 'Accounts that sign up in your app' : (isReact ? 'Add a login to your app to collect members' : 'Publish to enable member accounts'), dataLive, 'members'],
@@ -10123,13 +10121,13 @@ function moreCloud(site) {
     ['inbox', 'Submissions', dataLive ? 'Form entries from your visitors' : (isReact ? 'Add a form to your app to collect entries' : 'Publish to collect submissions'), dataLive, 'inbox'],
     ['database', 'Database', dataLive ? 'Your app’s tables + rows' : (isReact ? 'Add data to your app to see it here' : 'Publish to enable collections'), dataLive, 'database'],
     ['chart', 'Insights', dataLive ? 'Traffic, top pages + error rate' : (isReact ? 'Add data/traffic to see insights' : 'Publish to see insights'), dataLive, 'insights'],
-    ['download', 'Backups', dataLive ? 'Snapshot, restore, export + import data' : (isReact ? 'Add data to enable backups' : 'Publish to enable backups'), dataLive, 'backups'],
+    ['download', 'Export data', dataLive ? 'Download everything your site has collected' : (isReact ? 'Add data to enable exports' : 'Publish to enable exports'), dataLive, 'backups'],
     ['history', 'Versions', (isReact && !!site.slug) ? 'Roll back to a previous build' : (isReact ? 'Publish to enable versions' : 'React sites only'), (isReact && !!site.slug), 'versions'],
     ['key', 'Secrets', isReact ? 'API keys for payments, email + integrations (kept server-side)' : 'Encrypted keys for server-side features', fnLive, 'secrets'],
     ['zap', 'Edge functions', 'Custom server logic your app builds', fnLive, 'functions'],
     ['mail', 'Emails', 'Send email from your own provider', auxLive, 'emails'],
     ['card', 'Payments', dataLive ? 'Sell with your own Stripe' : (isReact ? 'Publish your app to take payments' : 'Publish to take payments'), fnLive, 'payments'],
-    ['image', 'Files', 'Images + PDFs uploaded to your site', auxLive, 'files'],
+    ['image', 'Files', 'Pictures on your site — yours and your visitors\u2019', dataLive, 'files'],
   ];
   return '<div class="st-panel"><div class="st-panel-head"><h3>Cloud</h3></div>' +
     '<div class="st-cards">' + cards.map((c) => {
@@ -11000,38 +10998,48 @@ async function siteInsights(site) {
 }
 
 async function siteBackups(site) {
+  // EXPORT ONLY, and renamed to say so. This panel used to offer snapshot,
+  // restore and import as well — all four of those called /api/site/backend/*,
+  // deleted with the D1 runtime in July, so the buttons were there and none of
+  // them did anything. `/api/site/<slug>/export` is real and always was.
+  //
+  // Offering a "Restore" that 404s is worse than not offering one: somebody
+  // deletes data believing they can put it back.
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
-  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then back up your data.'); return; }
-  const { bodyEl } = stCloudModal('siteBackupsModal', 'Backups');
-  const dl = async (table, fmt) => { // authed download → blob (a plain <a> can't send the Bearer)
-    try { const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/export?table=' + encodeURIComponent(table) + '&format=' + fmt); if (!r.ok) { if (typeof sbToast === 'function') sbToast('Export failed — try again.'); return; } const blob = await r.blob(); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = slug + '-' + table + '.' + fmt; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1500); } catch (e) { if (typeof sbToast === 'function') sbToast('Export failed — try again.'); }
-  };
-  const load = async () => {
+  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then you can export your data.'); return; }
+  const { bodyEl } = stCloudModal('siteBackupsModal', 'Export data');
+  bodyEl.innerHTML = '<p class="sp-intro">Download a copy of everything your site has collected. CSV opens in a spreadsheet; JSON is for moving it somewhere else.</p><div id="bkList">Loading…</div>';
+
+  // Authed download → blob. A plain <a href> cannot send the Bearer token.
+  const dl = async (table, fmt) => {
     try {
-      const [br, tr] = await Promise.all([
-        apiFetch('/api/site/backend/backups?slug=' + encodeURIComponent(slug)),
-        apiFetch('/api/site/backend/rows?slug=' + encodeURIComponent(slug)),
-      ]);
-      const d = await br.json().catch(() => ({})); const td = await tr.json().catch(() => ({}));
-      const list = (d && d.backups) || [];
-      const tables = ((td && td.tables) || []).map((t) => t.name);
-      bodyEl.innerHTML = '<button type="button" class="st-publish" id="bkNow">Back up now</button>' +
-        (list.length ? '<div class="si-panel-sub">' + list.length + ' backup' + (list.length === 1 ? '' : 's') + '</div>' + list.map((b) =>
-          '<div class="si-item"><div class="si-item-top"><span class="si-form">' + esc(stFmtTime(b.uploaded)) + '</span><span class="si-when">' + Math.max(1, Math.round((b.size || 0) / 1024)) + ' KB</span></div><button type="button" class="st-hi-restore" data-key="' + esc(b.key) + '">Restore</button></div>').join('')
-          : '<div class="si-empty">No backups yet. Snapshot your data anytime — it’s kept safe.</div>') +
-        (tables.length ? '<div class="si-panel-sub">Export / import a table</div>' +
-          '<div class="si-io"><select class="st-in" id="ioTable">' + tables.map((t) => '<option>' + esc(t) + '</option>').join('') + '</select>' +
-          '<button type="button" class="st-gen2" id="ioCsv">Export CSV</button><button type="button" class="st-gen2" id="ioJson">Export JSON</button>' +
-          '<label class="st-gen2" id="ioImpL">Import CSV<input type="file" id="ioImp" accept=".csv,text/csv" hidden></label></div>' : '');
-      const nb = bodyEl.querySelector('#bkNow'); if (nb) nb.onclick = async () => { nb.disabled = true; nb.textContent = 'Backing up…'; try { const rr = await apiFetch('/api/site/backend/backup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug }) }); const rd = await rr.json().catch(() => ({})); if (typeof sbToast === 'function') sbToast(rd.ok ? ('Backed up ' + (rd.rows || 0) + ' rows.') : 'Backup failed.'); } catch (e) { } load(); };
-      bodyEl.querySelectorAll('[data-key]').forEach((el) => el.onclick = async () => { if (!confirm('Restore this backup? It replaces your current data with the snapshot (member logins are untouched).')) return; el.disabled = true; el.textContent = 'Restoring…'; try { const rr = await apiFetch('/api/site/backend/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, key: el.dataset.key }) }); const rd = await rr.json().catch(() => ({})); if (typeof sbToast === 'function') sbToast(rd.ok ? ('Restored ' + (rd.restored || 0) + ' rows.') : 'Restore failed.'); } catch (e) { } load(); });
-      const tSel = bodyEl.querySelector('#ioTable');
-      const c = bodyEl.querySelector('#ioCsv'); if (c) c.onclick = () => dl(tSel.value, 'csv');
-      const j = bodyEl.querySelector('#ioJson'); if (j) j.onclick = () => dl(tSel.value, 'json');
-      const imp = bodyEl.querySelector('#ioImp'); if (imp) imp.onchange = async () => { const f = imp.files && imp.files[0]; if (!f) return; try { const csv = await f.text(); const rr = await apiFetch('/api/site/backend/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, table: tSel.value, csv }) }); const rd = await rr.json().catch(() => ({})); if (typeof sbToast === 'function') sbToast(rd.ok ? ('Imported ' + (rd.imported || 0) + ' rows into ' + tSel.value + '.') : (rd.error || 'Import failed.')); } catch (e) { if (typeof sbToast === 'function') sbToast('Import failed — try again.'); } imp.value = ''; };
-    } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load backups — try again.</div>'; }
+      const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/export?table=' + encodeURIComponent(table) + '&format=' + fmt);
+      if (!r.ok) { if (typeof sbToast === 'function') sbToast('Export failed — try again.'); return; }
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = slug + '-' + table + '.' + fmt;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+    } catch (e) { if (typeof sbToast === 'function') sbToast('Export failed — try again.'); }
   };
-  load();
+
+  apiFetch('/api/site/' + encodeURIComponent(slug) + '/rows')
+    .then(async (r) => {
+      const d = await r.json().catch(() => ({}));
+      const box = document.getElementById('bkList'); if (!box) return;
+      if (!r.ok) { box.innerHTML = '<div class="st-sec-empty"><b>Couldn\u2019t read your tables</b><span>Try again in a moment.</span></div>'; return; }
+      const tables = Array.isArray(d.tables) ? d.tables : [];
+      if (!tables.length) { box.innerHTML = '<div class="st-sec-empty"><b>Nothing to export yet</b><span>Once your site collects something, it can be downloaded here.</span></div>'; return; }
+      box.innerHTML = '<div class="bk-rows">' + tables.map((t) => {
+        const n = Number(t.rows) || 0;
+        return '<div class="bk-row"><div class="bk-tx"><b>' + esc(t.name) + '</b><span>' + n + ' row' + (n === 1 ? '' : 's') + '</span></div>' +
+          '<div class="bk-btns"><button type="button" class="bk-dl" data-t="' + esc(t.name) + '" data-f="csv">CSV</button>' +
+          '<button type="button" class="bk-dl" data-t="' + esc(t.name) + '" data-f="json">JSON</button></div></div>';
+      }).join('') + '</div>';
+      box.querySelectorAll('.bk-dl').forEach((b) => b.onclick = () => dl(b.getAttribute('data-t'), b.getAttribute('data-f')));
+    })
+    .catch(() => { const box = document.getElementById('bkList'); if (box) box.innerHTML = '<div class="st-sec-empty"><b>Lost the connection</b><span>Try again.</span></div>'; });
 }
 
 // Versions — every publish archives its build; roll the LIVE site back to a prior one.
@@ -11207,40 +11215,49 @@ async function siteFunctions(site) {
 // Files — the images/PDFs visitors uploaded to this site (R2). Owner can view +
 // delete. Owner-only (ownership proven server-side via the site's RLS row).
 async function siteFiles(site) {
+  // Repointed 2026-08-07 from `/api/site/files?slug=` — deleted with the D1
+  // runtime — to `/api/site/<slug>/uploads`, which has existed all along and is
+  // what the owner's own upload button already writes to. The panel was marked
+  // dead in the audit; the panel was fine, its URL was three months stale.
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
   if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then its files show up here.'); return; }
-  let box = document.getElementById('siteFilesModal');
-  if (box) box.remove();
-  box = document.createElement('div');
-  box.id = 'siteFilesModal';
-  box.className = 'si-modal';
-  box.innerHTML = '<div class="si-card"><div class="si-head"><b>Files</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body"><p class="sp-intro">Images and PDFs uploaded to your site by visitors (listing photos, avatars, resumes).</p><div id="flList">Loading…</div></div></div>';
-  document.body.appendChild(box);
-  const close = () => box.remove();
-  box.querySelector('.si-x').onclick = close;
-  box.addEventListener('click', (e) => { if (e.target === box) close(); });
-  const listEl = box.querySelector('#flList');
-  const kb = (n) => n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
-  const isImg = (n) => /\.(png|jpe?g|webp|gif)$/i.test(n);
-  const load = async () => {
-    try {
-      const r = await apiFetch('/api/site/files?slug=' + encodeURIComponent(slug));
-      const d = await r.json().catch(() => ({ files: [] }));
+  const { bodyEl } = stCloudModal('siteFilesModal', 'Files');
+  bodyEl.innerHTML = '<p class="sp-intro">Pictures on your site — the ones you added, and the ones visitors sent with a form.</p><div id="flList">Loading…</div>';
+  const list = () => apiFetch('/api/site/' + encodeURIComponent(slug) + '/uploads')
+    .then(async (r) => {
+      const d = await r.json().catch(() => ({}));
+      const box = document.getElementById('flList'); if (!box) return;
+      if (!r.ok) { box.innerHTML = '<div class="st-sec-empty"><b>Couldn\u2019t load your files</b><span>Try again in a moment.</span></div>'; return; }
       const files = Array.isArray(d.files) ? d.files : [];
-      if (!files.length) { listEl.innerHTML = '<div class="si-empty">No uploads yet. When a visitor uploads a file on your site, it shows up here.</div>'; return; }
-      listEl.innerHTML = '<div class="fl-grid">' + files.map((f) =>
-        '<div class="fl-item">' +
-          '<a class="fl-thumb" href="' + esc(f.url) + '" target="_blank" rel="noopener">' + (isImg(f.name) ? '<img src="' + esc(f.url) + '" alt="" loading="lazy">' : '<span class="fl-doc">PDF</span>') + '</a>' +
-          '<div class="fl-meta"><span class="fl-name" title="' + esc(f.name) + '">' + esc(f.name) + '</span><span class="fl-size">' + kb(f.size || 0) + '</span></div>' +
-          '<button type="button" class="sk-del fl-del" data-del="' + esc(f.name) + '" title="Delete">×</button>' +
-        '</div>').join('') + '</div>';
-      listEl.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
-        await apiFetch('/api/site/files?slug=' + encodeURIComponent(slug) + '&file=' + encodeURIComponent(b.dataset.del), { method: 'DELETE' });
-        load();
+      if (!files.length) { box.innerHTML = '<div class="st-sec-empty"><b>No files yet</b><span>Pictures you add, or that visitors upload with a form, appear here.</span></div>'; return; }
+      const mb = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
+      box.innerHTML =
+        '<div class="fl-bar"><b>' + files.length + ' file' + (files.length === 1 ? '' : 's') + '</b>' +
+        '<span>' + mb(d.used || 0) + ' of ' + mb(d.max || 0) + '</span></div>' +
+        '<div class="fl-grid">' + files.map((f) =>
+          // A thumbnail that 404s paints the browser's broken-image icon — a
+          // torn page in a tall grey box, which reads as "this panel is broken"
+          // rather than "this one file is missing". Seen on a stubbed render.
+          // The class swap leaves the tile its own size and says what happened.
+          '<figure class="fl-item"><a href="' + esc(f.url) + '" target="_blank" rel="noreferrer">' +
+          '<img src="' + esc(f.url) + '" alt="" loading="lazy" ' +
+          'onerror="this.closest(\'.fl-item\').classList.add(\'fl-gone\');this.remove()" /></a>' +
+          '<figcaption><span class="fl-nm">' + esc(f.name) + '</span><span class="fl-sz">' + mb(f.size) + '</span>' +
+          '<button type="button" class="fl-del" data-file="' + esc(f.name) + '" aria-label="Delete ' + esc(f.name) + '">\u00d7</button></figcaption></figure>').join('') +
+        '</div>';
+      // Deleting is irreversible and the file may be on a live page, so it asks
+      // first — the one place in this panel that changes anything.
+      box.querySelectorAll('.fl-del').forEach((b) => b.onclick = async () => {
+        const name = b.getAttribute('data-file');
+        if (!window.confirm('Delete ' + name + '? If a page uses it, that picture will stop showing.')) return;
+        b.disabled = true;
+        const r2 = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/uploads/' + encodeURIComponent(name), { method: 'DELETE' });
+        if (!r2.ok) { b.disabled = false; if (typeof sbToast === 'function') sbToast('Could not delete that file.'); return; }
+        list();
       });
-    } catch (e) { listEl.innerHTML = '<div class="si-empty">Couldn’t load files — try again.</div>'; }
-  };
-  load();
+    })
+    .catch(() => { const box = document.getElementById('flList'); if (box) box.innerHTML = '<div class="st-sec-empty"><b>Lost the connection</b><span>Try again.</span></div>'; });
+  list();
 }
 
 // Emails — your site sends email through YOUR OWN provider. This is a setup guide;
