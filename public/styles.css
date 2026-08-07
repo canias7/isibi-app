@@ -1771,6 +1771,13 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    carried by colour — so it is an outlined pill with its own words. */
 .sd-bad { flex: none; font-size: .6rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--text); border: 1px solid var(--ink, #000); border-radius: 999px; padding: .12rem .45rem; }
 .sd-err { font-size: .78rem; color: var(--muted); margin-top: .5rem; }
+/* The live DNS reading. A LEFT RULE rather than a colour, because the three
+   states have to be distinguishable in greyscale — and because `unknown` is our
+   own resolver failing rather than anything about their domain, so it gets no
+   rule at all and reads as an aside. */
+.sd-dns { font-size: .78rem; color: var(--text); margin-top: .5rem; line-height: 1.5; }
+.sd-dns-warn { border-left: 2px solid var(--ink, #000); padding-left: .55rem; }
+.sd-dns-ok { border-left: 2px solid var(--line-2); padding-left: .55rem; color: var(--muted); }
 .sd-recs { margin-top: .6rem; padding-top: .6rem; border-top: 1px solid var(--line); display: grid; gap: .55rem; }
 .sd-rec { display: grid; gap: .35rem; }
 .sd-rt { justify-self: start; font-size: .6rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line-2); border-radius: 999px; padding: .1rem .45rem; }

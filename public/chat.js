@@ -11179,7 +11179,7 @@ async function siteDomains(site) {
   box.id = 'siteDomModal';
   box.className = 'si-modal';
   box.innerHTML = '<div class="si-card"><div class="si-head"><b>Domains</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body">' +
-    '<p class="sp-intro">Serve this site on your own web address. Add the domain here, then add the records it gives you at whoever you bought the domain from. The certificate is issued automatically.</p>' +
+    '<p class="sp-intro">Serve this site on your own web address. Add the domain here, then add the records it gives you at whoever you bought the domain from. The certificate is issued automatically \u2014 you can close this and we\u2019ll email you when it\u2019s live.</p>' +
     '<div class="sk-add"><input class="st-in" id="sdHost" placeholder="sharpfadebarbers.com" autocomplete="off" spellcheck="false"><button type="button" class="st-publish" id="sdAdd">Add domain</button></div>' +
     '<div class="si-count" id="sdErr" style="display:none"></div>' +
     '<div id="sdList">Loading…</div></div></div>';
@@ -11221,11 +11221,27 @@ async function siteDomains(site) {
           : '<span class="st-badge-soon">' + esc(x.stage || 'setting up') + '</span>';
         // The records still outstanding, plus the CNAME that always applies.
         // Hidden once it is live: spent records on screen read as work to do.
-        const recs = live ? '' : (x.records || []).concat(x.pending || []).map(recRow).join('');
+        // ONCE DNS IS CORRECT, THE CNAME IS SPENT TOO — not just once the whole
+        // domain is live. Leaving it up while the only outstanding thing is the
+        // certificate presents finished work as work to do, which is what sends
+        // somebody back to their registrar to 'fix' a record that is already
+        // right. Any TXT validation still outstanding stays.
+        const dnsDone = live || x.dns === 'ok';
+        const recs = live ? '' : (dnsDone ? [] : (x.records || [])).concat(x.pending || []).map(recRow).join('');
+        // WHAT THE DOMAIN ACTUALLY POINTS AT. The one line that turns "waiting
+        // for DNS" from a shrug into something to go and do: it says whether
+        // there is no record yet, or a record pointing at the old host — and
+        // names the old host, because they cannot find it otherwise.
+        //
+        // `unknown` is OUR resolver failing, not their domain, so it is worded
+        // as such and marked plain rather than as a problem.
+        const dnsRow = (!live && x.dnsNote)
+          ? '<div class="sd-dns' + (x.dns === 'elsewhere' ? ' sd-dns-warn' : x.dns === 'ok' ? ' sd-dns-ok' : '') + '">' + esc(x.dnsNote) + '</div>'
+          : '';
         return '<div class="sd-item"><div class="sd-top">' + ic('globe', 15) + '<b class="sd-host">' + esc(x.hostname) + '</b>' + badge +
           (live ? '<a class="sd-visit" href="https://' + esc(x.hostname) + '" target="_blank" rel="noreferrer">Visit</a>' : '') +
           '<button type="button" class="sk-del" data-del="' + esc(x.hostname) + '" title="Remove">×</button></div>' +
-          (x.error ? '<div class="sd-err">' + esc(x.error) + '</div>' : '') +
+          (x.error ? '<div class="sd-err">' + esc(x.error) + '</div>' : '') + dnsRow +
           (recs ? '<div class="sd-recs">' + recs + '</div>' : '') + '</div>';
       }).join('');
       listEl.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => {

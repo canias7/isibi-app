@@ -10,6 +10,7 @@ import { deliverWebhook, firesFor, signPayload, MAX_PER_MINUTE as WEBHOOK_PER_MI
 import { takeToken, verify as turnstileVerify, TOKEN_FIELD as TURNSTILE_FIELD } from "./site-turnstile.mjs";
 import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_PER_MIN } from "./site-inbound.mjs";
 import { normalizeHostname, isOwnHostname, claimRefusal, dnsInstructions, readStatus } from "./site-domains.mjs";
+import { checkDns, dnsSentence } from "./site-dns.mjs";
 import { callApi, apiFor, secretsNeeded, takeParams, MAX_PER_MINUTE as SITE_API_PER_MIN, MAX_TTL as SITE_API_MAX_TTL } from "./site-apis.mjs";
 import { Container, getContainer } from "@cloudflare/containers";
 import { makeCache, memoize } from "./ttl-cache.mjs";
@@ -1957,8 +1958,113 @@ export default {
     // rows are written by a Postgres trigger as a project's record disappears,
     // and Postgres cannot call the Neon API.
     ctx.waitUntil(runNeonTeardown(env));
+    // Finish custom-domain setup without the owner watching it. Same 2-minute
+    // tick; the only side that can, since Cloudflare's certificate status is an
+    // API call and nothing else in the system polls it.
+    ctx.waitUntil(runDomainWatch(env));
   },
 };
+
+/**
+ * FINISH CUSTOM-DOMAIN SETUP BY ITSELF.
+ *
+ * Without this the panel is honest and passive: it shows the truth whenever the
+ * owner opens it, and does nothing whenever they do not. So the last step of
+ * putting a business on its own domain is "keep coming back and refreshing" —
+ * for something that completes on its own schedule, minutes to an hour later,
+ * at a moment nobody can predict. Most people check twice and give up.
+ *
+ * So the cron watches instead, flips the row when Cloudflare says both halves
+ * are done, and MAILS THE OWNER ONCE. The email is the actual feature: it is
+ * what lets somebody add a domain, close the tab, and find out.
+ *
+ * OURS TO SEND, not bring-your-own. This goes to the Go Farther account holder
+ * about their own account — the same class as the login code and the booking
+ * notification, and nothing to do with a site mailing its visitors.
+ *
+ * SENT EXACTLY ONCE BY CONSTRUCTION, with no "notified" column to get out of
+ * step: the mail is tied to the pending → live TRANSITION, and a row can only
+ * make that transition once because the update that sends it is also the update
+ * that stops it being pending.
+ */
+async function runDomainWatch(env) {
+  if (!env.SUPABASE_SERVICE_KEY || !env.CLOUDFLARE_API_TOKEN) return;
+  const rest = (path, init) => fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...init, headers: svcHeaders(env, { "content-type": "application/json", ...((init || {}).headers || {}) }),
+    signal: AbortSignal.timeout(12000),
+  });
+  let rows = [];
+  try {
+    // Only what is still in flight, oldest first, and BOUNDED — one stuck
+    // domain must not starve the rest, and this shares a 2-minute tick with
+    // three other jobs.
+    const r = await rest("site_domains?status=eq.pending&cf_id=not.is.null&select=hostname,slug,uid,cf_id&order=created_at&limit=20");
+    if (!r.ok) return;
+    rows = await r.json().catch(() => []);
+  } catch { return; }
+  if (!Array.isArray(rows) || !rows.length) return;
+
+  for (const row of rows) {
+    const cf = await cfHostname(env, "GET", "/" + encodeURIComponent(row.cf_id));
+    // A LOOKUP THAT FAILED IS NOT A DOMAIN THAT FAILED. Left pending, it is
+    // tried again in two minutes; written as failed, the owner is told their
+    // correct setup is broken because an API call timed out.
+    if (!cf.ok) continue;
+    const st = readStatus(cf.result);
+    if (!st.live && !st.failed) {
+      // Still in progress. `checked_at` alone, so the panel can show when we
+      // last looked without the row pretending anything changed.
+      await rest(`site_domains?hostname=eq.${encodeURIComponent(row.hostname)}`, {
+        method: "PATCH", headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({ checked_at: new Date().toISOString() }),
+      }).catch(() => {});
+      continue;
+    }
+    const status = st.live ? "live" : "failed";
+    // CONDITIONAL ON STILL BEING PENDING. Two isolates can run this tick, and
+    // without `status=eq.pending` in the filter both would see the transition
+    // and both would send the mail. This is the same claim-by-update the
+    // booking-notification cooldown uses.
+    const upd = await rest(`site_domains?hostname=eq.${encodeURIComponent(row.hostname)}&status=eq.pending`, {
+      method: "PATCH", headers: { Prefer: "return=representation" },
+      body: JSON.stringify({ status, checked_at: new Date().toISOString(), last_error: st.failed ? "Setup didn't complete — check the records and try removing and re-adding the domain." : null }),
+    }).catch(() => null);
+    const claimed = upd && upd.ok ? await upd.json().catch(() => []) : [];
+    // Nobody claimed it means another isolate did. Nothing more to do here.
+    if (!Array.isArray(claimed) || !claimed.length) continue;
+    // The routing cache in THIS isolate now says the old thing; other PoPs heal
+    // by expiry. Cheap and worth doing — this isolate just learned it is stale.
+    hostRoutes.delete(row.hostname);
+    if (status === "live") await mailDomainLive(env, row).catch(() => {});
+  }
+}
+
+/** Tell the owner their domain is live. Best-effort — the domain works either way. */
+async function mailDomainLive(env, row) {
+  if (!env.EMAIL) return;
+  let to = "";
+  try {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${encodeURIComponent(row.uid)}`, { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
+    const u = await r.json().catch(() => null);
+    to = (u && u.email) || "";
+  } catch { return; }
+  if (!to) return;
+  // RE-NORMALISED, not escaped. `normalizeHostname` is the only way a value
+  // reaches this table and it admits nothing but `[a-z0-9.-]`, so there is
+  // no HTML-special character to escape — but running it again here means this
+  // is true because it is CHECKED at the point of use, not because of what some
+  // other file did earlier. A value that fails is not mailed about at all.
+  const host = normalizeHostname(row.hostname);
+  if (!host) return;
+  await sendMail(env, {
+    to,
+    subject: host + " is live",
+    html: '<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.6;color:#111">' +
+      "<p>Your site is now live at <a href=\"https://" + host + "\" style=\"color:#111\"><b>" + host + "</b></a>.</p>" +
+      "<p>The certificate is issued and renews automatically — there is nothing else to do.</p>" +
+      "</div>",
+  }).catch(() => {});
+}
 
 /**
  * Drain the Neon teardown queue — the cron half.
@@ -7489,6 +7595,21 @@ async function handleRequest(request, env, ctx) {
                       item.status = want;
                     }
                   } else { item.stage = "couldn't check just now"; }
+                }
+                // WHAT THE DOMAIN ACTUALLY POINTS AT, RIGHT NOW.
+                //
+                // "Waiting for DNS" is true and useless — it is the same
+                // sentence whether they have not touched their registrar,
+                // typed the record on the wrong name, or done it correctly
+                // four minutes ago. Those need different responses.
+                //
+                // Only while it is unresolved: a live domain resolves to us by
+                // definition, and spending two lookups to confirm what the
+                // certificate already proves is a slower panel for nothing.
+                if (item.status !== "live") {
+                  const chk = await checkDns({ fetch: (u, i) => fetch(u, i) }, { hostname: row.hostname, target: saasTarget(env) });
+                  item.dns = chk.state;
+                  item.dnsNote = dnsSentence(chk, saasTarget(env));
                 }
                 out.push(item);
               }
