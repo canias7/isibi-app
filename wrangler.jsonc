@@ -13,18 +13,32 @@
   "routes": [
     { "pattern": "gofarther.dev", "custom_domain": true },
     { "pattern": "www.gofarther.dev", "custom_domain": true },
-    // CUSTOM DOMAINS. Without this every customer domain answers 522, and the
-    // two entries above cannot help: a `custom_domain` route matches one exact
-    // hostname, and a customer's `sharpfadebarbers.com` is neither of them. So
-    // the request matches no route, falls through to the Cloudflare for SaaS
+    // CUSTOM DOMAINS NEED ONE MORE ROUTE, AND IT IS COMMENTED OUT ON PURPOSE.
+    //
+    //   { "pattern": "*/*", "zone_name": "gofarther.dev" }
+    //
+    // WHY IT IS NEEDED. The two entries above are `custom_domain` routes, each
+    // matching ONE exact hostname, and a customer's `sharpfadebarbers.com` is
+    // neither — so it matches no route, falls through to the Cloudflare for SaaS
     // fallback origin, finds the originless `AAAA 100::` there, and times out.
-    // `*/*` is Cloudflare's documented pattern for this — it routes everything
+    // `*/*` is Cloudflare's documented pattern for this: it routes everything
     // entering the zone to the Worker INCLUDING custom hostnames.
     //
-    // It has to live HERE and not be created by hand or by the setup script:
+    // WHY IT IS NOT ENABLED YET, measured rather than guessed. Adding it made
+    // the deploy fail at `PUT /accounts/…/workers/scripts/isibi-app/routes` —
+    // the script and the two custom domains deployed, the routes call did not.
+    // The zone has no Cloudflare for SaaS on it yet, so a route whose hostname
+    // is a bare `*` matches nothing that can exist there. ORDER MATTERS: the
+    // fallback origin comes first, this second.
+    //
+    // WHEN TO UNCOMMENT IT: after `.github/workflows/saas-setup.yml` has run
+    // with apply on and reports steps 1 and 2 ok. That script's step 3 tells
+    // you the same thing, and `test/saas-setup.test.mjs` asserts the two agree
+    // so this comment cannot quietly stop matching what it says.
+    //
+    // IT HAS TO LIVE HERE rather than being added by hand or by that script:
     // wrangler publishes routes with a PUT that DELETES any it was not told
     // about, so an out-of-band route survives exactly until the next deploy.
-    { "pattern": "*/*", "zone_name": "gofarther.dev" }
   ],
   // Published Website-Builder sites are stored here (one HTML object per page)
   // and served from the Worker at gofarther.dev/s/<slug>/… (and later custom domains).

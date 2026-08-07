@@ -27,16 +27,42 @@ const script = read(".github/scripts/saas-setup.mjs");
 const workflow = read(".github/workflows/saas-setup.yml");
 const worker = read("worker.js");
 
-test("wrangler declares the wildcard route, or every custom domain 522s", () => {
-  // The two `custom_domain` entries match one exact hostname each, so a
-  // customer's domain matches NEITHER and falls through to the fallback origin.
-  const routes = wrangler.slice(wrangler.indexOf('"routes"'), wrangler.indexOf('"r2_buckets"'));
-  assert.match(routes, /"pattern":\s*"\*\/\*"/, "no */* route — custom hostnames reach no Worker");
-  assert.match(routes, /"zone_name":\s*"gofarther\.dev"/, "the wildcard must be scoped to our zone");
-  // Still there, because the wildcard is IN ADDITION to them and not instead:
-  // a Custom Domain provisions its own certificate and DNS record.
+const routes = wrangler.slice(wrangler.indexOf('"routes"'), wrangler.indexOf('"r2_buckets"'));
+// The exact line, written once. Both the config and the script's step 3 are
+// checked against THIS, so the instruction and the thing it instructs cannot
+// drift into disagreement — which for a commented-out line is the whole risk,
+// since nothing executes it.
+const WILDCARD = '{ "pattern": "*/*", "zone_name": "gofarther.dev" }';
+
+test("the two custom domains are declared, and the wildcard is not INSTEAD of them", () => {
+  // A Custom Domain provisions its own certificate and DNS record; the wildcard
+  // is in addition. Losing these would take the platform's own site down, which
+  // is a much larger failure than the one the wildcard fixes.
   assert.match(routes, /"pattern":\s*"gofarther\.dev",\s*"custom_domain":\s*true/);
   assert.match(routes, /"pattern":\s*"www\.gofarther\.dev",\s*"custom_domain":\s*true/);
+});
+
+test("the wildcard route is present as an exact, uncommentable line", () => {
+  // MEASURED, NOT CHOSEN: enabled, the deploy failed at
+  // `PUT /accounts/…/workers/scripts/isibi-app/routes` — the script and both
+  // custom domains deployed and the routes call did not, because the zone has
+  // no Cloudflare for SaaS on it yet and a bare `*` hostname matches nothing
+  // that can exist there. So it waits, commented, and this asserts it is still
+  // WRITTEN OUT correctly — a pending step nobody can find is a pending step
+  // that never happens.
+  const commented = routes.split("\n").some((l) => /^\s*\/\/\s*/.test(l) && l.replace(/^\s*\/\/\s*/, "").trim() === WILDCARD);
+  assert.ok(commented, "the wildcard line is missing from wrangler.jsonc or has been reworded");
+  // And that it is genuinely still inactive, or the deploy goes red again.
+  const active = routes.split("\n").filter((l) => !l.trim().startsWith("//"));
+  assert.ok(!active.some((l) => l.includes('"*/*"')), "the wildcard is ACTIVE — the zone must be set up first");
+});
+
+test("the config and the setup script agree on what to uncomment", () => {
+  // Two copies of one instruction in two files. Disagreeing, somebody follows
+  // the script, pastes something the config does not have, and the deploy fails
+  // in the way this whole ordering exists to avoid.
+  assert.ok(script.includes(WILDCARD), "saas-setup.mjs no longer prints the exact line to add");
+  assert.match(script, /wrangler\.jsonc/);
 });
 
 test("the route cannot be created out of band, so nothing may suggest it", () => {

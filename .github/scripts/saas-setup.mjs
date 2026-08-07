@@ -40,6 +40,11 @@ const APPLY = process.argv.includes("--apply");
 // chose — `100::` is the IPv6 discard prefix and is what their own guide uses.
 const ORIGINLESS = { type: "AAAA", content: "100::" };
 const ROUTE_PATTERN = "*/*";
+// The exact line to paste, written once here and once (commented) in
+// wrangler.jsonc, with a test holding the two together — an instruction that
+// has drifted from the thing it instructs is worse than no instruction, and a
+// commented-out line has nothing else checking it.
+const WILDCARD_LINE = '{ "pattern": "*/*", "zone_name": "gofarther.dev" }';
 const FREE_HOSTNAMES = 100;
 
 if (!TOKEN) {
@@ -155,10 +160,12 @@ if (dnsOk) {
 // ------------------------------------------------------ 2. the zone's fallback
 
 say("\n2. Zone fallback origin");
+let fallbackReady = false;
 if (sslOk) {
   const fo = await cf(`/zones/${Z}/custom_hostnames/fallback_origin`);
   const current = fo.ok && fo.result && fo.result.origin;
   if (current === ORIGIN) {
+    fallbackReady = true;
     say(`  ok    set to ${ORIGIN} (status ${fo.result.status || "unknown"})`);
   } else {
     say(`  todo  set to ${ORIGIN}${current ? ` (currently ${current})` : " (currently unset)"}`);
@@ -171,7 +178,7 @@ if (sslOk) {
       const p = await cf(`/zones/${Z}/custom_hostnames/fallback_origin`, {
         method: "PUT", body: JSON.stringify({ origin: ORIGIN }),
       });
-      if (p.ok) say(`        set (status ${(p.result && p.result.status) || "pending"}, takes a few minutes)`);
+      if (p.ok) { fallbackReady = true; say(`        set (status ${(p.result && p.result.status) || "pending"}, takes a few minutes)`); }
       else bad(`        could not set it: ${p.code || p.status} ${p.error}\n        this needs "Zone → SSL and Certificates: Edit"`);
     }
   }
@@ -188,10 +195,18 @@ if (routesRes.ok) {
   if (wild) {
     say(`  ok    ${ROUTE_PATTERN} → ${wild.script || "(no script)"}`);
   } else {
-    bad(`  MISSING ${ROUTE_PATTERN} — WITHOUT THIS EVERY CUSTOM DOMAIN ANSWERS 522.`);
-    bad(`          A custom hostname matches none of the custom_domain routes, so`);
-    bad(`          the request falls through to the fallback origin and finds ${ORIGINLESS.content}.`);
-    bad(`          It is declared in wrangler.jsonc — deploy to create it.`);
+    // NOT a failure while steps 1 and 2 are outstanding — it is the NEXT step,
+    // and it has to be second. Enabled before the zone has a fallback origin,
+    // the routes call is rejected and takes the whole deploy with it; that is
+    // measured, not cautious.
+    const ready = recordReady || fallbackReady;
+    (ready ? bad : say)(`  ${ready ? "TODO NOW" : "later "} add this line to "routes" in wrangler.jsonc and deploy:`);
+    say(`            ${WILDCARD_LINE}`);
+    say(`          It is already there, commented out, with the same text.`);
+    if (!ready) say(`          Do steps 1 and 2 first — a "*/*" route is refused on a zone with no`);
+    if (!ready) say(`          Cloudflare for SaaS, and the refusal fails the deploy.`);
+    say(`          Without it, every custom domain answers 522: a customer hostname`);
+    say(`          matches no route and falls through to ${ORIGINLESS.content}.`);
     say(`          routes today: ${routes.map((r) => r.pattern).join(", ") || "(none)"}`);
   }
 } else {
