@@ -1,0 +1,276 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import {
+  discover, safeHost, settings, parseSettings, httpsUrl, applyUrl, offerFor, DISCOVERY_PREFIX,
+} from "../site-domain-connect.mjs";
+
+const GD = {
+  providerId: "GoDaddy",
+  providerName: "GoDaddy",
+  urlSyncUX: "https://dcc.godaddy.com/manage",
+  urlAsyncUX: "https://sso.godaddy.com",
+  urlAPI: "https://domainconnect.api.godaddy.com",
+};
+
+function net(over = {}) {
+  const asked = [];
+  const d = {
+    fetch: async (url) => {
+      asked.push(url);
+      if (over.throws) throw new Error("network");
+      if (url.includes("dns-query")) {
+        if (over.noTxt) return { ok: true, json: async () => ({ Status: 3 }) };
+        const txt = over.txt === undefined ? "domainconnect.godaddy.com" : over.txt;
+        return { ok: true, json: async () => (txt === null ? { Status: 0 } : { Status: 0, Answer: [{ type: 16, data: '"' + txt + '"' }] }) };
+      }
+      if (over.settingsDead) return { ok: false, status: 404 };
+      return { ok: true, json: async () => (over.settings === undefined ? GD : over.settings) };
+    },
+  };
+  d.asked = asked;
+  return d;
+}
+
+// ------------------------------------------------------------------ discovery
+
+test("the discovery record names the provider's endpoint", async () => {
+  const d = net();
+  assert.equal(await discover(d, "shop.com"), "domainconnect.godaddy.com");
+  assert.ok(d.asked[0].includes(encodeURIComponent(DISCOVERY_PREFIX + ".shop.com")), d.asked[0]);
+});
+
+test("a TXT record arrives QUOTED and is unquoted", async () => {
+  // Every resolver returns TXT wrapped in quotes. Left on, the value is not a
+  // hostname and the whole feature reports unsupported for everybody who has it.
+  assert.equal(await discover(net({ txt: "domainconnect.ionos.com" }), "shop.com"), "domainconnect.ionos.com");
+});
+
+test("no record means the provider does not support it", async () => {
+  assert.equal(await discover(net({ noTxt: true }), "shop.com"), null);
+  assert.equal(await discover(net({ txt: null }), "shop.com"), null);
+  assert.equal(await discover(net({ throws: true }), "shop.com"), null);
+  assert.equal(await discover(net(), "localhost"), null);
+});
+
+// -------------------------------------------- the value is somebody else's
+
+test("THE ENDPOINT IS ATTACKER-CONTROLLED, so it is treated as hostile", async () => {
+  // It comes off a TXT record on a zone we do not run. We are about to fetch it
+  // server-side and later send the owner's browser to a URL built from it.
+  for (const evil of [
+    "https://evil.example", "//evil.example", "evil.example/path", "evil.example:8080",
+    "user@evil.example", "127.0.0.1", "169.254.169.254", "localhost", "", " ",
+    "-bad.example", "a".repeat(64) + ".example", "javascript:alert(1)",
+  ]) {
+    assert.equal(safeHost(evil), null, JSON.stringify(evil));
+    assert.equal(await discover(net({ txt: evil }), "shop.com"), null, JSON.stringify(evil));
+  }
+  assert.equal(safeHost("Domainconnect.GoDaddy.com."), "domainconnect.godaddy.com");
+});
+
+test("urlSyncUX DECIDES WHERE A BROWSER GOES, so it must be absolute https", () => {
+  for (const bad of [
+    "http://dcc.godaddy.com", "javascript:alert(1)", "//dcc.godaddy.com", "/manage",
+    "data:text/html,x", "https://user:pw@dcc.godaddy.com", "", null, 4, "https://127.0.0.1/x",
+  ]) {
+    assert.equal(httpsUrl(bad), null, JSON.stringify(bad));
+    // No usable sync URL and no async one either is a refusal…
+    assert.equal(parseSettings({ providerId: "X", urlSyncUX: bad }), null, JSON.stringify(bad));
+    // …and where there IS an async one it is the async ANSWER, never a link.
+    const asy = parseSettings({ ...GD, urlSyncUX: bad });
+    assert.equal(asy.asyncOnly, true, JSON.stringify(bad));
+    assert.equal(asy.urlSyncUX, undefined, "and no URL to send anybody to");
+    assert.equal(applyUrl(asy, { provider: "p", serviceId: "s", domain: "shop.com" }), null,
+      "so a link cannot be built from it at all");
+  }
+  assert.equal(httpsUrl("https://dcc.godaddy.com/manage/"), "https://dcc.godaddy.com/manage");
+});
+
+test("settings with no providerId are refused", () => {
+  assert.equal(parseSettings({ urlSyncUX: "https://x.example" }), null);
+  assert.equal(parseSettings(null), null);
+  assert.equal(parseSettings("no"), null);
+  assert.equal(parseSettings({}), null);
+});
+
+test("a good settings document parses", () => {
+  const s = parseSettings(GD);
+  assert.equal(s.providerId, "GoDaddy");
+  assert.equal(s.providerName, "GoDaddy");
+  assert.equal(s.urlSyncUX, "https://dcc.godaddy.com/manage");
+});
+
+// ------------------------------------------------------------- the apply url
+
+const base = parseSettings(GD);
+
+test("the apply URL is the provider's own consent screen", () => {
+  const u = applyUrl(base, {
+    provider: "gofarther.dev", serviceId: "site", domain: "shop.com", host: "www",
+    params: { target: "saas.gofarther.dev" },
+  });
+  const p = new URL(u);
+  assert.equal(p.origin, "https://dcc.godaddy.com");
+  assert.ok(p.pathname.includes("/v2/domainTemplates/providers/gofarther.dev/services/site/apply"), p.pathname);
+  assert.equal(p.searchParams.get("domain"), "shop.com");
+  assert.equal(p.searchParams.get("host"), "www");
+  assert.equal(p.searchParams.get("target"), "saas.gofarther.dev");
+});
+
+test("NO CREDENTIAL OF OURS TRAVELS IN IT", () => {
+  // This is what makes handing the URL to a browser safe: the worst a hostile
+  // endpoint learns is the domain and the record, both of which become public
+  // DNS the moment the change is applied.
+  const u = applyUrl(base, {
+    provider: "gofarther.dev", serviceId: "site", domain: "shop.com",
+    params: { target: "saas.gofarther.dev" },
+  });
+  assert.ok(!/key|secret|token|password|bearer/i.test(u), u);
+});
+
+test("an empty host is OMITTED, never sent blank", () => {
+  // Sent empty it is a template variable with no value — which some providers
+  // reject and others apply at the apex. Those are the two worst outcomes to be
+  // picking between silently.
+  const u = applyUrl(base, { provider: "p", serviceId: "s", domain: "shop.com", host: "" });
+  assert.equal(new URL(u).searchParams.has("host"), false);
+});
+
+test("template values are ENCODED, and junk keys dropped", () => {
+  // Unencoded, an `&` in a value appends a parameter of somebody else's
+  // choosing to a URL the owner is about to trust.
+  const u = applyUrl(base, {
+    provider: "p", serviceId: "s", domain: "shop.com",
+    params: { target: "a&redirect_uri=https://evil.example", "bad key": "x", ok: null },
+  });
+  const p = new URL(u);
+  assert.equal(p.searchParams.get("target"), "a&redirect_uri=https://evil.example");
+  assert.equal(p.searchParams.get("redirect_uri"), null, "it did not become its own parameter");
+  assert.equal(p.searchParams.has("bad key"), false);
+  assert.equal(p.searchParams.has("ok"), false);
+});
+
+test("a return URL must be https, and state rides only with one", () => {
+  const good = applyUrl(base, { provider: "p", serviceId: "s", domain: "shop.com", redirectUri: "https://gofarther.dev/back", state: "abc" });
+  assert.equal(new URL(good).searchParams.get("redirect_uri"), "https://gofarther.dev/back");
+  assert.equal(new URL(good).searchParams.get("state"), "abc");
+  const bad = applyUrl(base, { provider: "p", serviceId: "s", domain: "shop.com", redirectUri: "http://evil.example", state: "abc" });
+  assert.equal(new URL(bad).searchParams.has("redirect_uri"), false);
+  // WITHOUT the return URL the state proves nothing and must not be sent — it
+  // would be an identifier handed to a third party for no purpose.
+  assert.equal(new URL(bad).searchParams.has("state"), false);
+});
+
+test("missing pieces produce no URL rather than a broken one", () => {
+  for (const args of [
+    { provider: "p", serviceId: "s" },
+    { provider: "p", domain: "shop.com" },
+    { serviceId: "s", domain: "shop.com" },
+  ]) {
+    assert.equal(applyUrl(base, args), null, JSON.stringify(args));
+  }
+  assert.equal(applyUrl(null, { provider: "p", serviceId: "s", domain: "shop.com" }), null);
+});
+
+// ----------------------------------------------------------------- the offer
+
+test("a supported provider is offered by name", async () => {
+  const r = await offerFor(net(), "shop.com");
+  assert.equal(r.supported, true);
+  assert.equal(r.provider, "GoDaddy");
+  assert.ok(r.settings.urlSyncUX);
+});
+
+test("no discovery record is simply unsupported", async () => {
+  assert.deepEqual(await offerFor(net({ noTxt: true }), "shop.com"), { supported: false });
+});
+
+test("async-only is REACHABLE, which the first draft's flag was not", () => {
+  // It was computed after a `return null` that made it dead. Asserted from both
+  // ends now: the parse reaches it, and `offerFor` reports it.
+  const s2 = parseSettings({ providerId: "X", providerName: "Xen", urlAsyncUX: "https://x.example/oauth" });
+  assert.deepEqual(s2, { providerId: "X", providerName: "Xen", asyncOnly: true });
+});
+
+test("a provider offering ONLY the OAuth flow says so", async () => {
+  // "Your provider supports this but needs a sign-in we have not built" is a
+  // different thing from "your provider does not support this", and an owner
+  // who is told the second will stop looking.
+  const r = await offerFor(net({ settings: { providerId: "X", providerName: "Xen", urlAsyncUX: "https://x.example/o" } }), "shop.com");
+  assert.equal(r.supported, false);
+  assert.equal(r.asyncOnly, true, "and it is said, not folded into plain unsupported");
+  assert.equal(r.provider, "Xen", "with the name, so the panel can use it");
+  assert.equal(r.endpoint, "domainconnect.godaddy.com", "the endpoint was still found");
+});
+
+test("an endpoint that does not answer is unsupported, not a crash", async () => {
+  const r = await offerFor(net({ settingsDead: true }), "shop.com");
+  assert.equal(r.supported, false);
+  assert.equal(r.endpoint, "domainconnect.godaddy.com");
+});
+
+test("it is a leaf module", () => {
+  const src = fs.readFileSync(new URL("../site-domain-connect.mjs", import.meta.url), "utf8");
+  assert.ok(!/^\s*import\s/m.test(src), "no imports");
+});
+
+// ------------------------------------------------------------ worker wiring
+
+const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+const has = (src, re, why) => assert.ok(re.test(src), why);
+
+test("the route offers one-click where the provider supports it", () => {
+  has(worker, /dcOfferFor\(dnsDeps, zone\)/, "discovery runs per domain");
+  has(worker, /item\.oneClick = link/, "and the link is handed over");
+});
+
+test("discovery asks at the ZONE, not the hostname", () => {
+  // Both the `_domainconnect` record and the template live on the registrable
+  // domain. Asked at `www.shop.com` it finds nothing, for everybody.
+  has(worker, /const zone = parts\.slice\(-2\)\.join\("\."\);/, "the zone is derived");
+  has(worker, /dcOfferFor\(dnsDeps, zone\)/, "and is what gets asked");
+  has(worker, /host: sub/, "with the subdomain passed as the template's host");
+});
+
+test("our template identity is named ONCE", () => {
+  // `providerId`/`serviceId` are the path a provider looks our template up by,
+  // and they have to match what is registered in the Domain Connect Templates
+  // repository. Two copies is a 404 at their end that nobody can reproduce.
+  // Counted on CODE, not on the name: the comment above the constants mentions
+  // both, so a bare-name count reads prose and reports three. Same trap as
+  // every other source guard here — anchor on the syntax.
+  has(worker, /const DC_PROVIDER = "gofarther\.dev";/, "declared");
+  has(worker, /const DC_SERVICE = "site";/, "declared");
+  assert.equal((worker.match(/const DC_PROVIDER =/g) || []).length, 1, "defined once");
+  assert.equal((worker.match(/const DC_SERVICE =/g) || []).length, 1, "defined once");
+  assert.equal((worker.match(/provider: DC_PROVIDER, serviceId: DC_SERVICE/g) || []).length, 1, "and used in one place");
+});
+
+test("it is not offered once DNS already points here", () => {
+  // There would be nothing for the provider to apply, and a "set it up" button
+  // on a finished domain invites somebody to redo work already done.
+  const i = worker.indexOf('if (chk.state !== "ok") {');
+  const j = worker.indexOf("dcOfferFor(dnsDeps, zone)");
+  assert.ok(i > 0 && j > i, "the offer is inside the not-ok branch");
+});
+
+test("an async-only provider is SAID, not silently dropped", () => {
+  has(worker, /item\.oneClickBlocked = "asyncOnly"/, "recorded for the panel");
+});
+
+test("the panel shows the button above the manual records", () => {
+  // It replaces them: an owner who can press this never has to look at a CNAME.
+  const btn = chat.indexOf("Set it up at ");
+  const recs = chat.indexOf("const recs = live ?");
+  assert.ok(btn > 0 && recs > 0);
+  const row = chat.indexOf("dnsRow + oneClick + provRow");
+  assert.ok(row > 0, "and it is placed before the records in the rendered order");
+});
+
+test("the button says the owner keeps their password", () => {
+  // The reassurance is load-bearing: this sends somebody to a sign-in screen,
+  // and the reason it is safe is that the sign-in is THEIRS.
+  has(chat, /never see your password/, "stated in the panel");
+});

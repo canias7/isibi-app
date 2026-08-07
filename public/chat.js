@@ -11239,6 +11239,16 @@ async function siteDomains(site) {
         // link is the automation that actually exists: it does not need a
         // credential, it works for every provider on the list, and being
         // dropped on the correct screen is most of what people are stuck on.
+        // THE ONE-CLICK BUTTON, where the provider supports Domain Connect.
+        //
+        // It goes ABOVE the copyable records, because it replaces them: an
+        // owner who can press this never has to look at a CNAME. The records
+        // stay below as the fallback, not as the instruction.
+        const oneClick = (!live && x.oneClick)
+          ? '<div class="sd-auto"><a class="sd-auto-go" href="' + esc(x.oneClick) + '" target="_blank" rel="noreferrer">' +
+            'Set it up at ' + esc(x.oneClickProvider || 'your provider') + '</a>' +
+            '<span class="sd-auto-note">Signs you in there and asks you to approve the change. We never see your password.</span></div>'
+          : '';
         const provRow = (!live && x.providerNote)
           ? '<div class="sd-prov"><span>' + esc(x.providerNote) + '</span>' +
             (x.providerUrl ? '<a class="sd-visit" href="' + esc(x.providerUrl) + '" target="_blank" rel="noreferrer">Open ' + esc(x.provider || 'DNS') + ' \u2192</a>' : '') +
@@ -11250,7 +11260,7 @@ async function siteDomains(site) {
         return '<div class="sd-item"><div class="sd-top">' + ic('globe', 15) + '<b class="sd-host">' + esc(x.hostname) + '</b>' + badge +
           (live ? '<a class="sd-visit" href="https://' + esc(x.hostname) + '" target="_blank" rel="noreferrer">Visit</a>' : '') +
           '<button type="button" class="sk-del" data-del="' + esc(x.hostname) + '" title="Remove">×</button></div>' +
-          (x.error ? '<div class="sd-err">' + esc(x.error) + '</div>' : '') + dnsRow + provRow +
+          (x.error ? '<div class="sd-err">' + esc(x.error) + '</div>' : '') + dnsRow + oneClick + provRow +
           (recs ? '<div class="sd-recs">' + recs + '</div>' : '') + '</div>';
       }).join('');
       listEl.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => {

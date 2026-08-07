@@ -12,6 +12,7 @@ import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_
 import { normalizeHostname, isOwnHostname, claimRefusal, dnsInstructions, readStatus } from "./site-domains.mjs";
 import { checkDns, dnsSentence } from "./site-dns.mjs";
 import { detectProvider, providerSentence } from "./site-registrar.mjs";
+import { offerFor as dcOfferFor, applyUrl as dcApplyUrl } from "./site-domain-connect.mjs";
 import { callApi, apiFor, secretsNeeded, takeParams, MAX_PER_MINUTE as SITE_API_PER_MIN, MAX_TTL as SITE_API_MAX_TTL } from "./site-apis.mjs";
 import { Container, getContainer } from "@cloudflare/containers";
 import { makeCache, memoize } from "./ttl-cache.mjs";
@@ -4191,6 +4192,13 @@ async function siteApiDeps(env, slug, db, api) {
 // silently never registers is the worst outcome here, because the owner is
 // staring at DNS they have already set correctly.
 const CF_API = "https://api.cloudflare.com/client/v4";
+// OUR Domain Connect template identity. `DC_PROVIDER` is the zone we publish
+// under and `DC_SERVICE` names the template; together they are the path a
+// provider looks the template up by, and both have to match what is registered
+// in the Domain Connect Templates repository. A mismatch is a 404 at the
+// provider's end, which is why they are named once here rather than inline.
+const DC_PROVIDER = "gofarther.dev";
+const DC_SERVICE = "site";
 // Where Cloudflare for SaaS sends custom-hostname traffic. Overridable, with a
 // default rather than a hard requirement: an unset value would make every DNS
 // instruction we hand out wrong in a way the owner cannot detect.
@@ -7627,6 +7635,38 @@ async function handleRequest(request, env, ctx) {
                   const note = providerSentence(who);
                   if (note) item.providerNote = note;
                   if (who.provider) { item.provider = who.provider.name; item.providerUrl = who.provider.dns || null; }
+
+                  // ONE-CLICK SETUP, where the provider supports Domain Connect.
+                  //
+                  // The owner goes to THEIR provider, who signs them in and
+                  // shows them exactly what will change. We never hold a
+                  // credential for their DNS and never touch it — the button is
+                  // a link, and that is the entire integration.
+                  //
+                  // Only offered while DNS is still wrong: once it points here
+                  // there is nothing left for the provider to apply, and a
+                  // "set it up" button on a finished domain invites somebody to
+                  // redo work that is already done.
+                  if (chk.state !== "ok") {
+                    // The registrable domain, not the hostname — the discovery
+                    // record and the template both live on the zone.
+                    const parts = row.hostname.split(".");
+                    const zone = parts.slice(-2).join(".");
+                    const sub = parts.slice(0, -2).join(".");
+                    const offer = await dcOfferFor(dnsDeps, zone).catch(() => ({ supported: false }));
+                    if (offer.supported) {
+                      const link = dcApplyUrl(offer.settings, {
+                        provider: DC_PROVIDER, serviceId: DC_SERVICE,
+                        domain: zone, host: sub,
+                        params: { target: saasTarget(env) },
+                      });
+                      if (link) { item.oneClick = link; item.oneClickProvider = offer.provider; }
+                    } else if (offer.asyncOnly) {
+                      // Said rather than folded into silence: their provider
+                      // does support this, through a sign-in we have not built.
+                      item.oneClickBlocked = "asyncOnly";
+                    }
+                  }
                 }
                 out.push(item);
               }

@@ -1782,6 +1782,16 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    link is the point — the words only exist to say which button this is. */
 .sd-prov { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-top: .5rem; font-size: .78rem; color: var(--muted); }
 .sd-prov .sd-visit { flex: none; }
+/* One-click setup. THE ONLY FILLED BUTTON IN THE PANEL — everything else here
+   is an outline — because where this exists it is the whole answer and the
+   copyable records below become a fallback nobody should need to read. */
+.sd-auto { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; margin-top: .6rem; }
+.sd-auto-go { flex: none; font-size: .8rem; font-weight: 700; color: var(--on-accent); background: var(--split); border-radius: 9px; padding: .42rem .8rem; text-decoration: none; }
+.sd-auto-go:hover { opacity: .9; }
+/* The reassurance carries real information — that they authenticate at their
+   own provider and we never hold their credentials — so it is legible, not a
+   footnote greyed to the edge of readability. */
+.sd-auto-note { flex: 1; min-width: 12rem; font-size: .74rem; color: var(--muted); line-height: 1.45; }
 .sd-recs { margin-top: .6rem; padding-top: .6rem; border-top: 1px solid var(--line); display: grid; gap: .55rem; }
 .sd-rec { display: grid; gap: .35rem; }
 .sd-rt { justify-self: start; font-size: .6rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line-2); border-radius: 999px; padding: .1rem .45rem; }
