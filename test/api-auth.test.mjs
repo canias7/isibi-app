@@ -441,3 +441,35 @@ test("every owner-scoped route matcher appears in the dispatch condition", () =>
   assert.deepEqual(new Set(slugPick[1].split("||").map((s) => s.trim())), dispatched,
     "the dispatch condition and the ownerSlug list disagree");
 });
+
+// `r` IN THE OWNER BLOCK IS A `{body, status}`, NEVER A `Response`.
+//
+// That block ends in `return Response.json(r.body, { status: r.status })`, so a
+// real Response assigned to `r` has its `.body` read as a ReadableStream. The
+// domains route did exactly that: its GET answered `200 {}` and its POST threw
+// into the catch as a `500` — after the row had already been inserted.
+//
+// Third dead layer in one feature, and the nastiest, because the DIRECT
+// `return Response.json(...)` calls in the same branch were correct throughout.
+// So every refusal answered properly and only the successes were broken, which
+// reads like a backend problem rather than a response-shape one.
+test("nothing in the owner block assigns a Response to `r`", () => {
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+
+  // Anchor on the block by its terminator, so this cannot drift onto some other
+  // region of the router that legitimately hands back Responses.
+  const end = src.indexOf("return Response.json(r.body, { status: r.status });");
+  assert.ok(end > 0, "the owner block no longer ends in `Response.json(r.body, …)` — re-anchor this test");
+  const start = src.lastIndexOf("const ou = await authUser(request);", end);
+  assert.ok(start > 0 && end - start > 2000, "could not locate the owner block");
+  const block = src.slice(start, end);
+
+  const bad = [...block.matchAll(/^\s*r = Response\.json\(/gm)];
+  assert.deepEqual(bad.map((m) => m[0].trim()), [],
+    "`r` must be a plain {body, status}; a Response here serialises as {} or throws");
+
+  // And the scan must actually be looking at assignments, or "none found" is
+  // true of an empty string as well.
+  assert.ok(/^\s*r = \{ body:/m.test(block) || /r = await handleOwner/.test(block),
+    "the scan found no `r =` assignments at all — it is looking at the wrong region");
+});

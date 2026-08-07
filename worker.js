@@ -7587,6 +7587,15 @@ async function handleRequest(request, env, ctx) {
           if (dm2) {
             // THE OWNER'S OWN DOMAINS.
             //
+            // `r` IS A PLAIN `{body, status}`, NEVER A `Response`. This whole
+            // block ends in `return Response.json(r.body, {status: r.status})`,
+            // so a real Response assigned here has its `.body` read as a
+            // ReadableStream: the GET serialised to `{}` with a 200 and the POST
+            // threw into the catch as a 500 — after the row had already been
+            // inserted. Every DIRECT `return Response.json(...)` below is fine
+            // and worked throughout, which is exactly what made it confusing:
+            // the refusals answered correctly and only the successes were wrong.
+            //
             // Behind `assertOwner` like every other route here, which is what
             // stops somebody attaching a domain to a site that is not theirs.
             const dslug = dm2[1].toLowerCase();
@@ -7722,7 +7731,7 @@ async function handleRequest(request, env, ctx) {
                 }
                 out.push(item);
               }
-              r = Response.json({ ok: true, domains: out, target: saasTarget(env) });
+              r = { body: { ok: true, domains: out, target: saasTarget(env) }, status: 200 };
             } else if (request.method === "POST") {
               const b = await request.json().catch(() => ({}));
               const refusal = claimRefusal(b && b.hostname);
@@ -7766,7 +7775,7 @@ async function handleRequest(request, env, ctx) {
                 body: JSON.stringify({ cf_id: cf.result && cf.result.id, last_error: null }),
               }).catch(() => {});
               const st = readStatus(cf.result);
-              r = Response.json({ ok: true, hostname: host, status: "pending", stage: st.stage, pending: st.pending, target: saasTarget(env), ...dnsInstructions(host, saasTarget(env)) });
+              r = { body: { ok: true, hostname: host, status: "pending", stage: st.stage, pending: st.pending, target: saasTarget(env), ...dnsInstructions(host, saasTarget(env)) }, status: 200 };
             } else if (request.method === "DELETE" && dm2[2]) {
               const host = normalizeHostname(dm2[2]);
               if (!host) return Response.json({ ok: false, error: "not found" }, { status: 404 });
@@ -7790,7 +7799,7 @@ async function handleRequest(request, env, ctx) {
               // This isolate's routing memory is now wrong; other PoPs heal by
               // expiry, exactly like every other invalidation here.
               hostRoutes.delete(host);
-              r = Response.json({ ok: true });
+              r = { body: { ok: true }, status: 200 };
             } else {
               return Response.json({ error: "method not allowed" }, { status: 405 });
             }
