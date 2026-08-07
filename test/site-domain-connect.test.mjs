@@ -336,7 +336,12 @@ test("the key id is named once, and matches what gets published in DNS", () => {
 
 test("the signing key is a deployed secret, not something in the repo", () => {
   const deploy = fs.readFileSync(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
-  assert.ok(/DOMAIN_CONNECT_KEY: \$\{\{ secrets\.DOMAIN_CONNECT_KEY \}\}/.test(deploy), "uploaded from GitHub secrets");
+  // The PROPERTY — the value comes from GitHub secrets — rather than one exact
+  // spelling of the expression. Pinned to the exact string, this went red when a
+  // `|| fallback` was added to stop an unset secret failing the whole deploy:
+  // a test about where the key comes from, failing over word order. The
+  // fallback's own safety is asserted in `test/deploy-secrets.test.mjs`.
+  assert.match(deploy, /DOMAIN_CONNECT_KEY:\s*\$\{\{\s*secrets\.DOMAIN_CONNECT_KEY\b/, "uploaded from GitHub secrets");
   has(worker, /env\.DOMAIN_CONNECT_KEY/, "and read from env");
   // A private key checked in would be a private key in git forever.
   assert.ok(!/BEGIN (RSA )?PRIVATE KEY/.test(worker), "no key material in the source");

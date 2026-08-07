@@ -92,7 +92,29 @@ jobs:
           # back to the copyable records, which work. That is deliberate: the
           # template declares `syncPubKeyDomain`, so providers REFUSE an
           # unsigned link, and offering one would be a button that always fails.
-          DOMAIN_CONNECT_KEY: ${{ secrets.DOMAIN_CONNECT_KEY }}
+          #
+          # THE `||` IS NOT TIDINESS, IT IS WHAT STOPS THIS BREAKING THE DEPLOY.
+          # `wrangler-action` fails the WHOLE run with "Value for secret X not
+          # found in environment" when a name in the `secrets:` list above has an
+          # empty value — so adding an optional secret to that list before the
+          # secret exists takes the entire platform's deploys down. It did, on
+          # 2026-08-07: three merges in a row uploaded nothing, deployed nothing
+          # and went red for a reason that had nothing to do with their content.
+          #
+          # The sentinel is not a working key by construction: `rsaSigner` base64-
+          # decodes its input, `atob` throws on this, the throw is caught, and the
+          # signer is null — which is exactly the unset behaviour. A real key
+          # takes over with no code change.
+          #
+          # The cost, stated because it removes a diagnostic that has been used
+          # here before: the deploy log prints `DOMAIN_CONNECT_KEY: ***` either
+          # way, so unlike SITE_SECRETS_KEY a masked value no longer proves the
+          # secret HAS one. Ask the Domains panel instead — a signed button
+          # appears only with a real key.
+          #
+          # THE RULE THIS ENCODES: a secret named in `secrets:` above must either
+          # already exist in GitHub Actions, or carry a fallback here.
+          DOMAIN_CONNECT_KEY: ${{ secrets.DOMAIN_CONNECT_KEY || 'not-a-key' }}
           # Mail needs NO secret here. The Worker sends through Cloudflare Email
           # Service via the `send_email` binding in wrangler.jsonc (2026-07-30,
           # replacing Go Farther) — nothing to mint, upload each deploy, or rotate.
