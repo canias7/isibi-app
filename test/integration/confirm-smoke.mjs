@@ -123,6 +123,32 @@ const SCHEMA = {
       unique: ["event_id"],
     },
   ],
+  // THIRD-PARTY READS. Two declarations, differing in one thing: whether the
+  // request needs a secret. That pair is what separates "the call went out" from
+  // "the placeholder was resolved out of the vault" — a single declaration can
+  // only ever show one of them.
+  //
+  // Pointed at CLOUDFLARE'S OWN trace endpoint, and the choice matters: it is
+  // always up, needs no key, has no rate limit, and is EXTERNAL. Our own zone
+  // answers 522 to a Worker subrequest, which is the reason the outbound webhook
+  // test also has to leave the network to observe a real status.
+  apis: [
+    {
+      name: "pub",
+      // The parameter is in the PATH, so a different value is a different
+      // STATUS — which is observable from outside where an echoed query string
+      // would need a service that echoes. `trace` is 200 and anything else 404.
+      url: "https://www.cloudflare.com/cdn-cgi/{{param.p}}",
+      params: ["p"],
+      cacheSeconds: 0,
+    },
+    {
+      name: "keyed",
+      url: "https://www.cloudflare.com/cdn-cgi/trace",
+      headers: { "X-Smoke": "Bearer {{SMOKE_API_KEY}}" },
+      cacheSeconds: 0,
+    },
+  ],
   functions: [
     {
       name: "confirm_booking",
@@ -465,6 +491,105 @@ try {
 
   const unknown = await deliver("nothing_here", { authorization: "Bearer " + HOOK_SECRET }, {});
   ok("an undeclared hook is 404", unknown.status === 404, unknown.status);
+
+  // --- READING SOMEBODY ELSE'S API -----------------------------------------
+  console.log("\nthird-party reads…");
+  const extApi = (n, qs) => fetch(`${BASE}/api/db/${slug}/api/${n}${qs || ""}`);
+
+  const good = await extApi("pub", "?p=trace");
+  const goodText = await good.text();
+  ok("a declared read reaches the real service", good.status === 200, good.status + " " + goodText.slice(0, 120));
+  // Cloudflare's trace endpoint answers key=value lines; `fl=` is on every one.
+  ok("and hands back what that service actually sent", /(^|\n)fl=/.test(goodText), goodText.slice(0, 160));
+
+  // THE PARAMETER REALLY REACHED THE URL. A different value is a different
+  // path, so the STATUS moves — which is the one way to see substitution from
+  // outside without a service that echoes.
+  const other = await extApi("pub", "?p=definitely-not-a-real-endpoint");
+  ok("a different parameter is a different request", other.status !== 200, other.status);
+
+  // A parameter the declaration never named is DROPPED, not forwarded. If it
+  // were, this would rewrite the path and stop being a 200.
+  const extra = await extApi("pub", "?p=trace&host=evil.example&url=https://evil.example");
+  ok("an undeclared parameter is ignored", extra.status === 200, extra.status);
+
+  // …AND THE SECRET HALF. Identical declaration but for one `{{SMOKE_API_KEY}}`
+  // in a header. With nothing stored it must REFUSE rather than send the header
+  // empty — an API called with `Bearer ` can answer 200 with degraded data, and
+  // the page would render something plausible and wrong.
+  const beforeKey = await extApi("keyed");
+  ok("a read whose secret is not stored refuses", beforeKey.status === 503, beforeKey.status);
+  const beforeKeyBody = await beforeKey.text();
+  ok("and never names the secret to the visitor", !/SMOKE_API_KEY/.test(beforeKeyBody), beforeKeyBody.slice(0, 120));
+
+  const sk = await setSecret("SMOKE_API_KEY", "sk_smoke_" + stamp);
+  ok("the owner can store it", sk.status >= 200 && sk.status < 300, sk.status);
+  const afterKey = await extApi("keyed");
+  const afterKeyText = await afterKey.text();
+  // THE PROOF OF SUBSTITUTION: the same request refused a moment ago precisely
+  // because the placeholder could not be resolved, and succeeds now that it can.
+  ok("and the same read now goes through", afterKey.status === 200, afterKey.status + " " + afterKeyText.slice(0, 120));
+  ok("the secret is never in the response", !afterKeyText.includes("sk_smoke_" + stamp), afterKeyText.slice(0, 160));
+
+  const unknownApi = await extApi("no_such_connection");
+  ok("an undeclared connection is 404", unknownApi.status === 404, unknownApi.status);
+  const wrongVerb = await fetch(`${BASE}/api/db/${slug}/api/pub?p=trace`, { method: "POST" });
+  ok("and it is GET only", wrongVerb.status === 405, wrongVerb.status);
+
+  // --- SPAM PROTECTION -----------------------------------------------------
+  //
+  // The SERVER half, proved live at $0 using CLOUDFLARE'S OWN PUBLISHED TEST
+  // SECRETS — one that verifies everything and one that verifies nothing. No
+  // account, no widget, no browser. The page half (the widget rendering and
+  // `useCreateRow` attaching the token) is not covered here.
+  console.log("\nspam protection…");
+  const ALWAYS_FAIL = "2x0000000000000000000000000000000AA";
+  const ALWAYS_PASS = "1x0000000000000000000000000000000AA";
+  const book = (extra2) => data("bookings", jsonPost({ who: "Turn", email: "t@example.com", slot: "21:00", ...extra2 }));
+
+  // THE CONFIGURATION IS CACHED FOR 15 SECONDS PER ISOLATE and invalidated only
+  // on the isolate that took the write, so a change takes up to that long to be
+  // seen everywhere. That is a real property of the feature, not a flaw in the
+  // test — an owner switching this on waits the same 15s — so the check waits
+  // for the transition rather than asserting on the first request after it.
+  const settle = async (want, extra2) => {
+    let last = 0;
+    for (let i = 0; i < 14; i++) {
+      const r = await book(extra2);
+      last = r.status;
+      if (want === "refused" ? r.status === 403 : r.status < 300) return r.status;
+      await new Promise((r2) => setTimeout(r2, 2500));
+    }
+    return last;
+  };
+
+  const ts1 = await setSecret("TURNSTILE_SECRET", ALWAYS_FAIL);
+  ok("the owner can store a Turnstile secret", ts1.status >= 200 && ts1.status < 300, ts1.status);
+  const refusedStatus = await settle("refused", { "cf-turnstile-response": "anything" });
+  ok("a submission Cloudflare refuses is stopped", refusedStatus === 403, refusedStatus);
+  // Configured and no token at all is refused too, and WITHOUT calling
+  // Cloudflare — the widget is in the page, so a submission without one did not
+  // come from the page.
+  const noToken = await book();
+  ok("and so is one with no token at all", noToken.status === 403, noToken.status);
+  const refusedBody = await noToken.json().catch(() => ({}));
+  // `message` is the field `rows.ts` reads; `error` would render as
+  // "request failed (403)" on the customer's screen.
+  ok("the visitor is told something they can act on", typeof refusedBody.message === "string" && refusedBody.message.length > 10,
+    JSON.stringify(refusedBody).slice(0, 160));
+
+  const ts2 = await setSecret("TURNSTILE_SECRET", ALWAYS_PASS);
+  ok("the owner can change it", ts2.status >= 200 && ts2.status < 300, ts2.status);
+  const passStatus = await settle("accepted", { "cf-turnstile-response": "anything" });
+  // AND THIS IS ALSO THE PROOF THE TOKEN IS STRIPPED. `cf-turnstile-response`
+  // is not a column `bookings` declared, so left in the row PostgREST refuses
+  // the insert — a 2xx here is only possible if it was removed on the way past.
+  ok("a verified submission goes through, token stripped", passStatus < 300, passStatus);
+
+  // Back off, so the checks after this are not fighting a gate.
+  await fetch(`${BASE}/api/site/${slug}/secrets/TURNSTILE_SECRET`, {
+    method: "DELETE", headers: { Authorization: `Bearer ${jwt}` },
+  }).catch(() => {});
 
   // --- the jobs that should and should not have registered -----------------
   console.log("\nwhich jobs registered…");
