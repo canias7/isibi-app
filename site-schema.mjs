@@ -202,6 +202,30 @@ export function normalizeSchema(spec) {
     const body = String(f.body || "").slice(0, 4000).trim();
     if (!body) continue;
     const lang = String(f.language || "sql").toLowerCase() === "plpgsql" ? "plpgsql" : "sql";
+    // A model-written body may NEVER name an internal table. This is the one
+    // sanitisation the body gets, and it is here rather than left to the
+    // sandbox argument because the sandbox argument does not cover it:
+    //
+    //   - the function is created SECURITY DEFINER by default, so it runs as
+    //     the database owner, which bypasses RLS
+    //   - it is GRANT EXECUTE'd to `anonymous`, so any visitor can call it
+    //   - `_secrets` — the site owner's Stripe key — lives in this same
+    //     database, and `_meta` holds the site's own configuration
+    //   - `dblink` and `postgres_fdw` ARE installable on Neon (measured in
+    //     `neon-e2e`), so a body can open an outbound connection
+    //
+    // Put together that is a read of anything in the site, by anyone, with a
+    // way out. The comment at the top of this block used to say model SQL
+    // "reaches no other site, no Go Farther table and no secret" — the first two
+    // hold, the third never did.
+    //
+    // Refusing the function outright rather than stripping the reference: a
+    // body that wanted `_secrets` is not a body to repair, and a half-edited
+    // one fails at CREATE time anyway. Nothing legitimate needs these — the
+    // declared tables are the model's whole surface.
+    if (/\b_(secrets|meta|users|sessions|invites|identities|credentials|auth_codes|auth_events|audit|teams)\b/i.test(body)) {
+      continue;
+    }
     functions.push({ name, args, returns, body, language: lang, definer: f.definer !== false });
   }
 
