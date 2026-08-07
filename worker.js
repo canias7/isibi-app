@@ -5,6 +5,7 @@ import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon"
 import { sendConfirmation, recipient, pickProvider } from "./site-mail.mjs";
 import { dueJobs, runJob } from "./site-jobs.mjs";
 import { hostIsBlocked, blockedReason } from "./site-ssrf.mjs";
+import { snapshot as snapshotSite, rollback as rollbackSite } from "./site-versions.mjs";
 import { deliverWebhook, firesFor, signPayload, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
 import { Container, getContainer } from "@cloudflare/containers";
 import { makeCache, memoize } from "./ttl-cache.mjs";
@@ -4021,7 +4022,30 @@ async function deleteSitePrefix(env, slug) {
 // Publish a compiled site. The prefix is wiped first: vite hashes its asset file
 // names, so without this every rebuild would leave the previous build's JS and CSS
 // behind forever. Same {t}/{b} envelope the build service returns for the games.
+/** R2 as the four operations `site-versions.mjs` needs, so it can be tested. */
+function r2Deps(env) {
+  return {
+    list: (o) => env.SITES_BUCKET.list(o),
+    get: (k) => env.SITES_BUCKET.get(k),
+    put: (k, body, o) => env.SITES_BUCKET.put(k, body, o),
+    delete: (k) => env.SITES_BUCKET.delete(k),
+  };
+}
+
 async function writeSiteDistToR2(env, slug, dist, meta) {
+  // KEEP THE CURRENT BUILD BEFORE DESTROYING IT. A revise is the normal way to
+  // use this product and it was irreversible: the prefix was wiped and the
+  // previous site existed nowhere. Page generation is one model call with no
+  // repair pass, so "the revise came back worse" is an ordinary outcome, not an
+  // edge case — and without this the owner had lost the version they liked.
+  //
+  // Best-effort by design: a site must not fail to go live because its undo
+  // point could not be written. `snapshot` never throws and reports instead.
+  const kept = await snapshotSite(r2Deps(env), slug);
+  if (kept.error) console.error("snapshot:", slug, kept.error);
+  // The wipe stays. `snapshot` MOVES rather than copies, so the live prefix is
+  // already empty by now and this is the belt-and-braces pass for anything a
+  // partial move left behind.
   try { await deleteSitePrefix(env, slug); } catch {}
   for (const [rel, v] of Object.entries(dist || {})) {
     // The head belongs to the built dist, which the model never sees, so the
@@ -6744,7 +6768,7 @@ async function handleRequest(request, env, ctx) {
     // Ordered BEFORE the site-delete branch below on purpose: that one matches
     // any DELETE under /api/site/, so a row delete would otherwise be read as a
     // request to take the entire site down.
-    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads") || url.pathname.includes("/export") || url.pathname.includes("/notify") || url.pathname.includes("/secrets"))) {
+    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads") || url.pathname.includes("/export") || url.pathname.includes("/notify") || url.pathname.includes("/secrets") || url.pathname.includes("/rollback"))) {
       const om = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rows(?:\/([a-z_][a-z0-9_]{0,40})(?:\/([0-9]{1,18}))?)?$/i);
       // A member id is a UUID now, not the sequential integer this used to match.
       const mm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/members(?:\/([0-9a-f-]{36}))?$/i);
@@ -6756,10 +6780,11 @@ async function handleRequest(request, env, ctx) {
       // name is matched with the SAME alphabet normalizeSecretName produces, so
       // anything that could not have been stored cannot even reach the handler.
       const sk = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/secrets(?:\/([A-Za-z][A-Za-z0-9_]{0,63}))?$/i);
-      if (om || mm || an || uf || xp || nt || sk) {
+      const rb = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rollback$/i);
+      if (om || mm || an || uf || xp || nt || sk || rb) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
-        const ownerSlug = (om || mm || an || uf || xp || nt || sk)[1].toLowerCase();
+        const ownerSlug = (om || mm || an || uf || xp || nt || sk || rb)[1].toLowerCase();
         const ownerDeps = {
           ownerOf: async (s2) => {
             const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s2)}&select=uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
@@ -6792,6 +6817,25 @@ async function handleRequest(request, env, ctx) {
         // no body otherwise — the same trap the PBKDF2 cap fell into.
         try {
           let r;
+          if (rb) {
+            // Owner-only, like every other route in this block — `assertOwner`
+            // ran above and answers 404 rather than 403 for a slug that is not
+            // yours, since the slug space is public and a 403 confirms which
+            // names are taken.
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            const out = await rollbackSite(r2Deps(env), ownerSlug);
+            // A site built once has nothing to go back to. That is a normal
+            // state and the owner is told so plainly rather than shown a
+            // failure — 409 because the request was well formed and the site
+            // simply is not in a state where it means anything.
+            if (!out.ok) return Response.json({ ok: false, error: "Nothing to roll back to — this site has only been built once." }, { status: 409 });
+            // The KV route entry and the schema cache are untouched on purpose:
+            // rolling back swaps the published FILES, not the database. A site's
+            // tables are additive across revises and the previous bundle reads
+            // the same ones, so reverting the schema would break the very build
+            // being restored.
+            return Response.json({ ok: true, restored: out.restored, kept: out.kept });
+          }
           if (sk) {
             // The owner's own API keys. Every value goes through site-secrets.mjs,
             // which is the only place one is ever decrypted; nothing here can
