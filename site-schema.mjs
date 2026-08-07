@@ -228,7 +228,7 @@ export function normalizeSchema(spec) {
     if (/\b_(secrets|meta|users|sessions|invites|identities|credentials|auth_codes|auth_events|audit|teams)\b/i.test(body)) {
       continue;
     }
-    functions.push({ name, args, returns, body, language: lang, definer: f.definer !== false, /* An internal function is created but NEVER granted to the Data API roles. A confirmation builder takes a row id and returns somebody's address and message, and every model function is SECURITY DEFINER — granted to `anonymous` it reads any customer's confirmation by guessing a number. The Worker calls it on the owner's connection, which bypasses grants, so withholding EXECUTE costs nothing. */ internal: !!f.internal });
+    functions.push({ name, args, returns, body, language: lang, definer: f.definer !== false, /* An internal function is created, REVOKEd from PUBLIC, and never granted to the Data API roles. The revoke is the protection and the missing grant is only what stops it being handed back: Postgres grants EXECUTE on a new function to PUBLIC by default, so omission alone left it callable by everyone (measured by `neon e2e` 2026-08-07). A confirmation builder takes a row id and returns somebody's address and message, and every model function is SECURITY DEFINER, so reachable by `anonymous` it reads any customer's confirmation by guessing a number. The Worker calls it on the owner's connection, which bypasses grants, so revoking costs it nothing. */ internal: !!f.internal });
   }
 
   // A `confirm: {fn}` naming a function that does not exist — or one a visitor

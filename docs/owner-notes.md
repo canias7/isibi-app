@@ -14163,3 +14163,57 @@ and the check is `get_edge_function`, not `git log`.
   is now written down rather than left as a habit: `get_edge_function` and compare
   the deployed source against the repo. `git log` cannot see this class of drift,
   and neither can any test in the suite.
+
+## 2026-08-07 — running neon-e2e found a live hole, on its first ask
+
+Asked to run `neon e2e` against the confirmation-email and scheduled-job work
+built earlier. Before running it I checked whether it covered any of that, and it
+did not: it proved a normal declared function gets its EXECUTE grant, and nothing
+anywhere proved that `internal: true` WITHHOLDS one. Added that check plus a
+`_secrets` reachability check, then ran it.
+
+**It failed, and the failure was a real security bug.**
+
+```
+FAIL a signed-out visitor may NOT execute an internal function -> {anon:true, auth:true}
+FAIL while the public function next to it still is -> public=true internal=true
+```
+
+**Postgres grants EXECUTE on a new function to PUBLIC by default.** So skipping
+our GRANT skipped nothing — the privilege was already there, held by a role every
+other role belongs to. Three layers had each done their job correctly: the
+designer could declare the flag, the normaliser kept it, `functionSql` omitted
+the grant. All three sat on top of a default that erased them.
+
+**What it exposed.** A `confirm.fn` takes a row id and returns a customer's name,
+message and email out of a `collect` table — write-only by design, nobody can read
+it. Every model function is SECURITY DEFINER, so it runs as the owner and bypasses
+RLS entirely. Ids are sequential. Anyone able to reach a published site's Data API
+could have walked the whole table by counting. That is precisely the enumeration
+the claim-token design was built to prevent, reached by an easier road.
+
+**The analogy that caused it is the part worth keeping.** The design was copied
+from `_secrets`, which is safe because it never passes through `grantsFor` — no
+grant, no access. That reasoning is correct for a TABLE, which Postgres grants to
+nobody by default, and simply does not transfer to a FUNCTION. Omission protects
+one and not the other. Only the table half of that pair was ever true, and it
+looked like one rule.
+
+**The unit test asserted "no GRANT is emitted", and passed the entire time the
+function was open to the world.** True and worthless — the sharpest version of the
+failure this file keeps recording. It asserts the REVOKE now, both directions and
+the ordering, because granting first and revoking after would take the privilege
+straight back off and 404 every public function.
+
+**The e2e paid for itself in one run.** The assertion cost nothing extra — the
+Neon project was already provisioned for other checks — and it is the only place
+that could have found this, because the bug lives in a default the code never
+mentions. 74 checks, green.
+
+**One thing the run also exposed about the runs themselves:** two fired for one
+commit, one second apart. Landing work here is a push to the feature branch and
+then a fast-forward of main, and with no branch filter both matched — so every
+change to this layer provisioned TWO real Neon projects. Projects are capped per
+Neon account and per-site projects already eat that cap, so it is the one form of
+CI waste here that can eventually block a customer's build. Filtered to main, the
+way `deploy` and `page-gen-eval` already were. Confirmed by the next push: one run.
