@@ -30,6 +30,8 @@
 //   node .github/scripts/saas-setup.mjs            # report
 //   node .github/scripts/saas-setup.mjs --apply    # make the changes
 
+import { readFileSync } from "node:fs";
+
 const API = "https://api.cloudflare.com/client/v4";
 const TOKEN = process.env.CLOUDFLARE_API_TOKEN;
 const ZONE_NAME = process.env.SAAS_ZONE || "gofarther.dev";
@@ -46,6 +48,19 @@ const ROUTE_PATTERN = "*/*";
 // commented-out line has nothing else checking it.
 const WILDCARD_LINE = '{ "pattern": "*/*", "zone_name": "gofarther.dev" }';
 const FREE_HOSTNAMES = 100;
+
+// THE DOMAIN CONNECT SIGNING KEY'S PUBLIC HALF, published as a TXT record.
+//
+// Providers fetch `<DC_KEY_ID>.<syncPubKeyDomain>` — `_dck1.gofarther.dev` — to
+// verify the signature on every apply URL we hand an owner. Without it the
+// template declares `syncPubKeyDomain` and every signed link is refused, which
+// is why the panel offers no button rather than a broken one.
+//
+// The VALUE is public by construction: it is a public key, and it ends up in
+// DNS where anyone can read it. The private half is a GitHub Actions secret and
+// is never in this repository — asserted by a test.
+const DCK_LABEL = process.env.DC_KEY_ID || "_dck1";
+const DCK_FILE = new URL("../../domain-connect/dck1.pub", import.meta.url);
 
 if (!TOKEN) {
   console.error("CLOUDFLARE_API_TOKEN is not set. Nothing can be checked without it.");
@@ -239,6 +254,54 @@ if (routesRes.ok) {
 }
 
 // ----------------------------------------------------------------- where we are
+
+// ------------------------------------------- 4. the Domain Connect public key
+
+say(`\n4. Domain Connect signing key (${DCK_LABEL}.${ZONE_NAME})`);
+let pub = null;
+try {
+  pub = readFileSync(DCK_FILE, "utf8").trim();
+} catch {
+  bad(`  MISSING  domain-connect/dck1.pub is not readable — nothing to publish`);
+}
+if (pub && !/^p=[A-Za-z0-9+/]+=*$/.test(pub)) {
+  // A malformed value publishes a record providers cannot parse, and the only
+  // symptom is every apply link being refused with no error anywhere we can see.
+  bad(`  MALFORMED  dck1.pub must be "p=<base64 DER>"; got ${pub.slice(0, 12)}…`);
+  pub = null;
+}
+if (pub && dnsOk) {
+  const name = `${DCK_LABEL}.${ZONE_NAME}`;
+  const q = await cf(`/zones/${Z}/dns_records?type=TXT&name=${encodeURIComponent(name)}`);
+  const rows = (q.ok && Array.isArray(q.result) ? q.result : []);
+  // Cloudflare returns TXT content quoted; compare unquoted.
+  const unq = (v) => String(v || "").replace(/^"|"$/g, "");
+  const exact = rows.find((r) => unq(r.content) === pub);
+  if (exact) {
+    say(`  ok    published and matches domain-connect/dck1.pub`);
+  } else if (rows.length) {
+    // ROTATION IS A NEW LABEL, NEVER AN EDIT. Every apply link already sitting
+    // in somebody's browser was signed under the key this record publishes;
+    // replacing it in place voids all of them, silently, and the owner sees a
+    // provider refuse a link we told them to use. So a DIFFERENT value here is
+    // refused rather than overwritten.
+    bad(`  REFUSING to overwrite ${name}: it already holds a different key.`);
+    bad(`  Rotating means publishing a NEW label (_dck2…) and changing DC_KEY_ID —`);
+    bad(`  never editing this record, or every link already signed stops verifying.`);
+  } else {
+    say(`  todo  publish ${name} TXT`);
+    if (APPLY) {
+      const c = await cf(`/zones/${Z}/dns_records`, {
+        method: "POST",
+        body: JSON.stringify({ type: "TXT", name, content: pub, ttl: 1, comment: "Domain Connect signing key (public half)" }),
+      });
+      if (c.ok) say("        published");
+      else bad(`        could not publish it: ${c.code || c.status} ${c.error}`);
+    }
+  }
+} else if (pub) {
+  say(`  skip  cannot read DNS with this token`);
+}
 
 say("\nHostnames");
 if (sslOk) {

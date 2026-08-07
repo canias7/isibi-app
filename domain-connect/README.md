@@ -90,8 +90,21 @@ refused:
 
 1. **`DOMAIN_CONNECT_KEY`** in GitHub Actions secrets — the RSA private key,
    PKCS#8, base64, uploaded to the Worker on deploy. Nothing signs without it.
+   **This is the only half a session cannot set**: the Actions secrets API is
+   blocked (`Access to this GitHub Actions path is not permitted through this
+   proxy`), so it is pasted by hand, once.
 2. **A TXT record at `_dck1.gofarther.dev`** holding the PUBLIC half, in the
-   form `p=<base64 DER>`. That label is `DC_KEY_ID` in `worker.js`.
+   form `p=<base64 DER>`. That label is `DC_KEY_ID` in `worker.js`. **This half
+   is committed** as `domain-connect/dck1.pub` and published by
+   `saas-setup.mjs` step 4 — a public key in DNS is public by construction, and
+   having it in the repo is what lets a test assert the label the script
+   publishes under is the label the Worker signs with. They are two halves in
+   two places, and a disagreement means every apply link verifies against a
+   record that does not exist, with the refusal happening at the provider's end
+   where we cannot see it.
+
+   **The script REFUSES to overwrite a different value at that label**, which is
+   the rotation rule made mechanical rather than remembered.
 
 Generate the pair with:
 

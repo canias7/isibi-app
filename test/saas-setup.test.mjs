@@ -72,7 +72,9 @@ test("the route cannot be created out of band, so nothing may suggest it", () =>
   // custom domains would break on a push that changed nothing about them.
   assert.match(script, /wrangler\.jsonc/,
     "the script must point at wrangler.jsonc for the route rather than creating one");
-  const routeSection = script.slice(script.indexOf("3. Worker route"));
+  // Bounded at step 4, or it reads the SIGNING KEY's POST as a route write —
+  // the slice-to-end-of-file trap.
+  const routeSection = script.slice(script.indexOf("3. Worker route"), script.indexOf("4. Domain Connect signing key"));
   assert.ok(!/method:\s*"POST"/.test(routeSection) && !/method:\s*"PUT"/.test(routeSection),
     "the script must only VERIFY the route, never write it");
 });
@@ -193,9 +195,14 @@ function run(scenario, args = []) {
   }
 }
 
+// FULLY configured, which now includes the Domain Connect key being published —
+// leaving it out made "a configured zone is left alone" fail for the right
+// reason: the zone was not actually configured.
+const PUBKEY = read("domain-connect/dck1.pub").trim();
 const READY_ZONE = {
   dns: true, ssl: true, routes: true, fallback: "saas.gofarther.dev",
   record: { id: "r1", type: "AAAA", content: "100::", proxied: true },
+  txt: { id: "t1", type: "TXT", content: `"${PUBKEY}"` },
   routeList: [{ pattern: "*/*", script: "isibi-app" }],
 };
 
@@ -234,14 +241,15 @@ test("A DRY RUN WRITES NOTHING, even with everything outstanding", () => {
   assert.match(out, /MODE: dry run/);
 });
 
-test("--apply writes exactly the two changes, and nothing else", () => {
+test("--apply writes exactly the three changes, and nothing else", () => {
   const out = run({ dns: true, ssl: true, routes: true }, ["--apply"]);
   const writes = (out.match(/\[stub-writes\] (.*)/) || [])[1] || "";
-  assert.match(writes, /POST \/zones\/zone123\/dns_records/, "the originless record");
+  const posts = writes.split(" | ").filter((w) => w.startsWith("POST /zones/zone123/dns_records"));
+  assert.equal(posts.length, 2, "the originless record and the signing key: " + writes);
   assert.match(writes, /PUT \/zones\/zone123\/custom_hostnames\/fallback_origin/, "the fallback origin");
   // No route write, ever — wrangler owns routes and would delete this one.
   assert.ok(!/workers\/routes/.test(writes), "the script must never write a route");
-  assert.equal(writes.split(" | ").length, 2, "unexpected extra write: " + writes);
+  assert.equal(writes.split(" | ").length, 3, "unexpected extra write: " + writes);
 });
 
 test("an already-configured zone is reported ready and left alone", () => {
@@ -252,7 +260,7 @@ test("an already-configured zone is reported ready and left alone", () => {
 });
 
 test("it refuses a record it did not create, and writes nothing when it does", () => {
-  const out = run({ dns: true, ssl: true, routes: true, record: { id: "r9", type: "A", content: "203.0.113.9", proxied: false } }, ["--apply"]);
+  const out = run({ ...READY_ZONE, fallback: null, record: { id: "r9", type: "A", content: "203.0.113.9", proxied: false } }, ["--apply"]);
   assert.match(out, /REFUSING to touch/);
   assert.match(out, /\[stub-writes\] none/, "it wrote despite refusing");
   // And it must not then set a fallback origin at a name it could not prepare.
@@ -277,4 +285,73 @@ test("the hostname count comes from the total, not the page", () => {
   // is already spent — the one wrong answer here that costs money.
   assert.match(run({ ...READY_ZONE, hostnames: 142 }), /142 registered — 0 left/);
   assert.match(run({ ...READY_ZONE, hostnames: 7 }), /7 registered — 93 left/);
+});
+
+// ------------------------------------------ the Domain Connect signing key
+
+test("the published public key is the one the private half signs with", () => {
+  // Two halves in two places that must agree: the private key in GitHub Actions
+  // and this record in DNS. If they ever drift, every apply link verifies
+  // against the wrong key and providers refuse it — with no error anywhere we
+  // can see, because the refusal happens at their end.
+  const pub = read("domain-connect/dck1.pub").trim();
+  assert.match(pub, /^p=[A-Za-z0-9+/]+=*$/, "must be exactly `p=<base64 DER>`");
+  // Real DER, not a placeholder someone pasted.
+  const der = Buffer.from(pub.slice(2), "base64");
+  assert.ok(der.length > 250, `public key looks truncated (${der.length} bytes)`);
+  assert.equal(der[0], 0x30, "DER must start with a SEQUENCE tag");
+});
+
+test("NO PRIVATE KEY is anywhere in the repository", () => {
+  // The public half is DNS; the private half is a GitHub Actions secret. A
+  // private key committed here would let anyone forge an apply link under our
+  // provider name — the exact attack the signature exists to prevent.
+  const files = ["domain-connect/dck1.pub", ".github/scripts/saas-setup.mjs",
+                 "domain-connect/README.md", "domain-connect/PR.md", "worker.js"];
+  for (const f of files) {
+    assert.ok(!/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(read(f)), `private key material in ${f}`);
+  }
+});
+
+test("the label the script publishes is the label the Worker signs with", () => {
+  // `DC_KEY_ID` in worker.js goes INTO every signed URL as `key=`, and providers
+  // look the public key up at `<that label>.<syncPubKeyDomain>`. Publish under a
+  // different label and every signature is checked against a record that does
+  // not exist.
+  const inWorker = worker.match(/const DC_KEY_ID = "([^"]+)"/);
+  assert.ok(inWorker, "worker.js no longer declares DC_KEY_ID");
+  assert.match(script, new RegExp(`DC_KEY_ID \\|\\| "${inWorker[1]}"`),
+    `the script's default label disagrees with worker.js (${inWorker[1]})`);
+  // And the zone it is published under must be the one the template names.
+  const tmpl = JSON.parse(read("domain-connect/gofarther.dev.site.json"));
+  assert.equal(tmpl.syncPubKeyDomain, "gofarther.dev");
+  assert.match(script, /ZONE_NAME = process\.env\.SAAS_ZONE \|\| "gofarther\.dev"/);
+});
+
+test("a DIFFERENT key already at that label is REFUSED, never overwritten", () => {
+  // Rotation is a new label, never an edit: every apply link already sitting in
+  // somebody's browser was signed under the key this record publishes, and
+  // replacing it voids all of them silently.
+  const pub = read("domain-connect/dck1.pub").trim();
+  const out = run({ ...READY_ZONE, txt: { id: "t1", type: "TXT", content: '"p=SOMEONEELSESKEY"' } }, ["--apply"]);
+  assert.match(out, /REFUSING to overwrite/);
+  assert.match(out, /publishing a NEW label/);
+  assert.match(out, /\[stub-writes\] none/, "it wrote despite refusing");
+  // And the exact-match case must be a no-op rather than a rewrite.
+  const same = run({ ...READY_ZONE, txt: { id: "t1", type: "TXT", content: `"${pub}"` } }, ["--apply"]);
+  assert.match(same, /ok {4}published and matches/);
+  assert.match(same, /\[stub-writes\] none/, "a matching record must not be rewritten");
+});
+
+test("--apply publishes it when the label is empty, and a dry run does not", () => {
+  // READY_ZONE has the key published, so the empty case has to remove it —
+  // otherwise this asserts "publishes" against a zone where there is nothing
+  // to publish and passes for the wrong reason.
+  const { txt, ...noKey } = READY_ZONE;
+  const dry = run(noKey);
+  assert.match(dry, /todo {2}publish _dck1\.gofarther\.dev TXT/);
+  assert.match(dry, /\[stub-writes\] none/);
+  const applied = run(noKey, ["--apply"]);
+  assert.match(applied, /published/);
+  assert.match(applied, /\[stub-writes\] POST \/zones\/zone123\/dns_records/);
 });

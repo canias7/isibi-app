@@ -28,6 +28,9 @@ globalThis.fetch = async (url, init = {}) => {
   }
   if (u.includes("/dns_records")) {
     if (!S.dns) return deny(10000);
+    // TXT is the Domain Connect signing key's record and is looked up by type,
+    // so it must not be answered with the fallback-origin AAAA.
+    if (method === "GET" && u.includes("type=TXT")) return ok(S.txt ? [S.txt] : []);
     if (method === "GET") return ok(S.record ? [S.record] : []);
     return ok({ id: "rec1" });
   }
