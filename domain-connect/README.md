@@ -3,12 +3,48 @@
 `gofarther.dev.site.json` is the template a DNS provider applies when an owner
 presses **Set it up at &lt;provider&gt;** in Cloud → Domains.
 
-## Why it is one record
+## Validate it before touching anything else
 
-The template is deliberately the smallest thing that works: a single CNAME.
+`template.schema` is the upstream JSON Schema, vendored verbatim, and
+`test/domain-connect-template.test.mjs` runs the template through it on every
+`npm test`. **Do not edit the template without running that.** It is the only
+thing here that catches a mistake before a third-party reviewer does, and it
+already caught one that reasoning had missed — see the next section.
+
+## Why it is two records, and why the apex one is not a CNAME
+
+The template is the smallest thing that works, which is two records:
+
+| group  | record      | host  | points to   |
+| ------ | ----------- | ----- | ----------- |
+| `apex` | `APEXCNAME` | —     | `%target%`  |
+| `www`  | `CNAME`     | `www` | `%target%`  |
+
+One apply touches ONE group; the Worker picks it from the hostname the owner
+claimed. Both cannot be applied together, because a custom hostname has to be
+registered with Cloudflare for SaaS before it will serve — pointing the other
+name at us as a bonus would give the owner a certificate error on a domain they
+never asked us to host.
+
+**The first draft was a single CNAME at `@`, and it was invalid.** The reasoning
+was that `hostRequired: false` plus `host: "@"` lets one record serve the apex
+and `www` alike, with the apply URL's `host` parameter deciding. That reads
+well and the schema refuses it: a template whose CNAME or NS sits at `@` (or
+`""`) **must** declare `hostRequired: true` — which would have made a host
+mandatory and put the bare domain permanently out of reach. The apex is the
+case a small business asks for by name.
+
+The standard's own answer is the `APEXCNAME` type: a record with no `host` at
+all, which a provider implements with whatever its platform offers — ALIAS,
+ANAME or CNAME flattening. That is precisely the thing an owner cannot easily
+do by hand, so it is where one-click is worth the most.
+
+**A subdomain that is neither the apex nor `www` gets no button.** Serving it
+would need a CNAME at `@` again, which is the invalid shape. The panel says so
+and shows the copyable record instead.
 
 Everything else Cloudflare for SaaS needs to issue the certificate follows from
-that CNAME being in place — once the hostname resolves to us, Cloudflare can
+that record being in place — once the hostname resolves to us, Cloudflare can
 complete domain-control validation over HTTP without the owner touching DNS
 again. A template that also carried the ownership and ACME TXT records would
 need their values as variables, would be re-reviewed by every provider whenever
@@ -28,19 +64,14 @@ the CNAME is applied, the fix is one of:
 
 Do not assume which. Run one real domain through and look.
 
-## `host` is `@`, and the apply URL supplies the rest
+## The apply URL sends `groupId`, and no `host`
 
-`hostRequired: false` with `host: "@"` means the template applies at whatever
-the apply URL's `host` parameter names — the apex when it is absent, `www` when
-it is `www`. That is why `applyUrl` in `site-domain-connect.mjs` OMITS an empty
-host rather than sending it blank: blank, some providers reject the request and
-others apply at the apex, which are the two worst outcomes to pick between
-silently.
-
-**A CNAME at a zone apex is not legal DNS**, and providers differ on what they do
-with one — GoDaddy and IONOS flatten it, others refuse. An owner whose provider
-refuses is not stuck: the panel still shows the copyable records and the note
-telling them to use `www` and redirect the bare domain to it.
+`applyUrl` in `site-domain-connect.mjs` names the group and omits `host`
+entirely. Both halves matter. A blank `host` is a template variable with no
+value — some providers reject the request and others apply at the apex, which
+are the two worst outcomes to pick between silently. And `groupId` rides
+INSIDE the signed query, so a link we signed cannot have its group swapped on
+the way to the owner.
 
 ## `syncRedirectDomain` is a security control, not a convenience
 
@@ -108,12 +139,25 @@ things:
   signature answers it properly: a forged link does not verify and never
   reaches a consent screen.
 
-Two things the submission requires beyond the file:
+Two things the submission requires beyond the file, and both are **done** —
+`PR.md` in this directory is their template, filled in, ready to paste:
 
-1. **Test it in the online editor first** —
+1. **Test it in the online editor** —
    <https://domainconnect.paulonet.eu/dc/free/templateedit> — and put the
-   markdown link from the result into the PR. This is stated as mandatory.
-2. **Use their PR template**, which GitHub loads automatically.
+   markdown link from the result into the PR. Mandatory, one apex run and one
+   subdomain run. Both were run and both links are in `PR.md`; each was replayed
+   afterwards to check it still renders the right records, because a link that
+   has expired by the time a reviewer opens it is the same as no link.
+   - `apex` → `sharpfadebarbers.com` `APEXCNAME` `saas.gofarther.dev` ttl 1800
+   - `www` → `www.sharpfadebarbers.com` `CNAME` `saas.gofarther.dev` ttl 1800
+2. **Use their PR template**, which GitHub loads automatically — `PR.md` follows
+   it heading for heading, with the checklist points that need explaining rather
+   than ticking written out underneath.
+
+The editor is driven over plain HTTP (fetch the page for a `_csrf_token`, POST
+the form back with `_template`, `_test_template=true`, `domain`, `group` and the
+variables). Worth knowing, because a headless browser cannot reach it from a
+container with no outbound browser egress and the form can.
 
 `providerId` is `gofarther.dev`, a domain we control. The repo's own example
 uses a non-domain id, so this is not strictly enforced — but a reviewer has

@@ -163,7 +163,7 @@ export function httpsUrl(raw) {
  * otherwise append a parameter of the caller's choosing to a URL the owner is
  * about to trust.
  */
-export function applyUrl(set, { serviceId, provider, domain, host, params, redirectUri, state }) {
+export function applyUrl(set, { serviceId, provider, domain, host, groupId, params, redirectUri, state }) {
   if (!set || !set.urlSyncUX) return null;
   const d = String(domain || "").toLowerCase().replace(/\.$/, "");
   const svc = String(serviceId || "").trim();
@@ -173,6 +173,13 @@ export function applyUrl(set, { serviceId, provider, domain, host, params, redir
     "/v2/domainTemplates/providers/" + encodeURIComponent(prov) +
     "/services/" + encodeURIComponent(svc) + "/apply");
   u.searchParams.set("domain", d);
+  // WHICH RECORDS OF THE TEMPLATE TO APPLY, and this is how the apex is
+  // reached at all. The template carries an APEXCNAME in group `apex` and a
+  // `www` CNAME in group `www`; the caller names one, and the provider applies
+  // that group alone. See the README — the standard REFUSES a template whose
+  // CNAME sits at `@` unless a host is mandatory, which would have excluded
+  // the bare domain, which is the case a small business asks for by name.
+  if (groupId) u.searchParams.set("groupId", String(groupId));
   // The SUBDOMAIN the records go on, and only when there is one. Sent empty it
   // is a template variable with no value, which some providers reject and
   // others apply at the apex — the two worst possible outcomes to pick between.

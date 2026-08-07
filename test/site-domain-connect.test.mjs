@@ -130,6 +130,40 @@ test("NO CREDENTIAL OF OURS TRAVELS IN IT", () => {
   assert.ok(!/key|secret|token|password|bearer/i.test(u.url), u.url);
 });
 
+test("the group selects which half of the template gets applied", () => {
+  // The template carries an APEXCNAME and a `www` CNAME in two groups, and one
+  // apply must touch exactly one of them — without this the bare domain and
+  // www both move whenever either is claimed, and the one that was not
+  // registered as a custom hostname serves a certificate error.
+  const apex = applyUrl(base, {
+    provider: "gofarther.dev", serviceId: "site", domain: "shop.com", groupId: "apex",
+    params: { target: "saas.gofarther.dev" },
+  });
+  const p = new URL(apex.url);
+  assert.equal(p.searchParams.get("groupId"), "apex");
+  // The apex apply carries NO host — an APEXCNAME is apex by definition, and a
+  // host alongside it would move the record somewhere the template never
+  // described.
+  assert.equal(p.searchParams.has("host"), false);
+
+  const www = applyUrl(base, { provider: "p", serviceId: "s", domain: "shop.com", groupId: "www" });
+  assert.equal(new URL(www.url).searchParams.get("groupId"), "www");
+  // Absent, not blank: a provider given an empty group has been asked for
+  // every record in the template.
+  const none = applyUrl(base, { provider: "p", serviceId: "s", domain: "shop.com" });
+  assert.equal(new URL(none.url).searchParams.has("groupId"), false);
+});
+
+test("the signature covers the group, so a forged link cannot swap it", () => {
+  // `groupId` decides which records are written. Outside the signed bytes it
+  // would be the one parameter an attacker could change on a link we signed.
+  const built = applyUrl(base, {
+    provider: "p", serviceId: "s", domain: "shop.com", groupId: "apex",
+    params: { target: "saas.gofarther.dev" },
+  });
+  assert.ok(built.query.includes("groupId=apex"), built.query);
+});
+
 test("an empty host is OMITTED, never sent blank", () => {
   // Sent empty it is a template variable with no value — which some providers
   // reject and others apply at the apex. Those are the two worst outcomes to be
@@ -232,8 +266,31 @@ test("discovery asks at the ZONE, not the hostname", () => {
   // domain. Asked at `www.shop.com` it finds nothing, for everybody.
   has(worker, /const zone = parts\.slice\(-2\)\.join\("\."\);/, "the zone is derived");
   has(worker, /dcOfferFor\(dnsDeps, zone\)/, "and is what gets asked");
-  has(worker, /host: sub/, "with the subdomain passed as the template's host");
+  // The subdomain picks the template GROUP rather than riding along as a
+  // `host`. It used to be `host: sub`, which the standard's schema does not
+  // permit for our records — see `test/domain-connect-template.test.mjs`.
+  has(worker, /const dcGroup = sub === "" \? "apex" : sub === "www" \? "www" : null;/,
+    "the subdomain selects a group");
+  has(worker, /groupId: dcGroup/, "and the group is what reaches the apply URL");
 });
+
+test("a subdomain we have no group for is REFUSED discovery, not offered a link", () => {
+  // Two things at once, and the second is the one that costs money: a lookup
+  // for a hostname no group can serve is a DNS round trip per domain per panel
+  // load with nothing to do with the answer.
+  has(worker, /dcGroup\s*\n?\s*\? await dcOfferFor/, "discovery is gated on there being a group");
+  has(worker, /otherSubdomain: true/, "and the reason is carried, not swallowed");
+  has(chat, /oneClickBlocked/, "and the panel says it");
+});
+
+// THE TEMPLATE'S OWN SHAPE IS ASSERTED IN `test/domain-connect-template.test.mjs`,
+// against the UPSTREAM SCHEMA, and two tests that lived here were deleted when it
+// landed rather than repaired. Both restated the schema by hand — a required-field
+// list and an allowed-field set, copied by a reader — and both said `records` was
+// one CNAME at `@`. That combination is INVALID under the real schema, which
+// refuses an apex CNAME unless a host is mandatory. So the hand-copied pair passed
+// while the file it guarded would have been rejected on review: the failure this
+// codebase keeps recording, where a restated fact is worse than no fact.
 
 test("our template identity is named ONCE", () => {
   // `providerId`/`serviceId` are the path a provider looks our template up by,
@@ -323,16 +380,6 @@ test("the template matches what the code asks providers for", () => {
   assert.ok(JSON.stringify(t.records).includes("%target%"), "and the template consumes it");
 });
 
-test("the template declares only what it needs", () => {
-  const t = JSON.parse(fs.readFileSync(new URL("../domain-connect/gofarther.dev.site.json", import.meta.url), "utf8"));
-  assert.equal(t.records.length, 1, "one CNAME — see the README for why");
-  assert.equal(t.records[0].type, "CNAME");
-  assert.equal(t.records[0].host, "@");
-  assert.ok(t.records[0].ttl > 0, "a record with no TTL is rejected on review");
-  // `hostRequired: false` with `host: "@"` is what lets one template serve both
-  // the apex and `www` — the apply URL's `host` decides.
-  assert.equal(t.hostRequired, false);
-});
 
 test("syncRedirectDomain is set, and is not a wildcard", () => {
   // It is the allow-list of hosts a provider will honour in `redirect_uri`.
@@ -419,26 +466,6 @@ test("THE TEMPLATE SIGNS RATHER THAN WARNS, and the two cannot coexist", () => {
   assert.equal(t.warnPhishing, undefined, "and therefore no phishing warning");
 });
 
-test("the template conforms to the published JSON Schema", () => {
-  // Field lists read off `template.schema` in Domain-Connect/Templates rather
-  // than remembered. Getting this wrong is not a deploy away from fixed: the
-  // file is reviewed by a third party and then ingested by every provider, so a
-  // rejected field costs another review cycle.
-  const t = JSON.parse(fs.readFileSync(new URL("../domain-connect/gofarther.dev.site.json", import.meta.url), "utf8"));
-  const REQUIRED = ["providerId", "providerName", "serviceId", "serviceName", "records"];
-  const ALLOWED = new Set([...REQUIRED, "version", "logoUrl", "description", "variableDescription",
-    "syncBlock", "shared", "sharedProviderName", "sharedServiceName", "syncRedirectDomain",
-    "syncPubKeyDomain", "multiInstance", "warnPhishing", "hostRequired"]);
-  for (const k of REQUIRED) assert.ok(t[k] !== undefined, "missing required " + k);
-  for (const k of Object.keys(t)) assert.ok(ALLOWED.has(k), "unknown top-level field " + k);
-
-  const REC_REQUIRED = ["type", "host", "pointsTo", "ttl"];
-  const REC_ALLOWED = new Set([...REC_REQUIRED, "groupId", "essential"]);
-  for (const r of t.records) {
-    for (const k of REC_REQUIRED) assert.ok(r[k] !== undefined, "record missing " + k);
-    for (const k of Object.keys(r)) assert.ok(REC_ALLOWED.has(k), "unknown record field " + k);
-  }
-});
 
 test("the file is named the way the repository requires", () => {
   // `providerId.serviceId.json` in the repository ROOT. The first draft of the

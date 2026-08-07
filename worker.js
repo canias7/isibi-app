@@ -7659,11 +7659,23 @@ async function handleRequest(request, env, ctx) {
                     const parts = row.hostname.split(".");
                     const zone = parts.slice(-2).join(".");
                     const sub = parts.slice(0, -2).join(".");
-                    const offer = await dcOfferFor(dnsDeps, zone).catch(() => ({ supported: false }));
+                    // WHICH GROUP OF THE TEMPLATE THIS HOSTNAME WANTS.
+                    //
+                    // Two records in two groups — an APEXCNAME for the bare
+                    // domain, a CNAME for `www` — and one-click applies
+                    // exactly one of them. Any OTHER subdomain has no group,
+                    // so it gets the copyable records instead: the template
+                    // would have to carry a CNAME at `@`, which the standard's
+                    // own schema refuses unless a host is mandatory, and
+                    // making it mandatory is what would lose the apex.
+                    const dcGroup = sub === "" ? "apex" : sub === "www" ? "www" : null;
+                    const offer = dcGroup
+                      ? await dcOfferFor(dnsDeps, zone).catch(() => ({ supported: false }))
+                      : { supported: false, otherSubdomain: true };
                     if (offer.supported) {
                       const built = dcApplyUrl(offer.settings, {
                         provider: DC_PROVIDER, serviceId: DC_SERVICE,
-                        domain: zone, host: sub,
+                        domain: zone, groupId: dcGroup,
                         params: { target: saasTarget(env) },
                       });
                       // SIGNED OR NOT OFFERED AT ALL.
@@ -7684,6 +7696,11 @@ async function handleRequest(request, env, ctx) {
                       // Said rather than folded into silence: their provider
                       // does support this, through a sign-in we have not built.
                       item.oneClickBlocked = "asyncOnly";
+                    } else if (offer.otherSubdomain) {
+                      // Also said rather than silent, and for the same reason:
+                      // the records below are the answer, and an owner who
+                      // sees nothing assumes the feature is broken.
+                      item.oneClickBlocked = "subdomain";
                     }
                   }
                 }

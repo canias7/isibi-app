@@ -11248,7 +11248,18 @@ async function siteDomains(site) {
           ? '<div class="sd-auto"><a class="sd-auto-go" href="' + esc(x.oneClick) + '" target="_blank" rel="noreferrer">' +
             'Set it up at ' + esc(x.oneClickProvider || 'your provider') + '</a>' +
             '<span class="sd-auto-note">Signs you in there and asks you to approve the change. We never see your password.</span></div>'
-          : '';
+          // WHY THERE IS NO BUTTON, when there is a reason worth giving.
+          //
+          // The backend has always computed this and nothing rendered it, so
+          // an owner whose provider supports one-click through a sign-in we
+          // have not built saw the same blank as everyone else. The records
+          // below are the answer in both cases; the sentence is what stops it
+          // reading as a broken feature.
+          : (!live && x.oneClickBlocked)
+            ? '<div class="sd-auto-off">' + esc(x.oneClickBlocked === 'asyncOnly'
+              ? 'Your DNS provider supports one-click setup through a sign-in we haven’t built yet. Add the record below instead.'
+              : 'One-click setup covers the bare domain and www. For any other subdomain, add the record below.') + '</div>'
+            : '';
         const provRow = (!live && x.providerNote)
           ? '<div class="sd-prov"><span>' + esc(x.providerNote) + '</span>' +
             (x.providerUrl ? '<a class="sd-visit" href="' + esc(x.providerUrl) + '" target="_blank" rel="noreferrer">Open ' + esc(x.provider || 'DNS') + ' \u2192</a>' : '') +
