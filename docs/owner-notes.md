@@ -14217,3 +14217,61 @@ change to this layer provisioned TWO real Neon projects. Projects are capped per
 Neon account and per-site projects already eat that cap, so it is the one form of
 CI waste here that can eventually block a customer's build. Filtered to main, the
 way `deploy` and `page-gen-eval` already were. Confirmed by the next push: one run.
+
+## 2026-08-07 — a free smoke test found a feature that had never once worked
+
+`site-mail.mjs` and `site-jobs.mjs` had 41 unit tests between them and every one
+drove an injected fake. Nothing touched the WIRING — `confirmSubmitter` on the
+insert path, `persistSiteJobs` on the build — because both live in `worker.js`,
+which cannot be imported. `confirm smoke` drives them over HTTP against a real
+site for **$0**: an explicit schema skips the designer and no brief skips page
+generation, so a real Neon project gets real DDL, policies and grants with no
+model call. It asserts `cost === 0`, so a model call appearing on that path fails
+a check rather than quietly billing — which also made it runnable tonight, with
+the Anthropic account empty.
+
+**It failed on its first run, and the bug was total.** `persistSiteJobs(env, uid,
+…)` — and `uid` is bound NOWHERE in that route. Every other line uses `bu.id`;
+`uid` exists only as a parameter name in other functions. So the call threw
+`ReferenceError` into a best-effort catch and **not one scheduled job had ever
+registered on any site.** Dead at the last link with every layer above it
+correct: declarable, normalised, cross-referenced against internal functions, and
+drained by a cron that had nothing to drain.
+
+**Three things hid it**, and each is why the new guard checks what it checks. The
+block is best-effort by design, so the throw is swallowed and the build reports
+success. `node --check` cannot see it, because an unbound identifier is a runtime
+error and not a syntax one. And there is no linter in this repo, so `no-undef` —
+one rule that catches this entire class — runs nowhere. That last one is worth a
+decision at some point: it is the cheapest possible guard against the whole
+family.
+
+**THE CHAIN TEST PINNED THE BUG IN PLACE.** Step 3 asserted the literal text
+`persistSiteJobs(env, uid, slug, jobs)`. It was written to prove the feature
+reaches the runner, and it matched a call that could not run — a source-text
+match cannot tell a bound identifier from an unbound one. The replacement checks
+the ARGUMENT, then checks the route actually binds it, so a rename fails loudly
+instead of pinning a stale spelling forever.
+
+**The smoke test had two vacuous passes of its own**, found in the same run. Its
+checks that an invalid job was DROPPED both reported ok while `site_functions`
+was completely empty — `!includes()` is trivially true against an empty list, and
+the only reason the run went red at all was the positive check beside them. They
+are anchored on a job having registered now. Same shape as the webhook ordering
+assertions, where `indexOf(a) < indexOf(b)` passed vacuously once `a` was
+deleted: **a negative assertion needs proof its subject exists.**
+
+**One more pattern, because it appeared three times in a single change:** a
+function DEFINITION was mistaken for its CALL SITE — twice in the new test (once
+matching `persistSiteJobs(` and reading the parameter name as the argument, once
+slicing to an index thousands of lines *earlier* than the route and getting an
+empty string), and once fatally in the shipped code. When a helper and its caller
+share a name, anchor on the call.
+
+**18 passed, 0 failed** after the fix. What it now proves live: a form still
+submits with a confirm declared (three times, since the cooldown path is what the
+second and third exercise — a cooldown that throws breaks the second booking and
+not the first, which reaches production looking like an intermittent form
+failure); an internal function is not callable by a visitor while the ordinary
+one beside it is; and exactly the declared job registers, with the two invalid
+ones dropped.
