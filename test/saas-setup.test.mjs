@@ -43,19 +43,18 @@ test("the two custom domains are declared, and the wildcard is not INSTEAD of th
   assert.match(routes, /"pattern":\s*"www\.gofarther\.dev",\s*"custom_domain":\s*true/);
 });
 
-test("the wildcard route is present as an exact, uncommentable line", () => {
-  // MEASURED, NOT CHOSEN: enabled, the deploy failed at
-  // `PUT /accounts/…/workers/scripts/isibi-app/routes` — the script and both
-  // custom domains deployed and the routes call did not, because the zone has
-  // no Cloudflare for SaaS on it yet and a bare `*` hostname matches nothing
-  // that can exist there. So it waits, commented, and this asserts it is still
-  // WRITTEN OUT correctly — a pending step nobody can find is a pending step
-  // that never happens.
-  const commented = routes.split("\n").some((l) => /^\s*\/\/\s*/.test(l) && l.replace(/^\s*\/\/\s*/, "").trim() === WILDCARD);
-  assert.ok(commented, "the wildcard line is missing from wrangler.jsonc or has been reworded");
-  // And that it is genuinely still inactive, or the deploy goes red again.
-  const active = routes.split("\n").filter((l) => !l.trim().startsWith("//"));
-  assert.ok(!active.some((l) => l.includes('"*/*"')), "the wildcard is ACTIVE — the zone must be set up first");
+test("the wildcard route is LIVE — it is what makes a custom domain reach the Worker", () => {
+  // Enabled 2026-08-07, after the zone's fallback origin reported `status
+  // active`. Before that the deploy FAILED at
+  // `PUT /accounts/…/workers/scripts/isibi-app/routes`: a bare `*` hostname
+  // matches nothing on a zone with no Cloudflare for SaaS, so the order is
+  // fallback origin first, route second — measured, not reasoned.
+  //
+  // Asserted on the ACTIVE lines only. The block above it explains the ordering
+  // and quotes the pattern, so a search over the whole file would pass on a
+  // route that had been commented back out.
+  const active = routes.split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
+  assert.ok(active.includes(WILDCARD), "the */* route is gone — every custom domain now answers 522");
 });
 
 test("the config and the setup script agree on what to uncomment", () => {
