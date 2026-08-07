@@ -7986,7 +7986,13 @@ async function handleRequest(request, env, ctx) {
           // different faults in one route indistinguishable, and the only way
           // to tell them apart was a Cloudflare log nobody could reach from
           // where the failure was seen.
-          return Response.json({ error: "Something went wrong reaching your site's data.", kind: String((e && e.name) || "Error").slice(0, 40) }, { status: 500 });
+          // A ReferenceError's message is always "<name> is not defined" — a
+          // programmer bug, never request data — so that ONE class carries its
+          // message. Every other error keeps only its class name, because a
+          // provider message can quote a request that holds the service key.
+          const kind = String((e && e.name) || "Error").slice(0, 40);
+          const why = kind === "ReferenceError" ? String((e && e.message) || "").slice(0, 120) : undefined;
+          return Response.json({ error: "Something went wrong reaching your site's data.", kind, why }, { status: 500 });
         }
       }
     }
