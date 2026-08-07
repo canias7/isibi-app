@@ -9,7 +9,12 @@ import { hostIsBlocked, blockedReason } from "./site-ssrf.mjs";
 import { deliverWebhook, firesFor, signPayload, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
 import { takeToken, verify as turnstileVerify, TOKEN_FIELD as TURNSTILE_FIELD } from "./site-turnstile.mjs";
 import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_PER_MIN } from "./site-inbound.mjs";
-import { normalizeHostname, isOwnHostname, claimRefusal, dnsInstructions, readStatus } from "./site-domains.mjs";
+// `OWN_ZONES` is imported because `cfZoneId` reads it — it was not, and that is
+// a ReferenceError on the FIRST line of that function, outside every try, so
+// every Cloudflare custom-hostname call the platform made threw before it could
+// reach the API. Invisible until the line ran, which is the whole class of bug
+// `test/worker-imports.test.mjs` now covers.
+import { OWN_ZONES, normalizeHostname, isOwnHostname, claimRefusal, dnsInstructions, readStatus } from "./site-domains.mjs";
 import { checkDns, dnsSentence } from "./site-dns.mjs";
 import { detectProvider, providerSentence } from "./site-registrar.mjs";
 import { offerFor as dcOfferFor, applyUrl as dcApplyUrl, signQuery as dcSign, rsaSigner as dcSigner } from "./site-domain-connect.mjs";
