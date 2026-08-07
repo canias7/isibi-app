@@ -82,13 +82,37 @@ async function cf(path, init = {}) {
   };
 }
 
-/** A permission probe that names the scope to add, because a bare 403 does not. */
+// NOT A PERMISSION PROBLEM, and the first version of this script called it one.
+//
+// Cloudflare answers 1404 on the custom-hostnames endpoints when the ZONE has no
+// Cloudflare for SaaS entitlement — nothing to do with the token, and adding
+// every scope in the dashboard would not move it. The live run said exactly that
+// and was told to add "SSL and Certificates: Read", which is advice that cannot
+// work. Its own message is worse than unhelpful: it points at an Enterprise
+// sales form, while custom hostnames are self-serve on Free, Pro and Business
+// with 100 hostnames included.
+const NOT_ENTITLED = 1404;
+let notEntitled = false;
+
+/** A probe that names the scope to add — or says when a scope is not the problem. */
 async function probe(label, permission, path) {
   const r = await cf(path);
   if (r.ok) { say(`  ok    ${label}`); return r; }
+  if (r.code === NOT_ENTITLED) {
+    notEntitled = true;
+    bad(`  NOT ENABLED  Cloudflare for SaaS is off for this zone. THIS IS NOT THE TOKEN.`);
+    bad(`          Turn it on: Cloudflare dashboard → ${ZONE_NAME} → SSL/TLS → Custom Hostnames`);
+    bad(`          → Enable Cloudflare for SaaS. Self-serve on Free/Pro/Business, 100 hostnames`);
+    bad(`          included, $0.10/month each after that. Ignore the "contact sales" text in`);
+    bad(`          Cloudflare's own error — that is boilerplate and it is wrong for this plan.`);
+    return null;
+  }
   bad(`  MISSING ${label}\n          add "${permission}" to the API token\n          (Cloudflare said ${r.code || r.status}: ${r.error})`);
   return null;
 }
+
+/** Why a custom-hostname step is being skipped — the token, or the entitlement. */
+const sslBlocker = () => (notEntitled ? "Cloudflare for SaaS is not enabled on this zone" : "cannot read custom hostnames with this token");
 
 say(`Cloudflare for SaaS — ${ZONE_NAME}`);
 say(APPLY ? "MODE: apply (this will change DNS)\n" : "MODE: dry run (nothing will be changed)\n");
@@ -183,7 +207,7 @@ if (sslOk) {
     }
   }
 } else {
-  say("  skip  cannot read custom hostnames with this token");
+  say(`  skip  ${sslBlocker()}`);
 }
 
 // ---------------------------------------------------------- 3. the worker route
@@ -231,7 +255,7 @@ if (sslOk) {
     say(`  ${n} registered — ${Math.max(0, FREE_HOSTNAMES - n)} left before the first one bills`);
   }
 } else {
-  say("  skip  cannot read custom hostnames with this token");
+  say(`  skip  ${sslBlocker()}`);
 }
 
 say("");

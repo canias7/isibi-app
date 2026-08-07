@@ -12,6 +12,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 
 const read = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8");
 
@@ -165,4 +166,116 @@ test("the workflow passes --apply only when asked", () => {
   // Manual only. On a schedule or a push it would edit production DNS on
   // somebody else's commit.
   assert.ok(!/on:\s*\n\s*(push|schedule|workflow_run)/.test(workflow));
+});
+
+
+// --------------------------------------------------------- running the thing
+//
+// Everything above reads source, which is all that is available for zone
+// configuration. These RUN the script against a stubbed Cloudflare API, because
+// source-reading could not hold it: a mutation making the entitlement branch
+// unreachable survived a test asserting the constant and both messages existed
+// — all three still did. Only executing a branch proves it is reachable.
+
+const SCRIPT = new URL("../.github/scripts/saas-setup.mjs", import.meta.url).pathname;
+const STUB = new URL("./fixtures/cf-stub.mjs", import.meta.url).href;
+
+/** Run it and return everything it printed, whatever it exits with. */
+function run(scenario, args = []) {
+  try {
+    return execFileSync(process.execPath, ["--import", STUB, SCRIPT, ...args], {
+      env: { ...process.env, CLOUDFLARE_API_TOKEN: "stub", CF_STUB: JSON.stringify(scenario) },
+      encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (e) {
+    // A non-zero exit is the NORMAL result when something is outstanding, so the
+    // output is the thing under test and the status is not.
+    return String(e.stdout || "") + String(e.stderr || "");
+  }
+}
+
+const READY_ZONE = {
+  dns: true, ssl: true, routes: true, fallback: "saas.gofarther.dev",
+  record: { id: "r1", type: "AAAA", content: "100::", proxied: true },
+  routeList: [{ pattern: "*/*", script: "isibi-app" }],
+};
+
+test("a missing ENTITLEMENT is not reported as a missing permission", () => {
+  // MEASURED ON THE LIVE ZONE: the custom-hostname endpoints answer 1404 "No
+  // quota has been allocated" when Cloudflare for SaaS is off. That is nothing
+  // to do with the token, and the first version of this script told the reader
+  // to add "SSL and Certificates: Read" — advice that cannot work.
+  const out = run({ dns: true, routes: true, ssl: false, sslCode: 1404 });
+  assert.match(out, /NOT ENABLED/);
+  assert.ok(!/add "Zone → SSL and Certificates/.test(out), "still blaming the token for an entitlement");
+  // Cloudflare's own 1404 text points at an Enterprise sales form while custom
+  // hostnames are self-serve on Free/Pro/Business with 100 included. Following
+  // it is a week spent waiting for a reply that is not needed.
+  assert.match(out, /Self-serve on Free\/Pro\/Business/);
+  // And the downstream steps must give the real reason, or the report says
+  // "cannot read with this token" about a token that is fine.
+  assert.match(out, /skip {2}Cloudflare for SaaS is not enabled on this zone/);
+});
+
+test("a genuinely missing PERMISSION still names the scope", () => {
+  // The other side of the same branch. Without this, "never blame the token"
+  // passes by never mentioning the token at all.
+  const out = run({ dns: false, ssl: true, routes: true });
+  assert.match(out, /MISSING read DNS records/);
+  assert.match(out, /add "Zone → DNS: Read/);
+  assert.ok(!/NOT ENABLED/.test(out), "a 10000 must not be reported as a missing entitlement");
+});
+
+test("A DRY RUN WRITES NOTHING, even with everything outstanding", () => {
+  // The property that makes this safe to point at production DNS, asserted by
+  // recording every non-GET the script actually made rather than by reading for
+  // `if (APPLY)`.
+  const out = run({ dns: true, ssl: true, routes: true });
+  assert.match(out, /\[stub-writes\] none/, out);
+  assert.match(out, /MODE: dry run/);
+});
+
+test("--apply writes exactly the two changes, and nothing else", () => {
+  const out = run({ dns: true, ssl: true, routes: true }, ["--apply"]);
+  const writes = (out.match(/\[stub-writes\] (.*)/) || [])[1] || "";
+  assert.match(writes, /POST \/zones\/zone123\/dns_records/, "the originless record");
+  assert.match(writes, /PUT \/zones\/zone123\/custom_hostnames\/fallback_origin/, "the fallback origin");
+  // No route write, ever — wrangler owns routes and would delete this one.
+  assert.ok(!/workers\/routes/.test(writes), "the script must never write a route");
+  assert.equal(writes.split(" | ").length, 2, "unexpected extra write: " + writes);
+});
+
+test("an already-configured zone is reported ready and left alone", () => {
+  const out = run(READY_ZONE, ["--apply"]);
+  assert.match(out, /\[stub-writes\] none/, "a configured zone must not be rewritten");
+  assert.match(out, /Ready\./);
+  assert.ok(!/NOT READY/.test(out));
+});
+
+test("it refuses a record it did not create, and writes nothing when it does", () => {
+  const out = run({ dns: true, ssl: true, routes: true, record: { id: "r9", type: "A", content: "203.0.113.9", proxied: false } }, ["--apply"]);
+  assert.match(out, /REFUSING to touch/);
+  assert.match(out, /\[stub-writes\] none/, "it wrote despite refusing");
+  // And it must not then set a fallback origin at a name it could not prepare.
+  assert.match(out, /not setting it/);
+});
+
+test("step 3 changes what it says once its precondition is met", () => {
+  // Measured: a `*/*` route is refused on a zone with no Cloudflare for SaaS and
+  // the refusal fails the whole deploy. So the instruction has to wait — and a
+  // pending step that reads the same before and after its precondition is one
+  // nobody acts on at the right moment.
+  const before = run({ dns: true, ssl: true, routes: true });
+  assert.match(before, /later.*add this line/s);
+  assert.match(before, /Do steps 1 and 2 first/);
+  const after = run({ ...READY_ZONE, routeList: [] });
+  assert.match(after, /TODO NOW add this line/);
+  assert.ok(!/Do steps 1 and 2 first/.test(after), "still telling a ready zone to do steps 1 and 2");
+});
+
+test("the hostname count comes from the total, not the page", () => {
+  // A zone with 300 hostnames reporting the page size claims free headroom that
+  // is already spent — the one wrong answer here that costs money.
+  assert.match(run({ ...READY_ZONE, hostnames: 142 }), /142 registered — 0 left/);
+  assert.match(run({ ...READY_ZONE, hostnames: 7 }), /7 registered — 93 left/);
 });
