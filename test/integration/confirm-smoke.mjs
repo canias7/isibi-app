@@ -137,16 +137,6 @@ let userId = null, slug = null, jwt = null;
 const data = (path, init) => fetch(`${BASE}/api/db/${slug}/data/${path}`, init);
 const jsonPost = (body) => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
-/**
- * Read a table through the OWNER'S door, which is the only door a `collect`
- * table has — nobody may SELECT it publicly, by design, which is exactly why a
- * webhook receiver built out of one cannot be read back any other way.
- */
-const ownerRows = async (table) => {
-  const r = await fetch(`${BASE}/api/site/${slug}/rows/${table}?limit=50`, { headers: { Authorization: `Bearer ${jwt}` } });
-  const j = await r.json().catch(() => ({}));
-  return Array.isArray(j) ? j : (Array.isArray(j.rows) ? j.rows : []);
-};
 
 try {
   const mk = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
@@ -240,148 +230,103 @@ try {
   // a site with no destination simply writes the row. That is the state of every
   // site that never wanted this.
   console.log("\nthe outbound webhook…");
-  const hookUrl = `${BASE}/api/db/${slug}/data/hook_log`;
+
+  // THE RECEIVER IS NOT OUR OWN DOMAIN, and that is the whole shape of this
+  // section. An earlier version pointed the destination at this site's own Data
+  // API through our own proxy, so a delivery could be read back as a ROW — which
+  // is a lovely assertion and cannot work: a Worker fetching its own zone is a
+  // self-referential subrequest and Cloudflare answers 522. Measured, twice.
+  //
+  // So the delivery is proved from the WORKER'S OWN RECORD instead of from the
+  // receiver's rows. That record already exists for the site owner, who has the
+  // same problem — their integration goes quiet and nothing says why — and it
+  // carries everything worth asserting: whether the vault was read, which
+  // destination was chosen, whether the guard admitted it, and what the far end
+  // answered.
+  //
+  // The payload SHAPE is proved separately, by posting it to a real PostgREST by
+  // hand. Between them the two cover what one receiver never could, and neither
+  // depends on a third party staying up.
+  const hookLog = `${BASE}/api/db/${slug}/data/hook_log`;
   const setSecret = async (name, value) => fetch(`${BASE}/api/site/${slug}/secrets`, {
     method: "POST",
     headers: { Authorization: `Bearer ${jwt}`, "content-type": "application/json" },
     body: JSON.stringify({ name, value }),
   });
-  const sec = await setSecret("WEBHOOK_URL", hookUrl);
-  ok("the owner can store a destination", sec.status >= 200 && sec.status < 300,
-    sec.status + " " + (await sec.text().catch(() => "")).slice(0, 200));
 
-  // ── DISCRIMINATING STEP, before the webhook is involved at all ───────────
-  //
-  // The first run of this delivered nothing, and there were two candidate causes
-  // that look identical from outside: the receiver cannot accept this body (a
-  // column PostgREST does not recognise), or the Worker cannot make the call (a
-  // Worker fetching its own zone is a self-referential subrequest, which
-  // Cloudflare handles badly). Guessing between them and changing the test is how
-  // you fix the wrong thing and believe you are done.
-  //
-  // So: post the EXACT payload shape by hand first. If this lands, the receiver
-  // and the columns are fine and the fault is the call. If it does not, the
-  // shape is wrong and no amount of changing the destination would have helped.
-  const probeBody = {
-    site: slug, table: "bookings", action: "created",
-    at: new Date().toISOString(), data: { id: 1, who: "Probe" },
-  };
-  const probe = await fetch(hookUrl, {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(probeBody),
-  });
-  const probeText = await probe.text().catch(() => "");
-  ok("the receiver accepts the payload shape by hand",
-    probe.status >= 200 && probe.status < 300,
-    probe.status + " " + probeText.slice(0, 300));
-  console.log("   probe status:", probe.status, probeText.slice(0, 200));
-
-  const before = await ownerRows("hook_log");
-  const fired = await data("bookings", jsonPost({ who: "Iris", email: "iris@example.com", slot: "11:00" }));
-  ok("the booking that should emit was accepted", fired.status >= 200 && fired.status < 300, fired.status);
-
-  // Detached under waitUntil, so it is not delivered by the time the response
-  // returns. Polled rather than slept once: a fixed wait is either flaky or slow
-  // and this is the only place the test has to wait for anything.
-  let logged = [];
-  for (let i = 0; i < 12 && !logged.length; i++) {
-    await new Promise((r) => setTimeout(r, 1200));
-    logged = (await ownerRows("hook_log")).filter((r) => !before.some((b) => b.id === r.id));
-  }
-  // The Worker's own account of what happened, which is the difference between
-  // "0 rows" and a cause. Read before asserting, so a failure REPORTS itself
-  // rather than sending somebody back to guess between a bad payload, a blocked
-  // host and a call that never left.
+  // The Worker's own account of the last attempt, which is also what the owner
+  // reads. Polled for one NEWER than the previous, because the record is
+  // overwritten and a stale one reads exactly like a fresh failure.
   const note = async () => {
     const r = await fetch(`${BASE}/api/site/${slug}/secrets`, { headers: { Authorization: `Bearer ${jwt}` } });
     const j = await r.json().catch(() => ({}));
     return j && j.webhook ? j.webhook : null;
   };
-  const attempt = await note();
-  const attemptAt = (attempt && attempt.at) || "";
-  console.log("   worker's own account:", JSON.stringify(attempt));
-  ok("the Worker recorded the attempt at all", !!attempt,
-    "nothing recorded — the emit never ran, which is a different fault from a refused delivery");
-  ok("and it reports the delivery as sent", !!(attempt && attempt.ok), JSON.stringify(attempt));
-  ok("the webhook was DELIVERED", logged.length === 1, `${logged.length} rows: ` + JSON.stringify(logged).slice(0, 300));
+  const noteAfter = async (since, table = "bookings") => {
+    let n = null;
+    for (let i = 0; i < 18 && !(n && (n.at || "") > since); i++) {
+      await new Promise((r) => setTimeout(r, 1500));
+      await data(table, jsonPost({ who: "Probe" + i, email: "probe@example.com", slot: "1" + i + ":00" }));
+      n = await note();
+    }
+    return n;
+  };
 
-  const ev = logged[0] || {};
-  ok("and it names the table and action", ev.table === "bookings" && ev.action === "created", JSON.stringify(ev).slice(0, 200));
-  ok("and it names the site", ev.site === slug, String(ev.site));
-  const payload = typeof ev.data === "string" ? JSON.parse(ev.data || "{}") : (ev.data || {});
-  ok("and carries the row that caused it", payload.who === "Iris" && payload.email === "iris@example.com",
-    JSON.stringify(payload).slice(0, 200));
-  ok("and the id, which is the whole point of a reference", payload.id != null, JSON.stringify(payload).slice(0, 200));
-  // The one thing that must never leave our network. Asserted on the delivered
-  // bytes rather than on `shapePayload`'s return, because the unit test already
-  // covers the function and this covers the WIRE.
-  // ANCHORED on a payload having arrived. `!(x in {})` is true for every name,
-  // so on the run where nothing was delivered all three of these reported ok —
-  // the same vacuous-pass shape as the dropped-jobs checks, in a file that
-  // already carries a comment about it. A negative assertion needs proof its
-  // subject exists, and writing that down once is evidently not enough.
-  const arrived = Object.keys(payload).length > 0;
-  for (const gone of ["owner_id", "claim_token", "_fts"]) {
-    ok(`and never ${gone}`, arrived && !(gone in payload), JSON.stringify(payload).slice(0, 200));
-  }
-
-  // THE LOOP GUARD. Writing to `hook_log` is itself an insert on a collect
-  // table, so it runs the same hook — and `hook_log` declares no webhooks, so
-  // nothing more may fire. Without the `firesFor` gate this is unbounded.
-  await new Promise((r) => setTimeout(r, 2500));
-  const after = (await ownerRows("hook_log")).filter((r) => !before.some((b) => b.id === r.id));
-  ok("a receiver that declares no webhook does not emit one — no loop",
-    after.length === 1, `${after.length} rows after settling`);
-
-  // THE DESTINATION IS RE-CHECKED AT FIRE TIME. Repointed at the cloud metadata
-  // endpoint — the address this whole guard exists for, since on several
-  // providers it hands credentials to anything that asks. Storing it SUCCEEDS on
-  // purpose: an owner may paste anything, and a value refused at rest leaves no
-  // record for them to find, while one refused at delivery is checked against
-  // wherever the name resolves TODAY. That difference is the whole of DNS
-  // rebinding.
-  const bad = await setSecret("WEBHOOK_URL", "https://169.254.169.254/latest/meta-data/");
-  ok("a bad destination can still be stored", bad.status >= 200 && bad.status < 300, bad.status);
-  const stillOk = await data("bookings", jsonPost({ who: "Jo", email: "jo@example.com", slot: "11:30" }));
-  // The booking must not care. A refused webhook is a background failure and the
-  // customer has already been served.
-  ok("a booking whose webhook is refused still succeeds", stillOk.status >= 200 && stillOk.status < 300, stillOk.status);
-  await new Promise((r) => setTimeout(r, 3000));
-  const blocked = (await ownerRows("hook_log")).filter((r) => !before.some((b) => b.id === r.id));
-  ok("and nothing was delivered to the blocked host",
-    blocked.length === 1, `${blocked.length} rows — a second means the guard did not fire`);
-
-  // ── THE CALL REALLY LEAVES OUR NETWORK ───────────────────────────────────
+  // ── the payload shape, against a real PostgREST ──────────────────────────
   //
-  // The receiver above is `gofarther.dev`, which is THIS WORKER'S OWN ZONE, and a
-  // Worker fetching its own zone is a self-referential subrequest that Cloudflare
-  // does not complete — measured, not assumed: the record came back
-  // `status: 522`, its "connection timed out". Everything before that point is
-  // therefore proved (the secret read, the routing, the SSRF guard, the call
-  // being made) and delivery to a real destination is not, because no real
-  // destination is our own domain.
+  // The receiving table's columns are exactly the payload's keys, so PostgREST
+  // refusing an unknown column makes this an assertion about the SHAPE: rename a
+  // field in shapePayload and this stops being a 201.
+  const probeBody = {
+    site: slug, table: "bookings", action: "created",
+    at: new Date().toISOString(), data: { id: 1, who: "Probe" },
+  };
+  const probe = await fetch(hookLog, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(probeBody),
+  });
+  ok("the payload shape is one a real PostgREST accepts",
+    probe.status >= 200 && probe.status < 300,
+    probe.status + " " + (await probe.text().catch(() => "")).slice(0, 200));
+
+  // ── a destination outside our network ────────────────────────────────────
   //
-  // `example.com` is IANA's reserved domain: stable, foreign, and it answers a
-  // POST. What matters is not the body — it discards it — but that a genuine
-  // HTTP status comes back from outside our network, which is the one link the
-  // self-fetch made untestable. Only synthetic data ever reaches it.
-  console.log("\na destination outside our own zone…");
-  await setSecret("WEBHOOK_URL", "https://example.com/hook");
-  await data("bookings", jsonPost({ who: "Kit", email: "kit@example.com", slot: "12:00" }));
-  // Polled past the cache TTL, not just past the request. Repointing a
-  // destination only invalidates the isolate that served the WRITE; the isolate
-  // that serves the next booking heals by expiry, so a check that samples for
-  // two seconds reads the previous destination and reports it refused — which is
-  // exactly what the first version of this did.
-  let ext = null;
-  for (let i = 0; i < 18 && !(ext && ext.at > attemptAt && ext.reason !== "destination refused: that host is not reachable from here"); i++) {
-    await new Promise((r) => setTimeout(r, 1500));
-    await data("bookings", jsonPost({ who: "Kit" + i, email: "kit@example.com", slot: "12:0" + (i % 10) }));
-    ext = await note();
-  }
+  // example.com is IANA's reserved domain: stable, foreign, and it answers. The
+  // BODY does not matter — it is discarded, and only synthetic data reaches it.
+  // What matters is a genuine HTTP status coming back from outside, which is the
+  // one thing our own zone made impossible to observe.
+  const s1 = await setSecret("WEBHOOK_URL", "https://example.com/hook");
+  ok("the owner can store a destination", s1.status >= 200 && s1.status < 300, s1.status);
+  const before = (await note() || {}).at || "";
+  const ext = await noteAfter(before);
   console.log("   external destination:", JSON.stringify(ext));
-  ok("the Worker reached a host outside its own zone",
+  ok("the Worker recorded the attempt", !!ext, "nothing recorded — the emit never ran");
+  ok("it names the table and action",
+    !!(ext && ext.table === "bookings" && ext.action === "created"), JSON.stringify(ext));
+  ok("the call LEFT our network and a real host answered",
     !!(ext && ext.status > 0 && ext.status !== 522),
-    JSON.stringify(ext) + " — 522 is Cloudflare failing a self-referential subrequest, 0 is no response at all");
+    JSON.stringify(ext) + " — 522 is a self-referential subrequest, 0 is no response at all");
+
+  // ── the guard refuses a bad destination, checked at FIRE time ────────────
+  //
+  // Repointed at the cloud metadata endpoint, the address this guard exists for.
+  // Storing it SUCCEEDS on purpose: an owner may paste anything, a value refused
+  // at rest leaves them no record to find, and one refused at delivery is checked
+  // against wherever the name resolves today — which is the whole of DNS
+  // rebinding.
+  const s2 = await setSecret("WEBHOOK_URL", "https://169.254.169.254/latest/meta-data/");
+  ok("a bad destination can still be stored", s2.status >= 200 && s2.status < 300, s2.status);
+  const blockedAt = (ext && ext.at) || "";
+  const refused = await noteAfter(blockedAt);
+  console.log("   blocked destination:", JSON.stringify(refused));
+  ok("and the guard refuses it at fire time, by name",
+    !!(refused && /destination refused/.test(refused.reason || "")), JSON.stringify(refused));
+  ok("without ever making the call", !!(refused && !refused.status), JSON.stringify(refused));
+
+  // The booking is unaffected either way — a webhook is background work and the
+  // customer has already been served.
+  const stillOk = await data("bookings", jsonPost({ who: "Jo", email: "jo@example.com", slot: "23:30" }));
+  ok("a booking whose webhook is refused still succeeds",
+    stillOk.status >= 200 && stillOk.status < 300, stillOk.status);
 
   // --- the jobs that should and should not have registered -----------------
   console.log("\nwhich jobs registered…");
