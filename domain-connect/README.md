@@ -110,6 +110,22 @@ that record changes.
 
 ## Submitting it
 
+**The PR itself cannot be opened from a Claude Code session here** — the GitHub
+integration is scoped to `canias7/isibi-app`, so `fork_repository` answers
+"repository not configured for this session" and `add_repo` for
+`Domain-Connect/Templates` answers "requires approval". It has to be a human
+action. To make it a short one, generate a prefilled new-file link:
+
+```sh
+python3 -c 'import urllib.parse;c=open("domain-connect/gofarther.dev.site.json").read();\
+print("https://github.com/Domain-Connect/Templates/new/master?filename=gofarther.dev.site.json&value="+urllib.parse.quote(c))'
+```
+
+Opening that on GitHub creates the file at the repository root, forking
+automatically for anyone without write access; "Propose new file" then opens the
+PR with their template, which `PR.md` is written to be pasted into. Their default
+branch is `master` — checked, not assumed, since `main` 404s.
+
 Providers do not read this file from here. They ingest the community repository
 at <https://github.com/Domain-Connect/Templates>, so it has to be merged there
 before any provider will recognise `providers/gofarther.dev/services/site`.
