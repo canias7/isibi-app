@@ -140,16 +140,26 @@ try {
   ok("NO model credits were spent", d.cost === 0, "cost=" + JSON.stringify(d.cost));
   if (!slug) throw new Error("cannot continue without a site");
 
-  // --- the declaration survived the build ----------------------------------
+  // --- what the build kept -------------------------------------------------
   console.log("\nwhat the build kept…");
   const tbl = (d.schema || []).find((t) => t && t.name === "bookings");
   ok("the collect table is in the applied schema", !!tbl, JSON.stringify(d.schema || []).slice(0, 200));
-  // `normalizeSchema` is an ALLOW-LIST — a property nobody added to `coerceTable`
-  // is dropped silently on every build, which is the exact way `teamScope` was
-  // dead for months while every other layer worked.
-  ok("and its confirm declaration survived the normaliser",
-    !!(tbl && tbl.confirm && tbl.confirm.fn === "confirm_booking"),
-    JSON.stringify(tbl && tbl.confirm));
+  ok("and it kept its access level", !!(tbl && tbl.access === "collect"), JSON.stringify(tbl));
+
+  // NOT ASSERTED HERE: that `confirm` survived the normaliser. The response's
+  // `schema` is `levels` — `{name, access}` per table and nothing else — so the
+  // declaration is genuinely not observable over HTTP, and an assertion against
+  // `tbl.confirm` could never have passed. It is held by a unit test against
+  // `normalizeSchema` instead, which is the layer the risk lives at (the
+  // allow-list in `coerceTable` silently dropping a property, the way `teamScope`
+  // was dead for months). Written down rather than deleted, because "there is no
+  // check here" and "the check was forgotten" look identical later.
+
+  // Functions ARE reported, deliberately — the response reads them off the array
+  // explicitly so a site cannot declare one, have it fail, and report success.
+  const fns = Array.isArray(d.functions) ? d.functions : [];
+  ok("both declared functions were created",
+    fns.length === SCHEMA.functions.length, JSON.stringify(d.functions));
 
   // --- a form still works, which is the whole point ------------------------
   console.log("\nsubmitting the form…");
