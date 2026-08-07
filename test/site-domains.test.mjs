@@ -191,3 +191,132 @@ test("the module is a leaf, like site-access and site-errors", () => {
   const src = fs.readFileSync(new URL("../site-domains.mjs", import.meta.url), "utf8");
   assert.ok(!/^\s*import\s/m.test(src), "no imports");
 });
+
+// ------------------------------------------------------------ worker wiring
+//
+// Searched RAW. Blanking comments in worker.js eats from any `/*` inside a
+// string to the next `*/`, which has bitten this repo twice; every pattern
+// below carries a `(` or a quote so it cannot match prose.
+
+const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+const has = (re, why) => assert.ok(re.test(worker), why);
+
+test("a custom host is resolved BEFORE anything else runs", () => {
+  // It rewrites the path, so every branch below it has to see the rewritten
+  // one. Placed later, the app would answer first on somebody's own domain.
+  const check = worker.indexOf("if (!isOwnHostname(url.hostname)");
+  const handler = worker.indexOf("async function handleRequest(request, env, ctx)");
+  const firstRoute = worker.indexOf('if (/^\\/demo-hero');
+  assert.ok(check > handler && check < firstRoute, "between the handler opening and the first route");
+});
+
+test("the hot path is free when the host is ours", () => {
+  // This is on EVERY request to the whole platform. `isOwnHostname` is a string
+  // comparison against the zone list; anything awaited before it would put a
+  // lookup in front of every page load of the app.
+  const i = worker.indexOf("if (!isOwnHostname(url.hostname)");
+  const window_ = worker.slice(i, i + 700);
+  const await_ = window_.indexOf("await siteForHostname");
+  const guard = window_.indexOf("isOwnHostname(url.hostname)");
+  assert.ok(guard >= 0 && await_ > guard, "the lookup is inside the guard, not before it");
+});
+
+test("/api/* is left alone on a custom domain", () => {
+  // A published bundle calls its own API same-origin, so on a custom domain
+  // that is `theirdomain.com/api/db/<slug>/…`. The route matchers key on the
+  // pathname and never the host, so they already work — rewriting these into
+  // `/s/<slug>/api/…` would break every read and every form.
+  const i = worker.indexOf("if (!isOwnHostname(url.hostname)");
+  has(/isOwnHostname\(url\.hostname\) && !url\.pathname\.startsWith\("\/api\/"\)/, "api paths are excluded from the rewrite");
+  assert.ok(i > 0);
+});
+
+test("an unmapped host is 404, never the app", () => {
+  // Serving the Go Farther workspace on a customer's domain is a far more
+  // confusing outcome than a plain not-found — and it would leak our sign-in
+  // page onto their brand.
+  const i = worker.indexOf("const mapped = await siteForHostname(env, url.hostname);");
+  assert.ok(i > 0, "the lookup happens");
+  const after = worker.slice(i, i + 500);
+  assert.ok(/if \(!mapped\) return new Response\("Not found", \{ status: 404 \}\)/.test(after));
+});
+
+test("only a LIVE domain serves anything", () => {
+  // A half-configured domain has no certificate yet. Serving it would be an
+  // error in the browser rather than a page, and it would look like our fault.
+  has(/site_domains\?hostname=eq\.\$\{encodeURIComponent\(host\)\}&status=eq\.live/, "the lookup filters on live");
+});
+
+test("the hostname lookup never caches a miss", () => {
+  // The rule `siteBackendBySlug` already follows. A miss here is almost always
+  // a domain whose row is seconds old, and remembering it keeps a brand-new
+  // domain dark for the whole TTL at exactly the moment the owner is
+  // refreshing to see whether it worked.
+  const i = worker.indexOf("async function siteForHostname(");
+  assert.ok(i > 0);
+  const fn = worker.slice(i, i + 2000);
+  assert.ok(/if \(slug\) hostRoutes\.set\(host, slug\)/.test(fn), "only a hit is stored");
+  assert.ok(!/hostRoutes\.set\(host, null\)/.test(fn));
+});
+
+test("the row is written BEFORE Cloudflare is called", () => {
+  // Registered first and recorded second, a lost response leaves a hostname
+  // live on our zone that we have no record of and will never clean up — and
+  // Cloudflare for SaaS is billed per hostname.
+  const ins = worker.indexOf('const ins = await rest("", { method: "POST"');
+  const reg = worker.indexOf('const cf = await cfHostname(env, "POST"');
+  assert.ok(ins > 0 && reg > 0, "both anchors exist");
+  assert.ok(ins < reg, "the row first");
+});
+
+test("deleting a domain releases it at Cloudflare first", () => {
+  const i = worker.indexOf('request.method === "DELETE" && dm2[2]');
+  assert.ok(i > 0);
+  const branch = worker.slice(i, i + 1800);
+  const cf = branch.indexOf('cfHostname(env, "DELETE"');
+  const row = branch.indexOf('method: "DELETE", headers: { Prefer: "return=minimal" }');
+  assert.ok(cf > 0 && row > cf, "Cloudflare, then the row");
+  // Already-gone is success, or the row can never be cleared.
+  assert.ok(/del\.ok \|\| del\.status === 404/.test(branch));
+  // And it must be scoped to this site, or one owner removes another's domain.
+  assert.ok(/slug=eq\.\$\{encodeURIComponent\(dslug\)\}/.test(branch), "scoped to the site");
+});
+
+test("deleting a SITE releases its domains too", () => {
+  // Left behind they are hostnames still registered on our zone, billed per
+  // hostname, pointing at nothing — and their rows cascade with the ACCOUNT,
+  // not the site, so nothing else would ever find them.
+  // THE CONDITION IS PART OF THE ASSERTION. Matching the name alone let a
+  // mutant wrapping the whole block in `if (0)` survive — the text was still
+  // there and the behaviour was gone. Same family as the webhook cache guard,
+  // and the reason to anchor on structure rather than on a word.
+  has(/let domainsReleased = 0;\n      try \{/, "the release really runs, not behind a condition");
+  const i = worker.indexOf("let domainsReleased = 0;");
+  assert.ok(i > 0);
+  const block = worker.slice(i, i + 1200);
+  assert.ok(/cfHostname\(env, "DELETE"/.test(block), "released at Cloudflare");
+  assert.ok(/hostRoutes\.delete\(row\.hostname\)/.test(block), "and forgotten locally");
+});
+
+test("the API token is never returned to a caller", () => {
+  // `cfHostname` keeps Cloudflare's own message because it says useful things
+  // like "already registered on another zone" — but an exception message can
+  // quote the request, and the request carries the token.
+  const i = worker.indexOf("async function cfHostname(");
+  const fn = worker.slice(i, i + 2000);
+  assert.ok(/String\(\(e && e\.name\) \|\| "error"\)/.test(fn), "the error NAME, never the message");
+  assert.ok(!/e\.message/.test(fn), "the message is never surfaced");
+});
+
+test("the published bundle learns its own slug from the head", () => {
+  // On a custom domain there is no `/s/<slug>/` in the path, so without this
+  // every read and every form would address a DIFFERENT site's API.
+  const rows = fs.readFileSync(new URL("../builder/lovable/template/src/lib/rows.ts", import.meta.url), "utf8");
+  assert.ok(/meta\[name="site-slug"\]/.test(rows), "the client reads it");
+  const meta = fs.readFileSync(new URL("../site-meta.mjs", import.meta.url), "utf8");
+  assert.ok(/name="site-slug"/.test(meta), "and publish writes it");
+  // …and it must survive a site with no brand and no description, or the whole
+  // block is skipped and the tag never ships.
+  assert.ok(/!title && !desc && !site/.test(meta), "the slug alone is reason enough to emit the block");
+  has(/slug,\n    \}\),/, "and the publisher passes it");
+});

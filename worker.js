@@ -9,6 +9,7 @@ import { hostIsBlocked, blockedReason } from "./site-ssrf.mjs";
 import { deliverWebhook, firesFor, signPayload, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
 import { takeToken, verify as turnstileVerify, TOKEN_FIELD as TURNSTILE_FIELD } from "./site-turnstile.mjs";
 import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_PER_MIN } from "./site-inbound.mjs";
+import { normalizeHostname, isOwnHostname, claimRefusal, dnsInstructions, readStatus } from "./site-domains.mjs";
 import { callApi, apiFor, secretsNeeded, takeParams, MAX_PER_MINUTE as SITE_API_PER_MIN, MAX_TTL as SITE_API_MAX_TTL } from "./site-apis.mjs";
 import { Container, getContainer } from "@cloudflare/containers";
 import { makeCache, memoize } from "./ttl-cache.mjs";
@@ -4074,6 +4075,114 @@ async function siteApiDeps(env, slug, db, api) {
   };
 }
 
+// ── Cloudflare for SaaS: the provider half of custom domains ────────────────
+//
+// The API token is the one wrangler already deploys with, uploaded to the
+// Worker as a secret so this can call it at runtime. It needs
+// `SSL and Certificates: Edit` on the zone; without that Cloudflare answers a
+// permission error, which is REPORTED rather than swallowed — a domain that
+// silently never registers is the worst outcome here, because the owner is
+// staring at DNS they have already set correctly.
+const CF_API = "https://api.cloudflare.com/client/v4";
+// Where Cloudflare for SaaS sends custom-hostname traffic. Overridable, with a
+// default rather than a hard requirement: an unset value would make every DNS
+// instruction we hand out wrong in a way the owner cannot detect.
+const saasTarget = (env) => String(env.SAAS_FALLBACK_ORIGIN || "saas.gofarther.dev");
+
+// The zone id, resolved from its NAME and cached for the isolate.
+//
+// Looked up rather than stored as a secret: it is derivable from the token we
+// already have, and one fewer secret is one fewer thing to be wrong at 3am.
+// Cached because it never changes for the life of the zone.
+const zoneIds = makeCache({ ttlMs: 3600_000, max: 8 });
+async function cfZoneId(env) {
+  const name = OWN_ZONES[0];
+  const hit = zoneIds.get(name);
+  if (hit) return hit;
+  if (!env.CLOUDFLARE_API_TOKEN) return null;
+  try {
+    const r = await fetch(`${CF_API}/zones?name=${encodeURIComponent(name)}`, {
+      headers: { Authorization: "Bearer " + env.CLOUDFLARE_API_TOKEN },
+      signal: AbortSignal.timeout(10000),
+    });
+    const j = await r.json().catch(() => null);
+    const id = j && j.success && Array.isArray(j.result) && j.result[0] && j.result[0].id;
+    if (id) zoneIds.set(name, id);
+    return id || null;
+  } catch { return null; }
+}
+
+/**
+ * One call to the custom-hostnames API.
+ *
+ * Returns `{ok, result, error}` and never throws. The provider's own message is
+ * kept for the OWNER — unlike a Postgres error, a Cloudflare one says things
+ * like "this hostname is already registered on another zone", which is exactly
+ * what somebody needs to know and cannot work out from a generic failure.
+ */
+async function cfHostname(env, method, path, body) {
+  const zone = await cfZoneId(env);
+  if (!zone) return { ok: false, error: "custom domains are not configured on this platform yet" };
+  try {
+    const r = await fetch(`${CF_API}/zones/${zone}/custom_hostnames${path || ""}`, {
+      method,
+      headers: { Authorization: "Bearer " + env.CLOUDFLARE_API_TOKEN, "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(15000),
+    });
+    const j = await r.json().catch(() => null);
+    if (j && j.success) return { ok: true, result: j.result };
+    const first = j && Array.isArray(j.errors) && j.errors[0];
+    return { ok: false, status: r.status, error: (first && first.message) || ("Cloudflare answered " + r.status) };
+  } catch (e) {
+    // The NAME, never the message: the request carries the API token.
+    return { ok: false, error: "couldn't reach Cloudflare (" + String((e && e.name) || "error") + ")" };
+  }
+}
+
+// hostname → slug, for a published site on the owner's own domain.
+//
+// FIVE MINUTES, matching `siteBackendBySlug`, and for the same reason: a
+// domain's site is fixed for the life of the mapping, and this sits on the
+// visitor path of every request to every custom domain.
+const hostRoutes = makeCache({ ttlMs: 300_000, max: 2000 });
+
+/**
+ * Which site answers on this hostname?
+ *
+ * NEVER CACHES A MISS — the rule `siteBackendBySlug` already follows. An
+ * unresolved hostname here is almost always one whose DNS has just started
+ * pointing at us while the row is seconds old, and remembering the miss would
+ * keep a brand-new domain dark for five minutes at exactly the moment the owner
+ * is refreshing it to see whether it worked.
+ *
+ * A LOOKUP FAILURE IS NOT AN ABSENCE. Supabase being unreachable answers null
+ * here the same as "no such domain", which is the honest thing a caller can do
+ * about it — but it must not be written into the cache as though it were an
+ * answer, so the miss rule covers both.
+ */
+async function siteForHostname(env, hostname) {
+  const host = normalizeHostname(hostname);
+  if (!host || isOwnHostname(host)) return null;
+  const hit = hostRoutes.get(host);
+  if (hit) return hit;
+  if (!env.SUPABASE_SERVICE_KEY) return null;
+  let slug = null;
+  try {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/site_domains?hostname=eq.${encodeURIComponent(host)}&status=eq.live&select=slug&limit=1`,
+      { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY }, signal: AbortSignal.timeout(5000) });
+    if (!r.ok) return null;
+    const rows = await r.json().catch(() => []);
+    slug = (Array.isArray(rows) && rows[0] && rows[0].slug) || null;
+  } catch { return null; }
+  // `set` refuses null on its own, so this is belt and braces rather than the
+  // guard — but stating it here is what stops somebody "simplifying" the
+  // branch later and reintroducing a cached miss.
+  if (slug) hostRoutes.set(host, slug);
+  return slug;
+}
+
 /**
  * Forget everything this isolate remembers about a site's Secrets.
  *
@@ -4549,6 +4658,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
     },
     publish: (dist) => writeSiteDistToR2(env, slug, dist, {
       brand, description: siteDescription, url: "https://gofarther.dev/s/" + slug + "/", image: ogImage,
+      // WHICH SITE THIS IS, so the bundle can address its own API from a custom
+      // domain — where there is no `/s/<slug>/` in the path to read it from.
+      slug,
     }),
     readCredits: () => readCredits(auth),
     useCredits: (n) => useCredits(auth, n),
@@ -4564,6 +4676,36 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
 // empty list means "ship it, no fix pass" (so clean generations cost nothing extra).
 async function handleRequest(request, env, ctx) {
     const url = new URL(request.url);
+
+    // A PUBLISHED SITE ON THE OWNER'S OWN DOMAIN.
+    //
+    // Cloudflare for SaaS routes a registered custom hostname to this zone, so
+    // the request arrives here with `Host: sharpfadebarbers.com` and a path of
+    // `/`. Everything that serves that site already exists — it is the `/s/…`
+    // branch far below — so this rewrites the path and lets the rest of the
+    // Worker run exactly as it does today.
+    //
+    // FIRST, AND FREE WHEN THE HOST IS OURS. It is on every request to the
+    // whole platform, so the hot path is one string comparison against the
+    // zone list and no I/O whatsoever. `isOwnHostname` covers `gofarther.dev`,
+    // `www.` and every subdomain, which is every hostname the app itself is
+    // ever served on.
+    //
+    // `/api/*` IS DELIBERATELY LEFT ALONE. A published bundle calls its own API
+    // same-origin, so on a custom domain that is
+    // `sharpfadebarbers.com/api/db/<slug>/data/…`; the route matchers key on
+    // the pathname and never the host, so they already work. Rewriting those
+    // into `/s/<slug>/api/…` would break every one of them.
+    if (!isOwnHostname(url.hostname) && !url.pathname.startsWith("/api/")) {
+      const mapped = await siteForHostname(env, url.hostname);
+      // A hostname Cloudflare routed to us with no row is a domain that was
+      // removed, or one still being set up. 404 rather than falling through to
+      // the app: serving the Go Farther workspace on a customer's domain is a
+      // far more confusing outcome than a plain not-found.
+      if (!mapped) return new Response("Not found", { status: 404 });
+      url.pathname = "/s/" + mapped + (url.pathname === "/" ? "/" : url.pathname);
+      request = new Request(url.toString(), request);
+    }
 
     // Old full-app snapshots (public/demo-hero*) are kept in the repo as
     // reference but must NOT be served — they're pre-scrub clones that name the
@@ -7258,7 +7400,7 @@ async function handleRequest(request, env, ctx) {
     // Ordered BEFORE the site-delete branch below on purpose: that one matches
     // any DELETE under /api/site/, so a row delete would otherwise be read as a
     // request to take the entire site down.
-    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads") || url.pathname.includes("/export") || url.pathname.includes("/notify") || url.pathname.includes("/secrets"))) {
+    if (url.pathname.startsWith("/api/site/") && (url.pathname.includes("/rows") || url.pathname.includes("/members") || url.pathname.includes("/analytics") || url.pathname.includes("/uploads") || url.pathname.includes("/export") || url.pathname.includes("/notify") || url.pathname.includes("/secrets") || url.pathname.includes("/domains"))) {
       const om = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rows(?:\/([a-z_][a-z0-9_]{0,40})(?:\/([0-9]{1,18}))?)?$/i);
       // A member id is a UUID now, not the sequential integer this used to match.
       const mm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/members(?:\/([0-9a-f-]{36}))?$/i);
@@ -7266,6 +7408,10 @@ async function handleRequest(request, env, ctx) {
       const uf = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/uploads(?:\/([A-Za-z0-9._-]{1,80}))?$/i);
       const xp = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/export$/i);
       const nt = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/notify$/i);
+      // The owner's own domains. The hostname in the path is matched loosely
+      // here and normalised properly by `normalizeHostname` before it is used
+      // for anything — this pattern only has to stop a path traversal.
+      const dm2 = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/domains(?:\/([a-z0-9.-]{1,253}))?$/i);
       // The owner's own API keys. A DELETE names the secret in the path, and the
       // name is matched with the SAME alphabet normalizeSecretName produces, so
       // anything that could not have been stored cannot even reach the handler.
@@ -7306,7 +7452,119 @@ async function handleRequest(request, env, ctx) {
         // no body otherwise — the same trap the PBKDF2 cap fell into.
         try {
           let r;
-          if (sk) {
+          if (dm2) {
+            // THE OWNER'S OWN DOMAINS.
+            //
+            // Behind `assertOwner` like every other route here, which is what
+            // stops somebody attaching a domain to a site that is not theirs.
+            const dslug = dm2[1].toLowerCase();
+            const g = await assertOwner(ownerDeps, dslug, ou.id);
+            if (!g.ok) return Response.json({ error: g.error || "not found" }, { status: g.status || 404 });
+            const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, "Content-Type": "application/json" };
+            const rest = (q, init) => fetch(`${SUPABASE_URL}/rest/v1/site_domains${q}`, { ...(init || {}), headers: { ...svc, ...((init || {}).headers || {}) }, signal: AbortSignal.timeout(10000) });
+
+            if (request.method === "GET") {
+              const rr = await rest(`?slug=eq.${encodeURIComponent(dslug)}&select=hostname,status,cf_id,last_error,created_at&order=created_at`);
+              const rows = await rr.json().catch(() => []);
+              // LIVE STATUS, not the stored one. The row says what we last knew;
+              // Cloudflare knows whether the certificate came through, and an
+              // owner refreshing this page is asking exactly that. Best-effort
+              // per row, so one unreachable lookup does not empty the list.
+              const out = [];
+              for (const row of (Array.isArray(rows) ? rows : []).slice(0, 20)) {
+                const item = { hostname: row.hostname, status: row.status, error: row.last_error || null, ...dnsInstructions(row.hostname, saasTarget(env)) };
+                if (row.cf_id) {
+                  const cf = await cfHostname(env, "GET", "/" + encodeURIComponent(row.cf_id));
+                  if (cf.ok) {
+                    const st = readStatus(cf.result);
+                    item.stage = st.stage; item.live = st.live; item.pending = st.pending; item.failed = st.failed;
+                    // Write back only on a CHANGE, so a listing does not cost a
+                    // write per row per refresh.
+                    const want = st.live ? "live" : st.failed ? "failed" : "pending";
+                    if (want !== row.status) {
+                      await rest(`?hostname=eq.${encodeURIComponent(row.hostname)}`, {
+                        method: "PATCH", headers: { Prefer: "return=minimal" },
+                        body: JSON.stringify({ status: want, checked_at: new Date().toISOString() }),
+                      }).catch(() => {});
+                      item.status = want;
+                    }
+                  } else { item.stage = "couldn't check just now"; }
+                }
+                out.push(item);
+              }
+              r = Response.json({ ok: true, domains: out, target: saasTarget(env) });
+            } else if (request.method === "POST") {
+              const b = await request.json().catch(() => ({}));
+              const refusal = claimRefusal(b && b.hostname);
+              if (refusal) return Response.json({ ok: false, error: refusal }, { status: 400 });
+              const host = normalizeHostname(b.hostname);
+              // TAKEN IS 409, AND IT IS CHECKED HERE AS WELL AS BY THE PRIMARY
+              // KEY. The key is what makes it true under a race; this is what
+              // makes the answer say something useful rather than surfacing a
+              // Postgres conflict.
+              const ex = await rest(`?hostname=eq.${encodeURIComponent(host)}&select=slug,uid`);
+              const exRows = await ex.json().catch(() => []);
+              if (Array.isArray(exRows) && exRows[0]) {
+                const mine = exRows[0].slug === dslug && exRows[0].uid === ou.id;
+                return Response.json({ ok: false, error: mine ? "That domain is already on this site." : "That domain is already in use." }, { status: 409 });
+              }
+              // THE ROW FIRST, THEN CLOUDFLARE. Registered first and recorded
+              // second, a lost response leaves a hostname live on our zone that
+              // we have no record of and will therefore never clean up — and
+              // Cloudflare for SaaS is billed per hostname.
+              const ins = await rest("", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ hostname: host, slug: dslug, uid: ou.id }) });
+              if (!ins.ok) return Response.json({ ok: false, error: "couldn't record that domain just now" }, { status: 503 });
+              const cf = await cfHostname(env, "POST", "", {
+                hostname: host,
+                // TXT validation, so an owner never has to serve a file from a
+                // site that is not pointing at us yet — which is the state they
+                // are in when they add the domain.
+                ssl: { method: "txt", type: "dv", settings: { min_tls_version: "1.2" } },
+              });
+              if (!cf.ok) {
+                // The row is KEPT and carries the reason. Deleted, the owner
+                // sees their domain vanish with an error and no way to retry
+                // the same name without wondering whether it half-registered.
+                await rest(`?hostname=eq.${encodeURIComponent(host)}`, {
+                  method: "PATCH", headers: { Prefer: "return=minimal" },
+                  body: JSON.stringify({ status: "failed", last_error: String(cf.error).slice(0, 300) }),
+                }).catch(() => {});
+                return Response.json({ ok: false, error: cf.error }, { status: 502 });
+              }
+              await rest(`?hostname=eq.${encodeURIComponent(host)}`, {
+                method: "PATCH", headers: { Prefer: "return=minimal" },
+                body: JSON.stringify({ cf_id: cf.result && cf.result.id, last_error: null }),
+              }).catch(() => {});
+              const st = readStatus(cf.result);
+              r = Response.json({ ok: true, hostname: host, status: "pending", stage: st.stage, pending: st.pending, target: saasTarget(env), ...dnsInstructions(host, saasTarget(env)) });
+            } else if (request.method === "DELETE" && dm2[2]) {
+              const host = normalizeHostname(dm2[2]);
+              if (!host) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+              // SCOPED TO THIS SITE, so a valid owner of one site cannot remove
+              // a domain from another.
+              const rr = await rest(`?hostname=eq.${encodeURIComponent(host)}&slug=eq.${encodeURIComponent(dslug)}&select=cf_id`);
+              const rows = await rr.json().catch(() => []);
+              if (!Array.isArray(rows) || !rows[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+              // CLOUDFLARE FIRST, THEN THE ROW — the same order and the same
+              // reason as `DELETE /api/site/<slug>`: the row is the only record
+              // of the registration, so losing it while the hostname is still
+              // registered leaves a billed resource nobody can find. A 404 from
+              // Cloudflare is already-gone, which is success here.
+              let dropped = true;
+              if (rows[0].cf_id) {
+                const del = await cfHostname(env, "DELETE", "/" + encodeURIComponent(rows[0].cf_id));
+                dropped = del.ok || del.status === 404;
+              }
+              if (!dropped) return Response.json({ ok: false, error: "couldn't release that domain just now — try again" }, { status: 502 });
+              await rest(`?hostname=eq.${encodeURIComponent(host)}&slug=eq.${encodeURIComponent(dslug)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+              // This isolate's routing memory is now wrong; other PoPs heal by
+              // expiry, exactly like every other invalidation here.
+              hostRoutes.delete(host);
+              r = Response.json({ ok: true });
+            } else {
+              return Response.json({ error: "method not allowed" }, { status: 405 });
+            }
+          } else if (sk) {
             // The owner's own API keys. Every value goes through site-secrets.mjs,
             // which is the only place one is ever decrypted; nothing here can
             // return one, and a test asserts this branch never mentions a value.
@@ -7585,7 +7843,30 @@ async function handleRequest(request, env, ctx) {
         await fetch(`${SUPABASE_URL}/rest/v1/site_project?slug=eq.${encodeURIComponent(dslug)}`, { method: "DELETE", headers: svcHeaders(env) });
       } catch (e) { console.error("site project row delete failed:", dslug, e && e.message); }
 
-      return Response.json({ ok: true, slug: dslug, removed, projectDropped });
+      // AND THE OWNER'S CUSTOM DOMAINS. Left behind, each one is a hostname
+      // still registered on our zone — BILLED PER HOSTNAME by Cloudflare for
+      // SaaS — pointing at a site that no longer exists, and its row cascades
+      // with the account rather than with the site, so nothing else would ever
+      // find it. The same leak `neon_teardown` exists to stop, one resource
+      // over.
+      //
+      // Cloudflare first and the row second, the same order as everything else
+      // here: the row is the only record of the registration. Best-effort, and
+      // NOT allowed to fail the delete — the site itself is already gone by
+      // this point, and answering an error would tell the caller their site
+      // survived when it did not.
+      let domainsReleased = 0;
+      try {
+        const dr = await fetch(`${SUPABASE_URL}/rest/v1/site_domains?slug=eq.${encodeURIComponent(dslug)}&select=hostname,cf_id`, { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
+        for (const row of (await dr.json().catch(() => [])).slice(0, 20)) {
+          if (row.cf_id) { const d = await cfHostname(env, "DELETE", "/" + encodeURIComponent(row.cf_id)); if (!d.ok && d.status !== 404) continue; }
+          await fetch(`${SUPABASE_URL}/rest/v1/site_domains?hostname=eq.${encodeURIComponent(row.hostname)}`, { method: "DELETE", headers: svcHeaders(env) });
+          hostRoutes.delete(row.hostname);
+          domainsReleased++;
+        }
+      } catch (e) { console.error("domain release failed:", dslug, e && e.message); }
+
+      return Response.json({ ok: true, slug: dslug, removed, projectDropped, domainsReleased });
     }
 
     // Sonnet 5 director: chats, reads intent (rerun/revise/new), writes prompts.

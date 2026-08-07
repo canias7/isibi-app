@@ -138,6 +138,17 @@ export type RowQuery = {
 export function siteSlug(): string {
   const fromPath = window.location.pathname.match(/^\/s\/([a-z0-9][a-z0-9-]*)/i);
   if (fromPath) return fromPath[1].toLowerCase();
+  // ON A CUSTOM DOMAIN THERE IS NO SUCH PATH. The site is served at `/` on the
+  // owner's own hostname, the match above fails, and without this line every
+  // read and every form would address whatever the build-time default happens
+  // to be — a DIFFERENT site's API, silently, on the domain the owner actually
+  // gives to customers.
+  //
+  // Written into the head at publish time by `injectMeta`, which is the one
+  // place that rewrites the built document. Read here rather than baked into
+  // the bundle so it is right whichever hostname served the page.
+  const tag = document.querySelector('meta[name="site-slug"]')?.getAttribute("content");
+  if (tag && /^[a-z0-9][a-z0-9-]*$/i.test(tag)) return tag.toLowerCase();
   return (import.meta as { env?: Record<string, string> }).env?.VITE_SITE_SLUG ?? "preview";
 }
 

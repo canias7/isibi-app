@@ -44,6 +44,7 @@ jobs:
             COMPOSIO_API_KEY
             NEON_API_KEY
             SITE_SECRETS_KEY
+            CLOUDFLARE_API_TOKEN
         env:
           FAL_KEY: ${{ secrets.FAL_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -75,6 +76,13 @@ jobs:
           # writes v1. What is NOT safe is changing it once secrets exist under
           # it; that strands them, and there is no recovery but re-pasting keys.
           SITE_SECRETS_KEY: ${{ secrets.SITE_SECRETS_KEY }}
+          # CUSTOM DOMAINS. The same token wrangler already deploys with, now
+          # also uploaded TO the Worker so it can call the Cloudflare for SaaS
+          # custom-hostnames API at request time. No new secret to mint or
+          # rotate — but it does need `SSL and Certificates: Edit` on the zone,
+          # and without that every registration answers a permission error,
+          # which the route reports rather than swallows.
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           # Mail needs NO secret here. The Worker sends through Cloudflare Email
           # Service via the `send_email` binding in wrangler.jsonc (2026-07-30,
           # replacing Go Farther) — nothing to mint, upload each deploy, or rotate.

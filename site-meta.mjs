@@ -31,14 +31,28 @@ export function metaTags(meta) {
   // `= {}` only defaults `undefined`, not `null` — and a caller with nothing to
   // say passes null far more naturally than it omits the argument. Destructuring
   // it directly threw.
-  const { brand, description, url, image } = meta || {};
+  const { brand, description, url, image, slug } = meta || {};
   const title = String(brand || "").trim().slice(0, MAX_TITLE);
   // Collapse whitespace: a description written across lines becomes one line in
   // a preview anyway, and a raw newline inside an attribute is a broken tag.
   const desc = String(description || "").replace(/\s+/g, " ").trim().slice(0, MAX_DESC);
-  if (!title && !desc) return "";
+  // THE SLUG IS ITS OWN REASON TO EMIT THIS BLOCK, so the early return below
+  // asks about it too. A site with no brand and no description still has to
+  // know its own name, and without this line the head would be skipped and
+  // every data call on a custom domain would go to the wrong site.
+  const site = /^[a-z0-9][a-z0-9-]{0,80}$/i.test(String(slug || "")) ? String(slug).toLowerCase() : "";
+  if (!title && !desc && !site) return "";
 
   const t = [];
+  // WHICH SITE THIS IS, read by `siteSlug()` in @/lib/rows.
+  //
+  // Not decoration and not for a crawler. A published site normally learns its
+  // own slug from the path — `/s/<slug>/` — and ON A CUSTOM DOMAIN THERE IS NO
+  // SUCH PATH: the page is served at `/`, the match fails, and the client falls
+  // back to the build-time default. Every read and every form on the site would
+  // then address a DIFFERENT site's API. Injected here because this is the one
+  // place that rewrites the built head, which the model never sees.
+  if (site) t.push(`<meta name="site-slug" content="${esc(site)}">`);
   if (desc) t.push(`<meta name="description" content="${esc(desc)}">`);
   if (title) t.push(`<meta property="og:title" content="${esc(title)}">`);
   if (desc) t.push(`<meta property="og:description" content="${esc(desc)}">`);
