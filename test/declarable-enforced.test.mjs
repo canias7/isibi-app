@@ -78,7 +78,13 @@ function enforcementSource() {
       src = src.slice(0, at) + " ".repeat(span[1] - at) + src.slice(span[1]);
     }
   }
-  return src + "\n" + blankComments(read("site-rls.mjs"));
+  // Enforcement is not only DDL. `confirm` is acted on by the Worker's write
+  // path through `site-mail.mjs` — no column, no policy, no trigger — so a
+  // scan limited to the schema and RLS files would call it dead while it works.
+  // Each file listed here is a place a declared feature can genuinely be READ;
+  // adding one is how a new KIND of enforcement joins, and leaving it out is
+  // what made this test fail the first time `confirm` existed.
+  return [src, blankComments(read("site-rls.mjs")), blankComments(read("site-mail.mjs"))].join("\n");
 }
 
 test("the design_schema tool offers a list this test can read", () => {

@@ -2,6 +2,7 @@
 // instantiates the wasm synchronously on import, so the functions are ready to
 // call. Bundled by wrangler at deploy (see package.json).
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
+import { sendConfirmation } from "./site-mail.mjs";
 import { Container, getContainer } from "@cloudflare/containers";
 import { makeCache, memoize } from "./ttl-cache.mjs";
 import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
@@ -2784,6 +2785,23 @@ const SITE_SCHEMA_TOOL = {
                 on: { type: "array", items: { type: "string" }, description: "Columns that scope it — e.g. [\"appointment_date\"] or [\"room\"]." },
               },
             },
+            confirm: {
+              type: "object",
+              description:
+                "EMAIL THE PERSON WHO SUBMITTED, as soon as they submit — a booking confirmation, an order receipt, an enquiry acknowledgement. " +
+                "Declare it on a `collect` table whose form asks for an email address, which is nearly every booking or enquiry form. " +
+                "`to` must be one of THIS table's own columns, the one holding the visitor's address. " +
+                "`subject` and `body` may use {column} to insert any value from the row they just submitted — e.g. \"Booked, {customer_name}\". " +
+                "`body` is HTML; keep it short and plain, and never ask them to reply with card details or a password. " +
+                "The site owner pastes their own email provider key (Resend, SendGrid or Postmark) in Settings — until they do, nothing is sent and the form still works normally. " +
+                "Do NOT declare this to notify the OWNER: they are told about every submission already.",
+              properties: {
+                to: { type: "string", description: "The column on this table holding the visitor's email address — e.g. \"customer_email\"." },
+                subject: { type: "string", description: "Subject line. {column} is replaced from the submitted row." },
+                body: { type: "string", description: "Short HTML body. {column} is replaced from the submitted row." },
+              },
+              required: ["to", "subject", "body"],
+            },
             payment: {
               type: "object",
               description:
@@ -3648,6 +3666,11 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
           try { const j = JSON.parse(body); row = Array.isArray(j) ? j[0] : j; } catch { /* not json */ }
           if (!row) { try { row = JSON.parse(sent || "null"); } catch { row = null; } }
           notifyOwnerOfSubmission(env, ctx, { slug, table, access: def.access, method: "POST", row: row || {} });
+          // And the other direction: confirm to the PERSON WHO SUBMITTED, on the
+          // owner's own provider key. Same hook, one branch over — the Worker is
+          // already on this path, which is why this can fire on the booking
+          // rather than up to two minutes later on a cron.
+          confirmSubmitter(env, ctx, { slug, db, def, row: row || {} });
         }
       } catch (e) { console.error("notify hook:", slug, e && e.message); }
     }
@@ -3813,6 +3836,54 @@ async function sendMail(env, { to, subject, html, text }) {
   });
 }
 
+// Email the submitter their confirmation, using the SITE OWNER'S provider key
+// out of that site's own vault. Fire-and-forget under `waitUntil`, exactly like
+// the owner notification beside it: the booking already succeeded, and a broken
+// mailer must never be indistinguishable from a broken form.
+//
+// `recentlySent` is per-isolate and SAID to be best-effort — the real control on
+// this path is the write rate limit, since reaching this code at all costs an
+// insert into the owner's own table, which they can see.
+const confirmSeen = new Map();
+function confirmSubmitter(env, ctx, { slug, db, def, row }) {
+  const p = (async () => {
+    const out = await sendConfirmation({
+      // From the SITE'S OWN Neon vault, the same door the checkout key comes
+      // through — NOT `loadSiteSecrets`, which reads a central Supabase table
+      // from the D1 era and would have needed an owner id this path does not
+      // have. Only the four names that matter are decrypted; the rest of the
+      // vault is never touched.
+      loadSecrets: async () => {
+        const get = async (_s, name) => {
+          const rows = await sqlQuery(db, "SELECT cipher FROM _secrets WHERE name=?", [name]);
+          return (rows && rows[0] && rows[0].cipher) || null;
+        };
+        const map = {};
+        for (const name of ["RESEND_KEY", "SENDGRID_KEY", "POSTMARK_KEY", "EMAIL_FROM"]) {
+          // A key that will not decrypt is skipped rather than thrown on: one
+          // unreadable row must not stop the others being found.
+          try { const v = await readSecret({ get }, env, { slug, name }); if (v) map[name] = v; } catch { /* skip */ }
+        }
+        return map;
+      },
+      send: ({ provider, key, from, to, subject, html }) => postProviderEmail(provider, key, from, to, subject, html),
+      recentlySent: async (s2, to) => {
+        const k = s2 + "|" + to, now = Date.now();
+        const at = confirmSeen.get(k);
+        if (at && now - at < 600000) return true;          // 10 minutes
+        if (confirmSeen.size > 5000) confirmSeen.clear();  // bounded, not a cache
+        return false;
+      },
+      markSent: async (s2, to) => { confirmSeen.set(s2 + "|" + to, Date.now()); },
+    }, { def, row, slug });
+    // It runs detached, so nothing else would ever see why it did not send. The
+    // uninteresting reasons — no key, nothing declared — stay quiet.
+    if (!out.sent && !["no confirm declared", "no provider key in Secrets", "not a collect table"].includes(out.reason)) {
+      console.error("confirm:", slug, out.reason, out.error || out.status || "");
+    }
+  })();
+  if (ctx && ctx.waitUntil) ctx.waitUntil(p); else p.catch(() => {});
+}
 function notifyOwnerOfSubmission(env, ctx, payload) {
   if (!env.EMAIL || !env.SUPABASE_SERVICE_KEY) return;
   const p = (async () => {
