@@ -1360,6 +1360,14 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-page { width: 100%; max-width: 1080px; margin: 0 auto; }
 /* Start screen: a centered hero (Lovable-style home) — big ask, input below. */
 .st-hero { max-width: 720px; margin: 8.5vh auto 0; text-align: center; }
+/* SITTING LOWER WHEN THE HERO IS THE WHOLE PAGE. At 8.5vh the composer ended
+   around 44% down a 900px screen and left HALF the viewport empty under it,
+   which is what reads as floating too high. Scoped to the no-sites state on
+   purpose: with a grid below, the same offset pushes the first row of cards off
+   the fold, so the state that looks better is not the state that matters.
+   `:not(:has(.st-grid))` says that condition out loud — `:only-child` would do
+   it too and would silently stop applying the day anything else is appended. */
+.st-page:not(:has(.st-grid)) .st-hero { margin-top: min(26vh, 15rem); }
 /* Glowing orb (mirrors the video-generator hero), with two drifting sparks. */
 .st-hero h1 { font-size: clamp(2rem, 3.7vw, 3rem); font-weight: 800; letter-spacing: -.025em; line-height: 1.04; }
 .st-grad { background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent; }
