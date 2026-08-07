@@ -430,6 +430,17 @@ test("A MISS IS NEVER CACHED, and a write invalidates", () => {
   // wrapping it in `if (false)` survive — the text was still there and the
   // behaviour was gone, which is the same "matches prose, not code" family as
   // the redirect guard, one level in.
-  assert.match(code, /addSecret\([\s\S]{0,900}?if \(r && r\.ok\) webhookCfg\.delete\(sslug\)/,
+  // Asserted as a CHAIN, because the invalidation is behind one function now
+  // (there is a second cache on the same secrets, and two `.delete` calls at
+  // each of two write paths is how one of them gets forgotten). Pinning the
+  // literal `webhookCfg.delete(sslug)` here went red on that refactor while the
+  // behaviour was intact — a guard reporting a change rather than a break.
+  assert.match(code, /addSecret\([\s\S]{0,900}?if \(r && r\.ok\) forgetSiteConfig\(sslug\)/,
     "adding a secret must invalidate the cached configuration, and only on success");
+  assert.match(code, /function forgetSiteConfig\(slug\) \{[\s\S]{0,200}?webhookCfg\.delete\(slug\)/,
+    "…and what it invalidates must include this cache");
+  // The other half of the same seam: removing a secret must forget it too, or a
+  // deleted destination keeps receiving until the TTL runs out.
+  assert.match(code, /deleteSecret\([\s\S]{0,600}?if \(d && d\.ok\) forgetSiteConfig\(sslug\)/,
+    "deleting a secret must invalidate as well");
 });

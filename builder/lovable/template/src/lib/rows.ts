@@ -155,6 +155,56 @@ export function siteSlug(): string {
 
 const base = (table: string) => `/api/db/${siteSlug()}/data/${table}`;
 
+/**
+ * The spam-challenge field, attached to a submission when there is one.
+ *
+ * THE GENERATOR NEVER WRITES THIS AND NEVER SEES IT. A page renders
+ * `<SpamGuard />` inside its form and calls `useCreateRow` exactly as it always
+ * has; the token is picked up here. Written the other way round — as an
+ * argument the page has to pass — every form the model has already produced
+ * would submit without one and be refused the day an owner switched protection
+ * on.
+ *
+ * The field name is Turnstile's own. The Worker STRIPS it before the row
+ * reaches Postgres, because it is not a column any site declared.
+ */
+const CHALLENGE_FIELD = "cf-turnstile-response";
+type TurnstileApi = {
+  getResponse: (id?: string) => string | undefined;
+  reset: (id?: string) => void;
+  execute: (id?: string) => void;
+};
+const turnstileApi = () => (window as unknown as { turnstile?: TurnstileApi }).turnstile;
+
+function challenged(values: Record<string, unknown>): Record<string, unknown> {
+  // Absent on every site with no protection configured, which is why this can
+  // sit on the write path of every form without changing any of them.
+  let token: string | undefined;
+  // `getResponse` throws when no widget has been rendered — which is the
+  // ordinary case on a page that has the script but no guard.
+  try { token = turnstileApi()?.getResponse(); } catch { token = undefined; }
+  return token ? { ...values, [CHALLENGE_FIELD]: token } : values;
+}
+
+/**
+ * Spend the token and start earning the next one.
+ *
+ * A TOKEN IS SINGLE-USE, so without this the SECOND submission from one visitor
+ * is refused with `timeout-or-duplicate` — somebody booking two haircuts, or
+ * anybody whose first attempt failed validation and who fixes it and tries
+ * again. That second case is the common one and it looks exactly like the site
+ * being broken.
+ *
+ * Run whether the write succeeded or not: the token is spent at Cloudflare
+ * before Postgres ever sees the row, so a refused insert has consumed it just
+ * the same.
+ */
+function resetChallenge(): void {
+  const t = turnstileApi();
+  if (!t) return;
+  try { t.reset(); t.execute(); } catch { /* no widget rendered */ }
+}
+
 /** PostgREST's equality filter, and the query shape a list read accepts. */
 function pgQuery(params?: RowQuery, opts?: { noDefaultOrder?: boolean }): string {
   const sp = new URLSearchParams();
@@ -351,10 +401,14 @@ export function useCreateRow<T = Row>(table: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (values: Record<string, unknown>): Promise<void> => {
-      await send<unknown>(base(table), {
-        method: "POST",
-        body: JSON.stringify(values),
-      });
+      try {
+        await send<unknown>(base(table), {
+          method: "POST",
+          body: JSON.stringify(challenged(values)),
+        });
+      } finally {
+        resetChallenge();
+      }
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["rows", siteSlug(), table] }); },
   });

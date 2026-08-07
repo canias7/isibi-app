@@ -6,6 +6,7 @@ import { sendConfirmation, recipient, pickProvider } from "./site-mail.mjs";
 import { dueJobs, runJob } from "./site-jobs.mjs";
 import { hostIsBlocked, blockedReason } from "./site-ssrf.mjs";
 import { deliverWebhook, firesFor, signPayload, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
+import { takeToken, verify as turnstileVerify, TOKEN_FIELD as TURNSTILE_FIELD } from "./site-turnstile.mjs";
 import { Container, getContainer } from "@cloudflare/containers";
 import { makeCache, memoize } from "./ttl-cache.mjs";
 import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
@@ -3493,7 +3494,25 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
   }
   // Read once and keep it: the notify below needs the row that was submitted,
   // and a Request body can only be consumed a single time.
-  const sent = request.method === "GET" || request.method === "HEAD" ? undefined : await request.text();
+  let sent = request.method === "GET" || request.method === "HEAD" ? undefined : await request.text();
+
+  // KEEPING BOTS OUT, BEFORE THE ROW EXISTS.
+  //
+  // Verified after the insert is a spam filter that files the spam first, so
+  // this sits ahead of the upstream write and can refuse it outright. It is the
+  // only thing on this path that can — everything else here (notify, confirm,
+  // webhook) runs after the row is safe.
+  if (which === "data" && request.method === "POST") {
+    const gate = await turnstileGate(env, request, { slug, db, path, sent });
+    if (gate.refused) {
+      // `message`, not `error`: that is the field `rows.ts` reads to show a
+      // visitor what went wrong, so a refusal says something rather than
+      // rendering "request failed (403)". The `code` is ours and unknown to
+      // `humanPgError`, which falls through to the message by design.
+      return Response.json({ message: gate.refused, code: "turnstile" }, { status: 403 });
+    }
+    if (gate.sent !== undefined) sent = gate.sent;
+  }
   try {
     const r = await fetch(target, {
       method: request.method,
@@ -3835,6 +3854,120 @@ async function webhookSecrets(slug, env, db) {
 // One site's outbound deliveries per minute, per isolate. Bounded and cleared
 // wholesale rather than kept as a cache: this only has to stop the cheap flood.
 const webhookHits = new Map();
+
+// The site's Turnstile secret, if it has one.
+//
+// THIS ONE CACHES THE MISS, WHICH IS THE OPPOSITE OF THE RULE ABOVE, and the
+// difference is worth stating. `webhookSecrets` is reached only by a site that
+// DECLARED webhooks, so re-reading on a miss costs those few sites one query.
+// This gate has no declaration in front of it — it is an owner toggle, not a
+// schema flag — so every form submission on every site would pay a SQL round
+// trip forever to be told the overwhelmingly common answer: not configured.
+//
+// The staleness that buys is bounded at 15 seconds and invalidated on the write
+// that changes it, and it fails in the harmless direction on both edges: for 15
+// seconds after switching ON, spam is accepted (which is the status quo), and
+// after switching OFF, real submissions are refused — which is why the delete
+// path clears this cache as well as the webhook one.
+const turnstileCfg = makeCache({ ttlMs: 15_000, max: 500 });
+
+/**
+ * Forget everything this isolate remembers about a site's Secrets.
+ *
+ * ONE function rather than two `.delete` calls at each of the two write paths,
+ * because the failure mode is a third cache added later and wired into the save
+ * path but not the delete one — which is invisible until somebody removes a
+ * secret and it keeps working. Isolate-local, like every invalidation here;
+ * other PoPs heal by expiry.
+ */
+function forgetSiteConfig(slug) {
+  webhookCfg.delete(slug);
+  turnstileCfg.delete(slug);
+}
+// SLUG FIRST — `memoize` keys on the first argument, so `(env, db, slug)` keys
+// every site on one `env` object and hands one site's secret to another.
+//
+// BOTH NAMES IN ONE READ, and they are a pair rather than two features: the
+// SITE key is public and has to reach the page for a widget to exist at all,
+// and the SECRET verifies what that widget produced. Read separately they would
+// be two queries and two caches that can disagree about whether this site is
+// protected.
+const turnstileConfig = memoize(turnstileCfg, async (slug, env, db) => {
+  const out = { secret: "", siteKey: "" };
+  let rows = [];
+  try { rows = await sqlQuery(db, "SELECT name, cipher FROM _secrets WHERE name LIKE 'TURNSTILE%'", []); }
+  catch { return out; }
+  for (const r of (rows || []).slice(0, 4)) {
+    const name = r && r.name;
+    const field = name === "TURNSTILE_SECRET" ? "secret" : name === "TURNSTILE_SITE_KEY" ? "siteKey" : null;
+    if (!field) continue;
+    // A value that will not decrypt reads as absent, which fails OPEN — the
+    // same direction `site-turnstile.mjs` takes for a broken secret, and for
+    // the same reason: the owner's mistake must not close their contact form.
+    try { out[field] = (await readSecret({ get: async () => r.cipher }, env, { slug, name })) || ""; }
+    catch { /* absent */ }
+  }
+  return out;
+});
+
+/**
+ * Decide whether this submission may reach Postgres, and hand back the body
+ * with the challenge token removed.
+ *
+ * SCOPED TO `collect`, deliberately. A `user`/`feed` write comes from a member
+ * who is already signed in, through `rows.ts`, which sends no token — so
+ * applying this there would refuse every member write on the site the moment
+ * the owner switched it on. `collect` is the public form, which is the thing
+ * that gets spammed and the thing the widget is on.
+ */
+async function turnstileGate(env, request, { slug, db, path, sent }) {
+  let body = null;
+  try { body = JSON.parse(sent || "null"); } catch { return {}; }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return {};
+  const had = TURNSTILE_FIELD in body;
+  const { token, row } = takeToken(body);
+  // STRIPPED WHETHER OR NOT THIS SITE IS CONFIGURED, and on every table. The
+  // field can never be a real column — the schema engine's column names cannot
+  // contain a hyphen — so removing it is always safe, and leaving it in makes
+  // PostgREST refuse the insert for an unknown column. A page that still has
+  // the widget after the owner deleted the secret would otherwise have every
+  // submission fail.
+  const out = had ? { sent: JSON.stringify(row) } : {};
+
+  // THE TOGGLE IS ASKED FIRST, on purpose. It is absent for almost every site,
+  // so on a cold isolate an unprotected form pays one lookup here rather than a
+  // schema read as well.
+  const { secret } = await turnstileConfig(slug, env, db);
+  if (!secret) return out;
+
+  const table = String(path).split("/")[0].toLowerCase();
+  let def = null;
+  try {
+    const spec = await loadSiteSchema(db);
+    def = (spec && spec.tables || []).find((t) => String(t.name).toLowerCase() === table) || null;
+  } catch { return out; }
+  if (!def || String(def.access || "").toLowerCase() !== "collect") return out;
+
+  const verdict = await turnstileVerify({
+    post: (u, form) => fetch(u, {
+      method: "POST",
+      body: form,
+      // A third party on the path a customer waits on. Bounded, and an
+      // expiry reads as "unknown", which lets the booking through.
+      signal: AbortSignal.timeout(5000),
+    }),
+  }, {
+    secret,
+    token,
+    // CF-Connecting-IP ONLY. The `X-Forwarded-For` fallback used elsewhere in
+    // this file is client-settable, and here that would let a caller choose the
+    // reputation Cloudflare scores their token against.
+    ip: request.headers.get("CF-Connecting-IP") || "",
+  });
+  if (verdict.state === "unknown") console.error("turnstile:", slug, verdict.reason);
+  if (verdict.ok) return out;
+  return { ...out, refused: "That didn't look like it came from a person. Please try again." };
+}
 
 /**
  * Fire the site's declared webhook. Detached, never awaited by the response —
@@ -6240,6 +6373,44 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // THE ONE PART OF SPAM PROTECTION THAT IS MEANT TO BE PUBLIC.
+    //
+    // Turnstile's SITE key belongs in the page — that is how the widget is
+    // designed, and it is why only half of this is ours. Serving it from here
+    // rather than baking it into the bundle means switching protection on takes
+    // effect on the next page load instead of needing a rebuild, which costs a
+    // model call and credits.
+    //
+    // It answers `{}` for the overwhelming majority of sites, which is what
+    // makes the widget inert until an owner configures one. The SECRET is never
+    // returned and is never even asked for on this path.
+    if (url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/turnstile")) {
+      const tm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/turnstile$/i);
+      if (tm) {
+        if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
+        const slug = tm[1].toLowerCase();
+        // Rate limited like every other public /api/db dispatch. A cache miss
+        // here is a SQL read plus a decrypt, so "it is only a public key" is not
+        // a reason to leave it unbounded. Shares the read budget, since that
+        // budget exists to protect Neon compute.
+        const thit = _dataLimiter.hit(
+          bucketKey({ ip: request.headers.get("CF-Connecting-IP") || "", slug, table: "turnstile", method: "GET" }),
+          DATA_PROXY_PER_MIN,
+        );
+        if (!thit.ok) {
+          const t = tooMany(thit);
+          return Response.json(t.body, { status: t.status, headers: t.headers });
+        }
+        const tdb = await siteBackendBySlug(env, slug);
+        if (!tdb) return Response.json({}, { status: 404 });
+        let key = "";
+        try { key = (await turnstileConfig(slug, env, tdb)).siteKey || ""; } catch { /* unconfigured */ }
+        // Cached at the edge as well: it changes about once in the life of a
+        // site, and every visitor to every page asks for it.
+        return Response.json(key ? { siteKey: key } : {}, { headers: { "cache-control": "public, max-age=60" } });
+      }
+    }
+
     // A published site's sign-in. Public by the same reasoning as the rest of
     // /api/db — a customer booking a haircut has no Go Farther account — and gated by
     // a per-source rate limit, because it is an unauthenticated endpoint that
@@ -6852,14 +7023,19 @@ async function handleRequest(request, env, ctx) {
                 // to check is the sixty seconds immediately after saving.
                 // Isolate-local, like every other invalidation here: other PoPs
                 // heal by expiry.
-                if (r && r.ok) webhookCfg.delete(sslug);
+                if (r && r.ok) forgetSiteConfig(sslug);
                 return Response.json(r.ok ? { ok: true, name: r.name, replaced: r.replaced } : { ok: false, error: r.error }, { status: r.ok ? 200 : (r.status || 400) });
               }
               if (request.method === "DELETE") {
                 // The name comes from the PATH, never a body: a DELETE with a
                 // body is not something every client sends, and the matcher
                 // above has already constrained the alphabet.
-                return Response.json(await deleteSecret(vault, { slug: sslug, name: sk[2] }));
+                const d = await deleteSecret(vault, { slug: sslug, name: sk[2] });
+                // REMOVING a secret is the direction that matters more than
+                // adding one: a cached Turnstile secret outliving its deletion
+                // refuses real submissions on a form whose widget has gone.
+                if (d && d.ok) forgetSiteConfig(sslug);
+                return Response.json(d);
               }
               return Response.json({ error: "method not allowed" }, { status: 405 });
             } catch (e) {
