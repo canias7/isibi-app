@@ -309,3 +309,121 @@ test("the handler-local scan actually fires on the shape it was written for", ()
   assert.equal(leaks.length, 1, "expected exactly the re-introduced leak, got: " + leaks.join(", "));
   assert.match(leaks[0], /^deleteSiteFor reads `du`/);
 });
+
+// ── the same class, in the integration scripts ───────────────────────────────
+
+/**
+ * Names read after the block that declares them closes.
+ *
+ * TWO NARROWINGS, both measured on a clean file rather than guessed, because a
+ * guard that cries wolf is one somebody deletes:
+ *
+ *   - three characters or more, or `(v) => v.id` is flagged;
+ *   - and never a name that is a PARAMETER anywhere in the file, or
+ *     `(res) => res.headers` is flagged — `res` clears the length rule.
+ *
+ * Both are shadowing, which is legal and common; neither can hide the shape
+ * this exists for, since `browser` is a parameter nowhere.
+ *
+ * KNOWN GAPS, stated rather than papered over: a short name read out of scope
+ * is not caught, nor is one declared more than once anywhere in the file, nor
+ * one that happens to share a name with some parameter.
+ */
+function outOfScopeReads(src) {
+  const lines = src.split("\n");
+  const declCount = new Map();
+  for (const m of src.matchAll(/(?:^|[\s;({])(?:const|let)\s+([A-Za-z_$][\w$]*)\s*[=;]/g)) {
+    declCount.set(m[1], (declCount.get(m[1]) || 0) + 1);
+  }
+  // DESTRUCTURED declarations count too. Without this, `const { page, errors } =
+  // await newPage()` was invisible, so a name bound there looked like it was
+  // declared exactly once somewhere else and read out of scope here.
+  for (const m of src.matchAll(/(?:^|[\s;({])(?:const|let)\s*[{[]([^}\]]*)[}\]]\s*=/g)) {
+    for (const t of m[1].split(",")) {
+      const n = t.trim().split(":").pop().split("=")[0].trim();
+      if (/^[A-Za-z_$][\w$]*$/.test(n)) declCount.set(n, (declCount.get(n) || 0) + 1);
+    }
+  }
+  // Every name bound as a parameter, by any of the ordinary forms.
+  const params = new Set();
+  for (const m of src.matchAll(/\(([^()]*)\)\s*=>/g)) {
+    for (const t of m[1].split(",")) {
+      const n = t.trim().split("=")[0].replace(/^\.\.\./, "").trim();
+      if (/^[A-Za-z_$][\w$]*$/.test(n)) params.add(n);
+    }
+  }
+  for (const m of src.matchAll(/(?:^|[^.\w$])([A-Za-z_$][\w$]*)\s*=>/g)) params.add(m[1]);
+  for (const m of src.matchAll(/function\s*[A-Za-z_$\w]*\s*\(([^()]*)\)/g)) {
+    for (const t of m[1].split(",")) {
+      const n = t.trim().split("=")[0].replace(/^\.\.\./, "").trim();
+      if (/^[A-Za-z_$][\w$]*$/.test(n)) params.add(n);
+    }
+  }
+  for (const m of src.matchAll(/catch\s*\(\s*([A-Za-z_$][\w$]*)/g)) params.add(m[1]);
+  const bad = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^(\s*)(?:const|let)\s+([A-Za-z_$][\w$]*)\s*[=;]/.exec(lines[i]);
+    if (!m) continue;
+    const name = m[2];
+    if (declCount.get(name) !== 1 || m[1].length < 4 || name.length < 3 || params.has(name)) continue;
+    let depth = 0, close = -1;
+    for (let j = i; j < lines.length && close < 0; j++) {
+      for (const ch of lines[j]) {
+        if (ch === "{") depth++;
+        else if (ch === "}") { depth--; if (depth < 0) { close = j; break; } }
+      }
+    }
+    if (close < 0) continue;
+    const re = new RegExp("(^|[^.\\w$])" + name.replace(/\$/g, "\\$") + "\\s*[.([]");
+    for (let j = close + 1; j < lines.length; j++) {
+      if (/^\s*(\/\/|\*)/.test(lines[j])) continue;
+      const hit = re.exec(lines[j]);
+      // PROSE, NOT CODE — `"…with no lint problems."` matched `problems.` and
+      // was the third false alarm this scan produced on a clean tree. Counted
+      // PER LINE rather than by blanking strings whole-file, which is the trap
+      // already recorded here: one stray delimiter eats the rest of the file
+      // and HIDES real code, which is the direction that costs a bug.
+      const before = hit ? lines[j].slice(0, hit.index) : "";
+      const inString = ((before.match(/"/g) || []).length % 2) || ((before.match(/'/g) || []).length % 2) ||
+        ((before.match(/`/g) || []).length % 2);
+      if (hit && !inString) {
+        bad.push(name + " declared at " + (i + 1) + ", block closes at " + (close + 1) + ", read at " + (j + 1));
+        break;
+      }
+    }
+  }
+  return bad;
+}
+
+test("no integration script reads a block-scoped name after its block closes", () => {
+  // THIRD INSTANCE OF THIS BUG IN ONE DAY, and the third one written from
+  // scratch: `vidRefN` in worker.js, `du.id` in `deleteSiteFor`, and then the
+  // revise journey in build-smoke.mjs reusing `browser` from the render section
+  // above it — a `let` declared inside that block and closed in its own
+  // `finally`.
+  //
+  // These scripts are the ones nothing else can check: they are not imported by
+  // the unit suite (they talk to a deployed Worker), `node --check` accepts an
+  // out-of-scope read without a word, and the only other signal is a red CI run
+  // that spent a real build to produce it.
+  const dir = new URL("../test/integration/", import.meta.url);
+  const files = readdirSync(dir).filter((f) => f.endsWith(".mjs"));
+  assert.ok(files.length >= 3, "only " + files.length + " integration scripts found — the scan broke");
+  for (const f of files) {
+    assert.deepEqual(outOfScopeReads(readFileSync(new URL(f, dir), "utf8")), [],
+      f + ": these are ReferenceErrors at runtime");
+  }
+});
+
+test("the integration scope scan fires on the shape it was written for", () => {
+  // Driven over a mutant rather than asserted on the source: a scan broken into
+  // matching nothing would pass the test above forever.
+  const src = readFileSync(new URL("../test/integration/build-smoke.mjs", import.meta.url), "utf8");
+  const mutant = src.replace(
+    "        jb = await chromium.launch({ executablePath: findChromium() || undefined });\n        const pg2 = await jb.newPage();",
+    "        const pg2 = await browser.newPage();");
+  assert.notEqual(mutant, src, "the anchor this mutation needs is gone — re-point it");
+  const found = outOfScopeReads(mutant);
+  assert.equal(found.length, 1, "expected exactly the re-introduced read, got: " + found.join(" ; "));
+  assert.match(found[0], /^browser declared at/);
+});

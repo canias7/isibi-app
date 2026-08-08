@@ -472,3 +472,64 @@ test("deleting a site deletes its versions, after the live files", async () => {
   assert.ok(vers > 0, "a deleted site's archive would outlive it");
   assert.ok(live < vers, "versions must be swept after the published files, not before");
 });
+
+// ── the live journey ──────────────────────────────────────────────────────────
+//
+// `build-smoke.mjs` runs against the DEPLOYED Worker, so nothing in `npm test`
+// executes it — a mutation deleting one of its assertions is caught by no unit
+// test at all. Asserted on the SOURCE instead, which is this repo's standing
+// answer for a check it cannot run: it cannot prove the journey passes, but it
+// stops the journey being quietly hollowed out into a run that asserts nothing.
+
+const smoke = fs.readFileSync(new URL("./integration/build-smoke.mjs", import.meta.url), "utf8");
+
+test("the smoke run walks a SECOND turn, not just a first build", () => {
+  // Every bug the owner hit live was in this path and nothing tested it: the
+  // run built one site once and stopped.
+  // TWO FACTS, ASSERTED APART. The first draft matched "react-build … within
+  // 400 characters … instruction:" and failed on correct code, because the body
+  // is declared BEFORE the fetch that sends it — a proximity window standing in
+  // for a relationship, which is this session's recurring bug.
+  assert.match(smoke, /const reviseBody = \{[\s\S]{0,400}instruction:/, "nothing builds a revise body");
+  assert.match(smoke, /fetch\(`\$\{BASE\}\/api\/site\/react-build`[\s\S]{0,300}JSON\.stringify\(reviseBody\)/,
+    "…and nothing sends it to the build route");
+  assert.match(smoke, /SMOKE_SKIP_JOURNEY/, "the journey must be turn-off-able — it spends a second real build");
+});
+
+test("the publish gap is watched WHILE the site republishes", () => {
+  // The gap only exists during a publish, so a check that runs afterwards can
+  // never see it. The invariant is race-free: index.html is written last, so at
+  // every instant it names a bundle that exists.
+  const i = smoke.indexOf("const gaps = []");
+  assert.ok(i > 0, "the gap poll is gone");
+  const block = smoke.slice(i, smoke.indexOf("polling = false", i));
+  assert.match(block, /while \(polling\)/, "the poll must actually loop");
+  assert.match(block, /index\.html named no bundle|gaps\.push/, "it must record what it saw");
+  // The poll has to run ACROSS the revise, not before or after it.
+  const revise = smoke.indexOf("react-build", i);
+  const stop = smoke.indexOf("polling = false", i);
+  assert.ok(i < revise && revise < stop, "the poll must be started before the revise and stopped after it");
+  // ASSERTED ON THE `ok(` CALL, not on the expression anywhere in the file. A
+  // mutant replacing the condition with `true` left `gaps.length === 0` in the
+  // *message* argument and survived — the poll still ran, still recorded, and
+  // reported a pass whatever it found.
+  assert.match(smoke, /ok\("THE SITE WAS NEVER HALF-PUBLISHED[^]*?\n\s*gaps\.length === 0,/,
+    "the gap result must be the CONDITION of the assertion, not merely mentioned near it");
+});
+
+test("the journey checks the two halves of a revise that were both wrong", () => {
+  // The look must be KEPT (it used to re-roll from a few words) and the one
+  // thing asked for must have CHANGED. Either alone passes on a broken build.
+  assert.match(smoke, /fontsOf\(afterCss\) === beforeFonts/, "nothing checks the look was kept");
+  assert.match(smoke, /--background:\\s\*\(#ffcc00\|#fc0\)/, "nothing checks the asked-for colour landed");
+});
+
+test("the journey proves RESTORE changed the live site, not just answered 200", () => {
+  // The old button reported success and touched nothing published. A 200 is
+  // exactly what it used to return.
+  const i = smoke.indexOf("restoring an earlier build answers 200");
+  assert.ok(i > 0, "the restore step is gone");
+  const after = smoke.slice(i, i + 1200);
+  assert.match(after, /restoredCss/, "nothing re-reads the published stylesheet after restoring");
+  assert.match(after, /!\/--background/, "the revised colour must be asserted GONE from the live site");
+});
