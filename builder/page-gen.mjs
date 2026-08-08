@@ -63,6 +63,30 @@ export const CHART_CATALOGUE = Object.entries(CHART_COMPONENTS)
 const CHART_DOMAIN_COUNT = Object.keys(CHART_COMPONENTS).length;
 const CHART_NAME_COUNT = Object.values(CHART_COMPONENTS).reduce((n, v) => n + v.length, 0);
 /** Every component in src/components/ui. An import of anything else does not resolve. */
+/**
+ * The kit components that draw their picture THROUGH `SafeImage` — so an empty
+ * `src` is the designed placeholder rather than a broken-image icon.
+ *
+ * This is the allow-list for a `@@IMG:@@` photograph token, and it exists
+ * because `SafeImage` alone was too narrow: the first live build put one in
+ * `<Gallery>`, which is exactly right and was reported as a problem.
+ *
+ * DERIVED FROM THE KIT, not curated — `test/page-gen.test.mjs` re-reads every
+ * ui component on disk and fails on any difference, both directions. A
+ * hand-kept list here would go stale the first time a card started using the
+ * guard, and the failure mode is the lint scolding the model for doing the
+ * right thing.
+ */
+export const SAFE_IMAGE_COMPONENTS = [
+  "AnnotationUpload", "ArticleCard", "BeforeAfter", "BeforeAfterUpload", "BrandUpload", "CartLine",
+  "CaseStudyCard", "ConnectCard", "CourseCard", "CoverImage", "DishCard", "EventCard", "EvidenceList",
+  "ExhibitionCard", "Figure", "FilePreviewPane", "Gallery", "Hero", "HeroSplit", "ImageStrip",
+  "InvoiceHeader", "Letterhead", "MediaGrid", "PageThumbnails", "PractitionerCard", "ProductCard",
+  "ProofOfCollection", "PropertyCard", "RecipeCard", "RoomCard", "SafeImage", "SellerCard",
+  "ServiceCard", "SharePreview", "SignatureBlock", "SnagItem", "StarterGallery", "StoryLead",
+  "TeamGrid", "ThumbnailPicker", "VehicleCard", "VideoHero",
+];
+
 export const UI_COMPONENTS = [
   "accordion", "alert-dialog", "alert", "aspect-ratio", "avatar", "badge", "breadcrumb",
   "button", "calendar", "card", "carousel", "chart", "checkbox", "collapsible", "command",
@@ -2774,26 +2798,35 @@ export function lintPages(pages, spec) {
       }
     }
 
-    // A PHOTOGRAPH TOKEN OUTSIDE A `SafeImage` src.
+    // A PHOTOGRAPH TOKEN SOMEWHERE AN UNBOUGHT PICTURE WOULD BREAK.
     //
     // The token is bought if there is budget for it and cleared to the empty
-    // string if there is not — and an empty string is a designed placeholder in
-    // `SafeImage` and a broken-image icon in a bare `<img>`. So the tag it sits
-    // in decides what an unbought picture looks like, which is why the rule is
-    // about the tag rather than about the token.
+    // string if there is not — and an empty string is a designed placeholder
+    // inside `SafeImage` and a BROKEN-IMAGE ICON in a bare `<img>`. So the tag
+    // it sits in decides what an unbought picture looks like, which is why the
+    // rule is about the tag rather than about the token.
+    //
+    // IT WAS `SafeImage` ALONE AND THAT WAS TOO NARROW — measured on the first
+    // live build, which put a token in `<Gallery>` and was told off for it. 42
+    // of the kit's components render their picture THROUGH SafeImage, so a
+    // token in any of them is exactly as safe as one in SafeImage itself, and
+    // those are the components the model naturally reaches for on a page that
+    // wants a photograph. Refusing them teaches the model to hand-roll an
+    // `<img>` instead, which is the one thing that really does break.
     //
     // Checked by the nearest `<` BEFORE the token: the token is always inside an
     // attribute, so in well-formed JSX that is its own opening tag. A token in a
     // bare string constant is caught by the same test, which is intended — it is
-    // not in a src at all, and nothing would clear it to a placeholder.
+    // not in a src at all, and there is no telling where it ends up.
     for (const m of code.matchAll(/@@IMG:[\s\S]*?@@/g)) {
       const open = code.lastIndexOf("<", m.index);
-      const tag = open < 0 ? "" : (code.slice(open + 1, open + 12).match(/^[A-Za-z][\w.]*/) || [""])[0];
-      if (tag !== "SafeImage") {
-        say(path, "writes a @@IMG:@@ photograph token " + (tag ? 'inside <' + tag + ">" : "outside any tag") +
-          '. A token only belongs in a SafeImage src — `<SafeImage src="@@IMG:...@@" alt="..." />` — because a ' +
-          "picture that could not be bought becomes an empty src, which SafeImage draws as a placeholder and " +
-          "anything else draws as a broken image.");
+      const tag = open < 0 ? "" : (code.slice(open + 1, open + 24).match(/^[A-Za-z][\w.]*/) || [""])[0];
+      if (!SAFE_IMAGE_COMPONENTS.includes(tag)) {
+        say(path, "writes a @@IMG:@@ photograph token " + (tag ? "inside <" + tag + ">" : "outside any tag") +
+          '. A token belongs in the image prop of a component that draws through SafeImage — `<SafeImage src="@@IMG:...@@" alt="..." />` ' +
+          "is the plain one, and Gallery, Hero, TeamGrid, ProductCard and the rest are fine too — because a " +
+          "picture that could not be bought becomes an empty src, which those draw as a placeholder and " +
+          "a bare <img> draws as a broken image.");
       }
     }
 

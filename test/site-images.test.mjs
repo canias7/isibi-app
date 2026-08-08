@@ -8,7 +8,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
 import {
   IMAGE_CAP, IMAGE_ASPECT, MAX_PROMPT_CHARS,
@@ -17,7 +17,7 @@ import {
 } from "../builder/site-images.mjs";
 import { FAMILIES, READY_FAMILIES } from "../builder/site-layouts.mjs";
 import { IMAGE_USD, pageCost, pageCredits } from "../builder/publish-pages.mjs";
-import { lintPages, PAGE_RULES, briefWithLayout } from "../builder/page-gen.mjs";
+import { lintPages, PAGE_RULES, briefWithLayout, SAFE_IMAGE_COMPONENTS } from "../builder/page-gen.mjs";
 
 const page = (path, source) => ({ path, source });
 
@@ -372,18 +372,37 @@ test("the rules point the model at SafeImage for a photograph token", () => {
     "a made-up path is a 404 on every page that shows it");
 });
 
-test("the lint refuses a token outside a SafeImage src", () => {
+test("the lint refuses a token in a bare <img>, which is the one that really breaks", () => {
   // The tag decides what an UNBOUGHT picture looks like: an empty src is a
-  // designed placeholder in SafeImage and a broken-image icon in anything else.
+  // designed placeholder inside SafeImage and a broken-image icon in an <img>.
   const bad = lintPages([page("index.tsx", '<img src="@@IMG:the shop front@@" />')], { tables: [] });
   assert.equal(bad.length, 1);
   assert.match(bad[0], /photograph token inside <img>/);
-  assert.match(bad[0], /SafeImage src/);
+  assert.match(bad[0], /bare <img> draws as a broken image/);
 });
 
-test("the lint passes a token in a SafeImage src", () => {
-  const ok = lintPages([page("index.tsx", '<SafeImage src="@@IMG:the shop front@@" alt="the shop" />')], { tables: [] });
-  assert.deepEqual(ok, []);
+test("the lint passes a token in ANY component that draws through SafeImage", () => {
+  // SafeImage alone was too narrow — measured on the first live build, which
+  // put one in <Gallery> and was told off for doing the right thing. Refusing
+  // those teaches the model to hand-roll an <img>, which is the failure.
+  for (const tag of ["SafeImage", "Gallery", "Hero", "TeamGrid", "ProductCard", "ImageStrip"]) {
+    const ok = lintPages([page("index.tsx", "<" + tag + ' src="@@IMG:the shop front@@" alt="the shop" />')], { tables: [] });
+    assert.deepEqual(ok, [], tag + " must be allowed");
+  }
+});
+
+test("the allow-list is DERIVED from the kit, in both directions", () => {
+  // A hand-kept list goes stale the first time a card starts using the guard,
+  // and the failure is the lint scolding the model for being right.
+  const dir = new URL("../builder/lovable/template/src/components/ui/", import.meta.url);
+  const found = new Set();
+  for (const f of readdirSync(dir).filter((f) => f.endsWith(".tsx"))) {
+    const src = readFileSync(new URL(f, dir), "utf8");
+    if (!/from "@\/components\/ui\/safe-image"/.test(src) && f !== "safe-image.tsx") continue;
+    for (const m of src.matchAll(/export function ([A-Z][\w]*)/g)) found.add(m[1]);
+  }
+  assert.ok(found.size > 30, "the scan broke — only found " + found.size);
+  assert.deepEqual([...SAFE_IMAGE_COMPONENTS].sort(), [...found].sort());
 });
 
 test("the lint names SafeImage exactly, not any tag that resembles it", () => {

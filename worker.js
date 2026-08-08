@@ -2548,9 +2548,21 @@ async function buySitePhotos(env, { slug, pages, budget, balance, reserve }) {
   // — they have to travel separately, or a site that could not afford its
   // pictures is indistinguishable from one that was never meant to have any.
   const planned = Math.max(0, Number(budget) || 0);
-  if (!plan.shots.length) {
-    return { pages, made: 0, planned, budget: affordable, overflow: plan.overflow };
-  }
+  // ONE WAY OUT, AND IT ALWAYS SWEEPS. This used to return `pages` untouched
+  // when there was nothing to buy, and that shipped a live bug the same hour:
+  // the tokens stayed in the source, `SafeImage` saw a truthy src, and the
+  // published home page rendered a BROKEN IMAGE with its alt text showing.
+  //
+  // It bit on the commonest path there is. A new account is granted 20 credits
+  // and a build costs about 21, so `affordable` is 0 and this branch is what
+  // EVERY first build takes — the graceful-degradation path the whole feature
+  // is designed around was the one path that degraded to a broken page.
+  //
+  // Measured, not reasoned: `build smoke` went red on "no console errors" and
+  // the screenshot showed it. Nothing in the unit suite could — `applyImages`
+  // was tested directly and correctly, and the bug was in not calling it.
+  const done = (urls, rest) => ({ pages: applyImages(pages, urls), planned, budget: affordable, overflow: plan.overflow, ...rest });
+  if (!plan.shots.length) return done(new Map(), { made: 0 });
   const urls = new Map();
   let failed = "";
   await Promise.all(plan.shots.map(async ({ token, prompt }) => {
@@ -2577,17 +2589,13 @@ async function buySitePhotos(env, { slug, pages, budget, balance, reserve }) {
       failed = String((e && e.message) || e).slice(0, 120);
     }
   }));
-  return {
-    pages: applyImages(pages, urls),
-    // WHAT WAS STORED, never what was planned. This number is what the customer
-    // is billed for, so it has to come from the map that only a successful put
-    // writes into — counting the shots would charge for an image model outage.
+  // WHAT WAS STORED, never what was planned. `made` is what the customer is
+  // billed for, so it comes from the map that only a successful put writes into
+  // — counting the shots would charge for an image model outage.
+  return done(urls, {
     made: urls.size,
-    planned,
-    budget: affordable,
-    overflow: plan.overflow,
     ...(failed && urls.size < plan.shots.length ? { error: failed } : {}),
-  };
+  });
 }
 
 // Resolve @@SPRITE:…@@ tokens → bundled assets. Returns { files (tokens replaced

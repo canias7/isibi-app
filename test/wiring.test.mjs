@@ -380,3 +380,31 @@ test("the image price and the image model are not two answers to one question", 
   assert.equal(Number(table[1]), Number(priced[1]),
     "the build price and the generation price must be the same number");
 });
+
+test("every way out of buySitePhotos sweeps the tokens", () => {
+  // THE LIVE BUG THIS EXISTS FOR, found by `build smoke` and a screenshot.
+  // The nothing-to-buy branch returned `pages` untouched, so the raw
+  // `@@IMG:...@@` text shipped into the bundle, SafeImage saw a TRUTHY src, and
+  // the published home page rendered a broken-image icon with its alt showing.
+  //
+  // It bit on the commonest path there is: a new account is granted 20 credits
+  // and a build costs about 21, so nothing is affordable and that branch is what
+  // EVERY first build takes. The graceful-degradation path the whole feature is
+  // built around was the one that degraded to a broken page.
+  //
+  // Nothing in the unit suite could see it — `applyImages` is tested directly
+  // and is correct; the bug was in not calling it — and worker.js cannot be
+  // imported. So it is a source read, and it counts the EXITS rather than
+  // looking for the call, because "applyImages appears somewhere in the
+  // function" was true the whole time it was broken.
+  const fn = worker.slice(worker.indexOf("async function buySitePhotos"), worker.indexOf("// Resolve @@SPRITE"));
+  assert.ok(fn.length > 400, "found the function, not an empty window");
+  const exits = [...fn.matchAll(/return\s+(?:\{|done\()/g)];
+  assert.ok(exits.length >= 2, "expected the early exit and the final one — found " + exits.length);
+  for (const m of exits) {
+    assert.match(m[0], /return done\(/,
+      "an exit that does not go through `done` skips applyImages and ships raw tokens");
+  }
+  assert.match(fn, /const done = \([\s\S]{0,80}applyImages\(pages, urls\)/,
+    "and `done` is what sweeps");
+});
