@@ -5,7 +5,13 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 
-import { useMember, useRows, useCreateRow, type Row } from "@/lib/rows";
+import {
+  useMember,
+  useRows,
+  useCreateRow,
+  useDeleteRow,
+  type Row,
+} from "@/lib/rows";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,13 +20,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { DataTable } from "@/components/ui/data-table";
-import { TableSearch } from "@/components/ui/table-search";
-import { FilterBar } from "@/components/ui/filter-bar";
-import { BulkActions } from "@/components/ui/bulk-actions";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { Empty } from "@/components/ui/empty";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Form,
   FormControl,
@@ -30,6 +29,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -37,20 +37,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { DataTable } from "@/components/ui/data-table";
+import { TableSearch } from "@/components/ui/table-search";
+import { FilterBar } from "@/components/ui/filter-bar";
+import { BulkActions } from "@/components/ui/bulk-actions";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { SideNav } from "@/components/ui/side-nav";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Empty } from "@/components/ui/empty";
 
 export const Route = createFileRoute("/records")({ component: Records });
 
 type Deal = Row & { title: string; value: string | null; stage: string | null };
+type Account = Row & { name: string; website: string | null; notes: string | null };
+type Playbook = Row & { title: string; body: string | null };
 
 const STAGES = ["New", "Qualifying", "Proposal", "Negotiation", "Won", "Lost"];
-
-const dealSchema = z.object({
-  title: z.string().min(2, "Give the deal a name"),
-  value: z.string().min(1, "Add an amount, even a rough one"),
-  stage: z.string().min(1, "Pick a stage"),
-});
-
-type DealForm = z.infer<typeof dealSchema>;
 
 function stageState(stage: string | null): "success" | "warning" | "danger" | "neutral" {
   if (stage === "Won") return "success";
@@ -59,14 +61,25 @@ function stageState(stage: string | null): "success" | "warning" | "danger" | "n
   return "neutral";
 }
 
+const dealSchema = z.object({
+  title: z.string().min(2, "Give it a name"),
+  value: z.string().min(1, "Add a value"),
+  stage: z.string().min(1, "Pick a stage"),
+});
+
+type DealForm = z.infer<typeof dealSchema>;
+
 function Records() {
   const member = useMember();
-  const deals = useRows<Deal>("deals", { order: "id", dir: "desc" });
-  const create = useCreateRow<Deal>("deals");
   const navigate = useNavigate();
+  const deals = useRows<Deal>("deals", { order: "id", dir: "desc" });
+  const accounts = useRows<Account>("accounts", { order: "id", dir: "desc", limit: 8 });
+  const playbook = useRows<Playbook>("playbook", { order: "id", dir: "desc", limit: 5 });
+  const create = useCreateRow<Deal>("deals");
+  const del = useDeleteRow("deals");
 
   const [query, setQuery] = useState("");
-  const [stageFilter, setStageFilter] = useState<string | null>(null);
+  const [stage, setStage] = useState<string | null>(null);
   const [selected, setSelected] = useState<number[]>([]);
   const [open, setOpen] = useState(false);
 
@@ -76,17 +89,16 @@ function Records() {
   });
 
   const filtered = useMemo(() => {
-    const rows = deals.data ?? [];
-    return rows.filter((d) => {
-      const matchesQuery = query
-        ? d.title.toLowerCase().includes(query.toLowerCase())
-        : true;
-      const matchesStage = stageFilter ? d.stage === stageFilter : true;
-      return matchesQuery && matchesStage;
-    });
-  }, [deals.data, query, stageFilter]);
+    let rows = deals.data ?? [];
+    if (stage) rows = rows.filter((d) => d.stage === stage);
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      rows = rows.filter((d) => d.title.toLowerCase().includes(q));
+    }
+    return rows;
+  }, [deals.data, stage, query]);
 
-  const onSubmit = (values: DealForm) => {
+  const onCreate = (values: DealForm) => {
     create.mutate(values, {
       onSuccess: () => {
         toast.success("Deal added");
@@ -97,84 +109,108 @@ function Records() {
     });
   };
 
+  const onBulkDelete = () => {
+    selected.forEach((id) => del.mutate(id));
+    toast.success(`Removed ${selected.length} deal${selected.length === 1 ? "" : "s"}`);
+    setSelected([]);
+  };
+
   if (member.isPending) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <p className="text-muted-foreground">Checking your sign-in…</p>
+      <div className="p-10">
+        <Skeleton className="h-8 w-40" />
       </div>
     );
   }
 
   if (!member.data) {
     return (
-      <div className="flex min-h-screen items-center justify-center p-10">
-        <div className="max-w-sm text-center">
-          <h1 className="text-2xl font-semibold tracking-tight">Halyard</h1>
-          <p className="mt-3 text-muted-foreground">
-            Sign in to see the team's deals.
-          </p>
-          <Button asChild className="mt-6">
-            <Link to="/">Sign in</Link>
-          </Button>
-        </div>
+      <div className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center gap-4 p-10 text-center">
+        <h1 className="text-2xl font-semibold tracking-tight">Halyard</h1>
+        <p className="text-muted-foreground">Sign in to see the team's pipeline.</p>
+        <Button asChild>
+          <Link to="/">Sign in</Link>
+        </Button>
       </div>
     );
   }
 
   return (
     <div className="flex min-h-screen">
-      <aside className="hidden w-56 shrink-0 border-r border-border bg-muted/40 p-6 md:flex md:flex-col md:justify-between">
-        <div>
-          <p className="text-lg font-semibold tracking-tight">Halyard</p>
-          <nav className="mt-8 grid gap-1 text-sm">
-            <Link
-              to="/records"
-              className="rounded-md bg-accent px-3 py-2 font-medium text-accent-foreground"
-            >
-              Deals
-            </Link>
-          </nav>
-          <div className="mt-8">
-            <p className="px-3 text-xs font-medium uppercase text-muted-foreground">
-              Stage
-            </p>
-            <div className="mt-2 grid gap-1">
+      <aside className="hidden w-64 shrink-0 border-r border-border bg-muted/30 p-4 md:block">
+        <p className="px-2 text-lg font-semibold tracking-tight">Halyard</p>
+        <div className="mt-6">
+          <SideNav
+            active="deals"
+            sections={[
+              {
+                title: "Filter by stage",
+                items: [
+                  { label: "All stages", href: "#" },
+                  ...STAGES.map((s) => ({ label: s, href: "#" })),
+                ],
+              },
+            ]}
+          />
+          <div className="mt-4 flex flex-col gap-1">
+            {[null, ...STAGES].map((s) => (
               <button
-                type="button"
-                onClick={() => setStageFilter(null)}
-                className={`rounded-md px-3 py-1.5 text-left text-sm ${
-                  stageFilter === null ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/50"
+                key={s ?? "all"}
+                onClick={() => setStage(s)}
+                className={`rounded-md px-2 py-1.5 text-left text-sm ${
+                  stage === s ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-muted"
                 }`}
               >
-                All stages
+                {s ?? "All stages"}
               </button>
-              {STAGES.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setStageFilter(s)}
-                  className={`rounded-md px-3 py-1.5 text-left text-sm ${
-                    stageFilter === s ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/50"
-                  }`}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
+            ))}
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">
-          Signed in as {member.data.name || member.data.email}
-        </p>
+
+        <div className="mt-8">
+          <p className="px-2 text-xs font-medium uppercase text-muted-foreground">Accounts</p>
+          <div className="mt-2 flex flex-col gap-2">
+            {accounts.isPending && <Skeleton className="h-16 rounded-md" />}
+            {accounts.isError && (
+              <p className="px-2 text-xs text-destructive">Couldn't load accounts.</p>
+            )}
+            {accounts.data?.length === 0 && (
+              <p className="px-2 text-xs text-muted-foreground">No accounts yet.</p>
+            )}
+            {accounts.data?.map((a) => (
+              <div key={a.id} className="rounded-md border border-border bg-background px-2 py-1.5">
+                <p className="text-sm font-medium">{a.name}</p>
+                {a.website && <p className="truncate text-xs text-muted-foreground">{a.website}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-8">
+          <p className="px-2 text-xs font-medium uppercase text-muted-foreground">Playbook</p>
+          <div className="mt-2 flex flex-col gap-2">
+            {playbook.isPending && <Skeleton className="h-16 rounded-md" />}
+            {playbook.isError && (
+              <p className="px-2 text-xs text-destructive">Couldn't load the playbook.</p>
+            )}
+            {playbook.data?.length === 0 && (
+              <p className="px-2 text-xs text-muted-foreground">Nothing published yet.</p>
+            )}
+            {playbook.data?.map((p) => (
+              <div key={p.id} className="rounded-md border border-border bg-background px-2 py-1.5">
+                <p className="text-sm font-medium">{p.title}</p>
+                {p.body && <p className="line-clamp-2 text-xs text-muted-foreground">{p.body}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
       </aside>
 
-      <main className="flex-1 p-6 md:p-10">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+      <main className="flex-1 p-6">
+        <div className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">The team's deals</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Everything the whole team is working, in one table.
-            </p>
+            <p className="text-sm text-muted-foreground">Everyone on the team reads and edits these together.</p>
           </div>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
@@ -185,7 +221,7 @@ function Records() {
                 <DialogTitle>New deal</DialogTitle>
               </DialogHeader>
               <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4">
+                <form className="grid gap-4" onSubmit={form.handleSubmit(onCreate)}>
                   <FormField
                     control={form.control}
                     name="title"
@@ -193,7 +229,7 @@ function Records() {
                       <FormItem>
                         <FormLabel>Title</FormLabel>
                         <FormControl>
-                          <Input placeholder="e.g. Northwind — annual renewal" {...field} />
+                          <Input {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -206,7 +242,7 @@ function Records() {
                       <FormItem>
                         <FormLabel>Value</FormLabel>
                         <FormControl>
-                          <Input placeholder="e.g. £12,000" {...field} />
+                          <Input placeholder="£12,000" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -221,7 +257,7 @@ function Records() {
                         <Select onValueChange={field.onChange} value={field.value}>
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder="Choose a stage" />
+                              <SelectValue />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
@@ -245,87 +281,73 @@ function Records() {
           </Dialog>
         </div>
 
-        <div className="mt-6 flex flex-wrap items-center gap-3">
+        <div className="mt-6 flex flex-col gap-3">
           <TableSearch
             value={query}
             onChange={setQuery}
-            placeholder="Search deals…"
+            placeholder="Search deals"
             count={filtered.length}
-            total={deals.data?.length}
+            total={deals.data?.length ?? 0}
           />
-          {stageFilter && (
+          {stage && (
             <FilterBar
-              filters={[{ key: "stage", label: `Stage: ${stageFilter}` }]}
-              onRemove={() => setStageFilter(null)}
-              onClear={() => setStageFilter(null)}
+              filters={[{ key: "stage", label: `Stage: ${stage}` }]}
+              onRemove={() => setStage(null)}
+              onClear={() => setStage(null)}
+            />
+          )}
+          {selected.length > 0 && (
+            <BulkActions
+              count={selected.length}
+              onClear={() => setSelected([])}
+              actions={[{ label: "Delete selected", onSelect: onBulkDelete, destructive: true }]}
             />
           )}
         </div>
 
-        {selected.length > 0 && (
-          <div className="mt-4">
-            <BulkActions
-              count={selected.length}
-              onClear={() => setSelected([])}
-              actions={[
-                {
-                  label: "Clear selection",
-                  onSelect: () => setSelected([]),
-                },
-              ]}
-            />
-          </div>
-        )}
-
-        <div className="mt-6">
-          {deals.isPending && <Skeleton className="h-72 rounded-xl" />}
-
+        <div className="mt-4">
+          {deals.isPending && <Skeleton className="h-64 rounded-xl" />}
           {deals.isError && (
-            <p className="text-sm text-destructive">
-              Couldn't load the team's deals. Refresh and try again.
-            </p>
+            <p className="text-sm text-destructive">Couldn't load the pipeline. Refresh and try again.</p>
           )}
-
-          {!deals.isPending && !deals.isError && deals.data?.length === 0 && (
+          {deals.data?.length === 0 && (
             <Empty
               title="No deals yet"
-              description="Add the first deal your team is working and it'll show up here for everyone."
+              description="Add the first deal the team is working — it'll show up here for everyone."
             />
           )}
-
-          {!deals.isPending && !deals.isError && !!deals.data?.length && (
+          {!!deals.data?.length && filtered.length === 0 && (
+            <Empty title="Nothing matches" description="Try a different search or clear the stage filter." />
+          )}
+          {filtered.length > 0 && (
             <DataTable
+              rowKey={(row) => row.id}
               rows={filtered}
-              rowKey={(r) => r.id}
-              onRowClick={(r) => navigate({ to: "/record", search: { id: String(r.id) } })}
-              empty="No deals match your search."
+              onRowClick={(row) => navigate({ to: "/record", search: { id: String(row.id) } })}
               columns={[
                 {
                   key: "select",
                   header: "",
-                  width: "2rem",
-                  cell: (r) => (
+                  width: "40px",
+                  cell: (row) => (
                     <input
                       type="checkbox"
-                      checked={selected.includes(r.id as number)}
+                      checked={selected.includes(row.id)}
                       onClick={(e) => e.stopPropagation()}
                       onChange={(e) => {
-                        const id = r.id as number;
                         setSelected((prev) =>
-                          e.target.checked ? [...prev, id] : prev.filter((x) => x !== id),
+                          e.target.checked ? [...prev, row.id] : prev.filter((id) => id !== row.id),
                         );
                       }}
                     />
                   ),
                 },
-                { key: "title", header: "Title", cell: (r) => r.title },
-                { key: "value", header: "Value", cell: (r) => r.value ?? "—" },
+                { key: "title", header: "Title", cell: (row) => row.title },
+                { key: "value", header: "Value", cell: (row) => row.value ?? "—" },
                 {
                   key: "stage",
                   header: "Stage",
-                  cell: (r) => (
-                    <StatusBadge state={stageState(r.stage)}>{r.stage ?? "New"}</StatusBadge>
-                  ),
+                  cell: (row) => <StatusBadge state={stageState(row.stage)}>{row.stage ?? "New"}</StatusBadge>,
                 },
               ]}
             />

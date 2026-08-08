@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -7,13 +7,7 @@ import { toast } from "sonner";
 
 import { useMember, useLogin, useSignup } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Form,
   FormControl,
@@ -24,7 +18,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { SafeImage } from "@/components/ui/safe-image";
+import { FeatureGrid } from "@/components/ui/feature-grid";
 
 export const Route = createFileRoute("/")({ component: Door });
 
@@ -39,27 +33,29 @@ function Door() {
   const member = useMember();
   const login = useLogin();
   const signup = useSignup();
-  const [formError, setFormError] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const [error, setError] = useState<string | null>(null);
 
   const form = useForm<Credentials>({
     resolver: zodResolver(credentials),
     defaultValues: { email: "", password: "" },
   });
 
+  if (!member.isPending && member.data) {
+    navigate({ to: "/records" });
+  }
+
   const submit = (action: typeof login, values: Credentials) => {
-    setFormError(null);
+    setError(null);
     action.mutate(values, {
       onSuccess: (data) => {
         if (data && typeof data === "object" && "pending" in data) {
           toast.message("Check your authenticator app to finish signing in.");
           return;
         }
-        form.reset();
+        navigate({ to: "/records" });
       },
-      onError: (e) => {
-        setFormError(e.message);
-        toast.error(e.message);
-      },
+      onError: (e) => setError(e.message),
     });
   };
 
@@ -69,119 +65,93 @@ function Door() {
         <p className="text-lg font-semibold tracking-tight">Halyard</p>
         <div className="max-w-md py-12">
           <h1 className="text-3xl font-semibold tracking-tight text-balance">
-            One table for every deal your team is working
+            Halyard — one table your whole sales team reads
           </h1>
           <p className="mt-4 text-muted-foreground">
-            Halyard is the shared pipeline for small sales teams: deals live in
-            one record, the whole team reads and edits the same rows, and the
-            accounts you sell into are never scattered across five inboxes.
+            Every deal your team is working sits in one shared table, with a record
+            behind each row: the stage, the value, and the full activity trail. Add
+            a deal, move it forward, and everyone sees it change.
           </p>
-          <SafeImage
-            className="mt-8"
-            src={null}
-            alt="The team's deals, as a table"
-            ratio="16/10"
-          />
-          <ul className="mt-8 space-y-4 text-sm">
+          <div className="mt-8">
+            <FeatureGrid
+              columns={2}
+              items={[
+                { title: "Shared pipeline", description: "Every deal the team is working, in one table" },
+                { title: "Own accounts", description: "A shared list of accounts anyone can add to" },
+                { title: "One record view", description: "Header, fields and trail — edit where you read" },
+                { title: "No inbox digging", description: "The playbook lives in the tool, not in email" },
+              ]}
+            />
+          </div>
+          <ul className="mt-8 space-y-3 text-sm">
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>The team's deals in one table — search, filter, open any record</span>
+              <span>Deals, filterable by stage, shared across the whole team</span>
             </li>
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>A shared list of accounts everyone can read and add to</span>
+              <span>Accounts anyone on the team can add and read</span>
             </li>
             <li className="flex items-start gap-3">
-              <StatusBadge state="neutral">soon</StatusBadge>
-              <span>Deal stages rendered as a board, not just a table</span>
+              <StatusBadge state="neutral">read-only</StatusBadge>
+              <span>A team playbook, maintained by whoever runs the tool</span>
             </li>
           </ul>
         </div>
-        <p className="text-xs text-muted-foreground">
-          Built for small teams — no seats to configure, no admin console to learn.
-        </p>
+        <p className="text-xs text-muted-foreground">Built for small sales teams — no marketing site attached.</p>
       </section>
 
       <section className="flex items-center justify-center p-10">
         <Card className="w-full max-w-sm">
           <CardHeader>
             <CardTitle>Sign in</CardTitle>
-            <CardDescription>
-              {member.data
-                ? `Signed in as ${member.data.name || member.data.email}.`
-                : "Back to the team's pipeline in one field and a click."}
-            </CardDescription>
+            <CardDescription>Back to the pipeline in a couple of fields.</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4">
-            {member.isPending && (
-              <p className="text-sm text-muted-foreground">Checking your sign-in…</p>
-            )}
-
-            {!member.isPending && member.data && (
-              <Button asChild>
-                <Link to="/records">Go to the records</Link>
-              </Button>
-            )}
-
-            {!member.isPending && !member.data && (
-              <Form {...form}>
-                <form
-                  className="grid gap-4"
-                  onSubmit={form.handleSubmit((v) => submit(login, v))}
-                >
-                  <FormField
-                    control={form.control}
-                    name="email"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Work email</FormLabel>
-                        <FormControl>
-                          <Input type="email" autoComplete="email" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="password"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Password</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="password"
-                            autoComplete="current-password"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  {formError && (
-                    <p className="text-sm text-destructive motion-enter">{formError}</p>
+          <CardContent>
+            <Form {...form}>
+              <form className="grid gap-4" onSubmit={form.handleSubmit((v) => submit(login, v))}>
+                <FormField
+                  control={form.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Work email</FormLabel>
+                      <FormControl>
+                        <Input type="email" autoComplete="email" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
                   )}
-                  <div className="grid gap-2">
-                    <Button
-                      type="submit"
-                      className="motion-press"
-                      disabled={login.isPending}
-                    >
-                      {login.isPending ? "Signing in…" : "Sign in"}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={signup.isPending}
-                      onClick={form.handleSubmit((v) => submit(signup, v))}
-                    >
-                      {signup.isPending ? "Creating account…" : "Create an account"}
-                    </Button>
-                  </div>
-                </form>
-              </Form>
-            )}
+                />
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Password</FormLabel>
+                      <FormControl>
+                        <Input type="password" autoComplete="current-password" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                {error && <p className="text-sm text-destructive">{error}</p>}
+                <div className="flex gap-3">
+                  <Button type="submit" className="motion-press" disabled={login.isPending}>
+                    {login.isPending ? "Signing in…" : "Sign in"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={signup.isPending}
+                    onClick={form.handleSubmit((v) => submit(signup, v))}
+                  >
+                    Create account
+                  </Button>
+                </div>
+              </form>
+            </Form>
           </CardContent>
         </Card>
       </section>
