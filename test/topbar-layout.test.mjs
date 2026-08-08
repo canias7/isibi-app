@@ -79,3 +79,92 @@ test("the end buttons never wrap", () => {
   assert.ok(m, "the nowrap rule is gone");
   assert.match(m[0], /white-space:\s*nowrap/);
 });
+
+// ── the builder / effort drop-ups ────────────────────────────────────────────
+//
+// Both rendered 130px wide and see-through. `.model-menu` sets `min-width: 250px`
+// and a translucent panel; `.model-menu.drop-up` narrows that to 130px, and every
+// other drop-up then re-widens itself and paints itself solid. `.build-menu`
+// never did, so its descriptions wrapped one or two words per line and the chat
+// showed through the panel.
+
+const menuRule = (name) => {
+  const src = fs.readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
+  const m = src.match(new RegExp("\\.model-menu\\.drop-up\\." + name + "\\s*\\{[^}]*\\}"));
+  return m && m[0];
+};
+
+test("every drop-up that narrows itself also widens itself back", () => {
+  // DERIVED, not a list: `.drop-up` sets min-width 130px, which is too narrow for
+  // any menu carrying descriptions, so each one must override it. Naming them by
+  // hand is how `.build-menu` was missed in the first place.
+  const src = fs.readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
+  const base = src.match(/\.model-menu\.drop-up\s*\{[^}]*\}/);
+  assert.ok(base, "the drop-up rule was renamed");
+  assert.match(base[0], /min-width:\s*130px/, "the premise changed — re-derive this guard");
+
+  const named = [...src.matchAll(/\.model-menu\.drop-up\.([a-z-]+)\s*\{([^}]*)\}/g)];
+  assert.ok(named.length >= 3, "the drop-up variants have moved");
+  let checked = 0;
+  for (const [, name, body] of named) {
+    // STATE RULES ARE NOT VARIANTS. `.open` sets `animation-name` and nothing
+    // else — it says when the menu shows, not how wide it is. A rule that styles
+    // no part of the box is out of scope here; flagging it was this check's own
+    // first false positive.
+    if (!/min-width|width|background|left|right|top|bottom|padding/.test(body)) continue;
+    checked++;
+    // A variant that only repositions inherits the width from a sibling rule and
+    // is fine; one that is a menu in its own right must set it.
+    if (/min-width|left|right/.test(body)) continue;
+    assert.fail("." + name + " overrides neither width nor position — it will be 130px wide");
+  }
+  assert.ok(checked >= 3, "the scan stopped seeing the real variants — it now proves nothing");
+});
+
+test("the builder menu is wide enough and opaque", () => {
+  const r = menuRule("build-menu");
+  assert.ok(r, "the build-menu rule is gone — it will inherit 130px and the blur");
+  const w = Number((r.match(/min-width:\s*(\d+)px/) || [])[1]);
+  assert.ok(w >= 250, "too narrow at " + w + "px — the descriptions wrap to a word a line");
+  // Solid, like the other three drop-ups: these open OVER the composer and have
+  // to read against the attach row behind them.
+  assert.match(r, /background:\s*#ffffff/, "the chat shows through the menu");
+});
+
+test("the rightmost chip's menu opens leftwards", () => {
+  // `.drop-up` pins menus to `left: 0`. The effort chip sits near the end of the
+  // composer row, so that ran the panel 72px past the rail's right edge —
+  // measured against the real 450px .st-rail.
+  const r = menuRule("build-menu-end");
+  assert.ok(r, "the end-anchored rule is gone — the effort menu spills out of the rail");
+  assert.match(r, /right:\s*0/);
+  assert.match(r, /left:\s*auto/, "left must be released or right:0 does nothing");
+  // And it is actually applied to the effort menu, not just defined.
+  const src = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  const i = src.indexOf('id="stEffMenu"');
+  assert.ok(i > 0, "the effort menu was renamed");
+  assert.match(src.slice(i - 300, i), /build-menu-end/, "the effort menu does not use the rule");
+  // The builder chip is the LEFT one and must not take it, or its menu runs off
+  // the other edge.
+  const j = src.indexOf('id="stBuildMenu"');
+  assert.ok(!/build-menu-end/.test(src.slice(j - 300, j)), "the left chip's menu is anchored right");
+});
+
+test("the history rail has no disabled tab", () => {
+  // Bookmarks was rendered `disabled` and had never done anything — removed
+  // 2026-08-08, owner's call. Pinned because a deliberate removal and an
+  // oversight look identical a year later, the same reason `toast` is pinned in
+  // the component-kit tests. This asserts the SHAPE rather than the word, so a
+  // second dead placeholder under any name fails too.
+  const src = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  const i = src.indexOf('class="st-hist-tabs"');
+  assert.ok(i > 0, "the history rail was restructured — rescope this guard");
+  const strip = src.slice(i, src.indexOf("</div>' +", i));
+  assert.ok(!/disabled/.test(strip), "a tab that cannot be pressed is back in the history rail: " + strip);
+  // The icon went with it — one caller, so it was dead the moment the button
+  // was. Checked as CODE, not as text: the comment above the strip explains the
+  // removal and says the word, and a bare /bookmark/i over the file failed on
+  // its own documentation.
+  assert.ok(!/^\s*bookmark:/m.test(src), "the bookmark icon is back in the icon map");
+  assert.ok(!/ic\(\s*['"]bookmark['"]/.test(src), "something renders the bookmark icon again");
+});

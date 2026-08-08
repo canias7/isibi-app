@@ -2464,7 +2464,10 @@ if (!BUILD_EFFORTS[buildEffort]) buildEffort = 'high';
 function buildEffortHTML() {
   return '<span class="st-buildsel-wrap">' +
     '<button type="button" class="st-buildsel" id="stEffSel" title="Effort — how much output; Level 5 (Max) fans out to multi-agent">Effort: <b id="stEffLabel">' + BUILD_EFFORTS[buildEffort].label + '</b> ▾</button>' +
-    '<div class="model-menu drop-up build-menu" id="stEffMenu">' +
+    // Anchored to its RIGHT edge — this chip sits near the end of the composer
+    // row, and the shared `.drop-up` rule pins menus to `left: 0`, which ran the
+    // panel 72px past the rail. Measured at the rail's real 450px width.
+    '<div class="model-menu drop-up build-menu build-menu-end" id="stEffMenu">' +
       ['low', 'medium', 'high', 'ultra', 'max'].map((k) => { const m = BUILD_EFFORTS[k]; return '<div class="model-item build-item' + (k === buildEffort ? ' selected' : '') + '" data-eff="' + k + '"><span class="txt"><b>' + m.lvl + ' · ' + m.label + '</b><small>' + m.desc + '</small></span><span class="check">✓</span></div>'; }).join('') +
     '</div></span>';
 }

@@ -634,8 +634,29 @@
 .st-switch.locked { opacity: .5; }
 .orch-ctl.locked .orch-name::after { content: " 🔒"; font-size: .72em; opacity: .8; }
 .model-menu.drop-up.dir-menu { min-width: 300px; background: #ffffff; left: auto; right: 0; }
+/* THE BUILDER AND EFFORT MENUS WERE 130px WIDE AND SEE-THROUGH.
+   `.model-menu` sets `min-width: 250px` and a translucent panel; `.drop-up`
+   above narrows that to 130px, and every other drop-up then re-widens itself and
+   paints itself solid — `.model-drop` 250px, `.dir-menu` 300px, `.effort-menu`
+   165px. `.build-menu` never did, so it inherited the 130px and the blur: the
+   descriptions wrapped one or two words per line, the fifth effort ran off the
+   bottom, and the chat showed through the menu. It has its own width now, wide
+   enough for the longest line ("Multi-agent fan-out — nothing truncates") on two
+   lines rather than six.
+   Solid, like the other three, and for the reason already written above them:
+   these drop UP over the composer and have to read against the attach row. */
+.model-menu.drop-up.build-menu { min-width: 270px; background: #ffffff; }
+/* The rightmost chip in the composer row opens leftwards. `.drop-up` pins every
+   menu to `left: 0`, which put this one 72px past the rail's right edge —
+   measured against the real 450px `.st-rail`. Same answer `.dir-menu` already
+   takes for the same reason. */
+.model-menu.drop-up.build-menu-end { left: auto; right: 0; }
 .dir-item, .build-item { padding: .6rem .8rem; }
 .dir-item .txt small, .build-item .txt small { display: block; color: var(--muted); font-size: .78rem; margin-top: .15rem; line-height: 1.35; }
+/* The tick keeps its own column, so a description can never reflow around it or
+   push it off the edge — `space-between` alone let the text claim the width. */
+.build-item .txt { min-width: 0; }
+.build-item .check { flex: none; }
 /* Raw mode: the effort knob has nothing to control — greyed, not clickable. */
 .effort-pick.locked .opt-btn { opacity: .35; cursor: default; }
 .effort-pick.locked .opt-btn:hover { border-color: var(--line-2); color: var(--muted); }
