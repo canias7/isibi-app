@@ -14448,10 +14448,16 @@ character is the separator, actually holds the property.
 
 Your call: clickable options, every new project, one question at a time.
 
-A first build now stops and asks one thing — with the answers as buttons, and a
-quiet **Skip — just build it** under them. Answer, and it may ask one more,
-chosen knowing what you just said. **Three at most, then it builds regardless.**
-A revise never asks; nothing changes on an existing site.
+A first build now stops and asks one thing — one answer per line, each with a
+number you can actually press, and a quiet **Skip — just build it** under them.
+Answer, and it may ask one more, chosen knowing what you just said. **Three at
+most, then it builds regardless.** A revise never asks; nothing changes on an
+existing site.
+
+**You picked the numbered look (D).** Press **1**, **2** or **3** to answer and
+**esc** to skip — the mockup showed Enter for skip and I moved it to esc, because
+Enter is the send key in the composer and one key doing two things is how that
+goes wrong. The numbers only fire when you are not typing in a box.
 
 The question rides on the routing call that was already happening, so it costs
 nothing extra beyond the routing itself (~0.3 credits). Against a build at ~28

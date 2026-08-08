@@ -649,6 +649,70 @@ test("only a build sends the answers, and only the live question keeps its butto
     "every past question in the thread keeps its buttons");
 });
 
+test("the printed key hints are keys that really work", () => {
+  // A HINT THAT LIES IS WORSE THAN NO HINT: it teaches a shortcut and then
+  // ignores it. The numbers are the whole reason this treatment was chosen over
+  // the other three, so the rendering and the handler are checked against each
+  // other rather than each on its own.
+  const src = chat();
+  const a = src.indexOf("function siteAskHTML(");
+  const render = src.slice(a, src.indexOf("document.addEventListener('keydown'", a));
+  // Rendered 1-based, in order, one per option.
+  assert.match(render, /<kbd>' \+ \(i \+ 1\) \+ '<\/kbd>/, "the options are no longer numbered from 1");
+  assert.match(render, /<kbd>esc<\/kbd>/, "the skip key hint is gone");
+
+  const k = src.indexOf("document.addEventListener('keydown'", a);
+  const keys = src.slice(k, src.indexOf("\n});", k));
+  assert.ok(keys.length > 300, "the key handler moved; this guard checks nothing");
+  // The digit maps back 1-based, off the SAME live question the buttons come
+  // from — so a number and a click cannot answer differently.
+  assert.match(keys, /siteAnswer\(opts\[n - 1\]\)/, "the numbers are off by one, or wired to nothing");
+  // BOUNDED AT BOTH ENDS. Without the upper bound, pressing 9 on a three-option
+  // question calls preventDefault and swallows the keypress to do nothing —
+  // `siteAnswer` refuses the empty string, so it is silent rather than wrong,
+  // which is exactly the kind of inert wiring that survives a whole suite.
+  assert.match(keys, /n >= 1 && n <= opts\.length/, "a digit past the end of the list is still handled");
+  assert.match(keys, /reverse\(\)\.find\(/, "the keys read a different question from the buttons");
+  assert.match(keys, /e\.key === 'Escape'.*siteAnswer\('', true\)/s, "esc does not skip");
+  // ENTER IS NOT BOUND, and that is the deviation from the mockup. Enter is the
+  // composer's send key; bound here it either fights that or works only when the
+  // box happens to be empty — one shortcut doing two different things.
+  assert.ok(!/'Enter'/.test(keys), "Enter is bound here and collides with send");
+});
+
+test("the keys never fire where somebody is typing", () => {
+  // THE WHOLE DIFFICULTY OF THIS TREATMENT. The composer is a text field and the
+  // customer has just typed a brief into it, so a bare "1" bound globally would
+  // put a digit in the box on some paths and answer a question on others.
+  const src = chat();
+  const k = src.indexOf("document.addEventListener('keydown'", src.indexOf("function siteAskHTML("));
+  const keys = src.slice(k, src.indexOf("\n});", k));
+  for (const guard of ["input", "textarea", "select", "isContentEditable"]) {
+    assert.ok(keys.includes(guard), "typing into a " + guard + " would be swallowed");
+  }
+  // Modifiers are the browser's: Cmd+1 and Alt+1 switch tabs.
+  assert.match(keys, /e\.metaKey \|\| e\.ctrlKey \|\| e\.altKey/, "a browser shortcut would be hijacked");
+  // And only while a question is actually live — otherwise every digit typed
+  // anywhere on the page would look for one.
+  assert.match(keys, /if \(!site \|\| !site\.clarify \|\| siteBusy\) return;/,
+    "the keys fire with no question on screen, or during a build");
+});
+
+test("the answers are one per line, which is why this layout was chosen", () => {
+  // These are short sentences the model writes, not chips we choose, so any
+  // row-based layout wraps unevenly on exactly the wording that turns up in
+  // practice. A column cannot degrade — that was the decision.
+  const css = fs.readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
+  const i = css.indexOf(".st-opts {");
+  assert.ok(i > 0, "the option styling is gone");
+  assert.match(css.slice(i, i + 200), /flex-direction: column/, "the answers wrap in a row again");
+  // The key chips are a FIXED width, or "esc" is wider than "1" and the labels
+  // sit on a ragged left edge. Measured before this was pinned: 28px out.
+  const kbd = css.indexOf(".st-opt kbd {");
+  assert.ok(kbd > 0);
+  assert.match(css.slice(kbd, kbd + 260), /width: [\d.]+em/, "the key hints are not a fixed width");
+});
+
 test("a typed reply during a round is an ANSWER, not a new brief", () => {
   // Typing instead of clicking is normal — the options cover the likely answers,
   // not every answer. Routed down the ordinary path it would start a fresh build

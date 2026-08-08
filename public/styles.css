@@ -1583,26 +1583,39 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    than coloured: the platform is monochrome, and a caveat that depends on hue
    says nothing in greyscale. */
 .st-note { font-size: .8rem; color: var(--muted); line-height: 1.45; margin: 0 0 .45rem; padding-left: .6rem; border-left: 2px solid var(--line); }
-/* The answers to a question the builder asked before building. Wrapping rather
-   than a row: an option is a short sentence, not a chip, and three of them will
-   not sit on one line in a narrow chat pane at any size worth designing for.
-   The buttons carry a real border and a hover, because something clickable that
-   looks like body text is something nobody clicks. */
-.st-opts { display: flex; flex-wrap: wrap; gap: .4rem; margin: .6rem 0 .2rem; }
-.st-opt { font: inherit; font-size: .82rem; line-height: 1.3; text-align: left; cursor: pointer;
-  padding: .42rem .7rem; border-radius: 9px; border: 1px solid var(--line-2);
-  background: var(--panel); color: var(--text); }
-.st-opt:hover { border-color: var(--text); }
+/* The answers to a question the builder asked before building (owner's pick,
+   2026-08-08: the numbered treatment).
+
+   ONE PER LINE rather than wrapped pills, and that is the layout decision the
+   others lost on: these are short sentences the model writes, not chips we
+   choose, so any row-based layout wraps unevenly on exactly the wording that
+   turns up in practice. A column cannot degrade.
+
+   Quiet by default — no fill, no border — because this appears inside a chat
+   thread and three bordered boxes in a row would read as a form. The weight is
+   in the hover instead, which is also where the affordance has to be: something
+   clickable that looks like body text is something nobody clicks. */
+.st-opts { display: flex; flex-direction: column; gap: .1rem; margin: .55rem 0 .2rem; align-items: flex-start; }
+.st-opt { display: flex; align-items: baseline; gap: .6rem; width: 100%; font: inherit; font-size: .84rem;
+  line-height: 1.35; text-align: left; cursor: pointer; padding: .34rem .4rem; border-radius: 7px;
+  border: 1px solid transparent; background: none; color: var(--text); }
+.st-opt:hover { background: var(--panel); border-color: var(--line); }
 .st-opt:active { transform: translateY(1px); }
-.st-opt:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
-/* The way out, and it is deliberately QUIETER than the answers rather than
-   hidden — a skip that reads as prominently as the options invites a reflex
-   click past a question worth answering, and one that cannot be found is the
-   interrogation this feature has to avoid. Pushed to its own line so it is never
-   mistaken for a fourth answer. */
-.st-opt-skip { flex-basis: 100%; border-color: transparent; background: none;
-  color: var(--muted); padding-left: 0; padding-right: 0; margin-top: .05rem; }
-.st-opt-skip:hover { border-color: transparent; color: var(--text); text-decoration: underline; }
+.st-opt:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
+/* The key that really works. `flex: none` and a min-width so 1, 2 and esc all
+   occupy the same column — ragged hints read as decoration, and these are not
+   decoration. */
+.st-opt kbd { font: 600 .68rem/1 ui-monospace, Menlo, Consolas, monospace; color: var(--muted);
+  border: 1px solid var(--line-2); border-radius: 4px; padding: .2rem .34rem;
+  width: 2.6em; text-align: center; flex: none; }
+.st-opt:hover kbd { color: var(--text); border-color: var(--line-2); }
+.st-opt span { min-width: 0; }
+/* The way out, deliberately QUIETER than the answers rather than hidden — one
+   that reads as prominently invites a reflex click past a question worth
+   answering, and one that cannot be found is the interrogation this feature
+   exists to avoid. */
+.st-opt-skip { color: var(--muted); }
+.st-opt-skip:hover { color: var(--text); }
 .st-act { font: inherit; font-size: .8rem; background: none; border: none; color: var(--muted); cursor: pointer; padding: 0; }
 .st-act:hover { color: var(--text); }
 .st-msg.st-busy { color: var(--muted); }

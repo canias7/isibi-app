@@ -11102,11 +11102,53 @@ function siteAskHTML(m, site) {
   // in the thread is history and its buttons would answer the wrong question.
   const live = [...(site.msgs || [])].reverse().find((x) => x && x.r === 'a' && x.q);
   if (!live || live !== m) return '';
+  // NUMBERED, and the numbers are REAL — the keydown listener below this
+  // function is what makes them so. A hint printed beside an option that does
+  // nothing when pressed is worse than no hint: it teaches a shortcut and then
+  // ignores it.
   return '<div class="st-opts">' +
-    m.opts.slice(0, 4).map((o) => '<button type="button" class="st-opt" data-ans="' + esc(String(o)) + '">' + esc(String(o)) + '</button>').join('') +
-    '<button type="button" class="st-opt st-opt-skip" data-skip="1">Skip &mdash; just build it</button>' +
+    m.opts.slice(0, 4).map((o, i) =>
+      '<button type="button" class="st-opt" data-ans="' + esc(String(o)) + '">' +
+        '<kbd>' + (i + 1) + '</kbd><span>' + esc(String(o)) + '</span>' +
+      '</button>').join('') +
+    // ESC, NOT ENTER, and the mockup said Enter. Enter is the composer's send
+    // key: bound here it either fights that or works only when the box happens
+    // to be empty, which is a shortcut that silently does two different things.
+    // Esc means dismiss everywhere else and collides with nothing.
+    '<button type="button" class="st-opt st-opt-skip" data-skip="1">' +
+      '<kbd>esc</kbd><span>Skip &mdash; just build it</span>' +
+    '</button>' +
   '</div>';
 }
+
+// The keys behind the numbers.
+//
+// GUARDED ON WHERE THE FOCUS IS, which is the whole difficulty: the composer is
+// a text field and the customer has just typed a brief into it, so a bare "1"
+// bound globally would put a digit in the box on some paths and answer a
+// question on others. Typing anywhere that takes text always wins.
+//
+// Modifiers are excluded too — Cmd+1 and Alt+1 are the browser's own tab
+// switching, and stealing them to answer a question about a barber shop is not a
+// trade anybody would accept.
+document.addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const el = e.target;
+  const tag = el && el.tagName ? el.tagName.toLowerCase() : '';
+  if (tag === 'input' || tag === 'textarea' || tag === 'select' || (el && el.isContentEditable)) return;
+  const site = siteById(siteOpenId);
+  if (!site || !site.clarify || siteBusy) return;
+  if (e.key === 'Escape') { e.preventDefault(); siteAnswer('', true); return; }
+  // The options of the LIVE question, read off the thread — the same one
+  // `siteAskHTML` renders buttons for, so a number and a click cannot disagree
+  // about which answer is which.
+  const live = [...(site.msgs || [])].reverse().find((x) => x && x.r === 'a' && x.q);
+  const opts = (live && Array.isArray(live.opts)) ? live.opts.slice(0, 4) : [];
+  const n = Number(e.key);
+  if (!(n >= 1 && n <= opts.length)) return;
+  e.preventDefault();
+  siteAnswer(opts[n - 1]);
+});
 
 function siteAnswer(label, skip) {
   const site = siteById(siteOpenId);
