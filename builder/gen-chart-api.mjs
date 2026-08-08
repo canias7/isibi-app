@@ -158,7 +158,19 @@ export function build() {
   for (const file of fs.readdirSync(LIB_DIR).filter((f) => f.endsWith(".tsx")).sort()) {
     const source = fs.readFileSync(path.join(LIB_DIR, file), "utf8");
     const domain = file.replace(/\.tsx$/, "");
-    const names = exportedNames(source);
+    // COMPONENTS ONLY. `exportedNames` returns every export, and several modules
+    // ship a data FABRICATOR beside the chart — `sampleBoxes`, `rng`, `density`,
+    // `seed`. Those are real exports, so importing one compiles and bundles, and
+    // the model reading a catalogue of "chart components" has no way to tell them
+    // apart: it would publish a chart of random numbers to a real business's
+    // visitors. Exactly what the demo-import lint exists to stop, arriving
+    // through the catalogue instead.
+    //
+    // A React component is PascalCase by convention and every real one here
+    // follows it, so the initial capital is the whole filter — and it is derived
+    // rather than a deny-list, which would need a new entry every time somebody
+    // adds a helper.
+    const names = exportedNames(source).filter((n) => /^[A-Z]/.test(n));
     if (!names.length) continue;
     components[domain] = names;
     const sigs = extractSignatures(source);

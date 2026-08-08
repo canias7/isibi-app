@@ -19,7 +19,7 @@ import { THEME_IDS, THEME_SHORTLIST, ALL_THEMES, resolveTheme } from "../builder
 import { themeCss, THEMES } from "../builder/site-theme.mjs";
 import { briefWithLayout } from "../builder/page-gen.mjs";
 import { FAMILY_NAMES, READY_FAMILIES, STRUCTURE_NAMES, STRUCTURES, layoutDirective, familiesForPrompt, structuresForPrompt, FAMILIES } from "../builder/site-layouts.mjs";
-import { UI_COMPONENTS, UI_SHORTLIST, PAGE_RULES } from "../builder/page-gen.mjs";
+import { UI_COMPONENTS, UI_SHORTLIST, PAGE_RULES, schemaDigest, lintPages } from "../builder/page-gen.mjs";
 
 const ROOT = path.join(import.meta.dirname, "..");
 const worker = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
@@ -515,4 +515,50 @@ test("a prototype key is not a theme", () => {
     assert.equal(resolveTheme(k), null, k + " resolves to something");
   }
   assert.ok(resolveTheme(THEME_SHORTLIST[0]), "a real theme still resolves");
+});
+
+test("the third-party api tier is reachable by a generated page", () => {
+  // `useApi` was the ONE hook in @/lib/rows that no rule and no digest ever
+  // mentioned — so a site could declare an api, the platform would serve it, and
+  // no generated page could ever call it. The whole tier reachable by nothing,
+  // which is this repo's signature failure. Asserted as a chain: the hook exists,
+  // the digest names what was declared, and the lint catches a name that was not.
+  const rows = fs.readFileSync(path.join(ROOT, "builder/lovable/template/src/lib/rows.ts"), "utf8");
+  assert.match(rows, /export function useApi\b/, "the hook is gone");
+  const spec = { tables: [{ name: "m", access: "display", columns: ["a"] }], apis: [{ name: "rates", params: ["base"] }] };
+  const digest = schemaDigest(spec);
+  assert.match(digest, /useApi\(name, \{ params \}\)/, "the digest never names the hook");
+  assert.match(digest, /rates\(base\)/, "a declared api is not described to the model");
+  assert.deepEqual(lintPages([{ path: "index.tsx", source: 'useApi("rates", {})' }], spec), [],
+    "a declared api is refused");
+  assert.equal(lintPages([{ path: "index.tsx", source: 'useApi("weather", {})' }], spec).length, 1,
+    "an undeclared api compiles, publishes and 404s — the lint has to catch it");
+  // And a site that declares none says nothing at all, rather than an empty header.
+  assert.ok(!/OUTSIDE DATA/.test(schemaDigest({ tables: spec.tables })), "an empty section is still tokens");
+});
+
+test("the client accepts a build that answered, flaws and all", () => {
+  // `!d.error` refused every placeholder build that carried a reason — which is
+  // all of them: the route returns `error` beside `ok:true` on validate, home,
+  // typecheck, build and generate. The most common real failure took the ERROR
+  // branch, which claims "you weren't charged" over charged stages and never
+  // records the slug that WAS provisioned, so the project lost its own database
+  // and the next message ran as a fresh first build against a claimed slug.
+  //
+  // `error: true` is the client's OWN stream sentinel; the server sends a string.
+  assert.match(clientJs, /if \(r\.ok && d && d\.error !== true && d\.slug\) \{/,
+    "a placeholder build with a reason is refused again");
+  assert.ok(!/if \(r\.ok && d && !d\.error && d\.slug\)/.test(clientJs), "the truthiness check is back");
+});
+
+test("account deletion stops when the site sweep did not finish", () => {
+  // Not best-effort: `site_backends.uid` cascades with `auth.users`, so deleting
+  // the account over a half-finished sweep leaves sites serving publicly with
+  // nothing left that can authorise removing them. There is no second chance.
+  const i = clientJs.indexOf("/api/site/delete-all");
+  assert.ok(i > 0, "account deletion no longer sweeps the sites");
+  const block = clientJs.slice(i, i + 1200);
+  assert.match(block, /if \(!dr\.ok \|\| !dj \|\| dj\.ok !== true\) \{/, "a partial sweep no longer stops the deletion");
+  assert.match(block, /return;/, "it must not fall through to deleting the account");
+  assert.match(block, /was NOT deleted/, "and the customer has to be told why");
 });

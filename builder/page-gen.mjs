@@ -2333,6 +2333,21 @@ export function schemaDigest(spec) {
         return "  " + f.name + "(" + args + ") -> " + (f.returns || "void");
       }).join("\n")
     : "";
+  // THIRD-PARTY READS, which the model was never told about at all. `useApi` is
+  // the one hook in `@/lib/rows` no rule and no digest ever mentioned, so a site
+  // could declare an api, the platform would serve it, and no generated page
+  // could ever call it — the whole tier reachable by nothing, which is this
+  // repo's signature failure and the reason `apis` is stated here beside the
+  // functions rather than left for the model to discover.
+  const apis = (spec && Array.isArray(spec.apis) ? spec.apis : []).filter((a) => a && a.name);
+  const apiLines = apis.length
+    ? "\n\nOUTSIDE DATA this site can read — call these by NAME with useApi(name, { params }), and NO others:\n" +
+      apis.map((a) => {
+        const ps = (Array.isArray(a.params) ? a.params : []).join(", ");
+        return "  " + a.name + "(" + ps + ")" +
+          " — the platform holds the key and does the call; the page only gets the answer back as JSON.";
+      }).join("\n")
+    : "";
   const tableLines = tables.map((t) => {
     const access = String(t.access || "collect").toLowerCase();
     // Columns arrive in two shapes and BOTH must work. normalizeSchema produces
@@ -2396,7 +2411,7 @@ export function schemaDigest(spec) {
     }
     return lines.join("\n");
   }).join("\n\n");
-  return tableLines + fnLines;
+  return tableLines + fnLines + apiLines;
 }
 
 /**
@@ -2634,6 +2649,8 @@ export function lintPages(pages, spec) {
   const allFns = (spec && Array.isArray(spec.functions) ? spec.functions : []).filter((f) => f && f.name);
   const fns = new Set(allFns.filter((f) => !f.internal).map((f) => String(f.name).toLowerCase()));
   const internalFns = new Set(allFns.filter((f) => f.internal).map((f) => String(f.name).toLowerCase()));
+  const declaredApis = new Set((spec && Array.isArray(spec.apis) ? spec.apis : [])
+    .map((a) => String((a && a.name) || "").toLowerCase()).filter(Boolean));
   for (const t of (spec && Array.isArray(spec.tables) ? spec.tables : [])) {
     if (t && t.name) tables.set(String(t.name).toLowerCase(), t);
   }
@@ -2642,8 +2659,15 @@ export function lintPages(pages, spec) {
   const memberTables = [...tables.values()].filter((t) => needsMember(t.access));
 
   for (const { path, source } of pages) {
-    // Strip comments and string literals before pattern-matching, so a rule in a
-    // doc comment is not reported as the code doing it.
+    // Strip COMMENTS before pattern-matching, so a rule quoted in a doc comment is
+    // not reported as the code doing it. String literals are deliberately NOT
+    // stripped — this comment claimed they were, which is the kind of note that
+    // outlives the code it describes. Hand-lexing template literals to blank them
+    // gets nested backticks wrong and an over-blanking scanner HIDES real code,
+    // which is the direction that costs a bug rather than a false alarm. The
+    // price of leaving them: page copy containing the literal text "fetch (" is
+    // reported as fetch code. A lint problem does not block publishing, so a rare
+    // false alarm is the cheaper side of that trade.
     const code = source
       .replace(/\/\*[\s\S]*?\*\//g, " ")
       .replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
@@ -2836,6 +2860,17 @@ export function lintPages(pages, spec) {
               : "That module exports: " + names.join(", ") + "."));
         }
       }
+    }
+
+    // `useApi` FOR A NAME THE SCHEMA NEVER DECLARED. Same class as the useRpc
+    // check: the call compiles, the page publishes, and the route answers 404 to
+    // every visitor. The hook was invisible to the model until the digest started
+    // naming the declared apis, so this is the other half of making it usable —
+    // being told what exists, and being told when a name is not one of them.
+    for (const m of code.matchAll(/\buseApi\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
+      if (declaredApis.has(m[1].toLowerCase())) continue;
+      say(path, 'calls useApi("' + m[1] + '"), which the schema does not declare. ' +
+        (declaredApis.size ? "Declared: " + [...declaredApis].join(", ") + "." : "This schema declares no outside data sources at all."));
     }
 
     // A PHOTOGRAPH TOKEN SOMEWHERE AN UNBOUGHT PICTURE WOULD BREAK.

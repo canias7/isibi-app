@@ -43,10 +43,23 @@ test("every name in the catalogue is really exported by the module it is listed 
   // The listing is what the model picks from; if a name is filed under the wrong
   // domain the import compiles nowhere and the lint below cannot help, because
   // the lint reads this same table.
+  //
+  // COMPONENTS ONLY on both sides. The catalogue used to be every export, which
+  // put data FABRICATORS in it — `sampleBoxes`, `rng`, `density`, `seed`. Those
+  // import and compile, and a model reading a list of "chart components" cannot
+  // tell them apart, so it would publish a chart of random numbers to a real
+  // business's visitors. The filter is the PascalCase convention every real
+  // component here follows, derived rather than a deny-list.
   for (const [domain, names] of Object.entries(CHART_COMPONENTS)) {
     const real = exportedNames(fs.readFileSync(path.join(LIB, domain + ".tsx"), "utf8"));
-    assert.deepEqual(names, real, `${domain} is listed with names it does not export`);
+    assert.deepEqual(names, real.filter((n) => /^[A-Z]/.test(n)), `${domain} is listed with names it does not export`);
+    assert.deepEqual(names.filter((n) => !/^[A-Z]/.test(n)), [], `${domain} lists a non-component export`);
   }
+  // And the filter really removes something, or it is decoration: several modules
+  // ship a fabricator beside the chart.
+  const anyLower = Object.keys(CHART_COMPONENTS).some((d) =>
+    exportedNames(fs.readFileSync(path.join(LIB, d + ".tsx"), "utf8")).some((n) => !/^[A-Z]/.test(n)));
+  assert.ok(anyLower, "no module exports a non-component any more — the filter is now a no-op");
 });
 
 test("the catalogue is in the prompt, or none of this is reachable", () => {

@@ -1187,3 +1187,57 @@ test("a nonsense deposit is treated as zero, not as NaN", () => {
     assert.equal(schemaSettlement(u, bad), pageCredits(u), String(bad) + " must read as no deposit");
   }
 });
+
+test("collectCredits takes what is there when the ledger refuses the full bill", () => {
+  // worker.js cannot be imported, and this is the function the critical bug turns
+  // on: `use_credits` answers -1 and debits ZERO when the balance is short, so a
+  // caller that ignores the answer collects nothing and reports a charge.
+  //
+  // Mutation found both halves uncovered: dropping the `>= 0` check, and
+  // returning `take` without checking the second call succeeded.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const fn = src.slice(src.indexOf("async function collectCredits"), src.indexOf("// Reverse a small service fee"));
+  assert.ok(fn.length > 300, "collectCredits moved — this guard checks nothing");
+  assert.match(fn, /if \(\(await useCredits\(authHeader, want\)\) >= 0\) return want;/,
+    "the -1 answer is ignored, so a short balance collects nothing");
+  assert.match(fn, /const bal = Math\.max\(0, Number\(await readCredits\(authHeader\)\) \|\| 0\);/,
+    "nothing reads the balance to fall back to");
+  assert.match(fn, /return \(await useCredits\(authHeader, take\)\) >= 0 \? take : 0;/,
+    "the second debit's answer is ignored too — it reports collecting what it may not have");
+});
+
+test("every after-the-fact settle goes through collectCredits, not useCredits", () => {
+  // The split that matters: a call site that GATES reads the -1 and refuses; one
+  // that SETTLES after the work was done must collect what it can. Mixing them up
+  // is how this shipped charging nothing.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(src, /useCredits: \(n\) => collectCredits\(auth, n\)/, "publishPages' dep still only asks");
+  assert.match(src, /schemaCost = SITE_BUILD_FEE \+ await collectCredits\(/, "the schema settlement still only asks");
+  assert.match(src, /rCost = await collectCredits\(auth, rCost\)/, "the router still only asks");
+});
+
+test("refundCredits gives back the WHOLE amount, not one capped call", () => {
+  // `credit_back` hard-caps a call at 10 and a cold Opus schema settles to 15, so
+  // a single call keeps 5 on the one path that refunds in full. Mutation proved
+  // asserting `Math.min(10, left)` alone passes when the INPUT is clamped instead.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  // Sliced to the NEXT landmark after it, not to a comment that sits above it —
+  // `refundCredits` follows `creditBack`, so ending at the creditBack banner gave
+  // an empty window that matched nothing and passed vacuously.
+  const at = src.indexOf("async function refundCredits");
+  const fn = src.slice(at, src.indexOf("// Read the caller's balance", at));
+  assert.ok(fn.length > 150 && fn.length < 1200, "refundCredits moved — window is " + fn.length);
+  assert.match(fn, /let left = Math\.max\(0, Number\(amount\) \|\| 0\);/,
+    "the amount is clamped on the way IN, so the loop can never reach the rest");
+  assert.match(fn, /left -= chunk;/, "nothing decrements, so this loops or refunds once");
+  assert.match(fn, /Math\.min\(10, left\)/, "it must split into calls the RPC accepts");
+});
+
+test("a refusal AFTER the design call refunds the schema charge", () => {
+  // Four of them, and all four returned before anything was provisioned while the
+  // client asserted "you weren't charged". Asserted by counting: a single missed
+  // branch is the whole bug.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const refunds = (src.match(/await refundCredits\(env, bu\.id, Math\.max\(0, schemaCost\)\)/g) || []).length;
+  assert.ok(refunds >= 4, `only ${refunds} post-design refusals refund the schema charge — expected the 409, the 503, the no-tables 400 and the provisioning conflict`);
+});

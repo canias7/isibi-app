@@ -17,7 +17,7 @@ import {
 } from "../builder/site-images.mjs";
 import { FAMILIES, READY_FAMILIES } from "../builder/site-layouts.mjs";
 import { IMAGE_USD, pageCost, pageCredits } from "../builder/publish-pages.mjs";
-import { lintPages, PAGE_RULES, briefWithLayout, SAFE_IMAGE_COMPONENTS } from "../builder/page-gen.mjs";
+import { lintPages, PAGE_RULES, briefWithLayout, SAFE_IMAGE_COMPONENTS, schemaDigest, validatePages } from "../builder/page-gen.mjs";
 
 const page = (path, source) => ({ path, source });
 
@@ -510,4 +510,45 @@ test("an ordinary description still parses", () => {
   // above and quietly turn the whole feature off.
   assert.deepEqual(parseImageTokens([page("a.tsx", '"@@IMG:the shop front at dusk@@"')]).map((t) => t.prompt),
     ["the shop front at dusk"]);
+});
+
+/* ------------------------------------------------ what the digest may name */
+
+test("an internal function is neither advertised nor accepted", () => {
+  // `internal: true` means REVOKEd from PUBLIC and never granted to the Data API
+  // roles — the flag exists because a confirmation builder returns somebody's
+  // address and message. The digest listed them anyway and the lint accepted the
+  // call, so the page compiled, published and answered 403 to every visitor.
+  const spec = {
+    tables: [{ name: "bookings", access: "collect", columns: [{ name: "email", type: "text" }] }],
+    functions: [
+      { name: "confirm_booking", args: [{ name: "id", type: "int" }], returns: "text", internal: true },
+      { name: "slots_left", args: [], returns: "int" },
+    ],
+  };
+  const digest = schemaDigest(spec);
+  assert.ok(!/confirm_booking/.test(digest), "an internal function is offered to the model");
+  assert.match(digest, /slots_left/, "a callable one is no longer offered — the filter is too wide");
+
+  const bad = lintPages([page("index.tsx", 'useRpc("confirm_booking", {})')], spec);
+  assert.equal(bad.length, 1);
+  assert.match(bad[0], /declares as internal/, "an internal call is reported as merely undeclared");
+  assert.deepEqual(lintPages([page("index.tsx", 'useRpc("slots_left", {})')], spec), []);
+});
+
+test("a link to a nested index route is left alone", () => {
+  // `menu/index.tsx` is `/menu` to TanStack. The route was derived as
+  // `/menu/index`, so every CORRECT link to it was treated as dangling and
+  // rewritten to "/" — the page existed, nothing reached it, and a false problem
+  // was reported on a site that published.
+  const route = (p) => `import { createFileRoute } from "@tanstack/react-router";
+export const Route = createFileRoute("/")({ component: P });
+function P(){ return <div><Link to="/menu">m</Link></div>; }`;
+  const r = validatePages({ pages: [page("index.tsx", route()), page("menu/index.tsx", route())], notes: "" });
+  assert.deepEqual(r.problems, [], "a correct link was reported as dangling");
+  assert.match(r.pages[0].source, /to="\/menu"/, "the link was rewritten to the home page");
+  // And a link that really IS dangling is still caught, or the fix is a hole.
+  const bad = validatePages({ pages: [page("index.tsx", route())], notes: "" });
+  assert.equal(bad.problems.length, 1);
+  assert.match(bad.pages[0].source, /to="\/"/);
 });
