@@ -14524,6 +14524,48 @@ had balance since roughly 04:20 on 2026-08-08 — I had been repeating "no balan
 after that stopped being true, which is on me. `build smoke` was green at 04:20
 and red at 04:46, and the only thing between those two runs was this change.
 
+## Your sites get real photographs now (2026-08-08)
+
+**Your call: how many depends on the type of page, capped at 6 on a first build.**
+
+Up to today every picture on every site the builder made was a placeholder — the
+angled duotone tile with the caption on it. Now the builder writes a description
+of the photograph it wants and we go and generate it, store it in that site's own
+image library, and put it on the page.
+
+**The number to know: one photograph costs about 19 credits, and a whole build
+costs about 21.** So one picture roughly doubles the price of a site and six
+roughly sextuple it. That is why almost all of this is about how many to buy
+rather than how to buy them.
+
+**What each kind of site gets**, measured across all 100 layout families:
+
+| photographs | sites | what they are |
+|---|---|---|
+| 0 | 5 | the monospace/terminal ones — those designs have no imagery by definition |
+| 1 | 56 | one opening picture, and that is it |
+| 2 | 14 | usually a home page plus a gallery page |
+| 3–5 | 25 | agencies, hotels, festivals, galleries — where the pictures ARE the product |
+
+Average 1.72, so an average build goes from 21 credits to about 53. An agency
+gets 5 and costs 114. An accountant gets 1 and costs 39. A terminal-style site
+gets none and stays at 21.
+
+**Nobody ever gets refused a build because of this.** The photographs are bought
+out of what is left AFTER the build has been paid for, so a new account with the
+20-credit grant buys none and gets exactly the site it would have got yesterday
+— placeholders and all. This is deliberate: a floor that included even one
+picture would have refused every new account's first build, which is the same
+mistake the Builder picker's `auto` option made this morning, five times bigger.
+
+**If a picture cannot be had, the placeholder comes back.** The image model being
+down, the site running out of budget mid-build, the page asking for twelve when
+it may have six — all of them fall back rather than failing. The chat now says
+which of those happened, because on the page they all look identical.
+
+**Not proven live yet: the fal balance is empty**, so every photograph will fail
+and fall back until it is topped up. Nothing is charged for one that fails.
+
 ### Still to do
 
 - **Turnstile has no live proof.** 24 unit tests and 11 mutations, but no real bot
