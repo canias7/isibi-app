@@ -10415,9 +10415,26 @@ function renderSiteWorkspace(view, site) {
             ((isReact && site.backend) ? '<button type="button" class="st-vtab' + (siteView === 'data' ? ' on' : '') + '" data-view="data">' + ic('grid', 14) + ' Data</button>' : '') +
             '<button type="button" class="st-vtab' + (siteView === 'more' ? ' on' : '') + '" data-view="more">' + ic('grid', 14) + ' More</button>' +
           '</div>' +
-          (siteView === 'preview' ? picker + '<button type="button" class="st-icon" id="stReload" title="Refresh preview" aria-label="Refresh preview">' + ic('reload', 15) + '</button>' : '') +
         '</div>' +
         '<div class="st-tb-right">' +
+          // THE PREVIEW-ONLY CONTROLS. Two things here stop the view tabs moving
+          // when you switch away from Preview, and both are needed.
+          //
+          // They live in THIS group rather than in `.st-tb-mid`, which is centred
+          // by its total width — so with these inside it the tabs slid 66px right
+          // the moment you left Preview, and another 8px on a multi-page site
+          // where the picker is wider than the word "Homepage". Both measured.
+          // They still read as sitting just right of the tabs: this group begins
+          // exactly where the centred tabs end, and `margin-right: auto` parks
+          // them at that edge while everything else stays flush right.
+          //
+          // And they are always RENDERED, only hidden, because the two side
+          // groups split the bar between them — so removing this block still
+          // moves the centre. Reserving the space keeps both sides the same
+          // width in every view.
+          '<div class="st-tb-pv' + (siteView === 'preview' ? '' : ' st-tb-pv-off') + '"' +
+            (siteView === 'preview' ? '' : ' aria-hidden="true"') + '>' + picker +
+            '<button type="button" class="st-icon" id="stReload" title="Refresh preview" aria-label="Refresh preview">' + ic('reload', 15) + '</button></div>' +
           '<div class="st-devs">' +
             '<button type="button" class="st-dev' + (siteDevice === 'desktop' ? ' on' : '') + '" data-dev="desktop" title="Desktop">' + ic('desktop', 16) + '</button>' +
             '<button type="button" class="st-dev' + (siteDevice === 'tablet' ? ' on' : '') + '" data-dev="tablet" title="Tablet">' + ic('tablet', 16) + '</button>' +

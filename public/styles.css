@@ -1433,6 +1433,13 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-tb-names { display: flex; flex-direction: column; min-width: 0; }
 .st-ws-name { font-weight: 700; font-size: .95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .st-ws-sub { font-size: .72rem; color: var(--muted); }
+/* THE VIEW TABS MUST NOT MOVE WHEN THE VIEW CHANGES.
+   `.st-tb-left` and `.st-tb-right` are both `flex: 1 1 0`, so this element is
+   centred by its TOTAL width — and the page picker plus the reload button used
+   to sit in here, existing only in the Preview view. Switching to Code or More
+   narrowed the group and slid the tabs 66px right; a multi-page site moved them
+   another 8px, the picker being wider than the word "Homepage". Both measured.
+   Holding nothing but the tabs, this is now the same width in every view. */
 .st-tb-mid { display: flex; align-items: center; gap: .55rem; }
 .st-pillbtn { display: inline-flex; align-items: center; gap: .35rem; font-size: .8rem; font-weight: 650; color: var(--muted); border: 1px solid var(--line-2); border-radius: 999px; padding: .34rem .8rem; }
 .st-pillbtn.on { color: var(--text); background: linear-gradient(rgba(28, 21, 35, .92), rgba(28, 21, 35, .92)) padding-box, var(--split) border-box; border: 1px solid transparent; }
@@ -1489,6 +1496,42 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-icon:hover:not([disabled]) { color: var(--text); border-color: rgba(0, 0, 0, .45); }
 .st-icon[disabled] { opacity: .4; cursor: default; }
 .st-tb-right { display: flex; align-items: center; gap: .5rem; flex: 1 1 0; justify-content: flex-end; }
+/* The Preview-only controls (page picker + reload), moved OUT of `.st-tb-mid`
+   so the view tabs stop moving when the view changes — see the note there.
+   They live at the START of the right-hand group: this box begins exactly where
+   the centred tabs end, so `margin-right: auto` parks them immediately to the
+   tabs' right and leaves everything else flush right. Identical to where they
+   have always appeared.
+   IN FLOW, DELIBERATELY. The first fix positioned them absolutely off
+   `.st-tb-mid`, which aligned the tabs perfectly and then ran the page name
+   under the device toggles at 1024-1180px — measured, a 57-115px overlap. In
+   flow they compress and push instead of colliding, which is the failure mode
+   worth having. `min-width: 0` is what lets the picker ellipsise rather than
+   refusing to shrink. */
+.st-tb-pv { display: flex; align-items: center; gap: .55rem; margin-right: auto; min-width: 0; }
+/* The two end buttons never wrap. Reserving the picker's space below makes the
+   bar tighter in the non-Preview views than it used to be, and "Live ↗" broke
+   onto a second line at 1180px, growing the whole toolbar — visible in a render,
+   invisible to every position measurement. They are short labels; if the bar
+   truly runs out of room the icon buttons beside them give way instead. */
+.st-share, .st-publish { white-space: nowrap; flex: none; }
+/* HIDDEN, NOT REMOVED, outside the Preview view — which is the whole fix, and
+   three attempts were needed to get here. Both side groups are `flex: 1 1 0`, so
+   they split the free space equally but only down to each one's MIN-CONTENT
+   size: this block pushes `.st-tb-right`'s min-content past its fair share, the
+   difference comes out of the left group, and the centre moves with it. Removing
+   the block on a view change therefore moves the tabs at ANY width.
+   Reserving the space instead means the two sides measure the same in every
+   view, so the tabs cannot move — with no truncation and nothing out of flow.
+   What was tried first, recorded because each looked right until it was
+   rendered: taking it out of flow aligned the tabs and ran the page name under
+   the device toggles at 1024-1180px; letting `.st-tb-right` shrink instead put
+   the squeeze on the reload button, which the picker then overlapped; giving the
+   name room to ellipsise cleanly reduced "Homepage" to "H". A measurement said
+   0px spread through all three. Only looking at it did.
+   `visibility: hidden` and not `display: none` — the space has to stay. It is
+   already out of the tab order and the accessibility tree. */
+.st-tb-pv-off { visibility: hidden; }
 .st-share { font: inherit; font-size: .84rem; font-weight: 650; color: var(--text); background: none; border: 1px solid var(--line-2); border-radius: 11px; padding: .5rem .95rem; cursor: pointer; }
 .st-share:hover { border-color: rgba(0, 0, 0, .45); }
 .st-publish {
