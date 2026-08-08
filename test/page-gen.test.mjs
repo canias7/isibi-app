@@ -1792,7 +1792,7 @@ test("images do NOT touch the cached blocks", () => {
   assert.deepEqual(withImgs.tool_choice, bare.tool_choice);
 });
 
-test("the prompt notes the attachments and otherwise stays out of the way", () => {
+test("the prompt notes the attachments and otherwise stays out of the way", async () => {
   // TWO CLAUSES, and it shrank twice to get there. The first draft assigned a
   // purpose per file type; the second explained at length how to work the
   // purpose out — which is teaching the model something it already knows. An
@@ -1805,6 +1805,22 @@ test("the prompt notes the attachments and otherwise stays out of the way", () =
   assert.match(one, /1 file, above this text/);
   assert.match(two, /2 files, above this text/);
   assert.match(one, /part of what they are asking for/);
+
+  // THE SECOND CLAUSE IS THE ONE THAT EARNS ITS PLACE. Everything else here the
+  // model gets from the message; what it cannot get is which of this prompt's
+  // TWO "references" wins. The attachment is about THEIR business and the trade
+  // exemplar is a generic shape, so a tie broken the other way makes the
+  // attachment decorative. Asserted in both directions — the sentence, and the
+  // ordering it depends on, since "the attachment wins" read AFTER the example
+  // is a rule about something the model has already copied.
+  const { FAMILY_EXEMPLARS } = await import("../builder/family-exemplars.mjs");
+  const [anyFamily] = Object.keys(FAMILY_EXEMPLARS);
+  const withExample = api.pagesPrompt("a cafe", SPEC, "Cafe", anyFamily, 1);
+  for (const anchor of ["the attachment wins", "A SITE OF THIS TRADE"]) {
+    assert.ok(withExample.includes(anchor), "missing anchor, so the ordering check is vacuous: " + anchor);
+  }
+  assert.ok(withExample.indexOf("the attachment wins") < withExample.indexOf("A SITE OF THIS TRADE"),
+    "the precedence clause reads after the example it takes precedence over");
 
   // The size is the assertion. Anything longer is the version that had to come
   // out — and a length check is the only thing that catches guidance creeping
