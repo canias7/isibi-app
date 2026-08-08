@@ -40,7 +40,7 @@ import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlI
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
 import { publishPages, pageCredits } from "./builder/publish-pages.mjs";
-import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, imageBlocks, MAX_QUERIES } from "./builder/site-context.mjs";
+import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
 import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
 import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis, eoqCalc, breakevenCalc, demandForecast, installmentPlan, taxCalc, commissionCalc } from "./worker-finance.mjs";
@@ -3287,14 +3287,14 @@ async function siteWebResearch(env, brief, queries) {
 //
 // ONE call per build. There is no repair pass — see builder/publish-pages.mjs
 // for the measurement it was removed on.
-async function generateSitePages(env, brief, spec, brand, family, images) {
+async function generateSitePages(env, brief, spec, brand, family, attachments) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
     // One definition, shared with the eval harness — see pagesRequest. Restating
     // it here would mean the harness tunes against a different request from the
     // one production runs.
-    body: JSON.stringify(pagesRequest({ brief, spec, brand, family, images })),
+    body: JSON.stringify(pagesRequest({ brief, spec, brand, family, attachments })),
     // No timeout — see designSiteSchema. This is the call it mattered most for:
     // three pages against a 24,000-token ceiling is the one that runs long.
   });
@@ -4896,7 +4896,7 @@ async function fetchSiteFonts(pair) {
 // all? — live in builder/publish-pages.mjs, which takes every side effect as an
 // injected function so they can be driven against fakes in test/publish-pages.test.mjs.
 // This is only the wiring that supplies the real ones.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, family, structure, images, priorUsage, mark }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, family, structure, attachments, priorUsage, mark }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
@@ -4918,7 +4918,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // and sent the bare brief — ~287 tokens of layout that every real build
       // carries and no sample ever did, so the compile rate described a prompt
       // the platform does not send.
-      return generateSitePages(env, briefWithLayout({ brief, family, structure }), spec, brand, family, images);
+      return generateSitePages(env, briefWithLayout({ brief, family, structure }), spec, brand, family, attachments);
     },
     compile: async (pages) => {
       const files = {};
@@ -7339,10 +7339,13 @@ async function handleRequest(request, env, ctx) {
       // IF NOT EXISTS), so both take the same path.
       const brief = String(body.brief || body.prompt || body.instruction || "").trim().slice(0, 4000);
 
-      // THE IMAGES THE USER ATTACHED, validated here and carried to page
-      // generation. The composer has always sent these and nothing has ever read
-      // them — see `siteImageBlocks` for what that meant in practice.
-      const attached = imageBlocks(body.images);
+      // WHAT THE USER ATTACHED, sorted into what the model can be shown
+      // (images, PDFs), what it can be told (text files, folded into the brief),
+      // and what it cannot be given at all. The composer has always sent these
+      // and nothing has ever read them — see `attachments` for what that meant
+      // in practice, and for why the third pile has to be reported rather than
+      // dropped.
+      const attached = attachments(body.images);
 
       // READING THE LINKS IN THE BRIEF. No model call, so no gate: if there is a
       // URL in there, somebody meant us to look at it.
@@ -7363,7 +7366,12 @@ async function handleRequest(request, env, ctx) {
       }
       // What the DESIGNER sees. Page generation gets this plus the researched
       // facts, which do not exist yet.
-      const briefWithLinks = linked.some((p) => p.ok) ? contextBrief(brief, { pages: linked }) : brief;
+      // The designer sees the linked pages AND any attached text file: a menu or
+      // a price list is evidence about what the site STORES, which is the
+      // question this next step answers.
+      const briefWithLinks = (linked.some((p) => p.ok) || attached.texts.length)
+        ? contextBrief(brief, { pages: linked, files: attached.texts })
+        : brief;
 
       // A brief means "design the schema"; an explicit schema skips the model.
       let designed = null;
@@ -7596,6 +7604,8 @@ async function handleRequest(request, env, ctx) {
         facts: (researched && researched.facts) || "",
         sources: (researched && researched.sources) || [],
         searches: (researched && researched.searches) || 0,
+        skipped: attached.skipped,
+        converted: attached.converted,
       });
 
       let pages = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
@@ -7628,10 +7638,11 @@ async function handleRequest(request, env, ctx) {
               pages: linked,
               facts: (researched && researched.facts) || "",
               sources: (researched && researched.sources) || [],
+              files: attached.texts,
             }),
             spec: pageSpec, slug, brand,
             siteDescription, ogImage,
-            images: attached,
+            attachments: attached.blocks,
             priorUsage: (researched && researched.usage) || null,
             fonts: (designed && designed.fonts) || (body && body.fonts) || null,
             // Same fallback chain as fonts, and it matters most on a REVISE:
@@ -7725,7 +7736,7 @@ async function handleRequest(request, env, ctx) {
         //
         // Omitted entirely on the ordinary build that linked nothing and
         // searched nothing, so this adds no noise to the common case.
-        context: (context.read.length || context.failed.length || context.searched) ? context : undefined,
+        context: (context.read.length || context.failed.length || context.searched || context.skipped || context.converted) ? context : undefined,
         // THE SAME THING AS A SENTENCE, composed HERE rather than in the client.
         // The client is a plain script and cannot import this module, so a
         // sentence built there would be a second copy of this logic that drifts

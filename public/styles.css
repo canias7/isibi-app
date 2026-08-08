@@ -5684,3 +5684,15 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 .fl-item.fl-gone a{display:flex;align-items:center;justify-content:center;
   aspect-ratio:1;background:var(--panel);font-size:.7rem;color:var(--muted)}
 .fl-item.fl-gone a::after{content:"not found"}
+
+/* An attachment with no picture — a PDF, a text file. The thumbnail tile would
+   render `<img src="undefined">` and paint a broken-image icon, which reads as
+   "your file failed" for one that is about to be used.
+
+   WIDTH IS THE WHOLE POINT. `.st-att` is a fixed 56px square, which is right
+   for a thumbnail and useless for a name: the first render came out as
+   "spri…" and "pric…", so the one piece of information the chip carries was
+   the one piece it cut off. Auto width with a ceiling, and the name is padded
+   clear of the remove button so a long one does not run underneath it. */
+.st-att-doc { width: auto; height: 56px; display: inline-flex; align-items: center; padding: 0 1.4rem 0 .6rem; background: var(--split); color: var(--on-accent); }
+.st-att-doc .st-att-name { font-size: .72rem; font-weight: 600; line-height: 1.25; max-width: 11rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

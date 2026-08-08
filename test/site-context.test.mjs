@@ -15,8 +15,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   extractUrls, pageText, readLinkedPages, normalizeQueries,
-  contextBrief, contextSummary, contextSentence, imageBlocks, shouldSearch,
-  MAX_URLS, MAX_QUERIES, MAX_IMAGES,
+  contextBrief, contextSummary, contextSentence, attachments, shouldSearch,
+  MAX_URLS, MAX_QUERIES, MAX_ATTACHMENTS,
 } from "../builder/site-context.mjs";
 
 // ── what counts as a link ──────────────────────────────────────────────────
@@ -447,78 +447,186 @@ test("the note is its own element, not glued into the message text", () => {
   assert.ok(!/note \+ \(mode ===/.test(chat), "the note is being glued onto the message text again");
 });
 
-// ── the images the user attached ───────────────────────────────────────────
+// ── what the user attached ─────────────────────────────────────────────────
 //
-// This validator was written inside worker.js, where nothing can import it, so
-// the only assertion possible was that it EXISTED — which is exactly how a
-// validator stays subtly wrong for months while a test reports it is there.
+// The first version took four image types and DROPPED everything else without a
+// word — a PDF menu, a promo clip, a price list, all gone in silence. Three
+// fates now, and the third one is what makes it honest: a file that cannot be
+// used is REPORTED, because dropping something somebody deliberately attached
+// is the same failure as not fetching a link they deliberately pasted.
 
 const dataUrl = (type = "image/png", n = 40) => "data:" + type + ";base64," + "A".repeat(n);
 
-test("a valid attachment becomes a model block", () => {
-  const [b] = imageBlocks([{ data: dataUrl("image/jpeg"), name: "logo.jpg" }]);
-  assert.deepEqual(b, { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "A".repeat(40) } });
-  // A bare string works too — the shape every other attachment on the platform
-  // uses.
-  assert.equal(imageBlocks([dataUrl()]).length, 1);
+test("an image and a PDF both reach the model, as their own block types", () => {
+  // The PDF is the one that matters commercially: a menu or a price list is the
+  // thing a small business already has, and the API reads it natively.
+  const got = attachments([
+    { data: dataUrl("image/jpeg"), name: "logo.jpg" },
+    { data: dataUrl("application/pdf"), name: "menu.pdf" },
+  ]);
+  assert.deepEqual(got.blocks.map((b) => b.type), ["image", "document"]);
+  assert.equal(got.blocks[0].source.media_type, "image/jpeg");
+  assert.equal(got.blocks[1].source.media_type, "application/pdf");
+  assert.deepEqual(got.skipped, []);
+});
+
+test("a text file is carried as words, not as a block", () => {
+  // A .txt IS the thing the model needs; base64-ing it to un-base64 it here
+  // would be ceremony, and it costs no new API surface this way.
+  const got = attachments([{ name: "prices.csv", text: " item,price\ncut,24 " }]);
+  assert.deepEqual(got.blocks, []);
+  assert.deepEqual(got.texts, [{ name: "prices.csv", text: "item,price\ncut,24" }]);
 });
 
 test("the media type is an allow-list, not whatever the client declared", () => {
-  // The type inside the data URL is echoed straight to the model as
-  // `media_type`. The regex IS the check; there is nothing downstream of it.
-  for (const t of ["image/png", "image/jpeg", "image/webp", "image/gif"]) {
-    assert.equal(imageBlocks([dataUrl(t)]).length, 1, t + " should be allowed");
+  // The type inside a data URL is echoed straight to the model as `media_type`.
+  // The regex IS the check; there is nothing downstream of it.
+  for (const t of ["image/png", "image/jpeg", "image/webp", "image/gif", "application/pdf"]) {
+    assert.equal(attachments([dataUrl(t)]).blocks.length, 1, t + " should be allowed");
   }
-  for (const t of ["image/svg+xml", "text/html", "application/pdf", "image/x-icon", "image/png; charset=x"]) {
-    assert.deepEqual(imageBlocks([dataUrl(t)]), [], t + " should be refused");
+  for (const t of ["image/svg+xml", "text/html", "application/zip", "image/png; charset=x"]) {
+    assert.deepEqual(attachments([dataUrl(t)]).blocks, [], t + " should be refused");
   }
 });
 
-test("anything malformed is dropped, never thrown on", () => {
-  assert.deepEqual(imageBlocks(["", "not a data url", "data:image/png;base64,", "data:image/png,raw"]), []);
-  assert.deepEqual(imageBlocks([null, undefined, 7, {}, { data: 5 }, []]), []);
-  assert.deepEqual(imageBlocks(null), []);
-  assert.deepEqual(imageBlocks("nope"), []);
-  // Non-base64 characters cannot slip through.
-  assert.deepEqual(imageBlocks(["data:image/png;base64,<script>"]), []);
+test("VIDEO AND AUDIO ARE REFUSED, and say why", () => {
+  // The API has no video or audio content block in any encoding, so a clip
+  // cannot be watched however it arrives. The client extracts a frame before
+  // sending; when it could not, saying so is the whole of what is left — and
+  // the reason names the KIND, because "we can't watch video" is actionable and
+  // "we couldn't read that file" is not.
+  const vid = attachments([{ data: "data:video/mp4;base64,AAAA", name: "promo.mp4" }]);
+  assert.deepEqual(vid.blocks, []);
+  assert.equal(vid.skipped[0].name, "promo.mp4");
+  assert.match(vid.skipped[0].reason, /can't watch video/);
+  assert.match(vid.skipped[0].reason, /screenshot/, "it must say what to do instead");
+
+  const aud = attachments([{ data: "data:audio/mpeg;base64,AAAA", name: "jingle.mp3" }]);
+  assert.match(aud.skipped[0].reason, /can't listen to audio/);
+});
+
+test("anything unusable is NAMED, never silently dropped", () => {
+  const got = attachments([
+    { name: "brochure.docx", type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
+    { name: "archive.zip" },
+    { name: "empty.txt", text: "   " },
+  ]);
+  assert.deepEqual(got.blocks, []);
+  assert.deepEqual(got.texts, []);
+  assert.equal(got.skipped.length, 3, "every unusable attachment must be reported");
+  assert.ok(got.skipped.every((a) => a.name && a.reason));
+  assert.match(got.skipped[2].reason, /empty/);
+});
+
+test("a video arrives as a still, and is reported as a still", () => {
+  // The client extracts a frame because the API takes no video in any encoding.
+  // Saying we "used promo.mp4" would overstate that by a lot — the customer
+  // attached a clip and we looked at one frame of it.
+  const got = attachments([{ data: dataUrl("image/jpeg"), name: "promo.mp4", frameOf: "promo.mp4" }]);
+  assert.equal(got.blocks.length, 1);
+  assert.deepEqual(got.converted, [{ name: "promo.mp4", as: "a still frame" }]);
+  const s = contextSentence(contextSummary({ converted: got.converted }));
+  assert.match(s, /Used a still frame from promo\.mp4/);
+  // An ordinary image says nothing extra.
+  assert.deepEqual(attachments([{ data: dataUrl(), name: "logo.png" }]).converted, []);
+  assert.equal(contextSummary({}).converted, undefined);
+});
+
+test("junk in never throws", () => {
+  for (const v of [null, undefined, "nope", [], [null, 7, {}, []]]) {
+    assert.doesNotThrow(() => attachments(v));
+  }
+  assert.deepEqual(attachments(null), { blocks: [], texts: [], skipped: [], converted: [] });
 });
 
 test("one bad attachment does not lose the good ones", () => {
-  // A build must not be degraded by a single unreadable file the customer
-  // happened to pick.
-  const got = imageBlocks([dataUrl("image/png"), "rubbish", { data: dataUrl("image/webp") }]);
-  assert.equal(got.length, 2);
-  assert.deepEqual(got.map((b) => b.source.media_type), ["image/png", "image/webp"]);
+  const got = attachments([dataUrl("image/png"), { name: "clip.mov", data: "data:video/quicktime;base64,AA" }, { data: dataUrl("image/webp") }]);
+  assert.equal(got.blocks.length, 2);
+  assert.equal(got.skipped.length, 1);
 });
 
-test("the count is capped at what the composer allows", () => {
-  assert.equal(imageBlocks(Array(10).fill(dataUrl())).length, MAX_IMAGES);
+test("the count is capped, and the overflow is reported rather than dropped", () => {
+  const got = attachments(Array(6).fill(0).map((_, i) => ({ data: dataUrl(), name: "f" + i + ".png" })));
+  assert.equal(got.blocks.length, MAX_ATTACHMENTS);
+  assert.equal(got.skipped.length, 6 - MAX_ATTACHMENTS, "the ones over the cap must be named");
+  assert.match(got.skipped[0].reason, /first 3/);
 });
 
-test("an oversized image is skipped without consuming the budget", () => {
-  // Counted AFTER the match, so a rejected string cannot eat the allowance a
-  // valid image behind it needed.
-  const huge = "data:image/png;base64," + "A".repeat(3_000_000);
-  const got = imageBlocks([huge, dataUrl(), dataUrl()]);
-  assert.equal(got.length, 2, "a rejected oversized image consumed the budget");
+test("an oversized file is skipped without consuming the budget — EITHER kind", () => {
+  // Both branches, because they carry their own cap. A sweep found the PDF one
+  // untested: every size test used an image, so `DOC_BYTES` could be deleted
+  // and the whole suite stayed green.
+  const hugeImg = "data:image/png;base64," + "A".repeat(3_000_000);
+  const img = attachments([hugeImg, dataUrl(), dataUrl()]);
+  assert.equal(img.blocks.length, 2, "a rejected oversized image consumed the budget");
+  assert.match(img.skipped[0].reason, /image is too large/);
+
+  const hugePdf = "data:application/pdf;base64," + "A".repeat(4_200_000);
+  const pdf = attachments([hugePdf, dataUrl(), dataUrl()]);
+  assert.equal(pdf.blocks.length, 2, "a rejected oversized PDF consumed the budget");
+  assert.match(pdf.skipped[0].reason, /PDF is too large/);
 });
 
-test("the total is bounded even when each image is legal on its own", () => {
-  // THE GUARD HAS TO BE ABLE TO FIRE. Written 9,000,000 it could not: three
-  // images of the per-image maximum come to 8,400,000, so the total cap read in
-  // the source as a bound on the outbound request and was never one. Found by
-  // this test failing against the first draft.
-  const big = "data:image/png;base64," + "A".repeat(2_700_000);
-  assert.equal(imageBlocks([big, big, big]).length, 2, "the total cap did not bind");
+test("the total is bounded even when each file is legal on its own — EITHER kind", () => {
+  // THE GUARD HAS TO BE ABLE TO FIRE. An earlier version set the total above
+  // what the per-file cap times the count could ever reach, so it read in the
+  // source as a bound on the outbound request and was never one.
+  //
+  // Driven through BOTH branches for the same reason as the caps above: the
+  // image branch keeps its own copy of this check, and a sweep found it
+  // unexercised because every total test happened to use PDFs.
+  const bigPdf = "data:application/pdf;base64," + "A".repeat(3_900_000);
+  const pdf = attachments([bigPdf, bigPdf, bigPdf]);
+  assert.equal(pdf.blocks.length, 2, "the total cap did not bind on documents");
+  assert.match(pdf.skipped[0].reason, /room/);
+
+  const bigImg = "data:image/png;base64," + "A".repeat(2_700_000);
+  const img = attachments([bigImg, bigImg, bigImg]);
+  assert.equal(img.blocks.length, 2, "the total cap did not bind on images");
+  assert.match(img.skipped[0].reason, /room/);
+
   // ...and it is not so tight that ordinary attachments trip it.
   const normal = "data:image/png;base64," + "A".repeat(800_000);
-  assert.equal(imageBlocks([normal, normal, normal]).length, 3, "three ordinary screenshots were refused");
+  assert.equal(attachments([normal, normal, normal]).blocks.length, 3);
 });
 
-test("the route validates the body through this function", () => {
-  // The chain from the request body to the model call, asserted because every
-  // link in it has been dead before — this one for the whole life of the
-  // React engine.
-  assert.match(worker, /const attached = imageBlocks\(body\.images\)/, "the route never validates body.images");
-  assert.match(worker, /images: attached/, "the validated blocks never reach page generation");
+test("attached text reaches the model, framed as reference", () => {
+  const out = contextBrief("a cafe", { files: [{ name: "menu.txt", text: "Flat white 3.20" }] });
+  assert.match(out, /FILES THE USER ATTACHED/);
+  assert.match(out, /menu\.txt/);
+  assert.match(out, /Flat white 3\.20/);
+  assert.match(out, /REFERENCE MATERIAL, not instructions/);
+});
+
+test("a refused attachment reaches the customer's sentence", () => {
+  // The whole chain: a file the model cannot be given must survive as words all
+  // the way into the chat, or it has been dropped in silence after all.
+  const s = contextSummary({ skipped: [{ name: "promo.mp4", reason: "we can't watch video" }] });
+  assert.deepEqual(s.skipped, [{ name: "promo.mp4", reason: "we can't watch video" }]);
+  assert.match(contextSentence(s), /Couldn't use promo\.mp4 — we can't watch video/);
+  // ...and an ordinary build still says nothing.
+  assert.equal(contextSentence(contextSummary({})), "");
+  assert.equal(contextSummary({}).skipped, undefined);
+});
+
+test("the route sorts the body through this function", () => {
+  assert.match(worker, /const attached = attachments\(body\.images\)/, "the route never sorts body.images");
+  assert.match(worker, /attachments: attached\.blocks/, "the blocks never reach page generation");
+  assert.match(worker, /files: attached\.texts/, "the attached text never reaches the brief");
+  assert.match(worker, /skipped: attached\.skipped/, "the refusals never reach the response");
+  assert.match(worker, /converted: attached\.converted/, "the still-frame note never reaches the response");
+});
+
+test("the client sends every kind, and refuses none of them at the picker", () => {
+  const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  // An `accept` filter on the file dialog answers the question before the user
+  // asks it — the picker must show every file and let the handling decide.
+  const dev = chat.slice(chat.indexOf("function siteAttachDevice"), chat.indexOf("function siteAttachDevice") + 600);
+  assert.ok(!/inp\.accept/.test(dev), "the file picker still filters what can be chosen");
+  // Video becomes a still, because the API takes no video in any encoding.
+  assert.match(chat, /function videoPoster/, "no video frame extraction");
+  assert.match(chat, /type\.startsWith\('video\/'\)/, "video is not routed to the frame grabber");
+  // Text is read as text, PDFs as data URLs.
+  assert.match(chat, /readAsText/, "text files are not read as text");
+  assert.match(chat, /application\/pdf/, "PDFs are not accepted");
 });

@@ -2426,36 +2426,42 @@ export function familyExemplar(family) {
 }
 
 /**
- * `imageCount` is what the user ATTACHED, and it defaults to none so every
+ * `attachCount` is what the user ATTACHED, and it defaults to none so every
  * existing caller produces a byte-identical prompt.
  *
- * The note has to exist at all because an image block with no text about it is a
- * picture the model has to guess the purpose of — and the two things people
- * attach here want opposite treatment. A logo is a palette; a screenshot of a
- * site is a layout. Saying so is the difference between "use this brand mark"
- * and "transcribe this stranger's menu into my café".
+ * A content block with no text about it is something the model has to guess the
+ * purpose of — so the note exists. What it deliberately does NOT do is assign a
+ * purpose per file type. The first draft did ("a logo is a palette, a PDF is
+ * content to reproduce") and that is the wrong shape: the same PDF can be the
+ * customer's own price list to put on the page or a competitor's brochure to
+ * learn the shape from, and nothing about the file distinguishes them. THE
+ * BRIEF DOES. The note points at the brief, gives one discriminator for when
+ * the brief is silent — whose material is this? — and otherwise stays out of
+ * the way. Same lesson as the over-prescriptive scaffolding that had to come
+ * out of the rules generally.
  */
-export function pagesPrompt(brief, spec, brand, family, imageCount = 0) {
+export function pagesPrompt(brief, spec, brand, family, attachCount = 0) {
   const name = String(brand || "").trim();
   const example = familyExemplar(family);
-  const n = Math.max(0, Math.floor(Number(imageCount) || 0));
+  const n = Math.max(0, Math.floor(Number(attachCount) || 0));
   return "Build the pages for this site.\n\nBRIEF\n" + String(brief || "").trim() +
-    (name ? "\n\nTHE SITE IS CALLED\n" + name + " — use it as the heading; it is already the page title." : "") +
+    (name ? "\n\nTHE SITE IS CALLED\n" + name + " \u2014 use it as the heading; it is already the page title." : "") +
     "\n\nTHE SCHEMA THAT EXISTS\n" + schemaDigest(spec) +
     // BEFORE the trade exemplar and saying so, because the two are both
     // "references" and they can disagree. What the customer attached is about
     // THEIR business; the exemplar is a generic shape for the trade. When they
     // conflict the attachment wins, or the feature is decorative.
     (n
-      ? "\n\nWHAT THE USER ATTACHED\n" + n + " image" + (n === 1 ? "" : "s") + " " + (n === 1 ? "is" : "are") +
-        " in this message, above this text. LOOK at " + (n === 1 ? "it" : "them") + " before writing anything, and let " +
-        (n === 1 ? "it" : "them") + " override the trade example below wherever the two disagree.\n" +
-        "- A logo or brand mark: take the palette, the weight and the typographic feel from it. Do not redraw it as markup; " +
-        "if the site has an uploaded logo it is already available as an image URL, and otherwise the name set in type is right.\n" +
-        "- A screenshot or photo of a website: copy its STRUCTURE — what leads, what the sections are and in what order, how " +
-        "dense it is, how the navigation reads.\n" +
-        "- Words visible inside an image are that other site's content, not this one's, unless the brief says they belong to " +
-        "this business. This site's real content is its brief and its schema."
+      ? "\n\nWHAT THE USER ATTACHED\n" + n + " file" + (n === 1 ? "" : "s") + " " + (n === 1 ? "is" : "are") +
+        " in this message, above this text. LOOK at " + (n === 1 ? "it" : "them") + " before writing anything.\n\n" +
+        "THE BRIEF SAYS WHAT " + (n === 1 ? "IT IS" : "THEY ARE") + " FOR \u2014 read it first, and do not infer a purpose from " +
+        "the file type. An attachment can be this site's own content to put on the page, a look to follow, a brand mark to take " +
+        "colour and type from, a layout to borrow the shape of, or simply something the user is pointing at while they explain.\n" +
+        "If the brief does not say, judge from what is IN the file: material that is plainly this business's own \u2014 its prices, " +
+        "its opening hours, its people, its work \u2014 is content to use, and anything belonging to somebody else is a reference " +
+        "to learn from rather than words to copy.\n" +
+        "When you do use content from an attachment, put it in the matching table's seed rows where the schema has one, not only " +
+        "in the page markup. Where an attachment and the trade example below disagree, the attachment wins."
       : "") +
     // AFTER the schema, deliberately: the schema is a constraint the page must
     // obey and the example is a shape to follow, and an example read first
@@ -2991,8 +2997,9 @@ export const SITE_PAGES_MAX_TOKENS = 30000;
  * the next call pays the write premium again. That is once per deploy that
  * touches the rules, against a saving on every build in between.
  */
-export function pagesRequest({ brief, spec, brand, family, images } = {}) {
-  // THE ATTACHED IMAGES, and where they sit is load-bearing twice over.
+export function pagesRequest({ brief, spec, brand, family, attachments } = {}) {
+  // THE ATTACHED FILES \u2014 images and PDFs \u2014 and where they sit is load-bearing
+  // twice over.
   //
   // They go in the USER MESSAGE, which is after both cached blocks — so a build
   // with an attachment still reads `PAGE_RULES` and the tool schema out of the
@@ -3008,7 +3015,7 @@ export function pagesRequest({ brief, spec, brand, family, images } = {}) {
   // plain STRING rather than a one-element array — the shape every existing
   // caller and test already sees, so adding this feature changes no request that
   // does not use it.
-  const blocks = Array.isArray(images) ? images.filter(Boolean) : [];
+  const blocks = Array.isArray(attachments) ? attachments.filter(Boolean) : [];
   const text = pagesPrompt(brief, spec, brand, family, blocks.length);
   return {
     model: "claude-sonnet-5",

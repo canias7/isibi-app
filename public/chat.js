@@ -9478,15 +9478,15 @@ let siteAttach = [];
 // Attach button → ask the source first: a device file, or one of the user's own
 // gallery creations (saved image generations).
 function siteAttachOpen() {
-  if (siteAttach.length >= 3) { if (typeof sbToast === 'function') sbToast('Up to 3 images.'); return; }
+  if (siteAttach.length >= 3) { if (typeof sbToast === 'function') sbToast('Up to 3 attachments.'); return; }
   let box = document.getElementById('stAttachChoose');
   if (box) box.remove();
   box = document.createElement('div');
   box.id = 'stAttachChoose';
   box.className = 'si-modal';
-  box.innerHTML = '<div class="si-card" style="width:min(420px,96vw)"><div class="si-head"><b>Add an image</b><button type="button" class="si-x" aria-label="Close">×</button></div>' +
+  box.innerHTML = '<div class="si-card" style="width:min(420px,96vw)"><div class="si-head"><b>Add an attachment</b><button type="button" class="si-x" aria-label="Close">×</button></div>' +
     '<div class="si-body"><div class="stac-opts">' +
-      '<button type="button" class="stac-opt" id="stacDevice">' + ic('image', 24) + '<span><b>From device</b><small>Upload a file from this computer</small></span></button>' +
+      '<button type="button" class="stac-opt" id="stacDevice">' + ic('image', 24) + '<span><b>From device</b><small>An image, a PDF menu or price list, a document</small></span></button>' +
       '<button type="button" class="stac-opt" id="stacGallery">' + ic('grid', 24) + '<span><b>From your gallery</b><small>Pick one of your saved creations</small></span></button>' +
     '</div></div></div>';
   document.body.appendChild(box);
@@ -9497,9 +9497,13 @@ function siteAttachOpen() {
   box.querySelector('#stacGallery').onclick = () => { close(); siteAttachGallery(); };
 }
 function siteAttachDevice() {
-  if (siteAttach.length >= 3) { if (typeof sbToast === 'function') sbToast('Up to 3 images.'); return; }
+  if (siteAttach.length >= 3) { if (typeof sbToast === 'function') sbToast('Up to 3 attachments.'); return; }
   const inp = document.createElement('input');
-  inp.type = 'file'; inp.accept = 'image/png,image/jpeg,image/webp,image/gif'; inp.multiple = true;
+  // NO `accept` FILTER. People attach whatever they have — a menu PDF, a promo
+  // clip, a price list — and a picker that hides those files answers the
+  // question before they ask it. Each kind is handled (or honestly refused) in
+  // siteAttachFiles; the browser dialog's job is only to let them choose.
+  inp.type = 'file'; inp.multiple = true;
   inp.onchange = () => { siteAttachFiles(inp.files); };
   inp.click();
 }
@@ -9528,7 +9532,7 @@ async function galleryUrlToData(url, edge = 1600, cap = 4500000) {
 }
 async function siteAttachGallery() {
   const remaining = 3 - siteAttach.length;
-  if (remaining <= 0) { if (typeof sbToast === 'function') sbToast('Up to 3 images.'); return; }
+  if (remaining <= 0) { if (typeof sbToast === 'function') sbToast('Up to 3 attachments.'); return; }
   let box = document.getElementById('stAttachGal');
   if (box) box.remove();
   box = document.createElement('div');
@@ -9571,22 +9575,147 @@ async function siteAttachGallery() {
     close();
   };
 }
+// A video frame, so a clip is worth something instead of nothing.
+//
+// THE MODEL CANNOT WATCH VIDEO — the API has no video content block, in any
+// encoding. But a still from the clip carries most of what a reference video was
+// attached FOR: the palette, the type, the look of the place. So the browser
+// takes one here and sends an image.
+//
+// Plain <video> + canvas rather than the ffmpeg engine that ships for the QR
+// burn: this is a seek and a drawImage, and loading a WASM build to do it would
+// cost more than the feature. A codec the browser cannot decode (HEVC in a .mov
+// is the common one) rejects, and the attachment is reported as unusable rather
+// than dropped.
+function videoPoster(file, edge = 1400) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    let settled = false;
+    const done = (fn, arg) => { if (settled) return; settled = true; try { URL.revokeObjectURL(url); } catch (e) {} fn(arg); };
+    // A clip whose metadata never arrives would otherwise hang the attach strip
+    // on a spinner with no end.
+    const timer = setTimeout(() => done(reject, new Error('timeout')), 12000);
+    v.preload = 'metadata'; v.muted = true; v.playsInline = true;
+    v.onerror = () => { clearTimeout(timer); done(reject, new Error('decode')); };
+    v.onloadeddata = () => {
+      // A second in, or the midpoint of a short clip — the first frame of a
+      // video is very often black or a fade-in, which is the one frame that
+      // says nothing about the design.
+      const t = Math.min(1, (v.duration || 2) / 2);
+      const grab = () => {
+        try {
+          const w = v.videoWidth, h = v.videoHeight;
+          if (!w || !h) throw new Error('no frame');
+          const k = Math.min(1, edge / Math.max(w, h));
+          const c = document.createElement('canvas');
+          c.width = Math.round(w * k); c.height = Math.round(h * k);
+          c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+          clearTimeout(timer);
+          done(resolve, c.toDataURL('image/jpeg', 0.86));
+        } catch (e) { clearTimeout(timer); done(reject, e); }
+      };
+      if (Math.abs(v.currentTime - t) < 0.05) { grab(); return; }
+      v.onseeked = grab;
+      try { v.currentTime = t; } catch (e) { grab(); }
+    };
+    v.src = url;
+  });
+}
+
+// An image the API does not take (HEIC from an iPhone, AVIF, BMP) re-encoded to
+// PNG by the browser. Only works when the browser can decode it in the first
+// place — which for HEIC it usually cannot outside Safari — so the failure path
+// matters as much as the success one.
+function imageToPng(file, edge = 1600) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    const done = (fn, arg) => { try { URL.revokeObjectURL(url); } catch (e) {} fn(arg); };
+    img.onerror = () => done(reject, new Error('decode'));
+    img.onload = () => {
+      try {
+        const k = Math.min(1, edge / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        done(resolve, c.toDataURL('image/png'));
+      } catch (e) { done(reject, e); }
+    };
+    img.src = url;
+  });
+}
+
+const NATIVE_IMAGE = /^image\/(png|jpe?g|webp|gif)$/;
+// Read as words rather than shipped as bytes. A .txt IS the thing the model
+// needs; base64-ing it to un-base64 it server-side would be ceremony. Matched on
+// the extension as well as the type, because a .md or a .csv routinely arrives
+// with an empty or wrong `type` from the OS.
+const TEXTISH = /\.(txt|md|markdown|csv|tsv|json|yml|yaml|html?|xml|rtf)$/i;
+
+const readAs = (file, how) => new Promise((resolve, reject) => {
+  const rd = new FileReader();
+  rd.onload = () => resolve(rd.result);
+  rd.onerror = () => reject(new Error('read'));
+  rd[how](file);
+});
+
+// Turn whatever was picked into something the builder can use — or into an
+// honest note that it could not. Every branch resolves; nothing is dropped in
+// silence, because a file somebody deliberately attached going missing without
+// a word is the failure this whole change exists to fix.
+async function siteAttachOne(f) {
+  const name = f.name || 'attachment';
+  const type = String(f.type || '').toLowerCase();
+  try {
+    if (NATIVE_IMAGE.test(type)) {
+      if (f.size > 5 * 1024 * 1024) return { name, type, note: 'too large' };
+      return { name, data: await readAs(f, 'readAsDataURL') };
+    }
+    if (type === 'application/pdf' || /\.pdf$/i.test(name)) {
+      if (f.size > 3.5 * 1024 * 1024) return { name, type, note: 'too large' };
+      return { name, data: await readAs(f, 'readAsDataURL') };
+    }
+    if (type.startsWith('video/')) {
+      // Sent as an IMAGE, and labelled so the chat can say what happened —
+      // "used a frame from it" is a different sentence from "used it".
+      return { name, data: await videoPoster(f), frameOf: name };
+    }
+    if (type.startsWith('image/')) return { name, data: await imageToPng(f) };
+    if (type.startsWith('text/') || type === 'application/json' || TEXTISH.test(name)) {
+      if (f.size > 400 * 1024) return { name, type, note: 'too large' };
+      return { name, text: String(await readAs(f, 'readAsText') || '') };
+    }
+  } catch (e) {
+    // A decode that failed still travels: the server turns `type` into the
+    // sentence the customer reads.
+    return { name, type };
+  }
+  return { name, type };
+}
+
 function siteAttachFiles(fileList) {
-  const files = Array.from(fileList || []).filter((f) => /^image\/(png|jpe?g|webp|gif)$/.test(f.type)).slice(0, 3 - siteAttach.length);
-  let pending = files.length; if (!pending) return;
+  const files = Array.from(fileList || []).slice(0, 3 - siteAttach.length);
+  if (!files.length) return;
+  let pending = files.length;
   files.forEach((f) => {
-    if (f.size > 5 * 1024 * 1024) { if (typeof sbToast === 'function') sbToast('Each image must be under 5 MB.'); if (--pending === 0) paintAttachStrip(); return; }
-    const rd = new FileReader();
-    rd.onload = () => { if (siteAttach.length < 3) siteAttach.push({ data: rd.result, name: f.name }); if (--pending === 0) paintAttachStrip(); };
-    rd.onerror = () => { if (--pending === 0) paintAttachStrip(); };
-    rd.readAsDataURL(f);
+    siteAttachOne(f).then((a) => {
+      if (siteAttach.length < 3) siteAttach.push(a);
+      if (a && a.note === 'too large' && typeof sbToast === 'function') sbToast(a.name + ' is too large to attach.');
+      if (--pending === 0) paintAttachStrip();
+    });
   });
 }
 // Repaint the thumbnail strip in place (both composers share id="stAttach") — no
 // full re-render, so the textarea the user is typing in is never reset.
 function paintAttachStrip() {
   document.querySelectorAll('#stAttach').forEach((el) => {
-    el.innerHTML = siteAttach.map((a, i) => '<div class="st-att"><img src="' + a.data + '" alt=""><button type="button" class="st-att-x" data-att="' + i + '" aria-label="Remove">×</button></div>').join('');
+    // A thumbnail when there IS a picture; a named chip otherwise. Rendering
+    // `<img src="undefined">` for a PDF or a text file paints a broken-image
+    // icon, which reads as "your file failed" for one that is about to be used.
+    el.innerHTML = siteAttach.map((a, i) => '<div class="st-att' + (a.data ? '' : ' st-att-doc') + '">' +
+      (a.data ? '<img src="' + a.data + '" alt="">' : '<span class="st-att-name">' + esc(a.name || 'file') + '</span>') +
+      '<button type="button" class="st-att-x" data-att="' + i + '" aria-label="Remove">×</button></div>').join('');
     el.querySelectorAll('[data-att]').forEach((b) => b.onclick = () => { siteAttach.splice(+b.dataset.att, 1); paintAttachStrip(); });
   });
 }
@@ -9766,7 +9895,7 @@ function renderSites() {
         '<textarea id="stPrompt" class="st-in" rows="2" placeholder="Describe the website you want — “a landing page for my sneaker brand, dark, bold type, waitlist form”…"></textarea>' +
         '<div class="st-attach" id="stAttach"></div>' +
         '<div class="st-new-foot">' +
-          '<button type="button" class="st-attbtn" id="stAttachBtn" title="Attach a logo or reference image">' + ic('image', 15) + ' Attach</button>' +
+          '<button type="button" class="st-attbtn" id="stAttachBtn" title="Attach a logo, a photo, a PDF menu or price list">' + ic('image', 15) + ' Attach</button>' +
           '<button type="button" class="st-gen" id="stGen" aria-label="Build it" title="Build it"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>' +
         '</div>' +
       '</div></div>' +
@@ -10301,7 +10430,7 @@ function renderSiteWorkspace(view, site) {
                 '<textarea id="stRevise" class="st-comp-in" rows="2" placeholder="Ask Go Farther…"></textarea>' +
                 '<div class="st-attach" id="stAttach"></div>' +
                 '<div class="st-comp-row">' +
-                  '<button type="button" class="st-plus" id="stPlus" title="Attach a logo or reference image" aria-label="Attach image">+</button>' +
+                  '<button type="button" class="st-plus" id="stPlus" title="Attach a logo, a photo, a PDF menu or price list" aria-label="Attach a file">+</button>' +
                   buildPickerHTML() +
                   buildEffortHTML() +
                   (siteBusy

@@ -10,6 +10,43 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-08-08 — An attachment can be anything, and the brief says what it is for
+
+Owner corrected me twice, and the second correction is the more useful one.
+
+**First:** *"for the attachment, it could be anything. It could be a video, an
+image, and it could be anything, literally."* The version I had shipped took four
+image types and dropped everything else in silence — a PDF menu, a promo clip, a
+price list, all gone with no message.
+
+**Then, on the fix:** *"the attachment could be for anything. Not necessarily to
+build — it could be used as reference or whatever."* I had replaced one mistake
+with a subtler one: assigning a purpose per file type ("a PDF is real content,
+use its prices faithfully"). That is wrong because the same PDF is the customer's
+own price list or a competitor's brochure depending only on what they said. The
+prompt now points at the brief, offers the readings as possibilities, and gives
+one discriminator when the brief is silent — whose material is it. A test asserts
+no file format is named in that block at all.
+
+What the pipe carries now: images and PDFs go to the model as content blocks
+(PDF is native to the API); text files are read as words into the brief; video
+gets a still frame extracted in the browser, because the API takes no video in
+any encoding, and is reported as "used a still frame from X" rather than "used
+X"; anything else is named to the customer with a reason.
+
+**Two process notes worth keeping.** The interrupted mutation sweep left a live
+mutant in the working tree — the restore is in a `finally` that a kill skips —
+and the next test run blamed a feature nobody had touched. The sweep writes a
+sidecar now and repairs abandoned runs; never commit while one is going. And the
+first render of the new attachment chip cut the filename to "spri…", which is
+the one piece of information the chip exists to carry — caught by looking at it,
+not by a test.
+
+1452 tests, 43/43 mutations. Still unproven live: the model account has no
+balance.
+
+---
+
 ## 2026-08-07 — The builder can read a link and search the web; the Attach button was dead
 
 Owner asked: *"can that chatbot read url, for example when user says copy this

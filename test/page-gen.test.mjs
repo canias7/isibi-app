@@ -1758,6 +1758,7 @@ test("rule 14's example cites components that REALLY EXIST, with the right casin
 // obvious way to say "make it look like this" was equally dead.
 
 const IMG = (n) => ({ type: "image", source: { type: "base64", media_type: "image/png", data: "AAA" + n } });
+const PDF = { type: "document", source: { type: "base64", media_type: "application/pdf", data: "PDF" } };
 
 test("with no images the content stays a plain string", () => {
   // Not cosmetic. Every existing caller and test sees a string here, so a
@@ -1766,13 +1767,13 @@ test("with no images the content stays a plain string", () => {
   const req = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe" });
   assert.equal(typeof req.messages[0].content, "string");
   // ...and an empty or junk array is the same as none.
-  for (const images of [[], null, undefined, [null, false]]) {
-    assert.equal(typeof api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe", images }).messages[0].content, "string");
+  for (const attachments of [[], null, undefined, [null, false]]) {
+    assert.equal(typeof api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe", attachments }).messages[0].content, "string");
   }
 });
 
 test("attached images ride in the user message, before the text", () => {
-  const req = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe", images: [IMG(1), IMG(2)] });
+  const req = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe", attachments: [IMG(1), IMG(2)] });
   const content = req.messages[0].content;
   assert.ok(Array.isArray(content), "images did not reach the request at all");
   assert.deepEqual(content.slice(0, 2), [IMG(1), IMG(2)]);
@@ -1785,7 +1786,7 @@ test("images do NOT touch the cached blocks", () => {
   // attachment anywhere in `system` or `tools` would make every build with an
   // image a cache miss on all of it — costing far more than the pictures do.
   const bare = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe" });
-  const withImgs = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe", images: [IMG(1)] });
+  const withImgs = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe", attachments: [IMG(1)] });
   assert.deepEqual(withImgs.system, bare.system, "the cached system block changed when an image was attached");
   assert.deepEqual(withImgs.tools, bare.tools, "the cached tool block changed when an image was attached");
   assert.deepEqual(withImgs.tool_choice, bare.tool_choice);
@@ -1800,11 +1801,11 @@ test("the prompt TELLS the model the images are there, and what they are for", (
   const two = api.pagesPrompt("a cafe", SPEC, "Cafe", null, 2);
   assert.ok(!/WHAT THE USER ATTACHED/.test(none), "the note appears with no images attached");
   assert.match(one, /WHAT THE USER ATTACHED/);
-  assert.match(one, /1 image is in this message/);
-  assert.match(two, /2 images are in this message/);
-  // Both attachment kinds are named, or the model applies one reading to both.
-  assert.match(one, /logo or brand mark/i);
-  assert.match(one, /screenshot or photo of a website/i);
+  assert.match(one, /1 file is in this message/);
+  assert.match(two, /2 files are in this message/);
+  // It says to LOOK, which is the one instruction the block exists for.
+  assert.match(one, /LOOK at it before writing anything/);
+  assert.match(two, /LOOK at them before writing anything/);
 });
 
 test("an attachment outranks the generic trade example", () => {
@@ -1812,15 +1813,41 @@ test("an attachment outranks the generic trade example", () => {
   // business, the other is a shape for the trade. Unstated, the model is left
   // to arbitrate between the customer's own logo and a stock exemplar.
   const p = api.pagesPrompt("a studio", SPEC, "A", "salon", 1);
-  assert.match(p, /override the trade example below/);
+  assert.match(p, /the attachment wins/);
   assert.ok(p.indexOf("WHAT THE USER ATTACHED") < p.indexOf("A SITE OF THIS TRADE"),
     "the attachment note must come before the exemplar it overrides");
 });
 
-test("words inside an image are not this site's content", () => {
-  // The failure the deleted examples tier actually shipped, arriving through a
-  // picture instead: a real customer's page carrying a stranger's copy.
-  assert.match(api.pagesPrompt("a cafe", SPEC, "Cafe", null, 1), /not this one's/);
+test("THE BRIEF decides what an attachment is for, not the file type", () => {
+  // The first draft assigned a purpose per extension — "a logo is a palette, a
+  // PDF is content to reproduce" — and that is the wrong shape: the same PDF is
+  // the customer's own price list or a competitor's brochure depending only on
+  // what they said. Prescribing from the type gets one of those two wrong every
+  // time.
+  const p = api.pagesPrompt("a cafe", SPEC, "Cafe", null, 1);
+  assert.match(p, /THE BRIEF SAYS WHAT IT IS FOR/);
+  assert.match(p, /do not infer a purpose from the file type/);
+  // The possibilities are offered as possibilities, not as rules keyed to a
+  // format — so no file extension appears in the note at all.
+  assert.ok(!/\bPDF\b|\.pdf|\bJPEG\b|\bPNG\b/i.test(p.split("WHAT THE USER ATTACHED")[1].split("A SITE OF THIS TRADE")[0]),
+    "the note names a file format, which is what it must stop doing");
+});
+
+test("with the brief silent, the discriminator is WHOSE material it is", () => {
+  // The one judgment worth stating, because both errors are expensive:
+  // transcribing a stranger's menu onto a real customer's page, or paraphrasing
+  // the customer's own prices instead of using them.
+  const p = api.pagesPrompt("a cafe", SPEC, "Cafe", null, 1);
+  assert.match(p, /If the brief does not say/);
+  assert.match(p, /this business's own/);
+  assert.match(p, /belonging to somebody else is a reference/);
+  assert.match(p, /seed rows/, "content taken from an attachment must reach the data, not only the markup");
+});
+
+test("a document block rides in the message exactly as an image does", () => {
+  const withPdf = api.pagesRequest({ brief: "a cafe", spec: SPEC, brand: "Cafe", attachments: [PDF] });
+  assert.deepEqual(withPdf.messages[0].content[0], PDF);
+  assert.equal(withPdf.messages[0].content[1].type, "text");
 });
 
 test("the count is a count, whatever it is handed", () => {
@@ -1828,7 +1855,7 @@ test("the count is a count, whatever it is handed", () => {
     assert.doesNotThrow(() => api.pagesPrompt("a cafe", SPEC, "Cafe", null, bad));
   }
   assert.ok(!/WHAT THE USER ATTACHED/.test(api.pagesPrompt("a cafe", SPEC, "Cafe", null, -3)));
-  assert.match(api.pagesPrompt("a cafe", SPEC, "Cafe", null, "2"), /2 images are/);
+  assert.match(api.pagesPrompt("a cafe", SPEC, "Cafe", null, "2"), /2 files are/);
 });
 
 test("the images the caller validated are the ones the model gets", () => {
@@ -1837,8 +1864,8 @@ test("the images the caller validated are the ones the model gets", () => {
   // validator itself lives in builder/site-context.mjs and is tested by
   // RUNNING it — this only holds the wiring between the two.
   const gen = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(gen, /const attached = imageBlocks\(body\.images\)/, "the route never validates body.images");
-  assert.match(gen, /images: attached/, "the validated blocks never reach buildAndPublishPages");
-  assert.match(gen, /pagesRequest\(\{[^}]*\bimages\b[^}]*\}\)/s, "pagesRequest is not given the images");
-  assert.match(gen, /\bimageBlocks\b[^\n]*from "\.\/builder\/site-context\.mjs"/, "imageBlocks is not imported");
+  assert.match(gen, /const attached = attachments\(body\.images\)/, "the route never sorts body.images");
+  assert.match(gen, /attachments: attached\.blocks/, "the validated blocks never reach buildAndPublishPages");
+  assert.match(gen, /pagesRequest\(\{[^}]*\battachments\b[^}]*\}\)/s, "pagesRequest is not given the attachments");
+  assert.match(gen, /\battachments\b[^\n]*from "\.\/builder\/site-context\.mjs"/, "attachments is not imported");
 });
