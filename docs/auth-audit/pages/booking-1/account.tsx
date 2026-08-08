@@ -1,5 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -32,18 +31,19 @@ import { Empty } from "@/components/ui/empty";
 
 export const Route = createFileRoute("/account")({ component: Account });
 
-type Note = Row & { title: string; body: string };
-type Announcement = Row & { title: string; body: string };
+type Note = Row & { title: string; body: string | null };
+type Announcement = Row & { title: string; body: string | null };
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm room, six classes a day.",
+  tagline: "A quiet studio for a steady practice.",
   links: [
-    { label: "Home", href: "#/" },
-    { label: "Book", href: "#/book" },
-    { label: "Members", href: "#/account" },
+    { label: "Home", href: "/" },
+    { label: "The work", href: "/work" },
+    { label: "Book", href: "/book" },
+    { label: "Account", href: "/account" },
   ],
-  action: { label: "Book now", href: "#/book" },
+  action: { label: "Book now", href: "/book" },
 };
 
 const credentials = z.object({
@@ -95,11 +95,14 @@ function Account() {
           <>
             <h1 className="text-3xl font-semibold tracking-tight">Your account</h1>
             <p className="mt-2 text-muted-foreground">
-              Sign in to keep your own practice notes and see studio announcements.
+              Sign in to keep your own practice notes between classes.
             </p>
 
             <Form {...form}>
-              <form className="mt-8 grid gap-4" onSubmit={form.handleSubmit((v) => submit(login, v))}>
+              <form
+                className="mt-8 grid gap-4"
+                onSubmit={form.handleSubmit((v) => submit(login, v))}
+              >
                 <FormField
                   control={form.control}
                   name="email"
@@ -152,7 +155,6 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
   const notes = useRows<Note>("my_notes", { order: "id", dir: "desc" });
   const announcements = useRows<Announcement>("announcements", { order: "id", dir: "desc" });
   const create = useCreateRow<Note>("my_notes");
-  const [open, setOpen] = useState(false);
 
   const form = useForm<NoteForm>({
     resolver: zodResolver(noteSchema),
@@ -162,11 +164,10 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
   const onSubmit = (values: NoteForm) => {
     create.mutate(values, {
       onSuccess: () => {
-        toast.success("Note saved");
+        toast.success("Note saved.");
         form.reset();
-        setOpen(false);
       },
-      onError: (e) => toast.error(e.message),
+      onError: (e: Error) => toast.error(e.message),
     });
   };
 
@@ -174,13 +175,11 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
     <>
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-semibold tracking-tight">Hello, {name}</h1>
-        <Button variant="ghost" onClick={onSignOut}>
-          Sign out
-        </Button>
+        <Button variant="ghost" onClick={onSignOut}>Sign out</Button>
       </div>
 
       <Card className="mt-8">
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader>
           <CardTitle className="text-base">Studio announcements</CardTitle>
         </CardHeader>
         <CardContent>
@@ -189,14 +188,14 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
             <p className="text-sm text-destructive">Couldn't load announcements. Refresh and try again.</p>
           )}
           {announcements.data?.length === 0 && (
-            <Empty title="Nothing posted yet" description="The studio hasn't shared anything here yet." />
+            <Empty title="Nothing posted yet" description="The studio will post news here." />
           )}
           {!!announcements.data?.length && (
-            <ul className="grid gap-4 motion-stagger">
+            <ul className="grid gap-3 motion-stagger">
               {announcements.data.map((a) => (
-                <li key={a.id} className="border-b border-border pb-3 last:border-none last:pb-0">
-                  <p className="text-sm font-medium">{a.title}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">{a.body}</p>
+                <li key={a.id} className="rounded-lg border border-border p-3">
+                  <p className="font-medium">{a.title}</p>
+                  {a.body && <p className="mt-1 text-sm text-muted-foreground">{a.body}</p>}
                 </li>
               ))}
             </ul>
@@ -205,66 +204,63 @@ function SignedIn({ name, onSignOut }: { name: string; onSignOut: () => void }) 
       </Card>
 
       <Card className="mt-6">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base">Your practice notes</CardTitle>
-          <Button size="sm" variant="outline" onClick={() => setOpen((o) => !o)}>
-            {open ? "Cancel" : "Add a note"}
-          </Button>
+        <CardHeader>
+          <CardTitle className="text-base">Your notes</CardTitle>
         </CardHeader>
         <CardContent>
-          {open && (
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="mb-6 grid gap-4">
-                <FormField
-                  control={form.control}
-                  name="title"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Title</FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="body"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Note</FormLabel>
-                      <FormControl>
-                        <Textarea rows={4} {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button type="submit" className="motion-press" disabled={create.isPending}>
-                  {create.isPending ? "Saving…" : "Save note"}
-                </Button>
-              </form>
-            </Form>
-          )}
-
           {notes.isPending && <Skeleton className="h-24 rounded-lg" />}
           {notes.isError && (
             <p className="text-sm text-destructive">Couldn't load your notes. Refresh and try again.</p>
           )}
           {notes.data?.length === 0 && (
-            <Empty title="No notes yet" description="Jot down how a class felt, or what to work on next time." />
+            <Empty title="No notes yet" description="Jot down what to work on before your next class." />
           )}
           {!!notes.data?.length && (
             <ul className="grid gap-3 motion-stagger">
               {notes.data.map((n) => (
                 <li key={n.id} className="rounded-lg border border-border p-3">
-                  <p className="text-sm font-medium">{n.title}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">{n.body}</p>
+                  <p className="font-medium">{n.title}</p>
+                  {n.body && <p className="mt-1 text-sm text-muted-foreground">{n.body}</p>}
                 </li>
               ))}
             </ul>
           )}
+
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="mt-6 grid gap-3">
+              <FormField
+                control={form.control}
+                name="title"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Title</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="body"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Note</FormLabel>
+                    <FormControl>
+                      <Textarea rows={3} {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div>
+                <Button type="submit" className="motion-press" disabled={create.isPending}>
+                  {create.isPending ? "Saving…" : "Save note"}
+                </Button>
+              </div>
+            </form>
+          </Form>
         </CardContent>
       </Card>
     </>

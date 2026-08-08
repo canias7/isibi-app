@@ -1,15 +1,14 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
-import { useMember, useRows, useUpdateRow, type Row } from "@/lib/rows";
+import { useMember, useRows, useUpdateRow, useDeleteRow, type Row } from "@/lib/rows";
 import { RecordHeader } from "@/components/ui/record-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ActivityFeed, type Activity } from "@/components/ui/activity-feed";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Empty } from "@/components/ui/empty";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -29,58 +28,43 @@ export const Route = createFileRoute("/record")({
 
 type Deal = Row & { title: string; value: string | null; stage: string | null };
 
-const STAGES = ["new", "qualified", "proposal", "won", "lost"];
+const STAGES = ["New", "Qualifying", "Proposal", "Negotiation", "Won", "Lost"];
+
+function stageState(stage: string | null): "success" | "warning" | "danger" | "neutral" {
+  if (stage === "Won") return "success";
+  if (stage === "Lost") return "danger";
+  if (stage === "Negotiation" || stage === "Proposal") return "warning";
+  return "neutral";
+}
 
 function RecordPage() {
   const { id } = Route.useSearch();
   const member = useMember();
   const deals = useRows<Deal>("deals");
-  const updateDeal = useUpdateRow<Deal>("deals");
+  const update = useUpdateRow<Deal>("deals");
+  const del = useDeleteRow("deals");
+  const [title, setTitle] = useState<string | null>(null);
+  const [value, setValue] = useState<string | null>(null);
 
-  const deal = deals.data?.find((d) => String(d.id) === id);
-
-  const [title, setTitle] = useState("");
-  const [value, setValue] = useState("");
-  const [stage, setStage] = useState("new");
-  const [log, setLog] = useState<Activity[]>([]);
-
-  useEffect(() => {
-    if (deal) {
-      setTitle(deal.title);
-      setValue(deal.value ?? "");
-      setStage(deal.stage ?? "new");
-    }
-  }, [deal?.id]);
-
-  if (member.isPending || deals.isPending) {
-    return (
-      <div className="p-10">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="mt-4 h-48 rounded-xl" />
-      </div>
-    );
+  if (member.isPending) {
+    return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Checking your sign-in…</div>;
   }
 
   if (!member.data) {
     return (
-      <div className="flex min-h-screen items-center justify-center p-10">
-        <Card className="max-w-sm text-center">
-          <CardHeader>
-            <CardTitle>Sign in to view this record</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Button asChild className="mt-2">
-              <Link to="/">Go to sign in</Link>
-            </Button>
-          </CardContent>
-        </Card>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-10 text-center">
+        <h1 className="text-2xl font-semibold tracking-tight">Halyard</h1>
+        <p className="max-w-sm text-muted-foreground">Sign in to open this record.</p>
+        <Button asChild>
+          <Link to="/">Sign in</Link>
+        </Button>
       </div>
     );
   }
 
   if (!id) {
     return (
-      <div className="p-10">
+      <div className="mx-auto max-w-lg px-6 py-16 text-center">
         <Empty title="No record chosen" description="Open a deal from the records table." />
         <Button asChild className="mt-4">
           <Link to="/records">Back to records</Link>
@@ -89,18 +73,29 @@ function RecordPage() {
     );
   }
 
-  if (deals.isError) {
+  if (deals.isPending) {
     return (
-      <div className="p-10">
-        <p className="text-sm text-destructive">Couldn't load this record. Refresh and try again.</p>
+      <div className="mx-auto max-w-3xl px-6 py-10">
+        <Skeleton className="h-10 w-2/3 rounded-md" />
+        <Skeleton className="mt-6 h-48 rounded-xl" />
       </div>
     );
   }
 
+  if (deals.isError) {
+    return (
+      <div className="mx-auto max-w-lg px-6 py-16">
+        <p className="text-sm text-destructive">Couldn't load this deal. Refresh and try again.</p>
+      </div>
+    );
+  }
+
+  const deal = deals.data?.find((d) => String(d.id) === id);
+
   if (!deal) {
     return (
-      <div className="p-10">
-        <Empty title="We couldn't find that deal" description="It may have been removed, or you don't have access." />
+      <div className="mx-auto max-w-lg px-6 py-16 text-center">
+        <Empty title="Not found" description="This deal isn't there — it may have been removed." />
         <Button asChild className="mt-4">
           <Link to="/records">Back to records</Link>
         </Button>
@@ -108,93 +103,94 @@ function RecordPage() {
     );
   }
 
-  const save = () => {
-    updateDeal.mutate(
-      { id: deal.id, values: { title, value, stage } },
+  const activity: Activity[] = [
+    { who: "The team", what: `created "${deal.title}"`, at: deal.created_at },
+  ];
+  if (deal.updated_at && deal.updated_at !== deal.created_at) {
+    activity.push({ who: "The team", what: "updated this deal", at: deal.updated_at });
+  }
+
+  const saveField = (patch: Partial<Deal>) => {
+    update.mutate(
+      { id: deal.id, ...patch },
       {
-        onSuccess: () => {
-          toast.success("Saved");
-          setLog((prev) => [
-            { who: member.data!.name ?? member.data!.email, what: `updated the deal to stage "${stage}"`, at: new Date() },
-            ...prev,
-          ]);
-        },
+        onSuccess: () => toast.success("Saved"),
         onError: (e) => toast.error(e.message),
       },
     );
   };
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
-      <Button asChild variant="ghost" size="sm">
-        <Link to="/records">← Back to records</Link>
-      </Button>
+    <div className="mx-auto max-w-3xl px-6 py-10">
+      <Link to="/records" className="text-sm text-muted-foreground underline underline-offset-4">
+        Back to records
+      </Link>
 
       <RecordHeader
         className="mt-4"
         title={deal.title}
-        subtitle="Shared deal — visible to the whole team"
-        status={
-          <StatusBadge
-            state={
-              deal.stage === "won"
-                ? "success"
-                : deal.stage === "lost"
-                  ? "danger"
-                  : deal.stage === "proposal"
-                    ? "warning"
-                    : "neutral"
+        subtitle="Shared with the team"
+        status={<StatusBadge state={stageState(deal.stage)}>{deal.stage ?? "New"}</StatusBadge>}
+        actions={
+          <Button
+            variant="destructive"
+            disabled={del.isPending}
+            onClick={() =>
+              del.mutate(deal.id, {
+                onSuccess: () => toast.success("Deal deleted"),
+                onError: (e) => toast.error(e.message),
+              })
             }
           >
-            {deal.stage ?? "new"}
-          </StatusBadge>
-        }
-        actions={
-          <Button onClick={save} disabled={updateDeal.isPending} className="motion-press">
-            {updateDeal.isPending ? "Saving…" : "Save changes"}
+            {del.isPending ? "Deleting…" : "Delete"}
           </Button>
         }
       />
 
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle className="text-base">Fields</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
-          <div className="grid gap-1.5 sm:col-span-2">
-            <Label htmlFor="deal-title">Title</Label>
-            <Input id="deal-title" value={title} onChange={(e) => setTitle(e.target.value)} />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="deal-value">Value</Label>
-            <Input id="deal-value" value={value} onChange={(e) => setValue(e.target.value)} />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="deal-stage">Stage</Label>
-            <Select value={stage} onValueChange={setStage}>
-              <SelectTrigger id="deal-stage">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {STAGES.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="mt-8 grid gap-6 sm:grid-cols-2">
+        <div className="grid gap-1.5">
+          <Label htmlFor="title">Title</Label>
+          <Input
+            id="title"
+            value={title ?? deal.title}
+            onChange={(e) => setTitle(e.target.value)}
+            onBlur={() => {
+              if (title !== null && title !== deal.title) saveField({ title });
+            }}
+          />
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="value">Value</Label>
+          <Input
+            id="value"
+            value={value ?? deal.value ?? ""}
+            onChange={(e) => setValue(e.target.value)}
+            onBlur={() => {
+              if (value !== null && value !== deal.value) saveField({ value });
+            }}
+          />
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="stage">Stage</Label>
+          <Select value={deal.stage ?? "New"} onValueChange={(v) => saveField({ stage: v })}>
+            <SelectTrigger id="stage">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {STAGES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
 
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle className="text-base">Activity</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ActivityFeed items={log} empty="No activity yet in this session." />
-        </CardContent>
-      </Card>
+      <div className="mt-10">
+        <h2 className="text-lg font-semibold tracking-tight">Activity</h2>
+        <ActivityFeed className="mt-4" items={activity} empty="No activity yet" />
+      </div>
     </div>
   );
 }

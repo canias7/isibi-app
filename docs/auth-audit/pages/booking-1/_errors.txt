@@ -1,0 +1,6 @@
+src/routes/work.tsx(30,35): error TS2353: Object literal may only specify known properties, and 'fallbackSeed' does not exist in type 'Shot'.
+src/routes/work.tsx(31,35): error TS2353: Object literal may only specify known properties, and 'fallbackSeed' does not exist in type 'Shot'.
+src/routes/work.tsx(32,35): error TS2353: Object literal may only specify known properties, and 'fallbackSeed' does not exist in type 'Shot'.
+src/routes/work.tsx(33,35): error TS2353: Object literal may only specify known properties, and 'fallbackSeed' does not exist in type 'Shot'.
+src/routes/work.tsx(34,35): error TS2353: Object literal may only specify known properties, and 'fallbackSeed' does not exist in type 'Shot'.
+src/routes/work.tsx(35,35): error TS2353: Object literal may only specify known properties, and 'fallbackSeed' does not exist in type 'Shot'.
