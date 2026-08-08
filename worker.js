@@ -5108,7 +5108,7 @@ async function fetchSiteFonts(pair) {
 // all? — live in builder/publish-pages.mjs, which takes every side effect as an
 // injected function so they can be driven against fakes in test/publish-pages.test.mjs.
 // This is only the wiring that supplies the real ones.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, family, structure, attachments, priorUsage, model, mark }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, family, structure, attachments, priorUsage, model, revise, mark }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
@@ -5123,7 +5123,22 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
   // build costs is only known once it has happened, and telling the model "none"
   // on a guess would lose the pictures from a customer who could afford them.
   // Over-stating it costs nothing — an unbought token is a placeholder.
-  const imgBudget = imageBudget(family);
+  //
+  // A REVISE BUYS NONE. It re-derives the same budget from the same family and
+  // the model writes fresh descriptions, so nothing matches what was bought last
+  // time — a customer revising a 5-photo agency site paid ~94 credits in NEW
+  // photographs on every revise, for pictures they already owned, and orphaned
+  // the originals. Even "fix a typo" bought one, because the directive actively
+  // asks for a token.
+  //
+  // Zero rather than "reuse what is there", deliberately: the photographs are in
+  // `uploads/<slug>/`, which is the owner's own image library and survives a
+  // publish, so they are not lost — but matching a NEW description to an OLD
+  // file is a guess, and a wrong guess puts the wrong picture on the page.
+  // Stating zero also keeps the pages the model writes consistent with what the
+  // site can actually show. Buying more is a first-build decision until there is
+  // a real token->URL record to reuse.
+  const imgBudget = revise ? 0 : imageBudget(family);
   const out = await publishPages({
     // Throws on failure, and the route logs it. There is no second attempt to
     // swallow one, so nothing needs logging here.
@@ -5201,6 +5216,132 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
 // nav links to pages that don't exist, and hotlinked external images (which the
 // published-site CSP will block). Returns a list of plain-English problems; an
 // empty list means "ship it, no fix pass" (so clean generations cost nothing extra).
+/**
+ * Take one published site down: its edge route, its Neon project, its files,
+ * its domains, and its registration — in that order, each for its own reason.
+ *
+ * EXTRACTED FROM THE ROUTE so the account-deletion path can reach it. It used
+ * to live inline in `DELETE /api/site/<slug>`, which meant the only way to
+ * remove a site was one HTTP request at a time — and the client's "delete my
+ * account" called `/api/site/backend/delete-all`, a route that does not exist.
+ * So every published site of a deleted account became a permanent orphan: the
+ * ownership row cascades away with the user, and `DELETE /api/site/<slug>`
+ * answers 404 without one, which is exactly the state CLAUDE.md says needs an
+ * operator running sweep-orphan-site.yml by hand.
+ *
+ * Returns a Response, so the single-site route stays a one-liner and the
+ * bulk path can read the status without a second copy of any of this.
+ */
+async function deleteSiteFor(env, uid, dslug) {
+  if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, error: "service key not configured" }, { status: 501 });
+  if (!dslug) return Response.json({ ok: false, error: "no slug" }, { status: 400 });
+
+    // The backend row IS the ownership record. No row means there is nothing to
+    // authorise against, so the caller is told it does not exist rather than
+    // being allowed to delete files by guessing slugs.
+    let srow;
+    try {
+      const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(dslug)}&select=uid`, { headers: svcHeaders(env) });
+      const rows = await g.json().catch(() => []);
+      srow = (Array.isArray(rows) && rows[0]) || null;
+    } catch {
+      return Response.json({ ok: false, error: "couldn't look that site up — try again in a moment" }, { status: 503 });
+    }
+    if (!srow) return Response.json({ ok: false, error: "no such site" }, { status: 404 });
+    if (srow.uid !== uid) return Response.json({ ok: false, error: "not your site" }, { status: 403 });
+
+    // Forget the cached connection BEFORE anything is torn down. A warm isolate
+    // holding a string that points at a dropped database is worse than a slow
+    // lookup: it answers reads with a connection error instead of a 404.
+    _connCache.delete(dslug);
+    // And the edge route. KV propagates for up to a minute, so this has to go
+    // BEFORE the database is dropped — a route outliving its database answers
+    // reads with a connection error instead of an honest 404.
+    await dropRoute(routeDeps(env), dslug);
+
+    // Drop the site's whole PROJECT, not just its database.
+    //
+    // This is what one-project-per-site buys (2026-07-29): deleting a site
+    // deletes the project, so nothing of it is left sharing a home with its
+    // owner's other sites. Under the old per-user layout the project had to
+    // survive — its siblings lived in it — and a dropped database left an
+    // empty, billed project behind that only an operator could clear. That is
+    // exactly the leftover this session had to leave in place by hand.
+    //
+    // Best-effort on the DROP but NOT on the record: a project left behind
+    // costs money, and failing the whole call over it would leave the
+    // published files up, which is the thing the caller actually asked to take
+    // down. So the drop is tried, and the row is only removed if it worked —
+    // a row with no project is a 404 the owner can retry, while a project with
+    // no row is invisible and bills forever.
+    let projectDropped = false;
+    try {
+      const proj = await siteNeonProject(env, dslug);
+      if (proj && proj.neon_project) {
+        await dropUserProject(env, proj.neon_project);
+        projectDropped = true;
+      } else {
+        // Nothing recorded to drop. Legacy sites provisioned under the
+        // per-user layout still have their database inside a shared project,
+        // so fall back to dropping just that.
+        const legacy = await userSiteProject(env, du.id);
+        if (legacy && legacy.neon_project) await dropSiteDatabase(env, legacy.neon_project, legacy.neon_branch, dslug);
+        projectDropped = true;
+      }
+    } catch (e) { console.error("site project drop failed:", dslug, e && (e.detail || e.message)); }
+
+    let removed = 0;
+    try {
+      if (env.SITES_BUCKET) removed = await deleteSitePrefix(env, dslug);
+    } catch (e) {
+      console.error("site files delete failed:", dslug, e && e.message);
+      return Response.json({ ok: false, error: "couldn't remove the published files" }, { status: 502 });
+    }
+
+    // Registration goes last. While it exists the site is still findable and
+    // still owned, so a failure above leaves something to retry against rather
+    // than the orphan this route exists to prevent.
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(dslug)}`, { method: "DELETE", headers: svcHeaders(env) });
+    } catch (e) { console.error("site row delete failed:", dslug, e && e.message); }
+
+    // The project record goes unconditionally now, and that is safe because of
+    // the trigger: deleting this row ENQUEUES the project into `neon_teardown`,
+    // so the cron finishes the job whether the inline drop above worked or not.
+    // Keeping the row on failure was the right answer only while there was
+    // nowhere to hand the work to — it left the site half-deleted and needed an
+    // operator. The queue is strictly better: the record is never lost, and the
+    // caller's site really is gone.
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/site_project?slug=eq.${encodeURIComponent(dslug)}`, { method: "DELETE", headers: svcHeaders(env) });
+    } catch (e) { console.error("site project row delete failed:", dslug, e && e.message); }
+
+    // AND THE OWNER'S CUSTOM DOMAINS. Left behind, each one is a hostname
+    // still registered on our zone — BILLED PER HOSTNAME by Cloudflare for
+    // SaaS — pointing at a site that no longer exists, and its row cascades
+    // with the account rather than with the site, so nothing else would ever
+    // find it. The same leak `neon_teardown` exists to stop, one resource
+    // over.
+    //
+    // Cloudflare first and the row second, the same order as everything else
+    // here: the row is the only record of the registration. Best-effort, and
+    // NOT allowed to fail the delete — the site itself is already gone by
+    // this point, and answering an error would tell the caller their site
+    // survived when it did not.
+    let domainsReleased = 0;
+    try {
+      const dr = await fetch(`${SUPABASE_URL}/rest/v1/site_domains?slug=eq.${encodeURIComponent(dslug)}&select=hostname,cf_id`, { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
+      for (const row of (await dr.json().catch(() => [])).slice(0, 20)) {
+        if (row.cf_id) { const d = await cfHostname(env, "DELETE", "/" + encodeURIComponent(row.cf_id)); if (!d.ok && d.status !== 404) continue; }
+        await fetch(`${SUPABASE_URL}/rest/v1/site_domains?hostname=eq.${encodeURIComponent(row.hostname)}`, { method: "DELETE", headers: svcHeaders(env) });
+        hostRoutes.delete(row.hostname);
+        domainsReleased++;
+      }
+    } catch (e) { console.error("domain release failed:", dslug, e && e.message); }
+
+    return Response.json({ ok: true, slug: dslug, removed, projectDropped, domainsReleased });
+}
+
 async function handleRequest(request, env, ctx) {
     const url = new URL(request.url);
 
@@ -8059,6 +8200,11 @@ async function handleRequest(request, env, ctx) {
               files: attached.texts,
             }),
             spec: pageSpec, slug, brand,
+            // A REVISE, and the signal is free: `priorBrief` is read off
+            // site_backends during the ownership check and is only ever set when
+            // this slug has already been built. No new field on the request, and
+            // nothing a client can claim.
+            revise: !!priorBrief,
             siteDescription, ogImage,
             attachments: attached.blocks,
             priorUsage: (researched && researched.usage) || null,
@@ -8751,117 +8897,58 @@ async function handleRequest(request, env, ctx) {
     // /api/site/ and strip the path down to a slug, so /api/site/cafe/rows/x/4
     // arrived here as the slug "caferowsx4" — harmless only by luck. A row
     // delete is a different request from taking the whole site down.
+    // DELETE /api/site/<slug> — take a published site down. The work is in
+    // `deleteSiteFor`, shared with the account-deletion sweep.
     if (/^\/api\/site\/[a-z0-9][a-z0-9-]{0,80}$/i.test(url.pathname) && request.method === "DELETE") {
       const du = await authUser(request);
       if (!du) return UNAUTHED();
+      return await deleteSiteFor(env, du.id, url.pathname.slice("/api/site/".length).toLowerCase());
+    }
+
+    // POST /api/site/delete-all — every site this account owns, taken down.
+    //
+    // THE ORDER MATTERS MORE HERE THAN ANYWHERE. `site_backends.uid` has ON
+    // DELETE CASCADE against `auth.users`, so the moment the account goes the
+    // ownership rows go with it — and `deleteSiteFor` refuses a slug with no row
+    // (correctly: that is what stops anyone deleting files by guessing names).
+    // So the sites have to come down BEFORE the account, or every one of them is
+    // a permanent orphan serving at a public URL with nothing left that can
+    // authorise removing it. The client used to call `/api/site/backend/delete-all`,
+    // which has never existed; the 404 was swallowed as best-effort and the
+    // account was deleted anyway.
+    //
+    // The caller's OWN rows, read server-side rather than trusting a list of
+    // slugs from the client — a client list is both incomplete (sites built on
+    // another device are not in this browser's localStorage) and untrusted.
+    if (url.pathname === "/api/site/delete-all" && request.method === "POST") {
+      const au = await authUser(request);
+      if (!au) return UNAUTHED();
       if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, error: "service key not configured" }, { status: 501 });
-      const dslug = url.pathname.slice("/api/site/".length).toLowerCase();
-      if (!dslug) return Response.json({ ok: false, error: "no slug" }, { status: 400 });
-
-      // The backend row IS the ownership record. No row means there is nothing to
-      // authorise against, so the caller is told it does not exist rather than
-      // being allowed to delete files by guessing slugs.
-      let srow;
+      let slugs = [];
       try {
-        const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(dslug)}&select=uid`, { headers: svcHeaders(env) });
-        const rows = await g.json().catch(() => []);
-        srow = (Array.isArray(rows) && rows[0]) || null;
-      } catch {
-        return Response.json({ ok: false, error: "couldn't look that site up — try again in a moment" }, { status: 503 });
-      }
-      if (!srow) return Response.json({ ok: false, error: "no such site" }, { status: 404 });
-      if (srow.uid !== du.id) return Response.json({ ok: false, error: "not your site" }, { status: 403 });
-
-      // Forget the cached connection BEFORE anything is torn down. A warm isolate
-      // holding a string that points at a dropped database is worse than a slow
-      // lookup: it answers reads with a connection error instead of a 404.
-      _connCache.delete(dslug);
-      // And the edge route. KV propagates for up to a minute, so this has to go
-      // BEFORE the database is dropped — a route outliving its database answers
-      // reads with a connection error instead of an honest 404.
-      await dropRoute(routeDeps(env), dslug);
-
-      // Drop the site's whole PROJECT, not just its database.
-      //
-      // This is what one-project-per-site buys (2026-07-29): deleting a site
-      // deletes the project, so nothing of it is left sharing a home with its
-      // owner's other sites. Under the old per-user layout the project had to
-      // survive — its siblings lived in it — and a dropped database left an
-      // empty, billed project behind that only an operator could clear. That is
-      // exactly the leftover this session had to leave in place by hand.
-      //
-      // Best-effort on the DROP but NOT on the record: a project left behind
-      // costs money, and failing the whole call over it would leave the
-      // published files up, which is the thing the caller actually asked to take
-      // down. So the drop is tried, and the row is only removed if it worked —
-      // a row with no project is a 404 the owner can retry, while a project with
-      // no row is invisible and bills forever.
-      let projectDropped = false;
-      try {
-        const proj = await siteNeonProject(env, dslug);
-        if (proj && proj.neon_project) {
-          await dropUserProject(env, proj.neon_project);
-          projectDropped = true;
-        } else {
-          // Nothing recorded to drop. Legacy sites provisioned under the
-          // per-user layout still have their database inside a shared project,
-          // so fall back to dropping just that.
-          const legacy = await userSiteProject(env, du.id);
-          if (legacy && legacy.neon_project) await dropSiteDatabase(env, legacy.neon_project, legacy.neon_branch, dslug);
-          projectDropped = true;
-        }
-      } catch (e) { console.error("site project drop failed:", dslug, e && (e.detail || e.message)); }
-
-      let removed = 0;
-      try {
-        if (env.SITES_BUCKET) removed = await deleteSitePrefix(env, dslug);
+        const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?uid=eq.${encodeURIComponent(au.id)}&select=slug`, { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
+        if (!g.ok) throw new Error("list " + g.status);
+        slugs = (await g.json().catch(() => [])).map((r) => String(r && r.slug || "").toLowerCase()).filter(Boolean);
       } catch (e) {
-        console.error("site files delete failed:", dslug, e && e.message);
-        return Response.json({ ok: false, error: "couldn't remove the published files" }, { status: 502 });
+        // FAILS LOUD, and the caller must not proceed to delete the account on
+        // it. "I could not read your sites" is the one answer that must never be
+        // mistaken for "you have none" — that mistake is what orphans them.
+        return Response.json({ ok: false, error: "couldn't list your sites — try again in a moment" }, { status: 503 });
       }
-
-      // Registration goes last. While it exists the site is still findable and
-      // still owned, so a failure above leaves something to retry against rather
-      // than the orphan this route exists to prevent.
-      try {
-        await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(dslug)}`, { method: "DELETE", headers: svcHeaders(env) });
-      } catch (e) { console.error("site row delete failed:", dslug, e && e.message); }
-
-      // The project record goes unconditionally now, and that is safe because of
-      // the trigger: deleting this row ENQUEUES the project into `neon_teardown`,
-      // so the cron finishes the job whether the inline drop above worked or not.
-      // Keeping the row on failure was the right answer only while there was
-      // nowhere to hand the work to — it left the site half-deleted and needed an
-      // operator. The queue is strictly better: the record is never lost, and the
-      // caller's site really is gone.
-      try {
-        await fetch(`${SUPABASE_URL}/rest/v1/site_project?slug=eq.${encodeURIComponent(dslug)}`, { method: "DELETE", headers: svcHeaders(env) });
-      } catch (e) { console.error("site project row delete failed:", dslug, e && e.message); }
-
-      // AND THE OWNER'S CUSTOM DOMAINS. Left behind, each one is a hostname
-      // still registered on our zone — BILLED PER HOSTNAME by Cloudflare for
-      // SaaS — pointing at a site that no longer exists, and its row cascades
-      // with the account rather than with the site, so nothing else would ever
-      // find it. The same leak `neon_teardown` exists to stop, one resource
-      // over.
-      //
-      // Cloudflare first and the row second, the same order as everything else
-      // here: the row is the only record of the registration. Best-effort, and
-      // NOT allowed to fail the delete — the site itself is already gone by
-      // this point, and answering an error would tell the caller their site
-      // survived when it did not.
-      let domainsReleased = 0;
-      try {
-        const dr = await fetch(`${SUPABASE_URL}/rest/v1/site_domains?slug=eq.${encodeURIComponent(dslug)}&select=hostname,cf_id`, { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
-        for (const row of (await dr.json().catch(() => [])).slice(0, 20)) {
-          if (row.cf_id) { const d = await cfHostname(env, "DELETE", "/" + encodeURIComponent(row.cf_id)); if (!d.ok && d.status !== 404) continue; }
-          await fetch(`${SUPABASE_URL}/rest/v1/site_domains?hostname=eq.${encodeURIComponent(row.hostname)}`, { method: "DELETE", headers: svcHeaders(env) });
-          hostRoutes.delete(row.hostname);
-          domainsReleased++;
-        }
-      } catch (e) { console.error("domain release failed:", dslug, e && e.message); }
-
-      return Response.json({ ok: true, slug: dslug, removed, projectDropped, domainsReleased });
+      const done = [], failed = [];
+      // Bounded, and sequential: each delete drops a Neon project and walks an
+      // R2 prefix, so firing fifty at once is a good way to be rate-limited into
+      // a half-finished sweep. 50 is far above any real account.
+      for (const slug of slugs.slice(0, 50)) {
+        try {
+          const r = await deleteSiteFor(env, au.id, slug);
+          (r.status === 200 ? done : failed).push(slug);
+        } catch { failed.push(slug); }
+      }
+      // 207 when some survived, so the client can refuse to delete the account
+      // over a partial sweep rather than reading `ok` and carrying on.
+      return Response.json({ ok: failed.length === 0, deleted: done, failed, total: slugs.length },
+        { status: failed.length ? 207 : 200 });
     }
 
     // Sonnet 5 director: chats, reads intent (rerun/revise/new), writes prompts.

@@ -379,10 +379,13 @@ test("...and the meter is refreshed instead, which is the half that matters", ()
   // ONLY signal a build had spent anything: the build response carries `cost`
   // and no `balance`, and nothing on that path ever called setCredits. Deleting
   // one without adding the other makes the spend invisible rather than quiet.
+  // ONLY the React engine now. The legacy path was checked here too, and it no
+  // longer spends anything: its POST went to `/api/site`, deleted 2026-07-27, so
+  // it has been answering 404 to every message on a pre-React project. It makes
+  // no request at all now, so there is no balance for it to re-read.
   const src = chat();
   for (const [name, from, to] of [
     ["the React engine", "function reactSend(", "function buildActiveText("],
-    ["the legacy engine", "function siteSend(", "function siteStop("],
   ]) {
     const a = src.indexOf(from);
     const b = src.indexOf(to, a);
@@ -390,6 +393,13 @@ test("...and the meter is refreshed instead, which is the half that matters", ()
     assert.match(src.slice(a, b), /scheduleCreditRefresh\(\)/,
       name + " spends credits and nothing re-reads the balance");
   }
+  // And the retired path really does spend nothing — asserted, or "we removed
+  // the refresh" and "we removed the spend" look identical here.
+  const a = src.indexOf("function siteSend(");
+  const b = src.indexOf("function siteStop(", a);
+  assert.ok(a > 0 && b > a, "siteSend was renamed");
+  assert.ok(!/apiFetch\(['"]\/api\/site['"]/.test(src.slice(a, b)),
+    "the legacy engine is posting to a deleted route again");
 });
 
 test("the build routes stay OUT of apiFetch's refresh list", () => {

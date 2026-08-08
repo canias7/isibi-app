@@ -7037,17 +7037,30 @@ function renderSettings() {
         alert('Couldn’t reach billing to cancel your membership — the account wasn’t deleted so you’re not billed again. Try again in a moment.');
         return;
       }
-      // Wipe every built site FIRST (its own Cloudflare database + hosted files),
-      // while the account still exists — otherwise deleting the account would
-      // orphan those databases. Driven server-side off the site ledger; we also
-      // pass the locally-known slugs so informational sites get cleaned too.
-      try {
-        const slugs = (sitesLoad() || []).map((s) => s && s.slug).filter(Boolean);
-        await apiFetch('/api/site/backend/delete-all', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ slugs }),
-        });
-      } catch (se) {} // best-effort — never block account deletion on it
+      // WIPE EVERY BUILT SITE FIRST, while the account still exists — and stop if
+      // that fails. `site_backends.uid` cascades with `auth.users`, so once the
+      // account goes the ownership rows go with it and `DELETE /api/site/<slug>`
+      // answers 404 by design; the site keeps serving at a public URL and nothing
+      // is left that can authorise taking it down. That is the orphan state only
+      // an operator can clear.
+      //
+      // THIS USED TO CALL `/api/site/backend/delete-all`, WHICH HAS NEVER EXISTED.
+      // The 404 was swallowed as best-effort and the account was deleted anyway,
+      // so every published site of every deleted account is still up. The slug
+      // list it posted was read by nothing — and would have been wrong anyway,
+      // since a site built on another device is not in this browser's storage.
+      // The server reads the caller's own rows now.
+      const dr = await apiFetch('/api/site/delete-all', { method: 'POST' });
+      const dj = await dr.json().catch(() => null);
+      if (!dr.ok || !dj || dj.ok !== true) {
+        // NOT best-effort any more. Deleting the account over a half-finished
+        // sweep is unrecoverable — there is no second chance at those sites.
+        btn.disabled = false;
+        const left = (dj && Array.isArray(dj.failed) && dj.failed.length) ? dj.failed.join(', ') : '';
+        alert("Couldn't take your published sites down" + (left ? ' (' + left + ')' : '') +
+          ", so your account was NOT deleted — otherwise those sites would stay online with no way to remove them. Try again in a moment.");
+        return;
+      }
       // Files first via the Storage API (clean byte removal; best-effort —
       // the RPC sweeps whatever this misses), then the account itself.
       await Auth.storageWipeOwn();
@@ -10036,7 +10049,18 @@ function renderSites() {
     // it is permanent, so confirm, then wipe it server-side before removing locally.
     if (s && s.slug) {
       if (!confirm('Delete this site for good? Its live page' + (s.backend ? ' and any saved data' : '') + ' will be permanently removed.')) return;
-      try { await apiFetch('/api/site/backend/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: s.slug }) }); } catch (e) {}
+      // THE REAL ROUTE. This posted to `/api/site/backend/delete`, which has never
+      // existed: the 404 was swallowed, the local record was dropped anyway, and
+      // the published site, its Neon database and its claimed slug all kept
+      // running — while the customer had just been told they were permanently
+      // removed. And with the local record gone there was no UI left to retry.
+      // A failure now KEEPS the site in the list, so it can be tried again.
+      let dr;
+      try { dr = await apiFetch('/api/site/' + encodeURIComponent(s.slug), { method: 'DELETE' }); } catch (e) { dr = null; }
+      if (!dr || !dr.ok) {
+        alert("Couldn't take that site down just now — it's still live. Try again in a moment.");
+        return;
+      }
     }
     sitesCache = sitesLoad().filter((x) => x.id !== id);
     sitesSave(); renderSites();
@@ -11068,7 +11092,19 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
     // read the balance before anything was taken and paint a number that is
     // wrong in the reassuring direction.
     scheduleCreditRefresh();
-    if (r.ok && d && !d.error && d.slug) {
+    // A PLACEHOLDER BUILD IS A SUCCESS THAT CARRIES A REASON, and `!d.error` was
+    // refusing exactly those. The route returns `error` alongside `ok:true`
+    // whenever it fell back — validate, home, typecheck, build, generate — so the
+    // most common real failure there is (a page that doesn't compile) took the
+    // ERROR branch below, which tells the customer "you weren't charged" over
+    // stages that ARE charged, and never records the slug/url/backend that were
+    // really provisioned. The project then lost its link to its own database, and
+    // the next message ran as a fresh first build against a slug already claimed.
+    //
+    // The placeholder-vs-app distinction it was reaching for already lives in
+    // `d.page`, and the ⚠️ wording below is built on it. So this gates on the
+    // route having answered, not on the answer being flawless.
+    if (r.ok && d && d.error !== true && d.slug) {
       const s = siteById(origin);
       if (s) {
         s.react = true; s.slug = d.slug; s.url = d.url || ('/s/' + d.slug + '/');
@@ -11367,96 +11403,21 @@ function siteSend(text) {
   // worse than not asking.
   if (reactPath && !imgs.length) { siteRoute(site, t, origin, isBuild, imgs, finish); return; }
   if (reactPath) { reactSend(site, t, origin, isBuild ? 'build' : 'revise', imgs, finish); return; }
-  const body = isBuild
-    ? { step: 'build', brief: t, siteId: site.id, images: imgs }
-    : { step: 'revise', instruction: t, html: active ? active.html : '', path: active ? active.path : '/', paths: sitePages(site).map((p) => p.path), pages: sitePages(site).map((p) => ({ path: p.path, name: p.name, html: p.html })), design: site.design || '', siteId: site.id, images: imgs };
-  siteAbort = new AbortController();
-  apiFetch('/api/site', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body), signal: siteAbort.signal,
-  }).then(async (r) => {
-    // A build streams progress as NDJSON (Content-Type x-ndjson); read it live and
-    // reduce to the terminal payload. Everything else (chat reply, revise, errors)
-    // is a normal JSON body.
-    const ct = r.headers.get('content-type') || '';
-    const d = (r.ok && isBuild && ct.indexOf('ndjson') >= 0) ? await readSiteStream(r, origin) : await r.json().catch(() => ({}));
-    // Same as the React path above: the cost goes to the meter, not the
-    // sentence. Changed here too rather than only on the live engine — a
-    // customer on an older static site seeing a different convention reads as a
-    // bug, and two conventions is how one of them quietly stops being applied.
-    scheduleCreditRefresh();
-    if (r.ok && d.chat) {
-      // Conversational reply — a greeting/question/vague message, not a build.
-      siteErr = null;
-      finish(d.chat);
-    } else if (r.ok && isBuild && Array.isArray(d.pages) && d.pages.length) {
-      const s = siteById(origin);
-      if (s) {
-        s.pages = d.pages.map((p) => ({ path: p.path, name: p.name, html: p.html }));
-        s.design = typeof d.design === 'string' ? d.design : '';
-        s.active = (s.pages[0] || {}).path || '/';
-        // Rename the project card from the raw first prompt ("hey") to the brand
-        // the AI actually chose for the site (e.g. "HEY STUDIO"). The URL slug is
-        // brand-derived server-side too.
-        if (d.brand && typeof d.brand === 'string' && d.brand.trim()) s.name = d.brand.trim().slice(0, 40);
-        if (d.slug) s.slug = d.slug; // draft identity — accounts/forms/maps work in preview now
-        delete s.html;
-        siteSnap(s, t); // version-history restore point
-      }
-      siteErr = null;
-      finish('✅ Built' + (d.pages.length > 1 ? ' — ' + d.pages.length + ' pages' : '') + '. Take a look on the right, then tell me what to change.');
-    } else if (r.ok && !isBuild && Array.isArray(d.pages) && d.pages.length) {
-      // A site-wide op — add page / remove page / global edit / regenerate —
-      // returned the FULL updated page set (chat-driven, no UI).
-      let delta = 0;
-      const s = siteById(origin);
-      if (s) {
-        delta = d.pages.length - sitePages(s).length;
-        s.pages = d.pages.map((p) => ({ path: p.path, name: p.name, html: p.html }));
-        if (d.active && s.pages.some((p) => p.path === d.active)) s.active = d.active;
-        else if (!s.pages.some((p) => p.path === s.active)) s.active = (s.pages[0] || {}).path || '/';
-        delete s.html;
-        siteSnap(s, t); // version-history restore point
-      }
-      siteErr = null;
-      finish((delta > 0 ? '✅ Added a new page — it’s in the preview.' : delta < 0 ? '✅ Removed that page.' : '✅ Updated across the site — check the preview.'));
-    } else if (r.ok && !isBuild && d.noop) {
-      // The page already satisfied the request — nothing changed, no re-roll.
-      siteErr = null;
-      finish('👍 That’s already how it is — nothing to change.');
-    } else if (r.ok && !isBuild && d.html) {
-      const s = siteById(origin);
-      if (s) {
-        if (!Array.isArray(s.pages)) s.pages = sitePages(s); // migrate legacy single-html
-        const tgt = s.pages.find((p) => p.path === (d.path || s.active)) || s.pages.find((p) => p.path === s.active) || s.pages[0];
-        if (tgt) tgt.html = d.html;
-        delete s.html;
-        siteSnap(s, t); // version-history restore point
-      }
-      siteErr = null;
-      finish('✅ Updated — check the preview.');
-    } else if (r.status === 402) {
-      finish('⚡ You don’t have enough credits to build this right now. Tap your ✦ balance up top to get more.');
-    } else if (r.status === 429) {
-      finish('⏳ You’ve hit today’s build limit — it resets within 24 hours.');
-    } else if (r.status === 501) {
-      finish('⚠️ The build engine isn’t switched on yet — check back soon.');
-    } else if ((d && d.code === 429) || r.status === 503) {
-      // Same as the React path: say what the server said. This branch used to
-      // assume every 503 was the model rate-limiting us — transient, retry
-      // shortly — which is one of several things a 503 here means.
-      siteErr = null;
-      finish(buildDownMsg(d));
-    } else {
-      siteErr = { chatId: origin };
-      finish('⚠️ That build didn’t come together — you weren’t charged. Try again in a moment.' + (d.code != null ? ' (code ' + d.code + ')' : ''));
-    }
-    if (typeof fetchCredits === 'function') fetchCredits(); // repaint the ✦ pill
-  }).catch((e) => {
-    if (e && e.name === 'AbortError') { finish('■ Stopped. (Generation already in progress may still finish server-side.)'); return; }
-    siteErr = { chatId: origin };
-    finish('⚠️ Lost the connection while building — check your internet and try again in a moment.');
-  }).finally(() => { siteAbort = null; });
+  // A LEGACY STATIC SITE CANNOT BE EDITED — the engine that made it is gone.
+  //
+  // This posted to `POST /api/site`, deleted with the D1 runtime on 2026-07-27.
+  // Measured live: 404. So every message on a pre-React project (still sitting in
+  // some users' localStorage) failed forever with the generic "that build didn't
+  // come together — you weren't charged. Try again in a moment", which reads as
+  // transient and never was. The `d.need === 'rebuild'` escape below could not
+  // fire either, because the server that sent that field is what was deleted.
+  //
+  // Said plainly instead, and the escape is real: "rebuild it" starts a fresh
+  // React build, because `siteRebuild` clears the pages and `isBuild` is derived
+  // from there being none. Deliberately NOT automatic — a rebuild spends credits
+  // and replaces what they have, and neither should happen because somebody
+  // typed a sentence.
+  finish('This project was made with the older engine, which has been retired — I can\u2019t edit it in place. Say \u201Crebuild it\u201D and I\u2019ll regenerate it as a React app on the current builder.');
 }
 // Stop the in-flight build/revise: aborts the request so the UI stops waiting.
 // (The server uses a charge-after model, so a generation that already completed
@@ -11669,16 +11630,18 @@ async function siteVersions(site) {
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
   if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — versions show up here.'); return; }
   const { bodyEl } = stCloudModal('siteVersionsModal', 'Versions');
+  // NO VERSION HISTORY EXISTS. `/api/site/backend/builds` and `/backend/rollback`
+  // went with the D1 runtime on 2026-07-27 and were never rebuilt, so this panel
+  // has been showing "Couldn't load versions — try again" (a 404 caught by its own
+  // catch) and offering a roll-back button that posts into the void. A publish
+  // does not archive anything today: `writeSiteDistToR2` wipes the prefix and
+  // writes the new dist over it.
+  //
+  // Said honestly rather than left looking broken. Restoring the feature means
+  // keeping old dists in R2 under a version prefix and a route to swap them —
+  // a real change, not a re-wiring.
   const load = async () => {
-    try {
-      const r = await apiFetch('/api/site/backend/builds?slug=' + encodeURIComponent(slug));
-      const d = await r.json().catch(() => ({}));
-      const list = (d && d.builds) || [];
-      bodyEl.innerHTML = list.length ? '<div class="si-panel-sub">' + list.length + ' saved build' + (list.length === 1 ? '' : 's') + ' · newest first</div>' + list.map((b, i) =>
-        '<div class="si-item"><div class="si-item-top"><span class="si-form">' + (i === 0 ? 'Current version' : esc(stFmtTime(b.uploaded))) + '</span><span class="si-when">' + Math.max(1, Math.round((b.size || 0) / 1024)) + ' KB</span></div>' + (i === 0 ? '' : '<button type="button" class="st-hi-restore" data-key="' + esc(b.key) + '">Roll back</button>') + '</div>').join('')
-        : '<div class="si-empty">No saved builds yet. Each publish archives a version you can roll back to.</div>';
-      bodyEl.querySelectorAll('[data-key]').forEach((el) => el.onclick = async () => { if (!confirm('Roll the live site back to this build?')) return; el.disabled = true; el.textContent = 'Rolling back…'; try { const rr = await apiFetch('/api/site/backend/rollback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, key: el.dataset.key }) }); const rd = await rr.json().catch(() => ({})); if (typeof sbToast === 'function') sbToast(rd.ok ? 'Rolled back — your live site is updated.' : 'Roll back failed.'); } catch (e) { } load(); });
-    } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load versions — try again.</div>'; }
+    bodyEl.innerHTML = '<div class="si-empty">Version history isn\u2019t available yet. Each publish replaces the live files rather than archiving them, so there\u2019s nothing to roll back to — rebuild or revise to change the site.</div>';
   };
   load();
 }

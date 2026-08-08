@@ -290,7 +290,10 @@ test("deleting a SITE releases its domains too", () => {
   // mutant wrapping the whole block in `if (0)` survive — the text was still
   // there and the behaviour was gone. Same family as the webhook cache guard,
   // and the reason to anchor on structure rather than on a word.
-  has(/let domainsReleased = 0;\n      try \{/, "the release really runs, not behind a condition");
+  // INDENTATION-AGNOSTIC. This pinned six spaces and broke the moment the
+  // delete body moved out of the route into `deleteSiteFor` — a guard that
+  // fails on a pure re-indent is the byte-window bug wearing whitespace.
+  has(/let domainsReleased = 0;\s*\n\s*try \{/, "the release really runs, not behind a condition");
   const i = worker.indexOf("let domainsReleased = 0;");
   assert.ok(i > 0);
   const block = worker.slice(i, i + 1200);

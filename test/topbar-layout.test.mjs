@@ -184,11 +184,13 @@ test("the server's own message reaches the customer", () => {
   assert.match(fn, /d\.msg/, "the server's sentence is not read");
   assert.match(fn, /d\.billing/, "nothing distinguishes a transient failure from a permanent one");
 
-  // BOTH send paths use it. The legacy engine had its own copy of the canned
-  // line, and a fix applied to one of two paths is how one of them silently
-  // stops being right.
-  assert.equal((src.match(/finish\(buildDownMsg\(d\)\)/g) || []).length, 2,
-    "one of the two send paths still cans its own 503 message");
+  // ONE send path uses it, and one is now the whole answer. This asserted TWO,
+  // because the legacy static engine had its own copy — and that engine's POST
+  // went to `/api/site`, deleted 2026-07-27, so the branch could not reach a 503
+  // or anything else. It is a plain "this project needs rebuilding" message now
+  // and makes no request at all, so there is no second 503 to keep in step.
+  assert.equal((src.match(/finish\(buildDownMsg\(d\)\)/g) || []).length, 1,
+    "the React send path no longer cans its own 503 message");
   // And the canned sentence is no longer written at a call site.
   const calls = src.split("function buildDownMsg(d)")[0] + src.split(/\n\}/).slice(-1)[0];
   assert.ok(!/builder’s busy right now/.test(src.replace(fn, "")),

@@ -1926,6 +1926,9 @@ or an access level — anything not in the schema below does not exist.
 
 1. NO FETCH CODE. Read with \`useRows\`, write with \`useCreateRow\`, both from "@/lib/rows".
    A page that calls fetch, axios or XMLHttpRequest is wrong.
+   AND NO CommonJS: every page is an ES module. \`require()\` and \`module.exports\`
+   typecheck and bundle, then throw "require is not defined" in the browser and take
+   the whole section down with them. Top-level \`import\` only.
 
 2. RESPECT THE ACCESS LEVEL. The API enforces it — this is not a matter of taste.
    - \`display\` — you may LIST and READ it. A write returns 403.
@@ -2627,6 +2630,23 @@ export function lintPages(pages, spec) {
 
     if (/\b(?:fetch|XMLHttpRequest)\s*\(/.test(code) || /\baxios\b/.test(code)) {
       say(path, "calls fetch directly. Read with useRows and write with useCreateRow from @/lib/rows — no fetch code in a page.");
+    }
+    // COMMONJS IN AN ESM BUNDLE. Measured live 2026-08-08: a generated page
+    // reached for `require()` out of training-data habit, and it passed every
+    // check the pipeline has — the lint said nothing, `tsc` accepted it (Node's
+    // types declare `require`), vite bundled it, and the site published. Then the
+    // browser threw `ReferenceError: require is not defined` and the whole
+    // component tree under it went to the error boundary, live, on a customer's
+    // site. `build smoke` went red on "no console errors" and that was the only
+    // thing in the repo that noticed.
+    //
+    // Exactly the class the `fetch` rule above exists for — compiles, bundles,
+    // fails in front of a visitor — so it belongs next to it. With the repair
+    // pass gone (2026-08-04) nothing downstream absorbs it.
+    if (/\brequire\s*\(/.test(code) || /\bmodule\.exports\b/.test(code) || /\bexports\.[A-Za-z_$]/.test(code)) {
+      say(path, "uses CommonJS (require/module.exports). These pages are ES modules bundled by vite: " +
+        "`require` is not defined in the browser, so the page compiles, publishes, and then throws at " +
+        "runtime — the whole section renders as an error. Use a top-level `import` instead.");
     }
     if (/@tanstack\/react-form/.test(code)) {
       say(path, "imports @tanstack/react-form. shadcn's Form components only speak to react-hook-form; use useForm from react-hook-form with zodResolver.");

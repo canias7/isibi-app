@@ -230,6 +230,30 @@ export function normalizeSchema(spec) {
     if (/\b_(secrets|meta|users|sessions|invites|identities|credentials|auth_codes|auth_events|audit|teams)\b/i.test(body)) {
       continue;
     }
+    // NEON_AUTH IS THE LIVE SESSION STORE, and the list above never covered it.
+    //
+    // Those underscore names are ours, and most of them went with the hand-built
+    // auth layer on 2026-07-30 — the tables that actually hold identity today are
+    // `neon_auth."user"`, `.session`, `.account` and `.verification`, created by
+    // Neon Auth and none of them matching `_something`. So the deny-list was
+    // guarding the ghosts of deleted tables while the real one stood open.
+    //
+    // Every model function is SECURITY DEFINER and therefore bypasses RLS, and a
+    // non-`internal` one is GRANTed to `anonymous`. So a body reading
+    // `neon_auth.session` and returning its rows hands any visitor every member's
+    // live session token — full account takeover of that site — and `dblink` is
+    // installable on Neon, so the body can post them outbound. It does not take a
+    // malicious brief: "an admin page showing who's logged in" is enough, and the
+    // platform's own threat model already treats model input as
+    // attacker-influenceable (fetched pages and web research go into this model).
+    //
+    // Matched on the SCHEMA, not on table names: `neon_auth` is Neon's whole
+    // namespace and nothing a site declares ever lives in it, so there is no
+    // legitimate reference to preserve. Quoted, bracketed and bare forms all
+    // reduce to the same word, which is why the check is on the identifier alone.
+    if (/\bneon_auth\b/i.test(body)) {
+      continue;
+    }
     functions.push({ name, args, returns, body, language: lang, definer: f.definer !== false, /* An internal function is created, REVOKEd from PUBLIC, and never granted to the Data API roles. The revoke is the protection and the missing grant is only what stops it being handed back: Postgres grants EXECUTE on a new function to PUBLIC by default, so omission alone left it callable by everyone (measured by `neon e2e` 2026-08-07). A confirmation builder takes a row id and returns somebody's address and message, and every model function is SECURITY DEFINER, so reachable by `anonymous` it reads any customer's confirmation by guessing a number. The Worker calls it on the owner's connection, which bypasses grants, so revoking costs it nothing. */ internal: !!f.internal });
   }
 

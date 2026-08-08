@@ -452,3 +452,39 @@ test("one photograph really does cost about what a whole warm build costs", () =
   assert.ok(pageCredits({ images: 1 }) >= warmBuild * 0.8,
     "an image (" + pageCredits({ images: 1 }) + ") is no longer comparable to a build (" + warmBuild + ")");
 });
+
+/* --------------------------------------------------- CommonJS in an ES module */
+
+test("the lint refuses require() — it compiles, publishes, and then throws", () => {
+  // MEASURED LIVE 2026-08-08. A generated page reached for `require()` out of
+  // training-data habit and passed every check: the lint said nothing, `tsc`
+  // accepted it (Node's types declare `require`), vite bundled it, the site
+  // published — and the browser threw `ReferenceError: require is not defined`,
+  // taking the whole component tree under it to the error boundary on a live
+  // customer site. `build smoke` going red on "no console errors" was the only
+  // thing in the repo that noticed.
+  const bad = lintPages([page("index.tsx", 'const x = require("react");\n<div />')], { tables: [] });
+  assert.equal(bad.length, 1);
+  assert.match(bad[0], /CommonJS/);
+  assert.match(bad[0], /throws at\s+runtime/);
+
+  for (const src of ['module.exports = Page;', 'exports.Page = Page;']) {
+    assert.equal(lintPages([page("index.tsx", src)], { tables: [] }).length, 1, "must refuse: " + src);
+  }
+});
+
+test("an ordinary import is not mistaken for one", () => {
+  // The blanket-refusal direction: a rule that flagged every page would pass the
+  // test above while making the lint useless.
+  const ok = lintPages([page("index.tsx", 'import { useRows } from "@/lib/rows";\n<div />')], { tables: [] });
+  assert.deepEqual(ok, []);
+  // And a word merely CONTAINING it — `requireAuth`, `required` — is not a call.
+  assert.deepEqual(lintPages([page("index.tsx", 'const required = true;\nrequireAuth();')], { tables: [] }), []);
+});
+
+test("the rules say so too, not just the lint", () => {
+  // A lint problem is reported on a site that still publishes, so the rule text
+  // is what actually prevents it. Both halves, or the model learns by rejection.
+  assert.match(PAGE_RULES, /NO CommonJS/);
+  assert.match(PAGE_RULES, /require is not defined/);
+});

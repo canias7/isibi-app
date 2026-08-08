@@ -306,8 +306,8 @@ test("the build both ASKS for photographs and BUYS them", () => {
   // becomes a placeholder); supply the dep with no allowance and nothing ever
   // writes a token for it to find. The two live ~10 lines apart and it is
   // entirely possible to add one and forget the other.
-  assert.match(worker, /const imgBudget = imageBudget\(family\)/,
-    "the budget is derived from the family, once");
+  assert.match(worker, /const imgBudget = revise \? 0 : imageBudget\(family\)/,
+    "the budget is derived from the family, once (and a revise buys none)");
   assert.match(worker, /briefWithLayout\(\{ brief, family, structure, images: imgBudget \}\)/,
     "and stated to the model in the user turn");
   assert.match(worker, /images: \(pages, \{ balance, reserve \}\) =>\s*\n?\s*buySitePhotos\(/,
@@ -407,4 +407,78 @@ test("every way out of buySitePhotos sweeps the tokens", () => {
   }
   assert.match(fn, /const done = \([\s\S]{0,80}applyImages\(pages, urls\)/,
     "and `done` is what sweeps");
+});
+
+/* ------------------------------------------------- client -> route reachability */
+
+test("every /api path the client calls is answered by a route in worker.js", () => {
+  // THE CHECK THAT WOULD HAVE CAUGHT THREE SEPARATE LIVE BUGS AT ONCE.
+  //
+  // `/api/site/backend/delete` (the Delete-this-site button) and
+  // `/api/site/backend/delete-all` (account deletion) were called by the client
+  // and answered by nothing: both 404s were swallowed by a `catch {}`, so a
+  // customer was told their site and data were permanently removed while the
+  // published site, its Neon database and its claimed slug all kept running.
+  // The real `DELETE /api/site/<slug>` route had zero callers.
+  //
+  // MATCHED AGAINST ROUTE MATCHERS, NOT AGAINST THE FILE TEXT. A plain
+  // `worker.includes(path)` passes on a COMMENT explaining that a route was
+  // deleted, which is the "matches its own prose" failure this repo keeps
+  // hitting — and comment-blanking worker.js is not an option either: a stray
+  // `/*` inside a string makes the blanker eat 46% of the file, which hides real
+  // code and is the direction that costs a bug rather than a false alarm.
+  //
+  // STATIC PATHS ONLY. A path the client concatenates a slug onto is checked by
+  // its prefix through the sub-router rule below, not as a literal.
+  const client = fs.readFileSync(path.join(ROOT, "public/chat.js"), "utf8") + "\n" +
+    fs.readFileSync(path.join(ROOT, "public/auth.js"), "utf8");
+
+  const literals = new Set();
+  for (const m of worker.matchAll(/url\.pathname\s*===\s*"([^"]+)"/g)) literals.add(m[1]);
+  const regexes = [];
+  for (const m of worker.matchAll(/(\/(?:\\.|\[[^\]]*\]|[^/\n])+\/[a-z]*)\.test\(url\.pathname\)/g)) {
+    try { regexes.push(new RegExp(m[1].replace(/^\//, "").replace(/\/[a-z]*$/, ""))); } catch { /* not a pathname regex */ }
+  }
+  assert.ok(literals.size > 30, `only ${literals.size} literal routes found — the scan broke`);
+  assert.ok(literals.has("/api/credits"), "a known route is not being seen");
+  assert.ok(regexes.length >= 1, "the pathname regexes are not being read");
+
+  const answered = (p) => {
+    if (literals.has(p) || regexes.some((r) => r.test(p))) return true;
+    // `/api/site/<slug>/<verb>` and `/api/db/<slug>/...` are sub-routers: the
+    // slug is dynamic, so the verb suffix is what has to exist.
+    const seg = p.split("/").filter(Boolean);
+    if (seg[0] === "api" && seg[1] === "site" && seg.length >= 3) {
+      const tail = "/" + seg.slice(2).join("/");
+      if (worker.includes('"' + tail + '"') || worker.includes('endsWith("' + tail)) return true;
+    }
+    return p.startsWith("/api/db/") || p.startsWith("/api/m/");
+  };
+
+  const dead = [];
+  // A LITERAL ENDING IN `/` IS A PREFIX BEING CONCATENATED, not a path. Without
+  // this, `apiFetch('/api/site/' + slug)` reads as a call to `/api/site` and
+  // buries the one call that really is dead among three that are fine.
+  for (const m of client.matchAll(/(?:apiFetch|fetch)\(\s*(["'`])(\/api\/[A-Za-z0-9/_-]*)\1/g)) {
+    if (m[2].endsWith("/")) continue;
+    if (!answered(m[2])) dead.push(m[2] + " (public/chat.js:" + client.slice(0, m.index).split("\n").length + ")");
+  }
+  assert.deepEqual([...new Set(dead)], [], "the client calls routes that do not exist — these 404 at runtime");
+});
+
+test("a REVISE buys no new photographs", () => {
+  // Every revise re-derived the same family budget and the model wrote fresh
+  // descriptions, so nothing matched what was bought last time: a customer
+  // revising a 5-photo agency site paid ~94 credits in NEW photographs on every
+  // revise, for pictures they already owned, and orphaned the originals. Even a
+  // typo fix bought one, because the directive actively asks for a token.
+  assert.match(worker, /const imgBudget = revise \? 0 : imageBudget\(family\)/,
+    "a revise re-derives a photo budget and re-bills for pictures the owner has");
+  // AND THE FLAG HAS TO ARRIVE. The budget line above is correct and inert if
+  // nothing ever passes `revise` — four of five layers working is this repo's
+  // signature failure, so the parameter and the call site are asserted apart.
+  assert.match(worker, /async function buildAndPublishPages\(env, \{[^}]*\brevise\b[^}]*\}\)/,
+    "buildAndPublishPages does not take the flag");
+  assert.match(worker, /revise: !!priorBrief,/,
+    "nothing tells it this is a revise — `priorBrief` is the free signal, off the ownership check");
 });

