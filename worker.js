@@ -5091,6 +5091,27 @@ async function handleRequest(request, env, ctx) {
       const sm = url.pathname.match(/^\/s\/([a-z0-9][a-z0-9-]{0,80})(?:\/(.*))?$/i);
       if (sm && env.SITES_BUCKET) {
         const slug = sm[1].toLowerCase();
+        // A BARE /s/<slug> WITH NO TRAILING SLASH SERVED A BLANK PAGE. It answered
+        // 200 with the right HTML — and that HTML references its bundle
+        // RELATIVELY (`./assets/index-x.js`, which is what Vite emits), so from
+        // `/s/hey` the browser resolves it to `/s/assets/index-x.js` and gets a
+        // 404. The document loads, the script and stylesheet do not, and the
+        // visitor sees white.
+        //
+        // It matters because `/s/hey` is how a person writes the link. Nothing in
+        // the product produces the slashless form — the build response, the share
+        // panel and the iframe all carry the slash — so this was only ever
+        // reachable by somebody typing or pasting it, which is exactly what an
+        // owner does when they tell a customer where their site is.
+        //
+        // `sm[2]` is undefined for `/s/hey` and "" for `/s/hey/`, so this is the
+        // one case it fires on. The query survives; the fragment never reaches us
+        // and the browser carries it across the redirect itself, which matters
+        // because the generated app routes on the hash.
+        if (sm[2] === undefined) {
+          url.pathname = "/s/" + slug + "/";
+          return Response.redirect(url.toString(), 301);
+        }
         const rest = (sm[2] || "").replace(/\/+$/, "");
         const last = rest.split("/").pop() || "";
         const ext = (last.match(/\.([a-z0-9]{1,8})$/i) || [])[1];
@@ -5106,6 +5127,25 @@ async function handleRequest(request, env, ctx) {
             "content-type": ctype,
             "cache-control": immutable ? "public, max-age=31536000, immutable" : "public, max-age=60",
             "x-content-type-options": "nosniff",
+            // WHY A PUBLIC FILE NEEDS A CORS HEADER, which reads as pointless
+            // until you know what breaks: the builder's preview frame is
+            // sandboxed WITHOUT `allow-same-origin`, so its origin is `null` and
+            // every subresource it asks for is cross-origin. Vite emits the
+            // bundle as `<script type="module" crossorigin>`, and a module script
+            // is ALWAYS fetched in CORS mode — so with no header the script and
+            // the stylesheet were both blocked and the preview was a white
+            // rectangle. Measured: same site, two iframes, the only difference
+            // being `allow-same-origin`.
+            //
+            // The alternative was adding `allow-same-origin` to the frame, and it
+            // is the wrong one. These sites are served from gofarther.dev, so a
+            // same-origin frame would give model-written page code read access to
+            // the owner's own session in localStorage. The sandbox is deliberate;
+            // this opens the file, not the origin.
+            //
+            // `*` is honest here — every object under /s/ is already served to
+            // anybody who asks, with no credentials involved.
+            "access-control-allow-origin": "*",
           },
         });
       }
