@@ -46,6 +46,9 @@ import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayou
 // it at deploy time and the deploy is the first thing that ever sees it.
 import { publishPages, pageCredits, schemaSettlement, buildFloor, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
 import { imageBudget, imagesAffordable, planImages, applyImages, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote } from "./builder/site-tokens.mjs";
+import { extractText, applyEdits } from "./builder/site-text.mjs";
+import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
 import { routeMessage, clarifiedBrief } from "./builder/site-ask.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
@@ -2903,7 +2906,16 @@ const SITE_SCHEMA_TOOL = {
           type: "object",
           properties: {
             name: { type: "string", description: "snake_case table name." },
-            access: {
+            // REMOVING A FEATURE, without destroying what it collected.
+      retired: {
+        type: "boolean",
+        description:
+          "Set TRUE only when the message asks to REMOVE this table's feature from the site (\"drop the gallery\", " +
+          "\"we don't take enquiries any more\"). The table and every row in it are KEPT — the owner can still read " +
+          "and export them — but nothing on the site can reach it any more. Leave it out otherwise; a table you " +
+          "simply did not mention this turn is not retired.",
+      },
+      access: {
               type: "string",
               enum: ["collect", "display", "user", "feed", "admin"],
               description:
@@ -3155,6 +3167,36 @@ const SITE_SCHEMA_TOOL = {
           "The site's visual world. Pick for the TRADE and its mood, not for novelty — the name says what it is " +
           "(broadsheet, bauhaus, zine, apothecary). A barber shop and a law firm want different worlds; " +
           "most businesses want a quiet one. This sets colour, type feeling, corners, borders and shadows together.",
+      },
+      // ONE COLOUR, CHANGED — the thing a revise could not do at all.
+      //
+      // Anchoring the look in `_meta` stopped "make the background yellow"
+      // re-rolling a barber shop into a different site, and left the customer
+      // unable to change the background AT ALL: every token comes from a theme
+      // in the registry, and none of the 500 is "the one you have, but yellow".
+      // This is the escape hatch, and it rides on a call that already reads the
+      // instruction and already returns structured output, so it costs no extra
+      // model call — the same reasoning as `needsWeb`.
+      //
+      // OMITTED unless the instruction really is about a colour. The look is
+      // otherwise the theme's business, and a designer that patches tokens
+      // "while it is here" is the re-roll arriving one property at a time.
+      tokens: {
+        type: "object",
+        description:
+          "ONLY when the message asks for a specific COLOUR or CORNER change to an existing site (\"make the background " +
+          "yellow\", \"the buttons should be green\", \"round the corners more\", \"square corners please\"). Omit it " +
+          "entirely otherwise — on a first build, and on any revise about content, pages or layout. Colours are HEX " +
+          "(#rrggbb); `radius` is a length. Set the surface only; the readable text colour on top of it is worked out " +
+          "for you, so do not set a *-foreground unless the customer named that colour too.",
+        // THE HINT IS DERIVED PER TOKEN, not one line for all of them. `radius`
+        // takes a LENGTH and every other name takes a colour; described as
+        // "#rrggbb" it would be asked for in hex, refused by the parser, and
+        // reported to the customer as a colour we could not use.
+        properties: Object.fromEntries(SITE_TOKEN_NAMES.map((t) => [t, {
+          type: "string",
+          description: siteTokenHint(t),
+        }])),
       },
       // The SHAPE. Distinct from the theme on purpose: a theme decides how a
       // site looks, a family decides what its pages ARE and in what order.
@@ -3529,12 +3571,12 @@ async function siteWebResearch(env, brief, queries) {
 //
 // ONE call per build. There is no repair pass — see builder/publish-pages.mjs
 // for the measurement it was removed on.
-async function generateSitePages(env, brief, spec, brand, family, attachments, model) {
+async function generateSitePages(env, brief, spec, brand, family, attachments, model, priorPages) {
   // One definition, shared with the eval harness — see pagesRequest. Restating
   // it here would mean the harness tunes against a different request from the
   // one production runs. Held in a const so the usage below can be stamped with
   // the model that was actually sent.
-  const req = pagesRequest({ brief, spec, brand, family, attachments, model });
+  const req = pagesRequest({ brief, spec, brand, family, attachments, model, priorPages });
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
@@ -5055,11 +5097,19 @@ async function writeGameDistToR2(env, slug, dist) {
 // call, so this follows the cursor rather than stopping at the first page — a
 // React dist is only a handful of objects, but a half-deleted site serves a
 // shell whose assets 404, which is worse than not deleting at all.
-async function deleteSitePrefix(env, slug) {
+async function deleteSitePrefix(env, slug, keep) {
+  const spare = keep instanceof Set ? keep : null;
+  const prefix = "sites/" + slug + "/";
   let cursor, removed = 0;
   for (;;) {
-    const page = await env.SITES_BUCKET.list({ prefix: "sites/" + slug + "/", cursor });
-    for (const o of (page.objects || [])) { await env.SITES_BUCKET.delete(o.key); removed++; }
+    const page = await env.SITES_BUCKET.list({ prefix, cursor });
+    for (const o of (page.objects || [])) {
+      // `keep` is what the build just wrote. Sweeping everything else is how a
+      // republish drops the previous build's hashed assets without there ever
+      // being a moment when the site is not fully published.
+      if (spare && spare.has(o.key.slice(prefix.length))) continue;
+      await env.SITES_BUCKET.delete(o.key); removed++;
+    }
     // Stopping when there is no cursor as well as when the page is not truncated
     // is what makes this loop terminate unconditionally: a truncated page with no
     // cursor would otherwise re-request the same page forever and burn the
@@ -5069,12 +5119,101 @@ async function deleteSitePrefix(env, slug) {
   }
 }
 
-// Publish a compiled site. The prefix is wiped first: vite hashes its asset file
-// names, so without this every rebuild would leave the previous build's JS and CSS
-// behind forever. Same {t}/{b} envelope the build service returns for the games.
+/**
+ * R2 plumbing for site-versions.mjs. One place, so the archive, the rollback and
+ * the delete sweep cannot disagree about where a version lives.
+ *
+ * `copy` is a read-then-put: R2's binding has no server-side copy, so a version
+ * really is a second set of bytes. That is the cost of the design — ~10 builds
+ * of a small dist — and it is why MAX_VERSIONS exists.
+ */
+/**
+ * WHERE A SITE'S PAGE SOURCE LIVES, so a revise can edit it.
+ *
+ * `source/<slug>/pages.json`, and the prefix matters: `/s/<slug>/` serves out of
+ * `sites/<slug>/`, so anything written there is PUBLIC. A site's own TSX is not
+ * something to hand to its visitors.
+ *
+ * Best-effort in both directions. A failed write costs the next revise its
+ * anchor — which is exactly today's behaviour, so it can never be worse than
+ * what it replaces — and a failed read is the same.
+ */
+const SOURCE_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/pages.json";
+
+async function saveSiteSource(env, slug, pages) {
+  if (!env.SITES_BUCKET) return false;
+  const list = (Array.isArray(pages) ? pages : [])
+    .filter((p) => p && typeof p.path === "string" && typeof p.source === "string")
+    .map((p) => ({ path: p.path, source: p.source }));
+  if (!list.length) return false;
+  try {
+    await env.SITES_BUCKET.put(SOURCE_KEY(slug), JSON.stringify(list), {
+      httpMetadata: { contentType: "application/json" },
+    });
+    return true;
+  } catch (e) { console.error("source save failed:", slug, e && e.message); return false; }
+}
+
+async function loadSiteSource(env, slug) {
+  if (!env.SITES_BUCKET) return null;
+  try {
+    const o = await env.SITES_BUCKET.get(SOURCE_KEY(slug));
+    if (!o) return null;
+    const v = JSON.parse(await o.text());
+    return Array.isArray(v) && v.length ? v : null;
+  } catch (e) { console.error("source read failed:", slug, e && e.message); return null; }
+}
+
+function versionDeps(env) {
+  return {
+    list: async (prefix) => {
+      const out = []; let cursor;
+      for (;;) {
+        const page = await env.SITES_BUCKET.list({ prefix, cursor });
+        for (const o of (page.objects || [])) out.push({ key: o.key, size: o.size });
+        if (!page.truncated || !page.cursor) return out;
+        cursor = page.cursor;
+      }
+    },
+    copy: async (from, to) => {
+      const obj = await env.SITES_BUCKET.get(from);
+      if (!obj) return;
+      await env.SITES_BUCKET.put(to, await obj.arrayBuffer(),
+        { httpMetadata: { contentType: obj.httpMetadata && obj.httpMetadata.contentType } });
+    },
+    remove: (key) => env.SITES_BUCKET.delete(key),
+    put: (key, text, ct) => env.SITES_BUCKET.put(key, text, { httpMetadata: { contentType: ct } }),
+    read: async (key) => { const o = await env.SITES_BUCKET.get(key); return o ? await o.text() : null; },
+  };
+}
+
+/**
+ * Publish a compiled site — WRITE FIRST, THEN SWEEP. Never the other way round.
+ *
+ * THIS USED TO DELETE THE WHOLE PREFIX AND THEN WRITE, which left a window —
+ * the wipe plus ~20 sequential R2 puts — where the live site was partly or
+ * entirely missing. Anyone loading it in that window got 404s, on a public URL,
+ * every time the owner revised.
+ *
+ * It is worse than it sounds because a generated site is CODE-SPLIT: one lazily
+ * loaded chunk per route. So a visitor whose home page loaded BEFORE a republish
+ * gets a 404 the moment they click through to another page — the chunk that page
+ * needs was deleted and not yet rewritten. Measured against a real published
+ * site 2026-08-08; that is the "this page didn't load" a customer reported.
+ *
+ * Safe in this order because vite content-hashes asset names: a new build's
+ * assets have new names, so writing them cannot clash with the ones being
+ * served. `index.html` goes LAST — it is the pointer, so flipping it after its
+ * assets exist is what makes the switch atomic from a visitor's side. Then the
+ * sweep removes whatever the new build does not use.
+ */
 async function writeSiteDistToR2(env, slug, dist, meta) {
-  try { await deleteSitePrefix(env, slug); } catch {}
-  for (const [rel, v] of Object.entries(dist || {})) {
+  const wrote = new Set();
+  // index.html last: it names the new bundle, so nothing may see it until the
+  // bundle it points at is fully written.
+  const entries = Object.entries(dist || {})
+    .sort((a, b) => (/^index\.html$/i.test(a[0]) ? 1 : 0) - (/^index\.html$/i.test(b[0]) ? 1 : 0));
+  for (const [rel, v] of entries) {
     // The head belongs to the built dist, which the model never sees, so the
     // share tags go in here. Only ever a no-op on anything unexpected — a site
     // published without a description is a far smaller problem than one
@@ -5090,7 +5229,13 @@ async function writeSiteDistToR2(env, slug, dist, meta) {
     else if (v && typeof v.b === "string") { const bin = atob(v.b); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); bodyOut = u8; }
     else continue;
     await env.SITES_BUCKET.put("sites/" + slug + "/" + safeRel, bodyOut, { httpMetadata: { contentType: ct } });
+    wrote.add(safeRel);
   }
+  // AND ONLY NOW the previous build's leftovers. Best-effort: a failed sweep
+  // costs storage, while a failed write would cost the site — so this can never
+  // be allowed to throw past a publish that has already succeeded.
+  try { await deleteSitePrefix(env, slug, wrote); } catch (e) { console.error("sweep failed:", slug, e && e.message); }
+  return wrote.size;
 }
 
 /**
@@ -5144,7 +5289,7 @@ async function fetchSiteFonts(pair) {
 // all? — live in builder/publish-pages.mjs, which takes every side effect as an
 // injected function so they can be driven against fakes in test/publish-pages.test.mjs.
 // This is only the wiring that supplies the real ones.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, family, structure, attachments, priorUsage, model, revise, mark }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, tokens, family, structure, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
@@ -5188,7 +5333,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // and sent the bare brief — ~287 tokens of layout that every real build
       // carries and no sample ever did, so the compile rate described a prompt
       // the platform does not send.
-      return generateSitePages(env, briefWithLayout({ brief, family, structure, images: imgBudget }), spec, brand, family, attachments, model);
+      return generateSitePages(env, briefWithLayout({ brief, family, structure, images: imgBudget }), spec, brand, family, attachments, model, priorPages);
     },
     // Runs between the lint and the compile, on the pages the model actually
     // wrote. `publishPages` supplies the two numbers only it knows — the balance
@@ -5210,6 +5355,13 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // would put a second copy of the theme on the wire and let the two
           // drift; the name is the whole contract.
           theme: theme || null,
+          // THE SITE'S OWN COLOURS, written after the theme inside the
+          // container — later wins, and that IS the override. Sent resolved
+          // rather than by name, unlike the theme: there is no registry to
+          // resolve against, these ARE the values. `withContrast` runs here so
+          // what is stored stays what the customer asked for and the readable
+          // text colour follows whatever the surface currently is.
+          tokens: Object.keys(tokens || {}).length ? withContrast(tokens) : undefined,
           fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined }),
       }));
       // THE STATUS AND THE BODY, NOT JUST "no JSON". Parsing straight to JSON and
@@ -5231,12 +5383,41 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
         };
       }
     },
-    publish: (dist) => writeSiteDistToR2(env, slug, dist, {
-      brand, description: siteDescription, url: "https://gofarther.dev/s/" + slug + "/", image: ogImage,
-      // WHICH SITE THIS IS, so the bundle can address its own API from a custom
-      // domain — where there is no `/s/<slug>/` in the path to read it from.
-      slug,
-    }),
+    publish: async (dist, pages) => {
+      const wrote = await writeSiteDistToR2(env, slug, dist, {
+        brand, description: siteDescription, url: "https://gofarther.dev/s/" + slug + "/", image: ogImage,
+        // WHICH SITE THIS IS, so the bundle can address its own API from a custom
+        // domain — where there is no `/s/<slug>/` in the path to read it from.
+        slug,
+      });
+      // ARCHIVE THE BUILD THAT JUST WENT LIVE, so it can be rolled back to.
+      //
+      // AFTER the publish and never allowed to fail it: the site is already up
+      // by this point, so a failed archive costs a rollback point, while
+      // throwing here would trade a working site for a bookkeeping entry. Same
+      // rule as the meta injection and the sweep above it.
+      try {
+        await archiveVersion(versionDeps(env), {
+          slug,
+          id: versionId(Date.now(), Math.random().toString(36).slice(2)),
+          // WHAT THE BUILD WAS, not what the site is called. Labelled with the
+          // brand, every row in the list read "Sharp Fade Barbers" and the only
+          // thing telling three builds apart was the timestamp — which makes
+          // the list nearly useless for the one question it is opened to
+          // answer: which of these do I want back. A revise is named by the
+          // change the customer asked for, in their own words.
+          label: versionLabel({ revise, changeNote, brand }),
+          files: Object.keys(dist || {}).map((rel) => String(rel).replace(/[^a-z0-9/._-]/gi, "-")),
+        });
+      } catch (e) { console.error("archive failed:", slug, e && e.message); }
+      // AND THE SOURCE THAT PRODUCED IT, so the next revise is an edit rather
+      // than a rewrite. After the publish and never allowed to fail it, for the
+      // same reason the archive is not: the site is already live, and losing
+      // this costs the next revise its anchor — which is exactly the behaviour
+      // it replaces.
+      await saveSiteSource(env, slug, pages);
+      return wrote;
+    },
     readCredits: () => readCredits(auth),
     useCredits: (n) => collectCredits(auth, n),
     // What the web-research step already spent, so it is billed by the same rule
@@ -5320,7 +5501,7 @@ async function deleteSiteFor(env, uid, dslug) {
         // Nothing recorded to drop. Legacy sites provisioned under the
         // per-user layout still have their database inside a shared project,
         // so fall back to dropping just that.
-        const legacy = await userSiteProject(env, du.id);
+        const legacy = await userSiteProject(env, uid);
         if (legacy && legacy.neon_project) await dropSiteDatabase(env, legacy.neon_project, legacy.neon_branch, dslug);
         projectDropped = true;
       }
@@ -5333,6 +5514,20 @@ async function deleteSiteFor(env, uid, dslug) {
       console.error("site files delete failed:", dslug, e && e.message);
       return Response.json({ ok: false, error: "couldn't remove the published files" }, { status: 502 });
     }
+
+    // The archive goes too — the same leak `neon_teardown` exists to stop, one
+    // resource over: `versions/<slug>/` is up to ten whole builds, and nothing
+    // else would ever find it once the ownership row is gone.
+    //
+    // AFTER the live prefix and best-effort, deliberately. The published files
+    // are what the caller asked to take down, so a failure here must not answer
+    // an error and tell them their site is still up when it is not; the cost of
+    // being wrong in this direction is R2 storage, and in the other direction a
+    // site the owner believes is live.
+    let versionsRemoved = 0;
+    try {
+      if (env.SITES_BUCKET) versionsRemoved = await deleteAllVersions(versionDeps(env), { slug: dslug });
+    } catch (e) { console.error("site versions delete failed:", dslug, e && e.message); }
 
     // Registration goes last. While it exists the site is still findable and
     // still owned, so a failure above leaves something to retry against rather
@@ -5375,7 +5570,7 @@ async function deleteSiteFor(env, uid, dslug) {
       }
     } catch (e) { console.error("domain release failed:", dslug, e && e.message); }
 
-    return Response.json({ ok: true, slug: dslug, removed, projectDropped, domainsReleased });
+    return Response.json({ ok: true, slug: dslug, removed, versionsRemoved, projectDropped, domainsReleased });
 }
 
 async function handleRequest(request, env, ctx) {
@@ -8212,12 +8407,14 @@ async function handleRequest(request, env, ctx) {
       // goes. Best-effort in both directions — losing it re-rolls the look, which
       // is exactly today's behaviour, so it can never be worse than what it
       // replaces.
-      let priorLook = null;
+      let priorLook = null, priorTokens = null;
       if (priorBrief) {
         try {
-          const rows = await sqlQuery(db, "SELECT v FROM _meta WHERE k = 'site_look'");
-          const raw = rows && rows[0] && rows[0].v;
-          if (raw) priorLook = JSON.parse(raw);
+          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens')");
+          for (const r of rows || []) {
+            if (r.k === "site_look" && r.v) priorLook = JSON.parse(r.v);
+            if (r.k === "site_tokens" && r.v) priorTokens = JSON.parse(r.v);
+          }
         } catch (e) { console.error("look read failed:", slug, e && e.message); }
       }
       // THE DESIGNER STILL WINS ON A FIRST BUILD, and on a revise whose
@@ -8235,6 +8432,27 @@ async function handleRequest(request, env, ctx) {
         try {
           await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_look', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(look)]);
         } catch (e) { console.error("look write failed:", slug, e && e.message); }
+      }
+
+      // ── AND THE ONE COLOUR THEY ASKED TO CHANGE ────────────────────────────
+      //
+      // ACCUMULATED, never replaced: a revise names only what it is changing,
+      // so a yellow background asked for today and a blue accent asked for
+      // tomorrow have to both survive — a replacing merge hands back the
+      // theme's own background on the second revise, which reads as the first
+      // instruction being forgotten.
+      //
+      // `withContrast` is applied at the point of USE rather than here, so what
+      // is stored is only ever what the customer actually asked for; the
+      // derived text colour follows whatever the surface is at build time.
+      // Written on EVERY build that has one, unlike the look above, because
+      // this is the thing being changed.
+      const siteTokens = mergeTokens(priorTokens, designed && designed.tokens);
+      const tokenAsk = parseTokens(designed && designed.tokens);
+      if (Object.keys(siteTokens).length) {
+        try {
+          await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_tokens', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(siteTokens)]);
+        } catch (e) { console.error("token write failed:", slug, e && e.message); }
       }
 
       tr.at("merge");
@@ -8295,6 +8513,17 @@ async function handleRequest(request, env, ctx) {
             // this slug has already been built. No new field on the request, and
             // nothing a client can claim.
             revise: !!priorBrief,
+            // THE SITE AS IT STANDS, so a revise EDITS it rather than writing
+            // every page again from the brief. Read only on a revise — a first
+            // build has nothing to edit — and best-effort, because losing it
+            // costs the anchor and nothing else.
+            priorPages: priorBrief ? await loadSiteSource(env, slug) : null,
+            // WHAT THE CUSTOMER TYPED THIS TURN, for the Versions list alone.
+            // The composed `brief` above is the anchor plus the change plus the
+            // linked pages plus the researched facts — thousands of characters,
+            // and the change is buried in the middle of it. This is the raw
+            // sentence, which is the only thing that names the build usefully.
+            changeNote: brief,
             siteDescription, ogImage,
             attachments: attached.blocks,
             priorUsage: (researched && researched.usage) || null,
@@ -8305,6 +8534,7 @@ async function handleRequest(request, env, ctx) {
             // family and fonts from the instruction alone.
             fonts: look.fonts,
             theme: look.theme,
+            tokens: siteTokens,
             family: look.family,
             structure: look.structure,
             auth: request.headers.get("Authorization") || "",
@@ -8416,6 +8646,14 @@ async function handleRequest(request, env, ctx) {
         // module that decides it, so a second copy there would eventually claim
         // photographs that were never made.
         imagesNote: imageNote(pages.images) || undefined,
+        // WHICH COLOUR MOVED, and which one could not. Same shape and same
+        // reasoning as the two notes above it: the client cannot import the
+        // module that decides this, and a colour silently not applied reads as
+        // the builder being broken rather than as a request that did not land.
+        // Reports THIS build's ask, not the accumulated patch — saying "changed
+        // the background" on a revise that only touched the text is worse than
+        // saying nothing.
+        tokensNote: tokenNote(tokenAsk.tokens, tokenAsk.dropped) || undefined,
         // WHY it fell back, when it did. publish-pages.mjs has returned these
         // since it was extracted and nothing passed them on, so a build that
         // published the placeholder said only "placeholder" — the caller (and
@@ -8507,6 +8745,11 @@ async function handleRequest(request, env, ctx) {
       // name is matched with the SAME alphabet normalizeSecretName produces, so
       // anything that could not have been stored cannot even reach the handler.
       const sk = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/secrets(?:\/([A-Za-z][A-Za-z0-9_]{0,63}))?$/i);
+      // Published versions: the list, and the restore. `restore` is a fixed word
+      // rather than an id in the path — the id arrives in the body and is
+      // shape-checked by `isVersionId` before it can address an object.
+      const vr = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/versions(\/restore)?$/i);
+      const tx = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/text$/i);
       // EVERY owner-scoped matcher above has to appear here, and `dm2` did not —
       // so `/api/site/<slug>/domains` was dispatched by nothing and fell through
       // to the 404 at the bottom of the router. Custom domains were unreachable
@@ -8518,10 +8761,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || mm || an || uf || xp || nt || sk || dm2) {
+      if (om || mm || an || uf || xp || nt || sk || dm2 || vr || tx) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
-        const ownerSlug = (om || mm || an || uf || xp || nt || sk || dm2)[1].toLowerCase();
+        const ownerSlug = (om || mm || an || uf || xp || nt || sk || dm2 || vr || tx)[1].toLowerCase();
         const ownerDeps = {
           ownerOf: async (s2) => {
             const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s2)}&select=uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
@@ -8554,6 +8797,143 @@ async function handleRequest(request, env, ctx) {
         // no body otherwise — the same trap the PBKDF2 cap fell into.
         try {
           let r;
+          // ── PUBLISHED VERSIONS ────────────────────────────────────────────
+          //
+          // The list, and putting one back. Behind `assertOwner` like every
+          // other route in this block; a slug that is not yours answers 404
+          // rather than 403, because the slug space is public and a 403 confirms
+          // which names are taken.
+          if (tx) {
+            // ── CHANGING THE WORDS, WITH NO MODEL CALL ────────────────────
+            //
+            // A typo in a heading used to cost a full revise — a model call, a
+            // container compile, ~21 credits — because the words are not in the
+            // database, they are in the page source, and nothing could reach
+            // them. Now that a build stores the source it produced, an owner can
+            // edit the text directly: the same container compiles it and the
+            // same publish path ships it, and no model is asked anything.
+            //
+            // FREE IN CREDITS, NOT IN TIME. The container still has to build,
+            // which is the honest thing to tell the customer.
+            if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "storage not configured" }, { status: 501 });
+            const g = await assertOwner(ownerDeps, ownerSlug, ou.id);
+            if (g.error) return Response.json(g.error.body, { status: g.error.status });
+
+            const src = await loadSiteSource(env, ownerSlug);
+            if (!src) {
+              // A site built before the source was stored has nothing to edit.
+              // Said plainly rather than answered with an empty list, which
+              // reads as "this page has no words on it".
+              return Response.json({
+                ok: false, error: "no-source",
+                msg: "This site was built before text editing existed. Its next change will make the words editable.",
+              }, { status: 409 });
+            }
+
+            if (request.method === "GET") {
+              return Response.json({
+                ok: true,
+                pages: src.map((p) => ({ path: p.path, items: extractText(p.source) })),
+              });
+            }
+            if (request.method !== "POST") return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
+
+            const tb = await request.json().catch(() => ({}));
+            const ed = applyEdits(src, Array.isArray(tb && tb.edits) ? tb.edits.slice(0, 200) : []);
+            if (!ed.ok) return Response.json({ ok: false, error: ed.error }, { status: 400 });
+
+            // The site's own look, so a recompile does not silently re-theme it.
+            let look = null, tokens = null;
+            try {
+              const conn = await siteBackendBySlug(env, ownerSlug);
+              const db = conn && conn.conn;
+              if (db) {
+                const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens')");
+                for (const r of rows || []) {
+                  if (r.k === "site_look" && r.v) look = JSON.parse(r.v);
+                  if (r.k === "site_tokens" && r.v) tokens = JSON.parse(r.v);
+                }
+              }
+            } catch (e) { console.error("text edit look read failed:", ownerSlug, e && e.message); }
+
+            const pair = resolvePair((look && look.fonts) || {});
+            const fontFiles = await fetchSiteFonts(pair);
+            const files = {};
+            for (const p of ed.pages) files[p.path] = p.source;
+
+            let built;
+            try {
+              const c = getContainer(env.SITE_BUILD_CONTAINER);
+              const rr = await c.fetch(new Request("http://build/build", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  files, slug: ownerSlug, title: (look && look.brand) || ownerSlug,
+                  fonts: { heading: pair.heading.id, body: pair.body.id },
+                  theme: (look && look.theme) || null,
+                  tokens: Object.keys(tokens || {}).length ? withContrast(tokens) : undefined,
+                  fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined,
+                }),
+              }));
+              built = JSON.parse(await rr.text().catch(() => "")) || {};
+            } catch (e) {
+              built = { ok: false, error: String((e && e.message) || "the build service did not answer") };
+            }
+            // A FAILED COMPILE LEAVES THE LIVE SITE ALONE. The words came from
+            // the owner, so a refusal here is theirs to correct — publishing a
+            // broken bundle to fix a typo is the trade nobody would make.
+            if (!built || built.ok !== true || !built.files) {
+              return Response.json({
+                ok: false, error: "compile",
+                msg: "That change didn't compile, so your site is untouched — try shorter wording.",
+                detail: String(built && built.error || "").slice(0, 200),
+              }, { status: 422 });
+            }
+
+            const wrote = await writeSiteDistToR2(env, ownerSlug, built.files, {
+              brand: (look && look.brand) || ownerSlug,
+              url: "https://gofarther.dev/s/" + ownerSlug + "/",
+              slug: ownerSlug,
+            });
+            try {
+              await archiveVersion(versionDeps(env), {
+                slug: ownerSlug,
+                id: versionId(Date.now(), Math.random().toString(36).slice(2)),
+                label: "Edited the wording",
+                files: Object.keys(built.files || {}).map((rel) => String(rel).replace(/[^a-z0-9/._-]/gi, "-")),
+              });
+            } catch (e) { console.error("archive failed:", ownerSlug, e && e.message); }
+            await saveSiteSource(env, ownerSlug, ed.pages);
+
+            return Response.json({ ok: true, applied: ed.applied, files: wrote, cost: 0 });
+          }
+          if (vr) {
+            if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "storage not configured" }, { status: 501 });
+            // `g.error` IS A PLAIN `{status, body}`, NOT A `Response` —
+            // `site-owner.mjs`'s own `json()` builds it that way. Returned
+            // straight out of the handler it is not a Response at all, so every
+            // REFUSAL would 500 while the success path worked perfectly: the
+            // `dm2` bug inverted, from the same misread of the same contract.
+            const g = await assertOwner(ownerDeps, ownerSlug, ou.id);
+            if (g.error) return Response.json(g.error.body, { status: g.error.status });
+            if (!vr[2] && request.method === "GET") {
+              return Response.json({ ok: true, versions: await listVersions(versionDeps(env), { slug: ownerSlug }) });
+            }
+            if (vr[2] && request.method === "POST") {
+              const vb = await request.json().catch(() => ({}));
+              // THE SHAPE CHECK LIVES IN `rollbackVersion`, NOT HERE. It runs
+              // there before any I/O, so a copy at this layer buys nothing and
+              // is a second place the rule can drift — the `hasPublicView`
+              // lesson. Proved rather than assumed: a mutation deleting a check
+              // here changed nothing observable, which is what an inert guard
+              // looks like. `isVersionId` is still imported and used by the
+              // module; `id` reaches it as whatever the caller sent.
+              const rb = await rollbackVersion(versionDeps(env), { slug: ownerSlug, id: vb && vb.id });
+              if (!rb.ok) return Response.json({ ok: false, error: rb.error || "rollback failed" }, { status: rb.status || 500 });
+              return Response.json({ ok: true, id: rb.id, files: rb.files, swept: rb.swept, url: "/s/" + ownerSlug + "/" });
+            }
+            return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
+          }
           if (dm2) {
             // THE OWNER'S OWN DOMAINS.
             //

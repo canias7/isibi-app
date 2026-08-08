@@ -756,3 +756,37 @@ test("no caller tests assertOwner's result for a field it does not have", () => 
       `\`${name}.ok\` is always undefined — that branch fires on success too`);
   }
 });
+
+test("no caller returns assertOwner's refusal as if it were a Response", () => {
+  // THE OTHER HALF OF THE SAME CONTRACT, and testing `.error` correctly does
+  // not get you this one. `json()` in `site-owner.mjs` builds `{status, body}`;
+  // a Worker handler that returns that is not returning a Response at all, so
+  // Cloudflare answers 500. The versions route was written `return g.error` and
+  // shipped past the check above — every REFUSAL would have 500'd while the
+  // success path worked, which is the `dm2` failure inverted and just as hard
+  // to tell apart from a working route while you are the owner.
+  //
+  // The invariant is on the SHAPE, so it also catches a caller that returns
+  // `g.error` from a helper — the refusal has to be wrapped somewhere.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const calls = [...src.matchAll(/const (\w+) = await assertOwner\([^)]*\);\n([^\n]*)/g)];
+  assert.ok(calls.length >= 3, `only found ${calls.length} assertOwner call sites — the scan broke`);
+  for (const [, name, next] of calls) {
+    assert.ok(!new RegExp(`return\\s+${name}\\.error\\s*;`).test(next),
+      `\`return ${name}.error\` hands back a plain {status, body} — wrap it: ` +
+      `\`return Response.json(${name}.error.body, { status: ${name}.error.status })\``);
+  }
+});
+
+test("assertOwner's refusal really is a plain object, which is why that matters", async () => {
+  // The premise the guard above rests on. If `json()` ever started building a
+  // real Response, `return g.error` would become correct and the rule would be
+  // enforcing a style for nothing — so the premise is asserted rather than
+  // remembered.
+  const { error } = await assertOwner({ ownerOf: async () => "u1" }, "s", "u2");
+  assert.ok(error && typeof error === "object");
+  assert.equal(typeof error.status, "number");
+  assert.ok("body" in error, "the refusal carries a body for the caller to serialise");
+  assert.equal(typeof error.headers, "undefined", "it is NOT a Response");
+  assert.equal(typeof error.json, "undefined", "it is NOT a Response");
+});

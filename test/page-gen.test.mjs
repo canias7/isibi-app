@@ -1942,3 +1942,69 @@ test("the client renders it, and stops claiming a site it did not build", () => 
   // default — otherwise the summary is dead again in a different way.
   assert.match(chat, /said \|\| canned/);
 });
+
+// ── a revise is an EDIT, not a rewrite ───────────────────────────────────────
+
+test("the generator is shown the site as it stands, and told to edit it", async () => {
+  // THE OTHER HALF OF "changing pages changes the stuff inside the site".
+  // `pagesRequest` was handed the brief and the schema and never the pages, and
+  // the container wipes `src/routes` before each build — so a revise rewrote
+  // every page from nothing. It stayed on topic, because the brief anchors it,
+  // and the words were different every time.
+  const { priorPagesBlock, pagesRequest } = await import("../builder/page-gen.mjs");
+  const pages = [{ path: "index.tsx", source: "export const A = 1;" },
+                 { path: "menu.tsx", source: "export const B = 2;" }];
+  const b = priorPagesBlock(pages);
+  assert.match(b, /THE SITE AS IT STANDS/);
+  assert.match(b, /BYTE-IDENTICAL/, "it must say what NOT to change, not merely show the pages");
+  assert.match(b, /export const A = 1;/, "the actual source must be there");
+  assert.match(b, /export const B = 2;/);
+  assert.match(b, /do not return it/i, "removing a page has to be expressible");
+
+  const req = pagesRequest({ brief: "x", spec: { tables: [] }, brand: "B", priorPages: pages });
+  const text = typeof req.messages[0].content === "string"
+    ? req.messages[0].content : req.messages[0].content.at(-1).text;
+  assert.match(text, /THE SITE AS IT STANDS/, "the block must reach the request");
+});
+
+test("a first build sends nothing extra, so that path is unchanged", async () => {
+  const { priorPagesBlock } = await import("../builder/page-gen.mjs");
+  for (const v of [null, undefined, [], [{}], [{ path: "a.tsx" }], [{ path: "a.tsx", source: "  " }]]) {
+    assert.equal(priorPagesBlock(v), "", JSON.stringify(v));
+  }
+});
+
+test("the site to EDIT comes after the site to COPY", () => {
+  // Two references that can disagree: the trade exemplar is a shape to follow
+  // and the prior source is this customer's actual site. Read in the other
+  // order the model treats its own site as one more example to draw from.
+  const src = fs.readFileSync(new URL("../builder/page-gen.mjs", import.meta.url), "utf8");
+  const fn = src.slice(src.indexOf("export function pagesPrompt"), src.indexOf("// A route path the container will accept"));
+  const example = fn.indexOf("A SITE OF THIS TRADE, DONE WELL");
+  const prior = fn.indexOf("priorPagesBlock(priorPages)");
+  assert.ok(example > 0 && prior > example, "the prior source must be appended last");
+});
+
+test("a site too large to show degrades instead of blowing the prompt", async () => {
+  const { priorPagesBlock } = await import("../builder/page-gen.mjs");
+  const huge = [{ path: "index.tsx", source: "x".repeat(200000) }];
+  const b = priorPagesBlock(huge);
+  assert.ok(b.length < 1000, "it must not inline a 200k-character page");
+  assert.match(b, /index\.tsx/, "…but it must still name the pages");
+  assert.ok(!b.includes("x".repeat(1000)), "and it must not include the source");
+});
+
+test("the source that produced a build is stored, and read back on a revise", () => {
+  // A CHAIN. The publish writes it, the route reads it, and the read is gated on
+  // this being a revise — any link missing and the generator is back to writing
+  // every page from the brief while every test still passes.
+  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(worker, /publish: async \(dist, pages\)/, "publish must receive the source");
+  assert.match(worker, /await saveSiteSource\(env, slug, pages\);/, "…and store it");
+  assert.match(worker, /priorPages: priorBrief \? await loadSiteSource\(env, slug\) : null/,
+    "…and a revise must read it back");
+  assert.match(worker, /pagesRequest\(\{[^}]*priorPages[^}]*\}\)/, "…and it must reach the model call");
+  // NOT under `sites/`, which is what `/s/<slug>/` serves — a site's own TSX is
+  // not something to hand to its visitors.
+  assert.match(worker, /const SOURCE_KEY = \(slug\) => "source\//);
+});

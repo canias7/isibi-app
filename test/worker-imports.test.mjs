@@ -226,3 +226,204 @@ test("no block-scoped const/let in worker.js is read after its block closes", ()
   }
   assert.deepEqual(offenders, [], "these are ReferenceErrors at runtime");
 });
+
+// The names a request handler binds for itself. Short and closed on purpose:
+// this is a list of things that are ONLY ever legal inside the router, so a
+// top-level function naming one is always wrong.
+const HANDLER_LOCALS = ["du", "au", "ou", "gu", "request", "url", "ctx", "body"];
+
+/** Top-level `function name(params) { … }`, matched by brace depth. */
+function topLevelFunctions(src) {
+  const out = [];
+  for (const m of src.matchAll(/^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)/gm)) {
+    let i = src.indexOf("{", m.index), depth = 0, end = -1;
+    for (; i < src.length; i++) {
+      const c = src[i];
+      if (c === "{") depth++;
+      else if (c === "}") { depth--; if (!depth) { end = i; break; } }
+    }
+    if (end > 0) out.push({ name: m[1], params: m[2], start: m.index, body: src.slice(m.index, end + 1) });
+  }
+  return out;
+}
+
+/** The offenders, as a function so a mutant source can be driven through it. */
+function handlerLocalLeaks(src) {
+  const bad = [];
+  for (const fn of topLevelFunctions(src)) {
+    const params = new Set(fn.params.split(",").map((s) => s.trim().split("=")[0].replace(/^\.\.\./, "").trim()));
+    for (const n of HANDLER_LOCALS) {
+      if (params.has(n)) continue;
+      // Bound inside the body by any ordinary form: a declaration, a catch
+      // binding, a for-of head, or an arrow parameter.
+      if (new RegExp("(?:const|let|var|catch\\s*\\(|for\\s*\\(\\s*(?:const|let)\\s+)\\s*" + n + "\\b").test(fn.body)) continue;
+      if (new RegExp("\\(\\s*(?:[\\w$]+\\s*,\\s*)*" + n + "\\s*(?:,[^)]*)?\\)\\s*=>").test(fn.body)) continue;
+      for (const m of fn.body.matchAll(new RegExp("(?:^|[^.\\w$'\"`])(" + n + ")\\s*[.\\[]", "g"))) {
+        // Prose, not code. `// … a timeout of the whole request.` is a real
+        // line in this file and was the scan's only false alarm. Filtered PER
+        // LINE rather than by blanking comments whole-file — that is the trap
+        // already recorded here: one stray `/*` inside a string ate 46% of
+        // worker.js. A `//` inside a string earlier on the same line can hide
+        // a real read, which is a false negative and the safe direction.
+        const lineStart = fn.body.lastIndexOf("\n", m.index) + 1;
+        const before = fn.body.slice(lineStart, m.index + m[0].indexOf(n));
+        if (before.includes("//") || /^\s*\*/.test(before)) continue;
+        bad.push(fn.name + " reads `" + n + "` @" + src.slice(0, fn.start + m.index).split("\n").length);
+        break;
+      }
+    }
+  }
+  return bad;
+}
+
+test("no top-level function in worker.js reads a request-handler local", () => {
+  // THE SAME RUNTIME CLASS AS `vidRefN`, ARRIVING FROM THE OTHER DIRECTION —
+  // and the guard above cannot see it. That one walks FORWARD from a
+  // declaration to find a read after its block closes. This one is a read
+  // BEFORE the declaration, in a different function entirely: `deleteSiteFor`
+  // was extracted out of the delete route and kept `du.id`, while `du` is a
+  // `const` in the router ~3,700 lines below. `node --check` passes, esbuild
+  // bundles it, and no test can import a Worker entrypoint — so it only fires
+  // at runtime, and here inside a `try` whose `catch` logs, which is how the
+  // legacy-project branch became silently dead rather than loudly broken.
+  //
+  // A general free-variable analyser was tried first and abandoned with
+  // measurements, because an unusable guard gets deleted: the symmetric
+  // backward scan flagged 30 candidates (`to`, `db`, `note`, `path` — prose
+  // and property names), and a full per-function scope check flagged 1,113,
+  // dominated by keywords and comment text. Both need a real parser, and there
+  // is none in this repo. So the check is narrowed to the names that can only
+  // ever mean the router — which is exactly the hazard an extraction creates.
+  assert.deepEqual(handlerLocalLeaks(code), [], "these are ReferenceErrors at runtime");
+});
+
+test("the handler-local scan actually fires on the shape it was written for", () => {
+  // The scan is a regex over prose-heavy source, so "it found nothing" has to
+  // be distinguished from "it can find nothing". Driven over a mutant rather
+  // than asserted on the source, or a scan broken into matching zero things
+  // would pass the test above forever.
+  const mutant = code.replace("const legacy = await userSiteProject(env, uid);",
+    "const legacy = await userSiteProject(env, du.id);");
+  assert.notEqual(mutant, code, "the anchor this mutation needs is gone — re-point it");
+  const leaks = handlerLocalLeaks(mutant);
+  assert.equal(leaks.length, 1, "expected exactly the re-introduced leak, got: " + leaks.join(", "));
+  assert.match(leaks[0], /^deleteSiteFor reads `du`/);
+});
+
+// ── the same class, in the integration scripts ───────────────────────────────
+
+/**
+ * Names read after the block that declares them closes.
+ *
+ * TWO NARROWINGS, both measured on a clean file rather than guessed, because a
+ * guard that cries wolf is one somebody deletes:
+ *
+ *   - three characters or more, or `(v) => v.id` is flagged;
+ *   - and never a name that is a PARAMETER anywhere in the file, or
+ *     `(res) => res.headers` is flagged — `res` clears the length rule.
+ *
+ * Both are shadowing, which is legal and common; neither can hide the shape
+ * this exists for, since `browser` is a parameter nowhere.
+ *
+ * KNOWN GAPS, stated rather than papered over: a short name read out of scope
+ * is not caught, nor is one declared more than once anywhere in the file, nor
+ * one that happens to share a name with some parameter.
+ */
+function outOfScopeReads(src) {
+  const lines = src.split("\n");
+  const declCount = new Map();
+  for (const m of src.matchAll(/(?:^|[\s;({])(?:const|let)\s+([A-Za-z_$][\w$]*)\s*[=;]/g)) {
+    declCount.set(m[1], (declCount.get(m[1]) || 0) + 1);
+  }
+  // DESTRUCTURED declarations count too. Without this, `const { page, errors } =
+  // await newPage()` was invisible, so a name bound there looked like it was
+  // declared exactly once somewhere else and read out of scope here.
+  for (const m of src.matchAll(/(?:^|[\s;({])(?:const|let)\s*[{[]([^}\]]*)[}\]]\s*=/g)) {
+    for (const t of m[1].split(",")) {
+      const n = t.trim().split(":").pop().split("=")[0].trim();
+      if (/^[A-Za-z_$][\w$]*$/.test(n)) declCount.set(n, (declCount.get(n) || 0) + 1);
+    }
+  }
+  // Every name bound as a parameter, by any of the ordinary forms.
+  const params = new Set();
+  for (const m of src.matchAll(/\(([^()]*)\)\s*=>/g)) {
+    for (const t of m[1].split(",")) {
+      const n = t.trim().split("=")[0].replace(/^\.\.\./, "").trim();
+      if (/^[A-Za-z_$][\w$]*$/.test(n)) params.add(n);
+    }
+  }
+  for (const m of src.matchAll(/(?:^|[^.\w$])([A-Za-z_$][\w$]*)\s*=>/g)) params.add(m[1]);
+  for (const m of src.matchAll(/function\s*[A-Za-z_$\w]*\s*\(([^()]*)\)/g)) {
+    for (const t of m[1].split(",")) {
+      const n = t.trim().split("=")[0].replace(/^\.\.\./, "").trim();
+      if (/^[A-Za-z_$][\w$]*$/.test(n)) params.add(n);
+    }
+  }
+  for (const m of src.matchAll(/catch\s*\(\s*([A-Za-z_$][\w$]*)/g)) params.add(m[1]);
+  const bad = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^(\s*)(?:const|let)\s+([A-Za-z_$][\w$]*)\s*[=;]/.exec(lines[i]);
+    if (!m) continue;
+    const name = m[2];
+    if (declCount.get(name) !== 1 || m[1].length < 4 || name.length < 3 || params.has(name)) continue;
+    let depth = 0, close = -1;
+    for (let j = i; j < lines.length && close < 0; j++) {
+      for (const ch of lines[j]) {
+        if (ch === "{") depth++;
+        else if (ch === "}") { depth--; if (depth < 0) { close = j; break; } }
+      }
+    }
+    if (close < 0) continue;
+    const re = new RegExp("(^|[^.\\w$])" + name.replace(/\$/g, "\\$") + "\\s*[.([]");
+    for (let j = close + 1; j < lines.length; j++) {
+      if (/^\s*(\/\/|\*)/.test(lines[j])) continue;
+      const hit = re.exec(lines[j]);
+      // PROSE, NOT CODE — `"…with no lint problems."` matched `problems.` and
+      // was the third false alarm this scan produced on a clean tree. Counted
+      // PER LINE rather than by blanking strings whole-file, which is the trap
+      // already recorded here: one stray delimiter eats the rest of the file
+      // and HIDES real code, which is the direction that costs a bug.
+      const before = hit ? lines[j].slice(0, hit.index) : "";
+      const inString = ((before.match(/"/g) || []).length % 2) || ((before.match(/'/g) || []).length % 2) ||
+        ((before.match(/`/g) || []).length % 2);
+      if (hit && !inString) {
+        bad.push(name + " declared at " + (i + 1) + ", block closes at " + (close + 1) + ", read at " + (j + 1));
+        break;
+      }
+    }
+  }
+  return bad;
+}
+
+test("no integration script reads a block-scoped name after its block closes", () => {
+  // THIRD INSTANCE OF THIS BUG IN ONE DAY, and the third one written from
+  // scratch: `vidRefN` in worker.js, `du.id` in `deleteSiteFor`, and then the
+  // revise journey in build-smoke.mjs reusing `browser` from the render section
+  // above it — a `let` declared inside that block and closed in its own
+  // `finally`.
+  //
+  // These scripts are the ones nothing else can check: they are not imported by
+  // the unit suite (they talk to a deployed Worker), `node --check` accepts an
+  // out-of-scope read without a word, and the only other signal is a red CI run
+  // that spent a real build to produce it.
+  const dir = new URL("../test/integration/", import.meta.url);
+  const files = readdirSync(dir).filter((f) => f.endsWith(".mjs"));
+  assert.ok(files.length >= 3, "only " + files.length + " integration scripts found — the scan broke");
+  for (const f of files) {
+    assert.deepEqual(outOfScopeReads(readFileSync(new URL(f, dir), "utf8")), [],
+      f + ": these are ReferenceErrors at runtime");
+  }
+});
+
+test("the integration scope scan fires on the shape it was written for", () => {
+  // Driven over a mutant rather than asserted on the source: a scan broken into
+  // matching nothing would pass the test above forever.
+  const src = readFileSync(new URL("../test/integration/build-smoke.mjs", import.meta.url), "utf8");
+  const mutant = src.replace(
+    "        jb = await chromium.launch({ executablePath: findChromium() || undefined });\n        const pg2 = await jb.newPage();",
+    "        const pg2 = await browser.newPage();");
+  assert.notEqual(mutant, src, "the anchor this mutation needs is gone — re-point it");
+  const found = outOfScopeReads(mutant);
+  assert.equal(found.length, 1, "expected exactly the re-introduced read, got: " + found.join(" ; "));
+  assert.match(found[0], /^browser declared at/);
+});

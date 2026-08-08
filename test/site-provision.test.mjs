@@ -296,7 +296,13 @@ test("the per-site project is read by SLUG and only with the service key", () =>
 test("deleting a site drops its PROJECT", () => {
   const i = WORKER.indexOf("let projectDropped = false;");
   assert.ok(i > 0, "the project drop was not found in the delete path");
-  const block = WORKER.slice(i, i + 2600);
+  // TO A LANDMARK, NOT A BYTE COUNT. This was `slice(i, i + 2600)` and stopped
+  // covering the record deletion the moment anything was inserted between the
+  // two — which is exactly what happened when the delete path grew a version
+  // sweep. A window sized in bytes silently shrinks its own subject.
+  const end = WORKER.indexOf("domainsReleased = 0;", i);
+  assert.ok(end > i, "the end of the delete path moved — re-point this guard");
+  const block = WORKER.slice(i, end);
   assert.match(block, /dropUserProject\(env, proj\.neon_project\)/, "the project itself must be dropped");
   assert.match(block, /site_project\?slug=eq\./, "…and the per-slug record must go with it");
   // Legacy sites still have a database inside a shared per-user project.

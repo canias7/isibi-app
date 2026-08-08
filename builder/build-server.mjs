@@ -24,6 +24,7 @@ import path from "node:path";
 import { resolvePair, fontCss, fontImports } from "./site-fonts.mjs";
 import { themeCss } from "./site-theme.mjs";
 import { resolveTheme } from "./site-theme-registry.mjs";
+import { tokensCss, stripThemeRadius, validForWrite } from "./site-tokens.mjs";
 import { exitReason } from "./exit-reason.mjs";
 
 const APP = process.env.APP_DIR || "/app";
@@ -199,7 +200,7 @@ function collectDist(dir = DIST, base = "") {
 // pages compiled should not be lost over decoration: an unknown name, an
 // unreadable stylesheet or a throwing engine all leave the template's own look
 // in place and say so in the notes.
-function writeTheme(name) {
+function writeTheme(name, { dropRadius = false } = {}) {
   if (!name) return { applied: false, theme: null, notes: [] };
   const theme = resolveTheme(name);
   if (!theme) return { applied: false, theme: null, notes: [`No theme called "${String(name).slice(0, 40)}" — the site kept the default look.`] };
@@ -209,8 +210,37 @@ function writeTheme(name) {
   let base;
   try { base = fs.readFileSync(STYLES, "utf8"); }
   catch { return { applied: false, theme: null, notes: ["The stylesheet could not be read, so the site kept the default look."] }; }
-  fs.writeFileSync(STYLES, base + "\n" + css + "\n");
+  // 280 OF THE 500 THEMES hard-set `border-radius` on buttons and inputs as real
+  // rules rather than through `--radius`, so on a majority of sites a corner
+  // override moved the cards and left every button square — a feature reported
+  // as broken. When the customer has actually asked for a radius, the theme's
+  // own corner rules give way to it; with no override nothing changes at all.
+  fs.writeFileSync(STYLES, base + "\n" + (dropRadius ? stripThemeRadius(css) : css) + "\n");
   return { applied: true, theme: name, notes: [] };
+}
+
+// The site's OWN colours, written AFTER the theme.
+//
+// A separate function and a separate write, because it has to land after
+// `writeTheme` whether or not a theme applied — that is the entire mechanism:
+// these are the same custom properties the theme declares, and later wins. A
+// site with no theme still gets its patch, over the template's own `:root`.
+//
+// FAILS SOFT like everything else here, and one step softer: a site whose data
+// layer is live, whose pages compiled and whose theme applied must not be lost
+// because one colour could not be written. `tokensCss` returns "" for an empty
+// or unusable patch, so a build that never asked for one writes nothing at all
+// and its stylesheet is byte-identical to the build before this existed.
+function writeTokens(tokens) {
+  let css;
+  try { css = tokensCss(tokens); }
+  catch { return { applied: false, notes: ["Those colours could not be applied, so the site kept the theme's own."] }; }
+  if (!css) return { applied: false, notes: [] };
+  let base;
+  try { base = fs.readFileSync(STYLES, "utf8"); }
+  catch { return { applied: false, notes: ["Those colours could not be applied, so the site kept the theme's own."] }; }
+  fs.writeFileSync(STYLES, base + "\n" + css);
+  return { applied: true, notes: [] };
 }
 
 // real builds a second apart — one returned a build failure with no files, the
@@ -279,7 +309,12 @@ const server = http.createServer((req, res) => {
       resetRoutes();
       writeIndexHtml(payload.title);
       const fontsUsed = writeFonts(payload.fonts, payload.fontFiles);
-      const themeUsed = writeTheme(payload.theme);
+      // ONE reading of the patch, shared: whether a radius was asked for decides
+      // both that the theme's own corner rules give way and what is written.
+      const wantsRadius = validForWrite(payload.tokens).radius !== undefined;
+      const themeUsed = writeTheme(payload.theme, { dropRadius: wantsRadius });
+      // AFTER the theme, never before — later wins, and that IS the override.
+      const tokensUsed = writeTokens(payload.tokens);
       let wrote = 0;
       for (const [rel, content] of Object.entries(files)) {
         const safe = safeRoute(rel);
@@ -330,7 +365,7 @@ const server = http.createServer((req, res) => {
 
       const dist = collectDist();
       if (!dist["index.html"]) return send(res, 200, { ok: false, stage: "build", error: "build produced no index.html", ms: Date.now() - t0, ...times });
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed });
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
     }

@@ -292,7 +292,9 @@ export function citedLines(error, pages, max = 4) {
  *                     usage: { in, out, cacheRead, cacheWrite } — the four kinds
  *                     kept APART, because they are priced 1x / 5x / 0.1x / 1.25x
  *   compile(pages)  → { ok, files?, error?, stage? }           the build container
- *   publish(dist)   → void                                     write to storage
+ *   publish(dist, pages) → void                                write to storage
+ *                     `pages` is the SOURCE that produced `dist`, so a later
+ *                     revise can edit it instead of regenerating from nothing.
  *   readCredits()   → number
  *   useCredits(n)   → number: the credits ACTUALLY collected, which may be less
  *                     than n. The ledger is a gate, not a till — `use_credits`
@@ -652,7 +654,19 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
   // ~20 R2 puts. Small, but it is the last thing between a compiled bundle and a
   // live site, and an unexplained gap at the end of a build had nowhere to be.
   const tPub = Date.now();
-  await deps.publish(built.files);
+  // THE SOURCE GOES WITH THE BUNDLE, and that is what makes a revise an EDIT.
+  //
+  // Until this the generator was handed only the brief and the schema, and the
+  // container wiped `src/routes` before every build — so a revise rewrote every
+  // page of the site from scratch. "Change the phone number in the header"
+  // regenerated all the copy on every page: on topic, because the original
+  // brief anchors it, and not the same words. That is the other half of what
+  // the owner reported as "changing pages changes the stuff inside the site" —
+  // the publish gap was real and so is this.
+  //
+  // Passed to `publish` rather than stored here, because this module owns no
+  // storage: the Worker decides where it goes, the way it does for the dist.
+  await deps.publish(built.files, pages);
   out.publishMs = Date.now() - tPub;
   out.page = "app";
   // STILL BILLED AFTER `publish`, AND THAT ORDERING IS NOW LOAD-BEARING FOR A

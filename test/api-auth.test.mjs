@@ -278,7 +278,24 @@ test("every tool the model is given is a schema the API will accept", () => {
     // `setTotp` fake: a stand-in less capable than the real thing hides the
     // bug rather than the bug hiding from it. A function is truthy, so the
     // conditional-spread branch this loop was built for is unchanged.
-    const stub = () => "x";
+    // ARRAY-LIKE AS WELL AS CALLABLE, for the same reason it became callable:
+    // `design_schema` builds its `tokens` properties with
+    // `SITE_TOKEN_NAMES.map(...)`, and a plain function has no `.map` — so the
+    // tool threw "is not a function", which is not the "is not defined" shape
+    // this loop retries on, and the builder's main tool went back into
+    // `skipped` and was checked by nothing. Third time this stub has been too
+    // simple; it now stands in for a callable, a value, and a list.
+    const stub = new Proxy(function () { return "x"; }, {
+      apply: () => "x",
+      get(target, k) {
+        const arr = ["x"];
+        if (k === "length") return arr.length;
+        if (k === "0") return arr[0];
+        if (typeof arr[k] === "function") return arr[k].bind(arr);
+        if (k === Symbol.iterator) return arr[Symbol.iterator].bind(arr);
+        return Reflect.get(target, k);
+      },
+    });
     let schema, names = [];
     for (let attempt = 0; attempt < 12; attempt++) {
       try {

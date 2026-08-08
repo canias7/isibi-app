@@ -678,6 +678,195 @@ try {
   }
   ok(`all ${gettable.length} GET routes refuse an unauthenticated caller`, leaked.length === 0, leaked.join(", "));
 
+  // ══ THE JOURNEY: a second turn on a site that already exists ═════════════
+  //
+  // EVERY BUG THE OWNER HIT IN A LIVE SESSION WAS IN THIS PATH, and nothing
+  // tested it. The smoke run above builds ONE site ONCE and stops: it never
+  // revises, so a revise that re-rolled the whole theme was invisible; it never
+  // republishes, so the publish gap was invisible; it never opens the version
+  // list, so a Restore button that could not restore was invisible.
+  //
+  // THE COST, stated rather than buried: this is a second full build, so the
+  // smoke run spends roughly double — measured at ~21-30 credits a build, so
+  // ~$0.20 more per deploy. That is the price of the only test that walks the
+  // path a person actually walks. `SMOKE_SKIP_JOURNEY=1` turns it off.
+  if (process.env.SMOKE_SKIP_JOURNEY === "1") {
+    console.log("\nskipping the revise journey (SMOKE_SKIP_JOURNEY=1)");
+  } else if (d.page !== "app") {
+    // A placeholder has no pages to walk and no look to keep. Skipped honestly
+    // rather than failing, which would report one generator miss three times.
+    console.log("\nskipping the revise journey — the first build fell back to the placeholder");
+  } else {
+    console.log("\nrevising the site — the path nothing has ever tested…");
+
+    // WHAT THE SITE LOOKS LIKE NOW, so the revise can be checked for having
+    // kept it. Read off the published stylesheet rather than the response,
+    // because the response is what we believe and the CSS is what ships.
+    const cssOf = async () => {
+      const html = await (await fetch(`${BASE}/s/${slug}/`)).text();
+      const href = (html.match(/<link[^>]+href="([^"]+\.css)"/) || [])[1];
+      if (!href) return "";
+      const u = href.startsWith("http") ? href : `${BASE}/s/${slug}/${href.replace(/^\.?\//, "")}`;
+      return (await fetch(u)).text();
+    };
+    const fontsOf = (css) => [...css.matchAll(/--font-(?:sans|heading):\s*([^;]+)/g)].map((m) => m[1].trim()).join(" | ");
+    const beforeCss = await cssOf();
+    const beforeFonts = fontsOf(beforeCss);
+    ok("the published stylesheet is readable before the revise", beforeCss.length > 1000, String(beforeCss.length));
+
+    // ── THE PUBLISH GAP ──────────────────────────────────────────────────
+    //
+    // A generated site is code-split one chunk per route, and publishing used
+    // to WIPE the prefix before writing the new dist — so for the length of
+    // ~20 R2 puts the site was half-deleted and clicking to another page
+    // fetched a chunk that was gone. That is exactly what the owner hit.
+    //
+    // THE INVARIANT IS RACE-FREE, which is what makes it testable at all:
+    // `index.html` is written LAST, so at every instant it is either the old
+    // one (whose chunks are all still there) or the new one (whose chunks are
+    // already written). Polling "fetch index.html, then fetch the bundle it
+    // names" therefore must NEVER see a 404 — under the old wipe-first code it
+    // would, and under write-then-sweep it cannot.
+    const gaps = [];
+    let polling = true;
+    const poll = (async () => {
+      while (polling) {
+        try {
+          const r = await fetch(`${BASE}/s/${slug}/`, { cache: "no-store" });
+          if (r.status !== 200) { gaps.push(`index.html -> ${r.status}`); }
+          else {
+            const html = await r.text();
+            const src = (html.match(/<script[^>]+src="([^"]+)"/) || [])[1];
+            if (!src) gaps.push("index.html named no bundle");
+            else {
+              const u = src.startsWith("http") ? src : `${BASE}/s/${slug}/${src.replace(/^\.?\//, "")}`;
+              const b = await fetch(u, { cache: "no-store" });
+              if (b.status !== 200) gaps.push(`${src} -> ${b.status} (index.html pointed at it)`);
+            }
+          }
+        } catch (e) { gaps.push("fetch threw: " + (e && e.message)); }
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    })();
+
+    const reviseBody = {
+      slug,
+      instruction: "Make the background #ffcc00 and round the corners more. Keep everything else exactly as it is.",
+      picker: "sonnet",
+    };
+    const rv = await fetch(`${BASE}/api/site/react-build`, {
+      method: "POST",
+      headers: { "content-type": "application/json", Authorization: `Bearer ${jwt}` },
+      body: JSON.stringify(reviseBody),
+    });
+    const rd = await rv.json().catch(() => ({}));
+    polling = false;
+    await poll;
+
+    ok("the revise returns 200", rv.status === 200, rv.status + " " + JSON.stringify(rd).slice(0, 300));
+    ok("THE SITE WAS NEVER HALF-PUBLISHED — index.html always named a bundle that existed",
+      gaps.length === 0, gaps.slice(0, 4).join(" ; "));
+    console.log(`   polled the live site ${gaps.length === 0 ? "clean" : "WITH GAPS"} across the republish`);
+
+    if (rd.page === "app") {
+      const afterCss = await cssOf();
+
+      // ── THE LOOK IS ANCHORED ─────────────────────────────────────────────
+      // "make the background yellow" used to re-roll the theme, the page family
+      // and the fonts from those few words, and the site came back a different
+      // site. The fonts are the cheapest fingerprint of that: they are chosen
+      // by the designer and have nothing to do with what was asked for.
+      ok("the revise kept the site's typefaces instead of re-rolling them",
+        fontsOf(afterCss) === beforeFonts, `before: ${beforeFonts}  after: ${fontsOf(afterCss)}`);
+
+      // ── AND THE ONE THING THAT WAS ASKED FOR DID CHANGE ───────────────────
+      // Both spellings, because lightningcss minifies `#ffcc00` to `#fc0` and
+      // an assertion looking only for what was sent reports a working feature
+      // as broken.
+      ok("the colour that WAS asked for reached the published stylesheet",
+        /--background:\s*(#ffcc00|#fc0)/i.test(afterCss),
+        (afterCss.match(/--background:[^;]*/g) || []).slice(-3).join(" ; "));
+      ok("and the corner change reached it too",
+        /--radius:\s*[^;]+/.test(afterCss) && !/--radius:\s*0rem/.test(afterCss.slice(afterCss.lastIndexOf("--radius:"))),
+        (afterCss.match(/--radius:[^;]*/g) || []).slice(-2).join(" ; "));
+
+      // The pages still work after a republish — the other half of the gap.
+      //
+      // ITS OWN BROWSER, and this is not tidiness. The first draft reused
+      // `browser` from the render section above, where it is a `let` declared
+      // INSIDE that block and closed in its `finally` — so this was a
+      // ReferenceError at runtime, on a line `node --check` accepts without a
+      // word. The same class as `vidRefN` and `deleteSiteFor`'s `du.id`, both
+      // found and fixed earlier the same day, written again from scratch.
+      let jb = null;
+      try {
+        const { chromium } = await import("playwright");
+        jb = await chromium.launch({ executablePath: findChromium() || undefined });
+        const pg2 = await jb.newPage();
+        const bad = [];
+        pg2.on("response", (r) => { if (r.status() >= 400) bad.push(`${r.status()} ${r.url().split("/").pop()}`); });
+        await pg2.goto(`${BASE}/s/${slug}/`, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
+        for (const r of (rd.files || []).map((f) => String(f).replace(/^src\/routes\//, "").replace(/\.tsx$/, ""))) {
+          if (r === "index" || !/^[a-z0-9-]+$/i.test(r)) continue;
+          await pg2.goto(`${BASE}/s/${slug}/#/${r}`, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
+          await pg2.waitForTimeout(600);
+        }
+        ok("every page of the revised site loads with nothing missing", bad.length === 0, bad.slice(0, 5).join(" ; "));
+      } catch (e) {
+        // A browser that will not start must not be reported as a broken site.
+        console.log("   could not re-walk the pages in a browser -> " + String(e && e.message).slice(0, 200));
+      } finally {
+        if (jb) await jb.close().catch(() => {});
+      }
+    } else {
+      console.log("   the revise fell back to the placeholder — look checks skipped:", rd.stage || "", rd.error || "");
+    }
+
+    // ── VERSIONS ARE REAL, AND RESTORE RESTORES ──────────────────────────────
+    // Both halves were lies until 2026-08-08: the button rewrote localStorage,
+    // and there was nothing to restore from because a publish overwrote the old
+    // build. Two publishes have happened by now, so the list must show two.
+    const vl = await fetch(`${BASE}/api/site/${slug}/versions`, { headers: { Authorization: `Bearer ${jwt}` } });
+    const vd = await vl.json().catch(() => ({}));
+    const versions = Array.isArray(vd.versions) ? vd.versions : [];
+    ok("the version list answers 200", vl.status === 200, vl.status + " " + JSON.stringify(vd).slice(0, 200));
+    ok("both publishes were archived", versions.length >= 2, JSON.stringify(versions).slice(0, 300));
+    ok("versions are newest first", versions.length < 2 || versions[0].id > versions[1].id,
+      versions.map((v) => v.id).join(" "));
+    ok("each version is labelled by its CHANGE, not the brand",
+      versions.length < 2 || versions[0].label !== versions[1].label,
+      versions.map((v) => v.label).join(" | "));
+
+    ok("the version list refuses an unauthenticated caller",
+      (await fetch(`${BASE}/api/site/${slug}/versions`)).status === 401);
+    const badRestore = await fetch(`${BASE}/api/site/${slug}/versions/restore`, {
+      method: "POST", headers: { "content-type": "application/json", Authorization: `Bearer ${jwt}` },
+      body: JSON.stringify({ id: "../../sites/somebody-else" }),
+    });
+    ok("restoring an id we did not mint is 404, not a path", badRestore.status === 404, String(badRestore.status));
+
+    if (versions.length >= 2) {
+      const oldest = versions[versions.length - 1];
+      const rs = await fetch(`${BASE}/api/site/${slug}/versions/restore`, {
+        method: "POST", headers: { "content-type": "application/json", Authorization: `Bearer ${jwt}` },
+        body: JSON.stringify({ id: oldest.id }),
+      });
+      const rsd = await rs.json().catch(() => ({}));
+      ok("restoring an earlier build answers 200", rs.status === 200 && rsd.ok === true,
+        rs.status + " " + JSON.stringify(rsd).slice(0, 200));
+
+      // THE ASSERTION THAT MATTERS: the LIVE site changed back. The old button
+      // reported success and touched nothing published, which is the failure
+      // this whole feature exists to end.
+      const restoredCss = await cssOf();
+      ok("THE LIVE SITE REALLY WENT BACK — the revised colour is gone from it",
+        !/--background:\s*(#ffcc00|#fc0)/i.test(restoredCss),
+        (restoredCss.match(/--background:[^;]*/g) || []).slice(-3).join(" ; "));
+      ok("and the restored site still serves its home page",
+        (await fetch(`${BASE}/s/${slug}/`)).status === 200);
+    }
+  }
+
   // --- the delete route cannot be used to take down someone else's site ----
   // Checked BEFORE the real delete in cleanup, while the site is still up. If
   // either of these ever passed the wrong way the site would vanish here and

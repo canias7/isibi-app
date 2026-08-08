@@ -14633,3 +14633,128 @@ money spent — the auditors read code and made free requests only.
   Twilio account and every message costs money.
 - Inbound webhooks and third-party reads are covered by `confirm smoke`, which is
   free and runs on every deploy.
+
+## The four things from your testing session (2026-08-08)
+
+You reported four things after building live. Here is what each one was and
+what it is now.
+
+**1. "I told it to change the background to yellow and it changed the whole
+theme."** Two separate faults, and the second one only showed up once the first
+was fixed. A revise sent only your sentence, so the designer read *"make the
+background yellow"* and picked a theme, a page family and a font pair from those
+six words — a different site. That was already anchored: a site remembers its
+look and a revise keeps it. But then you could not change the background **at
+all**, because every colour came from a fixed theme and none of them is "the one
+you have, but yellow". Now a site carries its own colours on top of its theme.
+Ask for one and only that one moves; ask for another next week and both stick.
+The readable text colour is worked out for you, so a dark background never
+leaves you with dark text on it.
+
+**2. "Changing pages changes the design and the stuff inside the site."** This
+was a publishing bug, not a design one. Publishing used to delete the old site
+and then write the new one, and a generated site loads one file per page — so
+during those few seconds, clicking through to another page fetched a file that
+had been deleted and not yet replaced, and you got a blank or half-built page.
+Publishing now writes everything first and clears up afterwards, with the
+front page switched **last**. There is no longer a moment when the site is
+half-there.
+
+**3. The "Live ↗" button.** Removed, as you asked. It opened the raw address in
+a new tab, which reads as your site on some odd page rather than as your own
+web address. **Share** is the way out of that screen now.
+
+**4. "Clicking restore to an older version doesn't actually restore it."** It
+could not: nothing was ever saved to restore *from*. Publishing overwrote the
+old site, and the Restore button only changed something on your own machine.
+Now every publish is kept — the last ten — and Restore really does put that
+build back on the live site. The one you are on stays in the list, so you can
+go back and forth. Each entry is named after the change you asked for
+(*"make the background yellow"*), not the site's name, so you can tell them
+apart.
+
+**Deleting a site now takes its saved versions with it**, so nothing is left
+paying for storage after you have gone.
+
+### Two things worth knowing
+
+- **Version history starts from now.** Sites built before today have nothing
+  saved yet; their next build will be the first entry.
+- **A colour you ask for is applied to the surface you named, and nothing
+  else.** If you ask for a dark background, your cards stay light unless you
+  ask for those too. That is deliberate — the alternative was us redesigning
+  the rest of the page on your behalf, which is the thing that annoyed you in
+  the first place.
+
+### And one change that saves money
+
+Editing documentation used to trigger a full deploy **and** a paid test build
+that generates a real site to prove nothing broke. Three commits in one stretch
+did exactly that for changes to text files. Documentation-only changes no longer
+deploy at all.
+
+### Two more colours you can change (2026-08-08)
+
+Added `success` and `warning` — the green and amber that mark status on a page
+(open/closed dots, "19 of 20 left", sync and on-call badges). **33 components
+in the kit paint with them**, so they really do turn up on generated sites, and
+they were the only colours on the page you couldn't touch.
+
+Not added, each for a reason: **corner roundness** isn't a colour, so it needs
+its own path if you want it; the **five chart colours** are a set whose whole
+job is staying distinguishable from each other, so changing one in isolation
+breaks them; and the **sidebar colours** are used by a single component on a
+platform that builds barber shops and cafés — not worth eight more things to
+know about.
+
+So: 14 colours you can name, plus the readable text colour on each one, which is
+worked out for you.
+
+### Corners (2026-08-08)
+
+"Round the corners more" / "make them square" now works, and it moves everything
+together — buttons, inputs, cards, panels — because the whole kit derives its
+corner sizes from one value.
+
+Two things came out of testing it rather than reasoning about it:
+
+- **Square means square.** Depending on how the instruction was written, "0"
+  could come out fully square or leave the cards slightly rounded while
+  everything else went sharp. Any way of writing zero now gives the same
+  result.
+- **More than half the themes (280 of 500) set their own corners on buttons and
+  inputs.** On those, asking to round the corners rounded the cards and left
+  every button square — half-working, and it would have read as a bug. When you
+  ask for a corner change the theme's own corner styling now gives way to it. If
+  you *don't* ask, the theme keeps its corners exactly as before, so nothing
+  already published changes.
+
+## Three things the builder couldn't do (2026-08-08)
+
+**1. A revise used to rewrite every page.** The builder never saw the site it was
+changing — it got your brief and the data model and wrote all the pages again
+from scratch. So "change the phone number" came back with all the wording
+different: still about your business, not the words you had. That's the other
+half of what you hit as *"changing pages changes the stuff inside the site"* —
+the blank-page problem was real and so was this. It now gets your actual pages
+and is told to change only what you asked for and leave the rest alone,
+word for word.
+
+**2. Nothing could ever be removed.** Ask to drop a feature and the page went
+away, but the thing behind it stayed — and kept accepting submissions from
+anyone who knew the address, on a form nobody could see. Removing a feature now
+really removes it from the site. **Your data is kept**: the bookings and
+enquiries are still there and still exportable, and asking for the feature back
+brings it back. Deleting data is never something the builder does on its own.
+
+**3. A typo cost you a full rebuild.** The words on a page aren't in your data,
+they're in the page itself, so the Data panel couldn't touch them — a wrong
+phone number meant ~21 credits and a full regeneration. You can now edit the
+text directly and it costs **nothing**: the site is rebuilt and republished
+without asking the AI anything. It still takes a minute, because the site has to
+be compiled, but no credits.
+
+Two things worth knowing about the text editing: it only offers you words it's
+confident are words — it deliberately won't let you edit anything that turns out
+to be code — and if a change doesn't compile, your live site is left exactly as
+it was rather than replaced with something broken.

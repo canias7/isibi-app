@@ -2307,7 +2307,13 @@ export const ACCESS_NOTE = {
 
 /** The tables, exactly as they exist, in the least ambiguous form we can put them. */
 export function schemaDigest(spec) {
-  const tables = (spec && Array.isArray(spec.tables) ? spec.tables : []).filter((t) => t && t.name);
+  // A RETIRED TABLE IS NOT OFFERED, and this is half of what makes retiring
+  // work: `grantsFor` withdraws its public access, and this stops the generator
+  // writing a page against it. Told about it, the model would build a list that
+  // renders empty and a form that 401s — worse than the feature simply being
+  // gone, because it looks broken rather than removed.
+  const tables = (spec && Array.isArray(spec.tables) ? spec.tables : [])
+    .filter((t) => t && t.name && !t.retired);
   if (!tables.length) return "(the schema declares no tables)";
   // DECLARED FUNCTIONS, STATED. `useRpc`, `useRpcAction`, `useClaimedRow` and
   // `useCancelClaim` all take a function NAME, and the model has no way to
@@ -2523,7 +2529,45 @@ export function familyExemplar(family) {
  * so an earlier "put it in the seed rows" line asked for something this step is
  * structurally incapable of doing. Seeds come from the designer.
  */
-export function pagesPrompt(brief, spec, brand, family, attachCount = 0) {
+/**
+ * The site as it stands, handed back to the generator so a revise is an EDIT.
+ *
+ * WITHOUT THIS A REVISE REWRITES EVERY PAGE FROM NOTHING. The model saw the
+ * brief and the schema and never the pages, and the container wipes
+ * `src/routes` before each build — so "change the phone number in the header"
+ * regenerated all the copy on every page. It stayed on topic, because the
+ * original brief anchors it, and the words were different every time.
+ *
+ * PUT LAST AND FRAMED AS THE THING TO EDIT, not as another reference: the trade
+ * exemplar above is a shape to copy and this is the actual site, so read in the
+ * other order the model treats its own site as one more example.
+ *
+ * Bounded, because a large site is a large prompt and this is fresh input on
+ * every revise. Over the cap the pages are named but not shown, which degrades
+ * to today's behaviour for the site that would have been most expensive.
+ */
+const MAX_PRIOR_CHARS = 90000;
+export function priorPagesBlock(pages) {
+  const list = (Array.isArray(pages) ? pages : [])
+    .filter((p) => p && typeof p.path === "string" && typeof p.source === "string" && p.source.trim());
+  if (!list.length) return "";
+  const total = list.reduce((n, p) => n + p.source.length, 0);
+  if (total > MAX_PRIOR_CHARS) {
+    return "\n\nTHE SITE AS IT STANDS\nIt has these pages: " + list.map((p) => p.path).join(", ") +
+      ". They are too large to show here, so write them again in full \u2014 keep the same pages, the same " +
+      "sections and the same wording wherever the instruction does not ask for a change.";
+  }
+  return "\n\nTHE SITE AS IT STANDS \u2014 THIS IS WHAT YOU ARE EDITING\n" +
+    "Below is the CURRENT source of every page, exactly as it is published right now.\n\n" +
+    "Return every page again, but as an EDIT of this: change only what the instruction asks for, and leave " +
+    "everything else BYTE-IDENTICAL \u2014 the same headings, the same sentences, the same sections in the same " +
+    "order, the same components. Do not reword, retitle, tidy or improve anything you were not asked about. " +
+    "The customer wrote this site; a change they did not ask for reads to them as their site being replaced.\n\n" +
+    "To DELETE a page, simply do not return it. To ADD one, return it alongside the others.\n\n" +
+    list.map((p) => "--- " + p.path + " ---\n" + p.source).join("\n\n");
+}
+
+export function pagesPrompt(brief, spec, brand, family, attachCount = 0, priorPages = null) {
   const name = String(brand || "").trim();
   const example = familyExemplar(family);
   const n = Math.max(0, Math.floor(Number(attachCount) || 0));
@@ -2549,7 +2593,10 @@ export function pagesPrompt(brief, spec, brand, family, attachCount = 0) {
         "what leads, what the sections are and in what order, how dense the real pages are, how specific the " +
         "writing is. Copy none of its words, its prices, its names or its tables; this site has its own schema " +
         "above and its own brief.\n\n" + example
-      : "");
+      : "") +
+    // LAST, so the model reads the shape-to-copy first and the site-to-edit
+    // second. Empty on a first build, so nothing about that path changes.
+    priorPagesBlock(priorPages);
 }
 
 // A route path the container will accept: under src/routes, .tsx, no traversal,
@@ -3157,7 +3204,7 @@ export const SITE_PAGES_MAX_TOKENS = 30000;
  * the next call pays the write premium again. That is once per deploy that
  * touches the rules, against a saving on every build in between.
  */
-export function pagesRequest({ brief, spec, brand, family, attachments, model } = {}) {
+export function pagesRequest({ brief, spec, brand, family, attachments, model, priorPages } = {}) {
   // THE ATTACHED FILES \u2014 images and PDFs \u2014 and where they sit is load-bearing
   // twice over.
   //
@@ -3176,7 +3223,7 @@ export function pagesRequest({ brief, spec, brand, family, attachments, model } 
   // caller and test already sees, so adding this feature changes no request that
   // does not use it.
   const blocks = Array.isArray(attachments) ? attachments.filter(Boolean) : [];
-  const text = pagesPrompt(brief, spec, brand, family, blocks.length);
+  const text = pagesPrompt(brief, spec, brand, family, blocks.length, priorPages);
   return {
     // The composer's Builder picker chooses this; `modelsFor()` with no
     // argument is the default pair, which is what the eval harness and every

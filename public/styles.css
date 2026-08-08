@@ -1551,10 +1551,12 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    worth having. `min-width: 0` is what lets the picker ellipsise rather than
    refusing to shrink. */
 .st-tb-pv { display: flex; align-items: center; gap: .55rem; margin-right: auto; min-width: 0; }
-/* The two end buttons never wrap. Reserving the picker's space below makes the
-   bar tighter in the non-Preview views than it used to be, and "Live ↗" broke
-   onto a second line at 1180px, growing the whole toolbar — visible in a render,
-   invisible to every position measurement. They are short labels; if the bar
+/* The end buttons never wrap. Reserving the picker's space below makes the bar
+   tighter in the non-Preview views than it used to be, and the old "Live ↗"
+   link broke onto a second line at 1180px, growing the whole toolbar — visible
+   in a render, invisible to every position measurement. That link was removed
+   on 2026-08-08, and the rule stays because `.st-publish` is still the Publish
+   button and every modal's primary action. They are short labels; if the bar
    truly runs out of room the icon buttons beside them give way instead. */
 .st-share, .st-publish { white-space: nowrap; flex: none; }
 /* HIDDEN, NOT REMOVED, outside the Preview view — which is the whole fix, and
