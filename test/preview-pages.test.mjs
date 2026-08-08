@@ -23,7 +23,7 @@ const lift = (name) => {
   const end = chat.indexOf("\nfunction ", i + 10);
   assert.ok(end > i, "could not find the end of " + name);
   // eslint-disable-next-line no-eval
-  return eval(chat.slice(i, end) + "\n" + name);
+  return eval(chat.slice(i, end) + "\n" + name);   // newline: the slice can end on a comment
 };
 const reactRoutePages = lift("reactRoutePages");
 const siteChipUrl = lift("siteChipUrl");
@@ -135,7 +135,7 @@ const liveSteps = (() => {
     siteBuild: null,
   };
   // eslint-disable-next-line no-new-func
-  const fn = new Function("ctx", "with (ctx) {" + chat.slice(i, end) + " return reactLiveStepsHTML; }")(ctx);
+  const fn = new Function("ctx", "with (ctx) {" + chat.slice(i, end) + "\n return reactLiveStepsHTML; }")(ctx);
   return (build) => {
     ctx.siteBuild = build;
     return [...fn().matchAll(/\{"label":"([^"]+)","state":"([^"]+)"\}/g)].map((m) => m[1] + ":" + m[2]);
@@ -179,4 +179,57 @@ test("every build phase shows the right steps in the right state", () => {
   for (const rphase of ["generating", "compiling"]) {
     assert.ok(!liveSteps({ rphase }).some((r) => /^Publish/.test(r)), rphase + " claims to be publishing");
   }
+});
+
+test("a site built before the fix still gets its pages", () => {
+  // FIXING THE BUILD PATH FIXED NOTHING ANYBODY ALREADY OWNED. The page list is
+  // written at build time into localStorage, so every site that already existed
+  // kept its single `{path:'/', name:'App'}` placeholder and went on showing a
+  // dead "Homepage" label. The owner reloaded, saw the other two fixes land, and
+  // this one apparently do nothing.
+  //
+  // The route files are recoverable: every build message keeps the list it
+  // wrote, which is what the steps panel renders its chips from.
+  const ctx = { reactRoutePages, lastBuildFiles: null, sitePages: null };
+  for (const n of ["lastBuildFiles", "sitePages"]) {
+    const i = chat.indexOf("function " + n + "(");
+    const end = chat.indexOf("\nfunction ", i + 10);
+    assert.ok(i > 0 && end > i, n + " is gone");
+    // eslint-disable-next-line no-new-func
+    ctx[n] = new Function("ctx", "with (ctx) {" + chat.slice(i, end) + "\n return " + n + "; }")(ctx);
+  }
+  const pages = (s) => ctx.sitePages(s).map((p) => p.name + " " + p.path);
+
+  const legacy = {
+    react: true,
+    pages: [{ path: "/", name: "App", html: "" }],
+    msgs: [{ r: "u", t: "hey" }, { r: "a", t: "built", build: { files: ["index.tsx", "press.tsx", "music.tsx"] } }],
+  };
+  assert.deepEqual(pages(legacy), ["Home /", "Press /press", "Music /music"]);
+  // The NEWEST build wins — a revise that changed the pages must not be read
+  // through an older message's list.
+  legacy.msgs.push({ r: "a", t: "revised", build: { files: ["index.tsx", "book.tsx"] } });
+  assert.deepEqual(pages(legacy), ["Home /", "Book /book"]);
+
+  // Nothing to recover from: keep what is stored rather than emptying the picker.
+  assert.deepEqual(pages({ react: true, pages: [{ path: "/", name: "App", html: "" }], msgs: [{ r: "u", t: "hey" }] }),
+    ["App /"]);
+  // A site whose pages were stored properly is left alone — INCLUDING when a
+  // build message is sitting there to re-derive from. Only the single-entry
+  // placeholder is a placeholder; anything else is the real list and re-deriving
+  // it on every render would quietly overrule whatever is stored.
+  const stored = {
+    react: true,
+    pages: [{ path: "/", name: "Home", html: "" }, { path: "/press", name: "Press", html: "" }],
+    msgs: [{ r: "a", t: "built", build: { files: ["index.tsx", "menu.tsx", "extra.tsx"] } }],
+  };
+  assert.deepEqual(pages(stored), ["Home /", "Press /press"]);
+  // A HYBRID RECORD: a static site later rebuilt as React can still be carrying
+  // its one old page, and that page has html — which is what tells it apart from
+  // the placeholder this recovery is for.
+  assert.deepEqual(pages({ react: true, pages: [{ path: "/", name: "Home", html: "<h1>old</h1>" }],
+    msgs: [{ r: "a", t: "built", build: { files: ["index.tsx", "press.tsx"] } }] }), ["Home /"]);
+  // A STATIC site is untouched — its one page has real html and is not a
+  // placeholder standing in for routes.
+  assert.deepEqual(pages({ pages: [{ path: "/", name: "Home", html: "<h1>x</h1>" }] }), ["Home /"]);
 });

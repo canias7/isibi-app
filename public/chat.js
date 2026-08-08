@@ -9815,8 +9815,34 @@ function siteById(id) { return sitesLoad().find((s) => s.id === id) || null; }
 // Multi-page model: a site holds `pages` [{path,name,html}] with an `active`
 // path. Legacy single-`html` sites read as one Home page (backward-compat).
 function sitePages(site) {
-  if (site && Array.isArray(site.pages) && site.pages.length) return site.pages;
+  if (site && Array.isArray(site.pages) && site.pages.length) {
+    // SITES BUILT BEFORE THE PAGES WERE DERIVED still carry the single
+    // `{path:'/', name:'App'}` placeholder in localStorage, so fixing the build
+    // path fixed nothing they already own — the picker stayed a dead "Homepage"
+    // label on every site that existed. The route files are recoverable: every
+    // build message keeps the list it wrote, which is what the steps panel
+    // renders its chips from.
+    //
+    // Derived on read rather than written back: this is called on every render,
+    // and a getter that quietly rewrites and saves the record is a side effect
+    // nobody expects from a function named `sitePages`. The next build stores
+    // the real list anyway.
+    if (site.react && site.pages.length === 1 && !site.pages[0].html) {
+      const routed = reactRoutePages(lastBuildFiles(site));
+      if (routed.length) return routed;
+    }
+    return site.pages;
+  }
   if (site && site.html) return [{ path: '/', name: 'Home', html: site.html }];
+  return [];
+}
+// The file list off the most recent build in the thread, newest first.
+function lastBuildFiles(site) {
+  const msgs = (site && Array.isArray(site.msgs)) ? site.msgs : [];
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const b = msgs[i] && msgs[i].build;
+    if (b && Array.isArray(b.files) && b.files.length) return b.files;
+  }
   return [];
 }
 // The route files a React build wrote, as pages the picker can offer.
