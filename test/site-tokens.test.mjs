@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
-  TOKENS, MAX_TOKENS, isColor, luminance, withContrast,
+  TOKENS, WRITABLE, MAX_TOKENS, isColor, luminance, withContrast,
   parseTokens, mergeTokens, tokensCss, tokenNote,
 } from "../builder/site-tokens.mjs";
 
@@ -82,6 +82,90 @@ test("both patterns are anchored, which is what refuses CSS", () => {
   assert.match(src, /"\\\\s\*\\\\\)\$"/, "…and end anchored");
   assert.equal(isColor("#" + "f".repeat(200)), false, "and an absurd input is still refused");
   assert.equal(isColor("rgb(" + "1,".repeat(60) + "1)"), false);
+});
+
+// ── the list is real ──────────────────────────────────────────────────────────
+
+// The template declares its palette across SEVERAL `:root` blocks — a small one
+// near the top and the real one further down — so a scan that took the first
+// found four tokens and reported the list broken. Every block, unioned.
+function declaredIn(css, selector) {
+  const out = new Set();
+  let i = 0;
+  for (;;) {
+    i = css.indexOf(selector + " {", i);
+    if (i < 0) break;
+    let depth = 0, end = i;
+    for (let j = css.indexOf("{", i); j < css.length; j++) {
+      if (css[j] === "{") depth++;
+      else if (css[j] === "}") { depth--; if (!depth) { end = j; break; } }
+    }
+    for (const m of css.slice(i, end).matchAll(/--([a-z0-9-]+):/g)) out.add(m[1]);
+    i = end + 1;
+  }
+  return out;
+}
+
+test("every token we allow is one the template actually declares", () => {
+  // A NAME NOBODY READS IS A NO-OP THAT REPORTS SUCCESS. The patch writes
+  // `--whatever: #fc0` into the stylesheet whether or not anything consumes it,
+  // so a typo here — or a token the template drops later — is a colour change
+  // the customer is told was applied and that moves nothing on the page. That
+  // is the exact failure shape this repo has recorded at five separate layers.
+  //
+  // Checked against BOTH halves, because they fail differently: the `:root`
+  // blocks are what the patch overrides, and the `@theme` block is what makes
+  // `bg-success` a class at all. A token declared but not mapped is unreachable
+  // from a page; a token mapped but not declared has no value to start from.
+  const css = fs.readFileSync(new URL("../builder/lovable/template/src/styles.css", import.meta.url), "utf8");
+  const declared = declaredIn(css, ":root");
+  assert.ok(declared.size > 30, `only ${declared.size} tokens found at :root — the scan broke`);
+  assert.deepEqual(WRITABLE.filter((t) => !declared.has(t)), [],
+    "these are written into the stylesheet and read by nothing");
+
+  const mapped = new Set([...css.matchAll(/--color-([a-z0-9-]+):/g)].map((m) => m[1]));
+  assert.deepEqual(WRITABLE.filter((t) => !mapped.has(t)), [],
+    "these have no Tailwind class, so no page can use them");
+});
+
+test("the dark palette declares them too, since the patch writes both", () => {
+  // `tokensCss` writes `:root` AND `.dark`. A token the dark block never
+  // declares would be introduced by us there rather than overridden — harmless
+  // today, and worth knowing if it ever stops being true.
+  const css = fs.readFileSync(new URL("../builder/lovable/template/src/styles.css", import.meta.url), "utf8");
+  const declared = declaredIn(css, ".dark");
+  assert.ok(declared.size > 30, `only ${declared.size} tokens found at .dark — the scan broke`);
+  assert.deepEqual(WRITABLE.filter((t) => !declared.has(t)), []);
+});
+
+test("the status colours are askable, and carry their own readable text", () => {
+  // 33 kit components paint with `success`/`warning` and all 33 are offered to
+  // the generator, so they really do appear on generated pages — they were the
+  // only page colours a customer could not touch at all.
+  assert.ok(TOKENS.includes("success") && TOKENS.includes("warning"));
+  assert.equal(withContrast({ success: "#116644" })["success-foreground"], "#fafafa");
+  assert.equal(withContrast({ warning: "#ffd166" })["warning-foreground"], "#0a0a0a");
+  assert.match(tokenNote({ success: "#116644" }, []), /success/, "and they have a plain-language name");
+});
+
+test("what is deliberately OUT stays out", () => {
+  // Each of these is a decision with a reason in the module, and "we forgot" and
+  // "we decided against" look identical in a list of names a year later.
+  for (const t of ["radius", "chart-1", "chart-2", "chart-3", "chart-4", "chart-5",
+                   "sidebar", "sidebar-foreground", "sidebar-primary", "sidebar-border"]) {
+    assert.equal(TOKENS.includes(t), false, t + " is excluded on purpose — see the comment on TOKENS");
+    assert.equal(WRITABLE.includes(t), false, t + " must not be writable either");
+  }
+});
+
+test("every plain-language name covers a token that can be asked for", () => {
+  // The note is the only thing the customer reads. A token with no entry falls
+  // back to its raw name and says "Changed the popover" at somebody.
+  const src = fs.readFileSync(new URL("../builder/site-tokens.mjs", import.meta.url), "utf8");
+  const said = src.slice(src.indexOf("const SAID"), src.indexOf("});", src.indexOf("const SAID")));
+  for (const t of TOKENS) {
+    assert.match(said, new RegExp('(^|[\\s{,])"?' + t + '"?\\s*:'), t + " has no plain-language name");
+  }
 });
 
 // ── contrast ──────────────────────────────────────────────────────────────────

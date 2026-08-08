@@ -14692,3 +14692,20 @@ Editing documentation used to trigger a full deploy **and** a paid test build
 that generates a real site to prove nothing broke. Three commits in one stretch
 did exactly that for changes to text files. Documentation-only changes no longer
 deploy at all.
+
+### Two more colours you can change (2026-08-08)
+
+Added `success` and `warning` — the green and amber that mark status on a page
+(open/closed dots, "19 of 20 left", sync and on-call badges). **33 components
+in the kit paint with them**, so they really do turn up on generated sites, and
+they were the only colours on the page you couldn't touch.
+
+Not added, each for a reason: **corner roundness** isn't a colour, so it needs
+its own path if you want it; the **five chart colours** are a set whose whole
+job is staying distinguishable from each other, so changing one in isolation
+breaks them; and the **sidebar colours** are used by a single component on a
+platform that builds barber shops and cafés — not worth eight more things to
+know about.
+
+So: 14 colours you can name, plus the readable text colour on each one, which is
+worked out for you.

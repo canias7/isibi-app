@@ -19,16 +19,32 @@
  * WHAT MAY BE CHANGED, and nothing else.
  *
  * Every one is a colour token the template declares at `:root`. Deliberately
- * NOT the whole shadcn palette: `--radius` is a length, the chart colours are a
- * set that has to stay distinguishable from each other, and the `-foreground`
- * halves are derived below rather than asked for — see `withContrast`.
+ * NOT the whole shadcn palette, and each exclusion has a reason:
+ *
+ *   - `--radius` is a LENGTH, not a colour. "Make the corners rounder" is a
+ *     real thing to ask and this is not the path for it.
+ *   - `--chart-1..5` are a SET whose entire job is staying distinguishable from
+ *     each other. Changing one in isolation breaks the thing they exist for.
+ *   - The `-foreground` halves are DERIVED rather than asked for, so that a
+ *     changed surface cannot be left with unreadable text on it (`withContrast`).
+ *   - The eight `--sidebar*` tokens are used by exactly ONE component in the
+ *     kit, on a platform that makes barber shops and cafés. If a generated site
+ *     ever really uses a sidebar, the fix is to make `--sidebar` FOLLOW
+ *     `--background` the way `--muted-foreground` does — one derivation, not
+ *     eight more slots somebody has to know to ask for.
+ *
+ * `success` and `warning` ARE here, on measurement rather than on taste: 33 kit
+ * components paint with them (status pills, sync indicators, on-call badges,
+ * usage meters) and all 33 are offered to the generator, so they really do
+ * appear on generated pages. Without them they were the only page colours a
+ * customer could not touch at all.
  */
 export const TOKENS = Object.freeze([
   "background", "foreground",
   "card", "popover",
   "primary", "secondary", "accent", "muted",
   "border", "input", "ring",
-  "destructive",
+  "destructive", "success", "warning",
 ]);
 
 /** The `-foreground` partner of a surface token, where one exists. */
@@ -41,6 +57,8 @@ const PAIRS = Object.freeze({
   accent: "accent-foreground",
   muted: "muted-foreground",
   destructive: "destructive-foreground",
+  success: "success-foreground",
+  warning: "warning-foreground",
 });
 
 /**
@@ -96,7 +114,8 @@ const FUNC = new RegExp(
  * than an oversight: the 148 CSS names are a fixed list that would have to be
  * carried here, and the model is told to answer in hex, which it can always do.
  * `url(`, `var(`, `expression(` and every other function are refused by the
- * same rule that refuses `red` — only the six colour functions are named.
+ * same rule that refuses `red` — only the colour functions are named, which
+ * is eight spellings of six systems (`rgb`/`rgba` and `hsl`/`hsla` are pairs).
  */
 export function isColor(v) {
   const s = String(v == null ? "" : v).trim();
@@ -272,6 +291,7 @@ const SAID = Object.freeze({
   accent: "highlights", muted: "quiet areas",
   border: "borders", input: "inputs", ring: "focus outlines",
   destructive: "delete buttons",
+  success: "success labels", warning: "warning labels",
 });
 
 /**
