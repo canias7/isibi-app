@@ -1705,7 +1705,6 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-hist-tabs { display: flex; gap: 4px; padding: .7rem .7rem 0; }
 .st-htab { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: .4rem; font: inherit; font-size: .82rem; font-weight: 600; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: .5rem; cursor: pointer; }
 .st-htab.on { background: var(--panel-2); color: var(--text); border-color: var(--line-2); }
-.st-htab:disabled { opacity: .5; cursor: default; }
 .st-hist-list { flex: 1; overflow-y: auto; padding: .7rem; display: flex; flex-direction: column; gap: .5rem; }
 .st-hitem { display: flex; gap: .6rem; align-items: flex-start; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); padding: .6rem .7rem; }
 .st-hi-ic { display: flex; color: var(--muted); margin-top: 1px; }

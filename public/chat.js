@@ -9995,7 +9995,6 @@ const ST_ICONS = {
   key: '<circle cx="8" cy="15" r="4.5"/><path d="M11.2 11.8l8-8"/><path d="M17 6l2.5 2.5"/><path d="M14.5 8.5L17 11"/>',
   zap: '<path d="M13 2L4.5 13.5H11l-1 8.5L19.5 10H13l0-8z"/>',
   alert: '<path d="M12 3.5l9.2 16H2.8l9.2-16z"/><path d="M12 10v4.5"/><path d="M12 18h.01"/>',
-  bookmark: '<path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"/>',
   image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.6"/><path d="M21 15l-5-5L5 21"/>',
   card: '<rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M2 10h20"/><path d="M6 15h4"/>',
 };
@@ -10329,7 +10328,10 @@ function siteHistoryRail(site) {
     ? hist.map((h, i) => '<div class="st-hitem"><span class="st-hi-ic">' + ic('history', 14) + '</span><div class="st-hi-tx"><b>' + esc(String(h.label || 'Change').slice(0, 80)) + '</b><span>' + (i === 0 ? 'Current version' : esc(stStamp(h.ts))) + '</span></div>' + (i === 0 ? '' : '<button type="button" class="st-hi-restore" data-restore="' + i + '">Restore</button>') + '</div>').join('')
     : '<div class="st-hi-empty">No versions yet. Each change is saved here so you can roll back.</div>';
   return '<div class="st-hist">' +
-    '<div class="st-hist-tabs"><button type="button" class="st-htab on">' + ic('history', 14) + ' History</button><button type="button" class="st-htab" disabled>' + ic('bookmark', 14) + ' Bookmarks</button></div>' +
+    // ONE TAB, because Bookmarks was a `disabled` placeholder that had never
+    // done anything — removed 2026-08-08, owner's call. A control that cannot be
+    // pressed is a promise the app does not keep.
+    '<div class="st-hist-tabs"><button type="button" class="st-htab on">' + ic('history', 14) + ' History</button></div>' +
     '<div class="st-hist-list">' + list + '</div>' +
   '</div>';
 }
