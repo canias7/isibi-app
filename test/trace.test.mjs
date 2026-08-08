@@ -185,8 +185,19 @@ test("the schema call is captured, reported, AND billed on measured usage", () =
   // BOTH DIRECTIONS. A settlement that only ever charges more is a fee with a
   // surcharge; one that only ever refunds is a discount. Either alone passes a
   // check that merely looks for `settle`.
-  assert.match(w, /if \(settle > 0\)[\s\S]{0,200}useCredits/, "a costlier call than the deposit is never charged for");
-  assert.match(w, /settle < 0[\s\S]{0,200}creditBack/, "a cheaper call than the deposit is never refunded");
+  // RUN TO A LANDMARK, NOT A BYTE COUNT. These were `{0,200}` and both broke the
+  // moment a comment was added above the call they guard — this repo's recurring
+  // window-drift bug, and the third time it has bitten. The settlement block is
+  // bounded by its own `else if`, so both halves are read from the real branch.
+  const sIdx = w.indexOf("const settle = schemaSettlement(schemaUsage, SITE_BUILD_FEE)");
+  const sEnd = w.indexOf("schemaCredits:", sIdx);
+  assert.ok(sIdx > 0 && sEnd > sIdx, "the settlement block moved; this guard checks nothing");
+  const sBlock = w.slice(sIdx, sEnd);
+  // COLLECTED, not merely asked for: `use_credits` refuses a bill larger than the
+  // balance and debits ZERO, so a settlement that discards the answer trues the
+  // deposit up against money that never moved.
+  assert.match(sBlock, /if \(settle > 0\)[\s\S]*?collectCredits/, "a costlier call than the deposit is never charged for");
+  assert.match(sBlock, /settle < 0[\s\S]*?creditBack/, "a cheaper call than the deposit is never refunded");
 
   // AND THE BILL REPORTS THE SETTLED NUMBER, not the deposit. Anchored on the
   // whole expression rather than a prefix — a substring match survives anything

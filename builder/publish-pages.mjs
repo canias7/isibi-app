@@ -294,7 +294,12 @@ export function citedLines(error, pages, max = 4) {
  *   compile(pages)  → { ok, files?, error?, stage? }           the build container
  *   publish(dist)   → void                                     write to storage
  *   readCredits()   → number
- *   useCredits(n)   → void
+ *   useCredits(n)   → number: the credits ACTUALLY collected, which may be less
+ *                     than n. The ledger is a gate, not a till — `use_credits`
+ *                     debits zero and refuses when the balance is short — so a
+ *                     dep that returns nothing here is a fake more capable than
+ *                     the real thing, and that is how this shipped charging
+ *                     nothing while reporting `charged: true`.
  *
  * `priorUsage` is what an EARLIER model call in this same build already spent —
  * today that is the web-research step, which runs before page generation. It is
@@ -468,10 +473,27 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
     // the owner's own image library and is deliberately NOT wiped by a publish,
     // so they still have every picture they paid for and a revise can use them.
     const c = pageCredits(gen.usage, priorUsage, out.images ? { images: out.images.made } : null);
-    out.cost += c;
-    try { await deps.useCredits(c); } catch { /* never fail a build over the ledger */ }
-    out.charged = true;
-    return PAID;
+    // WHAT WAS BILLED AND WHAT WAS COLLECTED ARE TWO NUMBERS, and conflating
+    // them is what let this path charge nothing for months. `use_credits` is a
+    // gate: a bill larger than the balance debits ZERO and answers -1 rather
+    // than throwing, so `await`ing it and moving on reported a charge that had
+    // not happened. `out.cost` is now what actually left the ledger — the
+    // number that matches the customer's balance — and `out.billed` is what the
+    // work really cost, so the shortfall stays visible instead of vanishing.
+    out.billed = (out.billed || 0) + c;
+    let took = 0;
+    try {
+      const got = await deps.useCredits(c);
+      // A dep that reports nothing is the legacy void contract; treat it as
+      // having taken the full amount rather than silently reading 0, or every
+      // older caller would start reporting free builds.
+      took = typeof got === "number" ? Math.max(0, got) : c;
+    } catch { took = 0; /* never fail a build over the ledger */ }
+    out.cost += took;
+    // `charged` is about the LEDGER, not about the intent. A build that billed
+    // 21 and collected 0 must not tell the customer it used their credits.
+    out.charged = took > 0;
+    return took > 0 ? PAID : FREE;
   };
 
   const v = validatePages(gen.input);

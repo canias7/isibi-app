@@ -269,7 +269,10 @@ test("the router is BILLED, and only when the model answered", () => {
   // this is the whole "every time a model is used, charge for it" rule, and a
   // routing call is not exempt for being cheap.
   assert.match(block, /pageCredits\(routed\.usage\)/, "the routing call is not metered");
-  assert.match(block, /useCredits\(auth, rCost\)/, "metered and never debited");
+  // COLLECTED, not merely asked for. `use_credits` refuses a bill larger than
+  // the balance and debits zero, so a bare `useCredits` here would meter the
+  // call and take nothing from anyone who is short.
+  assert.match(block, /collectCredits\(auth, rCost\)/, "metered and never debited");
   // GUARDED on usage being present. `routeMessage` returns null usage when the
   // call failed, so this is where our-fault-is-our-cost lands on this path.
   assert.match(block, /if \(routed\.usage\)/, "a failed routing call would be billed");

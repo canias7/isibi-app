@@ -158,3 +158,71 @@ test("no import into worker.js collides with a name it declares itself", () => {
     .map(([name, mod]) => name + " (imported from " + mod + ", also declared in worker.js)");
   assert.deepEqual(clashes, [], "these will fail the bundler at deploy time — alias the import");
 });
+
+test("no block-scoped const/let in worker.js is read after its block closes", () => {
+  // THE CLASS `node --check`, THE BUNDLER AND ALL 1,638 TESTS ARE BLIND TO.
+  //
+  // `vidRefN` was declared inside `if (kind !== "audio") { … }` and read ~40
+  // lines after that block closed. JS parses it fine (the name could be a
+  // global), esbuild bundles it without a word — verified against a minimal
+  // repro — and no test can import a Worker entrypoint. So it only fired at
+  // runtime: every director call with a Seedance clip attached threw
+  // `ReferenceError: vidRefN is not defined`, AFTER the fee was debited and
+  // outside every try/catch, and the client's catch swallowed it. Dead feature,
+  // silent charges, since it shipped.
+  //
+  // Deliberately NARROW rather than a real scope analyser: only names declared
+  // EXACTLY ONCE in the file are considered, so shadowing in another block can
+  // never produce a false alarm. That is enough to catch this shape, and a
+  // guard that cries wolf gets deleted.
+  const src = code;
+  const lines = src.split("\n");
+
+  // How many times each identifier is declared with const/let anywhere.
+  const declCount = new Map();
+  for (const m of src.matchAll(/(?:^|[\s;({])(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=/g)) {
+    declCount.set(m[1], (declCount.get(m[1]) || 0) + 1);
+  }
+
+  const offenders = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^(\s*)(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=/.exec(lines[i]);
+    if (!m) continue;
+    const name = m[2];
+    if (declCount.get(name) !== 1) continue;          // shadowed somewhere: skip
+    if (m[1].length < 8) continue;                    // top-of-handler depth: fine
+    // CAMELCASE ONLY, and this narrowing is what makes the check usable rather
+    // than noise. The first draft flagged `owner`, `live`, `total`, `note`,
+    // `item`, `reply` — every one a false alarm from `tr.at("owner")`,
+    // `item.live`, `parsed.reply` and from PROSE inside the director's prompt
+    // templates. Blanking string literals whole-file is the trap this repo has
+    // already recorded (hand-lexing nested templates gets them wrong, and an
+    // over-blanking scanner HIDES real code). An identifier with an internal
+    // capital does not appear in English prose or as a stray property name,
+    // which is enough to catch this shape: `vidRefN`, `audRefN`,
+    // `clipIsSeedanceRef` all qualify. KNOWN GAP, stated rather than papered
+    // over: an all-lowercase block-scoped name read out of scope is not caught.
+    if (!/[a-z][A-Z]/.test(name)) continue;
+
+    // Walk forward until the brace depth relative to the declaration goes
+    // negative — that is the line its enclosing block closes on.
+    let depth = 0, close = -1;
+    for (let j = i; j < lines.length && close < 0; j++) {
+      for (const ch of lines[j]) {
+        if (ch === "{") depth++;
+        else if (ch === "}") { depth--; if (depth < 0) { close = j; break; } }
+      }
+    }
+    if (close < 0) continue;                          // never closes: top level
+
+    const re = new RegExp("\\b" + name.replace(/\$/g, "\\$") + "\\b");
+    for (let j = close + 1; j < lines.length; j++) {
+      if (re.test(lines[j])) {
+        offenders.push(name + " declared at " + (i + 1) + ", block closes at " +
+          (close + 1) + ", read at " + (j + 1));
+        break;
+      }
+    }
+  }
+  assert.deepEqual(offenders, [], "these are ReferenceErrors at runtime");
+});

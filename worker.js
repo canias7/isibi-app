@@ -630,6 +630,44 @@ async function useCredits(authHeader, cost) {
   return Number(await r.json());
 }
 
+/**
+ * Take up to `cost` credits, and report what was ACTUALLY taken.
+ *
+ * `use_credits` is a gate, not a till. Its WHERE clause is `balance >= cost`,
+ * so a bill larger than the balance debits **zero** and returns -1 — it never
+ * overdrafts and it never throws for insufficiency. Every call site that GATES
+ * on it reads that -1 and refuses; every call site that SETTLES after the work
+ * was already done used to discard it, which meant the platform silently
+ * collected NOTHING whenever the bill outgrew the balance, and then reported
+ * `charged: true` to the customer.
+ *
+ * It was the commonest path there is: a new account is granted 20 credits, the
+ * deposit and the schema settlement leave ~11, and a warm pages call prices at
+ * ~21 — so a first build published a real site, said "this attempt used
+ * credits", and moved the ledger by nothing.
+ *
+ * So: ask for the bill; if the ledger refuses, read the balance and take what
+ * is there. Two round trips ONLY on the short path — a caller who can pay in
+ * full still costs exactly one call.
+ *
+ * The read-then-take race is deliberate and falls the safe way: if another
+ * request spends in the gap, the second `use_credits` refuses again and this
+ * returns 0. Under-collecting on a race is a rounding error; double-collecting
+ * would be somebody's money.
+ */
+async function collectCredits(authHeader, cost) {
+  const want = Math.max(0, Number(cost) || 0);
+  if (!(want > 0)) return 0;
+  if ((await useCredits(authHeader, want)) >= 0) return want;
+  // Short. Take the balance down to zero rather than taking nothing at all.
+  // Floored to the ledger's own precision (numeric(16,6)) — asking for more
+  // decimal places than the column holds is another way to be told -1.
+  const bal = Math.max(0, Number(await readCredits(authHeader)) || 0);
+  const take = Math.floor(Math.min(want, bal) * 1e6) / 1e6;
+  if (!(take > 0)) return 0;
+  return (await useCredits(authHeader, take)) >= 0 ? take : 0;
+}
+
 // Reverse a small service fee whose work never happened (an orchestrator call
 // charged before an upstream failure). Server-authorized only: the RPC's
 // EXECUTE is service_role-only and hard-caps the per-call amount, so this can
@@ -5149,7 +5187,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       slug,
     }),
     readCredits: () => readCredits(auth),
-    useCredits: (n) => useCredits(auth, n),
+    useCredits: (n) => collectCredits(auth, n),
     // What the web-research step already spent, so it is billed by the same rule
     // as generation: charged when a real app publishes, free when the customer
     // ends up with the placeholder.
@@ -7055,7 +7093,7 @@ async function handleRequest(request, env, ctx) {
           let files = parseGameFiles(g.text);
           if (!files["src/main.js"]) { emit({ ev: "error", msg: "the generated game came out incomplete — try again" }); return; }
           cost += gbCredits(g.usedIn, g.usedOut);
-          try { await useCredits(auth, gbCredits(g.usedIn, g.usedOut)); } catch {}
+          try { await collectCredits(auth, gbCredits(g.usedIn, g.usedOut)); } catch {}
           // Phase 6: generate + cut out the AI sprites, bundle them into the build.
           let gameAssets = {};
           if (art === "sprites" && env.FAL_KEY) {
@@ -7063,7 +7101,7 @@ async function handleRequest(request, env, ctx) {
             const ga = await injectGameAssets(files, env, 5);
             files = ga.files; gameAssets = ga.assets || {};
             const sc = Math.max(0, ga.charged) * Math.max(1, Math.ceil(SPRITE_IMG_USD / CREDIT_USD));
-            if (sc) { cost += sc; try { await useCredits(auth, sc); } catch {} }
+            if (sc) { cost += sc; try { await collectCredits(auth, sc); } catch {} }
           }
           let bd, buildMs, attempt = 0;
           for (;;) {
@@ -7082,7 +7120,7 @@ async function handleRequest(request, env, ctx) {
                   : (gameFixRules(bd.smoke.errors) + "\n\nCurrent files:\n\n" + dumpFiles(files)));
             let fg; try { fg = await streamGen(engine === "3d" ? GAME_3D_RULES : GAME_RULES, fixPrompt, onDelta); flushCode(true); } catch { break; }
             cost += gbCredits(fg.usedIn, fg.usedOut);
-            try { await useCredits(auth, gbCredits(fg.usedIn, fg.usedOut)); } catch {}
+            try { await collectCredits(auth, gbCredits(fg.usedIn, fg.usedOut)); } catch {}
             const fixed = parseGameFiles(fg.text);
             if (!Object.keys(fixed).length) break;
             Object.assign(files, fixed);
@@ -7187,7 +7225,7 @@ async function handleRequest(request, env, ctx) {
           const g = await streamGen(engine === "3d" ? GAME_3D_RULES : GAME_REVISE_RULES, "CHANGE REQUEST: " + instruction + "\n\nCurrent game files:\n\n" + dumpFiles(files), onDelta);
           flushCode(true);
           cost += gbCredits(g.usedIn, g.usedOut);
-          try { await useCredits(auth, gbCredits(g.usedIn, g.usedOut)); } catch {}
+          try { await collectCredits(auth, gbCredits(g.usedIn, g.usedOut)); } catch {}
           const changed = parseGameFiles(g.text);
           if (!Object.keys(changed).length) { emit({ ev: "error", msg: "the edit came back empty — try rephrasing" }); return; }
           Object.assign(files, changed);
@@ -7211,7 +7249,7 @@ async function handleRequest(request, env, ctx) {
                   : (gameFixRules(bd.smoke.errors) + "\n\nCurrent files:\n\n" + dumpFiles(files)));
             let fg; try { fg = await streamGen(engine === "3d" ? GAME_3D_RULES : GAME_RULES, fixPrompt, onDelta); flushCode(true); } catch { break; }
             cost += gbCredits(fg.usedIn, fg.usedOut);
-            try { await useCredits(auth, gbCredits(fg.usedIn, fg.usedOut)); } catch {}
+            try { await collectCredits(auth, gbCredits(fg.usedIn, fg.usedOut)); } catch {}
             const fixed = parseGameFiles(fg.text);
             if (!Object.keys(fixed).length) break;
             Object.assign(files, fixed);
@@ -7587,7 +7625,7 @@ async function handleRequest(request, env, ctx) {
       // build path does: our fault, our cost.
       if (routed.usage) {
         rCost = pageCredits(routed.usage);
-        try { await useCredits(auth, rCost); } catch { /* never fail a route over the ledger */ }
+        try { rCost = await collectCredits(auth, rCost); } catch { rCost = 0; /* never fail a route over the ledger */ }
       }
       return Response.json({
         ok: true,
@@ -7762,7 +7800,11 @@ async function handleRequest(request, env, ctx) {
           const settle = schemaSettlement(schemaUsage, SITE_BUILD_FEE);
           schemaCost = SITE_BUILD_FEE + settle;
           if (settle > 0) {
-            try { await useCredits(request.headers.get("Authorization") || "", settle); } catch { /* keep the build */ }
+            // COLLECT, not just ask. `use_credits` refuses a bill larger than
+            // the balance and debits zero, so the settlement has to report what
+            // it really took or `schemaCost` becomes a number nobody was charged.
+            try { schemaCost = SITE_BUILD_FEE + await collectCredits(request.headers.get("Authorization") || "", settle); }
+            catch { schemaCost = SITE_BUILD_FEE; /* keep the build */ }
           } else if (settle < 0) {
             await creditBack(env, bu.id, Math.min(SITE_BUILD_FEE, -settle));
           }
@@ -9021,6 +9063,17 @@ async function handleRequest(request, env, ctx) {
       // edit source — so it takes the full from-scratch prompt writer, not the
       // short edit-instruction path.
       const clipIsSeedanceRef = hasClip && /seedance/.test(genModel);
+      // DECLARED HERE, BESIDE THE FLAG IT READS, and that is the fix rather than
+      // a tidy-up. `vidRefN` used to be declared inside the `if (kind !== "audio")`
+      // block below and read again ~40 lines AFTER that block closed, so every
+      // director call with a Seedance clip attached threw
+      // `ReferenceError: vidRefN is not defined` — after the fee was debited and
+      // outside every try/catch, so the fee was never reversed and the client's
+      // `catch { return localAsk(text) }` swallowed it. The whole Seedance
+      // video-reference feature had been dead and silently charging since it
+      // shipped. `node --check` passes on this and no test can import worker.js;
+      // only running it, or bundling and reading the scopes, finds it.
+      const vidRefN = clipIsSeedanceRef ? Math.min(3, Math.max(1, Math.round(+body.vidRefCount) || 1)) : 0;
       // On Veo a clip is an EXTEND (+7s continuation from the final frame) —
       // neither an edit nor a reference, so it gets its own continuation
       // writer: describe ONLY the new 7 seconds, never re-narrate the clip.
@@ -9128,7 +9181,6 @@ async function handleRequest(request, env, ctx) {
         if (imageCount > 1) ctxBits.push(`${imageCount} reference images attached — ${kind === "image" ? "refer to each by position (the first image, the second image, …)" : "cite each as @Image1…@Image" + imageCount + " and use them all"}`);
         else ctxBits.push(hasImage ? "a start image IS attached" : "no start image attached");
         if (hasEnd) ctxBits.push("an end frame IS attached");
-        const vidRefN = clipIsSeedanceRef ? Math.min(3, Math.max(1, Math.round(+body.vidRefCount) || 1)) : 0;
       const audRefN = clipIsSeedanceRef || (kind === "video" && /seedance/.test(genModel)) ? Math.min(3, Math.max(0, Math.round(+body.audRefCount) || 0)) : 0;
       if (hasClip) ctxBits.push(clipIsSeedanceRef ? (vidRefN > 1 ? `${vidRefN} video clips ARE attached as references — cite them as @Video1…@Video${vidRefN}` : "a video clip IS attached as a @Video1 reference") : veoExtend ? "a source video clip IS attached (extend: +7s continuation)" : "a source video clip IS attached (video-to-video edit)");
       if (audRefN > 1) ctxBits.push(`${audRefN} audio references attached — cite them as @Audio1…@Audio${audRefN}`);

@@ -69,7 +69,12 @@ function harness(over = {}) {
     compile: async () => ({ ok: true, files: { "index.html": { t: "<build-" + calls.compile.length + ">" } } }),
     publish: async () => {},
     readCredits: async () => 500,
-    useCredits: async () => {},
+    // RETURNS WHAT IT COLLECTED, because the real ledger does. `use_credits`
+    // refuses a bill larger than the balance and debits ZERO, and this fake used
+    // to be `async () => {}` — more capable than the thing it stands in for,
+    // which is exactly how the platform shipped collecting nothing while
+    // reporting `charged: true`. The setTotp lesson, one module over.
+    useCredits: async (n) => n,
   };
   const pick = (k) => over[k] || base[k];
   const deps = {
@@ -353,14 +358,73 @@ test("a ledger that returns nonsense fails closed too", async () => {
   }
 });
 
-test("a failed charge never fails the build", async () => {
+test("a failed charge never fails the build, and never claims to have charged", async () => {
   // The tokens are already spent by the time the ledger is asked. Losing the
   // credit is bad; throwing away a site the caller already paid for is worse.
+  //
+  // `cost` USED TO BE ASSERTED > 0 HERE, and that was the old meaning of the
+  // field — what we asked for. It is what actually LEFT the ledger now, so a
+  // ledger outage reports zero taken and the price under `billed`. Reporting a
+  // cost the customer's balance does not show is the whole bug this pair of
+  // fields exists to prevent.
   const { deps, calls } = harness({ useCredits: async () => { throw new Error("rpc down"); } });
   const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
   assert.equal(out.page, "app");
   assert.equal(calls.publish.length, 1);
-  assert.ok(out.cost > 0, "the cost is still reported even though the debit failed");
+  assert.equal(out.cost, 0, "nothing left the ledger");
+  assert.equal(out.charged, false, "so do not tell the customer it did");
+  assert.ok(out.billed > 0, "what the work cost is still reported");
+});
+
+test("a SHORT ledger collects what it can, and reports that rather than the bill", async () => {
+  // THE CRITICAL BUG. `use_credits` is a gate, not a till: a bill larger than
+  // the balance debits ZERO and answers -1 without throwing. `settle` awaited it
+  // and moved on, so a new account's first build published a real site, said
+  // "this attempt used credits", and moved the ledger by nothing.
+  //
+  // Driven through the dep boundary, because that is where the real ledger's
+  // answer arrives — a fake that always succeeds cannot express this at all.
+  const { deps, calls } = harness({
+    generate: async () => gen([good()], { usage: { in: 10000, out: 10000 } }),
+    useCredits: async () => 4,          // the ledger only had four
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
+  const bill = pageCredits({ in: 10000, out: 10000 });
+  assert.equal(out.page, "app");
+  assert.equal(calls.charges[0], bill, "it still ASKS for the full bill");
+  assert.equal(out.billed, bill);
+  assert.equal(out.cost, 4, "and reports only what was taken");
+  assert.equal(out.charged, true, "four credits is still a charge");
+  assert.ok(bill > 4, "the two numbers must differ, or this proves nothing");
+});
+
+test("a ledger that collects NOTHING reports charged:false", async () => {
+  const { deps } = harness({ useCredits: async () => 0 });
+  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(out.page, "app", "the site still publishes — the work was done");
+  assert.equal(out.cost, 0);
+  assert.equal(out.charged, false);
+  assert.ok(out.billed > 0, "and what it should have cost is still recorded");
+});
+
+test("the sentence a FAILED build shows follows the ledger, not the intent", async () => {
+  // `typecheck` is a charged stage, so this build intends to bill. If the ledger
+  // took nothing, telling the customer "this attempt used credits" is a lie they
+  // can check against their own balance in one glance.
+  const short = harness({
+    useCredits: async () => 0,
+    compile: async () => ({ ok: false, stage: "typecheck", error: "index.tsx(3,1): TS2322" }),
+  });
+  const a = await publishPages(short.deps, { spec: SPEC, slug: "cafe" });
+  assert.match(a.notes, /weren't charged/);
+  assert.equal(a.charged, false);
+
+  const paid = harness({
+    compile: async () => ({ ok: false, stage: "typecheck", error: "index.tsx(3,1): TS2322" }),
+  });
+  const b = await publishPages(paid.deps, { spec: SPEC, slug: "cafe" });
+  assert.match(b.notes, /used credits/, "and a real charge still says so");
+  assert.equal(b.charged, true);
 });
 
 test("truncation is a failed generation, not a shipped half-file", async () => {
