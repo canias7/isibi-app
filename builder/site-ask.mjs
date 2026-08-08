@@ -96,10 +96,12 @@ export const ASK_TOOL = {
         type: "string",
         description:
           "Only when intent is \"ask\". The reply to show them, one to three sentences, plain, no markdown. Write to them, not " +
-          "about them, and sound like a person rather than a help page. A greeting gets a greeting back and an invitation — " +
-          "\"Hey. What are we building? A sentence is plenty: what the business does and roughly where.\" If it is a question " +
-          "about their own site, answer from the pages and tables described below. If you do not know, say so plainly and say " +
-          "what would tell them — never invent a fact about their site.",
+          "about them, and sound like a person rather than a help page.\n" +
+          "ANSWER WHAT THEY ACTUALLY SAID. A greeting gets a greeting back and an invitation to describe the site; a " +
+          "thank-you gets a short you're-welcome and nothing else; a question about what you can do gets that answered. These " +
+          "are three different replies and using one for another is worse than saying nothing — do not reach for a stock " +
+          "opening line. If it is a question about their own site, answer from the pages and tables described below. If you " +
+          "do not know, say so plainly and say what would tell them — never invent a fact about their site.",
       },
       question: {
         type: "object",
@@ -123,10 +125,13 @@ export const ASK_TOOL = {
             maxItems: MAX_OPTIONS,
             items: { type: "string" },
             description:
-              "Two to four answers, each a few words that read as a complete answer on a button — \"Book a time slot\", " +
-              "\"Send an enquiry\", \"Just phone and address\". They are shown as written and become part of the brief, so " +
-              "write them as the customer's own answer rather than as a label. Cover the likely answers; they can always " +
-              "skip past all of them.",
+              "Two to four answers THEY might give, each a few words on a button — \"Book a time slot\", \"Send an enquiry\", " +
+              "\"Just phone and address\". Each one is a thing the CUSTOMER would say back to you, never your own next " +
+              "sentence: \"Tell me more and I'll ask again\" is you talking, not an answer, and it renders as a button that " +
+              "means nothing when pressed. Under 40 characters each — anything longer is a sentence rather than an answer.\n" +
+              "IF YOU CANNOT NAME TWO OR THREE CONCRETE ANSWERS, THE QUESTION IS THE WRONG ONE. \"What does your business " +
+              "do?\" is open-ended and has no options, so it is not a clarify at all — answer \"ask\" and invite them to tell " +
+              "you, in a sentence. Only ask here what has a small, nameable set of answers.",
           },
         },
         required: ["text", "options"],
@@ -280,6 +285,29 @@ export function readRouting(reply, { canClarify = false } = {}) {
  * what can take a four-option question below the minimum, so the count is
  * checked AFTER the cleaning rather than before it.
  */
+/**
+ * One option, cut to fit a button.
+ *
+ * AT A WORD BOUNDARY, never mid-word. Measured live: the model returned "Tell me
+ * what you do and I'll ask what people should be able to do", which the old
+ * blunt slice rendered as "…and I'll ask what people sho" — a button ending in a
+ * fragment, which reads as the interface being broken rather than as the model
+ * having written the wrong thing.
+ *
+ * The clip is a backstop and not the fix; an option that needs clipping at all
+ * is a sentence rather than an answer, which is what the tool description now
+ * says. This just makes the failure legible when it happens anyway.
+ */
+export function clipOption(raw) {
+  const s = String(raw == null ? "" : raw).trim().replace(/\s+/g, " ");
+  if (s.length <= MAX_OPTION_CHARS) return s;
+  const cut = s.slice(0, MAX_OPTION_CHARS);
+  const sp = cut.lastIndexOf(" ");
+  // Only honour the boundary if it leaves most of the button used — a very
+  // early space would throw away nearly all of a long single-word answer.
+  return (sp >= MAX_OPTION_CHARS * 0.5 ? cut.slice(0, sp) : cut).trim();
+}
+
 export function readQuestion(raw) {
   const q = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : null;
   if (!q) return null;
@@ -291,7 +319,7 @@ export function readQuestion(raw) {
     // A STRING, not anything stringifiable: `String(["a","b"])` is "a,b", which
     // renders as one button offering two answers.
     if (typeof o !== "string") continue;
-    const label = o.trim().replace(/\s+/g, " ").slice(0, MAX_OPTION_CHARS);
+    const label = clipOption(o);
     if (!label) continue;
     const key = label.toLowerCase();
     if (seen.has(key)) continue;

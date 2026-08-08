@@ -12,7 +12,7 @@ import fs from "node:fs";
 import {
   ASK_TOOL, ASK_MODEL, ASK_MAX_TOKENS, MAX_MESSAGE,
   MAX_CLARIFY, MIN_OPTIONS, MAX_OPTIONS, MAX_OPTION_CHARS,
-  askRequest, readRouting, readQuestion, clarifiedBrief, askUsage, routeMessage, siteDigest,
+  askRequest, readRouting, readQuestion, clipOption, clarifiedBrief, askUsage, routeMessage, siteDigest,
 } from "../builder/site-ask.mjs";
 
 const SITE = { name: "Sharp Fade", url: "/s/sharp-fade/", pages: ["/", "/book"], tables: ["services", "bookings"] };
@@ -786,4 +786,55 @@ test("a first build is told to ASK, not merely permitted to", () => {
   const closed = String(askRequest({ message: "make it blue", canClarify: false }).messages[0].content);
   assert.match(closed, /Questions are closed/);
   assert.ok(!/ask ONE question/.test(closed));
+});
+
+test("an option too long for a button is cut at a word, never mid-word", () => {
+  // MEASURED LIVE. The model answered with "Tell me what you do and I'll ask
+  // what people should be able to do" and the blunt slice rendered it as
+  // "...and I'll ask what people sho" — a button ending in a fragment, which
+  // reads as the interface being broken rather than as the model having written
+  // the wrong thing.
+  const long = "Tell me what you do and I'll ask what people should be able to do";
+  const clipped = clipOption(long);
+  assert.ok(clipped.length <= MAX_OPTION_CHARS);
+  assert.ok(!clipped.endsWith(" "), "a trailing space on a button label");
+  assert.ok(long.startsWith(clipped), "the clip changed the words rather than shortening them");
+  // The last word is whole — that is the entire point.
+  const lastWord = clipped.split(" ").pop();
+  assert.ok(long.split(" ").includes(lastWord), "clipped mid-word: " + JSON.stringify(clipped));
+
+  // Short enough already: untouched apart from whitespace tidying.
+  assert.equal(clipOption("  Book a  time slot "), "Book a time slot");
+  assert.equal(clipOption("Book a time slot"), "Book a time slot");
+  // A single word longer than the cap has no boundary to honour — cut it rather
+  // than throwing the whole option away.
+  const oneWord = "x".repeat(120);
+  assert.equal(clipOption(oneWord).length, MAX_OPTION_CHARS);
+  // An early space must not leave a stub: "Yes " + a very long word keeps more
+  // than the first three characters.
+  assert.ok(clipOption("Yes " + "y".repeat(120)).length >= MAX_OPTION_CHARS * 0.5);
+  // Junk in, empty out — the caller drops empties.
+  for (const junk of [null, undefined, "", "   "]) assert.equal(clipOption(junk), "");
+});
+
+test("the options must be the CUSTOMER's answers, not the assistant's next line", () => {
+  // The other half of the same live failure: the model filled the buttons with
+  // its own dialogue ("I'll come back with more details in a moment"), which
+  // renders as a control that means nothing when pressed. And the question it
+  // was attached to — "what does your business do?" — is open-ended, so there
+  // were no answers to name in the first place.
+  const opts = ASK_TOOL.input_schema.properties.question.properties.options.description;
+  assert.match(opts, /never your own next sentence/i, "nothing stops the assistant's own lines becoming buttons");
+  assert.match(opts, /IF YOU CANNOT NAME TWO OR THREE CONCRETE ANSWERS/,
+    "an open-ended question can still be dressed up as a multiple choice");
+  assert.match(opts, /answer "ask"/, "no route out for a question that has no options");
+
+  // And the reply is told to answer what was SAID, because a stock opening line
+  // in the description came back verbatim for a greeting, a "wassup" AND a
+  // "thanks!" — three different messages, one identical reply.
+  const ans = ASK_TOOL.input_schema.properties.answer.description;
+  assert.match(ans, /ANSWER WHAT THEY ACTUALLY SAID/);
+  assert.match(ans, /thank-you gets/i, "a thank-you and a greeting are still one case");
+  assert.ok(!/Hey\. What are we building\?/.test(ans),
+    "the stock line is back in the description and will be parroted verbatim");
 });
