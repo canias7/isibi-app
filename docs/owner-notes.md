@@ -14583,6 +14583,48 @@ correctly comes out at zero before fal is even called. Everything around it is
 proven — the builder writes the requests, the site publishes, the placeholders
 look right. Nothing is charged for a picture that fails.
 
+## I audited the whole platform, and it found real money bugs (2026-08-08)
+
+**You asked for a deep check, so I ran eleven auditors over the builder and the
+platform at once, then had a separate sceptic try to disprove every finding.**
+Thirteen survived. All of them are fixed. Four are worth your attention:
+
+**1. The builder has been giving away builds.** The credits system refuses a
+charge it can't cover in full — and when it refuses, it takes *nothing*. The
+builder never checked, so it told people "this used your credits" and took zero.
+This hit the most common case there is: a brand-new account has 20 credits, a
+build costs about 21, so **every new account's first site was free** and the
+screen said otherwise. It now takes whatever is actually there, and what it says
+matches what your balance shows.
+
+**2. Deleting a site deleted nothing.** The Delete button — and the one inside
+"delete my account" — pointed at addresses that don't exist. The error was
+swallowed, the site vanished from your list, and the actual live page, its
+database and its name all kept running. Anyone who deleted a site still has it
+online. Both now call the real thing, and account deletion **stops** if the sites
+can't be taken down first, rather than deleting your account and stranding them.
+
+**3. Every revise was re-buying all the photographs.** Revising a 5-photo site
+bought five brand-new pictures each time — about 94 credits — for photos you
+already owned, and abandoned the old ones. Even a typo fix bought one. Revises
+buy none now.
+
+**4. The Seedance video feature was broken and still charging.** Attaching a
+video clip crashed the assistant every time, after taking the fee, and the app
+quietly fell back so nobody saw an error. Dead since the day it shipped.
+
+Also fixed: a security hole where a generated site's own code could have read
+every member's login session; the "Deep security scan (~8 credits)" button that
+quoted a price for something that doesn't exist; the Share button telling you to
+publish a site that was already live; and the version-history panel offering
+roll-backs it cannot do.
+
+**And one finding was thrown out** — the sceptic proved it wrong. Worth saying,
+because a check that agrees with itself isn't a check.
+
+**What this cost:** nothing extra. No builds were run, no images generated, no
+money spent — the auditors read code and made free requests only.
+
 ### Still to do
 
 - **Turnstile has no live proof.** 24 unit tests and 11 mutations, but no real bot
