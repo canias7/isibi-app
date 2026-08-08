@@ -621,3 +621,57 @@ test("contrast runs at the point of USE, so the stored patch stays the customer'
   const line = worker.slice(worker.lastIndexOf("\n", store), store + 200);
   assert.ok(!/withContrast/.test(line), "the stored patch must be what was asked for, not what was derived");
 });
+
+// ── retiring a feature ────────────────────────────────────────────────────────
+
+test("a retired table is offered to the generator by nothing", async () => {
+  // Half of what makes retiring work: `grantsFor` withdraws its public access,
+  // and the digest stops the generator writing a page against it. Told about
+  // it, the model builds a list that renders empty and a form that 401s —
+  // which looks broken rather than removed.
+  const { schemaDigest } = await import("../builder/page-gen.mjs");
+  const spec = { tables: [
+    { name: "menu", access: "display", columns: ["name"] },
+    { name: "enquiries", access: "collect", retired: true, columns: ["message"] },
+  ] };
+  const d = schemaDigest(spec);
+  assert.match(d, /menu/);
+  assert.ok(!/enquiries/.test(d), "a retired table must not be described to the model:\n" + d);
+});
+
+test("a retired table is reachable from the web by nobody", async () => {
+  const { grantsFor } = await import("../site-rls.mjs");
+  for (const access of ["display", "collect", "user", "feed", "admin"]) {
+    assert.deepEqual(grantsFor({ name: "t", access, retired: true }), [],
+      access + ": a retired table must have no grants at all");
+    assert.ok(grantsFor({ name: "t", access }).length > 0 || access === "admin",
+      access + ": the un-retired case must still grant something, or this proves nothing");
+  }
+});
+
+test("retiring keeps the data — nothing drops a declared table or column", () => {
+  // A `collect` table holds real customers' bookings. A model reading "remove
+  // the booking page" must never be one step from deleting them.
+  //
+  // ONE `DROP COLUMN` IS LEGITIMATE and is named rather than excluded by a
+  // pattern: the generated `tsv` search column is rebuilt when a table's
+  // full-text configuration changes, and it holds no data of its own. A blanket
+  // "no DROP anywhere" assertion failed on it, which is the assertion being
+  // wrong rather than the code.
+  const src = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  assert.ok(!/DROP\s+TABLE/i.test(src), "the schema engine must never drop a table");
+  const drops = [...src.matchAll(/DROP\s+COLUMN[^\n]*/gi)].map((m) => m[0]);
+  assert.equal(drops.length, 1, "unexpected column drops: " + drops.join(" ; "));
+  assert.match(drops[0], /tsv/, "the only column drop must be the managed search column");
+});
+
+test("`retired` survives BOTH allow-lists on the way through the schema engine", () => {
+  // `coerceTable` and `norm.push` each build their output field by field, so a
+  // property nobody added to those literals is dropped SILENTLY on every build
+  // — the fifth-layer death `teamScope` suffered, where the flag was
+  // declarable, given DDL, stored and read, and stripped by the one function
+  // every schema passes through.
+  const src = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  assert.match(src, /retired: !!\(def\.retired/, "the designer's flag is not parsed");
+  assert.match(src, /norm\.push\(\{[^}]*retired: !!t\.retired/, "…or it is parsed and then dropped");
+});

@@ -47,6 +47,7 @@ import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayou
 import { publishPages, pageCredits, schemaSettlement, buildFloor, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
 import { imageBudget, imagesAffordable, planImages, applyImages, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote } from "./builder/site-tokens.mjs";
+import { extractText, applyEdits } from "./builder/site-text.mjs";
 import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
 import { routeMessage, clarifiedBrief } from "./builder/site-ask.mjs";
@@ -2905,7 +2906,16 @@ const SITE_SCHEMA_TOOL = {
           type: "object",
           properties: {
             name: { type: "string", description: "snake_case table name." },
-            access: {
+            // REMOVING A FEATURE, without destroying what it collected.
+      retired: {
+        type: "boolean",
+        description:
+          "Set TRUE only when the message asks to REMOVE this table's feature from the site (\"drop the gallery\", " +
+          "\"we don't take enquiries any more\"). The table and every row in it are KEPT — the owner can still read " +
+          "and export them — but nothing on the site can reach it any more. Leave it out otherwise; a table you " +
+          "simply did not mention this turn is not retired.",
+      },
+      access: {
               type: "string",
               enum: ["collect", "display", "user", "feed", "admin"],
               description:
@@ -3561,12 +3571,12 @@ async function siteWebResearch(env, brief, queries) {
 //
 // ONE call per build. There is no repair pass — see builder/publish-pages.mjs
 // for the measurement it was removed on.
-async function generateSitePages(env, brief, spec, brand, family, attachments, model) {
+async function generateSitePages(env, brief, spec, brand, family, attachments, model, priorPages) {
   // One definition, shared with the eval harness — see pagesRequest. Restating
   // it here would mean the harness tunes against a different request from the
   // one production runs. Held in a const so the usage below can be stamped with
   // the model that was actually sent.
-  const req = pagesRequest({ brief, spec, brand, family, attachments, model });
+  const req = pagesRequest({ brief, spec, brand, family, attachments, model, priorPages });
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
@@ -5117,6 +5127,43 @@ async function deleteSitePrefix(env, slug, keep) {
  * really is a second set of bytes. That is the cost of the design — ~10 builds
  * of a small dist — and it is why MAX_VERSIONS exists.
  */
+/**
+ * WHERE A SITE'S PAGE SOURCE LIVES, so a revise can edit it.
+ *
+ * `source/<slug>/pages.json`, and the prefix matters: `/s/<slug>/` serves out of
+ * `sites/<slug>/`, so anything written there is PUBLIC. A site's own TSX is not
+ * something to hand to its visitors.
+ *
+ * Best-effort in both directions. A failed write costs the next revise its
+ * anchor — which is exactly today's behaviour, so it can never be worse than
+ * what it replaces — and a failed read is the same.
+ */
+const SOURCE_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/pages.json";
+
+async function saveSiteSource(env, slug, pages) {
+  if (!env.SITES_BUCKET) return false;
+  const list = (Array.isArray(pages) ? pages : [])
+    .filter((p) => p && typeof p.path === "string" && typeof p.source === "string")
+    .map((p) => ({ path: p.path, source: p.source }));
+  if (!list.length) return false;
+  try {
+    await env.SITES_BUCKET.put(SOURCE_KEY(slug), JSON.stringify(list), {
+      httpMetadata: { contentType: "application/json" },
+    });
+    return true;
+  } catch (e) { console.error("source save failed:", slug, e && e.message); return false; }
+}
+
+async function loadSiteSource(env, slug) {
+  if (!env.SITES_BUCKET) return null;
+  try {
+    const o = await env.SITES_BUCKET.get(SOURCE_KEY(slug));
+    if (!o) return null;
+    const v = JSON.parse(await o.text());
+    return Array.isArray(v) && v.length ? v : null;
+  } catch (e) { console.error("source read failed:", slug, e && e.message); return null; }
+}
+
 function versionDeps(env) {
   return {
     list: async (prefix) => {
@@ -5242,7 +5289,7 @@ async function fetchSiteFonts(pair) {
 // all? — live in builder/publish-pages.mjs, which takes every side effect as an
 // injected function so they can be driven against fakes in test/publish-pages.test.mjs.
 // This is only the wiring that supplies the real ones.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, tokens, family, structure, attachments, priorUsage, model, revise, changeNote, mark }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, tokens, family, structure, attachments, priorUsage, model, revise, changeNote, priorPages, mark }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
@@ -5286,7 +5333,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // and sent the bare brief — ~287 tokens of layout that every real build
       // carries and no sample ever did, so the compile rate described a prompt
       // the platform does not send.
-      return generateSitePages(env, briefWithLayout({ brief, family, structure, images: imgBudget }), spec, brand, family, attachments, model);
+      return generateSitePages(env, briefWithLayout({ brief, family, structure, images: imgBudget }), spec, brand, family, attachments, model, priorPages);
     },
     // Runs between the lint and the compile, on the pages the model actually
     // wrote. `publishPages` supplies the two numbers only it knows — the balance
@@ -5336,7 +5383,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
         };
       }
     },
-    publish: async (dist) => {
+    publish: async (dist, pages) => {
       const wrote = await writeSiteDistToR2(env, slug, dist, {
         brand, description: siteDescription, url: "https://gofarther.dev/s/" + slug + "/", image: ogImage,
         // WHICH SITE THIS IS, so the bundle can address its own API from a custom
@@ -5363,6 +5410,12 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           files: Object.keys(dist || {}).map((rel) => String(rel).replace(/[^a-z0-9/._-]/gi, "-")),
         });
       } catch (e) { console.error("archive failed:", slug, e && e.message); }
+      // AND THE SOURCE THAT PRODUCED IT, so the next revise is an edit rather
+      // than a rewrite. After the publish and never allowed to fail it, for the
+      // same reason the archive is not: the site is already live, and losing
+      // this costs the next revise its anchor — which is exactly the behaviour
+      // it replaces.
+      await saveSiteSource(env, slug, pages);
       return wrote;
     },
     readCredits: () => readCredits(auth),
@@ -8460,6 +8513,11 @@ async function handleRequest(request, env, ctx) {
             // this slug has already been built. No new field on the request, and
             // nothing a client can claim.
             revise: !!priorBrief,
+            // THE SITE AS IT STANDS, so a revise EDITS it rather than writing
+            // every page again from the brief. Read only on a revise — a first
+            // build has nothing to edit — and best-effort, because losing it
+            // costs the anchor and nothing else.
+            priorPages: priorBrief ? await loadSiteSource(env, slug) : null,
             // WHAT THE CUSTOMER TYPED THIS TURN, for the Versions list alone.
             // The composed `brief` above is the anchor plus the change plus the
             // linked pages plus the researched facts — thousands of characters,
@@ -8691,6 +8749,7 @@ async function handleRequest(request, env, ctx) {
       // rather than an id in the path — the id arrives in the body and is
       // shape-checked by `isVersionId` before it can address an object.
       const vr = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/versions(\/restore)?$/i);
+      const tx = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/text$/i);
       // EVERY owner-scoped matcher above has to appear here, and `dm2` did not —
       // so `/api/site/<slug>/domains` was dispatched by nothing and fell through
       // to the 404 at the bottom of the router. Custom domains were unreachable
@@ -8702,10 +8761,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || mm || an || uf || xp || nt || sk || dm2 || vr) {
+      if (om || mm || an || uf || xp || nt || sk || dm2 || vr || tx) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
-        const ownerSlug = (om || mm || an || uf || xp || nt || sk || dm2 || vr)[1].toLowerCase();
+        const ownerSlug = (om || mm || an || uf || xp || nt || sk || dm2 || vr || tx)[1].toLowerCase();
         const ownerDeps = {
           ownerOf: async (s2) => {
             const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s2)}&select=uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
@@ -8744,6 +8803,110 @@ async function handleRequest(request, env, ctx) {
           // other route in this block; a slug that is not yours answers 404
           // rather than 403, because the slug space is public and a 403 confirms
           // which names are taken.
+          if (tx) {
+            // ── CHANGING THE WORDS, WITH NO MODEL CALL ────────────────────
+            //
+            // A typo in a heading used to cost a full revise — a model call, a
+            // container compile, ~21 credits — because the words are not in the
+            // database, they are in the page source, and nothing could reach
+            // them. Now that a build stores the source it produced, an owner can
+            // edit the text directly: the same container compiles it and the
+            // same publish path ships it, and no model is asked anything.
+            //
+            // FREE IN CREDITS, NOT IN TIME. The container still has to build,
+            // which is the honest thing to tell the customer.
+            if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "storage not configured" }, { status: 501 });
+            const g = await assertOwner(ownerDeps, ownerSlug, ou.id);
+            if (g.error) return Response.json(g.error.body, { status: g.error.status });
+
+            const src = await loadSiteSource(env, ownerSlug);
+            if (!src) {
+              // A site built before the source was stored has nothing to edit.
+              // Said plainly rather than answered with an empty list, which
+              // reads as "this page has no words on it".
+              return Response.json({
+                ok: false, error: "no-source",
+                msg: "This site was built before text editing existed. Its next change will make the words editable.",
+              }, { status: 409 });
+            }
+
+            if (request.method === "GET") {
+              return Response.json({
+                ok: true,
+                pages: src.map((p) => ({ path: p.path, items: extractText(p.source) })),
+              });
+            }
+            if (request.method !== "POST") return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
+
+            const tb = await request.json().catch(() => ({}));
+            const ed = applyEdits(src, Array.isArray(tb && tb.edits) ? tb.edits.slice(0, 200) : []);
+            if (!ed.ok) return Response.json({ ok: false, error: ed.error }, { status: 400 });
+
+            // The site's own look, so a recompile does not silently re-theme it.
+            let look = null, tokens = null;
+            try {
+              const conn = await siteBackendBySlug(env, ownerSlug);
+              const db = conn && conn.conn;
+              if (db) {
+                const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens')");
+                for (const r of rows || []) {
+                  if (r.k === "site_look" && r.v) look = JSON.parse(r.v);
+                  if (r.k === "site_tokens" && r.v) tokens = JSON.parse(r.v);
+                }
+              }
+            } catch (e) { console.error("text edit look read failed:", ownerSlug, e && e.message); }
+
+            const pair = resolvePair((look && look.fonts) || {});
+            const fontFiles = await fetchSiteFonts(pair);
+            const files = {};
+            for (const p of ed.pages) files[p.path] = p.source;
+
+            let built;
+            try {
+              const c = getContainer(env.SITE_BUILD_CONTAINER);
+              const rr = await c.fetch(new Request("http://build/build", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  files, slug: ownerSlug, title: (look && look.brand) || ownerSlug,
+                  fonts: { heading: pair.heading.id, body: pair.body.id },
+                  theme: (look && look.theme) || null,
+                  tokens: Object.keys(tokens || {}).length ? withContrast(tokens) : undefined,
+                  fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined,
+                }),
+              }));
+              built = JSON.parse(await rr.text().catch(() => "")) || {};
+            } catch (e) {
+              built = { ok: false, error: String((e && e.message) || "the build service did not answer") };
+            }
+            // A FAILED COMPILE LEAVES THE LIVE SITE ALONE. The words came from
+            // the owner, so a refusal here is theirs to correct — publishing a
+            // broken bundle to fix a typo is the trade nobody would make.
+            if (!built || built.ok !== true || !built.files) {
+              return Response.json({
+                ok: false, error: "compile",
+                msg: "That change didn't compile, so your site is untouched — try shorter wording.",
+                detail: String(built && built.error || "").slice(0, 200),
+              }, { status: 422 });
+            }
+
+            const wrote = await writeSiteDistToR2(env, ownerSlug, built.files, {
+              brand: (look && look.brand) || ownerSlug,
+              url: "https://gofarther.dev/s/" + ownerSlug + "/",
+              slug: ownerSlug,
+            });
+            try {
+              await archiveVersion(versionDeps(env), {
+                slug: ownerSlug,
+                id: versionId(Date.now(), Math.random().toString(36).slice(2)),
+                label: "Edited the wording",
+                files: Object.keys(built.files || {}).map((rel) => String(rel).replace(/[^a-z0-9/._-]/gi, "-")),
+              });
+            } catch (e) { console.error("archive failed:", ownerSlug, e && e.message); }
+            await saveSiteSource(env, ownerSlug, ed.pages);
+
+            return Response.json({ ok: true, applied: ed.applied, files: wrote, cost: 0 });
+          }
           if (vr) {
             if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "storage not configured" }, { status: 501 });
             // `g.error` IS A PLAIN `{status, body}`, NOT A `Response` —

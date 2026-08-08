@@ -14728,3 +14728,33 @@ Two things came out of testing it rather than reasoning about it:
   ask for a corner change the theme's own corner styling now gives way to it. If
   you *don't* ask, the theme keeps its corners exactly as before, so nothing
   already published changes.
+
+## Three things the builder couldn't do (2026-08-08)
+
+**1. A revise used to rewrite every page.** The builder never saw the site it was
+changing — it got your brief and the data model and wrote all the pages again
+from scratch. So "change the phone number" came back with all the wording
+different: still about your business, not the words you had. That's the other
+half of what you hit as *"changing pages changes the stuff inside the site"* —
+the blank-page problem was real and so was this. It now gets your actual pages
+and is told to change only what you asked for and leave the rest alone,
+word for word.
+
+**2. Nothing could ever be removed.** Ask to drop a feature and the page went
+away, but the thing behind it stayed — and kept accepting submissions from
+anyone who knew the address, on a form nobody could see. Removing a feature now
+really removes it from the site. **Your data is kept**: the bookings and
+enquiries are still there and still exportable, and asking for the feature back
+brings it back. Deleting data is never something the builder does on its own.
+
+**3. A typo cost you a full rebuild.** The words on a page aren't in your data,
+they're in the page itself, so the Data panel couldn't touch them — a wrong
+phone number meant ~21 credits and a full regeneration. You can now edit the
+text directly and it costs **nothing**: the site is rebuilt and republished
+without asking the AI anything. It still takes a minute, because the site has to
+be compiled, but no credits.
+
+Two things worth knowing about the text editing: it only offers you words it's
+confident are words — it deliberately won't let you edit anything that turns out
+to be code — and if a change doesn't compile, your live site is left exactly as
+it was rather than replaced with something broken.

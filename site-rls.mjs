@@ -270,6 +270,22 @@ export function policiesFor(t) {
 export const DATA_API_ROLES = { anon: "anonymous", user: "authenticated" };
 
 export function grantsFor(t) {
+  // A RETIRED TABLE GETS NO GRANTS AT ALL, which is how a site removes a
+  // feature without destroying what it collected.
+  //
+  // The schema engine is ADDITIVE — every statement is `ADD COLUMN IF NOT
+  // EXISTS` / `CREATE TABLE IF NOT EXISTS`, and there is no `DROP` anywhere in
+  // it. So "remove the booking page" used to take the page away and leave the
+  // table publicly writable forever: a form nobody can see, still accepting
+  // submissions from anyone who knows the endpoint.
+  //
+  // WITHOUT A DROP, DELIBERATELY. A `collect` table holds real customers'
+  // bookings and enquiries, and a model reading "remove the booking page" must
+  // never be one step from deleting them. Withdrawing the grants makes the
+  // table unreachable from the web while the rows stay exactly where they are —
+  // the owner can still read and export them, and a later revise can bring the
+  // feature back by simply not retiring it. Reversible in both directions.
+  if (t && t.retired) return [];
   const access = String((t && t.access) || "collect").toLowerCase();
   const tn = q(t.name);
   const { anon, user } = DATA_API_ROLES;
