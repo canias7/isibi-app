@@ -9819,6 +9819,39 @@ function sitePages(site) {
   if (site && site.html) return [{ path: '/', name: 'Home', html: site.html }];
   return [];
 }
+// The route files a React build wrote, as pages the picker can offer.
+//
+// A REACT BUILD USED TO STORE EXACTLY ONE PAGE — `{path:'/', name:'App'}` —
+// however many routes it generated. The picker only renders above one page, so a
+// three-page site showed a dead "Homepage" label and there was no way to reach
+// the other two in the preview at all. The information was already there: the
+// build response lists every file it wrote, and the steps panel was printing
+// them as chips one panel over.
+//
+// Files arrive as "src/routes/<name>.tsx". `index` is the home page and every
+// other name is its own path; a nested route keeps its folder, which is what
+// TanStack does with it.
+function reactRoutePages(files) {
+  const out = [];
+  const seen = new Set();
+  for (const f of Array.isArray(files) ? files : []) {
+    const raw = String((f && f.path) || f || '');
+    const m = raw.match(/(?:^|\/)src\/routes\/(.+)\.tsx$/) || raw.match(/^([A-Za-z0-9_/.-]+)\.tsx$/);
+    if (!m) continue;
+    const rel = m[1].replace(/^\/+/, '');
+    // __root and the generated route tree are plumbing, not pages.
+    if (!rel || /(^|\/)__/.test(rel) || rel === 'routeTree.gen') continue;
+    const path = rel === 'index' ? '/' : '/' + rel.replace(/\/index$/, '');
+    if (seen.has(path)) continue;
+    seen.add(path);
+    const last = path === '/' ? 'Home' : path.split('/').pop().replace(/[-_]+/g, ' ');
+    out.push({ path, name: last.charAt(0).toUpperCase() + last.slice(1), html: '' });
+  }
+  // Home first; the rest keep the order the model wrote them, which matches the
+  // site's own nav far more often than alphabetical would.
+  out.sort((a, b) => (a.path === '/' ? -1 : b.path === '/' ? 1 : 0));
+  return out;
+}
 function siteActivePage(site) {
   const pages = sitePages(site);
   return pages.find((p) => p.path === (site && site.active)) || pages[0] || null;
@@ -9885,6 +9918,20 @@ function bindSiteNav() {
 // current page visible until the new one commits, so the swap is seamless
 // (Lovable-style). Only the picker label, the URL chip, and the iframe content
 // update. In Code/More views there's no live iframe, so fall back to a render.
+// The address shown above the preview — and the one people copy out of it.
+//
+// IT HAS TO BE A URL THAT WORKS. It read "gofarther.dev/s/hey/press" for a React
+// site, which is not where that page lives: the app routes on the hash, so the
+// server would look for `sites/hey/press.html` and 404. The trailing slash
+// matters for the same reason the Worker now redirects to it — the bundle is
+// referenced relatively, and without it nothing loads.
+function siteChipUrl(site, path) {
+  if (!site || !site.slug) return 'Draft preview — publish to get a live link';
+  const base = 'gofarther.dev/s/' + site.slug + '/';
+  const p = path && path !== '/' ? path : '';
+  if (!p) return base;
+  return base + (site.react ? '#' + p : p.replace(/^\//, ''));
+}
 function switchSitePage(path) {
   const s = siteById(siteOpenId); if (!s) return;
   const target = sitePages(s).find((p) => p.path === path);
@@ -9896,10 +9943,15 @@ function switchSitePage(path) {
   const menu = document.getElementById('stPageMenu');
   if (menu) { menu.hidden = true; menu.querySelectorAll('[data-path]').forEach((b) => b.classList.toggle('on', b.dataset.path === path)); }
   const chip = document.querySelector('.st-frame-url');
-  if (chip) chip.textContent = s.slug ? ('gofarther.dev/s/' + s.slug + (path !== '/' ? path : '')) : 'Draft preview — publish to get a live link';
+  if (chip) chip.textContent = siteChipUrl(s, path);
   const f = document.getElementById('stFrame');
   sitePreviewErrs[s.id + '|' + path] = []; // fresh page → clear stale errors
   if (f && target.html) loadSitePreview(f, target.html, s.slug);
+  // A REACT PAGE HAS NO `html` TO LOAD, so the branch above skipped it entirely
+  // and the frame kept showing whatever it already had while the label changed.
+  // Only the hash differs, so the browser treats this as an in-document
+  // navigation — no reload, which is the seamless swap this function exists for.
+  else if (f && s.react && s.url) f.src = s.url + '?v=' + (s.previewV || 1) + (path !== '/' ? '#' + path : '');
   if (typeof paintPreviewErrBadge === 'function') paintPreviewErrBadge();
 }
 function renderSites() {
@@ -10400,9 +10452,7 @@ function renderSiteWorkspace(view, site) {
   const isReact = !!(site.react && site.url);
   const hasSite = !!curHtml || isReact;
   // Browser-frame URL chip: the live path once published (drafts have a slug too).
-  const previewUrl = site.slug
-    ? 'gofarther.dev/s/' + site.slug + (active && active.path && active.path !== '/' ? active.path : '')
-    : 'Draft preview — publish to get a live link';
+  const previewUrl = siteChipUrl(site, active && active.path);
   const picker = pages.length > 1
     ? '<div class="st-pagepick"><button type="button" class="st-pagebtn" id="stPageBtn">' + esc(active ? active.name : 'Home') + ' <span class="st-cv">▾</span></button>' +
         '<div class="st-pagemenu" id="stPageMenu" hidden>' + pages.map((p) =>
@@ -10546,7 +10596,14 @@ function renderSiteWorkspace(view, site) {
   if (fr && isReact) {
     // React sites are served compiled at /s/<slug>/ — point the iframe straight
     // there (cache-busted per revise) instead of the draft-preview HTML path.
-    fr.src = site.url + '?v=' + (site.previewV || 1);
+    //
+    // THE PICKED PAGE RIDES IN THE HASH, because the generated app is built on
+    // `createHashHistory()` (main.tsx) — which is right for a static host, since
+    // a real path would need the server to answer /s/<slug>/press with
+    // index.html and it answers 404. Without this the picker changed the label
+    // and the frame kept showing the home page.
+    const at = (active && active.path) || '/';
+    fr.src = site.url + '?v=' + (site.previewV || 1) + (at !== '/' ? '#' + at : '');
   } else if (fr && curHtml) {
     sitePreviewErrs[site.id + '|' + (site.active || '/')] = []; // fresh page load → clear stale errors
     loadSitePreview(fr, curHtml, site.slug);
@@ -10970,7 +11027,16 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
         s.react = true; s.slug = d.slug; s.url = d.url || ('/s/' + d.slug + '/');
         if (d.backend) s.backend = true; // this site now has its own database
         if (d.brand && typeof d.brand === 'string' && d.brand.trim()) s.name = d.brand.trim().slice(0, 40);
-        if (!Array.isArray(s.pages) || !s.pages.length) s.pages = [{ path: '/', name: 'App', html: '' }];
+        // EVERY ROUTE IT WROTE, not one hardcoded entry. `filesSeen` is what the
+        // stream reported live; `d.files` is the same list off the final
+        // response, and is what a non-streaming answer leaves us with.
+        const wrote = (siteBuild && siteBuild.filesSeen && siteBuild.filesSeen.length) ? siteBuild.filesSeen : d.files;
+        const routed = reactRoutePages(wrote);
+        // A revise that reported no files must not wipe the pages the last build
+        // established — falling back to one entry is what made every React site
+        // look like a single-page site in the first place.
+        if (routed.length) s.pages = routed;
+        else if (!Array.isArray(s.pages) || !s.pages.length) s.pages = [{ path: '/', name: 'Home', html: '' }];
         s.active = '/'; delete s.html;
         s.previewV = (s.previewV || 0) + 1; // cache-bust the preview iframe on revise
         siteSnap(s, t);
