@@ -17,7 +17,7 @@
 // break everything else. Adding one now forces that choice explicitly.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import fs, { readFileSync } from "node:fs";
 
 const yml = readFileSync(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
 
@@ -106,4 +106,56 @@ test("the Domain Connect fallback cannot be mistaken for a key", () => {
   const fallback = expr.match(/\|\|\s*'([^']*)'/);
   assert.ok(fallback, "no literal fallback to check");
   assert.throws(() => atob(fallback[1]), "the fallback decodes as base64 — pick one that cannot");
+});
+
+// ── what a docs-only commit must not do ───────────────────────────────────────
+
+test("a docs-only commit does not deploy, and so does not pay for a build", () => {
+  // The chain is push → Deploy → `build smoke`, and `build smoke` spends two
+  // real model calls plus a Neon project every run. Three commits in one
+  // stretch of this session touched nothing but CLAUDE.md and docs/, deployed
+  // an identical Worker, and then paid for a full site build to prove it still
+  // worked.
+  const ignore = yml.match(/paths-ignore:\n((?:\s+-\s+.*\n)+)/);
+  assert.ok(ignore, "the deploy has no paths-ignore — every docs commit pays for a build");
+  const globs = ignore[1].split("\n").map((l) => (l.match(/-\s+'([^']+)'/) || [])[1]).filter(Boolean);
+  assert.ok(globs.includes("**.md"), "markdown anywhere must not trigger a deploy");
+  assert.ok(globs.includes("docs/**"), "docs/ must not trigger a deploy");
+});
+
+test("nothing the deploy SHIPS is a file the filter now ignores", () => {
+  // THE PREMISE THE FILTER RESTS ON, asserted rather than remembered. The
+  // failure it guards against is silent in the worst way: put something the
+  // platform serves into a `.md` and changes to it simply stop reaching
+  // production, with a green tick on every commit.
+  //
+  // Two ways a `.md` could really ship, and the first draft of this test
+  // checked neither properly — it scanned for a quoted filename and a mutant
+  // inserting `"see docs/components.md"` walked straight past it, because the
+  // pattern could not cross the space. Checked at the two places it matters
+  // instead of by grepping for a substring:
+  //
+  //   1. THE MODULE GRAPH. `worker.js` and every `site-*`/`builder/*` module it
+  //      pulls in — an import is the only way a file becomes part of the
+  //      bundle. (A Worker has no filesystem, so nothing can be read at
+  //      runtime either.)
+  //   2. THE ASSETS DIRECTORY. `wrangler.jsonc` serves `./public` wholesale, so
+  //      anything in there is public even though nothing imports it.
+  const roots = [new URL("../worker.js", import.meta.url)];
+  for (const dir of ["..", "../builder"]) {
+    const d = new URL(dir + "/", import.meta.url);
+    for (const f of fs.readdirSync(d)) if (f.endsWith(".mjs")) roots.push(new URL(f, d));
+  }
+  assert.ok(roots.length > 20, `only ${roots.length} modules scanned — the scan broke`);
+  for (const u of roots) {
+    const src = readFileSync(u, "utf8");
+    const bad = [...src.matchAll(/(?:from|import|require)\s*\(?\s*["'`]([^"'`]+\.md)["'`]/g)].map((m) => m[1]);
+    assert.deepEqual(bad, [], `${u.pathname.split("/").pop()} imports ${bad.join(", ")} — a docs-only commit would not redeploy it`);
+  }
+
+  const conf = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+  const served = (conf.match(/"directory":\s*"([^"]+)"/) || [])[1];
+  assert.equal(served, "./public", "the assets directory moved — re-point this guard");
+  const inPublic = fs.readdirSync(new URL("../public/", import.meta.url)).filter((f) => f.toLowerCase().endsWith(".md"));
+  assert.deepEqual(inPublic, [], `public/ serves ${inPublic.join(", ")} — a docs-only commit would not redeploy it`);
 });

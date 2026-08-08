@@ -3,6 +3,27 @@ name: Deploy to Cloudflare
 on:
   push:
     branches: [main]
+    # A DOCS-ONLY COMMIT COSTS A PAID BUILD, and that is what this stops.
+    #
+    # The chain is push → Deploy → `build smoke`, and `build smoke` spends two
+    # real model calls plus a Neon project on every run. Measured over one
+    # stretch of this session: three commits that touched nothing but CLAUDE.md
+    # and docs/ each deployed an identical Worker and then paid for a full
+    # site build to prove it still worked.
+    #
+    # Nothing here is served or bundled. `docs/components.md` is GENERATED from
+    # the kit by `builder/gen-components-doc.mjs` and read by nobody at
+    # runtime, and the Worker has no filesystem, so it cannot read a `.md` at
+    # all. `unit tests` still runs on every push with no path filter, so the
+    # drift guards that read GENERATOR.md are unaffected.
+    #
+    # The cost of being wrong: a commit that puts real configuration in a `.md`
+    # would silently stop deploying. `test/deploy-secrets.test.mjs` asserts
+    # nothing in the deploy path references one.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
   workflow_dispatch:
 
 # Least privilege: the deploy only reads the repo; Cloudflare auth is via secrets,

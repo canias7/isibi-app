@@ -11158,8 +11158,12 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
       // without a sentence the customer cannot tell a design choice from a
       // failure. Composed server-side (imageNote) for the same reason the
       // context note is: this file cannot import the module that decides it.
+      // AND WHICH COLOUR MOVED. Same shape, same reason (tokenNote): a colour
+      // silently not applied reads as the builder being broken rather than as a
+      // request that did not land.
       const note = [
         (d && typeof d.contextNote === 'string') ? d.contextNote.trim() : '',
+        (d && typeof d.tokensNote === 'string') ? d.tokensNote.trim() : '',
         (d && typeof d.imagesNote === 'string') ? d.imagesNote.trim() : '',
       ].filter(Boolean).join('\n');
       // THE MODEL'S OWN SUMMARY, which the builder has always written and always

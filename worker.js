@@ -46,6 +46,7 @@ import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayou
 // it at deploy time and the deploy is the first thing that ever sees it.
 import { publishPages, pageCredits, schemaSettlement, buildFloor, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
 import { imageBudget, imagesAffordable, planImages, applyImages, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { TOKENS as SITE_TOKEN_NAMES, mergeTokens, parseTokens, withContrast, tokenNote } from "./builder/site-tokens.mjs";
 import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
 import { routeMessage, clarifiedBrief } from "./builder/site-ask.mjs";
@@ -3157,6 +3158,31 @@ const SITE_SCHEMA_TOOL = {
           "(broadsheet, bauhaus, zine, apothecary). A barber shop and a law firm want different worlds; " +
           "most businesses want a quiet one. This sets colour, type feeling, corners, borders and shadows together.",
       },
+      // ONE COLOUR, CHANGED — the thing a revise could not do at all.
+      //
+      // Anchoring the look in `_meta` stopped "make the background yellow"
+      // re-rolling a barber shop into a different site, and left the customer
+      // unable to change the background AT ALL: every token comes from a theme
+      // in the registry, and none of the 500 is "the one you have, but yellow".
+      // This is the escape hatch, and it rides on a call that already reads the
+      // instruction and already returns structured output, so it costs no extra
+      // model call — the same reasoning as `needsWeb`.
+      //
+      // OMITTED unless the instruction really is about a colour. The look is
+      // otherwise the theme's business, and a designer that patches tokens
+      // "while it is here" is the re-roll arriving one property at a time.
+      tokens: {
+        type: "object",
+        description:
+          "ONLY when the message asks for a specific COLOUR change to an existing site (\"make the background yellow\", " +
+          "\"the buttons should be green\"). Omit it entirely otherwise — on a first build, and on any revise about " +
+          "content, pages or layout. Values must be HEX (#rrggbb). Set the surface only; the readable text colour " +
+          "on top of it is worked out for you, so do not set a *-foreground unless the customer named that colour too.",
+        properties: Object.fromEntries(SITE_TOKEN_NAMES.map((t) => [t, {
+          type: "string",
+          description: "#rrggbb",
+        }])),
+      },
       // The SHAPE. Distinct from the theme on purpose: a theme decides how a
       // site looks, a family decides what its pages ARE and in what order.
       family: {
@@ -5211,7 +5237,7 @@ async function fetchSiteFonts(pair) {
 // all? — live in builder/publish-pages.mjs, which takes every side effect as an
 // injected function so they can be driven against fakes in test/publish-pages.test.mjs.
 // This is only the wiring that supplies the real ones.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, family, structure, attachments, priorUsage, model, revise, changeNote, mark }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, tokens, family, structure, attachments, priorUsage, model, revise, changeNote, mark }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
@@ -5277,6 +5303,13 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
           // would put a second copy of the theme on the wire and let the two
           // drift; the name is the whole contract.
           theme: theme || null,
+          // THE SITE'S OWN COLOURS, written after the theme inside the
+          // container — later wins, and that IS the override. Sent resolved
+          // rather than by name, unlike the theme: there is no registry to
+          // resolve against, these ARE the values. `withContrast` runs here so
+          // what is stored stays what the customer asked for and the readable
+          // text colour follows whatever the surface currently is.
+          tokens: Object.keys(tokens || {}).length ? withContrast(tokens) : undefined,
           fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined }),
       }));
       // THE STATUS AND THE BODY, NOT JUST "no JSON". Parsing straight to JSON and
@@ -8316,12 +8349,14 @@ async function handleRequest(request, env, ctx) {
       // goes. Best-effort in both directions — losing it re-rolls the look, which
       // is exactly today's behaviour, so it can never be worse than what it
       // replaces.
-      let priorLook = null;
+      let priorLook = null, priorTokens = null;
       if (priorBrief) {
         try {
-          const rows = await sqlQuery(db, "SELECT v FROM _meta WHERE k = 'site_look'");
-          const raw = rows && rows[0] && rows[0].v;
-          if (raw) priorLook = JSON.parse(raw);
+          const rows = await sqlQuery(db, "SELECT k, v FROM _meta WHERE k IN ('site_look','site_tokens')");
+          for (const r of rows || []) {
+            if (r.k === "site_look" && r.v) priorLook = JSON.parse(r.v);
+            if (r.k === "site_tokens" && r.v) priorTokens = JSON.parse(r.v);
+          }
         } catch (e) { console.error("look read failed:", slug, e && e.message); }
       }
       // THE DESIGNER STILL WINS ON A FIRST BUILD, and on a revise whose
@@ -8339,6 +8374,27 @@ async function handleRequest(request, env, ctx) {
         try {
           await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_look', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(look)]);
         } catch (e) { console.error("look write failed:", slug, e && e.message); }
+      }
+
+      // ── AND THE ONE COLOUR THEY ASKED TO CHANGE ────────────────────────────
+      //
+      // ACCUMULATED, never replaced: a revise names only what it is changing,
+      // so a yellow background asked for today and a blue accent asked for
+      // tomorrow have to both survive — a replacing merge hands back the
+      // theme's own background on the second revise, which reads as the first
+      // instruction being forgotten.
+      //
+      // `withContrast` is applied at the point of USE rather than here, so what
+      // is stored is only ever what the customer actually asked for; the
+      // derived text colour follows whatever the surface is at build time.
+      // Written on EVERY build that has one, unlike the look above, because
+      // this is the thing being changed.
+      const siteTokens = mergeTokens(priorTokens, designed && designed.tokens);
+      const tokenAsk = parseTokens(designed && designed.tokens);
+      if (Object.keys(siteTokens).length) {
+        try {
+          await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_tokens', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(siteTokens)]);
+        } catch (e) { console.error("token write failed:", slug, e && e.message); }
       }
 
       tr.at("merge");
@@ -8415,6 +8471,7 @@ async function handleRequest(request, env, ctx) {
             // family and fonts from the instruction alone.
             fonts: look.fonts,
             theme: look.theme,
+            tokens: siteTokens,
             family: look.family,
             structure: look.structure,
             auth: request.headers.get("Authorization") || "",
@@ -8526,6 +8583,14 @@ async function handleRequest(request, env, ctx) {
         // module that decides it, so a second copy there would eventually claim
         // photographs that were never made.
         imagesNote: imageNote(pages.images) || undefined,
+        // WHICH COLOUR MOVED, and which one could not. Same shape and same
+        // reasoning as the two notes above it: the client cannot import the
+        // module that decides this, and a colour silently not applied reads as
+        // the builder being broken rather than as a request that did not land.
+        // Reports THIS build's ask, not the accumulated patch — saying "changed
+        // the background" on a revise that only touched the text is worse than
+        // saying nothing.
+        tokensNote: tokenNote(tokenAsk.tokens, tokenAsk.dropped) || undefined,
         // WHY it fell back, when it did. publish-pages.mjs has returned these
         // since it was extracted and nothing passed them on, so a build that
         // published the placeholder said only "placeholder" — the caller (and

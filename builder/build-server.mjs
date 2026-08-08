@@ -24,6 +24,7 @@ import path from "node:path";
 import { resolvePair, fontCss, fontImports } from "./site-fonts.mjs";
 import { themeCss } from "./site-theme.mjs";
 import { resolveTheme } from "./site-theme-registry.mjs";
+import { tokensCss } from "./site-tokens.mjs";
 import { exitReason } from "./exit-reason.mjs";
 
 const APP = process.env.APP_DIR || "/app";
@@ -213,6 +214,30 @@ function writeTheme(name) {
   return { applied: true, theme: name, notes: [] };
 }
 
+// The site's OWN colours, written AFTER the theme.
+//
+// A separate function and a separate write, because it has to land after
+// `writeTheme` whether or not a theme applied — that is the entire mechanism:
+// these are the same custom properties the theme declares, and later wins. A
+// site with no theme still gets its patch, over the template's own `:root`.
+//
+// FAILS SOFT like everything else here, and one step softer: a site whose data
+// layer is live, whose pages compiled and whose theme applied must not be lost
+// because one colour could not be written. `tokensCss` returns "" for an empty
+// or unusable patch, so a build that never asked for one writes nothing at all
+// and its stylesheet is byte-identical to the build before this existed.
+function writeTokens(tokens) {
+  let css;
+  try { css = tokensCss(tokens); }
+  catch { return { applied: false, notes: ["Those colours could not be applied, so the site kept the theme's own."] }; }
+  if (!css) return { applied: false, notes: [] };
+  let base;
+  try { base = fs.readFileSync(STYLES, "utf8"); }
+  catch { return { applied: false, notes: ["Those colours could not be applied, so the site kept the theme's own."] }; }
+  fs.writeFileSync(STYLES, base + "\n" + css);
+  return { applied: true, notes: [] };
+}
+
 // real builds a second apart — one returned a build failure with no files, the
 // other returned a bundle containing neither site's content, and a third run had
 // one customer's pages published to another customer's slug.
@@ -280,6 +305,8 @@ const server = http.createServer((req, res) => {
       writeIndexHtml(payload.title);
       const fontsUsed = writeFonts(payload.fonts, payload.fontFiles);
       const themeUsed = writeTheme(payload.theme);
+      // AFTER the theme, never before — later wins, and that IS the override.
+      const tokensUsed = writeTokens(payload.tokens);
       let wrote = 0;
       for (const [rel, content] of Object.entries(files)) {
         const safe = safeRoute(rel);
@@ -330,7 +357,7 @@ const server = http.createServer((req, res) => {
 
       const dist = collectDist();
       if (!dist["index.html"]) return send(res, 200, { ok: false, stage: "build", error: "build produced no index.html", ms: Date.now() - t0, ...times });
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed });
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
     }

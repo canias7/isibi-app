@@ -426,6 +426,64 @@ function Home() {
     !!(badFont.fonts && badFont.fonts.notes && badFont.fonts.notes.length),
     JSON.stringify(badFont.fonts));
 
+  // ── ONE COLOUR, CHANGED ──────────────────────────────────────────────────
+  //
+  // Same class of check as the fonts above, and for the same reason: the
+  // response saying a token was applied and the bundled CSS carrying it are two
+  // different facts, and the gap between them is where a patch that is written
+  // and then overwritten by the theme hides. Nothing but the BUNDLE can tell
+  // them apart.
+  console.log("\nbuilding with a colour override…");
+  const withTokens = await post({
+    files: { "index.tsx": INDEX, "menu.tsx": MENU },
+    slug: "fold-coffee", theme: "broadsheet",
+    tokens: { background: "#ffcc00", foreground: "#0a0a0a" },
+  });
+  ok("a build with a colour override succeeds", withTokens.ok === true, JSON.stringify(withTokens).slice(0, 200));
+  ok("the response says the override was applied",
+    !!(withTokens.tokens && withTokens.tokens.applied), JSON.stringify(withTokens.tokens));
+  {
+    const css = Object.entries(withTokens.files || {})
+      .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
+    // LIGHTNINGCSS MINIFIES THE COLOUR — `#ffcc00` ships as `#fc0`, and the
+    // first draft of this assertion looked for the value it sent and reported
+    // a working feature as broken. What is checked is the token and a value
+    // that means the same colour, in either spelling.
+    const HEX = "(?:#ffcc00|#fc0)";
+    ok("the bundled CSS carries the chosen background",
+      new RegExp("--background:\\s*" + HEX).test(css), css.slice(0, 200));
+    // THE WHOLE MECHANISM IS THE ORDER. These are the same custom properties
+    // the theme declares, so a patch written BEFORE the theme is silently
+    // overwritten and the feature does nothing, with no error anywhere. Vite
+    // minifies but preserves declaration order, so last-wins is checkable.
+    const ours = [...css.matchAll(new RegExp("--background:\\s*" + HEX, "g"))].map((m) => m.index);
+    const all = [...css.matchAll(/--background:\s*/g)].map((m) => m.index);
+    ok("and it is the LAST --background in the stylesheet, so it wins",
+      ours.length > 0 && all.every((i) => i <= Math.max(...ours)),
+      `ours@${ours.join(",")} all@${all.join(",")}`);
+    ok("the theme still applied alongside it", all.length > ours.length,
+      `${all.length} --background declarations, ${ours.length} of them ours`);
+  }
+
+  // A patch that cannot be used must not fail a build that otherwise worked.
+  const badToken = await post({
+    files: { "index.tsx": INDEX, "menu.tsx": MENU },
+    slug: "fold-coffee", tokens: { background: "#fc0; } body { display: none", radius: "2rem" },
+  });
+  ok("an unusable colour falls back instead of failing the build", badToken.ok === true,
+    JSON.stringify(badToken).slice(0, 200));
+  {
+    const css = Object.entries(badToken.files || {})
+      .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
+    // Named exactly. `!/2rem/` over a slice of a 200KB Tailwind bundle was a
+    // check on whatever happened to be in the first 4,000 characters, which is
+    // an assertion about Tailwind's output order and not about this feature.
+    ok("and nothing it contained reaches the stylesheet",
+      !/body\s*\{[^}]*display\s*:\s*none/.test(css) && !/--radius:\s*2rem/.test(css) &&
+      !/site tokens/.test(css),
+      css.slice(0, 200));
+  }
+
   console.log("\nrejecting what must never be written…");
   const root = await post({ files: { "__root.tsx": "export const x = 1;" } });
   ok("the root layout cannot be overwritten", root.ok === false && /no valid route files/.test(root.error || ""), JSON.stringify(root).slice(0, 200));

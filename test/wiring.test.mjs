@@ -497,7 +497,12 @@ test("a revise keeps the site's stored look instead of re-rolling it", () => {
   // The chain is asserted link by link, because this feature is one missing link
   // from being decorative: read it back, prefer it, write it on a first build,
   // and only look it up on a revise.
-  assert.match(worker, /SELECT v FROM _meta WHERE k = 'site_look'/, "nothing reads the stored look");
+  // Matched on the KEY rather than on the whole statement: the read was widened
+  // to fetch `site_tokens` in the same round trip, and a guard anchored on the
+  // exact SQL went red on a change that kept every property it was written to
+  // protect. Anchoring on the literal a query cannot work without is the
+  // durable form.
+  assert.match(worker, /FROM _meta WHERE k[^\n]*'site_look'/, "nothing reads the stored look");
   assert.match(worker, /INSERT INTO _meta \(k,v\) VALUES \('site_look'/, "nothing ever writes it");
   assert.match(worker, /if \(priorBrief\) \{[\s\S]{0,400}site_look/,
     "the look is read on a FIRST build too, which would pin an empty one");
