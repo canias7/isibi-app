@@ -87,10 +87,10 @@ export const ASK_TOOL = {
           "another colour, add a form, remove a section. \"ask\" if it is a question, a greeting, a thank-you, or anything else " +
           "that does not describe a change. When it is genuinely both — a question AND a change — answer \"build\", because the " +
           "build reply says what was done anyway and the customer would rather have the work than the explanation.\n\n" +
-          "\"clarify\" ONLY when you are told below that this is a first build and questions are still allowed, and there is " +
-          "something you genuinely need to know before building that the brief does not say. Never on a change to a site that " +
-          "already exists. If the brief already answers your question, or you would be asking to make conversation, answer " +
-          "\"build\" — they came here for a site, not an interview.",
+          "\"clarify\" when you are told below that this is a first build with questions remaining AND the message describes a " +
+          "site to build. On a first build that is the NORMAL answer, not a last resort: ask the one thing you most need to " +
+          "know, and \"build\" is for when the questions have run out or you are told they are closed. Never on a change to a " +
+          "site that already exists.",
       },
       answer: {
         type: "string",
@@ -169,11 +169,13 @@ const SYSTEM =
   "something the builder does rather than guessing that it might be.\n\n" +
   "Do not describe what you are about to do when the answer is \"build\" — the build reports itself. " +
   "Never claim the site has a page, a table, or a feature that is not named below.\n\n" +
-  "ON A FIRST BUILD you may also ask them ONE thing before it starts, when the brief leaves something open that would " +
-  "change the site itself. A build takes about a minute and rewriting it costs them again, so a question that prevents " +
-  "the wrong site is worth asking — and a question whose answer is already in the brief, or that only makes " +
-  "conversation, is worse than none. Ask about what people DO on the site and how it should feel, never about details " +
-  "the owner can type in afterwards. When in doubt, build.";
+  "ON A FIRST BUILD YOU ASK THEM SOMETHING BEFORE IT STARTS. Not \"if you need to\" — a first build begins with a " +
+  "question, every time, while you still have questions left. A build takes about a minute and doing it again costs " +
+  "them again, so the cheapest moment to learn something is before it runs. Ask about what people DO on the site and " +
+  "how it should feel, never about details the owner can fill in afterwards, and never about something the brief has " +
+  "already told you.\n\n" +
+  "The exception is a message that is not a description of a site at all — \"hi\", \"hey\", \"wassup\", \"yo\", \"thanks\", " +
+  "\"what can you do?\". There is nothing to build there and so nothing to clarify: answer it.";
 
 /**
  * The one definition of the routing call.
@@ -190,9 +192,9 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
   // plainly that questions are closed, rather than being left to infer it from
   // an absent section.
   const round = canClarify
-    ? "\n\nBEFORE THE BUILD\nThis is their FIRST build — nothing exists yet — so you may ask ONE question first if you " +
-      "genuinely need to. You have " + left + " question" + (left === 1 ? "" : "s") + " left before the build starts " +
-      "regardless.\n" +
+    ? "\n\nBEFORE THE BUILD\nThis is their FIRST build — nothing exists yet — so if their message describes a site, ask " +
+      "ONE question about it rather than building. You have " + left + " question" + (left === 1 ? "" : "s") +
+      " left, and the build starts on its own once they are used up.\n" +
       (asked.length
         ? "WHAT YOU HAVE ALREADY ASKED — do not ask any of these again, or anything close to them:\n" +
           asked.map((p) => "- " + String(p.q).trim() + " -> " + String(p.a).trim()).join("\n") + "\n"

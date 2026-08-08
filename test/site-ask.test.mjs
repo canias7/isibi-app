@@ -730,3 +730,39 @@ test("a typed reply during a round is an ANSWER, not a new brief", () => {
   assert.ok(!/siteRoute\([^)]*\)\s*;?\s*\}\s*$/.test(ans.slice(ans.indexOf("if (skip)"), ans.indexOf("siteRoute("))),
     "the skip path calls the router");
 });
+
+test("a first build is told to ASK, not merely permitted to", () => {
+  // THE BUG THIS PINS, and it was mine rather than the model's. The owner chose
+  // "every new project asks"; the first prompt I wrote was the option they did
+  // NOT choose — "ask if you genuinely need to", with three separate
+  // otherwise-build clauses and, at the end, "When in doubt, build." Measured
+  // live against the deployed router: "a website for my business", which is as
+  // thin as a brief gets, came back `build`. The feature was reachable at every
+  // layer and asked nothing.
+  //
+  // A unit test cannot prove a prompt produces a behaviour — only a live probe
+  // can, and that is what found this. What a test CAN hold is the instruction
+  // not quietly reverting to the discouraging form.
+  const sys = askRequest({ message: "a cafe", canClarify: true, brief: "a cafe" }).system[0].text;
+  assert.match(sys, /ON A FIRST BUILD YOU ASK/, "the first-build instruction is no longer an instruction");
+  assert.ok(!/when in doubt,?\s*build/i.test(sys),
+    "the prompt tells the model to prefer building — this is the exact line that made clarify dead");
+
+  // And the round text asks rather than permits.
+  const round = String(askRequest({ message: "a cafe", canClarify: true, brief: "a cafe" }).messages[0].content);
+  assert.match(round, /ask ONE question about it rather than building/,
+    "the round text went back to offering the question as optional");
+
+  // The greeting exception has to survive, or a first build interrogates
+  // somebody who typed "hey" — measured working, and easy to lose while
+  // strengthening the clause above it.
+  assert.match(sys, /"hey"/, "the greeting examples are gone");
+  assert.match(sys, /nothing to clarify/i, "nothing tells the model a greeting is not a brief");
+
+  // A REVISE IS UNTOUCHED by all of this. The strengthened wording lives in the
+  // system block, which a revise also sees, so the closed-questions line is what
+  // keeps it from applying — assert the two together or one can be lost.
+  const closed = String(askRequest({ message: "make it blue", canClarify: false }).messages[0].content);
+  assert.match(closed, /Questions are closed/);
+  assert.ok(!/ask ONE question/.test(closed));
+});
