@@ -46,6 +46,7 @@ import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayou
 // it at deploy time and the deploy is the first thing that ever sees it.
 import { publishPages, pageCredits, schemaSettlement, buildFloor, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
 import { imageBudget, imagesAffordable, planImages, applyImages, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
 import { routeMessage, clarifiedBrief } from "./builder/site-ask.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
@@ -5055,11 +5056,19 @@ async function writeGameDistToR2(env, slug, dist) {
 // call, so this follows the cursor rather than stopping at the first page — a
 // React dist is only a handful of objects, but a half-deleted site serves a
 // shell whose assets 404, which is worse than not deleting at all.
-async function deleteSitePrefix(env, slug) {
+async function deleteSitePrefix(env, slug, keep) {
+  const spare = keep instanceof Set ? keep : null;
+  const prefix = "sites/" + slug + "/";
   let cursor, removed = 0;
   for (;;) {
-    const page = await env.SITES_BUCKET.list({ prefix: "sites/" + slug + "/", cursor });
-    for (const o of (page.objects || [])) { await env.SITES_BUCKET.delete(o.key); removed++; }
+    const page = await env.SITES_BUCKET.list({ prefix, cursor });
+    for (const o of (page.objects || [])) {
+      // `keep` is what the build just wrote. Sweeping everything else is how a
+      // republish drops the previous build's hashed assets without there ever
+      // being a moment when the site is not fully published.
+      if (spare && spare.has(o.key.slice(prefix.length))) continue;
+      await env.SITES_BUCKET.delete(o.key); removed++;
+    }
     // Stopping when there is no cursor as well as when the page is not truncated
     // is what makes this loop terminate unconditionally: a truncated page with no
     // cursor would otherwise re-request the same page forever and burn the
@@ -5069,12 +5078,64 @@ async function deleteSitePrefix(env, slug) {
   }
 }
 
-// Publish a compiled site. The prefix is wiped first: vite hashes its asset file
-// names, so without this every rebuild would leave the previous build's JS and CSS
-// behind forever. Same {t}/{b} envelope the build service returns for the games.
+/**
+ * R2 plumbing for site-versions.mjs. One place, so the archive, the rollback and
+ * the delete sweep cannot disagree about where a version lives.
+ *
+ * `copy` is a read-then-put: R2's binding has no server-side copy, so a version
+ * really is a second set of bytes. That is the cost of the design — ~10 builds
+ * of a small dist — and it is why MAX_VERSIONS exists.
+ */
+function versionDeps(env) {
+  return {
+    list: async (prefix) => {
+      const out = []; let cursor;
+      for (;;) {
+        const page = await env.SITES_BUCKET.list({ prefix, cursor });
+        for (const o of (page.objects || [])) out.push({ key: o.key, size: o.size });
+        if (!page.truncated || !page.cursor) return out;
+        cursor = page.cursor;
+      }
+    },
+    copy: async (from, to) => {
+      const obj = await env.SITES_BUCKET.get(from);
+      if (!obj) return;
+      await env.SITES_BUCKET.put(to, await obj.arrayBuffer(),
+        { httpMetadata: { contentType: obj.httpMetadata && obj.httpMetadata.contentType } });
+    },
+    remove: (key) => env.SITES_BUCKET.delete(key),
+    put: (key, text, ct) => env.SITES_BUCKET.put(key, text, { httpMetadata: { contentType: ct } }),
+    read: async (key) => { const o = await env.SITES_BUCKET.get(key); return o ? await o.text() : null; },
+  };
+}
+
+/**
+ * Publish a compiled site — WRITE FIRST, THEN SWEEP. Never the other way round.
+ *
+ * THIS USED TO DELETE THE WHOLE PREFIX AND THEN WRITE, which left a window —
+ * the wipe plus ~20 sequential R2 puts — where the live site was partly or
+ * entirely missing. Anyone loading it in that window got 404s, on a public URL,
+ * every time the owner revised.
+ *
+ * It is worse than it sounds because a generated site is CODE-SPLIT: one lazily
+ * loaded chunk per route. So a visitor whose home page loaded BEFORE a republish
+ * gets a 404 the moment they click through to another page — the chunk that page
+ * needs was deleted and not yet rewritten. Measured against a real published
+ * site 2026-08-08; that is the "this page didn't load" a customer reported.
+ *
+ * Safe in this order because vite content-hashes asset names: a new build's
+ * assets have new names, so writing them cannot clash with the ones being
+ * served. `index.html` goes LAST — it is the pointer, so flipping it after its
+ * assets exist is what makes the switch atomic from a visitor's side. Then the
+ * sweep removes whatever the new build does not use.
+ */
 async function writeSiteDistToR2(env, slug, dist, meta) {
-  try { await deleteSitePrefix(env, slug); } catch {}
-  for (const [rel, v] of Object.entries(dist || {})) {
+  const wrote = new Set();
+  // index.html last: it names the new bundle, so nothing may see it until the
+  // bundle it points at is fully written.
+  const entries = Object.entries(dist || {})
+    .sort((a, b) => (/^index\.html$/i.test(a[0]) ? 1 : 0) - (/^index\.html$/i.test(b[0]) ? 1 : 0));
+  for (const [rel, v] of entries) {
     // The head belongs to the built dist, which the model never sees, so the
     // share tags go in here. Only ever a no-op on anything unexpected — a site
     // published without a description is a far smaller problem than one
@@ -5090,7 +5151,13 @@ async function writeSiteDistToR2(env, slug, dist, meta) {
     else if (v && typeof v.b === "string") { const bin = atob(v.b); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); bodyOut = u8; }
     else continue;
     await env.SITES_BUCKET.put("sites/" + slug + "/" + safeRel, bodyOut, { httpMetadata: { contentType: ct } });
+    wrote.add(safeRel);
   }
+  // AND ONLY NOW the previous build's leftovers. Best-effort: a failed sweep
+  // costs storage, while a failed write would cost the site — so this can never
+  // be allowed to throw past a publish that has already succeeded.
+  try { await deleteSitePrefix(env, slug, wrote); } catch (e) { console.error("sweep failed:", slug, e && e.message); }
+  return wrote.size;
 }
 
 /**
@@ -5144,7 +5211,7 @@ async function fetchSiteFonts(pair) {
 // all? — live in builder/publish-pages.mjs, which takes every side effect as an
 // injected function so they can be driven against fakes in test/publish-pages.test.mjs.
 // This is only the wiring that supplies the real ones.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, family, structure, attachments, priorUsage, model, revise, mark }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, family, structure, attachments, priorUsage, model, revise, changeNote, mark }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
@@ -5231,12 +5298,35 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
         };
       }
     },
-    publish: (dist) => writeSiteDistToR2(env, slug, dist, {
-      brand, description: siteDescription, url: "https://gofarther.dev/s/" + slug + "/", image: ogImage,
-      // WHICH SITE THIS IS, so the bundle can address its own API from a custom
-      // domain — where there is no `/s/<slug>/` in the path to read it from.
-      slug,
-    }),
+    publish: async (dist) => {
+      const wrote = await writeSiteDistToR2(env, slug, dist, {
+        brand, description: siteDescription, url: "https://gofarther.dev/s/" + slug + "/", image: ogImage,
+        // WHICH SITE THIS IS, so the bundle can address its own API from a custom
+        // domain — where there is no `/s/<slug>/` in the path to read it from.
+        slug,
+      });
+      // ARCHIVE THE BUILD THAT JUST WENT LIVE, so it can be rolled back to.
+      //
+      // AFTER the publish and never allowed to fail it: the site is already up
+      // by this point, so a failed archive costs a rollback point, while
+      // throwing here would trade a working site for a bookkeeping entry. Same
+      // rule as the meta injection and the sweep above it.
+      try {
+        await archiveVersion(versionDeps(env), {
+          slug,
+          id: versionId(Date.now(), Math.random().toString(36).slice(2)),
+          // WHAT THE BUILD WAS, not what the site is called. Labelled with the
+          // brand, every row in the list read "Sharp Fade Barbers" and the only
+          // thing telling three builds apart was the timestamp — which makes
+          // the list nearly useless for the one question it is opened to
+          // answer: which of these do I want back. A revise is named by the
+          // change the customer asked for, in their own words.
+          label: versionLabel({ revise, changeNote, brand }),
+          files: Object.keys(dist || {}).map((rel) => String(rel).replace(/[^a-z0-9/._-]/gi, "-")),
+        });
+      } catch (e) { console.error("archive failed:", slug, e && e.message); }
+      return wrote;
+    },
     readCredits: () => readCredits(auth),
     useCredits: (n) => collectCredits(auth, n),
     // What the web-research step already spent, so it is billed by the same rule
@@ -5320,7 +5410,7 @@ async function deleteSiteFor(env, uid, dslug) {
         // Nothing recorded to drop. Legacy sites provisioned under the
         // per-user layout still have their database inside a shared project,
         // so fall back to dropping just that.
-        const legacy = await userSiteProject(env, du.id);
+        const legacy = await userSiteProject(env, uid);
         if (legacy && legacy.neon_project) await dropSiteDatabase(env, legacy.neon_project, legacy.neon_branch, dslug);
         projectDropped = true;
       }
@@ -5333,6 +5423,20 @@ async function deleteSiteFor(env, uid, dslug) {
       console.error("site files delete failed:", dslug, e && e.message);
       return Response.json({ ok: false, error: "couldn't remove the published files" }, { status: 502 });
     }
+
+    // The archive goes too — the same leak `neon_teardown` exists to stop, one
+    // resource over: `versions/<slug>/` is up to ten whole builds, and nothing
+    // else would ever find it once the ownership row is gone.
+    //
+    // AFTER the live prefix and best-effort, deliberately. The published files
+    // are what the caller asked to take down, so a failure here must not answer
+    // an error and tell them their site is still up when it is not; the cost of
+    // being wrong in this direction is R2 storage, and in the other direction a
+    // site the owner believes is live.
+    let versionsRemoved = 0;
+    try {
+      if (env.SITES_BUCKET) versionsRemoved = await deleteAllVersions(versionDeps(env), { slug: dslug });
+    } catch (e) { console.error("site versions delete failed:", dslug, e && e.message); }
 
     // Registration goes last. While it exists the site is still findable and
     // still owned, so a failure above leaves something to retry against rather
@@ -5375,7 +5479,7 @@ async function deleteSiteFor(env, uid, dslug) {
       }
     } catch (e) { console.error("domain release failed:", dslug, e && e.message); }
 
-    return Response.json({ ok: true, slug: dslug, removed, projectDropped, domainsReleased });
+    return Response.json({ ok: true, slug: dslug, removed, versionsRemoved, projectDropped, domainsReleased });
 }
 
 async function handleRequest(request, env, ctx) {
@@ -8295,6 +8399,12 @@ async function handleRequest(request, env, ctx) {
             // this slug has already been built. No new field on the request, and
             // nothing a client can claim.
             revise: !!priorBrief,
+            // WHAT THE CUSTOMER TYPED THIS TURN, for the Versions list alone.
+            // The composed `brief` above is the anchor plus the change plus the
+            // linked pages plus the researched facts — thousands of characters,
+            // and the change is buried in the middle of it. This is the raw
+            // sentence, which is the only thing that names the build usefully.
+            changeNote: brief,
             siteDescription, ogImage,
             attachments: attached.blocks,
             priorUsage: (researched && researched.usage) || null,
@@ -8507,6 +8617,10 @@ async function handleRequest(request, env, ctx) {
       // name is matched with the SAME alphabet normalizeSecretName produces, so
       // anything that could not have been stored cannot even reach the handler.
       const sk = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/secrets(?:\/([A-Za-z][A-Za-z0-9_]{0,63}))?$/i);
+      // Published versions: the list, and the restore. `restore` is a fixed word
+      // rather than an id in the path — the id arrives in the body and is
+      // shape-checked by `isVersionId` before it can address an object.
+      const vr = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/versions(\/restore)?$/i);
       // EVERY owner-scoped matcher above has to appear here, and `dm2` did not —
       // so `/api/site/<slug>/domains` was dispatched by nothing and fell through
       // to the 404 at the bottom of the router. Custom domains were unreachable
@@ -8518,10 +8632,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || mm || an || uf || xp || nt || sk || dm2) {
+      if (om || mm || an || uf || xp || nt || sk || dm2 || vr) {
         const ou = await authUser(request);
         if (!ou) return UNAUTHED();
-        const ownerSlug = (om || mm || an || uf || xp || nt || sk || dm2)[1].toLowerCase();
+        const ownerSlug = (om || mm || an || uf || xp || nt || sk || dm2 || vr)[1].toLowerCase();
         const ownerDeps = {
           ownerOf: async (s2) => {
             const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s2)}&select=uid`, { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
@@ -8554,6 +8668,39 @@ async function handleRequest(request, env, ctx) {
         // no body otherwise — the same trap the PBKDF2 cap fell into.
         try {
           let r;
+          // ── PUBLISHED VERSIONS ────────────────────────────────────────────
+          //
+          // The list, and putting one back. Behind `assertOwner` like every
+          // other route in this block; a slug that is not yours answers 404
+          // rather than 403, because the slug space is public and a 403 confirms
+          // which names are taken.
+          if (vr) {
+            if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "storage not configured" }, { status: 501 });
+            // `g.error` IS A PLAIN `{status, body}`, NOT A `Response` —
+            // `site-owner.mjs`'s own `json()` builds it that way. Returned
+            // straight out of the handler it is not a Response at all, so every
+            // REFUSAL would 500 while the success path worked perfectly: the
+            // `dm2` bug inverted, from the same misread of the same contract.
+            const g = await assertOwner(ownerDeps, ownerSlug, ou.id);
+            if (g.error) return Response.json(g.error.body, { status: g.error.status });
+            if (!vr[2] && request.method === "GET") {
+              return Response.json({ ok: true, versions: await listVersions(versionDeps(env), { slug: ownerSlug }) });
+            }
+            if (vr[2] && request.method === "POST") {
+              const vb = await request.json().catch(() => ({}));
+              // THE SHAPE CHECK LIVES IN `rollbackVersion`, NOT HERE. It runs
+              // there before any I/O, so a copy at this layer buys nothing and
+              // is a second place the rule can drift — the `hasPublicView`
+              // lesson. Proved rather than assumed: a mutation deleting a check
+              // here changed nothing observable, which is what an inert guard
+              // looks like. `isVersionId` is still imported and used by the
+              // module; `id` reaches it as whatever the caller sent.
+              const rb = await rollbackVersion(versionDeps(env), { slug: ownerSlug, id: vb && vb.id });
+              if (!rb.ok) return Response.json({ ok: false, error: rb.error || "rollback failed" }, { status: rb.status || 500 });
+              return Response.json({ ok: true, id: rb.id, files: rb.files, swept: rb.swept, url: "/s/" + ownerSlug + "/" });
+            }
+            return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
+          }
           if (dm2) {
             // THE OWNER'S OWN DOMAINS.
             //

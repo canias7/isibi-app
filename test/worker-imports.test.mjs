@@ -226,3 +226,86 @@ test("no block-scoped const/let in worker.js is read after its block closes", ()
   }
   assert.deepEqual(offenders, [], "these are ReferenceErrors at runtime");
 });
+
+// The names a request handler binds for itself. Short and closed on purpose:
+// this is a list of things that are ONLY ever legal inside the router, so a
+// top-level function naming one is always wrong.
+const HANDLER_LOCALS = ["du", "au", "ou", "gu", "request", "url", "ctx", "body"];
+
+/** Top-level `function name(params) { … }`, matched by brace depth. */
+function topLevelFunctions(src) {
+  const out = [];
+  for (const m of src.matchAll(/^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)/gm)) {
+    let i = src.indexOf("{", m.index), depth = 0, end = -1;
+    for (; i < src.length; i++) {
+      const c = src[i];
+      if (c === "{") depth++;
+      else if (c === "}") { depth--; if (!depth) { end = i; break; } }
+    }
+    if (end > 0) out.push({ name: m[1], params: m[2], start: m.index, body: src.slice(m.index, end + 1) });
+  }
+  return out;
+}
+
+/** The offenders, as a function so a mutant source can be driven through it. */
+function handlerLocalLeaks(src) {
+  const bad = [];
+  for (const fn of topLevelFunctions(src)) {
+    const params = new Set(fn.params.split(",").map((s) => s.trim().split("=")[0].replace(/^\.\.\./, "").trim()));
+    for (const n of HANDLER_LOCALS) {
+      if (params.has(n)) continue;
+      // Bound inside the body by any ordinary form: a declaration, a catch
+      // binding, a for-of head, or an arrow parameter.
+      if (new RegExp("(?:const|let|var|catch\\s*\\(|for\\s*\\(\\s*(?:const|let)\\s+)\\s*" + n + "\\b").test(fn.body)) continue;
+      if (new RegExp("\\(\\s*(?:[\\w$]+\\s*,\\s*)*" + n + "\\s*(?:,[^)]*)?\\)\\s*=>").test(fn.body)) continue;
+      for (const m of fn.body.matchAll(new RegExp("(?:^|[^.\\w$'\"`])(" + n + ")\\s*[.\\[]", "g"))) {
+        // Prose, not code. `// … a timeout of the whole request.` is a real
+        // line in this file and was the scan's only false alarm. Filtered PER
+        // LINE rather than by blanking comments whole-file — that is the trap
+        // already recorded here: one stray `/*` inside a string ate 46% of
+        // worker.js. A `//` inside a string earlier on the same line can hide
+        // a real read, which is a false negative and the safe direction.
+        const lineStart = fn.body.lastIndexOf("\n", m.index) + 1;
+        const before = fn.body.slice(lineStart, m.index + m[0].indexOf(n));
+        if (before.includes("//") || /^\s*\*/.test(before)) continue;
+        bad.push(fn.name + " reads `" + n + "` @" + src.slice(0, fn.start + m.index).split("\n").length);
+        break;
+      }
+    }
+  }
+  return bad;
+}
+
+test("no top-level function in worker.js reads a request-handler local", () => {
+  // THE SAME RUNTIME CLASS AS `vidRefN`, ARRIVING FROM THE OTHER DIRECTION —
+  // and the guard above cannot see it. That one walks FORWARD from a
+  // declaration to find a read after its block closes. This one is a read
+  // BEFORE the declaration, in a different function entirely: `deleteSiteFor`
+  // was extracted out of the delete route and kept `du.id`, while `du` is a
+  // `const` in the router ~3,700 lines below. `node --check` passes, esbuild
+  // bundles it, and no test can import a Worker entrypoint — so it only fires
+  // at runtime, and here inside a `try` whose `catch` logs, which is how the
+  // legacy-project branch became silently dead rather than loudly broken.
+  //
+  // A general free-variable analyser was tried first and abandoned with
+  // measurements, because an unusable guard gets deleted: the symmetric
+  // backward scan flagged 30 candidates (`to`, `db`, `note`, `path` — prose
+  // and property names), and a full per-function scope check flagged 1,113,
+  // dominated by keywords and comment text. Both need a real parser, and there
+  // is none in this repo. So the check is narrowed to the names that can only
+  // ever mean the router — which is exactly the hazard an extraction creates.
+  assert.deepEqual(handlerLocalLeaks(code), [], "these are ReferenceErrors at runtime");
+});
+
+test("the handler-local scan actually fires on the shape it was written for", () => {
+  // The scan is a regex over prose-heavy source, so "it found nothing" has to
+  // be distinguished from "it can find nothing". Driven over a mutant rather
+  // than asserted on the source, or a scan broken into matching zero things
+  // would pass the test above forever.
+  const mutant = code.replace("const legacy = await userSiteProject(env, uid);",
+    "const legacy = await userSiteProject(env, du.id);");
+  assert.notEqual(mutant, code, "the anchor this mutation needs is gone — re-point it");
+  const leaks = handlerLocalLeaks(mutant);
+  assert.equal(leaks.length, 1, "expected exactly the re-introduced leak, got: " + leaks.join(", "));
+  assert.match(leaks[0], /^deleteSiteFor reads `du`/);
+});

@@ -10562,8 +10562,14 @@ function renderSiteWorkspace(view, site) {
           (site.slug ? '<button type="button" class="st-icon" id="stMembers" title="Site members" aria-label="Site members">' + ic('users', 16) + '</button>' : '') +
           (isReact ? '' : '<button type="button" class="st-icon" id="stDl" title="Download page HTML" aria-label="Download page HTML"' + (hasSite ? '' : ' disabled') + '>' + ic('download', 16) + '</button>') +
           '<button type="button" class="st-share" id="stShare">Share</button>' +
+          // THE "Live ↗" LINK IS GONE (owner's call, 2026-08-08). A React site
+          // publishes as part of the build, so there was nothing for it to do
+          // that Share does not already do — and it opened the raw
+          // `/s/<slug>/` URL in a new tab, which reads as "here is your site on
+          // some weird page" rather than as the customer's own address. Share
+          // is the one way out of this screen now.
           (isReact
-            ? '<a class="st-publish" href="' + esc(site.url || '#') + '" target="_blank" rel="noopener">Live ↗</a>'
+            ? ''
             : '<button type="button" class="st-publish" id="stPub"' + (hasSite ? '' : ' disabled') + '>Publish</button>') +
         '</div>' +
       '</div>' +
@@ -11643,18 +11649,71 @@ async function siteVersions(site) {
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
   if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — versions show up here.'); return; }
   const { bodyEl } = stCloudModal('siteVersionsModal', 'Versions');
-  // NO VERSION HISTORY EXISTS. `/api/site/backend/builds` and `/backend/rollback`
-  // went with the D1 runtime on 2026-07-27 and were never rebuilt, so this panel
-  // has been showing "Couldn't load versions — try again" (a 404 caught by its own
-  // catch) and offering a roll-back button that posts into the void. A publish
-  // does not archive anything today: `writeSiteDistToR2` wipes the prefix and
-  // writes the new dist over it.
-  //
-  // Said honestly rather than left looking broken. Restoring the feature means
-  // keeping old dists in R2 under a version prefix and a route to swap them —
-  // a real change, not a re-wiring.
+  // THIS PANEL WAS TWO LIES DEEP UNTIL 2026-08-08. It called
+  // `/api/site/backend/builds` and `/backend/rollback`, both deleted with the
+  // D1 runtime, so it showed "Couldn't load versions" (a 404 caught by its own
+  // catch) over a roll-back button that posted into the void — and there was
+  // nothing to roll back to anyway, because a publish wiped the prefix and
+  // wrote the new dist over it. Both halves are real now: `writeSiteDistToR2`
+  // archives what it publishes, and `POST /api/site/<slug>/versions/restore`
+  // puts one back over the live prefix through the same write-then-sweep path.
+  const when = (ms) => {
+    const t = Number(ms) || 0;
+    if (!t) return '';
+    const mins = Math.round((Date.now() - t) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins + ' min ago';
+    if (mins < 60 * 24) return Math.round(mins / 60) + 'h ago';
+    const d = new Date(t);
+    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + ' ' +
+      d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const restore = async (id, label) => {
+    // ASKED FIRST. This overwrites the live site, and the person reaching for
+    // it is usually reacting to a build they dislike — which is exactly when a
+    // mis-click costs the most.
+    if (!confirm('Put "' + (label || 'this version') + '" back on the live site?\n\nThe build you are on now stays in the list, so you can come back to it.')) return;
+    bodyEl.innerHTML = '<div class="si-empty">Restoring…</div>';
+    try {
+      const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/versions/restore', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) { if (typeof sbToast === 'function') sbToast(d.error || 'Couldn’t restore that version.'); return load(); }
+      if (typeof sbToast === 'function') sbToast('Restored — your site is live on that build.');
+      load();
+    } catch (e) { if (typeof sbToast === 'function') sbToast('Lost the connection — try again.'); load(); }
+  };
+
   const load = async () => {
-    bodyEl.innerHTML = '<div class="si-empty">Version history isn\u2019t available yet. Each publish replaces the live files rather than archiving them, so there\u2019s nothing to roll back to — rebuild or revise to change the site.</div>';
+    bodyEl.innerHTML = '<div class="si-empty">Loading…</div>';
+    let d = {};
+    try {
+      const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/versions');
+      d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error('bad');
+    } catch (e) {
+      bodyEl.innerHTML = '<div class="si-empty">Couldn’t read your build history. Try again in a moment.</div>';
+      return;
+    }
+    const list = Array.isArray(d.versions) ? d.versions : [];
+    const intro = '<p class="sp-intro">Every publish is saved here, so you can put an earlier build back on the live site.</p>';
+    if (!list.length) {
+      // A site published before this shipped has no archive, which is a
+      // different thing from a failure — say which it is.
+      bodyEl.innerHTML = intro + '<div class="si-empty">Nothing saved yet. Your next build shows up here.</div>';
+      return;
+    }
+    bodyEl.innerHTML = intro + '<div class="st-hist">' + list.map((v, i) =>
+      '<div class="st-hitem"><span class="st-hi-ic">' + ic('history', 14) + '</span>' +
+      '<div class="st-hi-tx"><b>' + esc(String(v.label || 'Build').slice(0, 80)) + '</b>' +
+      '<span>' + (i === 0 ? 'Live now' : esc(when(v.at))) + '</span></div>' +
+      (i === 0 ? '' : '<button type="button" class="st-hi-restore" data-vid="' + esc(String(v.id)) + '" data-vl="' + esc(String(v.label || 'Build')) + '">Restore</button>') +
+      '</div>').join('') + '</div>';
+    bodyEl.querySelectorAll('[data-vid]').forEach((b) => {
+      b.onclick = () => restore(b.getAttribute('data-vid'), b.getAttribute('data-vl'));
+    });
   };
   load();
 }
