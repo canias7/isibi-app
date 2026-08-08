@@ -57,7 +57,13 @@ export function themeIdsForPrompt() {
 // caller falls back to the untouched template.
 export function resolveTheme(name) {
   if (!name || typeof name !== "string") return null;
-  return ALL_THEMES[name] || null;
+  // `Object.hasOwn`, NOT a plain lookup. `ALL_THEMES["__proto__"]` is the object
+  // prototype — truthy, so it walked straight past the `|| null` and handed back
+  // `{}` as a theme, which is neither a real theme nor the null every caller
+  // fails soft on. `constructor` and `toString` come back as functions the same
+  // way. The exact bug that shipped once in the Stripe plan lookup, and the
+  // reason `modelsFor` uses `Object.hasOwn` too.
+  return Object.hasOwn(ALL_THEMES, name) ? ALL_THEMES[name] : null;
 }
 
 // THE SHORTLIST THE DESIGNER ACTUALLY PICKS FROM — 100 of the 500.

@@ -105,3 +105,26 @@ test("a table merely NAMED like the auth schema is not caught by it", () => {
   };
   assert.deepEqual((normalizeSchema(s).functions || []).map((f) => f.name), ["ok_fn"]);
 });
+
+test("the engine's app_ namespace cannot be shadowed by a declared function", () => {
+  // `app_user_id` was named explicitly and `app_team_id` was not — the same hole
+  // one function over. It is what every `teamScope` policy calls to decide which
+  // team's rows a member may read and write, so a declared function of that name
+  // rewrites the sharing rules of the whole site from inside a page's data model.
+  // The guard is on the PREFIX now: the engine owns `app_`, and a helper added
+  // later is covered without anybody remembering to come back here.
+  for (const n of ["app_user_id", "app_team_id", "app_anything_else"]) {
+    const s = {
+      tables: [{ name: "notes", access: "display", columns: ["note"] }],
+      functions: [{ name: n, returns: "text", body: "SELECT 'attacker'", language: "sql" }],
+    };
+    assert.deepEqual((normalizeSchema(s).functions || []).map((f) => f.name), [], "must drop: " + n);
+  }
+  // And an ordinary name starting with the letters is unaffected — `apply_x` is
+  // not in the namespace, and refusing it would be the blanket direction.
+  const ok = {
+    tables: [{ name: "notes", access: "display", columns: ["note"] }],
+    functions: [{ name: "apply_discount", returns: "text", body: "SELECT note FROM notes", language: "sql" }],
+  };
+  assert.deepEqual((normalizeSchema(ok).functions || []).map((f) => f.name), ["apply_discount"]);
+});

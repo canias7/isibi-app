@@ -291,3 +291,16 @@ test("the client can call it, or a page cannot use it", () => {
   assert.ok(/export function useApi/.test(rows), "the hook exists");
   assert.ok(/\/api\/db\/\$\{siteSlug\(\)\}\/api\//.test(rows), "and points at the route");
 });
+
+test("a third-party read never follows a redirect", () => {
+  // THE SSRF GUARD CHECKED THE FIRST HOP AND NONE OF THE OTHERS. The host is
+  // validated before the call; with `redirect: "follow"` a 302 to an internal
+  // address was then fetched WITH the owner's API key attached, and neither the
+  // guard nor this function ever saw that URL. `emitWebhook` already refuses
+  // redirects — this is the same rule on the read side.
+  const src = fs.readFileSync(new URL("../site-apis.mjs", import.meta.url), "utf8");
+  assert.match(src, /redirect: "manual"/, "a followed redirect escapes the host check");
+  assert.ok(!/redirect: "follow"/.test(src), "the follow is back");
+  assert.match(src, /res\.status >= 300 && res\.status < 400/,
+    "a 3xx has to be refused, not read as an empty body");
+});

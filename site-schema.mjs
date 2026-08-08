@@ -188,7 +188,15 @@ export function normalizeSchema(spec) {
     // Never let a declaration shadow the engine's own helpers: `app_user_id` is
     // what every RLS policy calls, and a redefinition would rewrite the access
     // rules of every table on the site from inside a page's data model.
-    if (!name || name.startsWith("_") || name === "app_user_id") continue;
+    //
+    // `app_team_id` WAS NOT COVERED, and it is the same hole one function over:
+    // it is what every `teamScope` table's policy calls to decide which team's
+    // rows a member may read and write, so a declared function of that name
+    // rewrites the sharing rules of the whole site. The guard named one helper
+    // when it meant "the engine's namespace", so it is on the PREFIX now — the
+    // engine owns `app_`, nothing a site declares needs it, and a helper added
+    // later is covered without anybody remembering to come back here.
+    if (!name || name.startsWith("_") || name.startsWith("app_")) continue;
     const args = (Array.isArray(f.args) ? f.args : []).slice(0, 8).map((a2) => {
       const an = ident(a2 && a2.name);
       const at = String((a2 && a2.type) || "text").toLowerCase();

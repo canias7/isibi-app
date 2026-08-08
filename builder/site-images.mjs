@@ -259,6 +259,14 @@ export function applyImages(pages, urlByToken) {
     let src = String((p && p.source) || "");
     for (const [token, url] of map) if (url) src = src.split(token).join(url);
     src = src.replace(IMAGE_TOKEN, "");
+    // AND ANY `@@` AT ALL, which is the invariant rather than a second guess at
+    // the shape. A description containing `@@` — "a sign saying @@home@@ over the
+    // door" — parses as the token `@@IMG:a sign saying @@` and leaves
+    // `home@@ over the door@@` behind, so a BOUGHT photograph rendered as
+    // `src="/u/x/a.jpghome@@ over the door@@"`: a broken image somebody paid for.
+    // Sweeping the delimiter itself makes that unreachable however the text is
+    // shaped, and `@@` has no legitimate meaning in generated TSX.
+    src = src.replace(/@@[^@]*@@/g, "").replace(/@@/g, "");
     return { ...p, source: src };
   });
 }

@@ -506,3 +506,13 @@ test("a revise keeps the site's stored look instead of re-rolling it", () => {
     assert.ok(new RegExp(k + ": look\\." + k + ",").test(worker), k + " does not reach the build from `look`");
   }
 });
+
+test("a prototype key is not a theme", () => {
+  // `ALL_THEMES["__proto__"]` is the object prototype — truthy, so it walked past
+  // the `|| null` and came back as `{}`: neither a real theme nor the null every
+  // caller fails soft on. Same bug that shipped once in the Stripe plan lookup.
+  for (const k of ["__proto__", "constructor", "toString", "valueOf", "hasOwnProperty"]) {
+    assert.equal(resolveTheme(k), null, k + " resolves to something");
+  }
+  assert.ok(resolveTheme(THEME_SHORTLIST[0]), "a real theme still resolves");
+});

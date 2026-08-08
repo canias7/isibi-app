@@ -488,3 +488,26 @@ test("the rules say so too, not just the lint", () => {
   assert.match(PAGE_RULES, /NO CommonJS/);
   assert.match(PAGE_RULES, /require is not defined/);
 });
+
+test("no @@ survives to the bundle, however the description is shaped", () => {
+  // It used to parse as a TRUNCATED prompt and leave the rest of the text behind
+  // in the source, so a BOUGHT photograph rendered as
+  // `src="/u/x/a.jpghome@@ over the door@@"` — a broken image that was paid for.
+  // Not a token now, so it sweeps to an empty src and draws the placeholder like
+  // any other unbought picture.
+  const pages = [page("a.tsx", '<SafeImage src="@@IMG:a sign saying @@home@@ over the door@@" />')];
+  const tok = parseImageTokens(pages);
+  // Unbought: swept clean.
+  assert.ok(!applyImages(pages, new Map())[0].source.includes("@@"));
+  // BOUGHT: this is the path that was corrupt — the URL landed, and the residue
+  // stayed glued to the end of it.
+  const bought = applyImages(pages, new Map([[tok[0].token, "/u/x/a.jpg"]]))[0].source;
+  assert.ok(!bought.includes("@@"), "residue survived beside a paid-for photograph: " + bought);
+});
+
+test("an ordinary description still parses", () => {
+  // The blanket direction: a pattern that matched nothing would pass the test
+  // above and quietly turn the whole feature off.
+  assert.deepEqual(parseImageTokens([page("a.tsx", '"@@IMG:the shop front at dusk@@"')]).map((t) => t.prompt),
+    ["the shop front at dusk"]);
+});

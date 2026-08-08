@@ -2602,7 +2602,21 @@ async function genSitePhoto(env, prompt) {
  * that later fails to compile has not simply burned the money.
  */
 async function buySitePhotos(env, { slug, pages, budget, balance, reserve }) {
-  const affordable = imagesAffordable(budget, { balance, reserve, usd: SITE_PHOTO_USD });
+  let affordable = imagesAffordable(budget, { balance, reserve, usd: SITE_PHOTO_USD });
+  // THE OWNER'S OWN IMAGE ALLOWANCE, respected rather than bypassed. Generated
+  // photographs land in `uploads/<slug>/`, which is the same 200-file / 100 MB
+  // library the upload route enforces caps on — and this path writes straight to
+  // R2, so it neither checked the cap nor left room under it. A few revises of a
+  // picture-led site could fill somebody's library with photographs they never
+  // chose, and then their own uploads start being refused.
+  //
+  // Best-effort: an unreadable listing does NOT block the build (the pictures are
+  // the decoration, the site is the product), it just skips the trim.
+  try {
+    const objs = await siteUploadList(env, slug);
+    const room = Math.max(0, MAX_FILES_PER_SITE - objs.length);
+    if (room < affordable) affordable = room;
+  } catch (e) { console.error("upload headroom check failed:", slug, e && e.message); }
   const plan = planImages(pages, affordable);
   // `planned` is what the FAMILY asked for and `budget` is what the balance left
   // — they have to travel separately, or a site that could not afford its

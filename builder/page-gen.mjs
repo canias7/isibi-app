@@ -2318,7 +2318,14 @@ export function schemaDigest(spec) {
   // Printed with the exact signature, because a name alone does not say what to
   // pass. An ABSENT section reads as "this site declared none", which is the
   // honest answer and the common one.
-  const fns = (spec && Array.isArray(spec.functions) ? spec.functions : []).filter((f) => f && f.name);
+  // INTERNAL FUNCTIONS ARE NOT CALLABLE AND MUST NOT BE ADVERTISED. An
+  // `internal: true` function is REVOKEd from PUBLIC and never granted to the
+  // Data API roles — that is the whole point of the flag (a confirmation
+  // builder returns somebody's address and message). Listing it here told the
+  // model it could call it, and `lintPages` accepted the call, so the page
+  // compiled, published, and answered 403 to every visitor: exactly the class
+  // the lint exists to catch, arriving through the catalogue instead.
+  const fns = (spec && Array.isArray(spec.functions) ? spec.functions : []).filter((f) => f && f.name && !f.internal);
   const fnLines = fns.length
     ? "\n\nFUNCTIONS this schema declares — call these by NAME with useRpc / useRpcAction / useClaimedRow / useCancelClaim, and NO others:\n" +
       fns.map((f) => {
@@ -2621,7 +2628,12 @@ export function lintPages(pages, spec) {
   const problems = [];
   const tables = new Map();
   // Declared function names, for the RPC check below.
-  const fns = new Set((spec && Array.isArray(spec.functions) ? spec.functions : []).map((f) => String(f && f.name || "").toLowerCase()).filter(Boolean));
+  // Callable functions only — an `internal` one is revoked from the Data API
+  // roles, so a page calling it 403s. Kept apart from `internalFns` below so
+  // the two failures can be told apart in the message.
+  const allFns = (spec && Array.isArray(spec.functions) ? spec.functions : []).filter((f) => f && f.name);
+  const fns = new Set(allFns.filter((f) => !f.internal).map((f) => String(f.name).toLowerCase()));
+  const internalFns = new Set(allFns.filter((f) => f.internal).map((f) => String(f.name).toLowerCase()));
   for (const t of (spec && Array.isArray(spec.tables) ? spec.tables : [])) {
     if (t && t.name) tables.set(String(t.name).toLowerCase(), t);
   }
@@ -2915,7 +2927,10 @@ export function lintPages(pages, spec) {
     // Now that they can be declared, calling an undeclared one is the same class
     // as naming a table that does not exist, and is caught the same way.
     for (const m of code.matchAll(/\buse(?:Rpc|RpcAction|ClaimedRow|CancelClaim)\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
-      if (!fns.has(m[1].toLowerCase())) {
+      if (internalFns.has(m[1].toLowerCase())) {
+        say(path, 'calls "' + m[1] + '", which the schema declares as internal — it is revoked from the ' +
+          "Data API roles, so the call compiles and then answers 403 to every visitor. Platform-only; do not call it from a page.");
+      } else if (!fns.has(m[1].toLowerCase())) {
         say(path, 'calls the database function "' + m[1] + '", which this schema does not declare — the request is a 404. ' +
           (fns.size ? "Declared: " + [...fns].join(", ") + "." : "This schema declares no functions at all."));
       }

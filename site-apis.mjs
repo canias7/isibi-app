@@ -168,7 +168,18 @@ export async function callApi(deps, { slug, api, params, now }) {
 
   let res;
   try {
-    res = await deps.fetch(url.text, { method: api.method, headers, body, redirect: "follow", signal: AbortSignal.timeout(TIMEOUT_MS) });
+    // `redirect: "manual"`, NOT "follow" — a followed redirect is an SSRF guard
+    // that checks the first hop and none of the others. The host was validated
+    // before this call; a 302 to `http://169.254.169.254/` or to any internal
+    // address would be fetched WITH the owner's API key attached, and neither
+    // the guard nor this function would ever see that URL. The sibling webhook
+    // path (`emitWebhook`) already refuses redirects for exactly this reason.
+    //
+    // Refused rather than re-validated per hop: a third-party read that
+    // redirects is a misconfigured endpoint, and telling the owner so beats
+    // silently chasing it. Fetching a `Location` we then validate is also the
+    // strictly more complicated option for no case anybody has asked for.
+    res = await deps.fetch(url.text, { method: api.method, headers, body, redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS) });
   } catch (e) {
     // THE NAME, NEVER THE MESSAGE, and here it is not a style choice: the URL
     // may carry the key in a query string, and an exception message quotes the
@@ -176,6 +187,12 @@ export async function callApi(deps, { slug, api, params, now }) {
     return { status: 504, body: { error: "that service didn't answer in time" }, reason: String((e && e.name) || "error").slice(0, 40) };
   }
 
+  // A redirect never becomes a second request. `manual` surfaces the 3xx here
+  // rather than following it, and the status is reported so an owner can see
+  // their endpoint moved instead of getting an empty body they cannot explain.
+  if (res.status >= 300 && res.status < 400) {
+    return { status: 502, body: { error: "that service redirected, which this connection does not follow" }, upstream: res.status };
+  }
   const text = await res.text().catch(() => "");
   if (text.length > MAX_RESPONSE) {
     return { status: 502, body: { error: "that service sent back more than this page can use" } };

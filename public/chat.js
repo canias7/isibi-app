@@ -10400,7 +10400,12 @@ function moreCloud(site) {
 function moreSecurity(site) {
   const can = (sitePages(site) || []).length > 0;
   return '<div class="st-panel"><div class="st-panel-head"><h3>Security</h3></div>' +
-    '<div class="st-sec-hero"><span class="st-sec-ic">' + ic('shield', 22) + '</span><div class="st-cc-tx"><b>Deep security scan</b><span>Opus reviews your site’s actual code for real vulnerabilities. ~8 credits.</span></div><button type="button" class="st-publish" id="secScan"' + (can ? '' : ' disabled') + '>Run scan</button></div>' +
+    // THE SCAN HAS NO ROUTE. It offered "~8 credits" on every built site and the
+    // endpoint behind it does not exist, so the button spent nothing and did
+    // nothing — a price quoted for a feature that cannot run. Given the same
+    // honest Off treatment as the dead Cloud cards rather than left looking live;
+    // flip it back the moment the route exists.
+    '<div class="st-sec-hero"><span class="st-sec-ic">' + ic('shield', 22) + '</span><div class="st-cc-tx"><b>Deep security scan</b><span>Not available yet — a model-reviewed audit of your site’s code is still to come.</span></div><button type="button" class="st-publish" id="secScan" disabled>Run scan</button></div>' +
     '<div class="st-panel-sub">Detected issues</div>' +
     '<div id="secResults"><div class="st-sec-empty"><span class="st-sec-ok">' + ic('shield', 30) + '</span><b>No scan has run yet</b><span>Run a scan to surface issues.</span></div></div>' +
   '</div>';
@@ -10700,9 +10705,9 @@ function renderSiteWorkspace(view, site) {
     else if (b.dataset.cloud === 'domains') siteDomains(site);
     else siteInbox(site);
   });
-  // Deep security scan (Opus).
-  const secBtn = document.getElementById('secScan');
-  if (secBtn) secBtn.onclick = () => siteSecurityScan(site);
+  // Deep security scan — no route behind it, so the button stays disabled and is
+  // wired to nothing rather than to a call that 404s (see moreSecurity).
+
   // History rail toggle + restore.
   const hist = document.getElementById('stHist');
   if (hist) hist.onclick = () => { siteRail = siteRail === 'history' ? 'chat' : 'history'; renderSites(); };
@@ -10755,10 +10760,18 @@ function renderSiteWorkspace(view, site) {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(u), 5000);
   };
-  // Share: copy the live URL once published; otherwise nudge to publish first.
+  // Share: copy the live URL.
+  //
+  // `liveUrl` IS THE LEGACY FIELD, set by the old static engine's publish step —
+  // which no longer exists. A React site is published by the build itself and
+  // records `site.url` (`/s/<slug>/`), so every React site said "publish it
+  // first" about a page that was already live at a URL the panel was showing
+  // three inches away. `site.url` is a path, so it is absolutized here: a
+  // clipboard full of "/s/x/" is not a link anybody can send.
   const sh = document.getElementById('stShare');
   if (sh) sh.onclick = () => {
-    if (site.liveUrl) { try { navigator.clipboard.writeText(site.liveUrl); } catch (e) {} if (typeof sbToast === 'function') sbToast('Live link copied — ' + site.liveUrl); }
+    const live = site.liveUrl || (site.url ? new URL(site.url, location.origin).href : '');
+    if (live) { try { navigator.clipboard.writeText(live); } catch (e) {} if (typeof sbToast === 'function') sbToast('Live link copied — ' + live); }
     else if (typeof sbToast === 'function') sbToast('Publish it first, then you can share the live link.');
   };
   // Publish: push the site live to gofarther.dev/s/<slug> (or Republish to update).
