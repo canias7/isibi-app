@@ -10,7 +10,7 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
-## 2026-08-08 — An attachment can be anything, and the brief says what it is for
+## 2026-08-08 — An attachment is just an attachment
 
 Owner corrected me twice, and the second correction is the more useful one.
 
@@ -22,11 +22,21 @@ price list, all gone with no message.
 **Then, on the fix:** *"the attachment could be for anything. Not necessarily to
 build — it could be used as reference or whatever."* I had replaced one mistake
 with a subtler one: assigning a purpose per file type ("a PDF is real content,
-use its prices faithfully"). That is wrong because the same PDF is the customer's
-own price list or a competitor's brochure depending only on what they said. The
-prompt now points at the brief, offers the readings as possibilities, and gives
-one discriminator when the brief is silent — whose material is it. A test asserts
-no file format is named in that block at all.
+use its prices faithfully"). Wrong because the same PDF is the customer's own
+price list or a competitor's brochure depending only on what they said.
+
+**And a third time, which is the one that landed:** *"I just want it treated
+normal, like an attachment — the user will say what he wants that for, it's part
+of the conversation."* My fix for the second correction was a paragraph
+explaining how to judge an attachment's purpose, which is teaching the model
+something it already knows. The note is two clauses now: the files are part of
+the request, and they beat the trade example where the two disagree. A test
+keeps it under 220 characters, because this kind of guidance creeps back one
+sentence at a time.
+
+**Preference to keep:** when in doubt, say less to the model. Three drafts here
+each got shorter and each got better, and the shortest is the one the owner
+asked for.
 
 What the pipe carries now: images and PDFs go to the model as content blocks
 (PDF is native to the API); text files are read as words into the brief; video

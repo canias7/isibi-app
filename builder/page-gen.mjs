@@ -2429,16 +2429,21 @@ export function familyExemplar(family) {
  * `attachCount` is what the user ATTACHED, and it defaults to none so every
  * existing caller produces a byte-identical prompt.
  *
- * A content block with no text about it is something the model has to guess the
- * purpose of — so the note exists. What it deliberately does NOT do is assign a
- * purpose per file type. The first draft did ("a logo is a palette, a PDF is
- * content to reproduce") and that is the wrong shape: the same PDF can be the
- * customer's own price list to put on the page or a competitor's brochure to
- * learn the shape from, and nothing about the file distinguishes them. THE
- * BRIEF DOES. The note points at the brief, gives one discriminator for when
- * the brief is silent — whose material is this? — and otherwise stays out of
- * the way. Same lesson as the over-prescriptive scaffolding that had to come
- * out of the rules generally.
+ * THIS NOTE IS TWO CLAUSES, AND IT SHRANK TWICE TO GET THERE. The first draft
+ * assigned a purpose per file type ("a logo is a palette, a PDF is content to
+ * reproduce") — wrong, because the same PDF is the customer's own price list or
+ * a competitor's brochure and only the brief distinguishes them. The second
+ * explained at length how to work that out instead, which is teaching the model
+ * something it already knows: an attachment in a conversation is an ordinary
+ * thing, and the person attaching it says what it is for. Owner's call, and it
+ * is the same de-prescribing lesson the rules learned generally.
+ *
+ * What is left is only what the model cannot get from the message itself: that
+ * the files are part of the request rather than decoration, and which of the two
+ * "references" in this prompt wins when they disagree. There is deliberately NO
+ * instruction about seeding — `write_pages` takes route files and nothing else,
+ * so an earlier "put it in the seed rows" line asked for something this step is
+ * structurally incapable of doing. Seeds come from the designer.
  */
 export function pagesPrompt(brief, spec, brand, family, attachCount = 0) {
   const name = String(brand || "").trim();
@@ -2452,16 +2457,8 @@ export function pagesPrompt(brief, spec, brand, family, attachCount = 0) {
     // THEIR business; the exemplar is a generic shape for the trade. When they
     // conflict the attachment wins, or the feature is decorative.
     (n
-      ? "\n\nWHAT THE USER ATTACHED\n" + n + " file" + (n === 1 ? "" : "s") + " " + (n === 1 ? "is" : "are") +
-        " in this message, above this text. LOOK at " + (n === 1 ? "it" : "them") + " before writing anything.\n\n" +
-        "THE BRIEF SAYS WHAT " + (n === 1 ? "IT IS" : "THEY ARE") + " FOR \u2014 read it first, and do not infer a purpose from " +
-        "the file type. An attachment can be this site's own content to put on the page, a look to follow, a brand mark to take " +
-        "colour and type from, a layout to borrow the shape of, or simply something the user is pointing at while they explain.\n" +
-        "If the brief does not say, judge from what is IN the file: material that is plainly this business's own \u2014 its prices, " +
-        "its opening hours, its people, its work \u2014 is content to use, and anything belonging to somebody else is a reference " +
-        "to learn from rather than words to copy.\n" +
-        "When you do use content from an attachment, put it in the matching table's seed rows where the schema has one, not only " +
-        "in the page markup. Where an attachment and the trade example below disagree, the attachment wins."
+      ? "\n\nWHAT THE USER ATTACHED\n" + n + " file" + (n === 1 ? "" : "s") + ", above this text, part of what they are asking " +
+        "for. Where " + (n === 1 ? "it" : "they") + " and the trade example below disagree, the attachment wins."
       : "") +
     // AFTER the schema, deliberately: the schema is a constraint the page must
     // obey and the example is a shape to follow, and an example read first

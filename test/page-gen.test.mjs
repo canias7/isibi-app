@@ -1792,56 +1792,48 @@ test("images do NOT touch the cached blocks", () => {
   assert.deepEqual(withImgs.tool_choice, bare.tool_choice);
 });
 
-test("the prompt TELLS the model the images are there, and what they are for", () => {
-  // An image block with no text about it is a picture whose purpose the model
-  // has to guess — and the two things people attach here want opposite
-  // treatment: a logo is a palette, a screenshot is a layout.
+test("the prompt notes the attachments and otherwise stays out of the way", () => {
+  // TWO CLAUSES, and it shrank twice to get there. The first draft assigned a
+  // purpose per file type; the second explained at length how to work the
+  // purpose out — which is teaching the model something it already knows. An
+  // attachment in a conversation is an ordinary thing and the person attaching
+  // it says what it is for.
   const none = api.pagesPrompt("a cafe", SPEC, "Cafe");
   const one = api.pagesPrompt("a cafe", SPEC, "Cafe", null, 1);
   const two = api.pagesPrompt("a cafe", SPEC, "Cafe", null, 2);
-  assert.ok(!/WHAT THE USER ATTACHED/.test(none), "the note appears with no images attached");
-  assert.match(one, /WHAT THE USER ATTACHED/);
-  assert.match(one, /1 file is in this message/);
-  assert.match(two, /2 files are in this message/);
-  // It says to LOOK, which is the one instruction the block exists for.
-  assert.match(one, /LOOK at it before writing anything/);
-  assert.match(two, /LOOK at them before writing anything/);
+  assert.ok(!/WHAT THE USER ATTACHED/.test(none), "the note appears with nothing attached");
+  assert.match(one, /1 file, above this text/);
+  assert.match(two, /2 files, above this text/);
+  assert.match(one, /part of what they are asking for/);
+
+  // The size is the assertion. Anything longer is the version that had to come
+  // out — and a length check is the only thing that catches guidance creeping
+  // back in one well-meaning sentence at a time.
+  const note = one.split("WHAT THE USER ATTACHED")[1].split("\n\nA SITE OF")[0].trim();
+  assert.ok(note.length < 220, "the attachment note has grown back: " + note.length + " chars\n" + note);
+  assert.ok(note.split("\n").length <= 2, "the note is a paragraph again, not a line");
 });
 
-test("an attachment outranks the generic trade example", () => {
-  // They are both "references" and they can disagree — one is about THIS
-  // business, the other is a shape for the trade. Unstated, the model is left
-  // to arbitrate between the customer's own logo and a stock exemplar.
-  const p = api.pagesPrompt("a studio", SPEC, "A", "salon", 1);
-  assert.match(p, /the attachment wins/);
-  assert.ok(p.indexOf("WHAT THE USER ATTACHED") < p.indexOf("A SITE OF THIS TRADE"),
-    "the attachment note must come before the exemplar it overrides");
+test("it never prescribes a purpose, and never names a file format", () => {
+  // The same PDF is the customer's own price list or a competitor's brochure,
+  // and only the brief distinguishes them — so a rule keyed to the extension
+  // gets one of the two wrong every time.
+  const note = api.pagesPrompt("a cafe", SPEC, "Cafe", null, 1)
+    .split("WHAT THE USER ATTACHED")[1].split("\n\nA SITE OF")[0];
+  assert.ok(!/\bPDF\b|\.pdf|\bJPEG\b|\bPNG\b|screenshot|logo|brand mark/i.test(note),
+    "the note prescribes by file kind again: " + note);
+  // ...and it does not ask for seeding, which this step cannot do: `write_pages`
+  // takes route files and nothing else, so seeds come from the designer.
+  assert.ok(!/seed/i.test(note), "the note asks page generation to seed, which it cannot do");
 });
 
-test("THE BRIEF decides what an attachment is for, not the file type", () => {
-  // The first draft assigned a purpose per extension — "a logo is a palette, a
-  // PDF is content to reproduce" — and that is the wrong shape: the same PDF is
-  // the customer's own price list or a competitor's brochure depending only on
-  // what they said. Prescribing from the type gets one of those two wrong every
-  // time.
-  const p = api.pagesPrompt("a cafe", SPEC, "Cafe", null, 1);
-  assert.match(p, /THE BRIEF SAYS WHAT IT IS FOR/);
-  assert.match(p, /do not infer a purpose from the file type/);
-  // The possibilities are offered as possibilities, not as rules keyed to a
-  // format — so no file extension appears in the note at all.
-  assert.ok(!/\bPDF\b|\.pdf|\bJPEG\b|\bPNG\b/i.test(p.split("WHAT THE USER ATTACHED")[1].split("A SITE OF THIS TRADE")[0]),
-    "the note names a file format, which is what it must stop doing");
-});
-
-test("with the brief silent, the discriminator is WHOSE material it is", () => {
-  // The one judgment worth stating, because both errors are expensive:
-  // transcribing a stranger's menu onto a real customer's page, or paraphrasing
-  // the customer's own prices instead of using them.
-  const p = api.pagesPrompt("a cafe", SPEC, "Cafe", null, 1);
-  assert.match(p, /If the brief does not say/);
-  assert.match(p, /this business's own/);
-  assert.match(p, /belonging to somebody else is a reference/);
-  assert.match(p, /seed rows/, "content taken from an attachment must reach the data, not only the markup");
+test("with the brief silent, nothing extra is said about it", () => {
+  // Deliberately no fallback rule. The earlier version explained how to judge
+  // "whose material is this", which is exactly the kind of reasoning the model
+  // does unprompted.
+  const note = api.pagesPrompt("a cafe", SPEC, "Cafe", null, 1)
+    .split("WHAT THE USER ATTACHED")[1].split("\n\nA SITE OF")[0];
+  assert.ok(!/If the brief does not say/.test(note));
 });
 
 test("a document block rides in the message exactly as an image does", () => {
@@ -1855,7 +1847,7 @@ test("the count is a count, whatever it is handed", () => {
     assert.doesNotThrow(() => api.pagesPrompt("a cafe", SPEC, "Cafe", null, bad));
   }
   assert.ok(!/WHAT THE USER ATTACHED/.test(api.pagesPrompt("a cafe", SPEC, "Cafe", null, -3)));
-  assert.match(api.pagesPrompt("a cafe", SPEC, "Cafe", null, "2"), /2 files are/);
+  assert.match(api.pagesPrompt("a cafe", SPEC, "Cafe", null, "2"), /2 files, above this text/);
 });
 
 test("the images the caller validated are the ones the model gets", () => {
