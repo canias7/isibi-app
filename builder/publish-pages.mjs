@@ -102,18 +102,30 @@ const CREDIT_USD = 0.008;
 // $10 per 1,000 searches.
 export const SEARCH_USD = 0.01;
 
+// A photograph, likewise flat and likewise invisible in a token count — and by
+// far the largest single line a build can carry. $0.15 is 18.75 credits, where
+// the whole rest of a warm build is about 21, so ONE picture roughly doubles the
+// price of a site. That ratio is why builder/site-images.mjs spends most of its
+// length deciding how many to ask for rather than how to ask.
+//
+// It lives HERE, beside the token rates and the search rate, because this is the
+// one table — the eval imports it rather than restating it, and a second copy is
+// how the bill and our own accounting start disagreeing.
+export const IMAGE_USD = 0.15;
+
 /**
  * Dollars at list price, for ONE call. Exported so nothing keeps a second copy.
  *
  * `model` selects the column. A usage object that does not name one is priced at
  * the default — see `DEFAULT_RATE_MODEL` for why that is a fact rather than a
- * guess. Searches are flat: a server-side web search is $0.01 whichever model
- * asked for it, so it is the one term here that does not move with the column.
+ * guess. Searches and images are flat: a server-side web search is $0.01 and a
+ * generated photograph $0.15 whichever model asked for them, so they are the two
+ * terms here that do not move with the column.
  */
-export const pageCost = ({ in: fresh = 0, out = 0, cacheRead = 0, cacheWrite = 0, searches = 0, model } = {}) => {
+export const pageCost = ({ in: fresh = 0, out = 0, cacheRead = 0, cacheWrite = 0, searches = 0, images = 0, model } = {}) => {
   const r = ratesFor(model);
   return fresh * r.in + out * r.out + cacheRead * r.cacheRead + cacheWrite * r.cacheWrite +
-    searches * SEARCH_USD;
+    searches * SEARCH_USD + images * IMAGE_USD;
 };
 
 /**
@@ -444,7 +456,18 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
    */
   const settle = async (stage) => {
     if (ourFault(stage)) { out.charged = false; return FREE; }
-    const c = pageCredits(gen.usage, priorUsage);
+    // PHOTOGRAPHS RIDE THE SAME RULE, deliberately not their own. They are priced
+    // from the same table as tokens and searches, rounded in the same single
+    // rounding, and exempted by the same `ourFault` — one rule rather than two
+    // that can disagree about a build that half-worked.
+    //
+    // The cost of that, stated: a build whose pages fail to TYPECHECK is a
+    // charged stage, and by then the pictures have already been bought — so
+    // somebody can pay for six photographs and be shown the placeholder page.
+    // Bounded rather than ignored: the images land in `uploads/<slug>/`, which is
+    // the owner's own image library and is deliberately NOT wiped by a publish,
+    // so they still have every picture they paid for and a revise can use them.
+    const c = pageCredits(gen.usage, priorUsage, out.images ? { images: out.images.made } : null);
     out.cost += c;
     try { await deps.useCredits(c); } catch { /* never fail a build over the ledger */ }
     out.charged = true;
@@ -500,7 +523,58 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
   }
 
   const problems = v.problems.concat(lintPages(v.pages, spec));
-  const built = await compileWithRetry(v.pages);
+
+  /**
+   * Buy the photographs the pages asked for — or leave them as placeholders.
+   *
+   * HERE, and not earlier or later, for three reasons. The pages must exist,
+   * because the tokens are in them. The model call must have HAPPENED, because
+   * what it cost is the reserve the affordability check subtracts, and measured
+   * beats estimated on a decision this expensive. And it must be before the
+   * compile, because a URL replaces a token inside a string literal — which
+   * cannot change whether the page typechecks, but has to be there before the
+   * bundle is built, since editing minified output afterwards is not a thing to
+   * attempt.
+   *
+   * IT CANNOT FAIL A BUILD. Every failure — no dep wired, the image model down,
+   * the bucket refusing — leaves the pages exactly as written, and a token with
+   * no picture behind it becomes an empty `src`, which is `SafeImage`'s designed
+   * placeholder and the look every site this platform has published so far has
+   * had. So the worst case is not a broken site, it is today's site.
+   */
+  let pages = v.pages;
+  if (typeof deps.images === "function") {
+    // MEASURED, not estimated: generation has already happened, so this is what
+    // this build really cost rather than a guess at what a build costs. A guess
+    // low here spends the pages' own budget on pictures and cannot pay for the
+    // pages; a guess high refuses photographs somebody could afford.
+    const reserve = pageCredits(gen.usage, priorUsage);
+    try {
+      const r = await deps.images(v.pages, { balance, reserve });
+      if (r && Array.isArray(r.pages) && r.pages.length === v.pages.length) pages = r.pages;
+      out.images = {
+        made: Math.max(0, Number(r && r.made) || 0),
+        // What the FAMILY asked for, before the balance cut it down. Carried
+        // apart from `budget` because on its own `budget` cannot say whether a
+        // site with no pictures was never meant to have any or simply could not
+        // afford them — and those read the same on the published page.
+        planned: Math.max(0, Number(r && r.planned) || 0),
+        budget: Math.max(0, Number(r && r.budget) || 0),
+        // What the pages asked for beyond what they got. The difference between
+        // "this site has no photographs" and "this site wanted twelve" is not
+        // visible from `made` alone, and only one of those is a problem.
+        overflow: Math.max(0, Number(r && r.overflow) || 0),
+      };
+      if (r && r.error) out.images.error = String(r.error).slice(0, 200);
+    } catch (e) {
+      // Named rather than swallowed. A site that silently has no pictures looks
+      // exactly like a site that was never meant to, and this is the one field
+      // that can tell them apart after the build has returned.
+      out.images = { made: 0, planned: 0, budget: 0, overflow: 0, error: String((e && e.message) || e).slice(0, 200) };
+    }
+  }
+
+  const built = await compileWithRetry(pages);
 
   // THERE IS NO REPAIR PASS. Removed 2026-08-04, owner's call, on the first real
   // measurement of what a build costs: output is 80% of it, and a repair is a

@@ -25,7 +25,7 @@ import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
 import { ensureSiteBackend as ensureSiteBackendPure } from "./site-provision.mjs";
 import { lookupRoute, saveRoute, dropRoute } from "./site-routing.mjs";
 import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers, handleOwnerAnalytics, assertOwner } from "./site-owner.mjs";
-import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_VISITOR_UPLOAD_BYTES } from "./site-uploads.mjs";
+import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_VISITOR_UPLOAD_BYTES, sniffImage, uploadName, uploadKey, uploadUrl } from "./site-uploads.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
@@ -39,7 +39,8 @@ import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlI
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
-import { publishPages, pageCredits, schemaSettlement, buildFloor } from "./builder/publish-pages.mjs";
+import { publishPages, pageCredits, schemaSettlement, buildFloor, IMAGE_USD } from "./builder/publish-pages.mjs";
+import { imageBudget, imagesAffordable, planImages, applyImages, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
 import { routeMessage, clarifiedBrief } from "./builder/site-ask.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
@@ -2421,6 +2422,11 @@ async function runScheduledSiteJobs(env, ctx) {
 // we generate each with Nano Banana Pro (fal sync endpoint), host it in the user's
 // Supabase storage, and swap the real URL in — real photography, not CSS art.
 const SPRITE_IMG_MODEL = "fal-ai/nano-banana-pro";
+// The photographs on a generated site. Named apart from the sprite model even
+// though both are nano-banana-pro today: they are two different jobs with two
+// different prompts, and `IMAGE_USD` in publish-pages.mjs is the price of THIS
+// one — moving the sprite model would otherwise silently re-price every build.
+const SITE_IMG_MODEL = "fal-ai/nano-banana-pro";
 const SPRITE_IMG_USD = 0.15;
 const SPRITE_PLACEHOLDER_PNG = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAOUlEQVR4nO3OMQEAAAgDoK1/aM3g4QcJqE1mZ2dnZ2dnZ2dnZ2dnZ2dnZ2dnZ2dnZ2dnZ2f/9wADkQAB/YvcHwAAAABJRU5ErkJggg==";
 function chromaKeyGreenToPng(bytes) {
@@ -2485,6 +2491,100 @@ async function genSpritePng(env, prompt) {
   const bytes = await media.arrayBuffer();
   return chromaKeyGreenToPng(bytes);
 }
+/**
+ * One photograph for a generated site. Bytes, not base64.
+ *
+ * NOT `genSpritePng`, and the differences are all deliberate. A sprite is a
+ * subject on a chroma-key background that then gets keyed out; a site photograph
+ * is a photograph, so there is no green screen and no Photon pass. And it is
+ * JPEG at 2K rather than PNG at 1K: a 2K PNG is several megabytes for a picture
+ * that is going to be scaled into a card, and nano-banana-pro bills 1K and 2K at
+ * the same base rate — 4K is the tier that doubles — so the larger size is free.
+ *
+ * Throws on every failure. The caller turns that into a placeholder; there is
+ * nothing sensible to return here, and an empty buffer would sail through the
+ * upload path and store zero bytes under a hash of nothing.
+ */
+async function genSitePhoto(env, prompt) {
+  const r = await fetch(`https://fal.run/${SITE_IMG_MODEL}`, {
+    method: "POST",
+    headers: { Authorization: `Key ${env.FAL_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, aspect_ratio: IMAGE_ASPECT, resolution: "2K", output_format: "jpeg", num_images: 1 }),
+    signal: AbortSignal.timeout(120000),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error("photo " + r.status + " " + String((d && d.detail) || "").slice(0, 120));
+  const url = d.images && d.images[0] && d.images[0].url;
+  if (!url) throw new Error("photo returned no image");
+  const media = await fetch(url, { signal: AbortSignal.timeout(30000) });
+  if (!media.ok) throw new Error("photo fetch " + media.status);
+  return new Uint8Array(await media.arrayBuffer());
+}
+
+/**
+ * The `images` dep `publishPages` calls: buy what the pages asked for, store it
+ * where the owner's own uploads live, and hand back the pages with URLs in them.
+ *
+ * EVERY FAILURE IS PER-PICTURE. One image model timing out must not cost the
+ * other five, and none of them may cost the build — an unresolved token becomes
+ * an empty `src`, which is `SafeImage`'s designed placeholder. So each shot is
+ * its own try/catch and the whole thing is wrapped again by the caller.
+ *
+ * Stored through `uploadKey`/`uploadUrl` from site-uploads.mjs rather than a
+ * second copy of those two lines: `uploads/<slug>/` is deliberately NOT under
+ * `sites/<slug>/`, which a publish wipes — so the pictures survive a revise and
+ * appear in the owner's own image library, which is the whole reason a build
+ * that later fails to compile has not simply burned the money.
+ */
+async function buySitePhotos(env, { slug, pages, budget, balance, reserve }) {
+  const affordable = imagesAffordable(budget, { balance, reserve, usd: IMAGE_USD });
+  const plan = planImages(pages, affordable);
+  // `planned` is what the FAMILY asked for and `budget` is what the balance left
+  // — they have to travel separately, or a site that could not afford its
+  // pictures is indistinguishable from one that was never meant to have any.
+  const planned = Math.max(0, Number(budget) || 0);
+  if (!plan.shots.length) {
+    return { pages, made: 0, planned, budget: affordable, overflow: plan.overflow };
+  }
+  const urls = new Map();
+  let failed = "";
+  await Promise.all(plan.shots.map(async ({ token, prompt }) => {
+    try {
+      const p = imagePrompt(prompt);
+      if (!p) return;
+      const bytes = await genSitePhoto(env, p);
+      // The same sniff the upload route runs, on bytes we did not choose either:
+      // what comes back is whatever the image model sent, and the stored
+      // content-type has to be the truth about it rather than what we asked for.
+      const kind = sniffImage(bytes);
+      if (!kind) throw new Error("not a picture");
+      if (bytes.length > MAX_UPLOAD_BYTES) throw new Error("too big");
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+      const name = uploadName(hex, kind.ext);
+      if (!name) throw new Error("bad name");
+      await env.SITES_BUCKET.put(uploadKey(slug, name), bytes, { httpMetadata: { contentType: kind.mime } });
+      urls.set(token, uploadUrl(slug, name));
+    } catch (e) {
+      // Kept, not thrown. The build carries on with a placeholder for this one,
+      // and the reason reaches the response — a site quietly missing its
+      // pictures looks exactly like a site that was never meant to have any.
+      failed = String((e && e.message) || e).slice(0, 120);
+    }
+  }));
+  return {
+    pages: applyImages(pages, urls),
+    // WHAT WAS STORED, never what was planned. This number is what the customer
+    // is billed for, so it has to come from the map that only a successful put
+    // writes into — counting the shots would charge for an image model outage.
+    made: urls.size,
+    planned,
+    budget: affordable,
+    overflow: plan.overflow,
+    ...(failed && urls.size < plan.shots.length ? { error: failed } : {}),
+  };
+}
+
 // Resolve @@SPRITE:…@@ tokens → bundled assets. Returns { files (tokens replaced
 // with assets/<name>), assets ({name: base64}), charged (# real sprites) }.
 async function injectGameAssets(files, env, budget) {
@@ -4966,6 +5066,13 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
   // unbundled families it is the whole gap between `og` and the generation.
   const fontFiles = await fetchSiteFonts(fontPair);
   try { mark?.("fonts"); } catch { /* a trace must never break a build */ }
+  // HOW MANY PHOTOGRAPHS THIS SITE MAY HAVE, derived once from the family's own
+  // page set. It is stated to the model BEFORE generation and cut down to what
+  // the balance carries AFTER it, and those cannot be the same number: what a
+  // build costs is only known once it has happened, and telling the model "none"
+  // on a guess would lose the pictures from a customer who could afford them.
+  // Over-stating it costs nothing — an unbought token is a placeholder.
+  const imgBudget = imageBudget(family);
   const out = await publishPages({
     // Throws on failure, and the route logs it. There is no second attempt to
     // swallow one, so nothing needs logging here.
@@ -4979,8 +5086,14 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // and sent the bare brief — ~287 tokens of layout that every real build
       // carries and no sample ever did, so the compile rate described a prompt
       // the platform does not send.
-      return generateSitePages(env, briefWithLayout({ brief, family, structure }), spec, brand, family, attachments, model);
+      return generateSitePages(env, briefWithLayout({ brief, family, structure, images: imgBudget }), spec, brand, family, attachments, model);
     },
+    // Runs between the lint and the compile, on the pages the model actually
+    // wrote. `publishPages` supplies the two numbers only it knows — the balance
+    // it read before generating and what the generation really cost — and
+    // site-images.mjs owns the rule that turns them into a count.
+    images: (pages, { balance, reserve }) =>
+      buySitePhotos(env, { slug, pages, budget: imgBudget, balance, reserve }),
     compile: async (pages) => {
       const files = {};
       for (const p of pages) files[p.path] = p.source;
@@ -7996,6 +8109,22 @@ async function handleRequest(request, env, ctx) {
         contextNote: contextSentence(context) || undefined,
         page: pages.page, files: pages.files, notes: pages.notes || undefined,
         problems: pages.problems.length ? pages.problems : undefined,
+        // THE PHOTOGRAPHS, and this field is how "no pictures" stops being
+        // ambiguous. A site with `{made:0, budget:0}` was never meant to have
+        // any; `{made:0, budget:3, error:"photo 402"}` wanted three and could not
+        // buy them; `{made:0, budget:0, overflow:4}` could not afford them. Those
+        // are three completely different situations that look identical on the
+        // published page, because all three render the same placeholder.
+        //
+        // It is also the only place the image spend is visible — it is folded
+        // into `cost` with the tokens, by design, and a customer whose build
+        // jumped from 21 credits to 78 deserves to see why.
+        images: pages.images || undefined,
+        // THE SAME THING AS A SENTENCE, composed here for the reason
+        // `contextNote` is: the client is a plain script and cannot import the
+        // module that decides it, so a second copy there would eventually claim
+        // photographs that were never made.
+        imagesNote: imageNote(pages.images) || undefined,
         // WHY it fell back, when it did. publish-pages.mjs has returned these
         // since it was extracted and nothing passed them on, so a build that
         // published the placeholder said only "placeholder" — the caller (and

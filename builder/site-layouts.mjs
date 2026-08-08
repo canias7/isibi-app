@@ -103,7 +103,7 @@ export const FAMILIES = {
       { file: "index", role: "the case and today's slots — everything funnels to /book" },
       { file: "book", role: "the booking form itself; it arrives knowing the service when a price row sent it" },
       { file: "manage", role: "an existing appointment, reached from its claim link — view, move, cancel" },
-      { file: "work", role: "the work itself — a gallery of finished sets, because nails are a visual trade" },
+      { file: "work", img: 1, role: "the work itself — a gallery of finished sets, because nails are a visual trade" },
       { file: "call-now", alt: true, role: "an ALTERNATIVE home for a mobile trade — the phone is the booking surface, because a grid cannot know the room" },
       { file: "class-schedule", alt: true, role: "an ALTERNATIVE home for a class studio — the week's timetable leads, because the question spans seven days" },
     ],
@@ -125,7 +125,7 @@ export const FAMILIES = {
     ],
     pages: [
       { file: "index", role: "search, the filter rail, the results — browsing starts immediately" },
-      { file: "listing", role: "one property told fully — the gallery, the facts, the viewing enquiry" },
+      { file: "listing", img: 1, role: "one property told fully — the gallery, the facts, the viewing enquiry" },
       { file: "landlords", role: "the OTHER audience — what managing costs, what it includes, the valuation ask" },
       { file: "date-picker", alt: true, role: "an ALTERNATIVE home for travel and hotels — dates and party size come before any result" },
     ],
@@ -599,7 +599,7 @@ export const FAMILIES = {
     ],
     pages: [
       { file: "index", role: "the shop front — featured, the categories, the grid; every card opens /product" },
-      { file: "product", role: "one product told fully — pictures, options, stock, and the add-to-cart moment" },
+      { file: "product", img: 1, role: "one product told fully — pictures, options, stock, and the add-to-cart moment" },
       { file: "checkout", role: "the basket becomes an order — lines, delivery, payment, one place-order bar" },
       { file: "single-product", alt: true, role: "an ALTERNATIVE home for one-product DTC — a long product story down the page, then buy" },
       { file: "catalogue", alt: true, role: "an ALTERNATIVE home for hundreds of SKUs — search and facets lead, the grid behaves like inventory" },
@@ -1431,7 +1431,7 @@ export const FAMILIES = {
     ],
     pages: [
       { file: "index", role: "rates, free dates, and what has to be done first" },
-      { file: "stay", role: "where they sleep, what a day is, and who looks after them" },
+      { file: "stay", img: 1, role: "where they sleep, what a day is, and who looks after them" },
       { file: "book", role: "the dates and the requirements checklist, in that order" },
     ],
     kinds: [

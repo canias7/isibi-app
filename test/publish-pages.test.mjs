@@ -83,8 +83,167 @@ function harness(over = {}) {
     readCredits: () => pick("readCredits")(),
     useCredits: (n) => { calls.charges.push(n); return pick("useCredits")(n); },
   };
+  // OPTIONAL, and that is a property worth having: with no `images` dep the
+  // function must behave exactly as it did before photographs existed, which is
+  // what every other test in this file relies on.
+  if (over.images) {
+    calls.images = [];
+    deps.images = (pages, opts) => { calls.images.push({ pages, opts }); return over.images(pages, opts); };
+  }
   return { deps, calls };
 }
+
+/* ---------------------------------------------------------- photographs */
+
+test("with no images dep the build is byte-identical to before photographs existed", () => {
+  const { deps } = harness();
+  assert.equal(typeof deps.images, "undefined");
+});
+
+test("a bought photograph reaches the compiler, and the placeholder does not", async () => {
+  const withToken = () => ({
+    path: "index.tsx",
+    source: good().source.replace("<div>", '<div><SafeImage src="@@IMG:the shop@@" />'),
+  });
+  const { deps, calls } = harness({
+    generate: async () => gen([withToken()]),
+    images: async (pages) => ({
+      pages: pages.map((p) => ({ ...p, source: p.source.replace("@@IMG:the shop@@", "/u/x/ab.jpg") })),
+      made: 1, planned: 1, budget: 1, overflow: 0,
+    }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(out.page, "app");
+  assert.match(calls.compile[0][0].source, /\/u\/x\/ab\.jpg/);
+  assert.ok(!/@@IMG:/.test(calls.compile[0][0].source), "no token survives to the container");
+  assert.deepEqual(out.images, { made: 1, planned: 1, budget: 1, overflow: 0 });
+});
+
+test("the images dep is given the balance and the MEASURED cost of this build", async () => {
+  // Measured, not estimated: generation has already happened by then. A guess low
+  // spends the pages' own budget on pictures; a guess high refuses photographs
+  // somebody could afford.
+  const { deps, calls } = harness({
+    readCredits: async () => 300,
+    generate: async () => gen([good()], { usage: { in: 10000, out: 10000 } }),
+    images: async (pages) => ({ pages, made: 0, planned: 0, budget: 0, overflow: 0 }),
+  });
+  await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(calls.images.length, 1);
+  assert.equal(calls.images[0].opts.balance, 300);
+  assert.equal(calls.images[0].opts.reserve, pageCredits({ in: 10000, out: 10000 }));
+});
+
+test("photographs are billed through the same settle, rounded once with the tokens", async () => {
+  const { deps, calls } = harness({
+    generate: async () => gen([good()], { usage: { in: 10000, out: 10000 } }),
+    images: async (pages) => ({ pages, made: 2, planned: 2, budget: 2, overflow: 0 }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  const expected = pageCredits({ in: 10000, out: 10000 }, { images: 2 });
+  assert.deepEqual(calls.charges, [expected]);
+  assert.equal(out.cost, expected);
+  // ONE rounding, not two. Charging the tokens and the pictures separately and
+  // adding the results pays for the rounding twice.
+  assert.notEqual(expected, pageCredits({ in: 10000, out: 10000 }) + pageCredits({ images: 2 }));
+});
+
+test("the bill follows what was MADE, never what was budgeted", async () => {
+  // Found by mutation: billing `out.images.budget` survived every test above,
+  // because all of them set made === budget. Three pictures budgeted and one
+  // stored is the ordinary shape of a partial image-model failure, and charging
+  // the budget bills 38 credits for one photograph.
+  const { deps, calls } = harness({
+    generate: async () => gen([good()], { usage: { in: 10000, out: 10000 } }),
+    images: async (pages) => ({ pages, made: 1, planned: 3, budget: 3, overflow: 0, error: "photo 500" }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.deepEqual(calls.charges, [pageCredits({ in: 10000, out: 10000 }, { images: 1 })]);
+  assert.notEqual(calls.charges[0], pageCredits({ in: 10000, out: 10000 }, { images: 3 }),
+    "the two must differ, or this assertion proves nothing");
+  assert.equal(out.images.made, 1);
+  assert.equal(out.images.budget, 3);
+});
+
+test("an our-fault stage does not bill for the photographs either", async () => {
+  // `build` is the drained-container stage. The pictures really were bought and
+  // we really do eat them — one rule for the whole build, not two that can
+  // disagree about a build that half-worked.
+  const { deps, calls } = harness({
+    generate: async () => gen([good()], { usage: { in: 10000, out: 10000 } }),
+    images: async (pages) => ({ pages, made: 3, planned: 3, budget: 3, overflow: 0 }),
+    compile: async () => ({ ok: false, stage: "build", error: "SIGTERM" }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.deepEqual(calls.charges, []);
+  assert.equal(out.charged, false);
+  assert.equal(out.images.made, 3, "still reported, so the spend is visible even when it is not billed");
+});
+
+test("a typecheck failure DOES bill for them, and that is the stated trade", async () => {
+  const { deps, calls } = harness({
+    generate: async () => gen([good()], { usage: { in: 10000, out: 10000 } }),
+    images: async (pages) => ({ pages, made: 2, planned: 2, budget: 2, overflow: 0 }),
+    compile: async () => ({ ok: false, stage: "typecheck", error: "index.tsx(3,1): TS2322" }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(calls.charges[0], pageCredits({ in: 10000, out: 10000 }, { images: 2 }));
+  assert.equal(out.charged, true);
+});
+
+test("an images dep that throws cannot fail the build", async () => {
+  const { deps } = harness({ images: async () => { throw new Error("fal is down"); } });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(out.page, "app", "a picture that could not be bought is a placeholder, not a failed site");
+  assert.match(out.images.error, /fal is down/);
+  assert.equal(out.images.made, 0);
+});
+
+test("an images dep that returns the wrong number of pages is ignored, not trusted", async () => {
+  // Publishing what it hands back would ship a site missing a route, which
+  // typechecks (the route file is simply absent) and 404s the moment somebody
+  // clicks the nav.
+  const { deps, calls } = harness({
+    generate: async () => gen([good("index.tsx"), good("about.tsx")]),
+    images: async () => ({ pages: [good("index.tsx")], made: 0, planned: 0, budget: 0, overflow: 0 }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(calls.compile[0].length, 2, "the model's own pages, not the truncated set");
+  assert.equal(out.page, "app");
+});
+
+test("photographs are bought AFTER the pages are validated, so a refused build spends nothing", async () => {
+  const { deps, calls } = harness({
+    generate: async () => gen([]),
+    images: async (pages) => ({ pages, made: 1, planned: 1, budget: 1, overflow: 0 }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(out.stage, "validate");
+  assert.equal(calls.images.length, 0, "nothing to put a picture in, so nothing is bought");
+});
+
+test("a build with no home page buys no photographs", async () => {
+  const { deps, calls } = harness({
+    generate: async () => gen([good("about.tsx")]),
+    images: async (pages) => ({ pages, made: 1, planned: 1, budget: 1, overflow: 0 }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
+  assert.equal(out.stage, "home");
+  assert.equal(calls.images.length, 0);
+});
+
+test("the charge still comes after publish, with photographs in it", () => {
+  // The `publish` exemption IS the ordering — there is no branch for it — so
+  // moving the spend above `deps.publish` would silently start billing for our
+  // own storage outages.
+  const src = fs.readFileSync(new URL("../builder/publish-pages.mjs", import.meta.url), "utf8");
+  const pub = src.indexOf("await deps.publish(");
+  const spend = src.indexOf("await deps.useCredits(");
+  assert.ok(pub > 0 && spend > 0, "both anchors exist, or the comparison passes vacuously");
+  assert.ok(spend < pub, "useCredits lives in settle, which the published path calls after publish");
+  const settle = src.indexOf('await settle("published")');
+  assert.ok(settle > pub, "and settle itself is called after publish");
+});
 
 test("pageCredits meters real usage, never free", () => {
   // 10k fresh in + 10k out = $0.18 → 23 credits at $0.008.

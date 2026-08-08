@@ -11097,7 +11097,16 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
       // here would eventually claim a link was read when it wasn't. Sits on its
       // own line ahead of the result so a failed read is not buried after the
       // credit count.
-      const note = (d && typeof d.contextNote === 'string') ? d.contextNote.trim() : '';
+      // AND WHAT HAPPENED TO THE PHOTOGRAPHS, on the same line. Four outcomes
+      // render the identical placeholder on the published page — never wanted,
+      // could not afford, the image model failed, wanted more than the cap — so
+      // without a sentence the customer cannot tell a design choice from a
+      // failure. Composed server-side (imageNote) for the same reason the
+      // context note is: this file cannot import the module that decides it.
+      const note = [
+        (d && typeof d.contextNote === 'string') ? d.contextNote.trim() : '',
+        (d && typeof d.imagesNote === 'string') ? d.imagesNote.trim() : '',
+      ].filter(Boolean).join('\n');
       // THE MODEL'S OWN SUMMARY, which the builder has always written and always
       // discarded — `notes` came back on every response and nothing rendered it,
       // so we paid for prose nobody read. Falls back to the canned line when the

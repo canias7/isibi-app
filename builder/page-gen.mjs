@@ -18,6 +18,7 @@ import { COMPONENT_API, COMPONENT_TYPES } from "./component-api.mjs";
 // builder/gen-chart-api.mjs and kept in step by test/chart-api.test.mjs.
 import { CHART_COMPONENTS, CHART_API } from "./chart-api.mjs";
 import { FAMILIES, layoutDirective } from "./site-layouts.mjs";
+import { imageDirective } from "./site-images.mjs";
 import { FAMILY_EXEMPLARS } from "./family-exemplars.mjs";
 import { modelsFor } from "./build-models.mjs";
 // One worked call per primitive, mined out of the demos by
@@ -1948,14 +1949,23 @@ ${UI_SHORTLIST_API()}
 6. NEVER WRITE A MANAGED COLUMN. These are set by the engine and dropped from any write:
    ${MANAGED_COLUMNS.join(", ")}.
 
-7. A COLUMN NAMED FOR A PICTURE HOLDS A URL STRING. \`photo\`, \`image_url\`, \`avatar\`,
-   \`logo\`, \`cover\`, \`hero_image\` and the like are ordinary text columns whose value is a
-   path like "/u/<slug>/<hash>.jpg". Render one as a plain
-   \`<img src={row.photo} alt="" className="..." />\`.
-   ALWAYS GUARD IT: on a \`display\` table the owner fills these in after the build, so
-   the value is often empty, and \`<img src="">\` renders as a broken image on a brand-new
-   site. Write \`{row.photo ? <img .../> : <div className="..." />}\` — an image or a
-   placeholder box, never a broken one.
+7. EVERY PICTURE IS \`<SafeImage>\`, NEVER A BARE \`<img>\`.
+   \`SafeImage(src?, alt?, ratio? = "4/3", fallback?, fallbackSeed?)\` draws the picture when
+   there is one and this theme's own designed placeholder when there is not, so there is
+   nothing to guard and nothing to remember. A bare \`<img src="">\` paints a broken icon.
+   - A COLUMN NAMED FOR A PICTURE HOLDS A URL STRING. \`photo\`, \`image_url\`, \`avatar\`,
+     \`logo\`, \`cover\`, \`hero_image\` and the like are ordinary text columns holding a path
+     like "/u/<slug>/<hash>.jpg". On a \`display\` table the OWNER fills these in after the
+     build, so on a new site they are empty — pass one straight through and let the
+     component decide: \`<SafeImage src={row.photo} alt={row.name} ratio="4/3" className="..." />\`.
+   - A DECORATIVE picture takes \`alt=""\`, HTML's own way of saying so; the placeholder
+     then paints a plain panel rather than a captioned tile. Two of them side by side take
+     different \`fallbackSeed\` values so they do not come out identical.
+   - A REAL PHOTOGRAPH is a \`@@IMG:describe the picture@@\` token in the \`src\`, and how
+     many this site may have is stated with the brief below. Write one ONLY in a
+     \`SafeImage\` \`src\` and NEVER invent a path under /u/ yourself: a token that cannot be
+     bought becomes an empty src, which is the placeholder, while a made-up path is a 404
+     on every page that shows it.
 
 8. A FORM MAY LET THE VISITOR ATTACH ONE, but only when its table declares an image
    column. Upload first, then submit the URL as an ordinary text field:
@@ -2399,10 +2409,24 @@ export function briefForPages({ brief, priorBrief } = {}) {
  * GUARDED against a null directive: `layoutDirective` answers null for an
  * unknown family or structure, and interpolating that appends the literal word
  * "null" to the brief and loses the layout, silently.
+ *
+ * THE PHOTOGRAPH ALLOWANCE RIDES HERE FOR THE SAME REASON THE LAYOUT DOES. It
+ * varies per build — it is derived from the family's page set and then cut down
+ * to what the balance can carry — and PAGE_RULES sits under `cache_control:
+ * ephemeral` at ~27,000 tokens, so a number that changes per build in the system
+ * block would miss that cache every single time. Measured on the family
+ * exemplar, which faced the same choice: $0.0082 a build becomes $0.1019.
+ *
+ * `images` is OMITTED, not defaulted, when the caller does not pass one — the
+ * eval and every other caller that has no budget to state then sends exactly the
+ * request it sent before this existed.
  */
-export function briefWithLayout({ brief, family, structure } = {}) {
+export function briefWithLayout({ brief, family, structure, images } = {}) {
   const directive = family ? layoutDirective(family, structure ? { structure } : {}) : null;
-  return directive ? `${brief}\n\n${directive}` : String(brief ?? "");
+  const parts = [String(brief ?? "")];
+  if (directive) parts.push(directive);
+  if (images != null) parts.push(imageDirective(images));
+  return parts.join("\n\n");
 }
 
 /**
@@ -2747,6 +2771,29 @@ export function lintPages(pages, spec) {
               ? "It is in " + elsewhere.join(" and ") + " — import it from there."
               : "That module exports: " + names.join(", ") + "."));
         }
+      }
+    }
+
+    // A PHOTOGRAPH TOKEN OUTSIDE A `SafeImage` src.
+    //
+    // The token is bought if there is budget for it and cleared to the empty
+    // string if there is not — and an empty string is a designed placeholder in
+    // `SafeImage` and a broken-image icon in a bare `<img>`. So the tag it sits
+    // in decides what an unbought picture looks like, which is why the rule is
+    // about the tag rather than about the token.
+    //
+    // Checked by the nearest `<` BEFORE the token: the token is always inside an
+    // attribute, so in well-formed JSX that is its own opening tag. A token in a
+    // bare string constant is caught by the same test, which is intended — it is
+    // not in a src at all, and nothing would clear it to a placeholder.
+    for (const m of code.matchAll(/@@IMG:[\s\S]*?@@/g)) {
+      const open = code.lastIndexOf("<", m.index);
+      const tag = open < 0 ? "" : (code.slice(open + 1, open + 12).match(/^[A-Za-z][\w.]*/) || [""])[0];
+      if (tag !== "SafeImage") {
+        say(path, "writes a @@IMG:@@ photograph token " + (tag ? 'inside <' + tag + ">" : "outside any tag") +
+          '. A token only belongs in a SafeImage src — `<SafeImage src="@@IMG:...@@" alt="..." />` — because a ' +
+          "picture that could not be bought becomes an empty src, which SafeImage draws as a placeholder and " +
+          "anything else draws as a broken image.");
       }
     }
 

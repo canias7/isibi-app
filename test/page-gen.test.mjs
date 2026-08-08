@@ -523,15 +523,25 @@ test("nothing at all is an empty string, not a crash or the word undefined", () 
   assert.equal(briefForPages({ brief: null, priorBrief: undefined }), "");
 });
 
-test("the rules tell the model what an image column is, and to guard it", () => {
-  // Uploads land as a URL in a plain text column, so a page renders them with a
-  // bare <img>. The guard is the part that matters: the owner fills these in
-  // AFTER the build, so on a fresh site the value is empty and an unguarded
-  // <img src=""> is a broken image on every card.
+test("the rules tell the model what an image column is, and to draw it with SafeImage", () => {
+  // Uploads land as a URL in a plain text column, and the owner fills those in
+  // AFTER the build — so on a fresh site the value is empty and a bare
+  // <img src=""> is a broken icon on every card.
+  //
+  // THIS RULE USED TO TEACH THE MANUAL GUARD, and asserting the guard's wording
+  // is what kept it there. `safe-image.tsx` was written specifically to make
+  // forgetting impossible ("GENERATOR.md rule 7 exists entirely because of
+  // this... this makes forgetting impossible instead") and the rules went on
+  // teaching the thing it replaced, so the component was in the kit and unused.
+  // The assertion is the invariant now rather than the sentence: point at the
+  // component, and do not tell the model to reach for a bare <img>.
   assert.match(PAGE_RULES, /A COLUMN NAMED FOR A PICTURE HOLDS A URL STRING/);
   assert.match(PAGE_RULES, /\/u\/<slug>\//, "and where those URLs come from");
-  assert.match(PAGE_RULES, /ALWAYS GUARD IT/);
-  assert.match(PAGE_RULES, /placeholder box,\s+never a broken one/, "an image or a box, never <img src=\"\">");
+  assert.match(PAGE_RULES, /EVERY PICTURE IS `<SafeImage>`, NEVER A BARE `<img>`/);
+  assert.match(PAGE_RULES, /designed placeholder when there is not/,
+    "say what an absent src actually does, or the model still writes its own guard");
+  assert.ok(!/<img src=\{row\./.test(PAGE_RULES),
+    "the rules must not still hand the model a bare <img> to copy for a picture column");
 });
 
 test("the rules tell the model how a visitor attaches a picture", () => {

@@ -62,8 +62,14 @@ export function uploadName(hashHex, ext) {
   return hex.length === 32 ? hex + "." + ext : null;
 }
 
-const keyFor = (slug, name) => "uploads/" + String(slug).toLowerCase() + "/" + name;
-const urlFor = (slug, name) => "/u/" + String(slug).toLowerCase() + "/" + name;
+// Exported, because the build's own photograph generator stores files in the
+// same place and a SECOND copy of these two lines is a picture written where
+// `/u/` does not look for it — a 404 nothing in the pipeline would catch, since
+// the bundle compiles perfectly around a dead URL.
+export const uploadKey = (slug, name) => "uploads/" + String(slug).toLowerCase() + "/" + name;
+export const uploadUrl = (slug, name) => "/u/" + String(slug).toLowerCase() + "/" + name;
+const keyFor = uploadKey;
+const urlFor = uploadUrl;
 
 /**
  * deps:

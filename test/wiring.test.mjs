@@ -290,3 +290,93 @@ test("the rules do not claim the shortlist is everything that exists", () => {
   const rule = PAGE_RULES.slice(i, i + 400);
   assert.ok(!/exist and nothing\s+else does/.test(rule), "rule 3 asserts a falsehood about the kit");
 });
+
+/* ------------------------------------------------------------ photographs */
+
+// THE CHAIN, link by link. This feature has the exact shape of the seven that
+// were on disk and reachable by nothing: a module, a rule in the prompt, a
+// budget, a dep. Four of the five links working is the state every one of those
+// shipped in, so each link is asserted separately rather than end-to-end.
+
+const clientJs = fs.readFileSync(path.join(ROOT, "public/chat.js"), "utf8");
+
+test("the build both ASKS for photographs and BUYS them", () => {
+  // Either half alone is a dead feature wearing the other's clothes: state the
+  // allowance with no dep and the model writes tokens nobody buys (every one
+  // becomes a placeholder); supply the dep with no allowance and nothing ever
+  // writes a token for it to find. The two live ~10 lines apart and it is
+  // entirely possible to add one and forget the other.
+  assert.match(worker, /const imgBudget = imageBudget\(family\)/,
+    "the budget is derived from the family, once");
+  assert.match(worker, /briefWithLayout\(\{ brief, family, structure, images: imgBudget \}\)/,
+    "and stated to the model in the user turn");
+  assert.match(worker, /images: \(pages, \{ balance, reserve \}\) =>\s*\n?\s*buySitePhotos\(/,
+    "and the dep that buys them is supplied to publishPages");
+});
+
+test("a generated photograph is stored where /u/ actually looks for it", () => {
+  // A second copy of `uploads/<slug>/` is a picture written where the serving
+  // route does not look — a 404 the bundle compiles perfectly around, so
+  // nothing else in the pipeline can catch it.
+  const fn = worker.slice(worker.indexOf("async function buySitePhotos"), worker.indexOf("// Resolve @@SPRITE"));
+  assert.ok(fn.length > 400, "found the function, not an empty window");
+  assert.match(fn, /uploadKey\(slug, name\)/);
+  assert.match(fn, /uploadUrl\(slug, name\)/);
+  assert.ok(!/["']uploads\//.test(fn), "it must not spell the prefix itself");
+  assert.ok(!/["']\/u\//.test(fn), "nor the public path");
+});
+
+test("the bytes are sniffed and named by content, exactly like an owner upload", () => {
+  const fn = worker.slice(worker.indexOf("async function buySitePhotos"), worker.indexOf("// Resolve @@SPRITE"));
+  assert.match(fn, /sniffImage\(bytes\)/, "the declared type is what the image model sent, not what we asked for");
+  assert.match(fn, /uploadName\(hex, kind\.ext\)/, "content hash, so /u/ can honestly serve it immutable");
+  assert.match(fn, /MAX_UPLOAD_BYTES/, "the same size cap the upload route enforces");
+});
+
+test("what is BILLED is what was stored, not what was planned", () => {
+  // Counting the shots would charge for an image-model outage: six planned, six
+  // failures, six charges. `urls` is only written by a successful put.
+  const fn = worker.slice(worker.indexOf("async function buySitePhotos"), worker.indexOf("// Resolve @@SPRITE"));
+  assert.match(fn, /made: urls\.size/);
+  assert.ok(!/made: plan\.shots\.length/.test(fn));
+});
+
+test("one failed picture does not cost the others, or the build", () => {
+  const fn = worker.slice(worker.indexOf("async function buySitePhotos"), worker.indexOf("// Resolve @@SPRITE"));
+  // Per-shot try/catch inside the Promise.all, so a rejection cannot take the
+  // whole batch down with it.
+  // `lastIndexOf`, because there is an EARLY `return {` above the Promise.all
+  // for the nothing-to-buy case — `indexOf` finds that one and slices an empty
+  // window, which then matches nothing and reports a gap that is not there.
+  const inMap = fn.slice(fn.indexOf("Promise.all"), fn.lastIndexOf("return {"));
+  assert.ok(inMap.length > 200, "found the loop body, not an empty window");
+  assert.match(inMap, /try \{/);
+  assert.match(inMap, /\} catch \(e\) \{/);
+  assert.ok(!/throw /.test(inMap.slice(inMap.indexOf("} catch"))), "the catch must not rethrow");
+});
+
+test("the photograph sentence reaches the chat", () => {
+  // Composed on the server and rendered by the client. `imageNote` returning a
+  // string that nothing displays is this repo's most-repeated failure, and the
+  // response field alone does not prove the other end exists.
+  assert.match(worker, /imagesNote: imageNote\(pages\.images\)/);
+  assert.match(clientJs, /d\.imagesNote === 'string'/,
+    "public/chat.js must actually read it");
+  assert.match(clientJs, /siteFinishBuild\(origin, .*, build, note\)/,
+    "and pass it through as the note");
+});
+
+test("the image price and the image model are not two answers to one question", () => {
+  // `IMAGE_USD` in publish-pages.mjs prices exactly what `SITE_IMG_MODEL`
+  // generates. Moving the model without moving the price silently re-prices
+  // every build, in whichever direction is worse.
+  assert.match(worker, /const SITE_IMG_MODEL = "fal-ai\/nano-banana-pro"/);
+  const priced = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8")
+    .match(/"fal-ai\/nano-banana-pro":\s*([0-9.]+)/);
+  assert.ok(priced, "the model has a row in IMAGE_USD");
+  const table = fs.readFileSync(path.join(ROOT, "builder/publish-pages.mjs"), "utf8")
+    .match(/export const IMAGE_USD = ([0-9.]+)/);
+  assert.ok(table, "and publish-pages states the build's own price");
+  assert.equal(Number(table[1]), Number(priced[1]),
+    "the build price and the generation price must be the same number");
+});
