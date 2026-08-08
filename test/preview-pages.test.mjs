@@ -233,3 +233,44 @@ test("a site built before the fix still gets its pages", () => {
   // placeholder standing in for routes.
   assert.deepEqual(pages({ pages: [{ path: "/", name: "Home", html: "<h1>x</h1>" }] }), ["Home /"]);
 });
+
+// ── the menu's own styling ───────────────────────────────────────────────────
+
+test("the page menu is on the current theme, not the one before it", () => {
+  // IT NEVER GOT RESTYLED when the platform went black-and-white, and nobody saw
+  // it because the picker never rendered — a React build stored one page, so
+  // nothing above one ever opened this menu. Deriving the pages exposed three
+  // dark-theme leftovers at once.
+  const css = fs.readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
+  const i = css.indexOf(".st-pagemenu {");
+  assert.ok(i > 0, "the page menu styling is gone");
+  const menu = css.slice(i, css.indexOf(".st-pi-path", i));
+
+  // A SOLID SURFACE. It was `var(--panel-2)` — a 7% black tint on white — so the
+  // menu was effectively transparent and the URL chip read straight through it.
+  assert.match(menu, /\.st-pagemenu \{[^}]*background: #ffffff/,
+    "the menu background is a tint again; whatever is behind it will show through");
+  // The hover was rgba(255,255,255,.06): white on white, i.e. nothing.
+  assert.ok(!/background: rgba\(255, ?255, ?255/.test(menu), "a white-on-white hover is back");
+  // And the selected row painted the near-black --split gradient as a slab.
+  assert.ok(!/--split/.test(menu), "the selected row is filled with the accent gradient again");
+});
+
+test("a page-menu row is never given on-accent text", () => {
+  // THE PAIRING THAT BROKE. A late rebrand rule sets `color: var(--on-accent)`
+  // — white — on every control with a near-black FILL. `.st-pageitem.on` was in
+  // that list because those rows used to be dark; changing the row to a light
+  // surface without leaving the list rendered the label white on white.
+  //
+  // The rule and the background have to agree, and this asserts the agreement
+  // rather than either half: a row in the on-accent list must be dark-filled.
+  const css = fs.readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
+  const sweep = css.match(/^[^\n]*\.st-msg\.u\{color:var\(--on-accent\)\}/m);
+  assert.ok(sweep, "the on-accent sweep rule moved; this guard checks nothing");
+  assert.ok(!/\.st-pageitem\.on/.test(sweep[0]),
+    "the page-menu row is back in the on-accent list, and its label will render white on white");
+  // The controls left in it are the dark-filled ones, so the rule still has work
+  // to do — an empty list would pass the check above for the wrong reason.
+  assert.match(sweep[0], /\.st-msg\.u/);
+  assert.match(sweep[0], /\.st-vtab\.on/);
+});
