@@ -212,14 +212,25 @@ test("the schema call is captured, reported, AND billed on measured usage", () =
 test("a refused build gives back what was actually taken, not the flat fee", () => {
   // Once the deposit settles to real usage the two are different numbers, and
   // refunding the fee would quietly keep the settlement — charging for a build
-  // that 422s before anything is provisioned. Bounded by `credit_back`'s own
-  // 10-credit ceiling, which is far above this call and is a real limit.
+  // that 422s before anything is provisioned.
+  //
+  // THE `Math.min(10, …)` HERE WAS NOT DEAD HEADROOM. `credit_back` hard-caps a
+  // single call at 10 credits, and a COLD OPUS schema call settles to 15 — so
+  // the one path the rule says refunds in full returned 10 and kept 5, on the
+  // exact case ("they are left with literally nothing") the exception exists for.
+  // `refundCredits` chunks it instead, and the assertion moved with it.
   const w = worker();
   const i = w.indexOf("That brief didn't describe anything to store");
   assert.ok(i > 0, "the no-tables refusal was reworded — rescope this");
   const block = w.slice(i - 400, i);
-  assert.match(block, /creditBack\(env, bu\.id, Math\.min\(10, Math\.max\(0, schemaCost \|\| SITE_BUILD_FEE\)\)\)/,
+  assert.match(block, /refundCredits\(env, bu\.id, Math\.max\(0, schemaCost \|\| SITE_BUILD_FEE\)\)/,
     "a refused build refunds the deposit and keeps the settlement");
+  assert.ok(!/Math\.min\(10,[^)]*schemaCost/.test(block),
+    "the 10-credit clamp is back, so a cold Opus refusal keeps 5 credits");
+  // And the chunker really chunks: one call would hit the same RPC ceiling.
+  const rc = w.slice(w.indexOf("async function refundCredits"), w.indexOf("// Read the caller's balance"));
+  assert.ok(rc.length > 100, "refundCredits moved — this checks nothing");
+  assert.match(rc, /Math\.min\(10, left\)/, "it must split the refund into calls the RPC accepts");
 });
 
 test("the build container times its three sub-steps and reports them every way out", () => {

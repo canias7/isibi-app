@@ -2277,7 +2277,7 @@ export const SITE_PAGES_TOOL = {
           properties: {
             path: {
               type: "string",
-              description: 'Path under src/routes/, e.g. "index.tsx" or "menu.tsx". No leading directories.',
+              description: 'Path under src/routes/, e.g. "index.tsx" or "menu.tsx". A directory form ("menu/index.tsx") is accepted and routes at "/menu"; prefer the flat form.',
             },
             source: { type: "string", description: "The complete .tsx source for that route file." },
           },
@@ -2586,7 +2586,15 @@ export function validatePages(input) {
   // so the site builds and one link goes somewhere sensible instead of nowhere —
   // which beats losing every page over a single href. The rewrite is reported,
   // so it is visible rather than silent.
-  const routeOf = (path) => (path === "index.tsx" ? "/" : "/" + path.replace(/\.tsx$/, ""));
+  // A DIRECTORY INDEX ROUTES AT ITS DIRECTORY. `menu/index.tsx` is `/menu` to
+  // TanStack, and this used to derive `/menu/index` — so a page written in the
+  // directory form had its route recorded under a name nothing links to, and
+  // every CORRECT `<Link to="/menu">` was rewritten to "/" as dangling. The page
+  // existed at /menu, nothing reached it, and a false problem was reported on a
+  // site that published. `cleanPath`'s SAFE_PATH allows directories, so this is
+  // reachable output, not a hypothetical — reproduced before it was fixed.
+  const routeOf = (path) =>
+    path === "index.tsx" ? "/" : "/" + path.replace(/\.tsx$/, "").replace(/\/index$/, "");
   const live = new Set(pages.map((p) => routeOf(p.path)));
   const dangling = new Set();
   for (const p of pages) {

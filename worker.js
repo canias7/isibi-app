@@ -689,6 +689,28 @@ async function creditBack(env, userId, amount) {
   } catch {}
 }
 
+/**
+ * Give back `amount` credits, in chunks the RPC will accept.
+ *
+ * `credit_back` hard-caps a single call at 10 credits — a deliberate blast
+ * radius on a service-role mint — and every caller passed the amount straight
+ * through under a `Math.min(10, …)`, which silently KEPT anything above it. A
+ * cold Opus schema call settles to 15, so the one path the rule says refunds in
+ * full ("no tables at all: they are left with literally nothing") returned 10
+ * and kept 5. The clamp read like dead headroom and was not.
+ *
+ * Bounded at five calls (50 credits), far above anything this path can produce,
+ * so a bad amount cannot turn into a loop against the ledger.
+ */
+async function refundCredits(env, userId, amount) {
+  let left = Math.max(0, Number(amount) || 0);
+  for (let i = 0; i < 5 && left > 0; i++) {
+    const chunk = Math.min(10, left);
+    await creditBack(env, userId, chunk);
+    left -= chunk;
+  }
+}
+
 // Read the caller's balance without deducting (used to reject a broke user
 // before we spend any fal money). get_credits also does the one-time signup
 // grant on first touch, same as use_credits. Throws if the ledger is down.
@@ -7990,7 +8012,7 @@ async function handleRequest(request, env, ctx) {
           // returns before anything is provisioned, so they are left with
           // literally nothing, and "charge for what you use" was never meant to
           // mean charging for an empty hand.
-          await creditBack(env, bu.id, Math.min(10, Math.max(0, schemaCost || SITE_BUILD_FEE)));
+          await refundCredits(env, bu.id, Math.max(0, schemaCost || SITE_BUILD_FEE));
           return Response.json({ ok: false, msg: "That brief didn't describe anything to store — try naming what the site keeps track of." }, { status: 422 });
         }
       }
@@ -8032,13 +8054,20 @@ async function handleRequest(request, env, ctx) {
       try {
         const owner = await siteBackendRowFresh(env, slug);
         if (owner && owner.uid && owner.uid !== bu.id) {
-          return Response.json({ ok: false, error: "that name is taken" }, { status: 409 });
+          // REFUNDED. The schema call has already happened and been settled by
+          // this point, so a refusal here leaves the customer with no database,
+          // no site and a real charge — and the client is told they were not
+          // charged. Same reasoning as the no-tables path: this returns before
+          // anything is provisioned, so they are left with literally nothing.
+          await refundCredits(env, bu.id, Math.max(0, schemaCost));
+          return Response.json({ ok: false, error: "that name is taken", cost: 0 }, { status: 409 });
         }
         // Free — this lookup already happens for the ownership check.
         priorBrief = (owner && owner.brief) || "";
       } catch (e) {
         console.error("ownership check failed:", slug, e && (e.detail || e.message));
-        return Response.json({ ok: false, msg: "Couldn't check that name just now — try again in a moment." }, { status: 503 });
+        await refundCredits(env, bu.id, Math.max(0, schemaCost));
+        return Response.json({ ok: false, msg: "Couldn't check that name just now — try again in a moment.", cost: 0 }, { status: 503 });
       }
 
       // A Supabase round trip, and it was folded into a mark named `normalize`
@@ -8048,14 +8077,20 @@ async function handleRequest(request, env, ctx) {
 
       const spec = normalizeSchema(body.schema || designed || {});
       tr.at("normalize");
-      if (!spec.tables.length) return Response.json({ ok: false, error: "schema declares no tables" }, { status: 400 });
+      if (!spec.tables.length) {
+        await refundCredits(env, bu.id, Math.max(0, schemaCost));
+        return Response.json({ ok: false, error: "schema declares no tables", cost: 0 }, { status: 400 });
+      }
 
       let db;
       try {
         db = await ensureSiteBackend(env, slug, bu.id, brief, (n) => tr.at("prov:" + n));
         tr.at("provision");
       } catch (e) {
-        if (e && e.conflict) return Response.json({ ok: false, error: "that name is taken" }, { status: 409 });
+        if (e && e.conflict) {
+          await refundCredits(env, bu.id, Math.max(0, schemaCost));
+          return Response.json({ ok: false, error: "that name is taken", cost: 0 }, { status: 409 });
+        }
         console.error("site provision failed:", slug, e && e.status, e && (e.detail || e.message));
         // THE STATUS IS THE DIAGNOSIS. A dead key (401), a plan or permission
         // limit (403), a project quota (422) and Neon being down (5xx) all read
@@ -8147,6 +8182,47 @@ async function handleRequest(request, env, ctx) {
         }
       } catch (e) { console.error("merged schema read failed:", slug, e && e.message); }
 
+      // ── THE SITE'S LOOK, REMEMBERED ────────────────────────────────────────
+      //
+      // A revise sends only the instruction, so the designer sees a few words
+      // and names a theme, a family and a font pair from THOSE — meaning "fix a
+      // typo" could re-roll a booking-first barber shop into whatever family
+      // nearest-matches that sentence, with different fonts and a different
+      // theme. The fallback chain says `(designed && …) || (body && …)`, and the
+      // comment above it claims the body half is what anchors the look — but the
+      // client has never sent `body.theme`, `body.family` or `body.fonts`, so
+      // that half has always been undefined and the anchor did not exist.
+      //
+      // Kept in the site's OWN `_meta`, beside `auth_info`: the connection is
+      // already open here, it is written once per look, and it goes when the site
+      // goes. Best-effort in both directions — losing it re-rolls the look, which
+      // is exactly today's behaviour, so it can never be worse than what it
+      // replaces.
+      let priorLook = null;
+      if (priorBrief) {
+        try {
+          const rows = await sqlQuery(db, "SELECT v FROM _meta WHERE k = 'site_look'");
+          const raw = rows && rows[0] && rows[0].v;
+          if (raw) priorLook = JSON.parse(raw);
+        } catch (e) { console.error("look read failed:", slug, e && e.message); }
+      }
+      // THE DESIGNER STILL WINS ON A FIRST BUILD, and on a revise whose
+      // instruction really is about the look: `designed` is only consulted here
+      // when nothing was stored, so a revise keeps what the site already wears.
+      // Changing a theme deliberately is a rebuild, which is the honest answer —
+      // a re-theme is not a small edit and should not happen by accident.
+      const look = {
+        theme: (priorLook && priorLook.theme) || (designed && designed.theme) || (body && body.theme) || null,
+        family: (priorLook && priorLook.family) || (designed && designed.family) || (body && body.family) || null,
+        structure: (priorLook && priorLook.structure) || (designed && designed.structure) || (body && body.structure) || null,
+        fonts: (priorLook && priorLook.fonts) || (designed && designed.fonts) || (body && body.fonts) || null,
+      };
+      if (!priorLook) {
+        try {
+          await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('site_look', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(look)]);
+        } catch (e) { console.error("look write failed:", slug, e && e.message); }
+      }
+
       tr.at("merge");
 
       // The research that has been running alongside every Neon call above.
@@ -8209,14 +8285,14 @@ async function handleRequest(request, env, ctx) {
             attachments: attached.blocks,
             priorUsage: (researched && researched.usage) || null,
             model: models.pages,
-            fonts: (designed && designed.fonts) || (body && body.fonts) || null,
-            // Same fallback chain as fonts, and it matters most on a REVISE:
-            // the designer sees only the instruction then, so it names no theme
-            // and no family, and without the body fallback every revise would
-            // strip the site back to the untouched template.
-            theme: (designed && designed.theme) || (body && body.theme) || null,
-            family: (designed && designed.family) || (body && body.family) || null,
-            structure: (designed && designed.structure) || (body && body.structure) || null,
+            // THE STORED LOOK WINS ON A REVISE — see `look` above. The chain
+            // that used to be here read `(designed) || (body)`, and the body half
+            // has never been sent by the client, so a revise re-rolled theme,
+            // family and fonts from the instruction alone.
+            fonts: look.fonts,
+            theme: look.theme,
+            family: look.family,
+            structure: look.structure,
             auth: request.headers.get("Authorization") || "",
             mark: (n) => tr.at(n),
           });

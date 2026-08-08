@@ -206,8 +206,14 @@ test("the DESIGNER can actually declare a font, and only a real one", () => {
   assert.ok(required, "could not find design_schema's required list");
   assert.match(required[0], /"fonts"/,
     "an optional font field is one the model will usually skip");
-  assert.match(src, /fonts: \(designed && designed\.fonts\)/,
+  // Resolved through the `look` object now — a revise keeps the fonts the site
+  // already wears rather than re-rolling them from the instruction — but the
+  // designer's answer is still what a FIRST build uses, and both halves of that
+  // are asserted apart: the chain that computes it, and the value reaching the
+  // build. Either alone passes while the other is broken.
+  assert.match(src, /fonts: \(priorLook && priorLook\.fonts\) \|\| \(designed && designed\.fonts\)/,
     "the designer's answer has to reach the build");
+  assert.match(src, /fonts: look\.fonts,/, "the resolved fonts never reach buildAndPublishPages");
   assert.match(src, /fonts: \{ heading: fontPair\.heading\.id, body: fontPair\.body\.id \}/,
     "and the build request has to carry it");
 });

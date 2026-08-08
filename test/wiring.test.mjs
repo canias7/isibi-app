@@ -109,7 +109,10 @@ test("the other 400 are bounded, not lost — any of the 500 still resolves", ()
   const offList = THEME_IDS.filter((n) => !THEME_SHORTLIST.includes(n));
   assert.equal(offList.length, THEME_IDS.length - 100);
   for (const n of offList) assert.ok(resolveTheme(n), `${n} is unreachable even by name`);
-  assert.match(worker, /theme: \(designed && designed\.theme\) \|\| \(body && body\.theme\)/,
+  // The chain moved into the `look` object (a revise now keeps the site's stored
+  // theme instead of re-rolling it), but the body fallback inside it is what
+  // keeps an off-list theme reachable by name.
+  assert.match(worker, /theme: \(priorLook && priorLook\.theme\) \|\| \(designed && designed\.theme\) \|\| \(body && body\.theme\)/,
     "the body fallback is gone, so off-list themes really are unreachable");
 });
 
@@ -181,7 +184,8 @@ test("the structure axis is offered, optional, and every name works", () => {
 });
 
 test("the structure reaches the route, and the model is told what each one is", () => {
-  assert.match(worker, /structure: \(designed && designed\.structure\) \|\| \(body && body\.structure\)/);
+  assert.match(worker, /structure: \(priorLook && priorLook\.structure\) \|\| \(designed && designed\.structure\) \|\| \(body && body\.structure\)/);
+  assert.match(worker, /structure: look\.structure,/, "and the resolved value has to reach the build");
   assert.match(worker, /async function buildAndPublishPages\(env, \{[^}]*\bstructure\b[^}]*\}\)/);
   assert.match(worker, /structuresForPrompt\(\)/, "the eight are offered as bare names with no description");
   const blurbs = structuresForPrompt();
@@ -481,4 +485,24 @@ test("a REVISE buys no new photographs", () => {
     "buildAndPublishPages does not take the flag");
   assert.match(worker, /revise: !!priorBrief,/,
     "nothing tells it this is a revise — `priorBrief` is the free signal, off the ownership check");
+});
+
+test("a revise keeps the site's stored look instead of re-rolling it", () => {
+  // A revise sends only the instruction, so the designer named a theme, a family
+  // and a font pair from a few words — "fix a typo" could re-family a
+  // booking-first barber shop and re-font the whole site. The fallback chain's
+  // comment claimed `body.theme`/`body.family`/`body.fonts` anchored the look;
+  // the client has never sent any of them, so that anchor did not exist.
+  //
+  // The chain is asserted link by link, because this feature is one missing link
+  // from being decorative: read it back, prefer it, write it on a first build,
+  // and only look it up on a revise.
+  assert.match(worker, /SELECT v FROM _meta WHERE k = 'site_look'/, "nothing reads the stored look");
+  assert.match(worker, /INSERT INTO _meta \(k,v\) VALUES \('site_look'/, "nothing ever writes it");
+  assert.match(worker, /if \(priorBrief\) \{[\s\S]{0,400}site_look/,
+    "the look is read on a FIRST build too, which would pin an empty one");
+  assert.match(worker, /if \(!priorLook\) \{/, "a revise overwrites the stored look");
+  for (const k of ["theme", "family", "structure", "fonts"]) {
+    assert.ok(new RegExp(k + ": look\\." + k + ",").test(worker), k + " does not reach the build from `look`");
+  }
 });
