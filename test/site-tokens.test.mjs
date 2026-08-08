@@ -4,8 +4,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
-  TOKENS, WRITABLE, MAX_TOKENS, isColor, luminance, withContrast,
-  parseTokens, mergeTokens, tokensCss, tokenNote,
+  TOKENS, SIZES, ASKABLE, WRITABLE, MAX_TOKENS, isColor, isLength, valueHint,
+  normalizeLength, stripThemeRadius, validForWrite,
+  luminance, withContrast, parseTokens, mergeTokens, tokensCss, tokenNote,
 } from "../builder/site-tokens.mjs";
 
 // ── what may be a colour ──────────────────────────────────────────────────────
@@ -123,19 +124,33 @@ test("every token we allow is one the template actually declares", () => {
   assert.deepEqual(WRITABLE.filter((t) => !declared.has(t)), [],
     "these are written into the stylesheet and read by nothing");
 
+  // SPLIT BY KIND, because the two are mapped differently: a colour becomes a
+  // class through `--color-<name>`, and `--radius` through the `--radius-*`
+  // scale derived from it. One check for both would have demanded a
+  // `--color-radius` that has no reason to exist.
   const mapped = new Set([...css.matchAll(/--color-([a-z0-9-]+):/g)].map((m) => m[1]));
-  assert.deepEqual(WRITABLE.filter((t) => !mapped.has(t)), [],
+  const colours = WRITABLE.filter((t) => !SIZES.includes(t));
+  assert.deepEqual(colours.filter((t) => !mapped.has(t)), [],
     "these have no Tailwind class, so no page can use them");
+  for (const t of SIZES) {
+    assert.match(css, new RegExp("--" + t + "-lg:\\s*[^;]*var\\(--" + t + "\\)"),
+      t + " must be the value the kit's scale is DERIVED from, or changing it moves nothing");
+  }
 });
 
-test("the dark palette declares them too, since the patch writes both", () => {
-  // `tokensCss` writes `:root` AND `.dark`. A token the dark block never
-  // declares would be introduced by us there rather than overridden — harmless
-  // today, and worth knowing if it ever stops being true.
+test("the dark palette declares every COLOUR, since the patch writes both", () => {
+  // `tokensCss` writes `:root` AND `.dark`. A colour the dark block never
+  // declares would be introduced by us there rather than overridden.
+  //
+  // Sizes are deliberately exempt: `--radius` is declared once and does not vary
+  // by mode, so our patch adds a declaration to `.dark` rather than overriding
+  // one. Same value either way, so it changes nothing — stated rather than left
+  // as a scan that quietly fails.
   const css = fs.readFileSync(new URL("../builder/lovable/template/src/styles.css", import.meta.url), "utf8");
   const declared = declaredIn(css, ".dark");
   assert.ok(declared.size > 30, `only ${declared.size} tokens found at .dark — the scan broke`);
-  assert.deepEqual(WRITABLE.filter((t) => !declared.has(t)), []);
+  assert.deepEqual(WRITABLE.filter((t) => !SIZES.includes(t) && !declared.has(t)), []);
+  for (const t of SIZES) assert.equal(declared.has(t), false, t + " now varies by mode — this exemption needs revisiting");
 });
 
 test("the status colours are askable, and carry their own readable text", () => {
@@ -151,9 +166,10 @@ test("the status colours are askable, and carry their own readable text", () => 
 test("what is deliberately OUT stays out", () => {
   // Each of these is a decision with a reason in the module, and "we forgot" and
   // "we decided against" look identical in a list of names a year later.
-  for (const t of ["radius", "chart-1", "chart-2", "chart-3", "chart-4", "chart-5",
-                   "sidebar", "sidebar-foreground", "sidebar-primary", "sidebar-border"]) {
-    assert.equal(TOKENS.includes(t), false, t + " is excluded on purpose — see the comment on TOKENS");
+  for (const t of ["chart-1", "chart-2", "chart-3", "chart-4", "chart-5",
+                   "sidebar", "sidebar-foreground", "sidebar-primary", "sidebar-border",
+                   "radius-sm", "radius-lg", "radius-xl"]) {
+    assert.equal(ASKABLE.includes(t), false, t + " is excluded on purpose — see the comments on TOKENS and SIZES");
     assert.equal(WRITABLE.includes(t), false, t + " must not be writable either");
   }
 });
@@ -166,6 +182,134 @@ test("every plain-language name covers a token that can be asked for", () => {
   for (const t of TOKENS) {
     assert.match(said, new RegExp('(^|[\\s{,])"?' + t + '"?\\s*:'), t + " has no plain-language name");
   }
+});
+
+// ── corners ───────────────────────────────────────────────────────────────────
+
+test("a real CSS length is accepted", () => {
+  for (const v of ["0", "4px", "0.75rem", ".5rem", "9999px", "50%", "1.5em", "12PX"]) {
+    assert.equal(isLength(v), true, v + " should be a length");
+  }
+});
+
+test("anything that is not a plain length is refused", () => {
+  // Same discipline as the colour parser, same reason: this is written into a
+  // stylesheet, so the anchors are the guard. `calc()` is refused rather than
+  // parsed — the kit's derived sizes already wrap this value in one.
+  for (const v of ["-4px", "calc(1rem)", "calc(var(--radius) + 4px)", "4", "4 px",
+                   "0px; }*{display:none}", "auto", "inherit", "1vw", "1e3px", "", "   ",
+                   null, undefined, {}, [], "var(--radius)"]) {
+    assert.equal(isLength(v), false, JSON.stringify(v) + " must be refused");
+  }
+});
+
+test("a negative radius is refused rather than written", () => {
+  // A negative border-radius is invalid CSS, so a browser drops the declaration
+  // and the customer is told a change was applied that did nothing. Refusing
+  // says so instead — the silent-failure direction this file keeps closing.
+  assert.equal(isLength("-1rem"), false);
+  assert.deepEqual(parseTokens({ radius: "-1rem" }).dropped, ["radius"]);
+});
+
+test("corners and colours are validated by their OWN rules", () => {
+  // One shared validator would have refused every radius a customer ever asked
+  // for while reporting the token as unknown — and accepted `#fc0` as a length.
+  assert.deepEqual(parseTokens({ radius: "0", background: "#fc0" }).tokens,
+    { radius: "0", background: "#fc0" });
+  assert.deepEqual(parseTokens({ radius: "#fc0" }).dropped, ["radius"], "a colour is not a length");
+  assert.deepEqual(parseTokens({ background: "4px" }).dropped, ["background"], "a length is not a colour");
+});
+
+test("square corners are expressible, and are not read as 'nothing'", () => {
+  // `0` is the whole point of "make the corners square", and it is the value
+  // most likely to be lost to a truthiness check somewhere on the way.
+  const css = tokensCss({ radius: "0" });
+  assert.match(css, /--radius: 0;/);
+  assert.equal(parseTokens({ radius: "0" }).tokens.radius, "0");
+  assert.equal(mergeTokens({ radius: "1rem" }, { radius: "0" }).radius, "0");
+});
+
+test("any zero is the SAME zero, whatever unit it was written in", () => {
+  // MEASURED, not reasoned. The kit derives its sizes with
+  // `calc(var(--radius) ± Npx)`. A bare `0` makes each of those a
+  // `<number> + <length>`, which CSS says is invalid, so every declaration is
+  // dropped and every corner comes out square. `0px` and `0rem` are valid
+  // lengths, so `rounded-xl` stays at 4px.
+  //
+  // Rendered side by side: `0` gave button 0 / card 0 / input 0, and `0px` gave
+  // 0 / 4 / 0 — the same instruction producing a square site or a half-square
+  // one depending on which unit the model happened to pick.
+  for (const v of ["0", "0px", "0rem", "0em", "0%", "0PX"]) {
+    assert.equal(normalizeLength(v), "0", v);
+    assert.equal(parseTokens({ radius: v }).tokens.radius, "0", v);
+  }
+  assert.equal(normalizeLength("0.5rem"), "0.5rem", "a real length is left exactly as written");
+  assert.equal(normalizeLength("10px"), "10px");
+});
+
+test("a theme's own corner rules give way to an explicit radius", () => {
+  // 280 OF THE 500 THEMES hard-set `border-radius` on buttons and inputs as
+  // real rules rather than through `--radius` — measured. On those, "round the
+  // corners" moved the cards and left every button square, which is a feature
+  // reported as broken rather than as the theme's design.
+  const css = "button.x { border-radius: 0; color: red; }\n" +
+    ":root { --radius: 0rem; }\n" +
+    ".y { border-top-left-radius: 3px; border-bottom-right-radius: 3px }";
+  const out = stripThemeRadius(css);
+  assert.ok(!/border-radius/.test(out) && !/border-top-left-radius/.test(out), out);
+  assert.match(out, /color: red/, "nothing else may be lost");
+  assert.match(out, /--radius: 0rem;/, "the custom property is NOT a corner rule — our patch overrides that");
+});
+
+test("stripping corner rules cannot damage what it is handed", () => {
+  for (const v of [null, undefined, "", "{}", ":root{--radius:1rem}"]) {
+    assert.equal(typeof stripThemeRadius(v), "string", JSON.stringify(v));
+  }
+  assert.equal(stripThemeRadius(":root{--radius:1rem}"), ":root{--radius:1rem}");
+});
+
+test("the theme keeps its corners when nobody asked for a radius", () => {
+  // The other half, and the one that protects every existing site: with no
+  // override the theme's CSS is written exactly as it is today.
+  assert.equal(validForWrite({ background: "#fc0" }).radius, undefined);
+  assert.equal(validForWrite({}).radius, undefined);
+  assert.equal(validForWrite({ radius: "wide" }).radius, undefined, "an unusable radius is not an ask");
+  assert.equal(validForWrite({ radius: "0" }).radius, "0", "and square corners ARE an ask");
+});
+
+test("the container asks ONE question about the radius", () => {
+  // The theme's corner rules give way and the patch is written from the same
+  // reading. Two readings would eventually disagree, and the failure is silent:
+  // the theme's rules dropped for a radius that was never written.
+  const server = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
+  assert.match(server, /const wantsRadius = validForWrite\(payload\.tokens\)\.radius !== undefined;/);
+  assert.match(server, /writeTheme\(payload\.theme, \{ dropRadius: wantsRadius \}\)/);
+  const i = server.indexOf("function writeTheme(");
+  const body = server.slice(i, server.indexOf("\n}", i));
+  assert.match(body, /dropRadius \? stripThemeRadius\(css\) : css/,
+    "with no override the theme's CSS must be written unchanged");
+});
+
+test("the corner radius survives the contrast pass untouched", () => {
+  // It has no `-foreground` partner and no luminance. A pass that tried to give
+  // it one would write `--radius-foreground`, which nothing reads.
+  const out = withContrast({ radius: "4px", background: "#0d3b3b" });
+  assert.equal(out.radius, "4px");
+  assert.equal("radius-foreground" in out, false);
+});
+
+test("the model is told corners take a length, not a colour", () => {
+  // Described as "#rrggbb" it would answer in hex, the parser would refuse it,
+  // and the customer would be told we could not use their colour.
+  assert.equal(valueHint("background"), "#rrggbb");
+  assert.notEqual(valueHint("radius"), "#rrggbb");
+  assert.match(valueHint("radius"), /length/i);
+  for (const t of ASKABLE) assert.ok(valueHint(t), t + " has no value hint");
+});
+
+test("corners have a plain-language name too", () => {
+  assert.match(tokenNote({ radius: "0" }, []), /corner/i);
+  assert.ok(!tokenNote({ radius: "0" }, []).includes("radius"), "token names are not customer words");
 });
 
 // ── contrast ──────────────────────────────────────────────────────────────────
@@ -277,9 +421,9 @@ test("luminance reads the shapes it claims to", () => {
 // ── parsing ───────────────────────────────────────────────────────────────────
 
 test("an unknown token is dropped, not renamed or passed through", () => {
-  const { tokens, dropped } = parseTokens({ background: "#fff", radius: "2rem", "--chart-1": "#f00", nonsense: "#0f0" });
+  const { tokens, dropped } = parseTokens({ background: "#fff", "chart-1": "#f00", "--sidebar": "#f00", nonsense: "#0f0" });
   assert.deepEqual(tokens, { background: "#fff" });
-  assert.deepEqual(dropped.sort(), ["--chart-1", "nonsense", "radius"]);
+  assert.deepEqual(dropped.sort(), ["--sidebar", "chart-1", "nonsense"]);
 });
 
 test("a token is accepted with or without the leading dashes, and in any case", () => {
@@ -348,7 +492,7 @@ test("a stored patch that has gone bad cannot poison a build", () => {
 test("an empty patch writes NOTHING, not an empty rule", () => {
   // A site that never asked for a colour must get a byte-identical stylesheet
   // to the build before this existed.
-  for (const v of [{}, null, undefined, { radius: "2rem" }, { background: "red" }]) {
+  for (const v of [{}, null, undefined, { "chart-1": "#f00" }, { background: "red" }, { radius: "wide" }]) {
     assert.equal(tokensCss(v), "", JSON.stringify(v));
   }
 });
@@ -463,7 +607,10 @@ test("the designer's token list is the module's, not a second copy", () => {
   // property that `parseTokens` then silently drops — a colour change that
   // reports success and does nothing.
   assert.match(worker, /SITE_TOKEN_NAMES\.map/, "the tool schema must be derived from the module");
-  assert.match(worker, /TOKENS as SITE_TOKEN_NAMES/, "…and that name must be the module's export");
+  assert.match(worker, /ASKABLE as SITE_TOKEN_NAMES/, "…and that name must be the module's export");
+  // THE HINT TOO. Described as "#rrggbb", `radius` would be asked for in hex,
+  // refused by the parser, and reported back as a colour we could not use.
+  assert.match(worker, /description: siteTokenHint\(t\)/, "each token's value hint must be derived, not one line for all");
 });
 
 test("contrast runs at the point of USE, so the stored patch stays the customer's own", () => {

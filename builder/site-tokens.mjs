@@ -18,11 +18,10 @@
 /**
  * WHAT MAY BE CHANGED, and nothing else.
  *
- * Every one is a colour token the template declares at `:root`. Deliberately
- * NOT the whole shadcn palette, and each exclusion has a reason:
+ * Every one is a COLOUR token the template declares at `:root` — `SIZES` below
+ * holds the one that isn't. Deliberately NOT the whole shadcn palette, and each
+ * exclusion has a reason:
  *
- *   - `--radius` is a LENGTH, not a colour. "Make the corners rounder" is a
- *     real thing to ask and this is not the path for it.
  *   - `--chart-1..5` are a SET whose entire job is staying distinguishable from
  *     each other. Changing one in isolation breaks the thing they exist for.
  *   - The `-foreground` halves are DERIVED rather than asked for, so that a
@@ -46,6 +45,25 @@ export const TOKENS = Object.freeze([
   "border", "input", "ring",
   "destructive", "success", "warning",
 ]);
+
+/**
+ * TOKENS THAT TAKE A LENGTH, NOT A COLOUR.
+ *
+ * "Make the corners rounder" is the one thing customers ask for that is not a
+ * colour, and it was unreachable: the colour parser correctly refused `0.5rem`,
+ * so there was no path for it at all.
+ *
+ * ONE KNOB, because the template made it one. `--radius` is declared at
+ * `:root` and the seven sizes the kit actually uses are derived from it with
+ * `calc()` (`--radius-sm` is `calc(var(--radius) - 4px)`, `--radius-xl` is
+ * `+ 4px`, and so on), so overriding the single value moves every rounded
+ * corner on the site coherently. Offering the seven separately would let
+ * somebody set `sm` larger than `xl`.
+ */
+export const SIZES = Object.freeze(["radius"]);
+
+/** Everything the designer may name, whatever kind of value it takes. */
+export const ASKABLE = Object.freeze([...TOKENS, ...SIZES]);
 
 /** The `-foreground` partner of a surface token, where one exists. */
 const PAIRS = Object.freeze({
@@ -72,7 +90,7 @@ const PAIRS = Object.freeze({
  * let them through. A validator shared between two layers with different jobs
  * quietly enforces the stricter one at both.
  */
-export const WRITABLE = Object.freeze([...TOKENS, ...new Set(Object.values(PAIRS))]);
+export const WRITABLE = Object.freeze([...ASKABLE, ...new Set(Object.values(PAIRS))]);
 
 /** More than this ASKED FOR and it is a re-theme, which is a rebuild. */
 export const MAX_TOKENS = 8;
@@ -129,6 +147,93 @@ export function isColor(v) {
   // there, and the next person to touch this needs to know the anchors are
   // load-bearing rather than incidental.
   return HEX.test(s) || FUNC.test(s);
+}
+
+/**
+ * Is this a length a corner radius can legitimately be?
+ *
+ * The same discipline as `isColor` and for the same reason — it is written into
+ * a stylesheet, so the anchors are the guard and nothing that could close a
+ * declaration can match. A bare `0` is legal CSS and is how somebody asks for
+ * square corners; everything else carries a unit.
+ *
+ * NEGATIVES ARE REFUSED. A negative border-radius is invalid CSS anyway, so the
+ * browser would drop the declaration and the customer would be told a change
+ * had been applied that did nothing — the silent failure this file keeps
+ * closing. Refusing says so instead.
+ *
+ * NO UPPER BOUND, deliberately. `9999px` is not a mistake, it is how you ask
+ * for a pill, and a bound big enough to allow it cannot also catch anything
+ * meaningful. `calc()` is refused rather than bounded: the derived sizes
+ * already wrap this value in one.
+ */
+const LENGTH = /^(?:0|(?:\d+\.?\d*|\.\d+)(?:px|rem|em|%))$/i;
+export function isLength(v) {
+  return LENGTH.test(String(v == null ? "" : v).trim());
+}
+
+/**
+ * A ZERO IS A ZERO, whatever unit it was written in — and this one is
+ * measured, not reasoned.
+ *
+ * The kit's sizes are derived with `calc(var(--radius) ± Npx)`. A BARE `0` makes
+ * every one of those a `<number> + <length>`, which CSS says is invalid, so each
+ * declaration is dropped and every corner comes out square. `0px` and `0rem` are
+ * valid lengths, so `rounded-xl` stays at 4px and `rounded-2xl` at 8px.
+ *
+ * Rendered side by side: `0` gave button 0 / card 0 / input 0, and `0px` gave
+ * 0 / 4 / 0 — the same instruction producing a square site or a half-square one
+ * depending on which unit the model happened to pick. "Square corners" means
+ * square, so any zero is normalised to the bare form.
+ */
+export function normalizeLength(v) {
+  const s = String(v == null ? "" : v).trim();
+  return /^0(?:px|rem|em|%)?$/i.test(s) ? "0" : s;
+}
+
+/**
+ * Drop a THEME's own corner rules, so an explicit radius can win.
+ *
+ * 280 OF THE 500 THEMES hard-set `border-radius` on buttons and inputs as real
+ * rules rather than through `--radius` — measured, not assumed. On those, "round
+ * the corners" moved the cards and left every button square, which is a feature
+ * reported as broken rather than as a theme's design.
+ *
+ * Only ever applied to the theme's own generated CSS, and only when the customer
+ * actually asked for a radius: with no override the theme keeps its corners
+ * exactly as it does today, so no existing site changes. The custom property
+ * itself is untouched — this matches `border-radius`, never `--radius`.
+ */
+export function stripThemeRadius(css) {
+  return String(css == null ? "" : css)
+    .replace(/(^|[;{\s])border(?:-(?:top|bottom)-(?:left|right))?-radius\s*:[^;}]*;?/gi, "$1");
+}
+
+/**
+ * The patch as it will be WRITTEN — validated under the write rules.
+ *
+ * One place, so `tokensCss` and the container's "did they ask for a radius?"
+ * question cannot disagree about what counts as a valid patch.
+ */
+export function validForWrite(tokens) {
+  return parseTokens(tokens, { allow: WRITABLE, max: MAX_WRITABLE }).tokens;
+}
+
+/** Which validator a token's value has to pass. */
+export function valueOk(name, v) {
+  return SIZES.includes(name) ? isLength(v) : isColor(v);
+}
+
+/**
+ * What to tell the model a token's value should look like.
+ *
+ * Derived rather than written into the tool schema by hand, so a token added
+ * here cannot end up described as a colour in the one place the model reads.
+ */
+export function valueHint(name) {
+  return SIZES.includes(name)
+    ? "a CSS length — 0 for square corners, or e.g. 4px / 0.75rem, up to 9999px for fully rounded"
+    : "#rrggbb";
 }
 
 /**
@@ -225,7 +330,7 @@ export function withContrast(patch) {
  * `{tokens, dropped}` — `dropped` exists so a caller can say what it ignored
  * rather than silently doing less than it was asked.
  */
-export function parseTokens(input, { allow = TOKENS, max = MAX_TOKENS } = {}) {
+export function parseTokens(input, { allow = ASKABLE, max = MAX_TOKENS } = {}) {
   const out = {}, dropped = [];
   const src = input && typeof input === "object" && !Array.isArray(input) ? input
     : Array.isArray(input) ? Object.fromEntries(input
@@ -235,9 +340,12 @@ export function parseTokens(input, { allow = TOKENS, max = MAX_TOKENS } = {}) {
     const name = String(rawName || "").trim().toLowerCase().replace(/^--/, "");
     if (!allow.includes(name)) { dropped.push(rawName); continue; }
     const val = String(rawVal == null ? "" : rawVal).trim();
-    if (!isColor(val)) { dropped.push(rawName); continue; }
+    // PER TOKEN, not one validator for all — `radius` takes a length and every
+    // other name takes a colour. One shared check would have refused every
+    // radius a customer ever asked for while reporting the token as unknown.
+    if (!valueOk(name, val)) { dropped.push(rawName); continue; }
     if (Object.keys(out).length >= max) { dropped.push(rawName); continue; }
-    out[name] = val;
+    out[name] = SIZES.includes(name) ? normalizeLength(val) : val;
   }
   return { tokens: out, dropped };
 }
@@ -276,7 +384,7 @@ export function mergeTokens(prior, next) {
 export function tokensCss(tokens) {
   // The WRITE rules, not the ask rules — this is handed the output of
   // `withContrast`, whose derived partners are not names a designer may ask for.
-  const t = parseTokens(tokens, { allow: WRITABLE, max: MAX_WRITABLE }).tokens;
+  const t = validForWrite(tokens);
   const keys = Object.keys(t);
   if (!keys.length) return "";
   const decls = keys.map((k) => "  --" + k + ": " + t[k] + ";").join("\n");
@@ -292,6 +400,7 @@ const SAID = Object.freeze({
   border: "borders", input: "inputs", ring: "focus outlines",
   destructive: "delete buttons",
   success: "success labels", warning: "warning labels",
+  radius: "corner roundness",
 });
 
 /**

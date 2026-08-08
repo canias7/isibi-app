@@ -24,7 +24,7 @@ import path from "node:path";
 import { resolvePair, fontCss, fontImports } from "./site-fonts.mjs";
 import { themeCss } from "./site-theme.mjs";
 import { resolveTheme } from "./site-theme-registry.mjs";
-import { tokensCss } from "./site-tokens.mjs";
+import { tokensCss, stripThemeRadius, validForWrite } from "./site-tokens.mjs";
 import { exitReason } from "./exit-reason.mjs";
 
 const APP = process.env.APP_DIR || "/app";
@@ -200,7 +200,7 @@ function collectDist(dir = DIST, base = "") {
 // pages compiled should not be lost over decoration: an unknown name, an
 // unreadable stylesheet or a throwing engine all leave the template's own look
 // in place and say so in the notes.
-function writeTheme(name) {
+function writeTheme(name, { dropRadius = false } = {}) {
   if (!name) return { applied: false, theme: null, notes: [] };
   const theme = resolveTheme(name);
   if (!theme) return { applied: false, theme: null, notes: [`No theme called "${String(name).slice(0, 40)}" — the site kept the default look.`] };
@@ -210,7 +210,12 @@ function writeTheme(name) {
   let base;
   try { base = fs.readFileSync(STYLES, "utf8"); }
   catch { return { applied: false, theme: null, notes: ["The stylesheet could not be read, so the site kept the default look."] }; }
-  fs.writeFileSync(STYLES, base + "\n" + css + "\n");
+  // 280 OF THE 500 THEMES hard-set `border-radius` on buttons and inputs as real
+  // rules rather than through `--radius`, so on a majority of sites a corner
+  // override moved the cards and left every button square — a feature reported
+  // as broken. When the customer has actually asked for a radius, the theme's
+  // own corner rules give way to it; with no override nothing changes at all.
+  fs.writeFileSync(STYLES, base + "\n" + (dropRadius ? stripThemeRadius(css) : css) + "\n");
   return { applied: true, theme: name, notes: [] };
 }
 
@@ -304,7 +309,10 @@ const server = http.createServer((req, res) => {
       resetRoutes();
       writeIndexHtml(payload.title);
       const fontsUsed = writeFonts(payload.fonts, payload.fontFiles);
-      const themeUsed = writeTheme(payload.theme);
+      // ONE reading of the patch, shared: whether a radius was asked for decides
+      // both that the theme's own corner rules give way and what is written.
+      const wantsRadius = validForWrite(payload.tokens).radius !== undefined;
+      const themeUsed = writeTheme(payload.theme, { dropRadius: wantsRadius });
       // AFTER the theme, never before — later wins, and that IS the override.
       const tokensUsed = writeTokens(payload.tokens);
       let wrote = 0;

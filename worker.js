@@ -46,7 +46,7 @@ import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayou
 // it at deploy time and the deploy is the first thing that ever sees it.
 import { publishPages, pageCredits, schemaSettlement, buildFloor, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
 import { imageBudget, imagesAffordable, planImages, applyImages, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
-import { TOKENS as SITE_TOKEN_NAMES, mergeTokens, parseTokens, withContrast, tokenNote } from "./builder/site-tokens.mjs";
+import { ASKABLE as SITE_TOKEN_NAMES, valueHint as siteTokenHint, mergeTokens, parseTokens, withContrast, tokenNote } from "./builder/site-tokens.mjs";
 import { archiveVersion, listVersions, rollbackVersion, deleteAllVersions, versionId, versionLabel } from "./site-versions.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
 import { routeMessage, clarifiedBrief } from "./builder/site-ask.mjs";
@@ -3174,13 +3174,18 @@ const SITE_SCHEMA_TOOL = {
       tokens: {
         type: "object",
         description:
-          "ONLY when the message asks for a specific COLOUR change to an existing site (\"make the background yellow\", " +
-          "\"the buttons should be green\"). Omit it entirely otherwise — on a first build, and on any revise about " +
-          "content, pages or layout. Values must be HEX (#rrggbb). Set the surface only; the readable text colour " +
-          "on top of it is worked out for you, so do not set a *-foreground unless the customer named that colour too.",
+          "ONLY when the message asks for a specific COLOUR or CORNER change to an existing site (\"make the background " +
+          "yellow\", \"the buttons should be green\", \"round the corners more\", \"square corners please\"). Omit it " +
+          "entirely otherwise — on a first build, and on any revise about content, pages or layout. Colours are HEX " +
+          "(#rrggbb); `radius` is a length. Set the surface only; the readable text colour on top of it is worked out " +
+          "for you, so do not set a *-foreground unless the customer named that colour too.",
+        // THE HINT IS DERIVED PER TOKEN, not one line for all of them. `radius`
+        // takes a LENGTH and every other name takes a colour; described as
+        // "#rrggbb" it would be asked for in hex, refused by the parser, and
+        // reported to the customer as a colour we could not use.
         properties: Object.fromEntries(SITE_TOKEN_NAMES.map((t) => [t, {
           type: "string",
-          description: "#rrggbb",
+          description: siteTokenHint(t),
         }])),
       },
       // The SHAPE. Distinct from the theme on purpose: a theme decides how a

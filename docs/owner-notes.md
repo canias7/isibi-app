@@ -14709,3 +14709,22 @@ know about.
 
 So: 14 colours you can name, plus the readable text colour on each one, which is
 worked out for you.
+
+### Corners (2026-08-08)
+
+"Round the corners more" / "make them square" now works, and it moves everything
+together — buttons, inputs, cards, panels — because the whole kit derives its
+corner sizes from one value.
+
+Two things came out of testing it rather than reasoning about it:
+
+- **Square means square.** Depending on how the instruction was written, "0"
+  could come out fully square or leave the cards slightly rounded while
+  everything else went sharp. Any way of writing zero now gives the same
+  result.
+- **More than half the themes (280 of 500) set their own corners on buttons and
+  inputs.** On those, asking to round the corners rounded the cards and left
+  every button square — half-working, and it would have read as a bug. When you
+  ask for a corner change the theme's own corner styling now gives way to it. If
+  you *don't* ask, the theme keeps its corners exactly as before, so nothing
+  already published changes.

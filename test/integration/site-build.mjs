@@ -465,10 +465,51 @@ function Home() {
       `${all.length} --background declarations, ${ours.length} of them ours`);
   }
 
+  // ── CORNERS ──────────────────────────────────────────────────────────────
+  //
+  // The one non-colour token, and the only place its behaviour is real: the
+  // kit's seven sizes are DERIVED from `--radius` with `calc()`, so whether the
+  // knob actually moves anything is a fact about the compiled bundle and not
+  // about the module.
+  console.log("\nbuilding with rounder corners…");
+  const cornersKept = await post({
+    files: { "index.tsx": INDEX, "menu.tsx": MENU },
+    slug: "fold-coffee", theme: "broadsheet", tokens: { background: "#ffcc00" },
+  });
+  const baseCss = Object.entries(cornersKept.files || {})
+    .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
+  const rounder = await post({
+    files: { "index.tsx": INDEX, "menu.tsx": MENU },
+    slug: "fold-coffee", theme: "broadsheet", tokens: { radius: "1.5rem" },
+  });
+  ok("a build with a corner override succeeds", rounder.ok === true, JSON.stringify(rounder).slice(0, 200));
+  {
+    const css = Object.entries(rounder.files || {})
+      .filter(([k]) => k.endsWith(".css")).map(([, v]) => v.t || "").join("\n");
+    ok("the bundled CSS carries the chosen radius", /--radius:\s*1\.5rem/.test(css), css.slice(0, 200));
+    // 280 of the 500 themes hard-set `border-radius` on buttons and inputs as
+    // real rules; with those left in place a corner change moved the cards and
+    // left every button square.
+    // COUNTED, not pattern-matched against a selector. The first draft looked
+    // for `button…{…border-radius}` and flagged TAILWIND'S OWN preflight reset
+    // — nothing to do with the theme — so it failed on a build that was
+    // working. Comparing the same theme built with and without a radius
+    // measures exactly the thing, and is coupled to no theme's selectors.
+    const count = (t) => (t.match(/border-radius\s*:/g) || []).length;
+    ok("and the theme's own corner rules gave way to it",
+      count(css) < count(baseCss), `${count(css)} border-radius rules with an override, ${count(baseCss)} without`);
+    ok("…while the framework's own reset survives", count(css) > 0, "every corner rule vanished, which is too many");
+  }
+
+  // The other half, and the one that protects every site already published:
+  // with no radius asked for, the theme keeps its corners exactly as today.
+  ok("a colour-only change leaves the theme's corners alone",
+    /border-radius/.test(baseCss), "the theme's corner rules vanished on a build that never asked");
+
   // A patch that cannot be used must not fail a build that otherwise worked.
   const badToken = await post({
     files: { "index.tsx": INDEX, "menu.tsx": MENU },
-    slug: "fold-coffee", tokens: { background: "#fc0; } body { display: none", radius: "2rem" },
+    slug: "fold-coffee", tokens: { background: "#fc0; } body { display: none", radius: "very round" },
   });
   ok("an unusable colour falls back instead of failing the build", badToken.ok === true,
     JSON.stringify(badToken).slice(0, 200));
@@ -479,7 +520,7 @@ function Home() {
     // check on whatever happened to be in the first 4,000 characters, which is
     // an assertion about Tailwind's output order and not about this feature.
     ok("and nothing it contained reaches the stylesheet",
-      !/body\s*\{[^}]*display\s*:\s*none/.test(css) && !/--radius:\s*2rem/.test(css) &&
+      !/body\s*\{[^}]*display\s*:\s*none/.test(css) && !/--radius:\s*very/.test(css) &&
       !/site tokens/.test(css),
       css.slice(0, 200));
   }
