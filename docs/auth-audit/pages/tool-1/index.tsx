@@ -1,28 +1,72 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
-import { useMember, useLogin, useSignup } from "@/lib/rows";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { toast } from "sonner";
-import { LoginForm } from "@/components/ui/login-form";
-import { SignupForm } from "@/components/ui/signup-form";
+
+import { useMember, useLogin, useSignup } from "@/lib/rows";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { FeatureGrid } from "@/components/ui/feature-grid";
+import { SafeImage } from "@/components/ui/safe-image";
 
-export const Route = createFileRoute("/")({ component: Home });
+export const Route = createFileRoute("/")({ component: Door });
 
-function Home() {
+const credentials = z.object({
+  email: z.string().email("That doesn't look like an email address"),
+  password: z.string().min(8, "At least 8 characters"),
+});
+
+type Credentials = z.infer<typeof credentials>;
+
+function Door() {
   const member = useMember();
   const login = useLogin();
   const signup = useSignup();
-  const navigate = useNavigate();
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (member.data) navigate({ to: "/records" });
-  }, [member.data, navigate]);
+  const form = useForm<Credentials>({
+    resolver: zodResolver(credentials),
+    defaultValues: { email: "", password: "" },
+  });
 
-  if (member.isPending || member.data) {
-    return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Loading Halyard…</div>;
+  const submit = (action: typeof login, values: Credentials) => {
+    setError(null);
+    action.mutate(
+      { ...values, name: values.email.split("@")[0] },
+      {
+        onSuccess: () => {
+          form.reset();
+        },
+        onError: (e) => setError(e.message),
+      },
+    );
+  };
+
+  if (member.isPending) {
+    return <main className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">Checking your sign-in…</main>;
+  }
+
+  if (member.data) {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-10 text-center">
+        <h1 className="text-2xl font-semibold tracking-tight">You're signed in</h1>
+        <p className="text-muted-foreground">Straight back to the deals your team is working.</p>
+        <Button asChild>
+          <Link to="/records">Go to records</Link>
+        </Button>
+      </main>
+    );
   }
 
   return (
@@ -31,74 +75,83 @@ function Home() {
         <p className="text-lg font-semibold tracking-tight">Halyard</p>
         <div className="max-w-md py-12">
           <h1 className="text-3xl font-semibold tracking-tight text-balance">
-            Every deal your team is working, in one shared table
+            One shared table of deals — your whole sales team, one pipeline
           </h1>
           <p className="mt-4 text-muted-foreground">
-            Halyard is the internal deal tracker for a small sales team. Sign in and see
-            the team's pipeline — every deal, its stage, and who is on it — with a shared
-            list of accounts and the playbook everyone follows.
+            Halyard is the internal tool a small sales team runs on: every deal your
+            team adds is a record everyone reads, every account is shared, and every
+            edit leaves a trail on the record itself.
           </p>
-          <FeatureGrid
-            className="mt-8"
-            columns={2}
-            items={[
-              { title: "Shared pipeline", description: "Every deal the team owns, in one table." },
-              { title: "Shared accounts", description: "One list, everyone reads and adds." },
-              { title: "Full record view", description: "Header, fields, activity — one screen." },
-              { title: "The playbook", description: "Read-only, kept current by the business." },
-            ]}
-          />
-          <ul className="mt-8 space-y-3 text-sm">
+          <SafeImage className="mt-8" src={null} alt="" ratio="16/10" fallbackSeed="halyard-hero" />
+          <ul className="mt-8 space-y-4 text-sm">
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>Search, filter and bulk-act on the team's deals</span>
+              <span>The team's deals, in one table — filter, search, open any one</span>
             </li>
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>Open any deal to its own header, fields and trail</span>
+              <span>A shared account list everyone on the team can read and add to</span>
+            </li>
+            <li className="flex items-start gap-3">
+              <StatusBadge state="neutral">reference</StatusBadge>
+              <span>A playbook the business keeps up to date, for everyone to read</span>
             </li>
           </ul>
         </div>
-        <p className="text-xs text-muted-foreground">Built for the team — not a public site. Sign in to get to work.</p>
+        <p className="text-xs text-muted-foreground">Built for small sales teams who'd rather have one table than five spreadsheets.</p>
       </section>
 
       <section className="flex items-center justify-center p-10">
         <Card className="w-full max-w-sm">
           <CardHeader>
-            <CardTitle>Sign in to Halyard</CardTitle>
-            <CardDescription>Back to the pipeline in a moment.</CardDescription>
+            <CardTitle>Sign in</CardTitle>
+            <CardDescription>Back to the team's deals in one field and a click.</CardDescription>
           </CardHeader>
-          <CardContent>
-            <Tabs defaultValue="login">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="login">Sign in</TabsTrigger>
-                <TabsTrigger value="signup">Create account</TabsTrigger>
-              </TabsList>
-              <TabsContent value="login" className="mt-4">
-                <LoginForm
-                  busy={login.isPending}
-                  error={login.error?.message ?? null}
-                  onSubmit={(v) =>
-                    login.mutate(v, {
-                      onSuccess: () => navigate({ to: "/records" }),
-                      onError: (e) => toast.error(e.message),
-                    })
-                  }
+          <CardContent className="grid gap-4">
+            <Form {...form}>
+              <form className="grid gap-4" onSubmit={form.handleSubmit((v) => submit(login, v))}>
+                <FormField
+                  control={form.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Work email</FormLabel>
+                      <FormControl>
+                        <Input type="email" autoComplete="email" placeholder="you@yourteam.com" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-              </TabsContent>
-              <TabsContent value="signup" className="mt-4">
-                <SignupForm
-                  busy={signup.isPending}
-                  error={signup.error?.message ?? null}
-                  onSubmit={(v) =>
-                    signup.mutate(v, {
-                      onSuccess: () => navigate({ to: "/records" }),
-                      onError: (e) => toast.error(e.message),
-                    })
-                  }
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Password</FormLabel>
+                      <FormControl>
+                        <Input type="password" autoComplete="current-password" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-              </TabsContent>
-            </Tabs>
+                {error && <p className="text-sm text-destructive">{error}</p>}
+                <div className="flex gap-3">
+                  <Button type="submit" className="motion-press" disabled={login.isPending}>
+                    {login.isPending ? "Signing in…" : "Sign in"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={signup.isPending}
+                    onClick={form.handleSubmit((v) => submit(signup, v))}
+                  >
+                    {signup.isPending ? "Creating…" : "Create account"}
+                  </Button>
+                </div>
+              </form>
+            </Form>
           </CardContent>
         </Card>
       </section>

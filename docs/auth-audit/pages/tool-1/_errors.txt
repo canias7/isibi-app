@@ -1,0 +1,3 @@
+src/routes/record.tsx(99,22): error TS2322: Type '{ stage: string; }' is not assignable to type 'string | number | boolean | null | undefined'.
+src/routes/record.tsx(116,22): error TS2322: Type '{ value: string; }' is not assignable to type 'string | number | boolean | null | undefined'.
+src/routes/records.tsx(135,15): error TS2322: Type '{ stage: string; }' is not assignable to type 'string | number | boolean | null | undefined'.

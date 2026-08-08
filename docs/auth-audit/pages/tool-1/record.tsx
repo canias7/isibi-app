@@ -2,22 +2,13 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { useMember, useRows, useUpdateRow, useDeleteRow, type Row } from "@/lib/rows";
-import { RecordHeader } from "@/components/ui/record-header";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { ActivityFeed, type Activity } from "@/components/ui/activity-feed";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Empty } from "@/components/ui/empty";
+import { useMember, useRows, useUpdateRow, type Row } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { RecordHeader } from "@/components/ui/record-header";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { ActivityFeed } from "@/components/ui/activity-feed";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/record")({
   component: RecordPage,
@@ -28,12 +19,12 @@ export const Route = createFileRoute("/record")({
 
 type Deal = Row & { title: string; value: string | null; stage: string | null };
 
-const STAGES = ["New", "Qualifying", "Proposal", "Negotiation", "Won", "Lost"];
+const STAGES = ["new", "qualified", "proposal", "won", "lost"] as const;
 
 function stageState(stage: string | null): "success" | "warning" | "danger" | "neutral" {
-  if (stage === "Won") return "success";
-  if (stage === "Lost") return "danger";
-  if (stage === "Negotiation" || stage === "Proposal") return "warning";
+  if (stage === "won") return "success";
+  if (stage === "lost") return "danger";
+  if (stage === "proposal") return "warning";
   return "neutral";
 }
 
@@ -42,21 +33,21 @@ function RecordPage() {
   const member = useMember();
   const deals = useRows<Deal>("deals");
   const update = useUpdateRow<Deal>("deals");
-  const del = useDeleteRow("deals");
-  const [title, setTitle] = useState<string | null>(null);
-  const [value, setValue] = useState<string | null>(null);
+  const [valueDraft, setValueDraft] = useState<string | null>(null);
+  const [trail, setTrail] = useState<{ who: string; what: string; at: Date }[]>([]);
+
+  const deal = deals.data?.find((d) => String(d.id) === id);
 
   if (member.isPending) {
-    return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Checking your sign-in…</div>;
+    return <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">Checking your sign-in…</div>;
   }
 
   if (!member.data) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-10 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">Halyard</h1>
-        <p className="max-w-sm text-muted-foreground">Sign in to open this record.</p>
+        <h1 className="text-2xl font-semibold tracking-tight">Sign in to view this record</h1>
         <Button asChild>
-          <Link to="/">Sign in</Link>
+          <Link to="/">Go to sign in</Link>
         </Button>
       </div>
     );
@@ -64,9 +55,9 @@ function RecordPage() {
 
   if (!id) {
     return (
-      <div className="mx-auto max-w-lg px-6 py-16 text-center">
-        <Empty title="No record chosen" description="Open a deal from the records table." />
-        <Button asChild className="mt-4">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-10 text-center">
+        <p className="text-muted-foreground">No record chosen.</p>
+        <Button asChild variant="outline">
           <Link to="/records">Back to records</Link>
         </Button>
       </div>
@@ -75,53 +66,70 @@ function RecordPage() {
 
   if (deals.isPending) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-10">
-        <Skeleton className="h-10 w-2/3 rounded-md" />
-        <Skeleton className="mt-6 h-48 rounded-xl" />
+      <div className="mx-auto max-w-3xl p-8">
+        <Skeleton className="h-40 rounded-xl" />
       </div>
     );
   }
 
   if (deals.isError) {
     return (
-      <div className="mx-auto max-w-lg px-6 py-16">
-        <p className="text-sm text-destructive">Couldn't load this deal. Refresh and try again.</p>
+      <div className="mx-auto max-w-3xl p-8">
+        <p className="text-sm text-destructive">Couldn't load this record. Refresh and try again.</p>
       </div>
     );
   }
 
-  const deal = deals.data?.find((d) => String(d.id) === id);
-
   if (!deal) {
     return (
-      <div className="mx-auto max-w-lg px-6 py-16 text-center">
-        <Empty title="Not found" description="This deal isn't there — it may have been removed." />
-        <Button asChild className="mt-4">
+      <div className="mx-auto max-w-3xl p-8 text-center">
+        <h1 className="text-xl font-semibold">Not found</h1>
+        <p className="mt-2 text-muted-foreground">
+          This record isn't there — it may have been removed by the team.
+        </p>
+        <Button asChild variant="outline" className="mt-4">
           <Link to="/records">Back to records</Link>
         </Button>
       </div>
     );
   }
 
-  const activity: Activity[] = [
-    { who: "The team", what: `created "${deal.title}"`, at: deal.created_at },
-  ];
-  if (deal.updated_at && deal.updated_at !== deal.created_at) {
-    activity.push({ who: "The team", what: "updated this deal", at: deal.updated_at });
-  }
-
-  const saveField = (patch: Partial<Deal>) => {
+  const setStage = (stage: string) => {
     update.mutate(
-      { id: deal.id, ...patch },
+      { id: deal.id, values: { stage } },
       {
-        onSuccess: () => toast.success("Saved"),
-        onError: (e) => toast.error(e.message),
+        onSuccess: () => {
+          toast.success(`Moved to ${stage}`);
+          setTrail((prev) => [
+            { who: member.data!.name ?? member.data!.email, what: `moved this to ${stage}`, at: new Date() },
+            ...prev,
+          ]);
+        },
+        onError: (e: Error) => toast.error(e.message),
+      },
+    );
+  };
+
+  const saveValue = () => {
+    if (valueDraft === null) return;
+    update.mutate(
+      { id: deal.id, values: { value: valueDraft } },
+      {
+        onSuccess: () => {
+          toast.success("Value updated");
+          setTrail((prev) => [
+            { who: member.data!.name ?? member.data!.email, what: `updated the value to ${valueDraft}`, at: new Date() },
+            ...prev,
+          ]);
+          setValueDraft(null);
+        },
+        onError: (e: Error) => toast.error(e.message),
       },
     );
   };
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-10">
+    <div className="mx-auto max-w-3xl p-8">
       <Link to="/records" className="text-sm text-muted-foreground underline underline-offset-4">
         Back to records
       </Link>
@@ -130,66 +138,54 @@ function RecordPage() {
         className="mt-4"
         title={deal.title}
         subtitle="Shared with the team"
-        status={<StatusBadge state={stageState(deal.stage)}>{deal.stage ?? "New"}</StatusBadge>}
-        actions={
-          <Button
-            variant="destructive"
-            disabled={del.isPending}
-            onClick={() =>
-              del.mutate(deal.id, {
-                onSuccess: () => toast.success("Deal deleted"),
-                onError: (e) => toast.error(e.message),
-              })
-            }
-          >
-            {del.isPending ? "Deleting…" : "Delete"}
-          </Button>
-        }
+        status={<StatusBadge state={stageState(deal.stage)}>{deal.stage ?? "new"}</StatusBadge>}
       />
 
       <div className="mt-8 grid gap-6 sm:grid-cols-2">
-        <div className="grid gap-1.5">
-          <Label htmlFor="title">Title</Label>
-          <Input
-            id="title"
-            value={title ?? deal.title}
-            onChange={(e) => setTitle(e.target.value)}
-            onBlur={() => {
-              if (title !== null && title !== deal.title) saveField({ title });
-            }}
-          />
+        <div>
+          <p className="text-sm font-medium text-muted-foreground">Value</p>
+          <div className="mt-1 flex gap-2">
+            <Input
+              value={valueDraft ?? deal.value ?? ""}
+              onChange={(e) => setValueDraft(e.target.value)}
+              placeholder="£0"
+            />
+            <Button
+              variant="outline"
+              disabled={update.isPending || valueDraft === null}
+              onClick={saveValue}
+            >
+              Save
+            </Button>
+          </div>
         </div>
-        <div className="grid gap-1.5">
-          <Label htmlFor="value">Value</Label>
-          <Input
-            id="value"
-            value={value ?? deal.value ?? ""}
-            onChange={(e) => setValue(e.target.value)}
-            onBlur={() => {
-              if (value !== null && value !== deal.value) saveField({ value });
-            }}
-          />
-        </div>
-        <div className="grid gap-1.5">
-          <Label htmlFor="stage">Stage</Label>
-          <Select value={deal.stage ?? "New"} onValueChange={(v) => saveField({ stage: v })}>
-            <SelectTrigger id="stage">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {STAGES.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {s}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+
+        <div>
+          <p className="text-sm font-medium text-muted-foreground">Stage</p>
+          <div className="mt-1 flex flex-wrap gap-2">
+            {STAGES.map((s) => (
+              <button
+                key={s}
+                onClick={() => setStage(s)}
+                disabled={update.isPending}
+                className={`rounded-full border px-3 py-1 text-xs motion-press ${
+                  deal.stage === s ? "border-primary bg-primary/10 font-medium" : "border-border"
+                }`}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
       <div className="mt-10">
-        <h2 className="text-lg font-semibold tracking-tight">Activity</h2>
-        <ActivityFeed className="mt-4" items={activity} empty="No activity yet" />
+        <h2 className="text-sm font-medium text-muted-foreground">Activity</h2>
+        <ActivityFeed
+          className="mt-3"
+          empty="No changes yet in this session — edits made here will show up below."
+          items={trail.map((t) => ({ who: t.who, what: t.what, at: t.at }))}
+        />
       </div>
     </div>
   );
