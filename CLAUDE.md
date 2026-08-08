@@ -165,6 +165,15 @@ Every generation is metered in credits (1 credit = $0.008 fal cost). Postgres RP
 - **A guard that could not fire, found by its own test:** the image total cap was 9,000,000 against three images of 2,800,000 each, so 8,400,000 could never reach it. 6 MB now, which binds.
 - **NOT PROVEN LIVE** — the Anthropic account has no balance, so every build 503s at `stage:"design"` before any of this runs. 1443 unit tests, 35/35 mutations from a verified-green baseline.
 
+## The builder writes its own reply now, out of a field it was already paying for (2026-08-08)
+
+**Owner wanted a real reply and wanted it cheap.** Both, because the field already existed: `write_pages` has always carried `notes`, the model has always written it, the route has always returned it, and **the client rendered it nowhere.** Every build since the React engine shipped has paid for a few dozen tokens of prose no human read.
+
+- **Rewording it costs one deploy's cold cache and ~0.098 credits a build** — measured, and it lands inside the credit rounding, so a warm build is 21 credits before and 21 after. $78 per 100,000 builds. It was "anything the brief asked for that was left out, and why. Empty if nothing was"; it is now two or three plain sentences to the customer, written *to* them.
+- **Length is capped by the DESCRIPTION, which is the only free lever.** Output is billed per token at 5x input; a `maxLength` in the schema would truncate mid-sentence instead of shortening. The cap is asserted by a test on the description, not on the output.
+- **IT ALSO FIXED A LIE.** A placeholder build answers `ok:true` **with a slug**, so the canned line said *"✅ Built "Sharp Fade Barbers". Tell me what to change."* over the data-model fallback — claiming a site that does not exist, on the one path where the customer most needs to know. `page` is the only field that tells them apart (`"app"` vs `"placeholder"`), and `notes` on that path is already our own sentence explaining the failure. The reply is `✅` + the model's summary when a real app published, and `⚠️` + the explanation when it did not.
+- **The proportions, measured, for the next time this comes up.** A warm build is 92.8% page source, 5.0% cache reads, 2.2% fresh input, ~1.2% the reply. Cold cache is **32 credits against 21** — worth more than fifty chatty replies, and the reason an edit to `PAGE_RULES` is not free. If cost ever needs to move, it moves in the page source or the cache, never in the sentence.
+
 ## An attachment is just an attachment (2026-08-08)
 
 **Owner's call, after two corrections of mine.** *"I just want it treated normal, like an attachment — the user will say what he wants that for, it's part of the conversation."*

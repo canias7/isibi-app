@@ -10779,7 +10779,20 @@ function reactSend(site, t, origin, mode, imgs, finish) {
       // own line ahead of the result so a failed read is not buried after the
       // credit count.
       const note = (d && typeof d.contextNote === 'string') ? d.contextNote.trim() : '';
-      siteFinishBuild(origin, (mode === 'revise' ? '✅ Updated — the preview’s refreshed.' : '✅ Built ' + (name ? '“' + name + '”' : 'your site') + '. Tell me what to change.') + used, build, note);
+      // THE MODEL'S OWN SUMMARY, which the builder has always written and always
+      // discarded — `notes` came back on every response and nothing rendered it,
+      // so we paid for prose nobody read. Falls back to the canned line when the
+      // model wrote nothing.
+      const said = (d && typeof d.notes === 'string') ? d.notes.trim() : '';
+      // AND WHETHER A SITE WAS ACTUALLY BUILT. `page` is 'app' or 'placeholder',
+      // and a placeholder build still answers ok:true with a slug — so this said
+      // '✅ Built “X”. Tell me what to change.' over the data-model fallback,
+      // claiming a site that does not exist. `notes` on that path is our own
+      // sentence explaining what went wrong, which is the thing to show.
+      const built = !d || d.page !== 'placeholder';
+      const canned = mode === 'revise' ? 'Updated — the preview’s refreshed.'
+        : 'Built ' + (name ? '“' + name + '”' : 'your site') + '. Tell me what to change.';
+      siteFinishBuild(origin, (built ? '✅ ' : '⚠️ ') + (said || canned) + used, build, note);
     } else if (r.status === 402 || (d && d.need === 'credits')) {
       finish('⚡ You don’t have enough credits to build this right now. Tap your ✦ balance up top to get more.');
     } else if (d && d.need === 'rebuild') {

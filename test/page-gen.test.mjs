@@ -1861,3 +1861,47 @@ test("the images the caller validated are the ones the model gets", () => {
   assert.match(gen, /pagesRequest\(\{[^}]*\battachments\b[^}]*\}\)/s, "pagesRequest is not given the attachments");
   assert.match(gen, /\battachments\b[^\n]*from "\.\/builder\/site-context\.mjs"/, "attachments is not imported");
 });
+
+// ── The reply the customer reads ───────────────────────────────────────────
+//
+// `notes` has been written by the model and thrown away by the client since the
+// React engine shipped: returned on every response, rendered by nothing. So
+// every build has paid for prose nobody read. It is the chat reply now, which
+// costs no extra call and about 0.07 credits of extra output.
+
+test("the tool asks for a reply to the customer, not a list of omissions", () => {
+  const notes = api.SITE_PAGES_TOOL.input_schema.properties.notes;
+  assert.equal(notes.type, "string");
+  assert.match(notes.description, /What you built, for the person who asked/);
+  assert.match(notes.description, /shown to them as the reply/, "the model must know this is user-facing");
+  // Length is controlled by the description, because that is the only lever
+  // that costs nothing — a longer reply is billed per token at 5x input.
+  assert.match(notes.description, /two or three sentences/i);
+  assert.match(notes.description, /no markdown/i, "the chat renders text, not markdown");
+});
+
+test("the summary survives validation and reaches the caller", () => {
+  const v = api.validatePages({ pages: [{ path: "index.tsx", source: "x" }], notes: "  Built you three pages.  " });
+  assert.equal(v.notes, "Built you three pages.");
+  // Bounded, because it is model-written text riding in a response.
+  const long = api.validatePages({ pages: [{ path: "index.tsx", source: "x" }], notes: "z".repeat(2000) });
+  assert.ok(long.notes.length <= 600, "an unbounded summary can be any length the model likes");
+  // Junk never becomes a reply.
+  for (const bad of [undefined, null, 7, {}, []]) {
+    assert.equal(api.validatePages({ pages: [{ path: "index.tsx", source: "x" }], notes: bad }).notes, "");
+  }
+});
+
+test("the client renders it, and stops claiming a site it did not build", () => {
+  // A placeholder build answers ok:true WITH a slug, so the old canned line said
+  // '✅ Built “X”. Tell me what to change.' over the data-model fallback —
+  // claiming a site that does not exist. `page` is the only field that can tell
+  // them apart.
+  const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  assert.match(chat, /d\.notes/, "the client never reads the summary");
+  assert.match(chat, /d\.page !== 'placeholder'/, "the client cannot tell a built site from a fallback");
+  assert.match(chat, /built \? '✅ ' : '⚠️ '/, "a fallback is still marked as a success");
+  // The canned line is the fallback for when the model wrote nothing, not the
+  // default — otherwise the summary is dead again in a different way.
+  assert.match(chat, /said \|\| canned/);
+});

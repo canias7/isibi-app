@@ -322,6 +322,15 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
   // sending it again rather than us paying to guess twice.
   out.files = v.pages.map((p) => "src/routes/" + p.path);
   out.problems = problems;
+  // THE MODEL'S OWN WORDS TO THE CUSTOMER. This field has always been written
+  // and always been thrown away — `notes` was returned on the response and
+  // nothing in the client rendered it, so every build has paid for a few dozen
+  // tokens of prose nobody read. It is the reply in the chat now, which is why
+  // the tool's description was rewritten to ask for a summary rather than a
+  // list of omissions: same field, same cap, same call, ~0.07 credits.
+  //
+  // Every path BELOW this line overwrites it with our own sentence, because a
+  // failed build needs to say what failed rather than what was built.
   out.notes = v.notes;
   if (!built.ok) {
     out.stage = built.stage;

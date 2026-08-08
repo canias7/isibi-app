@@ -2248,7 +2248,11 @@ export const SITE_PAGES_TOOL = {
       },
       notes: {
         type: "string",
-        description: "Anything the brief asked for that was left out, and why. Empty if nothing was.",
+        description:
+          "What you built, for the person who asked \u2014 two or three sentences, plain, no markdown. Say what the pages are and " +
+          "anything they should know: something the brief asked for that you left out and why, a decision you made for them, a " +
+          "detail you had to invent. This is shown to them as the reply in the chat, so write it to them and not about them, and " +
+          "do not repeat their own brief back at them.",
       },
     },
     required: ["pages"],
