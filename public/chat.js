@@ -10506,7 +10506,7 @@ function renderSiteWorkspace(view, site) {
     const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
     thread.innerHTML = (site.msgs || []).map((m) => m.r === 'u'
       ? '<div class="st-msg u">' + esc(m.t) + '</div>'
-      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + linkify(m.t) + (m.build ? reactStepsHTML(m.build) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
+      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + linkify(m.t) + (m.build ? reactStepsHTML(m.build) : '') + siteAskHTML(m, site) + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
     ).join('') + (siteBusy
       ? (siteBuild
           ? (siteBuild.react
@@ -10520,8 +10520,19 @@ function renderSiteWorkspace(view, site) {
       const txt = (b.closest('.st-msg') || {}).textContent || '';
       try { navigator.clipboard.writeText(txt.replace(/⧉\s*$/, '').trim()); } catch (e) {}
     });
-    // Delegated: expand/collapse a step row's ▾ (works for live-repainted rows too).
-    thread.onclick = (e) => { const h = e.target.closest && e.target.closest('[data-steptog]'); if (h && thread.contains(h)) h.parentNode.classList.toggle('open'); };
+    // Delegated: expand/collapse a step row's ▾ (works for live-repainted rows too),
+    // and answering the builder's own question. Delegated rather than bound per
+    // button because the thread is re-rendered wholesale on every message, so a
+    // per-node handler would be rebound constantly and lost on the next repaint.
+    thread.onclick = (e) => {
+      if (!e.target.closest) return;
+      const skip = e.target.closest('[data-skip]');
+      if (skip && thread.contains(skip)) { siteAnswer('', true); return; }
+      const ans = e.target.closest('[data-ans]');
+      if (ans && thread.contains(ans)) { siteAnswer(ans.getAttribute('data-ans')); return; }
+      const h = e.target.closest('[data-steptog]');
+      if (h && thread.contains(h)) h.parentNode.classList.toggle('open');
+    };
   }
   const fr = document.getElementById('stFrame');
   if (fr && isReact) {
@@ -10803,7 +10814,26 @@ function siteFinishBuild(origin, reply, build, note) {
 // the same reason. Getting it wrong toward "build" costs a build they can see;
 // getting it wrong toward "ask" silently does not build what they asked for.
 function siteRoute(site, t, origin, isBuild, imgs, finish) {
-  const go = () => reactSend(site, t, origin, isBuild ? 'build' : 'revise', imgs, finish);
+  // THE BRIEF THE BUILD RUNS ON, not the message that was just typed. After a
+  // clarify round `t` is "Book a time slot" and the real brief — "a barber shop
+  // in Leeds" — is three messages back. Losing it here would build a site about
+  // booking a time slot and nothing else, which is the failure this whole path
+  // has to be written around.
+  const round = (isBuild && site.clarify) || null;
+  const brief = round ? round.brief : t;
+  const qa = round ? round.qa.slice(0, 8) : [];
+  // THE ANSWERS ARE FOLDED IN ON THE SERVER, by `clarifiedBrief` in
+  // builder/site-ask.mjs. Composing them here would be a second implementation
+  // of the sentence the designer reads, in a file that cannot import the first —
+  // and two copies of a prompt fragment is how the two quietly stop agreeing.
+  // THE ROUND ENDS THE MOMENT A BUILD STARTS, and it has to end here rather than
+  // when the build returns: left set, the next thing they type would be read as
+  // an answer to a question that is no longer on screen, forever.
+  const go = () => {
+    const s = siteById(origin);
+    if (s && s.clarify) { s.clarify = null; sitesSave(); }
+    reactSend(site, brief, origin, isBuild ? 'build' : 'revise', imgs, finish, qa);
+  };
   // What the answer is allowed to know. Names only — a `collect` table holds
   // customer names and phone numbers and none of that belongs in a routing call.
   const digest = {
@@ -10814,10 +10844,30 @@ function siteRoute(site, t, origin, isBuild, imgs, finish) {
   };
   apiFetch('/api/site/route', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: t, site: digest }),
+    // `firstBuild` is what opens the question path at all, and it is `isBuild` —
+    // the same flag that decides build-vs-revise — so a revise can never be
+    // interviewed. The server re-derives the budget from `qa` regardless.
+    body: JSON.stringify({ message: t, site: digest, firstBuild: !!isBuild, brief: brief, qa: qa }),
   }).then(async (r) => {
     const d = await r.json().catch(() => null);
-    if (!r.ok || !d || d.intent !== 'ask' || !d.answer) return go();
+    if (!r.ok || !d) return go();
+    // A QUESTION FOR THEM, before anything is built or charged. Rendered as an
+    // ordinary assistant message carrying options; the round is remembered on
+    // the site so the answer can be put back together with the brief.
+    if (d.intent === 'clarify' && d.question && Array.isArray(d.question.options) && d.question.options.length >= 2) {
+      siteBusy = false;
+      siteBuildMsg = '';
+      siteBuildStop();
+      const s0 = siteById(origin);
+      if (!s0) return;
+      s0.clarify = { brief: brief, qa: qa, imgs: imgs || [] };
+      s0.msgs.push({ r: 'a', t: String(d.question.text), q: String(d.question.text), opts: d.question.options.slice(0, 4) });
+      s0.updatedAt = Date.now();
+      sitesSave();
+      if (siteOpenId === origin) renderSites();
+      return;
+    }
+    if (d.intent !== 'ask' || !d.answer) return go();
     // A QUESTION. Nothing is built, nothing on the site changes, and the reply
     // is an ordinary assistant message — no build steps, because there was no
     // build and a steps block over an answer would claim one.
@@ -10867,7 +10917,7 @@ function buildDownMsg(d) {
 // The React build/revise send path (cutover engine). Build = first message on a
 // project → /api/site/react-build; revise = any later message on a React site →
 // /api/site/react-revise (same slug/URL). Streams live steps; charge-after.
-function reactSend(site, t, origin, mode, imgs, finish) {
+function reactSend(site, t, origin, mode, imgs, finish, qa) {
   // WE KNOW IT IS A BUILD NOW, so the steps may appear. Set here rather than in
   // `siteRoute` because an attachment skips the router and comes straight here —
   // one place, so neither entry can leave it stuck on `thinking`.
@@ -10879,8 +10929,12 @@ function reactSend(site, t, origin, mode, imgs, finish) {
   // a result and is reaching for a better model was the path that could not ask
   // for one. `effort` rides along on both and is still read by nothing — the
   // control is visible and inert on purpose (owner's call).
+  // `qa` is what they were asked before the build and what they said. Sent RAW,
+  // not folded into the brief here — the server composes it, so there is one
+  // version of the sentence the designer ends up reading. Build only: questions
+  // are never asked on a revise, so a revise has none to send.
   const body = mode === 'build'
-    ? { brief: t, images: imgs, picker: buildPicker, effort: buildEffort }
+    ? { brief: t, images: imgs, picker: buildPicker, effort: buildEffort, qa: qa || [] }
     : { slug: site.slug, instruction: t, images: imgs, picker: buildPicker, effort: buildEffort };
   siteAbort = new AbortController();
   apiFetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: siteAbort.signal }).then(async (r) => {
@@ -11023,11 +11077,87 @@ async function readSiteStream(r, origin) {
 // the measured Gemini cost + each generated Nano Banana Pro image, only once each
 // step lands, so a failure costs nothing. Builds take a minute or two, streamed
 // as NDJSON so the chat shows live steps.
+// Answering the builder's own question, or refusing to.
+//
+// `label` is the option they clicked, or what they typed while a question was on
+// screen — a typed reply is treated as the answer, because the builder has just
+// asked them something and anything else would drop the brief on the floor. A
+// correction ("no, make it a cafe") lands in the same place and the designer
+// reads it as written; the pair is appended, never interpreted here.
+//
+// `skip` builds immediately with whatever has been gathered. It exists because
+// the alternative to an escape is somebody who wrote a perfectly good brief
+// being asked three questions about it, and this path is offered on EVERY new
+// project.
+// The options under a question the builder asked, and the way out of them.
+//
+// Rendered ONLY while that question is the live one — `site.clarify` is cleared
+// the moment a build starts, so an answered question keeps its text in the
+// thread and loses its buttons. Leaving them clickable would offer a second
+// answer to something already built on the first.
+function siteAskHTML(m, site) {
+  if (!m || !m.q || !Array.isArray(m.opts) || !m.opts.length) return '';
+  if (!site || !site.clarify) return '';
+  // The LAST question only. A round asks one at a time, so an earlier one still
+  // in the thread is history and its buttons would answer the wrong question.
+  const live = [...(site.msgs || [])].reverse().find((x) => x && x.r === 'a' && x.q);
+  if (!live || live !== m) return '';
+  return '<div class="st-opts">' +
+    m.opts.slice(0, 4).map((o) => '<button type="button" class="st-opt" data-ans="' + esc(String(o)) + '">' + esc(String(o)) + '</button>').join('') +
+    '<button type="button" class="st-opt st-opt-skip" data-skip="1">Skip &mdash; just build it</button>' +
+  '</div>';
+}
+
+function siteAnswer(label, skip) {
+  const site = siteById(siteOpenId);
+  if (!site || siteBusy || !site.clarify) return;
+  const said = String(label || '').trim().slice(0, 200);
+  if (!skip && !said) return;
+  // The question this answers — the last one actually asked, read off the
+  // thread rather than held in a second place that could disagree with it.
+  const asked = [...(site.msgs || [])].reverse().find((m) => m && m.r === 'a' && m.q);
+  if (!skip && asked) site.clarify.qa.push({ q: String(asked.q), a: said });
+  site.msgs.push({ r: 'u', t: skip ? 'Skip the questions — just build it' : said });
+  const origin = siteOpenId;
+  const imgs = site.clarify.imgs || [];
+  siteBusy = true;
+  siteBuildStart(true);
+  sitesSave();
+  renderSites();
+  const finish = (reply) => {
+    siteBusy = false;
+    siteBuildMsg = '';
+    siteBuildStop();
+    const s = siteById(origin);
+    if (!s) return;
+    s.msgs.push({ r: 'a', t: reply });
+    s.updatedAt = Date.now();
+    sitesSave();
+    if (siteOpenId === origin) renderSites();
+  };
+  if (skip) {
+    // Straight to the build. No routing call: they have said what they want and
+    // paying a model to reclassify "just build it" would be the one question too
+    // many this button exists to avoid.
+    const round = site.clarify;
+    site.clarify = null;
+    sitesSave();
+    reactSend(site, round.brief, origin, 'build', imgs, finish, round.qa);
+    return;
+  }
+  siteRoute(site, said, origin, true, imgs, finish);
+}
+
 function siteSend(text) {
   const site = siteById(siteOpenId);
   if (!site || siteBusy) return;
   const t = String(text || '').trim().slice(0, 2000);
   if (!t) return;
+  // A QUESTION IS ON SCREEN, so this is the answer to it. Typing instead of
+  // clicking is normal — the options cover the likely answers, not every answer
+  // — and routing a typed reply down the ordinary path would start a fresh
+  // build from those few words and lose the brief the round was about.
+  if (site.clarify) { siteAnswer(t); return; }
   const isBuild = !sitePages(site).length;
   const active = siteActivePage(site);
   site.msgs.push({ r: 'u', t });

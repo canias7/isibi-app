@@ -1583,6 +1583,26 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    than coloured: the platform is monochrome, and a caveat that depends on hue
    says nothing in greyscale. */
 .st-note { font-size: .8rem; color: var(--muted); line-height: 1.45; margin: 0 0 .45rem; padding-left: .6rem; border-left: 2px solid var(--line); }
+/* The answers to a question the builder asked before building. Wrapping rather
+   than a row: an option is a short sentence, not a chip, and three of them will
+   not sit on one line in a narrow chat pane at any size worth designing for.
+   The buttons carry a real border and a hover, because something clickable that
+   looks like body text is something nobody clicks. */
+.st-opts { display: flex; flex-wrap: wrap; gap: .4rem; margin: .6rem 0 .2rem; }
+.st-opt { font: inherit; font-size: .82rem; line-height: 1.3; text-align: left; cursor: pointer;
+  padding: .42rem .7rem; border-radius: 9px; border: 1px solid var(--line-2);
+  background: var(--panel); color: var(--text); }
+.st-opt:hover { border-color: var(--text); }
+.st-opt:active { transform: translateY(1px); }
+.st-opt:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+/* The way out, and it is deliberately QUIETER than the answers rather than
+   hidden — a skip that reads as prominently as the options invites a reflex
+   click past a question worth answering, and one that cannot be found is the
+   interrogation this feature has to avoid. Pushed to its own line so it is never
+   mistaken for a fourth answer. */
+.st-opt-skip { flex-basis: 100%; border-color: transparent; background: none;
+  color: var(--muted); padding-left: 0; padding-right: 0; margin-top: .05rem; }
+.st-opt-skip:hover { border-color: transparent; color: var(--text); text-decoration: underline; }
 .st-act { font: inherit; font-size: .8rem; background: none; border: none; color: var(--muted); cursor: pointer; padding: 0; }
 .st-act:hover { color: var(--text); }
 .st-msg.st-busy { color: var(--muted); }

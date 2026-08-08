@@ -11,7 +11,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   ASK_TOOL, ASK_MODEL, ASK_MAX_TOKENS, MAX_MESSAGE,
-  askRequest, readRouting, askUsage, routeMessage, siteDigest,
+  MAX_CLARIFY, MIN_OPTIONS, MAX_OPTIONS, MAX_OPTION_CHARS,
+  askRequest, readRouting, readQuestion, clarifiedBrief, askUsage, routeMessage, siteDigest,
 } from "../builder/site-ask.mjs";
 
 const SITE = { name: "Sharp Fade", url: "/s/sharp-fade/", pages: ["/", "/book"], tables: ["services", "bookings"] };
@@ -183,19 +184,29 @@ test("an empty message never reaches the model", async () => {
 
 // ── the guards that stop this rotting ────────────────────────────────────────
 
-test("the enum and the reader agree on the same two values", () => {
-  // Derived at both ends. A third intent added to the schema and not to the
-  // reader would be silently coerced to "build" — the schema would advertise a
-  // branch that does not exist.
+test("the enum and the reader agree, and every declared value is reachable", () => {
+  // DERIVED AT BOTH ENDS. An intent added to the schema and not to the reader is
+  // silently coerced to "build" — the schema advertises a branch that does not
+  // exist, and nothing anywhere fails. That is the shape this repo has recorded
+  // six times over, so the check runs in BOTH directions rather than pinning a
+  // list somebody has to remember to update.
   const declared = ASK_TOOL.input_schema.properties.intent.enum;
-  assert.deepEqual([...declared].sort(), ["ask", "build"]);
+  assert.deepEqual([...declared].sort(), ["ask", "build", "clarify"]);
+
+  // Every declared value produces itself when the caller allows it. A well-formed
+  // payload is built per intent, because each branch needs a different field and
+  // an intent starved of its field falls through to build for the WRONG reason —
+  // which would let a genuinely unreachable intent pass this test.
+  const wellFormed = {
+    build: {},
+    ask: { answer: "Two pages." },
+    clarify: { question: { text: "Do customers book?", options: ["Yes", "No"] } },
+  };
   for (const v of declared) {
-    const r = readRouting(toolReply({ intent: v, answer: "something" }));
-    assert.ok(["ask", "build"].includes(r.intent));
+    assert.ok(Object.hasOwn(wellFormed, v), "a new intent was declared and this guard was not taught its shape: " + v);
+    const r = readRouting(toolReply({ intent: v, ...wellFormed[v] }), { canClarify: true });
+    assert.equal(r.intent, v, "declared intent " + v + " is unreachable through the reader");
   }
-  // And the one the reader treats specially really is in the schema, or the
-  // whole cheap path is unreachable.
-  assert.ok(declared.includes("ask"), "the reader branches on a value the model is never offered");
 });
 
 test("the answer's length is capped in the DESCRIPTION, not only in max_tokens", () => {
@@ -248,7 +259,12 @@ test("worker.js imports what it calls", () => {
 test("the router is BILLED, and only when the model answered", () => {
   const src = worker();
   const i = src.indexOf('url.pathname === "/api/site/route"');
-  const block = src.slice(i, i + 2200);
+  // TO THE END OF THE HANDLER, not a fixed number of characters. A window sized
+  // in bytes silently stops covering the thing it was written for the moment
+  // somebody adds a comment above it — which is exactly what happened here.
+  const end = src.indexOf("usage: routed.usage || undefined", i);
+  assert.ok(i > 0 && end > i, "the routing handler moved; this guard checks nothing");
+  const block = src.slice(i, end);
   // Charged on measured usage from the same price table as every other call —
   // this is the whole "every time a model is used, charge for it" rule, and a
   // routing call is not exempt for being cheap.
@@ -259,28 +275,52 @@ test("the router is BILLED, and only when the model answered", () => {
   assert.match(block, /if \(routed\.usage\)/, "a failed routing call would be billed");
 });
 
+// The router's own body, to its closing brace rather than to a byte count.
+const routeBlock = () => {
+  const src = chat();
+  const i = src.indexOf("function siteRoute(");
+  const end = src.indexOf("\n// What to say when a build could not run.", i);
+  assert.ok(i > 0 && end > i, "siteRoute moved; this guard checks nothing");
+  return src.slice(i, end);
+};
+
 test("the composer asks before it builds, and falls through on anything unexpected", () => {
   const src = chat();
   assert.match(src, /function siteRoute\(/, "the composer-side router is gone");
   assert.match(src, /siteRoute\(site, t, origin, isBuild, imgs, finish\)/, "siteSend no longer calls it");
-  const i = src.indexOf("function siteRoute(");
-  const block = src.slice(i, i + 2000);
+  const block = routeBlock();
   // EVERY failure mode reaches the build. A router that can swallow a build
   // request is worse than no router: the customer cannot tell it from broken.
-  assert.match(block, /if \(!r\.ok \|\| !d \|\| d\.intent !== 'ask' \|\| !d\.answer\) return go\(\)/,
+  //
+  // Two fall-throughs now rather than one, because the clarify branch sits
+  // between them — so the property is asserted as "an unusable answer of ANY
+  // kind returns go()", which is what it always meant.
+  assert.match(block, /if \(!r\.ok \|\| !d\) return go\(\)/, "a bad response no longer builds");
+  assert.match(block, /if \(d\.intent !== 'ask' \|\| !d\.answer\) return go\(\)/,
     "the fall-through has been narrowed — some failure now stops the build");
   assert.match(block, /\.catch\(go\)/, "a network failure must still build");
+  // AND THE CLARIFY BRANCH IS GUARDED THE SAME WAY. A question with fewer than
+  // two options reaching the thread is a dead end nobody can click past, so it
+  // has to fall through here as well as being refused server-side.
+  assert.match(block, /d\.intent === 'clarify' && d\.question && Array\.isArray\(d\.question\.options\) && d\.question\.options\.length >= 2/,
+    "a malformed question would render as a dead end");
 });
 
 test("an answer renders as an ordinary message, with no build attached", () => {
   // A steps block over an answer claims a build that did not happen, and a
   // `build` field is what makes the thread render one.
-  const src = chat();
-  const i = src.indexOf("function siteRoute(");
-  const block = src.slice(i, i + 2000);
-  const push = block.match(/s\.msgs\.push\(\{[^}]*\}\)/);
-  assert.ok(push, "the answer is never pushed onto the thread");
-  assert.ok(!/build:/.test(push[0]), "an answered question must not carry build steps: " + push[0]);
+  const block = routeBlock();
+  const pushes = block.match(/s0?\.msgs\.push\(\{[^}]*\}\)/g) || [];
+  assert.equal(pushes.length, 2, "expected exactly the question push and the answer push: " + pushes.length);
+  for (const p of pushes) {
+    assert.ok(!/build:/.test(p), "neither a question nor an answer may carry build steps: " + p);
+  }
+  // The question push carries what makes it a question; the answer push does not,
+  // or an ordinary reply would render buttons under it.
+  const [question, answer] = pushes;
+  assert.match(question, /q: /);
+  assert.match(question, /opts: /);
+  assert.ok(!/\bq: |\bopts: /.test(answer), "a plain answer is being rendered as a question: " + answer);
 });
 
 test("the balance refreshes after a routing charge", () => {
@@ -363,4 +403,266 @@ test("the build routes stay OUT of apiFetch's refresh list", () => {
   // The router IS in it, and belongs there: a plain JSON response whose charge
   // is settled before it answers.
   assert.ok(block.includes("/api/site/route"));
+});
+
+// ── the builder asking THEM (2026-08-08) ─────────────────────────────────────
+//
+// A third intent, and the risk it carries is the mirror of the one `readRouting`
+// was written around. That rule — every unclear case builds — exists because a
+// wrong "ask" answers "add a booking form" with a paragraph and silently does
+// not build. A wrong "clarify" is worse: it stops in front of a brief that was
+// already good enough, on the ONE path where somebody is waiting to see whether
+// this product works at all. So every guard below is about the same thing:
+// nothing here may become a reason a build does not happen.
+
+test("a question the interface can render, and every shape it cannot", () => {
+  const ok = readQuestion({ text: "Do customers book online?", options: ["Book a slot", "Enquire", "Neither"] });
+  assert.deepEqual(ok, { text: "Do customers book online?", options: ["Book a slot", "Enquire", "Neither"] });
+
+  // ONE OPTION IS NOT A CHOICE, and a question with nothing to click is a dead
+  // end the customer cannot get past — worse than never asking.
+  assert.equal(readQuestion({ text: "x", options: ["only"] }), null);
+  assert.equal(readQuestion({ text: "x", options: [] }), null);
+  assert.equal(readQuestion({ text: "x" }), null);
+  // No question to ask.
+  assert.equal(readQuestion({ options: ["a", "b"] }), null);
+  assert.equal(readQuestion({ text: "   ", options: ["a", "b"] }), null);
+  // Not an object at all.
+  for (const junk of [null, undefined, "a question?", 7, ["a", "b"]]) {
+    assert.equal(readQuestion(junk), null, JSON.stringify(junk));
+  }
+});
+
+test("options are cleaned, and the count is checked AFTER the cleaning", () => {
+  // Deduped case-insensitively and after trimming: "Book online" twice is one
+  // choice wearing two buttons.
+  assert.deepEqual(readQuestion({ text: "x", options: ["Book", " book ", "BOOK", "Call"] }).options,
+    ["Book", "Call"]);
+  // AND THAT IS WHY THE COUNT IS CHECKED LAST. Four options that dedupe to one
+  // is a question with a single button on it — the check has to run on what will
+  // actually be rendered, not on what arrived.
+  assert.equal(readQuestion({ text: "x", options: ["Yes", "yes", "YES", " yes"] }), null);
+  // A STRING, not anything stringifiable: String(["a","b"]) is "a,b", which
+  // renders as one button offering two different answers.
+  assert.deepEqual(readQuestion({ text: "x", options: [["a", "b"], "c", "d"] }).options, ["c", "d"]);
+  assert.deepEqual(readQuestion({ text: "x", options: [null, 7, {}, "c", "d"] }).options, ["c", "d"]);
+  // Empty and whitespace-only options are dropped rather than rendered blank.
+  assert.deepEqual(readQuestion({ text: "x", options: ["", "  ", "c", "d"] }).options, ["c", "d"]);
+  // Capped at four, and each capped in length — a paragraph does not fit a button.
+  assert.equal(readQuestion({ text: "x", options: ["a", "b", "c", "d", "e", "f"] }).options.length, MAX_OPTIONS);
+  const long = readQuestion({ text: "x", options: ["y".repeat(500), "b"] });
+  assert.equal(long.options[0].length, MAX_OPTION_CHARS);
+  // Newlines collapse — an option is one line on one button.
+  assert.equal(readQuestion({ text: "x", options: ["two\n\nlines", "b"] }).options[0], "two lines");
+});
+
+test("clarify is the CALLER's to allow, never the model's to take", () => {
+  const q = { text: "Do customers book?", options: ["Yes", "No"] };
+  const reply = toolReply({ intent: "clarify", question: q });
+  // Allowed: honoured.
+  assert.equal(readRouting(reply, { canClarify: true }).intent, "clarify");
+  assert.deepEqual(readRouting(reply, { canClarify: true }).question, q);
+  // NOT allowed: overruled into a build, not an error and not an empty reply.
+  // This is what stops a revise being interviewed about its own colour scheme,
+  // and what makes the question budget a real ceiling rather than a request.
+  assert.equal(readRouting(reply, { canClarify: false }).intent, "build");
+  assert.equal(readRouting(reply).intent, "build", "the default must be closed");
+});
+
+test("a clarify with no usable question is a BUILD", () => {
+  // Same rule as an answerless "ask", for the same reason: honouring it shows an
+  // empty prompt and builds nothing, which the customer cannot tell apart from
+  // the builder being broken.
+  for (const bad of [
+    { intent: "clarify" },
+    { intent: "clarify", question: {} },
+    { intent: "clarify", question: { text: "x" } },
+    { intent: "clarify", question: { text: "x", options: ["one"] } },
+    { intent: "clarify", question: { text: "", options: ["a", "b"] } },
+    { intent: "clarify", question: "a question?" },
+  ]) {
+    const r = readRouting(toolReply(bad), { canClarify: true });
+    assert.equal(r.intent, "build", JSON.stringify(bad));
+    assert.equal(r.question, undefined);
+  }
+});
+
+test("the question budget is spent in arithmetic, before the model is asked", async () => {
+  const sent = [];
+  const deps = { send: async (req) => { sent.push(req); return toolReply({ intent: "clarify", question: { text: "q?", options: ["a", "b"] } }); } };
+  const qa = (n) => Array.from({ length: n }, (_, i) => ({ q: "q" + i, a: "a" + i }));
+
+  // A first build with room: allowed.
+  assert.equal((await routeMessage(deps, { message: "a cafe", firstBuild: true, brief: "a cafe", qa: [] })).intent, "clarify");
+  assert.equal((await routeMessage(deps, { message: "x", firstBuild: true, brief: "a cafe", qa: qa(MAX_CLARIFY - 1) })).intent, "clarify");
+
+  // AT the cap: refused, even though the model said clarify. `MAX_CLARIFY` is a
+  // number here, not a sentence in a schema description — "have you got another
+  // question?" is a thing a model says yes to.
+  assert.equal((await routeMessage(deps, { message: "x", firstBuild: true, brief: "a cafe", qa: qa(MAX_CLARIFY) })).intent, "build");
+  assert.equal((await routeMessage(deps, { message: "x", firstBuild: true, brief: "a cafe", qa: qa(MAX_CLARIFY + 5) })).intent, "build");
+
+  // NEVER on a revise, whatever the model says and whatever the qa claims.
+  assert.equal((await routeMessage(deps, { message: "make it blue", firstBuild: false, qa: [] })).intent, "build");
+  assert.equal((await routeMessage(deps, { message: "make it blue", qa: [] })).intent, "build", "the default is closed");
+  // Only a real boolean opens it — `firstBuild: "yes"` is not a first build.
+  assert.equal((await routeMessage(deps, { message: "x", firstBuild: "yes", qa: [] })).intent, "clarify",
+    "routeMessage coerces; the ROUTE is what requires === true");
+
+  // Half-written pairs do not count against the budget: a pair with no answer is
+  // a question that was asked and never answered, which must not silently spend
+  // one of the three.
+  const halves = [{ q: "q", a: "" }, { q: "", a: "a" }, null, "x"];
+  assert.equal((await routeMessage(deps, { message: "x", firstBuild: true, qa: halves })).intent, "clarify");
+});
+
+test("the request tells the model where it is in the round", () => {
+  const first = askRequest({ message: "a cafe", canClarify: true, brief: "a cafe", qa: [] });
+  const body = String(first.messages[0].content);
+  assert.match(body, /FIRST build/, "the model is not told questions are open");
+  assert.match(body, /3 questions left/, "the remaining budget is not stated");
+  assert.match(body, /THE BRIEF THEY STARTED WITH\na cafe/, "the original brief is not carried");
+
+  // WHAT HAS ALREADY BEEN ASKED, or one question at a time becomes the same
+  // question three times.
+  const second = String(askRequest({
+    message: "Book a slot", canClarify: true, brief: "a barber shop",
+    qa: [{ q: "Do customers book?", a: "Book a slot" }],
+  }).messages[0].content);
+  assert.match(second, /already asked/i);
+  assert.match(second, /Do customers book\? -> Book a slot/);
+  assert.match(second, /2 questions left/);
+  // Singular reads as English at one, because "1 questions left" in a prompt is
+  // the kind of sloppiness a model mirrors back into its own writing.
+  assert.match(String(askRequest({ message: "x", canClarify: true, qa: [{ q: "a", a: "b" }, { q: "c", a: "d" }] }).messages[0].content),
+    /1 question left/);
+
+  // A REVISE IS TOLD PLAINLY, not left to infer it from an absent section — and
+  // it is never handed the round's state.
+  const closed = String(askRequest({ message: "make it blue", canClarify: false, brief: "secret brief", qa: [{ q: "a", a: "b" }] }).messages[0].content);
+  assert.match(closed, /Questions are closed/);
+  assert.ok(!closed.includes("secret brief"));
+  assert.ok(!/already asked/i.test(closed));
+});
+
+test("the tool offers all three intents and describes the question", () => {
+  const p = ASK_TOOL.input_schema.properties;
+  assert.deepEqual(p.intent.enum, ["build", "ask", "clarify"]);
+  assert.equal(p.question.properties.options.minItems, MIN_OPTIONS);
+  assert.equal(p.question.properties.options.maxItems, MAX_OPTIONS);
+  assert.deepEqual(p.question.required, ["text", "options"]);
+  // The enum is the only place `clarify` can come from, so the description has
+  // to say when NOT to use it — a model given a third option uses it.
+  assert.match(p.intent.description, /first build/i);
+  assert.match(p.intent.description, /[Nn]ever on a change|already exists/);
+});
+
+test("the answers are folded back into the ORIGINAL brief", () => {
+  // THE FAILURE THIS PREVENTS. The composer sends the message just typed, and
+  // after a round that message is "Book a time slot" — so building on it makes a
+  // site about booking a time slot and loses "a barber shop in Leeds" entirely.
+  const out = clarifiedBrief("a barber shop in Leeds", [
+    { q: "Do customers book?", a: "Book a time slot" },
+    { q: "How should it feel?", a: "Quiet and classic" },
+  ]);
+  assert.match(out, /^a barber shop in Leeds/, "the brief is no longer first, or no longer there");
+  assert.match(out, /Do customers book\? Book a time slot/);
+  assert.match(out, /How should it feel\? Quiet and classic/);
+
+  // A NO-OP WHEN NOTHING WAS ASKED, which is every revise and every build that
+  // went straight through — so this changes no request that did not use it.
+  assert.equal(clarifiedBrief("a cafe", []), "a cafe");
+  assert.equal(clarifiedBrief("a cafe", null), "a cafe");
+  assert.equal(clarifiedBrief("a cafe", undefined), "a cafe");
+  assert.equal(clarifiedBrief("a cafe", "nonsense"), "a cafe");
+  assert.equal(clarifiedBrief("  a cafe  ", [{ q: "", a: "" }]), "a cafe");
+  // Half-written pairs are dropped rather than rendered as a dangling question.
+  assert.equal(clarifiedBrief("a cafe", [{ q: "why?", a: "" }, { q: "", a: "yes" }]), "a cafe");
+  // Bounded by the same cap the round is, so a caller cannot append fifty lines
+  // of its own text to a brief by claiming they were answers.
+  const many = clarifiedBrief("a cafe", Array.from({ length: 40 }, (_, i) => ({ q: "q" + i, a: "a" + i })));
+  assert.equal(many.split("\n").filter((l) => l.startsWith("- ")).length, MAX_CLARIFY);
+});
+
+// ── the chain ────────────────────────────────────────────────────────────────
+
+test("the route passes the round through, and requires a real boolean", () => {
+  const w = worker();
+  const i = w.indexOf('url.pathname === "/api/site/route"');
+  const block = w.slice(i, w.indexOf("cost: rCost", i));
+  assert.match(block, /firstBuild: rb\.firstBuild === true/,
+    "a truthy firstBuild would let any caller open the question path");
+  assert.match(block, /brief: rb\.brief/);
+  assert.match(block, /qa: rb\.qa/);
+  // The question is returned, or the whole tier is computed and rendered by
+  // nothing — the dead-field shape this repo has recorded six times.
+  assert.match(w.slice(i, i + 4000), /question: routed\.intent === "clarify" \? routed\.question/);
+});
+
+test("the BUILD route folds the answers in, and does it in one place", () => {
+  const w = worker();
+  assert.match(w, /import \{ routeMessage, clarifiedBrief \}/, "the build route cannot compose the brief");
+  const i = w.indexOf("const brief = clarifiedBrief(");
+  assert.ok(i > 0, "the build route no longer folds the answers into the brief");
+  assert.match(w.slice(i, i + 300), /body\.qa/, "the answers never reach it");
+  // ONE implementation. The composer cannot import the module, so a copy there
+  // is a second version of the sentence the designer reads.
+  assert.ok(!/They were asked/.test(chat()), "public/chat.js is composing the brief itself");
+});
+
+test("the composer keeps the ORIGINAL brief across the round", () => {
+  const src = chat();
+  const i = src.indexOf("function siteRoute(");
+  const block = src.slice(i, src.indexOf("function buildDownMsg", i));
+  assert.ok(block.length > 400, "siteRoute moved; this guard checks nothing");
+  // The brief comes off the ROUND when there is one, and the build is sent that
+  // — never `t`, which after a round is whichever button was clicked.
+  assert.match(block, /const brief = round \? round\.brief : t/);
+  assert.match(block, /reactSend\(site, brief,/, "the build is sent the clicked answer instead of the brief");
+  // The round ends when a build starts, or the next thing typed is read as an
+  // answer to a question that is no longer on screen.
+  assert.match(block, /s\.clarify = null/);
+});
+
+test("only a build sends the answers, and only the live question keeps its buttons", () => {
+  const src = chat();
+  const i = src.indexOf("const body = mode === 'build'");
+  const body = src.slice(i, i + 460);
+  const halves = body.split("slug: site.slug");
+  assert.equal(halves.length, 2, "the build/revise split is no longer recognisable");
+  assert.match(halves[0], /qa: qa \|\| \[\]/, "a build does not send the answers");
+  assert.ok(!/\bqa:/.test(halves[1]), "a revise sends answers it can never have");
+
+  // The buttons are rendered only while that question is live. Left on an
+  // answered one, they offer a second answer to something already built.
+  const a = src.indexOf("function siteAskHTML(");
+  const askBlock = src.slice(a, src.indexOf("function siteAnswer(", a));
+  assert.match(askBlock, /if \(!site \|\| !site\.clarify\) return ''/);
+  assert.match(askBlock, /data-skip/, "there is no way past the questions");
+  assert.match(askBlock, /data-ans=/);
+  // THE LAST QUESTION ONLY, and this is the one a mutation found nothing
+  // holding. A round asks one at a time, so an earlier question left clickable
+  // records an answer against the wrong `q` — the pair goes into the brief
+  // attached to a question that was already answered two messages ago.
+  assert.match(askBlock, /reverse\(\)\.find\(/, "the live question is no longer identified");
+  assert.match(askBlock, /if \(!live \|\| live !== m\) return ''/,
+    "every past question in the thread keeps its buttons");
+});
+
+test("a typed reply during a round is an ANSWER, not a new brief", () => {
+  // Typing instead of clicking is normal — the options cover the likely answers,
+  // not every answer. Routed down the ordinary path it would start a fresh build
+  // from those few words and lose the brief the round was about.
+  const src = chat();
+  const i = src.indexOf("function siteSend(");
+  const block = src.slice(i, i + 1200);
+  assert.match(block, /if \(site\.clarify\) \{ siteAnswer\(t\); return; \}/);
+  // And skipping goes STRAIGHT to the build — paying a model to reclassify
+  // "just build it" is the one question too many the button exists to avoid.
+  const a = src.indexOf("function siteAnswer(");
+  const ans = src.slice(a, src.indexOf("function siteSend(", a));
+  assert.match(ans, /if \(skip\)/);
+  assert.match(ans, /reactSend\(site, round\.brief, origin, 'build'/);
+  assert.ok(!/siteRoute\([^)]*\)\s*;?\s*\}\s*$/.test(ans.slice(ans.indexOf("if (skip)"), ans.indexOf("siteRoute("))),
+    "the skip path calls the router");
 });

@@ -41,7 +41,7 @@ import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlI
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
 import { publishPages, pageCredits, schemaSettlement } from "./builder/publish-pages.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
-import { routeMessage } from "./builder/site-ask.mjs";
+import { routeMessage, clarifiedBrief } from "./builder/site-ask.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
 import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
@@ -7400,7 +7400,20 @@ async function handleRequest(request, env, ctx) {
       }
       const routed = await routeMessage(
         { send: (req) => anthropicMessages(env, req) },
-        { message: rb.message, site: rb.site },
+        {
+          message: rb.message,
+          site: rb.site,
+          // THE CLARIFY GATE, and it is deliberately the SERVER's and not the
+          // client's. `firstBuild` says a project has no pages yet; `qa` is what
+          // has already been asked and answered this round. Both arrive in the
+          // body, so both are caller-controlled — which is exactly why
+          // `routeMessage` spends the budget in arithmetic rather than believing
+          // anybody. A caller that lies about `qa` gets fewer questions, never
+          // more.
+          firstBuild: rb.firstBuild === true,
+          brief: rb.brief,
+          qa: rb.qa,
+        },
       );
       let rCost = 0;
       // Billed only when the model actually answered. `routeMessage` returns a
@@ -7414,6 +7427,11 @@ async function handleRequest(request, env, ctx) {
         ok: true,
         intent: routed.intent,
         answer: routed.intent === "ask" ? routed.answer : undefined,
+        // The question to put in front of the build, already cleaned into
+        // something renderable — two to four options, deduped, capped. The
+        // client shows it verbatim rather than re-deciding anything, so there is
+        // one place that judges whether a question is usable.
+        question: routed.intent === "clarify" ? routed.question : undefined,
         cost: rCost,
         usage: routed.usage || undefined,
       });
@@ -7451,7 +7469,16 @@ async function handleRequest(request, env, ctx) {
       // Revise sends {slug, instruction} for an existing site; build sends
       // {brief}. Re-applying a schema is safe (all its DDL is additive or
       // IF NOT EXISTS), so both take the same path.
-      const brief = String(body.brief || body.prompt || body.instruction || "").trim().slice(0, 4000);
+      // WHAT THEY WERE ASKED BEFORE THE BUILD, folded back in. `clarifiedBrief`
+      // is a no-op when nothing was asked, which is every revise and every build
+      // that went straight through — so this changes no request that did not use
+      // the feature. Composed HERE and not in the composer, because the composer
+      // cannot import the module and a second copy of a prompt fragment is two
+      // things that can disagree about what the designer reads.
+      const brief = clarifiedBrief(
+        String(body.brief || body.prompt || body.instruction || "").trim().slice(0, 4000),
+        body.qa,
+      ).slice(0, 5000);
 
       // WHICH MODELS THIS BUILD RUNS ON — the composer's Builder picker, which
       // was sent on every build from the day it shipped and read here on none of

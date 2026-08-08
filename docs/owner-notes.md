@@ -14444,6 +14444,33 @@ removing the separator check entirely still passed. Rewritten as `+1555000, +144
 it was refused for its second `+`. Only `+1555000,1444`, whose sole illegal
 character is the separator, actually holds the property.
 
+### The builder asks before it builds (2026-08-08)
+
+Your call: clickable options, every new project, one question at a time.
+
+A first build now stops and asks one thing — with the answers as buttons, and a
+quiet **Skip — just build it** under them. Answer, and it may ask one more,
+chosen knowing what you just said. **Three at most, then it builds regardless.**
+A revise never asks; nothing changes on an existing site.
+
+The question rides on the routing call that was already happening, so it costs
+nothing extra beyond the routing itself (~0.3 credits). Against a build at ~28
+credits, one question that prevents the wrong site pays for itself many times.
+
+**The thing I was most careful about:** after you click "Book a time slot", that
+is the last thing you typed — so a naive version builds a site about booking a
+time slot and throws away "a barber shop in Leeds". The original brief is carried
+through the whole round and put back in front of your answers before anything is
+built.
+
+**If you want it to ask less**, the number is `MAX_CLARIFY` in
+`builder/site-ask.mjs` — set it to 1 and it asks the single most important thing
+and then builds. Setting it to 0 turns the feature off entirely without removing
+any of it.
+
+**Not proven live** — same blocker as everything else, the model account has no
+balance, so the router fails into its build fallback and no question gets asked.
+
 ### The Builder picker now picks (2026-08-08)
 
 Your call: make Builder work, leave Effort visible and dead. Both are in, and
