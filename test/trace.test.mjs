@@ -148,9 +148,16 @@ test("the build route actually uses it", () => {
   assert.match(w, /tr\.line\(\)/, "nothing logs it either");
 });
 
-test("the schema call's usage is captured and reported, but NOT billed on", () => {
-  // Two separate claims, and the second matters as much as the first: measuring
-  // a cost is not the same as changing what somebody is charged for it.
+test("the schema call is captured, reported, AND billed on measured usage", () => {
+  // THIS TEST USED TO ASSERT THE OPPOSITE, and the reversal is the point of
+  // keeping its shape. It said "measured, NOT billed on" — the right caution
+  // when the measurement was new, because measuring a cost is not the same as
+  // changing what somebody is charged for it. Having measured it, the owner
+  // changed the charge (2026-08-08): every model call bills on what it used.
+  //
+  // The measurement half is unchanged and still asserted first, because the
+  // billing half is meaningless without it — pricing a usage report nobody
+  // captured is how a flat fee comes back wearing a new name.
   const w = worker();
   // SCOPED TO designSiteSchema's own body. A bare /cache_creation_input_tokens/
   // matched the pages call — and a COMMENT about it — so it passed while the
@@ -164,20 +171,44 @@ test("the schema call's usage is captured and reported, but NOT billed on", () =
   }
   assert.match(w, /schemaUsage: schemaUsage \|\| undefined/, "the measurement is not reported");
   assert.match(w, /schemaCredits: schemaUsage \? pageCredits\(schemaUsage\)/,
-    "nothing prices it, so the flat fee still cannot be compared against anything");
-  // THE FEE ITSELF IS UNTOUCHED, and this is asserted by reading the whole
-  // expression rather than a prefix of it: a substring match survives anything
-  // APPENDED to the sum, which is exactly how a measurement turns into a charge
-  // by accident. Proved by mutation — the prefix form let the schema cost be
-  // added to the bill and passed.
-  // Anchored on SITE_BUILD_FEE, not on the first `cost:` in the file — worker.js
-  // has several and the first belongs to a different route entirely.
-  const costs = w.match(/^\s*cost: .*SITE_BUILD_FEE.*$/gm) || [];
+    "nothing prices it, so the bill cannot be compared against the measurement");
+
+  // THE FEE IS NOW A DEPOSIT, and the settlement is what makes it a usage
+  // charge rather than a flat one. Both halves are asserted: taken up front,
+  // because `use_credits` is atomic and is the only thing stopping an empty
+  // account starting a paid call — and trued up afterwards, because a gate is
+  // not a price.
+  assert.match(w, /useCredits\(request\.headers\.get\("Authorization"\) \|\| "", SITE_BUILD_FEE\)/,
+    "the affordability gate is gone — an empty account can start a paid model call");
+  assert.match(w, /const settle = schemaSettlement\(schemaUsage, SITE_BUILD_FEE\)/,
+    "the deposit is never settled, so the flat fee is back under another name");
+  // BOTH DIRECTIONS. A settlement that only ever charges more is a fee with a
+  // surcharge; one that only ever refunds is a discount. Either alone passes a
+  // check that merely looks for `settle`.
+  assert.match(w, /if \(settle > 0\)[\s\S]{0,200}useCredits/, "a costlier call than the deposit is never charged for");
+  assert.match(w, /settle < 0[\s\S]{0,200}creditBack/, "a cheaper call than the deposit is never refunded");
+
+  // AND THE BILL REPORTS THE SETTLED NUMBER, not the deposit. Anchored on the
+  // whole expression rather than a prefix — a substring match survives anything
+  // APPENDED to the sum, which is exactly how a measurement turned into a charge
+  // by accident once already.
+  const costs = w.match(/^\s*cost: .*pages\.cost.*$/gm) || [];
   assert.equal(costs.length, 1, "the build route's charge is no longer the only one — rescope this");
-  const cost = costs[0];
-  assert.match(cost, /cost: \(designed \? SITE_BUILD_FEE : 0\) \+ pages\.cost,/,
-    "the charge changed — that is a pricing decision, not a side effect of a measurement");
-  assert.ok(!/schema/i.test(cost), "the schema call's cost reached the customer's bill");
+  assert.match(costs[0], /cost: schemaCost \+ pages\.cost,/,
+    "the reported bill is not the settled cost");
+});
+
+test("a refused build gives back what was actually taken, not the flat fee", () => {
+  // Once the deposit settles to real usage the two are different numbers, and
+  // refunding the fee would quietly keep the settlement — charging for a build
+  // that 422s before anything is provisioned. Bounded by `credit_back`'s own
+  // 10-credit ceiling, which is far above this call and is a real limit.
+  const w = worker();
+  const i = w.indexOf("That brief didn't describe anything to store");
+  assert.ok(i > 0, "the no-tables refusal was reworded — rescope this");
+  const block = w.slice(i - 400, i);
+  assert.match(block, /creditBack\(env, bu\.id, Math\.min\(10, Math\.max\(0, schemaCost \|\| SITE_BUILD_FEE\)\)\)/,
+    "a refused build refunds the deposit and keeps the settlement");
 });
 
 test("the build container times its three sub-steps and reports them every way out", () => {

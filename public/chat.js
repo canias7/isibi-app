@@ -6329,13 +6329,17 @@ async function apiFetch(path, opts = {}) {
   if (token) headers['Authorization'] = 'Bearer ' + token;
   const res = await fetch(path, Object.assign({}, opts, { headers }));
   if (res.status === 401) showAuthGate();
-  // Reflect every credit spend as it happens: the orchestrator (/api/direct)
-  // and each generation (/api/video|image|audio). Exact-match so the polling
-  // and save endpoints (/api/video/poll, /api/save) don't trigger a refresh;
-  // 501 = the feature isn't configured, so nothing was charged.
+  // Reflect every credit spend as it happens: the orchestrator (/api/direct),
+  // each generation (/api/video|image|audio), and the builder's message router
+  // (/api/site/route), which debits before it answers exactly like /api/direct.
+  // Exact-match so the polling and save endpoints (/api/video/poll, /api/save)
+  // don't trigger a refresh; 501 = the feature isn't configured, so nothing was
+  // charged. The BUILD routes are deliberately absent — they stream their own
+  // balance back and refreshing mid-stream would fight it.
   const p = path.split('?')[0];
   if (res.status !== 501 &&
-      (p === '/api/direct' || p === '/api/video' || p === '/api/image' || p === '/api/audio')) {
+      (p === '/api/direct' || p === '/api/video' || p === '/api/image' || p === '/api/audio' ||
+       p === '/api/site/route')) {
     scheduleCreditRefresh();
   }
   return res;
@@ -10747,6 +10751,48 @@ function siteFinishBuild(origin, reply, build, note) {
   s.updatedAt = Date.now(); sitesSave();
   if (siteOpenId === origin) renderSites();
 }
+// Ask the router whether this is a question, then either answer it or build.
+//
+// ONE extra call in front of the build path, ~0.3 credits, and it pays for
+// itself the first time somebody types a question at an existing site — that
+// used to cost a full revise and overwrite their pages with an answer to it.
+//
+// EVERY failure mode here falls through to the build. A 401, a 500, a network
+// drop, a body that is not what we expect: all of them call `reactSend` exactly
+// as before. This sits in front of a path that works and must never be the
+// reason it does not run — the same asymmetry the server-side reader takes, for
+// the same reason. Getting it wrong toward "build" costs a build they can see;
+// getting it wrong toward "ask" silently does not build what they asked for.
+function siteRoute(site, t, origin, isBuild, imgs, finish) {
+  const go = () => reactSend(site, t, origin, isBuild ? 'build' : 'revise', imgs, finish);
+  // What the answer is allowed to know. Names only — a `collect` table holds
+  // customer names and phone numbers and none of that belongs in a routing call.
+  const digest = {
+    name: site.name || '',
+    url: site.url || '',
+    pages: sitePages(site).map((p) => p.path).slice(0, 24),
+    tables: Array.isArray(site.tables) ? site.tables.slice(0, 24) : [],
+  };
+  apiFetch('/api/site/route', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: t, site: digest }),
+  }).then(async (r) => {
+    const d = await r.json().catch(() => null);
+    if (!r.ok || !d || d.intent !== 'ask' || !d.answer) return go();
+    // A QUESTION. Nothing is built, nothing on the site changes, and the reply
+    // is an ordinary assistant message — no build steps, because there was no
+    // build and a steps block over an answer would claim one.
+    siteBusy = false;
+    siteBuildMsg = '';
+    siteBuildStop();
+    const s = siteById(origin);
+    if (!s) return;
+    s.msgs.push({ r: 'a', t: String(d.answer) + (d.cost ? ' (✦' + d.cost + ' used)' : '') });
+    s.updatedAt = Date.now();
+    sitesSave();
+    if (siteOpenId === origin) renderSites();
+  }).catch(go);
+}
 // The React build/revise send path (cutover engine). Build = first message on a
 // project → /api/site/react-build; revise = any later message on a React site →
 // /api/site/react-revise (same slug/URL). Streams live steps; charge-after.
@@ -10908,6 +10954,18 @@ function siteSend(text) {
   };
   const imgs = siteAttach.slice(0, 3); siteAttach = []; paintAttachStrip();
   // Cutover: new projects + React sites go through the streaming React engine.
+  // IS THIS EVEN A BUILD? Until 2026-08-08 nothing asked: `isBuild` above is the
+  // only decision there was, so every message on an existing site ran a full
+  // revise — designer, generation, compile, republish. "can you read a URL?"
+  // cost ~21 credits AND rewrote the customer's pages, and "hi" on a new project
+  // built a site out of the word "hi".
+  //
+  // Skipped entirely when something is ATTACHED. A file plus a sentence is the
+  // shape of "use this" — the router would have to guess which, and guessing
+  // "ask" there answers a build request with a paragraph and drops the
+  // attachment on the floor. The one case where paying for the routing call is
+  // worse than not asking.
+  if (reactPath && !imgs.length) { siteRoute(site, t, origin, isBuild, imgs, finish); return; }
   if (reactPath) { reactSend(site, t, origin, isBuild ? 'build' : 'revise', imgs, finish); return; }
   const body = isBuild
     ? { step: 'build', brief: t, siteId: site.id, images: imgs }

@@ -39,8 +39,9 @@ import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlI
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
-import { publishPages, pageCredits } from "./builder/publish-pages.mjs";
+import { publishPages, pageCredits, schemaSettlement } from "./builder/publish-pages.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
+import { routeMessage } from "./builder/site-ask.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
 import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
 import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis, eoqCalc, breakevenCalc, demandForecast, installmentPlan, taxCalc, commissionCalc } from "./worker-finance.mjs";
@@ -3046,6 +3047,39 @@ const SITE_SCHEMA_TOOL = {
  * as SITE_PAGES_MAX_TOKENS below, which was sized for it and this was not.
  */
 const SITE_SCHEMA_MAX_TOKENS = 8000;
+
+/**
+ * One Messages API call, body in, parsed response out.
+ *
+ * Added for the router (`/api/site/route`), which is the first builder call
+ * whose whole request is composed in a plain module — `askRequest` returns the
+ * body and this posts it. The two older calls build their bodies inline and
+ * keep their own bespoke error handling; they are not moved onto this, because
+ * rewriting the two paths that carry every build to share a helper with one new
+ * caller is a change with all of the risk on the wrong side.
+ *
+ * A TIMEOUT HERE, unlike the two builder calls. The reasoning that removed
+ * theirs — the tokens are billed whether or not we listen, so cutting off means
+ * paying in full and handing the customer a failure — does not transfer: this
+ * call runs BEFORE a build, a slow one delays the work rather than being the
+ * work, and 700 max_tokens on Haiku that has not answered in 20 seconds is not
+ * going to.
+ */
+async function anthropicMessages(env, body) {
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!r.ok) {
+    const e = new Error("anthropic " + r.status);
+    e.status = r.status;
+    e.detail = (await r.text().catch(() => "")).slice(0, 300);
+    throw e;
+  }
+  return r.json();
+}
 
 async function designSiteSchema(env, brief) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -7305,6 +7339,59 @@ async function handleRequest(request, env, ctx) {
     }
 
 
+    // IS THIS A QUESTION OR A BUILD? Asked before every builder message, because
+    // until 2026-08-08 nothing asked at all: `siteSend` had one decision in it
+    // and every message on an existing site ran a full revise. "can you read a
+    // URL?" cost ~21 credits AND rewrote the customer's pages.
+    //
+    // Charged on measured usage like every other model call — this is the
+    // "every time a model is used, charge for it" rule, and a routing call is
+    // not exempt from it for being cheap. ~0.3 credits.
+    //
+    // NEVER 5xx. A failure here answers `intent: "build"` with a 200, so the
+    // client proceeds down the path that already works. This route is an
+    // optimisation in front of a working pipeline and must not become a way for
+    // the pipeline to stop running.
+    if (url.pathname === "/api/site/route" && request.method === "POST") {
+      const ru = await authUser(request, env);
+      if (!ru) return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
+      let rb = {};
+      try { rb = await request.json(); } catch { rb = {}; }
+      const auth = request.headers.get("Authorization") || "";
+      // BEFORE the model call, and the only thing that can refuse it. A balance
+      // read rather than a debit: the charge is settled afterwards on real usage,
+      // and a call this small does not warrant the deposit-and-settle dance the
+      // schema call needs.
+      let rBal = 0;
+      try { rBal = await readCredits(auth); } catch { rBal = 0; }
+      if (!(rBal > 0)) {
+        // Out of credits is not a reason to refuse to BUILD — the build path has
+        // its own gate and its own 402, with a message about the thing they were
+        // actually trying to do. Falling through keeps one place that says
+        // "you're out of credits" instead of two that can disagree.
+        return Response.json({ ok: true, intent: "build", cost: 0 });
+      }
+      const routed = await routeMessage(
+        { send: (req) => anthropicMessages(env, req) },
+        { message: rb.message, site: rb.site },
+      );
+      let rCost = 0;
+      // Billed only when the model actually answered. `routeMessage` returns a
+      // null usage on the failure path precisely so this reads the same way the
+      // build path does: our fault, our cost.
+      if (routed.usage) {
+        rCost = pageCredits(routed.usage);
+        try { await useCredits(auth, rCost); } catch { /* never fail a route over the ledger */ }
+      }
+      return Response.json({
+        ok: true,
+        intent: routed.intent,
+        answer: routed.intent === "ask" ? routed.answer : undefined,
+        cost: rCost,
+        usage: routed.usage || undefined,
+      });
+    }
+
     // Website builder — provision this site's database and apply its declared
     // schema. Called when a build starts, so the generated site has somewhere to
     // put data from the first request. Idempotent: re-running for the same slug
@@ -7375,16 +7462,24 @@ async function handleRequest(request, env, ctx) {
 
       // A brief means "design the schema"; an explicit schema skips the model.
       let designed = null;
-      // MEASURED, NOT BILLED ON. The fee stays flat at SITE_BUILD_FEE; this is
-      // what the call actually cost, reported so the two can finally be compared.
-      // Changing what a customer is charged is a pricing decision, not a
-      // side effect of adding a measurement.
+      // NOW BILLED ON — owner's call 2026-08-08, "every time a model is used it
+      // needs to charge on our price model". This used to say "MEASURED, NOT
+      // BILLED ON", which was the right caution at the time (a measurement
+      // should not quietly become a price change) and the measurement is what
+      // made the decision possible.
       let schemaUsage = null;
+      // What the schema step actually took, after settling the deposit below.
+      // Reported separately from the pages cost because they are different calls
+      // to different models, and one number cannot answer which one moved.
+      let schemaCost = 0;
       if (!body.schema) {
         if (!brief) return Response.json({ ok: false, error: "no brief" }, { status: 400 });
-        // Charge before the call, refund if it does not produce a usable schema —
-        // the same shape the orchestrator steps use. use_credits is atomic and
-        // returns a negative balance when the caller cannot afford it.
+        // A DEPOSIT, NOT THE PRICE. Taken before the call because `use_credits`
+        // is atomic and row-locking and is the only thing that stops an empty
+        // account starting a paid model call — a plain balance read races. Once
+        // the call returns, `schemaSettlement` trues it up against what the call
+        // really consumed: the fee is a gate, the usage is the bill. Refunded in
+        // full if the call produces nothing usable, exactly as before.
         let balanceAfter;
         try {
           balanceAfter = await useCredits(request.headers.get("Authorization") || "", SITE_BUILD_FEE);
@@ -7402,6 +7497,20 @@ async function handleRequest(request, env, ctx) {
           designed = dz && dz.input;
           schemaUsage = (dz && dz.usage) || null;
           tr.at("design", schemaUsage ? { out: schemaUsage.out, in: schemaUsage.in } : undefined);
+          // SETTLE THE DEPOSIT. Positive: the call cost more than the fee, take
+          // the difference. Negative: it cost less, give the difference back —
+          // bounded by the deposit itself, so it can never exceed `credit_back`'s
+          // 10-credit ceiling however the price table moves. Neither is allowed
+          // to fail the build: the schema is in hand and the database is about to
+          // be built on it, and losing that over a ledger round trip would be a
+          // far more expensive failure than a credit in either direction.
+          const settle = schemaSettlement(schemaUsage, SITE_BUILD_FEE);
+          schemaCost = SITE_BUILD_FEE + settle;
+          if (settle > 0) {
+            try { await useCredits(request.headers.get("Authorization") || "", settle); } catch { /* keep the build */ }
+          } else if (settle < 0) {
+            await creditBack(env, bu.id, Math.min(SITE_BUILD_FEE, -settle));
+          }
         } catch (e) {
           await creditBack(env, bu.id, SITE_BUILD_FEE);
           console.error("schema design failed:", e && (e.detail || e.message));
@@ -7431,7 +7540,19 @@ async function handleRequest(request, env, ctx) {
           }, { status: 503 });
         }
         if (!designed || !Array.isArray(designed.tables) || !designed.tables.length) {
-          await creditBack(env, bu.id, SITE_BUILD_FEE);
+          // REFUNDS WHAT WAS ACTUALLY TAKEN, not the flat fee. Once the deposit
+          // settles to real usage those two are different numbers, and refunding
+          // the fee here would keep the settlement — quietly charging for a build
+          // that 422s. Clamped to `credit_back`'s own 10-credit ceiling, which is
+          // far above what this call costs but is a real limit in the RPC.
+          //
+          // STILL A REFUND, and this is the one place the new rule bends. A
+          // page-generation failure keeps its charge because the customer is left
+          // a live database and a placeholder — real work, retained. This path
+          // returns before anything is provisioned, so they are left with
+          // literally nothing, and "charge for what you use" was never meant to
+          // mean charging for an empty hand.
+          await creditBack(env, bu.id, Math.min(10, Math.max(0, schemaCost || SITE_BUILD_FEE)));
           return Response.json({ ok: false, msg: "That brief didn't describe anything to store — try naming what the site keeps track of." }, { status: 422 });
         }
       }
@@ -7759,7 +7880,7 @@ async function handleRequest(request, env, ctx) {
         // be diagnosed by guessing what the model wrote at that line. A whole
         // round went on inferring one TS2344 from its file and column.
         cited: pages.page === "app" || !(pages.cited && pages.cited.length) ? undefined : pages.cited,
-        cost: (designed ? SITE_BUILD_FEE : 0) + pages.cost, buildMs: pages.buildMs || undefined,
+        cost: schemaCost + pages.cost, buildMs: pages.buildMs || undefined,
         // WHAT THE BUILD ACTUALLY DID, step by step, with the time each took.
         //
         // Returned rather than only logged — the lesson `publish-pages.mjs` and
@@ -7771,14 +7892,21 @@ async function handleRequest(request, env, ctx) {
         // not a finite number, so a connection string cannot end up here.
         trace: traced.steps,
         totalMs: traced.totalMs,
-        // THE SCHEMA CALL'S REAL COST, measured for the first time. It is
-        // reported, NOT billed on: the fee stays flat at SITE_BUILD_FEE and
-        // changing what a customer pays is a decision, not a side effect of
-        // adding a measurement. `schemaCredits` is what it would cost if it were
-        // metered the way the pages call is — the two are meant to be compared.
+        // THE SCHEMA CALL'S REAL COST, which is now also what it is billed. The
+        // three fields are kept apart on purpose: `schemaUsage` is the four token
+        // kinds, `schemaCredits` is what they price to, and `schemaCost` is what
+        // was actually taken after the deposit settled. They agree today and the
+        // point of reporting all three is that a disagreement is visible — a
+        // settlement that silently failed shows up as the last two diverging
+        // rather than as nothing at all.
         schemaUsage: schemaUsage || undefined,
         schemaCredits: schemaUsage ? pageCredits(schemaUsage) : undefined,
-        schemaFee: designed ? SITE_BUILD_FEE : undefined,
+        schemaCost: designed ? schemaCost : undefined,
+        // Whether the pages call was billed, and — when it was not — that this
+        // was because the failure was ours rather than because the rule is
+        // "placeholders are free". A caller cannot infer it from `cost`, since a
+        // free pages call and a cheap one both leave the schema charge behind.
+        charged: pages.charged,
         // The PAGES call's four token kinds. It is metered on exactly these and
         // reported only the credit total, so the expensive call was the one
         // whose cache behaviour could not be seen.

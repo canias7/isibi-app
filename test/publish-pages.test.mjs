@@ -11,7 +11,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { publishPages, pageCredits, pageCost, citedLines, sumUsage, RATES, SEARCH_USD, MIN_CREDITS } from "../builder/publish-pages.mjs";
+import { publishPages, pageCredits, pageCost, citedLines, sumUsage, RATES, SEARCH_USD, MIN_CREDITS,
+  ourFault, CHARGED_STAGES, schemaSettlement } from "../builder/publish-pages.mjs";
 
 const SPEC = {
   tables: [
@@ -212,9 +213,14 @@ test("truncation is a failed generation, not a shipped half-file", async () => {
   // says so — but the customer asked for a site and got a placeholder, and
   // charging the full price of a working site for that is the most expensive
   // outcome the pipeline can hand them.
-  assert.equal(out.cost, 0, "a truncated call delivered nothing and must not be billed");
+  // BILLED. The model ran, consumed the tokens `usage` reports, and answered —
+  // it simply answered at greater length than one pass allows. That is a result,
+  // not an outage, and the rule since 2026-08-08 charges for what was used
+  // rather than for whether the customer liked it.
+  assert.equal(out.cost, pageCredits(USAGE), "a truncated generation still consumed its tokens");
+  assert.equal(out.charged, true);
   assert.ok(out.usage, "what WE spent is still reported, or the failure cannot be costed");
-  assert.match(out.notes, /weren't charged/);
+  assert.match(out.notes, /used credits/);
 });
 
 test("no usable page stops before the container", async () => {
@@ -254,7 +260,12 @@ test("a compile failure is NOT retried — one call, no publish", async () => {
   // NO CHARGE. A page that does not compile is a placeholder, and a placeholder
   // is not the thing the customer asked for. `usage` still carries what the call
   // consumed, so the failure is still costable from the response.
-  assert.equal(out.cost, 0, "a compile failure delivered a placeholder and must not be billed");
+  // BILLED — `typecheck` is the model's page not compiling, which is its output
+  // being wrong rather than our infrastructure failing. The container-death case
+  // one stage over (`build`) is the free one, and the pair of them is the whole
+  // rule; asserting only this side would pass on code that charges for both.
+  assert.equal(out.cost, pageCredits(USAGE), "a page that does not compile still consumed its tokens");
+  assert.equal(out.charged, true);
   assert.ok(out.usage);
 });
 
@@ -323,21 +334,24 @@ test("the worst case is ONE generation, whatever else is retried", async () => {
   //
   // Asserted over every failure mode, so a future branch that re-asks the MODEL
   // "just this once" fails here rather than on somebody's bill.
-  for (const compile of [
-    async () => ({ ok: false, stage: "typecheck", error: "TS2304" }),
-    async () => ({ ok: false, stage: "build", error: "vite exploded" }),
-    async () => { throw new Error("container boot timeout"); },
-    async () => null,
+  // AND AT MOST ONE CHARGE, on every one of them. The ceiling is on the number
+  // of billed model calls, not on the amount — a failure that bills once is the
+  // rule working, and a failure that bills TWICE is a second generation nobody
+  // noticed. `mine` says which side of the our-fault line each case sits on, so
+  // this covers both directions rather than asserting one and hoping.
+  for (const [compile, mine] of [
+    [async () => ({ ok: false, stage: "typecheck", error: "TS2304" }), false],
+    [async () => ({ ok: false, stage: "build", error: "vite exploded" }), true],
+    [async () => { throw new Error("container boot timeout"); }, true],
+    [async () => null, true],
   ]) {
     const { deps, calls } = harness({ generate: async () => gen([lintsWorse()]), compile });
     const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
     assert.equal(calls.generate.length, 1, "one model call, whatever went wrong");
     assert.ok(calls.compile.length <= 2, "the container is retried once, never looped: " + calls.compile.length);
-    // AND NO CHARGE, on every one of them. The ceiling this test exists for is
-    // now zero on the failure side: every route to a placeholder is free, so a
-    // future branch that bills one fails here rather than on somebody's balance.
-    assert.equal(calls.charges.length, 0, "a placeholder is never billed, whatever produced it");
-    assert.equal(out.cost, 0);
+    assert.equal(calls.charges.length, mine ? 0 : 1, "a placeholder is billed at most once, whatever produced it");
+    assert.equal(out.cost, mine ? 0 : pageCredits(USAGE));
+    assert.equal(out.charged, !mine);
     assert.equal(out.page, "placeholder");
   }
 });
@@ -523,10 +537,13 @@ test("a build that validated nothing says WHY, not just that it failed", async (
   assert.equal(out.stage, "validate", "the caller cannot tell this from a compile failure or an outage");
   assert.ok(out.problems.length > 0, "validatePages explained itself and the reasons were dropped");
   assert.match(out.error, /every page was refused/);
-  // The money was still spent ON OUR SIDE, so the breakdown must survive — that
-  // is what says whether the model produced nothing or produced something
-  // unusable. The CUSTOMER is not billed for it: they got the placeholder.
-  assert.equal(out.cost, 0, "a refused generation delivered nothing and must not be billed");
+  // The breakdown must survive either way — that is what says whether the model
+  // produced nothing or produced something unusable. It IS billed: `validate`
+  // means the call ran and returned, and what it returned was the model's
+  // answer. `usage` and `cost` are separate fields precisely so a path can
+  // report the first without the second, which the our-fault cases do.
+  assert.equal(out.cost, pageCredits(USAGE), "a refused generation still consumed its tokens");
+  assert.equal(out.charged, true);
   assert.ok(out.usage, "usage is reported on every path, billed or not");
   // And nothing downstream ran.
   assert.equal(calls.compile.length, 0, "a build with no pages must not reach the container");
@@ -586,14 +603,20 @@ test("a published site IS billed, and billed AFTER it is live", async () => {
   // with no site, and billing first would take their credits for it. Asserted on
   // the source, because the ordering is invisible from the outside when both
   // succeed — which is the only case a fake can produce.
+  //
+  // `publish` is an our-fault stage with NO branch implementing it: a throw here
+  // leaves the function with `useCredits` never called, so this ordering IS the
+  // exemption rather than a rule beside it.
   const src = fs.readFileSync(new URL("../builder/publish-pages.mjs", import.meta.url), "utf8");
   const pub = src.indexOf("await deps.publish(");
-  const chg = src.indexOf("await charge(gen)");
+  const chg = src.indexOf('await settle("published")');
   assert.ok(pub > 0 && chg > 0, "one of the two calls has been renamed");
   assert.ok(chg > pub, "the charge must come after the publish, or a failed publish still bills");
-  // And exactly one charge site, or "billed once" is a property of this fake
-  // rather than of the code.
-  assert.equal((src.match(/await charge\(/g) || []).length, 1, "a second charge site can double-bill");
+  // EXACTLY ONE PLACE SPENDS MONEY, or "billed once" is a property of this fake
+  // rather than of the code. Anchored on `deps.useCredits(` — the actual spend —
+  // and not on the name of whatever wraps it, because a helper can be renamed or
+  // duplicated while this file keeps one charge in it.
+  assert.equal((src.match(/deps\.useCredits\(/g) || []).length, 1, "a second charge site can double-bill");
 });
 
 // ── the container dying is not the code being wrong ──────────────────────────
@@ -633,7 +656,7 @@ test("a typecheck failure is NEVER retried", async () => {
   assert.equal(out.builds, 1);
   assert.equal(out.retriedBuild, undefined);
   assert.equal(out.page, "placeholder");
-  assert.equal(out.cost, 0);
+  assert.equal(out.cost, pageCredits(USAGE), "the model's own output failing is charged");
 });
 
 test("two container failures fall back, and still cost nothing", async () => {
@@ -644,7 +667,12 @@ test("two container failures fall back, and still cost nothing", async () => {
   assert.equal(calls.compile.length, 2, "exactly two — one retry, never a loop");
   assert.equal(calls.generate.length, 1);
   assert.equal(out.page, "placeholder");
-  assert.equal(out.cost, 0, "the customer got a placeholder either way");
+  // FREE, and this is the case the whole our-fault rule exists for. Measured
+  // live: `vite build was killed by SIGTERM`, 2.5s into a 20s bundle, two
+  // seconds after a deploy — a container drained underneath a running build.
+  // Nobody can be argued into paying for that.
+  assert.equal(out.cost, 0, "the container dying is ours, not the customer's");
+  assert.equal(out.charged, false);
   assert.equal(calls.publish.length, 0, "a broken dist must never reach storage");
   // buildMs covers BOTH attempts, because that is what the caller waited for.
   assert.ok(typeof out.buildMs === "number");
@@ -709,34 +737,39 @@ test("research is charged when the site actually publishes", async () => {
   assert.ok(calls.charges[0] > pageCredits(USAGE), "the research was not billed at all");
 });
 
-test("research is FREE on every path that ends in the placeholder", async () => {
+test("research rides on the SAME rule as generation, not a rule of its own", async () => {
+  // A search is real money the moment it runs — $0.01 each, four of them is more
+  // than a small generation's whole input — so where it lands has to be decided
+  // by the same question as everything else: did WE break, or did the model just
+  // answer badly. It used to be free on every placeholder; now it follows the
+  // stage, and both directions are asserted from one table so a change that
+  // makes it free everywhere (or charged everywhere) cannot pass half of it.
   const research = { in: 9000, out: 9000, searches: 4 };
-  // No pages at all.
-  {
-    const { deps, calls } = harness({ generate: async () => gen([]) });
+  const both = pageCredits(sumUsage(USAGE, research));
+  for (const [what, over, mine] of [
+    ["no pages at all", { generate: async () => gen([]) }, false],
+    ["pages, but no home page", { generate: async () => gen([good("about.tsx")]) }, false],
+    ["compiled and failed", { compile: async () => ({ ok: false, stage: "typecheck", error: "TS2322" }) }, false],
+    ["the container died", { compile: async () => ({ ok: false, stage: "build", error: "SIGTERM" }) }, true],
+  ]) {
+    const { deps, calls } = harness(over);
     const out = await publishPages(deps, { spec: SPEC, slug: "s", priorUsage: research });
-    assert.equal(out.page, "placeholder");
-    assert.deepEqual(calls.charges, [], "a search was billed on a build that produced nothing");
+    assert.equal(out.page, "placeholder", what);
+    assert.deepEqual(calls.charges, mine ? [] : [both], what);
+    // And the search is really IN that number rather than rounded away — a
+    // charge equal to generation alone would satisfy the line above on a build
+    // where the research was silently dropped.
+    if (!mine) assert.ok(both > pageCredits(USAGE), what + ": the research rode along free");
   }
-  // Pages, but no home page.
-  {
-    const { deps, calls } = harness({ generate: async () => gen([good("about.tsx")]) });
-    const out = await publishPages(deps, { spec: SPEC, slug: "s", priorUsage: research });
-    assert.equal(out.page, "placeholder");
-    assert.deepEqual(calls.charges, []);
-  }
-  // Compiled and failed.
-  {
-    const { deps, calls } = harness({ compile: async () => ({ ok: false, stage: "typecheck", error: "TS2322" }) });
-    const out = await publishPages(deps, { spec: SPEC, slug: "s", priorUsage: research });
-    assert.equal(out.page, "placeholder");
-    assert.deepEqual(calls.charges, []);
-  }
-  // Could not afford the generation — no model call ran, so nothing to bill.
+
+  // Could not afford the generation — no model call ran, so nothing to bill,
+  // and the research never started either.
   {
     const { deps, calls } = harness({ readCredits: async () => 0 });
     const out = await publishPages(deps, { spec: SPEC, slug: "s", priorUsage: research });
     assert.equal(out.page, "placeholder");
+    assert.equal(out.stage, "credits");
+    assert.equal(out.charged, false);
     assert.deepEqual(calls.charges, []);
   }
 });
@@ -763,4 +796,88 @@ test("the two calls' usage is reported apart, not merged", async () => {
   // And absent entirely when there was none.
   const plain = await publishPages(harness().deps, { spec: SPEC, slug: "s" });
   assert.equal(plain.priorUsage, undefined);
+});
+
+// ── whose fault was it — the rule that decides who pays ──────────────────────
+
+test("ourFault names the exempt stages, and an unknown one is exempt too", () => {
+  // THE OUTPUT'S: the model ran and answered, the answer was unusable.
+  for (const s of ["validate", "home", "typecheck"]) {
+    assert.equal(ourFault(s), false, s + " is the model's own output and must be charged");
+  }
+  // OURS: nothing the customer did or asked for caused these.
+  for (const s of ["build", "publish", "generate", "credits"]) {
+    assert.equal(ourFault(s), true, s + " is our infrastructure and must not be charged");
+  }
+  // AND ANYTHING NOBODY CLASSIFIED. This is the important half: a failure mode
+  // added later gets the free side by default, so the cost of forgetting to
+  // classify it is revenue rather than somebody's trust. Asserted with values
+  // that could plausibly appear — a new stage, and the three empty shapes.
+  for (const s of ["bundle", "provision", "", null, undefined]) {
+    assert.equal(ourFault(s), true, String(s) + " was never classified and must default to free");
+  }
+});
+
+test("success goes through the same settle, so there is one place money moves", () => {
+  // `published` is IN the charged set rather than short-circuiting past it. Two
+  // charge sites is how a build eventually bills twice, and it is also how the
+  // "charge comes after publish" source-read starts matching the wrong one.
+  assert.ok(CHARGED_STAGES.has("published"));
+  assert.equal(ourFault("published"), false);
+});
+
+test("the two sides of the rule are asserted from the same run", () => {
+  // A test that only checks the charged side passes on an implementation that
+  // charges for everything; only checking the free side passes on one that
+  // charges for nothing. The set has to be exactly what it claims.
+  assert.deepEqual([...CHARGED_STAGES].sort(), ["home", "published", "typecheck", "validate"]);
+});
+
+test("a publish that throws bills nothing, because it never reaches the charge", () => {
+  // THE EXEMPTION WITH NO BRANCH BEHIND IT. `publish` is an our-fault stage and
+  // nothing in publishPages tests for it — the ordering IS the implementation.
+  // Driven rather than read, so it holds against the real control flow.
+  return (async () => {
+    const { deps, calls } = harness({ publish: async () => { throw new Error("R2 is down"); } });
+    await assert.rejects(() => publishPages(deps, { spec: SPEC, slug: "cafe" }), /R2 is down/);
+    assert.deepEqual(calls.charges, [], "a failed publish must never bill");
+  })();
+});
+
+// ── the schema deposit, settled against what the call really used ────────────
+
+test("schemaSettlement trues a deposit up to the measured cost", () => {
+  // Costlier than the deposit: charge the difference.
+  const big = { in: 40000, out: 4000, cacheRead: 0, cacheWrite: 0 };
+  assert.equal(schemaSettlement(big, 2), pageCredits(big) - 2);
+  assert.ok(schemaSettlement(big, 2) > 0, "a big schema call must settle upward");
+
+  // Cheaper: give the difference back, as a negative.
+  const small = { in: 200, out: 50, cacheRead: 0, cacheWrite: 0 };
+  assert.equal(schemaSettlement(small, 2), pageCredits(small) - 2);
+  assert.ok(schemaSettlement(small, 2) < 0, "a cheap schema call must settle downward");
+
+  // Exactly right: nothing to do.
+  const exact = { in: 0, out: 0, cacheRead: 0, cacheWrite: 0 };
+  assert.equal(schemaSettlement(exact, pageCredits(exact)), 0);
+});
+
+test("an unreadable usage report KEEPS the deposit rather than refunding it", () => {
+  // The revenue hole this closes: if the provider renames its usage field, every
+  // schema call reports nothing. Refunding on that turns a parsing change into
+  // "the builder is free", which nobody notices for a month. Zero is also the
+  // only answer that cannot over-charge.
+  for (const nothing of [null, undefined, 0, "", NaN, false]) {
+    assert.equal(schemaSettlement(nothing, 2), 0, String(nothing) + " must leave the deposit alone");
+  }
+});
+
+test("a nonsense deposit is treated as zero, not as NaN", () => {
+  // A settlement of NaN compares false against both > 0 and < 0, so the caller
+  // silently does nothing and the customer is charged the deposit for a call
+  // that may have cost far more. Coerced at the boundary instead.
+  const u = { in: 1000, out: 1000 };
+  for (const bad of [undefined, null, "two", NaN, {}]) {
+    assert.equal(schemaSettlement(u, bad), pageCredits(u), String(bad) + " must read as no deposit");
+  }
 });

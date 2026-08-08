@@ -80,6 +80,72 @@ export const pageCredits = (usage) => Math.max(1, Math.ceil(pageCost(usage) / CR
 export const MIN_CREDITS = 8;
 
 /**
+ * Whose fault was this failure — ours, or the output's?
+ *
+ * THE RULE, owner's call 2026-08-08: every model call is billed on what it
+ * really consumed, EXCEPT when the thing that broke was ours. A model that wrote
+ * a page which does not compile did real work and produced a real answer; a
+ * container that was drained mid-bundle did not, and charging for our own
+ * downtime is the one bill nobody can be argued into accepting.
+ *
+ * This replaces the publish-only rule (2026-08-05), which was the same instinct
+ * applied one notch too widely: it made EVERY placeholder free, including the
+ * ones where the generator worked exactly as designed and simply wrote a page
+ * with a type error in it. That is a result, not an outage.
+ *
+ * The stages, and which side each is on:
+ *   published — the site went live. Charged, obviously, and it is in this set
+ *               rather than short-circuiting past it so that there is exactly
+ *               ONE place in this file that spends money. Two charge sites is
+ *               how a build double-bills.
+ *   validate  — the model returned no usable page. ITS OUTPUT. Charged.
+ *   home      — the pages came back with no index.tsx. ITS OUTPUT. Charged.
+ *   typecheck — the page does not compile. ITS OUTPUT, and the most common
+ *               real failure there is. Charged.
+ *   build     — the bundler stage. OURS.  <-- see below, this one is a judgement
+ *   publish   — writing to storage threw. OURS.
+ *   generate  — the model API never answered. OURS (and there is no usage to
+ *               bill anyway, so this is belt and braces).
+ *
+ * `build` IS THE JUDGEMENT CALL AND IT IS DELIBERATELY GENEROUS. That stage
+ * covers two different things wearing one name: a container killed underneath a
+ * running build (ours — measured live, `vite build was killed by SIGTERM` 2.5s
+ * into a 20s bundle, two seconds after a deploy), and a genuine vite error the
+ * typecheck let through (the output's). Nothing in the error text reliably
+ * separates them, so this fails toward NOT charging. The cost of being wrong
+ * that way is a real bundler error going free, occasionally; the cost of being
+ * wrong the other way is billing somebody for our own rollout, which is the
+ * exact trust problem this rule exists to prevent.
+ *
+ * A stage nobody recognises reads as OURS, for the same reason: a failure mode
+ * that has not been thought about is not one to hand the customer a bill for.
+ */
+export const CHARGED_STAGES = new Set(["published", "validate", "home", "typecheck"]);
+export const ourFault = (stage) => !CHARGED_STAGES.has(String(stage || ""));
+
+/**
+ * What is still owed after a deposit, once the real usage is known.
+ *
+ * The schema call cannot bill the way the pages call does. It has to take
+ * money BEFORE it runs — `use_credits` is atomic and row-locking, and it is the
+ * only thing stopping an account with nothing in it from starting a paid model
+ * call — but a flat fee is not "charge for what you use". So it deposits the
+ * fee, then settles: positive means charge that much more, negative means give
+ * that much back, zero means the deposit was right.
+ *
+ * A MISSING USAGE REPORT KEEPS THE DEPOSIT, and that is the important line. The
+ * model answered — a schema came back and a database is about to be built on it
+ * — so the call was not free to us and must not be free to them. Refunding on an
+ * unreadable meter would make "the provider changed its usage field" into "every
+ * build is free", which is the kind of silent revenue hole nobody notices for a
+ * month. Zero is also the only answer that cannot over-charge.
+ */
+export function schemaSettlement(usage, deposit) {
+  if (!usage) return 0;
+  return pageCredits(usage) - (Number(deposit) || 0);
+}
+
+/**
  * The source lines a compiler error points at, so a failure explains itself.
  *
  * Bounded on every axis — how many citations, how long a line, how much total —
@@ -140,39 +206,43 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
   let balance = 0;
   try { balance = await deps.readCredits(); } catch { balance = 0; }
   if (!(balance >= MIN_CREDITS)) {
+    // Named and flagged like every other outcome. Nothing was called, so there
+    // is nothing to bill — but `charged: false` has to be SET rather than left
+    // undefined, or a caller reading the field cannot tell "we did not charge"
+    // from "this build predates the field".
+    out.stage = "credits";
+    out.charged = false;
     out.notes = "Your database is live, but there weren't enough credits left to write the pages.";
     return out;
   }
 
-  // CHARGED FOR A PUBLISHED APP, NOT FOR A PLACEHOLDER — owner's call
-  // 2026-08-05, and the reversal of what this comment used to say ("BEFORE the
-  // output is judged: the tokens were spent whether or not the result turns out
-  // to be usable").
+  // BILLED ON WHAT THE CALL CONSUMED, UNLESS THE FAILURE WAS OURS — owner's call
+  // 2026-08-08. This is the third position this line has held and the reasoning
+  // for each is worth keeping, because the two earlier ones were each right
+  // about something the next one kept.
   //
-  // That was true about our costs and wrong about the customer's. Measured live:
-  // a build spent 68 seconds, produced `pages: []`, published the placeholder,
-  // and took 23 credits — off an account granted 20. It cost exactly what a
-  // working site cost and delivered nothing, which is the most expensive
-  // possible outcome for the person paying.
+  // (1) "Charge before the output is judged: the tokens were spent whether or
+  //     not the result turns out to be usable." True about OUR cost, and it
+  //     produced the measurement that killed it — a build spent 68 seconds,
+  //     returned `pages: []`, and took 23 credits off an account granted 20.
+  // (2) "If the customer got the placeholder, the pages call is free." Fixed
+  //     that, and over-corrected: it made a model that wrote a page with a type
+  //     error in it indistinguishable from our container dying. The first is a
+  //     result — real work, really delivered, just not usable — and the second
+  //     is an outage.
+  // (3) Now: every model call bills on its measured usage, priced from the one
+  //     RATES table, and `ourFault` decides which failures are exempt. The line
+  //     is no longer "did they get a site" but "did WE break".
   //
-  // The rule is now one sentence anybody can check: **if the customer got the
-  // placeholder, the pages call is free.** It applies to all three ways of
-  // getting there — no pages, no home page, and a compile failure — because from
-  // the customer's side those are one event: they asked for a site and did not
-  // get one. `out.usage` is still reported on every path, so what WE spent with
-  // the model is still visible even when nothing is billed.
-  //
-  // The schema call is billed separately and still is: the database really is
-  // live and usable, and a revise reuses it.
-  const charge = async (g) => {
-    const c = pageCredits(sumUsage(g.usage, priorUsage));
-    out.cost += c;
-    try { await deps.useCredits(c); } catch { /* never fail a build over the ledger */ }
-  };
-  // The sentence the customer reads. Appended to every placeholder note rather
-  // than left implicit — somebody who sees a fallback page AND a balance drop
-  // has been charged for nothing twice over, once in credits and once in trust.
-  const FREE = "You weren't charged for the pages on this attempt.";
+  // `out.usage` is reported on every path either way, so what we spent with the
+  // model stays visible whether or not it was billed — and `out.charged` says
+  // which happened rather than leaving it to be inferred from `cost`.
+  // The sentence the customer reads, and there are two of them now. Somebody who
+  // sees a fallback page AND a balance drop has been charged for nothing twice
+  // over, once in credits and once in trust — so a free attempt says so, and a
+  // charged one says what it was charged for rather than leaving them to notice.
+  const FREE = "You weren't charged for this attempt.";
+  const PAID = "This attempt used credits — the pages were written, they just didn't work.";
 
   // `buildMs` is what the caller waited for. It was summed across attempts when
   // there were two; with one call it is simply that call, and the accumulator is
@@ -259,6 +329,33 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
   // cached prefix paying for itself — unanswerable again the moment a build
   // searches.
   if (priorUsage) out.priorUsage = priorUsage;
+
+  /**
+   * Settle the bill for this attempt and hand back the sentence to say about it.
+   *
+   * THE ONLY PLACE THIS FUNCTION SPENDS MONEY, success included. An earlier
+   * draft let the published path charge directly and left this for the failures,
+   * which is two charge sites — and two is how a build eventually bills twice,
+   * and how the source-read that asserts "the charge comes after the publish"
+   * starts matching the wrong one of them.
+   *
+   * It takes the stage rather than a boolean, so adding a new way to fail means
+   * naming it in `CHARGED_STAGES` — not remembering to pass `true` here. A
+   * failure mode nobody classified reads as ours and is free, which is the
+   * direction that costs money rather than trust.
+   *
+   * `gen` is closed over instead of passed: every call site has it in hand, and a
+   * parameter is one more thing to get wrong on the path that bills people.
+   */
+  const settle = async (stage) => {
+    if (ourFault(stage)) { out.charged = false; return FREE; }
+    const c = pageCredits(sumUsage(gen.usage, priorUsage));
+    out.cost += c;
+    try { await deps.useCredits(c); } catch { /* never fail a build over the ledger */ }
+    out.charged = true;
+    return PAID;
+  };
+
   const v = validatePages(gen.input);
   if (!v.pages.length) {
     // THE ONE BRANCH THAT THREW ITS REASONS AWAY. `validatePages` works out
@@ -282,7 +379,7 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
         : "the generator called the tool with no pages in it";
     out.notes = (gen.truncated
       ? "The pages came out longer than one pass allows — try a simpler brief."
-      : "The generator didn't produce a usable page.") + " " + FREE;
+      : "The generator didn't produce a usable page.") + " " + await settle(out.stage);
     return out;
   }
   // A SITE WITH NO HOME PAGE IS NOT A SITE. `validatePages` only FLAGS a missing
@@ -296,7 +393,14 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
   // placeholder at least explains itself.
   if (!v.pages.some((p) => p.path === "index.tsx")) {
     out.problems = v.problems;
-    out.notes = "The pages came back without a home page, so the site is showing its data model for now — send it again to retry. " + FREE;
+    // STAGED, where it never used to be. Without a name this path fell through
+    // `ourFault` as an unrecognised stage and went free — which is the safe
+    // direction by design, and the wrong answer here: the model returned pages,
+    // they simply were not a site. Naming it is what puts it on the charged side,
+    // and the response gains a `stage` the other failure paths already had.
+    out.stage = "home";
+    out.notes = "The pages came back without a home page, so the site is showing its data model for now — send it again to retry. " +
+      await settle(out.stage);
     return out;
   }
 
@@ -344,7 +448,13 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
     // The source is the caller's OWN site, so there is nothing to leak, and it
     // is capped hard: the first few citations, one line each.
     out.cited = citedLines(built.error, v.pages);
-    out.notes = [v.notes, "The pages didn't compile, so the site is showing its data model for now — send it again to retry.", FREE].filter(Boolean).join(" ");
+    // THE SPLIT THAT MATTERS MOST IS HERE. `typecheck` is the model's page not
+    // compiling — charged. `build` is the bundler stage, which is where a drained
+    // container lands — free. Both arrive as `!built.ok` and only the stage tells
+    // them apart, which is why `compile`'s catch sets one rather than leaving it
+    // undefined.
+    out.notes = [v.notes, "The pages didn't compile, so the site is showing its data model for now — send it again to retry.",
+      await settle(built.stage)].filter(Boolean).join(" ");
     return out;
   }
 
@@ -354,10 +464,14 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
   await deps.publish(built.files);
   out.publishMs = Date.now() - tPub;
   out.page = "app";
-  // BILLED LAST, once the site is actually live. Every earlier return is a
-  // placeholder and costs the customer nothing; this is the one path where they
-  // received what they asked for. After `publish` rather than before, because a
-  // publish that throws leaves them with no site.
-  await charge(gen);
+  // STILL BILLED AFTER `publish`, AND THAT ORDERING IS NOW LOAD-BEARING FOR A
+  // SECOND REASON. It was "a publish that throws leaves them with no site"; it is
+  // also the whole implementation of `publish` being an our-fault stage. There is
+  // no branch for it and there does not need to be — a throw here propagates out
+  // of this function with `charged` never set and `useCredits` never called, so
+  // the exemption is structural rather than a rule somebody has to maintain.
+  // Moving this line above `publish` would silently start billing for our own
+  // storage outages, which is why a test asserts the order.
+  await settle("published");
   return out;
 }
