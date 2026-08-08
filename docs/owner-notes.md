@@ -14758,3 +14758,16 @@ Two things worth knowing about the text editing: it only offers you words it's
 confident are words — it deliberately won't let you edit anything that turns out
 to be code — and if a change doesn't compile, your live site is left exactly as
 it was rather than replaced with something broken.
+
+### The smoke run is on one build for now (2026-08-08)
+
+Your call: the deploy check does **one** build a run instead of two.
+
+The second one is the revise journey — it builds a site, changes it, and checks
+that only what you asked for changed, that the site is never half-published
+while it republishes, and that Restore really puts an earlier build back. It is
+the only test that walks the path you walked when you found those bugs, so it is
+worth turning back on once you are happy with the spend.
+
+It is one line in `.github/workflows/build-smoke.yml` (`SMOKE_SKIP_JOURNEY`),
+with a note saying so. Deleting that line brings it back.
