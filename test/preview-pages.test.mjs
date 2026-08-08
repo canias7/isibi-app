@@ -117,3 +117,66 @@ test("a revise that reports no files keeps the pages it had", () => {
   assert.match(block, /else if \(!Array\.isArray\(s\.pages\) \|\| !s\.pages\.length\)/,
     "an empty file list overwrites the pages a previous build established");
 });
+
+// ── the build steps ──────────────────────────────────────────────────────────
+
+// Same lifting trick, but this function calls helpers — so it runs inside a
+// `with` scope holding stubs for them. Driving it beats reading it: the whole
+// risk in this change was arithmetic, and arithmetic is exactly what a source
+// read cannot check.
+const liveSteps = (() => {
+  const i = chat.indexOf("function reactLiveStepsHTML(");
+  const end = chat.indexOf("\nfunction ", i + 10);
+  assert.ok(i > 0 && end > i, "reactLiveStepsHTML is gone");
+  const ctx = {
+    esc: (s) => String(s == null ? "" : s),
+    stStepRow: (o) => JSON.stringify({ label: o.label, state: o.state }),
+    stAgentsBody: () => "", stCodeBody: () => "", stImgsBody: () => "",
+    siteBuild: null,
+  };
+  // eslint-disable-next-line no-new-func
+  const fn = new Function("ctx", "with (ctx) {" + chat.slice(i, end) + " return reactLiveStepsHTML; }")(ctx);
+  return (build) => {
+    ctx.siteBuild = build;
+    return [...fn().matchAll(/\{"label":"([^"]+)","state":"([^"]+)"\}/g)].map((m) => m[1] + ":" + m[2]);
+  };
+})();
+
+test("no build step claims to be generating images", () => {
+  // IT DID, ON EVERY BUILD. Nothing on the React path generates an image — the
+  // generator in worker.js is from the static-site era and is unreachable from
+  // here, and nothing emits the `image` stream event this UI listens for. So the
+  // row sat pending and then reported itself DONE: a step claiming work that was
+  // never attempted.
+  for (const rphase of ["generating", "compiling", "fixing", "publishing", "database"]) {
+    const labels = liveSteps({ rphase, images: [] }).join(" ");
+    assert.ok(!/image/i.test(labels), rphase + " still advertises an images step: " + labels);
+  }
+  // The receiving half stays, guarded on there BEING images, so it reports what
+  // happened rather than what was planned — and lights up on its own if
+  // generation is ever wired.
+  assert.match(liveSteps({ rphase: "compiling", images: [{ url: "u", prompt: "p" }] }).join(" "),
+    /Generated images:done/, "a build that really produced images could not show them");
+});
+
+test("every build phase shows the right steps in the right state", () => {
+  // THE ARITHMETIC. Removing a phase from `order` used to silently re-point
+  // three magic indices (`idx > 0`, `idx > 2`, `idx >= 4`) at the wrong steps;
+  // they are named lookups now. This is the table that proves it, and it is the
+  // check that would have caught the off-by-one.
+  assert.deepEqual(liveSteps({ rphase: "generating" }),
+    ["Writing the code:run", "Compiling React:wait"]);
+  assert.deepEqual(liveSteps({ rphase: "compiling" }),
+    ["Wrote the code:done", "Compiling React:run"]);
+  assert.deepEqual(liveSteps({ rphase: "fixing" }),
+    ["Wrote the code:done", "Fixing a build error:run"]);
+  assert.deepEqual(liveSteps({ rphase: "publishing" }),
+    ["Wrote the code:done", "Compiled React:done", "Publishing:run"]);
+  assert.deepEqual(liveSteps({ rphase: "database" }),
+    ["Wrote the code:done", "Compiled React:done", "Published:done", "Setting up the database:run"]);
+  // A publishing row must not appear before publishing is reached — that was
+  // `idx >= 4` against a list whose indices just moved.
+  for (const rphase of ["generating", "compiling"]) {
+    assert.ok(!liveSteps({ rphase }).some((r) => /^Publish/.test(r)), rphase + " claims to be publishing");
+  }
+});

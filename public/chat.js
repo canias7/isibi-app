@@ -10799,15 +10799,34 @@ function reactLiveStepsHTML() {
   // thinking to the real steps would never repaint, which is invisible in the
   // markup and total at runtime.
   if (sb.rphase === 'thinking') return '<div class="st-steps st-steps-live"><div class="st-think"><i></i>Thinking</div></div>';
-  const order = ['generating', 'images', 'compiling', 'fixing', 'publishing', 'database'];
+  // NO "GENERATING IMAGES" STEP, because nothing generates any (owner's call,
+  // 2026-08-08). The React builder has never produced an image: the generator in
+  // worker.js is from the static-site era and is not reachable from the build
+  // path, and nothing anywhere emits the `image` stream event this UI listens
+  // for. So the row appeared on every build, sat pending, and then reported
+  // itself DONE — a step claiming work that was never even attempted. The same
+  // dead-control shape as the Builder picker and the Attach button, this time
+  // lying rather than merely doing nothing.
+  //
+  // The receiving half is deliberately kept: the ingest below and the finished-
+  // build row are both guarded on there BEING images, so they show nothing today
+  // and light up on their own if generation is ever wired. That is the honest
+  // version — a step that reports what happened rather than what was planned.
+  const order = ['generating', 'compiling', 'fixing', 'publishing', 'database'];
   const idx = Math.max(0, order.indexOf(sb.rphase || 'generating'));
   const st = (name) => { const i = order.indexOf(name); return i < idx ? 'done' : i === idx ? 'run' : 'wait'; };
+  // BY NAME, NOT BY NUMBER. These were `idx > 0`, `idx > 2`, `idx >= 4` — magic
+  // indices into the array above, so removing one phase from it silently
+  // re-pointed all of them at the wrong step. Named, the list can change without
+  // the labels quietly following it.
+  const past = (name) => order.indexOf(name) < idx;
+  const reached = (name) => order.indexOf(name) <= idx;
   const rows = [];
-  rows.push(stStepRow({ label: idx > 0 ? 'Wrote the code' : 'Writing the code', meta: sb.file || '', state: st('generating'), open: true, body: stAgentsBody(sb.agents) + stCodeBody((sb.code || '').slice(-2600), st('generating') === 'run') }));
-  rows.push(stStepRow({ label: idx > 1 ? 'Generated images' : 'Generating images', meta: (sb.images && sb.images.length ? sb.images.length + ' photos' : ''), state: st('images'), body: (sb.images && sb.images.length) ? stImgsBody(sb.images) : '' }));
+  rows.push(stStepRow({ label: past('generating') ? 'Wrote the code' : 'Writing the code', meta: sb.file || '', state: st('generating'), open: true, body: stAgentsBody(sb.agents) + stCodeBody((sb.code || '').slice(-2600), st('generating') === 'run') }));
+  if (sb.images && sb.images.length) rows.push(stStepRow({ label: 'Generated images', meta: sb.images.length + (sb.images.length === 1 ? ' photo' : ' photos'), state: 'done', body: stImgsBody(sb.images) }));
   if (sb.rphase === 'fixing') rows.push(stStepRow({ label: 'Fixing a build error', state: 'run' }));
-  else rows.push(stStepRow({ label: idx > 2 ? 'Compiled React' : 'Compiling React', state: st('compiling') }));
-  if (idx >= 4) rows.push(stStepRow({ label: idx > 4 ? 'Published' : 'Publishing', state: st('publishing') }));
+  else rows.push(stStepRow({ label: past('compiling') ? 'Compiled React' : 'Compiling React', state: st('compiling') }));
+  if (reached('publishing')) rows.push(stStepRow({ label: past('publishing') ? 'Published' : 'Publishing', state: st('publishing') }));
   if (sb.rphase === 'database') rows.push(stStepRow({ label: 'Setting up the database', state: 'run' }));
   return '<div class="st-steps st-steps-live">' + rows.join('') + '</div>';
 }
@@ -10819,7 +10838,9 @@ function paintReactLive() {
 }
 function reactStageLabel() {
   const p = (siteBuild && siteBuild.rphase) || 'generating';
-  return { thinking: 'Thinking…', generating: 'Writing the code…', images: 'Generating the images…', compiling: 'Compiling your app…', fixing: 'Fixing a build error…', publishing: 'Publishing…', database: 'Setting up the database…' }[p] || 'Building…';
+  // No `images` entry — see reactLiveStepsHTML. Nothing sets that phase, so the
+  // label was unreachable and said something untrue if it ever were reached.
+  return { thinking: 'Thinking…', generating: 'Writing the code…', compiling: 'Compiling your app…', fixing: 'Fixing a build error…', publishing: 'Publishing…', database: 'Setting up the database…' }[p] || 'Building…';
 }
 // Read the React build/revise NDJSON stream: fold code/phase/image into the live
 // steps, return the terminal {done|error} payload.
