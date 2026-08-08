@@ -39,7 +39,12 @@ import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlI
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
-import { publishPages, pageCredits, schemaSettlement, buildFloor, IMAGE_USD } from "./builder/publish-pages.mjs";
+// ALIASED, because worker.js already has an `IMAGE_USD` — the per-model price
+// map for the image GENERATOR the customer drives directly. Imported under its
+// own name the two collide, and the collision is invisible to `node --check` and
+// to all 1,632 tests (nothing can import a Worker entrypoint); esbuild refuses
+// it at deploy time and the deploy is the first thing that ever sees it.
+import { publishPages, pageCredits, schemaSettlement, buildFloor, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
 import { imageBudget, imagesAffordable, planImages, applyImages, imagePrompt, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
 import { routeMessage, clarifiedBrief } from "./builder/site-ask.mjs";
@@ -2537,7 +2542,7 @@ async function genSitePhoto(env, prompt) {
  * that later fails to compile has not simply burned the money.
  */
 async function buySitePhotos(env, { slug, pages, budget, balance, reserve }) {
-  const affordable = imagesAffordable(budget, { balance, reserve, usd: IMAGE_USD });
+  const affordable = imagesAffordable(budget, { balance, reserve, usd: SITE_PHOTO_USD });
   const plan = planImages(pages, affordable);
   // `planned` is what the FAMILY asked for and `budget` is what the balance left
   // — they have to travel separately, or a site that could not afford its

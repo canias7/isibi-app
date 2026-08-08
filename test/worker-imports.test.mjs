@@ -118,3 +118,43 @@ test("OWN_ZONES specifically, because it decides who may be served as us", () =>
   assert.match(worker, /import \{[^}]*\bOWN_ZONES\b[^}]*\} from "\.\/site-domains\.mjs"/);
   assert.match(code, /OWN_ZONES\[0\]/, "cfZoneId no longer reads it — re-point this test");
 });
+
+test("no import into worker.js collides with a name it declares itself", () => {
+  // THE MIRROR OF THE TEST ABOVE, and it cost a failed deploy to learn.
+  //
+  // That one asks whether every name worker.js USES is imported. This one asks
+  // whether every name it IMPORTS is free — because `IMAGE_USD` was imported
+  // from publish-pages.mjs into a file that already had `const IMAGE_USD = {…}`
+  // of its own, the per-model price map for the customer-driven image
+  // generator. Two different prices, one identifier.
+  //
+  // NOTHING BUT THE DEPLOY COULD SEE IT. `node --check` passed, all 1,632 tests
+  // passed (no test can import a Worker entrypoint), and esbuild refused it at
+  // the wrangler step: "The symbol IMAGE_USD has already been declared". The
+  // whole platform stopped deploying over a name.
+  //
+  // Aliasing on import (`IMAGE_USD as SITE_PHOTO_USD`) is the fix, which is why
+  // this reads the binding rather than the exported name.
+  const imported = new Map();          // bound name -> the module it came from
+  for (const m of declared.matchAll(/import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["']/g)) {
+    for (const part of m[1].split(",")) {
+      const t = part.trim();
+      if (!t) continue;
+      imported.set((t.split(/\s+as\s+/).pop() || t).trim(), m[2]);
+    }
+  }
+  assert.ok(imported.size > 40, `only ${imported.size} imported bindings — the scan broke`);
+  assert.ok(imported.has("SITE_PHOTO_USD"), "the alias this test exists for is not being read");
+
+  // Top-level declarations only. A `const` inside a function shadows an import
+  // legally and is not what breaks a build.
+  const own = new Set();
+  for (const m of code.matchAll(/^(?:async\s+)?(?:function|class)\s+([A-Za-z_$][\w$]*)/gm)) own.add(m[1]);
+  for (const m of code.matchAll(/^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/gm)) own.add(m[1]);
+  assert.ok(own.size > 100, `only ${own.size} top-level declarations — the scan broke`);
+  assert.ok(own.has("IMAGE_USD"), "the declaration that caused this is not being found");
+
+  const clashes = [...imported].filter(([name]) => own.has(name))
+    .map(([name, mod]) => name + " (imported from " + mod + ", also declared in worker.js)");
+  assert.deepEqual(clashes, [], "these will fail the bundler at deploy time — alias the import");
+});
