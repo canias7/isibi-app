@@ -672,6 +672,35 @@ test("`retired` survives BOTH allow-lists on the way through the schema engine",
   // declarable, given DDL, stored and read, and stripped by the one function
   // every schema passes through.
   const src = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
-  assert.match(src, /retired: !!\(def\.retired/, "the designer's flag is not parsed");
-  assert.match(src, /norm\.push\(\{[^}]*retired: !!t\.retired/, "…or it is parsed and then dropped");
+  assert.match(src, /retired: retiredOf\(def\)/, "the designer's flag is not parsed");
+  assert.match(src, /norm\.push\(\{[^}]*retired: t\.retired/, "…or it is parsed and then dropped");
+  // AND NOT COERCED ON THE WAY THROUGH. `!!` collapses "said nothing" into
+  // "not retired", which is what let a later revise wipe the flag.
+  assert.ok(!/retired: !!/.test(src), "`retired` must stay three-valued — undefined means 'keep what it was'");
+});
+
+test("saying nothing about a table does not un-retire it", async () => {
+  // THE BUG THIS EXISTS FOR. The schema merge is whole-object per table, so a
+  // later revise that re-listed a table without mentioning `retired` wiped the
+  // flag and restored its public write grant — a contact form the owner removed
+  // quietly taking submissions again, with nothing on the site to show for it.
+  // `normalizeSchema` is the one function every schema passes through — the
+  // same one that silently dropped `teamScope` for five layers. `parseSchemaSpec`
+  // only reads the file; it normalises nothing.
+  const { normalizeSchema } = await import("../site-schema.mjs");
+  const of = (def) => (normalizeSchema({ tables: [def] }).tables || [])[0];
+
+  assert.equal(of({ name: "t", access: "collect", columns: ["a"], retired: true }).retired, true);
+  assert.equal(of({ name: "t", access: "collect", columns: ["a"], retired: false }).retired, false,
+    "false is the only way to put a removed feature back");
+  assert.equal(of({ name: "t", access: "collect", columns: ["a"] }).retired, undefined,
+    "saying nothing must stay UNDEFINED, not become false");
+});
+
+test("the merge inherits a flag this run said nothing about", () => {
+  // The other end of the same invariant, on the source: `undefined` has to be
+  // distinguished from `false` at the point the two schemas are merged.
+  const src = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  assert.match(src, /if \(t\.retired === undefined && prevT && prevT\.retired !== undefined\) t\.retired = prevT\.retired;/,
+    "a table re-listed without `retired` must keep whatever it was");
 });

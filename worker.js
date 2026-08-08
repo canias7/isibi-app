@@ -2912,8 +2912,9 @@ const SITE_SCHEMA_TOOL = {
         description:
           "Set TRUE only when the message asks to REMOVE this table's feature from the site (\"drop the gallery\", " +
           "\"we don't take enquiries any more\"). The table and every row in it are KEPT — the owner can still read " +
-          "and export them — but nothing on the site can reach it any more. Leave it out otherwise; a table you " +
-          "simply did not mention this turn is not retired.",
+          "and export them — but nothing on the site can reach it any more. Set FALSE to put a removed feature " +
+          "back. LEAVE IT OUT ENTIRELY otherwise — omitting it keeps whatever the table already was, and saying " +
+          "false on a table nobody asked about would restore something the owner removed.",
       },
       access: {
               type: "string",
