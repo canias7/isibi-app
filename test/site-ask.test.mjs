@@ -304,3 +304,57 @@ test("the digest the client sends is names only", () => {
     assert.ok(!new RegExp("\\b" + leak + "\\b").test(block), leak + " reached the routing call: " + block);
   }
 });
+
+// ── what a build cost goes to the meter, not into the sentence ───────────────
+
+test("no builder reply states what it cost", () => {
+  // Owner's call 2026-08-08. Scoped to the two builder send paths rather than
+  // the whole file — `openCredits` and the not-enough-credits messages legitimately
+  // talk about the ✦ balance, and a file-wide check would forbid those too.
+  const src = chat();
+  for (const [name, from, to] of [
+    ["the React engine", "function reactSend(", "function buildActiveText("],
+    ["the router", "function siteRoute(", "// The React build/revise send path"],
+  ]) {
+    const a = src.indexOf(from);
+    const b = src.indexOf(to, a);
+    assert.ok(a > 0 && b > a, name + ": the send path was renamed — this guard now checks nothing");
+    const block = src.slice(a, b).replace(/\/\/[^\n]*/g, "");
+    assert.ok(!/✦'?\s*\+/.test(block), name + " still prints the cost into the reply");
+    assert.ok(!/used\)/.test(block), name + " still appends a used-credits suffix");
+  }
+});
+
+test("...and the meter is refreshed instead, which is the half that matters", () => {
+  // REMOVING THE TEXT WITHOUT THIS IS THE BUG, not the fix. That suffix was the
+  // ONLY signal a build had spent anything: the build response carries `cost`
+  // and no `balance`, and nothing on that path ever called setCredits. Deleting
+  // one without adding the other makes the spend invisible rather than quiet.
+  const src = chat();
+  for (const [name, from, to] of [
+    ["the React engine", "function reactSend(", "function buildActiveText("],
+    ["the legacy engine", "function siteSend(", "function siteStop("],
+  ]) {
+    const a = src.indexOf(from);
+    const b = src.indexOf(to, a);
+    assert.ok(a > 0 && b > a, name + ": the send path was renamed — this guard now checks nothing");
+    assert.match(src.slice(a, b), /scheduleCreditRefresh\(\)/,
+      name + " spends credits and nothing re-reads the balance");
+  }
+});
+
+test("the build routes stay OUT of apiFetch's refresh list", () => {
+  // Not an oversight — a correctness requirement. apiFetch fires on the response
+  // HEADERS, which on an NDJSON build is when the build STARTS; the charge lands
+  // after publish, minutes later. A refresh there reads the pre-charge balance
+  // and paints a number that is wrong in the reassuring direction.
+  const src = chat();
+  const i = src.indexOf("const p = path.split('?')[0];");
+  const block = src.slice(i, i + 400);
+  for (const route of ["/api/site/react-build", "/api/site/react-revise", "/api/site/build"]) {
+    assert.ok(!block.includes(route), route + " would refresh the balance before the build has been charged");
+  }
+  // The router IS in it, and belongs there: a plain JSON response whose charge
+  // is settled before it answers.
+  assert.ok(block.includes("/api/site/route"));
+});

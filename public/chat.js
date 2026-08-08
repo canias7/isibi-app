@@ -6334,8 +6334,16 @@ async function apiFetch(path, opts = {}) {
   // (/api/site/route), which debits before it answers exactly like /api/direct.
   // Exact-match so the polling and save endpoints (/api/video/poll, /api/save)
   // don't trigger a refresh; 501 = the feature isn't configured, so nothing was
-  // charged. The BUILD routes are deliberately absent — they stream their own
-  // balance back and refreshing mid-stream would fight it.
+  // charged.
+  //
+  // THE BUILD ROUTES ARE DELIBERATELY ABSENT, and the reason is not the one this
+  // comment gave when it was written ("they stream their own balance back") —
+  // they do not, and nothing on that path called setCredits at all. The real
+  // reason is timing: this fires when the response HEADERS arrive, which on an
+  // NDJSON build is when the build STARTS. The charge lands after publish,
+  // minutes later, so a refresh here reads the balance before anything was taken
+  // and paints a number that is wrong in the reassuring direction. `reactSend`
+  // and the legacy path call `scheduleCreditRefresh` once the stream is done.
   const p = path.split('?')[0];
   if (res.status !== 501 &&
       (p === '/api/direct' || p === '/api/video' || p === '/api/image' || p === '/api/audio' ||
@@ -10787,7 +10795,10 @@ function siteRoute(site, t, origin, isBuild, imgs, finish) {
     siteBuildStop();
     const s = siteById(origin);
     if (!s) return;
-    s.msgs.push({ r: 'a', t: String(d.answer) + (d.cost ? ' (✦' + d.cost + ' used)' : '') });
+    // The answer alone. What it cost shows up in the ✦ pill, which `apiFetch`
+    // already refreshes for this route — safe there, unlike the build, because
+    // this is a plain JSON response whose charge is settled before it answers.
+    s.msgs.push({ r: 'a', t: String(d.answer) });
     s.updatedAt = Date.now();
     sitesSave();
     if (siteOpenId === origin) renderSites();
@@ -10803,7 +10814,22 @@ function reactSend(site, t, origin, mode, imgs, finish) {
   apiFetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: siteAbort.signal }).then(async (r) => {
     const ct = r.headers.get('content-type') || '';
     const d = (r.ok && ct.indexOf('ndjson') >= 0) ? await readReactStream(r, origin) : await r.json().catch(() => ({}));
-    const used = (d && d.cost) ? ' (✦' + d.cost + ' used)' : '';
+    // WHAT IT COST GOES TO THE METER, NOT INTO THE SENTENCE (owner's call
+    // 2026-08-08). The reply used to end "(✦21 used)" on every build.
+    //
+    // THE REFRESH IS NOT OPTIONAL, it is the whole change. That text was the
+    // ONLY signal a build had spent anything: the build response carries `cost`
+    // and no `balance`, and nothing on this path has ever called `setCredits` —
+    // so deleting the sentence without this leaves the pill stale until the next
+    // page load, and the spend becomes invisible rather than quiet.
+    //
+    // HERE rather than in `apiFetch`, and that distinction is the reason the
+    // build routes are absent from its list. `apiFetch` fires when the response
+    // HEADERS arrive, which on the NDJSON build is the moment the build STARTS —
+    // minutes before the charge, which lands after publish. A refresh there would
+    // read the balance before anything was taken and paint a number that is
+    // wrong in the reassuring direction.
+    scheduleCreditRefresh();
     if (r.ok && d && !d.error && d.slug) {
       const s = siteById(origin);
       if (s) {
@@ -10838,7 +10864,7 @@ function reactSend(site, t, origin, mode, imgs, finish) {
       const built = !d || d.page !== 'placeholder';
       const canned = mode === 'revise' ? 'Updated — the preview’s refreshed.'
         : 'Built ' + (name ? '“' + name + '”' : 'your site') + '. Tell me what to change.';
-      siteFinishBuild(origin, (built ? '✅ ' : '⚠️ ') + (said || canned) + used, build, note);
+      siteFinishBuild(origin, (built ? '✅ ' : '⚠️ ') + (said || canned), build, note);
     } else if (r.status === 402 || (d && d.need === 'credits')) {
       finish('⚡ You don’t have enough credits to build this right now. Tap your ✦ balance up top to get more.');
     } else if (d && d.need === 'rebuild') {
@@ -10980,7 +11006,11 @@ function siteSend(text) {
     // is a normal JSON body.
     const ct = r.headers.get('content-type') || '';
     const d = (r.ok && isBuild && ct.indexOf('ndjson') >= 0) ? await readSiteStream(r, origin) : await r.json().catch(() => ({}));
-    const used = d.cost ? ' (✦' + d.cost + ' used)' : '';
+    // Same as the React path above: the cost goes to the meter, not the
+    // sentence. Changed here too rather than only on the live engine — a
+    // customer on an older static site seeing a different convention reads as a
+    // bug, and two conventions is how one of them quietly stops being applied.
+    scheduleCreditRefresh();
     if (r.ok && d.chat) {
       // Conversational reply — a greeting/question/vague message, not a build.
       siteErr = null;
@@ -11000,7 +11030,7 @@ function siteSend(text) {
         siteSnap(s, t); // version-history restore point
       }
       siteErr = null;
-      finish('✅ Built' + (d.pages.length > 1 ? ' — ' + d.pages.length + ' pages' : '') + '. Take a look on the right, then tell me what to change.' + used);
+      finish('✅ Built' + (d.pages.length > 1 ? ' — ' + d.pages.length + ' pages' : '') + '. Take a look on the right, then tell me what to change.');
     } else if (r.ok && !isBuild && Array.isArray(d.pages) && d.pages.length) {
       // A site-wide op — add page / remove page / global edit / regenerate —
       // returned the FULL updated page set (chat-driven, no UI).
@@ -11015,11 +11045,11 @@ function siteSend(text) {
         siteSnap(s, t); // version-history restore point
       }
       siteErr = null;
-      finish((delta > 0 ? '✅ Added a new page — it’s in the preview.' : delta < 0 ? '✅ Removed that page.' : '✅ Updated across the site — check the preview.') + used);
+      finish((delta > 0 ? '✅ Added a new page — it’s in the preview.' : delta < 0 ? '✅ Removed that page.' : '✅ Updated across the site — check the preview.'));
     } else if (r.ok && !isBuild && d.noop) {
       // The page already satisfied the request — nothing changed, no re-roll.
       siteErr = null;
-      finish('👍 That’s already how it is — nothing to change.' + used);
+      finish('👍 That’s already how it is — nothing to change.');
     } else if (r.ok && !isBuild && d.html) {
       const s = siteById(origin);
       if (s) {
@@ -11030,7 +11060,7 @@ function siteSend(text) {
         siteSnap(s, t); // version-history restore point
       }
       siteErr = null;
-      finish('✅ Updated — check the preview.' + used);
+      finish('✅ Updated — check the preview.');
     } else if (r.status === 402) {
       finish('⚡ You don’t have enough credits to build this right now. Tap your ✦ balance up top to get more.');
     } else if (r.status === 429) {
