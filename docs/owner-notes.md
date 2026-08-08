@@ -14633,3 +14633,62 @@ money spent — the auditors read code and made free requests only.
   Twilio account and every message costs money.
 - Inbound webhooks and third-party reads are covered by `confirm smoke`, which is
   free and runs on every deploy.
+
+## The four things from your testing session (2026-08-08)
+
+You reported four things after building live. Here is what each one was and
+what it is now.
+
+**1. "I told it to change the background to yellow and it changed the whole
+theme."** Two separate faults, and the second one only showed up once the first
+was fixed. A revise sent only your sentence, so the designer read *"make the
+background yellow"* and picked a theme, a page family and a font pair from those
+six words — a different site. That was already anchored: a site remembers its
+look and a revise keeps it. But then you could not change the background **at
+all**, because every colour came from a fixed theme and none of them is "the one
+you have, but yellow". Now a site carries its own colours on top of its theme.
+Ask for one and only that one moves; ask for another next week and both stick.
+The readable text colour is worked out for you, so a dark background never
+leaves you with dark text on it.
+
+**2. "Changing pages changes the design and the stuff inside the site."** This
+was a publishing bug, not a design one. Publishing used to delete the old site
+and then write the new one, and a generated site loads one file per page — so
+during those few seconds, clicking through to another page fetched a file that
+had been deleted and not yet replaced, and you got a blank or half-built page.
+Publishing now writes everything first and clears up afterwards, with the
+front page switched **last**. There is no longer a moment when the site is
+half-there.
+
+**3. The "Live ↗" button.** Removed, as you asked. It opened the raw address in
+a new tab, which reads as your site on some odd page rather than as your own
+web address. **Share** is the way out of that screen now.
+
+**4. "Clicking restore to an older version doesn't actually restore it."** It
+could not: nothing was ever saved to restore *from*. Publishing overwrote the
+old site, and the Restore button only changed something on your own machine.
+Now every publish is kept — the last ten — and Restore really does put that
+build back on the live site. The one you are on stays in the list, so you can
+go back and forth. Each entry is named after the change you asked for
+(*"make the background yellow"*), not the site's name, so you can tell them
+apart.
+
+**Deleting a site now takes its saved versions with it**, so nothing is left
+paying for storage after you have gone.
+
+### Two things worth knowing
+
+- **Version history starts from now.** Sites built before today have nothing
+  saved yet; their next build will be the first entry.
+- **A colour you ask for is applied to the surface you named, and nothing
+  else.** If you ask for a dark background, your cards stay light unless you
+  ask for those too. That is deliberate — the alternative was us redesigning
+  the rest of the page on your behalf, which is the thing that annoyed you in
+  the first place.
+
+### And one change that saves money
+
+Editing documentation used to trigger a full deploy **and** a paid test build
+that generates a real site to prove nothing broke. Three commits in one stretch
+did exactly that for changes to text files. Documentation-only changes no longer
+deploy at all.
