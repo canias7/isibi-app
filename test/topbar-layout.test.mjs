@@ -168,3 +168,53 @@ test("the history rail has no disabled tab", () => {
   assert.ok(!/^\s*bookmark:/m.test(src), "the bookmark icon is back in the icon map");
   assert.ok(!/ic\(\s*['"]bookmark['"]/.test(src), "something renders the bookmark icon again");
 });
+
+// ── a build that could not run says WHY ──────────────────────────────────────
+
+test("the server's own message reaches the customer", () => {
+  // MEASURED LIVE 2026-08-08 on a real account. The model provider was returning
+  // 400 invalid_request_error because its balance was empty; the route correctly
+  // answered `billing: true` with "this is on us, not your brief" — and the
+  // client printed "busy, try again", so the customer sent the same message four
+  // times. Every 503 field the route works to produce was discarded.
+  const src = chat();
+  const m = src.match(/function buildDownMsg\(d\)\s*\{[\s\S]*?\n\}/);
+  assert.ok(m, "buildDownMsg is gone — the 503 message is canned again");
+  const fn = m[0];
+  assert.match(fn, /d\.msg/, "the server's sentence is not read");
+  assert.match(fn, /d\.billing/, "nothing distinguishes a transient failure from a permanent one");
+
+  // BOTH send paths use it. The legacy engine had its own copy of the canned
+  // line, and a fix applied to one of two paths is how one of them silently
+  // stops being right.
+  assert.equal((src.match(/finish\(buildDownMsg\(d\)\)/g) || []).length, 2,
+    "one of the two send paths still cans its own 503 message");
+  // And the canned sentence is no longer written at a call site.
+  const calls = src.split("function buildDownMsg(d)")[0] + src.split(/\n\}/).slice(-1)[0];
+  assert.ok(!/builder’s busy right now/.test(src.replace(fn, "")),
+    "the hardcoded busy line is still somewhere outside the helper");
+});
+
+test("a permanent failure never tells them to try again", () => {
+  // The whole point. `billing` is the one failure no retry fixes — the route's
+  // own comment says so — and "give it a few seconds, then send again" is a
+  // straightforwardly false instruction there.
+  const src = chat();
+  const fn = src.match(/function buildDownMsg\(d\)\s*\{[\s\S]*?\n\}/)[0];
+  // Derive the behaviour rather than restate it: run the real function.
+  const run = new Function(fn + "; return buildDownMsg;")();
+  const billing = run({ billing: true, msg: "The site builder is temporarily unavailable — this is on us, not your brief." });
+  assert.ok(!/send again|try again/i.test(billing), "it still tells them to retry: " + billing);
+  assert.match(billing, /this is on us/, "the server's sentence was dropped");
+  assert.match(billing, /weren’t charged/, "it no longer says they weren't charged");
+
+  const busy = run({ code: 429 });
+  assert.match(busy, /send again/, "a genuinely transient failure should still invite a retry");
+
+  // A 503 with no body at all must still say something sane rather than
+  // "undefined" — this branch fires on a network-shaped failure too.
+  for (const empty of [null, undefined, {}]) {
+    const out = run(empty);
+    assert.ok(out && !/undefined|null/.test(out), "empty response produced: " + out);
+  }
+});

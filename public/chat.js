@@ -10826,6 +10826,35 @@ function siteRoute(site, t, origin, isBuild, imgs, finish) {
     if (siteOpenId === origin) renderSites();
   }).catch(go);
 }
+// What to say when a build could not run.
+//
+// THE SERVER ALREADY KNOWS, AND WE WERE THROWING IT AWAY. Every 503 from the
+// build route carries `msg` — a sentence written for the exact failure — plus
+// `stage` and, for the one failure no retry can fix, `billing: true`. The client
+// discarded all of it and printed "the builder's busy right now, give it a few
+// seconds, then send again" for every 503 there is.
+//
+// Measured live 2026-08-08 on a real account: the model provider was returning
+// 400 `invalid_request_error` because its balance was empty, the route correctly
+// answered `billing: true` with "this is on us, not your brief" — and the
+// customer saw "busy, try again" and sent the same message four times. Telling
+// somebody to retry something that cannot succeed is worse than saying nothing:
+// they spend the evening thinking it is their brief.
+//
+// So: the server's own words when it has them, and the retry advice ONLY when
+// the failure is actually transient. `billing` is the flag for "no amount of
+// retrying fixes this" — the route's own comment says exactly that.
+function buildDownMsg(d) {
+  const msg = (d && typeof d.msg === 'string' && d.msg.trim()) ? d.msg.trim() : '';
+  const transient = !(d && d.billing);
+  if (!msg) {
+    return transient
+      ? '⏳ The builder’s busy right now — give it a few seconds, then send again. (You weren’t charged.)'
+      : '⚠️ The builder can’t run right now. (You weren’t charged.)';
+  }
+  return (transient ? '⏳ ' : '⚠️ ') + msg +
+    (transient ? ' Give it a few seconds, then send again.' : '') + ' (You weren’t charged.)';
+}
 // The React build/revise send path (cutover engine). Build = first message on a
 // project → /api/site/react-build; revise = any later message on a React site →
 // /api/site/react-revise (same slug/URL). Streams live steps; charge-after.
@@ -10893,7 +10922,7 @@ function reactSend(site, t, origin, mode, imgs, finish) {
       finish('That older draft can’t be edited directly — say “rebuild it” and I’ll regenerate it as a React app.');
     } else if (r.status === 429) { finish('⏳ You’ve hit today’s build limit — it resets within 24 hours.'); }
     else if (r.status === 501) { finish('⚠️ The build engine isn’t switched on yet — check back soon.'); }
-    else if ((d && d.code === 429) || r.status === 503) { siteErr = null; finish('⏳ The builder’s busy right now — give it a few seconds, then send again. (You weren’t charged.)'); }
+    else if ((d && d.code === 429) || r.status === 503) { siteErr = null; finish(buildDownMsg(d)); }
     else { siteErr = { chatId: origin }; finish('⚠️ ' + ((d && d.msg) || 'That didn’t come together — you weren’t charged. Try again in a moment.')); }
     if (typeof fetchCredits === 'function') fetchCredits();
   }).catch((e) => {
@@ -11090,10 +11119,11 @@ function siteSend(text) {
     } else if (r.status === 501) {
       finish('⚠️ The build engine isn’t switched on yet — check back soon.');
     } else if ((d && d.code === 429) || r.status === 503) {
-      // The model rate-limited us (a burst of builds); transient, not a real
-      // failure — no scary error card, just tell them to retry shortly.
+      // Same as the React path: say what the server said. This branch used to
+      // assume every 503 was the model rate-limiting us — transient, retry
+      // shortly — which is one of several things a 503 here means.
       siteErr = null;
-      finish('⏳ The builder’s busy right now — give it a few seconds, then send again. (You weren’t charged.)');
+      finish(buildDownMsg(d));
     } else {
       siteErr = { chatId: origin };
       finish('⚠️ That build didn’t come together — you weren’t charged. Try again in a moment.' + (d.code != null ? ' (code ' + d.code + ')' : ''));
