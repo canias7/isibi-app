@@ -45,6 +45,16 @@ jobs:
       - name: build smoke
         env:
           SMOKE_BASE_URL: ${{ inputs.base_url || 'https://gofarther.dev' }}
+          # ONE BUILD A RUN FOR NOW (owner's call, 2026-08-08). The revise
+          # journey is a SECOND full build — it is what proves a revise edits
+          # instead of rewriting, that a republish never leaves the site
+          # half-published, and that Restore really restores — and it roughly
+          # doubles what a deploy spends.
+          #
+          # Set while the model account is being topped up, so the first paid
+          # run goes on proving the deploy works rather than on the journey.
+          # TO TURN IT BACK ON: delete this line. Nothing else has to change.
+          SMOKE_SKIP_JOURNEY: "1"
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
