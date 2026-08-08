@@ -5,8 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 
-import { useRows, useCreateRow, usePublicRows, type Row } from "@/lib/rows";
-import { AvailabilityGrid } from "@/components/ui/availability-grid";
+import { useCreateRow, usePublicRows, type Row } from "@/lib/rows";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -25,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { AvailabilityGrid } from "@/components/ui/availability-grid";
 
 export const Route = createFileRoute("/book")({
   component: Book,
@@ -33,27 +33,25 @@ export const Route = createFileRoute("/book")({
   }),
 });
 
-type Teacher = Row & { name: string; bio: string | null; photo_url: string | null };
-type Appointment = Row;
+type BookingRow = Row;
 
 const CHROME = {
   name: "Aurora Yoga",
-  tagline: "A calm, well-lit room. Come as you are.",
+  tagline: "A quiet studio for a steady practice.",
   links: [
-    { label: "Home", href: "/" },
-    { label: "Book", href: "/book" },
-    { label: "The work", href: "/work" },
-    { label: "Account", href: "/account" },
+    { label: "Home", href: "#/" },
+    { label: "Book", href: "#/book" },
+    { label: "Account", href: "#/account" },
   ],
-  action: { label: "Book now", href: "/book" },
+  action: { label: "Book now", href: "#/book" },
 };
 
 const CLASS_NAMES = [
-  "Morning Flow",
-  "Hatha Foundations",
-  "Power Vinyasa",
+  "Sunrise Flow",
+  "Slow Hatha",
   "Restorative",
-  "Candlelit Yin",
+  "Power Vinyasa",
+  "Beginners' Foundations",
 ];
 
 const SLOTS = ["07:00", "08:00", "09:15", "12:00", "17:30", "18:30", "19:30"];
@@ -70,8 +68,7 @@ type Booking = z.infer<typeof booking>;
 
 function Book() {
   const { service: preselected } = Route.useSearch();
-  const create = useCreateRow<Appointment>("bookings");
-  const teachers = useRows<Teacher>("teachers");
+  const create = useCreateRow<BookingRow>("bookings");
   const [booked, setBooked] = useState(false);
 
   const form = useForm<Booking>({
@@ -85,16 +82,16 @@ function Book() {
     },
   });
 
-  const slotDate = form.watch("slot_date");
+  const date = form.watch("slot_date");
   const taken = usePublicRows<{ slot_date: string; slot_time: string }>(
     "bookings",
-    slotDate ? { slot_date: slotDate } : undefined,
+    date ? { slot_date: date } : undefined,
   );
 
   const onSubmit = (values: Booking) => {
     create.mutate(values, {
       onSuccess: () => {
-        toast.success("Booked — see you on your mat.");
+        toast.success("Booked — see you on the mat.");
         form.reset();
         setBooked(true);
       },
@@ -108,7 +105,7 @@ function Book() {
         <div className="mx-auto max-w-lg px-6 py-20 text-center motion-enter">
           <h1 className="text-3xl font-semibold tracking-tight">You're booked</h1>
           <p className="mt-3 text-muted-foreground">
-            We've noted your spot. To change or cancel, get in touch with the studio directly.
+            We've sent a confirmation to your email. Need to change it? Use the link in that email to manage your booking.
           </p>
           <Button asChild variant="outline" className="mt-6">
             <Link to="/">Back to the studio</Link>
@@ -122,13 +119,7 @@ function Book() {
     <SiteChrome {...CHROME}>
       <div className="mx-auto max-w-2xl px-6 py-14">
         <h1 className="text-3xl font-semibold tracking-tight">Book a class</h1>
-        <p className="mt-2 text-muted-foreground">Pick a class, a date and a time — takes under a minute.</p>
-
-        {!teachers.isPending && !!teachers.data?.length && (
-          <p className="mt-4 text-sm text-muted-foreground">
-            Taught by {teachers.data.map((t) => t.name).join(", ")}.
-          </p>
-        )}
+        <p className="mt-2 text-muted-foreground">We'll confirm by email straight away.</p>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -145,9 +136,9 @@ function Book() {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {CLASS_NAMES.map((name) => (
-                        <SelectItem key={name} value={name}>
-                          {name}
+                      {CLASS_NAMES.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {c}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -208,7 +199,7 @@ function Book() {
                   <FormControl>
                     <AvailabilityGrid
                       slots={SLOTS}
-                      taken={taken.data?.map((t) => t.slot_time) ?? []}
+                      taken={taken.data?.filter((t) => t.slot_date === date).map((t) => t.slot_time) ?? []}
                       value={field.value}
                       onSelect={field.onChange}
                     />
@@ -220,7 +211,7 @@ function Book() {
 
             <div className="sm:col-span-2">
               <Button type="submit" className="motion-press" disabled={create.isPending}>
-                {create.isPending ? "Booking…" : "Book my spot"}
+                {create.isPending ? "Booking…" : "Book class"}
               </Button>
             </div>
           </form>

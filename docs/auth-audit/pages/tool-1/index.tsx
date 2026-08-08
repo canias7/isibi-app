@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { SafeImage } from "@/components/ui/safe-image";
+import { FeatureGrid } from "@/components/ui/feature-grid";
 
 export const Route = createFileRoute("/")({ component: Door });
 
@@ -33,7 +33,7 @@ function Door() {
   const member = useMember();
   const login = useLogin();
   const signup = useSignup();
-  const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const form = useForm<Credentials>({
     resolver: zodResolver(credentials),
@@ -41,27 +41,34 @@ function Door() {
   });
 
   const submit = (action: typeof login, values: Credentials) => {
-    setError(null);
-    action.mutate(
-      { ...values, name: values.email.split("@")[0] },
-      {
-        onSuccess: () => {
-          form.reset();
-        },
-        onError: (e) => setError(e.message),
+    setFormError(null);
+    action.mutate(values, {
+      onSuccess: (data) => {
+        if (data && typeof data === "object" && "pending" in data) {
+          toast.message("Check your authenticator app to finish signing in.");
+          return;
+        }
+        form.reset();
       },
-    );
+      onError: (e: Error) => {
+        setFormError(e.message || "That email and password didn't match.");
+      },
+    });
   };
 
   if (member.isPending) {
-    return <main className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">Checking your sign-in…</main>;
+    return (
+      <main className="flex min-h-screen items-center justify-center">
+        <p className="text-muted-foreground">Checking your sign-in…</p>
+      </main>
+    );
   }
 
   if (member.data) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-10 text-center">
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-10 text-center">
         <h1 className="text-2xl font-semibold tracking-tight">You're signed in</h1>
-        <p className="text-muted-foreground">Straight back to the deals your team is working.</p>
+        <p className="text-muted-foreground">Head to the pipeline to see what the team is working.</p>
         <Button asChild>
           <Link to="/records">Go to records</Link>
         </Button>
@@ -75,39 +82,44 @@ function Door() {
         <p className="text-lg font-semibold tracking-tight">Halyard</p>
         <div className="max-w-md py-12">
           <h1 className="text-3xl font-semibold tracking-tight text-balance">
-            One shared table of deals — your whole sales team, one pipeline
+            Halyard — the deals your team is working, and the accounts behind them, in one place
           </h1>
           <p className="mt-4 text-muted-foreground">
-            Halyard is the internal tool a small sales team runs on: every deal your
-            team adds is a record everyone reads, every account is shared, and every
-            edit leaves a trail on the record itself.
+            No spreadsheet, no separate inbox. Every deal your team is chasing sits in one shared table,
+            every account you've ever talked to is a search away, and every change leaves a trail.
           </p>
-          <SafeImage className="mt-8" src={null} alt="" ratio="16/10" fallbackSeed="halyard-hero" />
-          <ul className="mt-8 space-y-4 text-sm">
+          <div className="mt-8">
+            <FeatureGrid
+              columns={2}
+              items={[
+                { title: "One pipeline", description: "Every deal the team is working, not just your own" },
+                { title: "Shared accounts", description: "One record per company, written by whoever spoke to them" },
+                { title: "Full activity trail", description: "Every change on a record, who made it and when" },
+                { title: "The playbook", description: "How we sell, kept current by the sales lead" },
+              ]}
+            />
+          </div>
+          <ul className="mt-8 space-y-3 text-sm">
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>The team's deals, in one table — filter, search, open any one</span>
+              <span>Records, filters and bulk actions over the whole team's deals</span>
             </li>
             <li className="flex items-start gap-3">
               <StatusBadge state="success">live</StatusBadge>
-              <span>A shared account list everyone on the team can read and add to</span>
-            </li>
-            <li className="flex items-start gap-3">
-              <StatusBadge state="neutral">reference</StatusBadge>
-              <span>A playbook the business keeps up to date, for everyone to read</span>
+              <span>Open any record for its fields and its full activity trail</span>
             </li>
           </ul>
         </div>
-        <p className="text-xs text-muted-foreground">Built for small sales teams who'd rather have one table than five spreadsheets.</p>
+        <p className="text-xs text-muted-foreground">Built for sales teams of five to fifty. Sign in with your work email.</p>
       </section>
 
       <section className="flex items-center justify-center p-10">
         <Card className="w-full max-w-sm">
           <CardHeader>
             <CardTitle>Sign in</CardTitle>
-            <CardDescription>Back to the team's deals in one field and a click.</CardDescription>
+            <CardDescription>Back to the pipeline in one field and a click.</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4">
+          <CardContent>
             <Form {...form}>
               <form className="grid gap-4" onSubmit={form.handleSubmit((v) => submit(login, v))}>
                 <FormField
@@ -136,7 +148,7 @@ function Door() {
                     </FormItem>
                   )}
                 />
-                {error && <p className="text-sm text-destructive">{error}</p>}
+                {formError && <p className="text-sm text-destructive">{formError}</p>}
                 <div className="flex gap-3">
                   <Button type="submit" className="motion-press" disabled={login.isPending}>
                     {login.isPending ? "Signing in…" : "Sign in"}
@@ -147,7 +159,7 @@ function Door() {
                     disabled={signup.isPending}
                     onClick={form.handleSubmit((v) => submit(signup, v))}
                   >
-                    {signup.isPending ? "Creating…" : "Create account"}
+                    Create an account
                   </Button>
                 </div>
               </form>
