@@ -218,3 +218,59 @@ test("a permanent failure never tells them to try again", () => {
     assert.ok(out && !/undefined|null/.test(out), "empty response produced: " + out);
   }
 });
+
+// ── the builder no longer claims to be building before it is ─────────────────
+
+test("a fresh send starts in `thinking`, not `generating`", () => {
+  // `siteBuildStart` runs the instant a message is sent — before the router has
+  // said whether it is even a build. Starting at `generating` is what made "hey"
+  // paint "Writing the code / Generating images / Compiling React" for a build
+  // that never happened.
+  const src = chat();
+  const m = src.match(/function siteBuildStart\([\s\S]*?\n\}/);
+  assert.ok(m, "siteBuildStart was renamed");
+  assert.match(m[0], /rphase: 'thinking'/, "a send still opens on a build phase");
+  assert.ok(!/rphase: 'generating'/.test(m[0]), "it still initialises to generating");
+});
+
+test("the thinking state renders NO step rows, and can still be repainted", () => {
+  // Two properties in one line of markup, and the second is the one that would
+  // fail silently: `paintReactLive` swaps `.st-steps-live`, so without that class
+  // the move from thinking to the real steps never repaints — invisible in the
+  // markup, total at runtime.
+  const src = chat();
+  const m = src.match(/if \(sb\.rphase === 'thinking'\) return '[^']*'/);
+  assert.ok(m, "the thinking branch is gone — the step rows paint immediately again");
+  assert.match(m[0], /st-steps-live/, "the thinking panel cannot be repainted into the steps");
+  assert.match(m[0], /st-think/, "it renders no thinking indicator");
+  assert.ok(!/st-step-lbl|Writing the code/.test(m[0]), "the thinking state names a build step");
+  // It must come BEFORE the phase-index maths, or `order.indexOf('thinking')` is
+  // -1, clamps to 0, and lands on 'generating' — the exact bug, restored.
+  const fn = src.slice(src.indexOf("function reactLiveStepsHTML"));
+  assert.ok(fn.indexOf("rphase === 'thinking'") < fn.indexOf("const order ="),
+    "the thinking check runs after the phase index and will be bypassed");
+});
+
+test("the steps appear the moment it IS a build, from ONE place", () => {
+  // Set in `reactSend` rather than in `siteRoute`, because an attachment skips
+  // the router and comes straight here. Two places is how one entry point gets
+  // left stuck on `thinking` forever.
+  const src = chat();
+  const i = src.indexOf("function reactSend(");
+  const head = src.slice(i, i + 700);
+  assert.match(head, /siteBuild\.rphase = 'generating'/, "a build never leaves the thinking state");
+  assert.match(head, /paintReactLive\(\)/, "the phase changes but nothing repaints");
+  assert.equal((src.match(/rphase = 'generating'/g) || []).length, 1,
+    "more than one place promotes out of thinking — they will disagree");
+});
+
+test("the thinking dot survives reduced motion", () => {
+  // Motion is the entire signal, so with it off the dot must not freeze
+  // mid-fade at 35% opacity — it has to stay legible.
+  const src = css();
+  assert.match(src, /\.st-think i \{[^}]*animation:\s*stbreathe/, "the breathing animation is gone");
+  const rm = src.match(/@media \(prefers-reduced-motion: reduce\) \{\s*\.st-think i \{[^}]*\}/);
+  assert.ok(rm, "no reduced-motion fallback for the thinking dot");
+  assert.match(rm[0], /animation:\s*none/);
+  assert.match(rm[0], /opacity:\s*1/, "it would freeze mid-fade and read as nothing");
+});

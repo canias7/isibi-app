@@ -10672,7 +10672,10 @@ const ST_TICK = {
   finish: ['Reviewing the code', 'Final touches', 'Wrapping up'],
 };
 function siteBuildStart(react) {
-  siteBuild = { phase: 'plan', pages: [], done: [], tick: 0, react: !!react, code: '', file: '', rphase: 'generating', images: [], filesSeen: [], agents: {} };
+  // STARTS IN `thinking`, NOT `generating`. This runs the instant a message is
+  // sent — before the router has said whether it is even a build — and starting
+  // at `generating` is what made "hey" paint "Writing the code".
+  siteBuild = { phase: 'plan', pages: [], done: [], tick: 0, react: !!react, code: '', file: '', rphase: 'thinking', images: [], filesSeen: [], agents: {} };
   if (siteTicker) clearInterval(siteTicker);
   // React builds repaint on stream events, not on a timer — the timer only drives
   // the classic rotating activity log.
@@ -10714,7 +10717,13 @@ function reactStepsHTML(b) {
 }
 // Live steps while a React build/revise streams (reads siteBuild).
 function reactLiveStepsHTML() {
-  const sb = siteBuild || {}; const order = ['generating', 'images', 'compiling', 'fixing', 'publishing', 'database'];
+  const sb = siteBuild || {};
+  // NOTHING CLAIMS TO BE HAPPENING YET. Carries `st-steps-live` because that is
+  // the selector `paintReactLive` swaps — without it the transition from
+  // thinking to the real steps would never repaint, which is invisible in the
+  // markup and total at runtime.
+  if (sb.rphase === 'thinking') return '<div class="st-steps st-steps-live"><div class="st-think"><i></i>Thinking</div></div>';
+  const order = ['generating', 'images', 'compiling', 'fixing', 'publishing', 'database'];
   const idx = Math.max(0, order.indexOf(sb.rphase || 'generating'));
   const st = (name) => { const i = order.indexOf(name); return i < idx ? 'done' : i === idx ? 'run' : 'wait'; };
   const rows = [];
@@ -10734,7 +10743,7 @@ function paintReactLive() {
 }
 function reactStageLabel() {
   const p = (siteBuild && siteBuild.rphase) || 'generating';
-  return { generating: 'Writing the code…', images: 'Generating the images…', compiling: 'Compiling your app…', fixing: 'Fixing a build error…', publishing: 'Publishing…', database: 'Setting up the database…' }[p] || 'Building…';
+  return { thinking: 'Thinking…', generating: 'Writing the code…', images: 'Generating the images…', compiling: 'Compiling your app…', fixing: 'Fixing a build error…', publishing: 'Publishing…', database: 'Setting up the database…' }[p] || 'Building…';
 }
 // Read the React build/revise NDJSON stream: fold code/phase/image into the live
 // steps, return the terminal {done|error} payload.
@@ -10859,6 +10868,10 @@ function buildDownMsg(d) {
 // project → /api/site/react-build; revise = any later message on a React site →
 // /api/site/react-revise (same slug/URL). Streams live steps; charge-after.
 function reactSend(site, t, origin, mode, imgs, finish) {
+  // WE KNOW IT IS A BUILD NOW, so the steps may appear. Set here rather than in
+  // `siteRoute` because an attachment skips the router and comes straight here —
+  // one place, so neither entry can leave it stuck on `thinking`.
+  if (siteBuild) { siteBuild.rphase = 'generating'; paintReactLive(); }
   const endpoint = mode === 'build' ? '/api/site/react-build' : '/api/site/react-revise';
   const body = mode === 'build' ? { brief: t, images: imgs, picker: buildPicker, effort: buildEffort } : { slug: site.slug, instruction: t, images: imgs, effort: buildEffort };
   siteAbort = new AbortController();
