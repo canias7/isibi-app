@@ -744,9 +744,28 @@ test("a first build is told to ASK, not merely permitted to", () => {
   // can, and that is what found this. What a test CAN hold is the instruction
   // not quietly reverting to the discouraging form.
   const sys = askRequest({ message: "a cafe", canClarify: true, brief: "a cafe" }).system[0].text;
-  assert.match(sys, /ON A FIRST BUILD YOU ASK/, "the first-build instruction is no longer an instruction");
+  assert.match(sys, /a first build begins with a question, every time/i,
+    "the first-build instruction is no longer an instruction");
   assert.ok(!/when in doubt,?\s*build/i.test(sys),
     "the prompt tells the model to prefer building — this is the exact line that made clarify dead");
+
+  // AN ORDERED DECISION, not three competing paragraphs. The first attempt at
+  // strengthening clarify made it beat the greeting rule: "hey" came back as a
+  // multiple-choice form. Both rules were present and correct; nothing said
+  // which one wins, so the louder one did.
+  assert.match(sys, /DECIDE IN THIS ORDER/, "the decision is unordered again — the loudest rule will win");
+  const greeting = sys.indexOf("greeting");
+  const clarify = sys.search(/"clarify"/);
+  assert.ok(greeting > 0 && clarify > 0, "one of the two branches is gone");
+  assert.ok(greeting < clarify, "clarify is stated before the greeting exception and will swallow it");
+
+  // TALKS LIKE A PERSON, which is the whole point of putting a conversation in
+  // front of a build rather than a wizard.
+  assert.match(sys, /TALK LIKE A PERSON/, "the tone instruction is gone");
+  const q = ASK_TOOL.input_schema.properties.question.properties.text.description;
+  assert.match(q, /TWO SHORT SENTENCES/, "the question went back to a bare one-liner");
+  assert.match(q, /pick up what they just told you/i,
+    "nothing tells it to acknowledge the brief before asking");
 
   // And the round text asks rather than permits.
   const round = String(askRequest({ message: "a cafe", canClarify: true, brief: "a cafe" }).messages[0].content);
@@ -757,7 +776,9 @@ test("a first build is told to ASK, not merely permitted to", () => {
   // somebody who typed "hey" — measured working, and easy to lose while
   // strengthening the clause above it.
   assert.match(sys, /"hey"/, "the greeting examples are gone");
-  assert.match(sys, /nothing to clarify/i, "nothing tells the model a greeting is not a brief");
+  assert.match(sys, /has not told you anything yet/i, "nothing tells the model a greeting is not a brief");
+  assert.match(sys, /NEVER open with a question of your own here/,
+    "a greeting can be met with a multiple-choice form again");
 
   // A REVISE IS UNTOUCHED by all of this. The strengthened wording lives in the
   // system block, which a revise also sees, so the closed-questions line is what
