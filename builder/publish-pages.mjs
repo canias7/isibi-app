@@ -146,6 +146,35 @@ export const pageCredits = (...parts) => Math.max(1, Math.ceil(totalCost(...part
 export const MIN_CREDITS = 8;
 
 /**
+ * What a COLD schema call really costs, measured.
+ *
+ * From `build smoke` 2026-08-08: `in 236 · out 1319 · cacheRead 0 ·
+ * cacheWrite 13357`. A cold call rather than a warm one on purpose — this
+ * feeds a gate, and a gate that under-estimates takes the customer's money and
+ * then refuses to finish, which is the exact bug it exists to stop. Over-
+ * estimating costs an occasional "top up" to somebody who would just have
+ * squeezed through on a warm cache; that is the cheap direction.
+ */
+export const SCHEMA_PROFILE = { in: 236, out: 1319, cacheRead: 0, cacheWrite: 13357 };
+
+/**
+ * The balance a build needs BEFORE it starts, for a given designer model.
+ *
+ * THE BUG THIS EXISTS FOR, measured live and caused by the picker: the route
+ * charged for the schema call, THEN `publishPages` read the ledger, found less
+ * than `MIN_CREDITS` and refused to generate. A new account granted 20 credits
+ * spent 15 on a cold Opus schema call and got a placeholder — charged for a
+ * site it never received.
+ *
+ * That is not the generation-failed case the charging rule was written for. The
+ * pages model was never called at all: we spent their budget on step one and
+ * then declined to do step two, which is ours and not theirs. So the whole
+ * build is affordable before anything is spent, or nothing is.
+ */
+export const buildFloor = (designModel) =>
+  pageCredits({ ...SCHEMA_PROFILE, model: designModel }) + MIN_CREDITS;
+
+/**
  * Whose fault was this failure — ours, or the output's?
  *
  * THE RULE, owner's call 2026-08-08: every model call is billed on what it

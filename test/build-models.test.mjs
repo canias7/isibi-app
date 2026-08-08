@@ -14,8 +14,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { BUILD_MODELS, DEFAULT_PICKER, modelsFor } from "../builder/build-models.mjs";
-import { MODEL_RATES } from "../builder/publish-pages.mjs";
+import { MODEL_RATES, buildFloor, MIN_CREDITS, SCHEMA_PROFILE, pageCredits } from "../builder/publish-pages.mjs";
 import { pagesRequest } from "../builder/page-gen.mjs";
+
+// What `use_credits` grants an account on first touch — the Postgres RPC's
+// number, restated because this file cannot reach the database. If it moves
+// there and not here, the guard below silently starts checking the wrong
+// budget, which is why it is named rather than inlined.
+const FREE_GRANT = 20;
 
 const ROOT = new URL("../", import.meta.url);
 const read = (p) => fs.readFileSync(new URL(p, ROOT), "utf8");
@@ -27,22 +33,46 @@ const worker = read("worker.js");
 const workerCode = code(worker);
 const chat = read("public/chat.js");
 
-test("the three pickers resolve to the models they promise", () => {
+test("the pickers resolve to the models they promise, and Sonnet is the default", () => {
   assert.deepEqual(modelsFor("sonnet"), { picker: "sonnet", design: "claude-sonnet-5", pages: "claude-sonnet-5" });
   assert.deepEqual(modelsFor("opus"), { picker: "opus", design: "claude-opus-5", pages: "claude-opus-5" });
-  // AUTO IS THE ONE THAT HAS TO SPLIT. "Opus plans, Sonnet builds" is the label
-  // the customer reads; if both halves resolved the same way it would be a third
-  // spelling of one of the other two and the option would mean nothing.
-  const auto = modelsFor("auto");
-  assert.notEqual(auto.design, auto.pages, "auto no longer splits — it is a duplicate option");
-  assert.equal(auto.design, BUILD_MODELS.opus.design, "auto must plan on the same model 'opus' does");
-  assert.equal(auto.pages, BUILD_MODELS.sonnet.pages, "auto must build on the same model 'sonnet' does");
+  // THE DEFAULT IS THE CHEAP ONE, and that is a decision rather than a habit:
+  // a cold Opus schema call is 15 credits against a 20-credit grant, which left
+  // a new account unable to finish its own first build. Asserted against the
+  // real floor below rather than pinned as a name, so the two cannot disagree.
+  assert.equal(DEFAULT_PICKER, "sonnet");
+  assert.deepEqual(modelsFor(), modelsFor("sonnet"));
+  // `auto` was removed the same day it was wired. A stored picker from those
+  // hours must resolve to the default, not to an undefined pair.
+  assert.ok(!Object.hasOwn(BUILD_MODELS, "auto"), "auto is back — check the grant covers a ~23-credit build");
+  assert.deepEqual(modelsFor("auto"), modelsFor("sonnet"), "a stale stored picker must fall back");
 });
 
-test("the three choices are genuinely three, not one wearing three labels", () => {
-  // The whole point of wiring this was that all three produced byte-identical
+test("the default picker's build fits inside the free grant", () => {
+  // THE REGRESSION, PINNED. Wiring the picker made `auto` real, `auto` put the
+  // schema call on Opus, and a cold Opus schema call is 15 credits against a
+  // grant of 20 — leaving less than `MIN_CREDITS`, so the pages call was refused
+  // and the customer paid 15 for a placeholder. Measured by `build smoke` going
+  // red on the first run after the merge, with `stage: "credits"`.
+  //
+  // No unit test could have caught it: they all asserted the picker sends the
+  // right model and prices it correctly, which it did. Nothing modelled a whole
+  // build against a real starting balance. This is that test.
+  assert.ok(buildFloor(modelsFor().design) <= FREE_GRANT,
+    "a new account cannot finish its own first build on the default picker: needs " +
+    buildFloor(modelsFor().design) + ", has " + FREE_GRANT);
+  // And the expensive option genuinely does not fit, or this guard is passing
+  // because the floor stopped meaning anything.
+  assert.ok(buildFloor(BUILD_MODELS.opus.design) > FREE_GRANT,
+    "Opus now fits in the grant — restoring `auto` may be worth revisiting");
+});
+
+test("every choice is genuinely a different one, not one wearing two labels", () => {
+  // The whole point of wiring this was that every option produced byte-identical
   // requests. A change that collapses any two of them back together brings that
-  // state back, and every other test here would still pass.
+  // state back, and every other test here would still pass. Derived from the
+  // table rather than counting to a number, so removing `auto` did not need this
+  // test edited — and adding one back cannot slip past it.
   const seen = new Set(Object.keys(BUILD_MODELS).map((k) => {
     const m = modelsFor(k);
     return m.design + "|" + m.pages;
@@ -201,4 +231,76 @@ test("Effort is visible and inert, and that is a DECISION", () => {
   const route = workerCode.slice(i, workerCode.indexOf("models: { picker: models.picker", i));
   assert.ok(route.length > 1000, "the build route block could not be located");
   assert.ok(!/body\.effort/.test(route), "the build route now reads body.effort — was that deliberate?");
+});
+
+test("the whole build is affordable before anything is spent", () => {
+  // THE FIX FOR THE REGRESSION ABOVE. The route used to charge the deposit,
+  // run the schema call, settle it — and only then did `publishPages` read the
+  // ledger, find less than MIN_CREDITS and refuse to generate. The pages model
+  // was never called at all: we spent their budget on step one and then declined
+  // to do step two, which is ours and not theirs.
+  const w = workerCode;
+  const i = w.indexOf("const floor = buildFloor(models.design);");
+  assert.ok(i > 0, "the build no longer checks it can afford itself");
+  // BEFORE the schema call, or it is the same bug with an extra number in it.
+  const design = w.indexOf("designSiteSchema(env, briefWithLinks");
+  assert.ok(design > 0 && i < design, "the affordability check runs after the model call it is meant to gate");
+  const block = w.slice(i, i + 900);
+  // Off the ledger value the deposit returned, not a second read that could race.
+  assert.match(block, /balanceAfter \+ SITE_BUILD_FEE < floor/, "the floor is compared against something else");
+  // The deposit comes BACK — nothing was spent, so this is a refusal and not a
+  // failure. Without it the gate itself takes 2 credits for doing nothing.
+  assert.match(block, /creditBack\(env, bu\.id, SITE_BUILD_FEE\)/, "the refusal keeps the deposit");
+  assert.match(block, /status: 402/);
+  // And it names the way out that is not "give us money" — the customer picking
+  // Opus with 20 credits can simply pick Sonnet.
+  assert.match(block, /Sonnet 5/, "an Opus refusal does not mention the option that would work");
+});
+
+test("the floor is derived from the price table, not a number somebody typed", () => {
+  // Two models, two floors, and the dear one must really be dearer — a floor
+  // computed from a constant would satisfy every other assertion here while
+  // being wrong for one of the two pickers.
+  const s = buildFloor("claude-sonnet-5");
+  const o = buildFloor("claude-opus-5");
+  assert.ok(o > s, "an Opus build's floor is not higher than a Sonnet one's");
+  assert.ok(s > MIN_CREDITS, "the floor forgot the schema call entirely");
+  // Exactly the schema call plus what the pages call needs, so the two halves
+  // stay visible rather than being folded into one tuned number.
+  assert.equal(s, pageCredits({ ...SCHEMA_PROFILE, model: "claude-sonnet-5" }) + MIN_CREDITS);
+  // The profile is a MEASUREMENT and is cold on purpose: a gate that
+  // under-estimates takes the money and then refuses to finish.
+  assert.ok(SCHEMA_PROFILE.cacheWrite > 0 && SCHEMA_PROFILE.cacheRead === 0,
+    "the profile went warm — the gate will now under-estimate the case it exists for");
+});
+
+test("the composer offers exactly the pickers that exist, and no more", () => {
+  // DERIVED AT BOTH ENDS. A mutation adding `auto` back to the rendered list
+  // survived everything: the composer would offer an option the server resolves
+  // to the default, so the customer picks Opus-plans-Sonnet-builds and silently
+  // gets Sonnet — a control lying about what it does, which is the exact state
+  // this whole feature was fixing.
+  const declared = Object.keys(BUILD_MODELS).sort();
+  const listed = (chat.match(/\[((?:'\w+',?\s*)+)\]\.map\(\(k\) => \{ const m = BUILD_PICKERS/) || [])[1];
+  assert.ok(listed, "the picker menu no longer renders from a list; this guard checks nothing");
+  const offered = listed.split(",").map((s) => s.trim().replace(/'/g, "")).filter(Boolean).sort();
+  assert.deepEqual(offered, declared,
+    "the composer offers " + offered.join("/") + " and the server knows " + declared.join("/"));
+
+  // And the LABELS exist for each, or the menu renders "undefined".
+  for (const k of declared) {
+    assert.ok(new RegExp("\\b" + k + ":\\s*\\{\\s*label:").test(chat), k + " has no label in the composer");
+  }
+});
+
+test("a picker stored from the hours `auto` existed falls back", () => {
+  // It is in real browsers' localStorage. Without the fallback the button
+  // renders `undefined` and every build sends a picker the server ignores —
+  // visible to the customer as the control having broken.
+  assert.match(chat, /if \(!BUILD_PICKERS\[buildPicker\]\) buildPicker = 'sonnet';/,
+    "a stale stored picker is no longer repaired");
+  assert.match(chat, /localStorage\.getItem\(BUILD_PICKER_KEY\) \|\| 'sonnet'/,
+    "the composer default disagrees with the server default");
+  // The two defaults must BE the same, not merely both look right.
+  assert.ok(chat.includes("'" + DEFAULT_PICKER + "'"), "the composer never names the server's default");
 });

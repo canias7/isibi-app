@@ -14492,9 +14492,21 @@ first draft and want another go — was the one moment you couldn't ask for one.
 
 | Builder | schema | pages | total |
 |---|---|---|---|
-| Sonnet 5 | 3 | 25 | **28 credits** |
-| Auto (Opus plans, Sonnet builds) | 5 | 25 | **30 credits** |
+| Sonnet 5 (default) | 3 | 25 | **28 credits** |
 | Opus 5 | 5 | 42 | **47 credits** |
+
+**There was a third option and it lasted about an hour.** "Auto" put the data
+model on Opus and the pages on Sonnet. Wiring it made it real, and it broke every
+new account's first build: a cold Opus schema call costs 15 credits, a new
+account gets 20, and the pages step refuses to run below 8 — so the customer paid
+15 and got the placeholder. `build smoke` caught it on the first run after the
+merge. It comes back the day the free grant covers ~23 credits; the reason is
+written into the code so it returns as a decision, not a rediscovery.
+
+**A build now checks it can afford itself before spending anything.** Pick Opus
+with 20 credits and you get a straight refusal with nothing charged, naming
+Sonnet as the option that would work. Before this, that same situation took 15
+credits and handed back a placeholder.
 
 **The price table had to move with it.** It was the Sonnet column and nothing
 else — right while every build call was Sonnet, and a silent 67% undercharge on
@@ -14507,9 +14519,10 @@ you're asking a question or asking for a build runs on Haiku and was being bille
 at Sonnet rates. It rounds up to one credit either way, so nobody paid extra —
 but it was wrong and now isn't.
 
-**Not proven live.** Every build still stops at the first model call because the
-model account has no balance. The wiring is tested; the bill is arithmetic, not a
-measurement, until there's money on the account.
+**Proven live, and that is how the bug above was found.** The model account has
+had balance since roughly 04:20 on 2026-08-08 — I had been repeating "no balance"
+after that stopped being true, which is on me. `build smoke` was green at 04:20
+and red at 04:46, and the only thing between those two runs was this change.
 
 ### Still to do
 

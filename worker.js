@@ -39,7 +39,7 @@ import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, sqlI
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, SITE_PAGES_MAX_TOKENS } from "./builder/page-gen.mjs";
-import { publishPages, pageCredits, schemaSettlement } from "./builder/publish-pages.mjs";
+import { publishPages, pageCredits, schemaSettlement, buildFloor } from "./builder/publish-pages.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
 import { routeMessage, clarifiedBrief } from "./builder/site-ask.mjs";
 import { modelsFor } from "./builder/build-models.mjs";
@@ -7552,6 +7552,30 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, msg: "Credits check failed — try again in a moment." }, { status: 503 });
         }
         if (!(balanceAfter >= 0)) return Response.json({ ok: false, error: "not enough credits", need: "credits", cost: SITE_BUILD_FEE }, { status: 402 });
+        // ENOUGH FOR THE WHOLE BUILD, not just for the deposit — the gap the
+        // Builder picker fell straight into. `use_credits` returns the balance
+        // AFTER taking the fee, so this is the real ledger value and needs no
+        // second read that could race; a concurrent build slipping past it just
+        // lands in the old behaviour rather than in something new.
+        //
+        // Refunds the deposit, because nothing has been spent yet: this is a
+        // refusal, not a failure. The message names the cheaper picker, since
+        // "top up" is not the only way out and is the less useful one.
+        const floor = buildFloor(models.design);
+        if (balanceAfter + SITE_BUILD_FEE < floor) {
+          await creditBack(env, bu.id, SITE_BUILD_FEE);
+          return Response.json({
+            ok: false,
+            error: "not enough credits",
+            need: "credits",
+            cost: floor,
+            msg: models.picker === "opus"
+              ? "An Opus build needs about " + floor + " credits and you have " +
+                (balanceAfter + SITE_BUILD_FEE) + ". Switch the Builder to Sonnet 5, or top up."
+              : "A build needs about " + floor + " credits and you have " +
+                (balanceAfter + SITE_BUILD_FEE) + ".",
+          }, { status: 402 });
+        }
         // The credit gate is a Supabase round trip and it was folded into the
         // model call's time, which is the one number here nobody should be
         // guessing about.

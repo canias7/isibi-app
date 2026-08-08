@@ -2418,19 +2418,27 @@ function toggleDirMenu(e) {
 // ── Website-builder model picker (Auto / Sonnet 5 / Opus 4.8) — lives in the SITE-BUILDER composer (st-comp),
 // sent as `picker` on a react-build. Auto routes per agent (Opus plans, Sonnet builds); Sonnet/Opus pin every agent.
 // The site composer re-renders, so the menu markup is emitted inline (buildPickerHTML) and wired per render.
+// TWO OPTIONS, SONNET DEFAULT (owner's call, 2026-08-08). There was a third —
+// `auto`, Opus for the data model and Sonnet for the pages — and wiring the
+// picker made it real and immediately broke every new account's first build: a
+// cold Opus schema call is 15 credits against a 20-credit grant, leaving less
+// than the pages call needs, so the customer paid 15 and got a placeholder.
+// Kept out until the grant covers it; see builder/build-models.mjs.
 const BUILD_PICKERS = {
-  auto:   { label: 'Auto',     desc: 'Opus plans, Sonnet builds — best mix' },
-  sonnet: { label: 'Sonnet 5', desc: 'Every agent on Sonnet — fast' },
-  opus:   { label: 'Opus 4.8', desc: 'Every agent on Opus — most capable, slower' },
+  sonnet: { label: 'Sonnet 5', desc: 'Fast, and what most sites want' },
+  opus:   { label: 'Opus 5',   desc: 'Most capable — slower, and costs about 1.7×' },
 };
 const BUILD_PICKER_KEY = 'zephyr_build_picker_v1';
-let buildPicker = localStorage.getItem(BUILD_PICKER_KEY) || 'auto';
-if (!BUILD_PICKERS[buildPicker]) buildPicker = 'auto';
+// `auto` is still in some browsers' localStorage from the hours it existed, so
+// a stored value that is no longer an option has to fall back rather than
+// render an undefined label.
+let buildPicker = localStorage.getItem(BUILD_PICKER_KEY) || 'sonnet';
+if (!BUILD_PICKERS[buildPicker]) buildPicker = 'sonnet';
 function buildPickerHTML() {
   return '<span class="st-buildsel-wrap">' +
-    '<button type="button" class="st-buildsel" id="stBuildSel" title="Website-builder model — Auto: Opus plans, Sonnet builds">Builder: <b id="stBuildLabel">' + BUILD_PICKERS[buildPicker].label + '</b> ▾</button>' +
+    '<button type="button" class="st-buildsel" id="stBuildSel" title="Which model builds the site">Builder: <b id="stBuildLabel">' + BUILD_PICKERS[buildPicker].label + '</b> ▾</button>' +
     '<div class="model-menu drop-up build-menu" id="stBuildMenu">' +
-      ['auto', 'sonnet', 'opus'].map((k) => { const m = BUILD_PICKERS[k]; return '<div class="model-item build-item' + (k === buildPicker ? ' selected' : '') + '" data-pick="' + k + '"><span class="txt"><b>' + m.label + '</b><small>' + m.desc + '</small></span><span class="check">✓</span></div>'; }).join('') +
+      ['sonnet', 'opus'].map((k) => { const m = BUILD_PICKERS[k]; return '<div class="model-item build-item' + (k === buildPicker ? ' selected' : '') + '" data-pick="' + k + '"><span class="txt"><b>' + m.label + '</b><small>' + m.desc + '</small></span><span class="check">✓</span></div>'; }).join('') +
     '</div></span>';
 }
 function setBuildPicker(p) {
