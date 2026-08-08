@@ -14563,8 +14563,25 @@ down, the site running out of budget mid-build, the page asking for twelve when
 it may have six — all of them fall back rather than failing. The chat now says
 which of those happened, because on the page they all look identical.
 
-**Not proven live yet: the fal balance is empty**, so every photograph will fail
-and fall back until it is topped up. Nothing is charged for one that fails.
+**One real bug, caught by the smoke test within the hour.** The very first live
+build published a home page with a broken-image icon on it, because on the path
+where no photograph can be afforded I forgot to clear the placeholder markers out
+of the code — so the page asked the browser for a picture that was never made.
+Fixed, and the smoke test is back to 57 of 57 with the proper placeholder in
+place. Worth knowing because of WHERE it happened: that path is the one every
+new account takes, since the 20-credit grant does not stretch to a photograph.
+
+**Also learned from that build: the builder was being told off for doing the
+right thing.** It put a photograph into a Gallery, which is exactly where a
+photograph goes — but my check only recognised one specific component. 42 of the
+kit's components handle a missing picture properly, and all of them are allowed
+now.
+
+**No photograph has actually been generated yet**, for two reasons: the fal
+balance is empty, and the test account only has the free grant, so the budget
+correctly comes out at zero before fal is even called. Everything around it is
+proven — the builder writes the requests, the site publishes, the placeholders
+look right. Nothing is charged for a picture that fails.
 
 ### Still to do
 
