@@ -135,11 +135,17 @@ test("usage comes back in the four kinds the price table takes", () => {
   const u = askUsage(toolReply({ intent: "ask", answer: "hi" }, {
     input_tokens: 900, output_tokens: 60, cache_read_input_tokens: 500, cache_creation_input_tokens: 20,
   }));
-  assert.deepEqual(u, { in: 900, out: 60, cacheRead: 500, cacheWrite: 20 });
+  // FIVE FIELDS, and the fifth is the rate column. Derived from `ASK_MODEL`
+  // rather than spelled out, so this asserts the usage names whatever model the
+  // request sends — a literal here would keep passing after the two diverged,
+  // which is the state that billed a Haiku call at Sonnet rates.
+  assert.deepEqual(u, { in: 900, out: 60, cacheRead: 500, cacheWrite: 20, model: ASK_MODEL });
+  assert.equal(askRequest({ message: "hi", site: SITE }).model, ASK_MODEL,
+    "the price column and the request must name the same model");
   // A response with no usage block must read as zeros, never as NaN — NaN
   // propagates into pageCredits and comes out as a charge nobody can explain.
-  assert.deepEqual(askUsage({}), { in: 0, out: 0, cacheRead: 0, cacheWrite: 0 });
-  assert.deepEqual(askUsage(null), { in: 0, out: 0, cacheRead: 0, cacheWrite: 0 });
+  assert.deepEqual(askUsage({}), { in: 0, out: 0, cacheRead: 0, cacheWrite: 0, model: ASK_MODEL });
+  assert.deepEqual(askUsage(null), { in: 0, out: 0, cacheRead: 0, cacheWrite: 0, model: ASK_MODEL });
 });
 
 // ── the whole route ──────────────────────────────────────────────────────────

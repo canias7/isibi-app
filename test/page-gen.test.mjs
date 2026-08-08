@@ -829,7 +829,18 @@ test("the Worker and the eval issue the SAME generation request", () => {
   // conclusion drawn from it would be about nothing.
   const worker = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
   const gen = worker.slice(worker.indexOf("async function generateSitePages"), worker.indexOf("function schemaPlaceholderPage"));
-  assert.match(gen, /JSON\.stringify\(pagesRequest\(/, "generateSitePages must use pagesRequest");
+  // TWO SHAPES ARE FINE and the variable name is DERIVED, not spelled out here:
+  // the body may be posted inline, or held in a const first (which is what the
+  // Builder picker needed — the usage has to be stamped with the model that was
+  // actually sent). What must not happen is building one request and posting a
+  // different one, so the const form is followed through to the stringify.
+  const held = gen.match(/const\s+(\w+)\s*=\s*pagesRequest\(/);
+  if (held) {
+    assert.ok(gen.includes("JSON.stringify(" + held[1] + ")"),
+      "generateSitePages builds a request with pagesRequest and then posts something else");
+  } else {
+    assert.match(gen, /JSON\.stringify\(pagesRequest\(/, "generateSitePages must use pagesRequest");
+  }
   assert.ok(!/model:\s*"claude-/.test(gen), "the model must come from pagesRequest, not be restated here");
   assert.ok(!/tool_choice/.test(gen), "the tool choice must come from pagesRequest");
   const evalSrc = fs.readFileSync(path.join(ROOT, "test", "integration", "page-gen-eval.mjs"), "utf8");

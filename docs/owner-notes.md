@@ -14444,6 +14444,40 @@ removing the separator check entirely still passed. Rewritten as `+1555000, +144
 it was refused for its second `+`. Only `+1555000,1444`, whose sole illegal
 character is the separator, actually holds the property.
 
+### The Builder picker now picks (2026-08-08)
+
+Your call: make Builder work, leave Effort visible and dead. Both are in, and
+both are pinned by a test — a control that does nothing on purpose and one that
+does nothing by accident look identical a year later.
+
+**The picker had never done anything.** All three options sent byte-identical
+requests, because nothing on the server read the field. The revise path did not
+even send it, so the moment you'd most want a better model — you've seen the
+first draft and want another go — was the one moment you couldn't ask for one.
+
+**What each option costs now, measured on one warm build:**
+
+| Builder | schema | pages | total |
+|---|---|---|---|
+| Sonnet 5 | 3 | 25 | **28 credits** |
+| Auto (Opus plans, Sonnet builds) | 5 | 25 | **30 credits** |
+| Opus 5 | 5 | 42 | **47 credits** |
+
+**The price table had to move with it.** It was the Sonnet column and nothing
+else — right while every build call was Sonnet, and a silent 67% undercharge on
+output the moment one could be Opus. That would have shipped the day after
+"charge for what you use", which is the one rule it cannot survive. Each call now
+records which model it ran on and is priced from that row.
+
+**A side-effect worth knowing:** the little router call that decides whether
+you're asking a question or asking for a build runs on Haiku and was being billed
+at Sonnet rates. It rounds up to one credit either way, so nobody paid extra —
+but it was wrong and now isn't.
+
+**Not proven live.** Every build still stops at the first model call because the
+model account has no balance. The wiring is tested; the bill is arithmetic, not a
+measurement, until there's money on the account.
+
 ### Still to do
 
 - **Turnstile has no live proof.** 24 unit tests and 11 mutations, but no real bot

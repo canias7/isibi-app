@@ -166,6 +166,12 @@ export function askUsage(reply) {
     out: Number(u.output_tokens) || 0,
     cacheRead: Number(u.cache_read_input_tokens) || 0,
     cacheWrite: Number(u.cache_creation_input_tokens) || 0,
+    // The rate column. `askRequest` sends this same constant, so the call and
+    // its price cannot disagree — and without it the router was billed at Sonnet
+    // rates for a Haiku call, three times over. Invisible today, because a
+    // routing call rounds up to the one-credit floor either way; it stops being
+    // invisible the moment anything on this path gets bigger.
+    model: ASK_MODEL,
   };
 }
 

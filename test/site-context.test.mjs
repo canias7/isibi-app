@@ -362,7 +362,7 @@ test("the route reads the links BEFORE the schema designer", () => {
   // about what a site stores, and reading it afterwards leaves the designer
   // guessing from the domain name.
   const read = worker.indexOf("readLinkedPages(brief");
-  const design = worker.indexOf("designSiteSchema(env, briefWithLinks)");
+  const design = worker.indexOf("designSiteSchema(env, briefWithLinks");
   assert.ok(read > 0, "the route never calls readLinkedPages");
   assert.ok(design > 0, "the designer is not given the linked brief");
   assert.ok(read < design, "links must be read before the designer runs");

@@ -11,8 +11,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { publishPages, pageCredits, pageCost, citedLines, sumUsage, RATES, SEARCH_USD, MIN_CREDITS,
+import { publishPages, pageCredits, pageCost, citedLines, totalCost, RATES, MODEL_RATES,
+  DEFAULT_RATE_MODEL, ratesFor, SEARCH_USD, MIN_CREDITS,
   ourFault, CHARGED_STAGES, schemaSettlement } from "../builder/publish-pages.mjs";
+import { BUILD_MODELS } from "../builder/build-models.mjs";
 
 const SPEC = {
   tables: [
@@ -714,16 +716,97 @@ test("a search is priced per search, not in tokens", () => {
   assert.equal(pageCredits({ searches: 4 }), 5);
 });
 
-test("usage from two calls is summed on the OBJECT, not as credits", () => {
-  // Adding credit totals would round each up to a whole credit and charge twice
-  // for the rounding — the same mistake as summing the four token kinds.
-  assert.deepEqual(sumUsage({ in: 1, out: 2 }, { in: 10, searches: 3 }),
-    { in: 11, out: 2, cacheRead: 0, cacheWrite: 0, searches: 3 });
-  assert.deepEqual(sumUsage(null, undefined, {}), { in: 0, out: 0, cacheRead: 0, cacheWrite: 0, searches: 0 });
-  assert.deepEqual(sumUsage(), { in: 0, out: 0, cacheRead: 0, cacheWrite: 0, searches: 0 });
-  // A single small usage rounds to one credit; two of them summed still round
-  // once, not twice.
-  assert.equal(pageCredits(sumUsage({ in: 1 }, { in: 1 })), 1);
+test("usage from two calls is summed in MONEY, and rounded once", () => {
+  // This used to sum the four TOKEN counts into one object and price the result,
+  // which was correct exactly while every call in a build was on the same model.
+  // It is not: under `auto` the designer is Opus and the pages are Sonnet, and a
+  // merged token object has no honest rate to be priced at.
+  assert.equal(totalCost({ in: 1, out: 2 }, { in: 10, searches: 3 }),
+    pageCost({ in: 1, out: 2 }) + pageCost({ in: 10, searches: 3 }));
+  assert.equal(totalCost(null, undefined, {}), 0, "nothing spent is nothing owed");
+  assert.equal(totalCost(), 0);
+  // THE PROPERTY THE OLD SHAPE EXISTED FOR, UNCHANGED: two small calls round to
+  // one credit between them, not one credit each. Rounding per call would charge
+  // twice for the rounding.
+  assert.equal(pageCredits({ in: 1 }, { in: 1 }), 1);
+  // And a cross-model pair is priced from two rows rather than one. Opus output
+  // is 25/MTok against Sonnet's 15, so pricing both at either rate lands
+  // somewhere this is not.
+  const mixed = pageCredits({ out: 400_000, model: "claude-opus-5" }, { out: 400_000, model: "claude-sonnet-5" });
+  assert.equal(mixed, Math.ceil((400_000 * 25e-6 + 400_000 * 15e-6) / 0.008));
+  assert.notEqual(mixed, pageCredits({ out: 800_000, model: "claude-opus-5" }));
+  assert.notEqual(mixed, pageCredits({ out: 800_000, model: "claude-sonnet-5" }));
+});
+
+test("every model priced is a model a build can actually send, and back", () => {
+  // A DERIVED GUARD, BOTH WAYS, because this pair is how the picker ships a
+  // silent undercharge: `build-models.mjs` names what runs, `MODEL_RATES` names
+  // what it costs, and a model added to one and not the other is invisible —
+  // `ratesFor` falls back rather than throwing, on purpose, so nothing fails.
+  const named = new Set(Object.values(BUILD_MODELS).flatMap((m) => [m.design, m.pages]));
+  assert.ok(named.size >= 2, "the pickers stopped naming distinct models");
+  for (const m of named) {
+    assert.ok(Object.hasOwn(MODEL_RATES, m), m + " can be selected by a picker and has no rate");
+  }
+  // The other direction is looser on purpose — the ask router's Haiku is priced
+  // here and is not a picker choice — but every rate row must be a real model id
+  // rather than a leftover, and the default must be one of them.
+  for (const m of Object.keys(MODEL_RATES)) assert.match(m, /^claude-[a-z0-9-]+$/, m);
+  assert.ok(Object.hasOwn(MODEL_RATES, DEFAULT_RATE_MODEL), "the default rate names no row");
+  assert.equal(RATES, MODEL_RATES[DEFAULT_RATE_MODEL], "RATES must stay the default column");
+});
+
+test("an Opus build costs more than a Sonnet one, from the same usage", () => {
+  // The whole reason the rate table went per-model on the day the picker was
+  // wired: identical tokens, different bill. Opus is 5/25 against Sonnet's 3/15,
+  // so a build that only changed its model must not cost the same.
+  const u = { in: 3000, out: 12000, cacheRead: 27000, cacheWrite: 0 };
+  const sonnet = pageCost({ ...u, model: "claude-sonnet-5" });
+  const opus = pageCost({ ...u, model: "claude-opus-5" });
+  const haiku = pageCost({ ...u, model: "claude-haiku-4-5" });
+  assert.ok(opus > sonnet, "Opus priced at or below Sonnet");
+  assert.ok(sonnet > haiku, "Sonnet priced at or below Haiku");
+  // Not merely different — the right multiple. Every column is exactly 5/3 of
+  // Sonnet's, so the whole bill is too.
+  assert.ok(Math.abs(opus / sonnet - 5 / 3) < 1e-9, "Opus is not 5/3 of Sonnet");
+  // A usage object naming NO model is priced at the default, which is what every
+  // usage object written before the picker existed looks like.
+  assert.equal(pageCost(u), sonnet, "an unnamed model must price as the default");
+});
+
+test("a model nobody priced fails DEAR, and says so", () => {
+  // The direction is the decision. Only our own code can put a model id here —
+  // the customer picks from a three-entry allow-list — so this branch means
+  // somebody wired a model and forgot to price it. Failing cheap is a silent
+  // undercharge that looks exactly like a working platform; failing dear shows
+  // up on the meter the first time it happens, and visible mistakes get fixed.
+  const errs = [];
+  const real = console.error;
+  console.error = (...a) => errs.push(a.join(" "));
+  try {
+    const u = { in: 1000, out: 1000, cacheRead: 1000, cacheWrite: 1000 };
+    const unknown = pageCost({ ...u, model: "claude-something-6" });
+    for (const m of Object.keys(MODEL_RATES)) {
+      assert.ok(unknown >= pageCost({ ...u, model: m }), "cheaper than " + m);
+    }
+    assert.ok(errs.some((e) => e.includes("claude-something-6")), "priced silently");
+    // DERIVED PER COLUMN, not one row picked by hand. Today every column's
+    // maximum happens to be Opus, so hardcoding that row would satisfy the check
+    // above — and would silently stop being the dearest the moment a model
+    // arrives that is cheaper on input and dearer on output.
+    const dear = ratesFor("claude-something-6");
+    for (const col of ["in", "out", "cacheRead", "cacheWrite"]) {
+      assert.equal(dear[col], Math.max(...Object.values(MODEL_RATES).map((r) => r[col])), col);
+    }
+    for (const row of Object.values(MODEL_RATES)) {
+      assert.notEqual(dear, row, "the dearest rate is a single row rather than a per-column maximum");
+    }
+  } finally { console.error = real; }
+  // Not an injection vector either: an object-shaped key must not resolve to a
+  // rate through the prototype. This exact bug shipped once already, in the
+  // Stripe plan lookup.
+  const proto = pageCost({ out: 1000, model: "constructor" });
+  assert.ok(proto > 0 && Number.isFinite(proto));
 });
 
 test("research is charged when the site actually publishes", async () => {
@@ -732,7 +815,7 @@ test("research is charged when the site actually publishes", async () => {
   const out = await publishPages(deps, { spec: SPEC, slug: "s", priorUsage: research });
   assert.equal(out.page, "app");
   assert.equal(calls.charges.length, 1, "exactly one charge");
-  assert.equal(calls.charges[0], pageCredits(sumUsage(USAGE, research)));
+  assert.equal(calls.charges[0], pageCredits(USAGE, research));
   // Strictly more than generation alone, or the research rode along free.
   assert.ok(calls.charges[0] > pageCredits(USAGE), "the research was not billed at all");
 });
@@ -745,7 +828,7 @@ test("research rides on the SAME rule as generation, not a rule of its own", asy
   // stage, and both directions are asserted from one table so a change that
   // makes it free everywhere (or charged everywhere) cannot pass half of it.
   const research = { in: 9000, out: 9000, searches: 4 };
-  const both = pageCredits(sumUsage(USAGE, research));
+  const both = pageCredits(USAGE, research);
   for (const [what, over, mine] of [
     ["no pages at all", { generate: async () => gen([]) }, false],
     ["pages, but no home page", { generate: async () => gen([good("about.tsx")]) }, false],

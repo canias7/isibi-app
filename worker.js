@@ -42,6 +42,7 @@ import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayou
 import { publishPages, pageCredits, schemaSettlement } from "./builder/publish-pages.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
 import { routeMessage } from "./builder/site-ask.mjs";
+import { modelsFor } from "./builder/build-models.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
 import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
 import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis, eoqCalc, breakevenCalc, demandForecast, installmentPlan, taxCalc, commissionCalc } from "./worker-finance.mjs";
@@ -3081,12 +3082,17 @@ async function anthropicMessages(env, body) {
   return r.json();
 }
 
-async function designSiteSchema(env, brief) {
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-5",
+// `model` comes from `modelsFor(body.picker)` — the composer's Builder control,
+// which chose nothing at all until 2026-08-08. Defaulted here only so this can
+// never send `model: undefined` and 400 the whole builder; the caller passing
+// it is what a test asserts, because a default that quietly wins is how a picker
+// goes back to being decoration.
+async function designSiteSchema(env, brief, model = modelsFor().design) {
+  // The request is built FIRST and the usage below is stamped from `req.model`,
+  // so what we bill and what we sent cannot disagree — the same by-construction
+  // discipline as pricing from one table instead of two.
+  const req = {
+      model,
       max_tokens: SITE_SCHEMA_MAX_TOKENS,
       // CACHED, the way pagesRequest already caches PAGE_RULES. This call carries
       // ~6,800 input tokens of tool schema and system text that are byte-identical
@@ -3107,7 +3113,11 @@ async function designSiteSchema(env, brief) {
               "nothing can write to a display table after the build, so an unseeded table is an empty list forever, and any form field that " +
               "chooses from it will have nothing to choose. Write content a real business would publish." }],
       messages: [{ role: "user", content: brief }],
-    }),
+  };
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify(req),
     // NO TIMEOUT ON EITHER BUILDER CALL (owner's call, 2026-08-04). A timeout
     // here does not save anything: the tokens are generated and billed to us
     // whether or not we are still listening, so cutting the connection means
@@ -3161,6 +3171,10 @@ async function designSiteSchema(env, brief) {
       out: u.output_tokens || 0,
       cacheRead: u.cache_read_input_tokens || 0,
       cacheWrite: u.cache_creation_input_tokens || 0,
+      // WHICH COLUMN OF THE RATE TABLE THIS IS PRICED AT. Read back off the
+      // request rather than off the parameter, so the model we bill for is the
+      // model we sent even if the two ever stop being the same expression.
+      model: req.model,
     },
   };
 }
@@ -3250,7 +3264,14 @@ async function siteWebResearch(env, brief, queries) {
   }];
   let facts = "";
   const sources = [];
-  const usage = { in: 0, out: 0, cacheRead: 0, cacheWrite: 0, searches: 0 };
+  // RESEARCH DOES NOT FOLLOW THE BUILDER PICKER, deliberately. It is a factual
+  // lookup — run these searches, report what came back — which is the step in a
+  // build where the model matters least, and the server-side search tool is
+  // versioned per model, so moving it is a way to break searching entirely in
+  // exchange for nothing anybody would see. Named here rather than inline so the
+  // rate column and the request cannot disagree.
+  const RESEARCH_MODEL = "claude-sonnet-5";
+  const usage = { in: 0, out: 0, cacheRead: 0, cacheWrite: 0, searches: 0, model: RESEARCH_MODEL };
 
   // The server-side search loop can pause mid-run (stop_reason "pause_turn");
   // the continuation is the assistant turn resent unchanged.
@@ -3261,7 +3282,7 @@ async function siteWebResearch(env, brief, queries) {
         method: "POST",
         headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-5",
+          model: RESEARCH_MODEL,
           max_tokens: 1200,
           system,
           tools: [{ type: "web_search_20250305", name: "web_search", max_uses: MAX_QUERIES + 1 }],
@@ -3321,14 +3342,16 @@ async function siteWebResearch(env, brief, queries) {
 //
 // ONE call per build. There is no repair pass — see builder/publish-pages.mjs
 // for the measurement it was removed on.
-async function generateSitePages(env, brief, spec, brand, family, attachments) {
+async function generateSitePages(env, brief, spec, brand, family, attachments, model) {
+  // One definition, shared with the eval harness — see pagesRequest. Restating
+  // it here would mean the harness tunes against a different request from the
+  // one production runs. Held in a const so the usage below can be stamped with
+  // the model that was actually sent.
+  const req = pagesRequest({ brief, spec, brand, family, attachments, model });
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    // One definition, shared with the eval harness — see pagesRequest. Restating
-    // it here would mean the harness tunes against a different request from the
-    // one production runs.
-    body: JSON.stringify(pagesRequest({ brief, spec, brand, family, attachments })),
+    body: JSON.stringify(req),
     // No timeout — see designSiteSchema. This is the call it mattered most for:
     // three pages against a 24,000-token ceiling is the one that runs long.
   });
@@ -3361,6 +3384,10 @@ async function generateSitePages(env, brief, spec, brand, family, attachments) {
       out: usage.output_tokens || 0,
       cacheRead: usage.cache_read_input_tokens || 0,
       cacheWrite: usage.cache_creation_input_tokens || 0,
+      // The rate column, off the request that was sent. Under `auto` this call
+      // is Sonnet while the designer above it is Opus, so a build's two usage
+      // objects are priced from two different rows and must never be merged.
+      model: req.model,
     },
   };
   // A tool_use block cut off at max_tokens carries half-written JSON, which parses
@@ -4930,7 +4957,7 @@ async function fetchSiteFonts(pair) {
 // all? — live in builder/publish-pages.mjs, which takes every side effect as an
 // injected function so they can be driven against fakes in test/publish-pages.test.mjs.
 // This is only the wiring that supplies the real ones.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, family, structure, attachments, priorUsage, mark }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteDescription, ogImage, fonts, theme, family, structure, attachments, priorUsage, model, mark }) {
   // Resolved once, before any model call: the pair always lands on something
   // installed, so a build never waits on a font it cannot get.
   const fontPair = resolvePair(fonts || {});
@@ -4952,7 +4979,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, siteD
       // and sent the bare brief — ~287 tokens of layout that every real build
       // carries and no sample ever did, so the compile rate described a prompt
       // the platform does not send.
-      return generateSitePages(env, briefWithLayout({ brief, family, structure }), spec, brand, family, attachments);
+      return generateSitePages(env, briefWithLayout({ brief, family, structure }), spec, brand, family, attachments, model);
     },
     compile: async (pages) => {
       const files = {};
@@ -7426,6 +7453,17 @@ async function handleRequest(request, env, ctx) {
       // IF NOT EXISTS), so both take the same path.
       const brief = String(body.brief || body.prompt || body.instruction || "").trim().slice(0, 4000);
 
+      // WHICH MODELS THIS BUILD RUNS ON — the composer's Builder picker, which
+      // was sent on every build from the day it shipped and read here on none of
+      // them. Resolved ONCE, before either call, so the designer and the pages
+      // cannot end up on models chosen by two different readings of one field.
+      // An unknown value resolves to the default; see `modelsFor`.
+      //
+      // `body.effort` stays unread, on purpose (owner's call): the Effort control
+      // is visible and inert, and this comment is the difference between that
+      // being a decision and looking like an oversight.
+      const models = modelsFor(body.picker);
+
       // WHAT THE USER ATTACHED, sorted into what the model can be shown
       // (images, PDFs), what it can be told (text files, folded into the brief),
       // and what it cannot be given at all. The composer has always sent these
@@ -7493,7 +7531,7 @@ async function handleRequest(request, env, ctx) {
         tr.at("gate");
 
         try {
-          const dz = await designSiteSchema(env, briefWithLinks);
+          const dz = await designSiteSchema(env, briefWithLinks, models.design);
           designed = dz && dz.input;
           schemaUsage = (dz && dz.usage) || null;
           tr.at("design", schemaUsage ? { out: schemaUsage.out, in: schemaUsage.in } : undefined);
@@ -7765,6 +7803,7 @@ async function handleRequest(request, env, ctx) {
             siteDescription, ogImage,
             attachments: attached.blocks,
             priorUsage: (researched && researched.usage) || null,
+            model: models.pages,
             fonts: (designed && designed.fonts) || (body && body.fonts) || null,
             // Same fallback chain as fonts, and it matters most on a REVISE:
             // the designer sees only the instruction then, so it names no theme
@@ -7913,6 +7952,13 @@ async function handleRequest(request, env, ctx) {
         pagesUsage: pages.usage || undefined,
         // The digest of the template the build container actually used.
         templateId: pages.templateId || undefined,
+        // WHICH MODELS RAN, and the picker they were resolved from. The RESOLVED
+        // picker, never `body.picker` — echoing back what was sent would report
+        // a typo as if it had been honoured, which is exactly the state this
+        // control spent its whole life in. Two usage objects on this response can
+        // now be priced from two different rows, and this is the field that says
+        // which is which.
+        models: { picker: models.picker, design: models.design, pages: models.pages },
       });
     }
 

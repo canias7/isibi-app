@@ -19,6 +19,7 @@ import { COMPONENT_API, COMPONENT_TYPES } from "./component-api.mjs";
 import { CHART_COMPONENTS, CHART_API } from "./chart-api.mjs";
 import { FAMILIES, layoutDirective } from "./site-layouts.mjs";
 import { FAMILY_EXEMPLARS } from "./family-exemplars.mjs";
+import { modelsFor } from "./build-models.mjs";
 // One worked call per primitive, mined out of the demos by
 // builder/gen-chart-usage.mjs. This is what the 1,140 demo files are FOR: they
 // are the only place in the repo these APIs are called, and they compile, so
@@ -2998,7 +2999,7 @@ export const SITE_PAGES_MAX_TOKENS = 30000;
  * the next call pays the write premium again. That is once per deploy that
  * touches the rules, against a saving on every build in between.
  */
-export function pagesRequest({ brief, spec, brand, family, attachments } = {}) {
+export function pagesRequest({ brief, spec, brand, family, attachments, model } = {}) {
   // THE ATTACHED FILES \u2014 images and PDFs \u2014 and where they sit is load-bearing
   // twice over.
   //
@@ -3019,7 +3020,11 @@ export function pagesRequest({ brief, spec, brand, family, attachments } = {}) {
   const blocks = Array.isArray(attachments) ? attachments.filter(Boolean) : [];
   const text = pagesPrompt(brief, spec, brand, family, blocks.length);
   return {
-    model: "claude-sonnet-5",
+    // The composer's Builder picker chooses this; `modelsFor()` with no
+    // argument is the default pair, which is what the eval harness and every
+    // caller that does not offer a choice get. Never a bare string here — a
+    // fourth copy of a model id is a fourth place for it to go stale.
+    model: model || modelsFor().pages,
     max_tokens: SITE_PAGES_MAX_TOKENS,
     tools: [SITE_PAGES_TOOL],
     tool_choice: { type: "tool", name: "write_pages" },

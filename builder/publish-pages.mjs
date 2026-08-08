@@ -16,7 +16,7 @@
 
 import { validatePages, lintPages } from "./page-gen.mjs";
 
-// Sonnet 5 rates over the platform's $0.008/credit basis.
+// List rates over the platform's $0.008/credit basis, PER MODEL.
 //
 // THE ONE TABLE. Until 2026-08-04 there were two: this one, which priced ALL
 // input at the fresh rate, and the eval's, which priced cache reads and writes
@@ -31,12 +31,68 @@ import { validatePages, lintPages } from "./page-gen.mjs";
 // `input_tokens` alone, so cached tokens were not counted AT ALL (21 credits);
 // counting them was right and pricing them at 10x was not, and the bill moved
 // 21 -> 35 without anyone deciding it should.
-export const RATES = {
-  in: 3e-6,          // fresh input
-  out: 15e-6,        // output, and adaptive thinking is billed in here too
-  cacheRead: 0.30e-6,   // 0.1x — the whole reason the system block is cached
-  cacheWrite: 3.75e-6,  // 1.25x, paid once per cache window
+//
+// IT WENT PER-MODEL ON 2026-08-08, with the Builder picker. Until then it was
+// the Sonnet 5 column and nothing else, which was exactly right for a platform
+// where every build call was Sonnet — and a silent 67% undercharge on output the
+// moment one of them could be Opus. Wiring a model choice without the price
+// beside it would have shipped that on the same day as "charge for what you
+// use", which is the one combination this rule cannot survive.
+//
+// The four kinds are the same shape for every model: cache read is 0.1x fresh
+// input and cache write 1.25x, so those columns are derived facts rather than
+// independent numbers — kept written out because a table somebody can read
+// against a price list beats one they have to recompute.
+export const MODEL_RATES = {
+  //                     fresh in   output    cache read  cache write
+  "claude-opus-5": { in: 5e-6, out: 25e-6, cacheRead: 0.50e-6, cacheWrite: 6.25e-6 },
+  "claude-sonnet-5": { in: 3e-6, out: 15e-6, cacheRead: 0.30e-6, cacheWrite: 3.75e-6 },
+  "claude-haiku-4-5": { in: 1e-6, out: 5e-6, cacheRead: 0.10e-6, cacheWrite: 1.25e-6 },
 };
+
+// What a usage object that names no model is priced at. NOT a fallback: it is a
+// fact about every usage object written before the picker existed, all of which
+// came off Sonnet, and about every call on the platform that is not given a
+// choice. Sonnet 5 has an intro rate ($2/$10) running to 2026-08-31; the LIST
+// price is used, because the ledger should not need re-pricing the day it ends.
+export const DEFAULT_RATE_MODEL = "claude-sonnet-5";
+
+/** Kept as an export: it was the whole table, and nothing that reads it changed. */
+export const RATES = MODEL_RATES[DEFAULT_RATE_MODEL];
+
+// Derived, per column, so adding a dearer model updates it without anybody
+// remembering to. Comparing on one field (or on in+out) would let a model that
+// is cheaper on input and dearer on output slip past.
+const DEAREST_RATES = Object.values(MODEL_RATES).reduce((a, b) => ({
+  in: Math.max(a.in, b.in),
+  out: Math.max(a.out, b.out),
+  cacheRead: Math.max(a.cacheRead, b.cacheRead),
+  cacheWrite: Math.max(a.cacheWrite, b.cacheWrite),
+}));
+
+/**
+ * The rates a usage object should be priced at.
+ *
+ * AN UNRECOGNISED MODEL IS PRICED AT THE DEAREST KNOWN RATE, and the direction
+ * is the decision. Only our own code can put a model id here — the customer
+ * picks from a three-entry allow-list in `build-models.mjs` — so this branch
+ * means somebody wired a model and did not price it. Failing cheap is a silent
+ * undercharge that looks exactly like a working platform and gets noticed in a
+ * month, if at all; failing dear is visible on the meter the first time it
+ * happens, and visible mistakes get fixed. Same reasoning as the schema deposit,
+ * which KEEPS the money when the meter is unreadable.
+ *
+ * A test asserts every model any picker can select is in the table, so this
+ * branch should be unreachable in practice — that is what makes it safe to make
+ * it the expensive one.
+ */
+export function ratesFor(model) {
+  if (!model) return MODEL_RATES[DEFAULT_RATE_MODEL];
+  if (Object.hasOwn(MODEL_RATES, model)) return MODEL_RATES[model];
+  console.error("no rate for model", String(model).slice(0, 60), "- pricing at the dearest known rate");
+  return DEAREST_RATES;
+}
+
 const CREDIT_USD = 0.008;
 
 // A web search is billed PER SEARCH and not in tokens, so it is invisible to
@@ -46,32 +102,42 @@ const CREDIT_USD = 0.008;
 // $10 per 1,000 searches.
 export const SEARCH_USD = 0.01;
 
-/** Dollars at list price. Exported so nothing has to keep a second copy. */
-export const pageCost = ({ in: fresh = 0, out = 0, cacheRead = 0, cacheWrite = 0, searches = 0 } = {}) =>
-  fresh * RATES.in + out * RATES.out + cacheRead * RATES.cacheRead + cacheWrite * RATES.cacheWrite +
-  searches * SEARCH_USD;
-
 /**
- * Add up usage from more than one call.
+ * Dollars at list price, for ONE call. Exported so nothing keeps a second copy.
  *
- * Research and generation are two separate model calls whose costs land on one
- * bill, and summing them has to happen on the OBJECT — adding the credit totals
- * instead would round each up to a whole credit and charge twice for the
- * rounding. Same reason `pageCredits` takes the object rather than two numbers.
+ * `model` selects the column. A usage object that does not name one is priced at
+ * the default — see `DEFAULT_RATE_MODEL` for why that is a fact rather than a
+ * guess. Searches are flat: a server-side web search is $0.01 whichever model
+ * asked for it, so it is the one term here that does not move with the column.
  */
-export const sumUsage = (...parts) => {
-  const total = { in: 0, out: 0, cacheRead: 0, cacheWrite: 0, searches: 0 };
-  for (const p of parts) {
-    if (!p) continue;
-    for (const k of Object.keys(total)) total[k] += Number(p[k]) || 0;
-  }
-  return total;
+export const pageCost = ({ in: fresh = 0, out = 0, cacheRead = 0, cacheWrite = 0, searches = 0, model } = {}) => {
+  const r = ratesFor(model);
+  return fresh * r.in + out * r.out + cacheRead * r.cacheRead + cacheWrite * r.cacheWrite +
+    searches * SEARCH_USD;
 };
 
+/**
+ * Dollars for several calls that land on one bill.
+ *
+ * THIS SUMS MONEY, NOT TOKENS, and that changed with the Builder picker. It
+ * used to be `sumUsage`, which merged the four token counts into one object and
+ * priced the result once — correct exactly while every call in a build was on
+ * the same model. Under `auto` the designer is Opus and the pages are Sonnet, so
+ * a merged object has no honest rate to be priced at: adding the tokens would
+ * charge one call at the other's price, whichever column won.
+ *
+ * The property `sumUsage` existed for survives unchanged, and is the reason this
+ * returns dollars rather than credits: rounding happens ONCE, in `pageCredits`.
+ * Rounding each call up to a whole credit and adding those would charge twice
+ * for the rounding.
+ */
+export const totalCost = (...parts) => parts.reduce((sum, p) => sum + (p ? pageCost(p) : 0), 0);
+
 // Whole credits, minimum one — a generation that produced anything at all was
-// not free. Takes the usage OBJECT, not two summed numbers: summing is what
-// threw away the distinction between the three input kinds in the first place.
-export const pageCredits = (usage) => Math.max(1, Math.ceil(pageCost(usage) / CREDIT_USD));
+// not free. Takes the usage OBJECTS, never numbers already summed: collapsing
+// them is what threw away the distinction between the three input kinds in the
+// first place, and now also between two models.
+export const pageCredits = (...parts) => Math.max(1, Math.ceil(totalCost(...parts) / CREDIT_USD));
 
 // Don't start a call the caller plainly cannot pay for. Deliberately a floor and
 // not the worst case (~45 credits at the token ceiling): a new account is granted
@@ -349,7 +415,7 @@ export async function publishPages(deps, { spec, slug, priorUsage } = {}) {
    */
   const settle = async (stage) => {
     if (ourFault(stage)) { out.charged = false; return FREE; }
-    const c = pageCredits(sumUsage(gen.usage, priorUsage));
+    const c = pageCredits(gen.usage, priorUsage);
     out.cost += c;
     try { await deps.useCredits(c); } catch { /* never fail a build over the ledger */ }
     out.charged = true;

@@ -10873,7 +10873,15 @@ function reactSend(site, t, origin, mode, imgs, finish) {
   // one place, so neither entry can leave it stuck on `thinking`.
   if (siteBuild) { siteBuild.rphase = 'generating'; paintReactLive(); }
   const endpoint = mode === 'build' ? '/api/site/react-build' : '/api/site/react-revise';
-  const body = mode === 'build' ? { brief: t, images: imgs, picker: buildPicker, effort: buildEffort } : { slug: site.slug, instruction: t, images: imgs, effort: buildEffort };
+  // `picker` on BOTH, and it was on neither in any way that mattered until
+  // 2026-08-08: the build sent it and the server read it zero times, and the
+  // REVISE did not even send it. So the one path where somebody has already seen
+  // a result and is reaching for a better model was the path that could not ask
+  // for one. `effort` rides along on both and is still read by nothing — the
+  // control is visible and inert on purpose (owner's call).
+  const body = mode === 'build'
+    ? { brief: t, images: imgs, picker: buildPicker, effort: buildEffort }
+    : { slug: site.slug, instruction: t, images: imgs, picker: buildPicker, effort: buildEffort };
   siteAbort = new AbortController();
   apiFetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: siteAbort.signal }).then(async (r) => {
     const ct = r.headers.get('content-type') || '';
