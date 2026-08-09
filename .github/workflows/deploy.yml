@@ -157,3 +157,20 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: node .github/scripts/saas-setup.mjs
+
+      # THE SITE ZONE, on the same read-only footing and for the same reason.
+      # `<slug>.gofarther.app` needs the zone in this account, two DNS records
+      # and a Worker route, and the route CANNOT go into wrangler.jsonc until
+      # the first of those is true — a route naming a zone the account does not
+      # hold fails the routes PUT and takes the whole deploy with it.
+      #
+      # So the precondition for flipping SITE_ZONE_LIVE is a fact about
+      # Cloudflare that nothing in the repo can see. Printing it on every deploy
+      # means the answer is already there when somebody asks, instead of being a
+      # workflow somebody has to remember to run. Read-only: `site-zone-setup.yml`
+      # is the same script with `--apply` available.
+      - name: site zone status (report only)
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node .github/scripts/site-zone-setup.mjs
