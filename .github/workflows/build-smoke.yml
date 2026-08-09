@@ -23,7 +23,26 @@ on:
 jobs:
   smoke:
     # A failed deploy has nothing new to smoke-test.
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    #
+    # `[skip smoke]` in the commit message ships a deploy WITHOUT the two real
+    # builds. For a change the smoke run cannot prove anything about — a mail
+    # provider swap, a comment, a workflow edit — those builds are two Sonnet
+    # calls, a Neon project and ~$0.40 spent to re-confirm a path nothing
+    # touched.
+    #
+    # DELIBERATELY NOT GitHub's own skip marker, which suppresses EVERY workflow
+    # for the push — including the deploy, so the change would not ship at all.
+    # That exact accident happened here on 2026-07-29: a commit message that
+    # merely EXPLAINED the marker contained it, and the merge landed on main
+    # with nothing deployed, nothing tested and a green tick. `[skip smoke]` is
+    # ours, means one thing, and is checked by test/deploy-secrets.test.mjs.
+    #
+    # Read off the DEPLOY's head commit, because that is the commit this run
+    # would be testing. `workflow_dispatch` ignores it — asking for a run by
+    # hand is not something a commit message should be able to veto.
+    if: >-
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+      && !contains(github.event.workflow_run.head_commit.message, '[skip smoke]')
     runs-on: ubuntu-latest
     # A build is now design → provision → generate → compile → publish, and the
     # build container may be cold. Ten minutes was sized for the schema alone.

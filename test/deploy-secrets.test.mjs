@@ -159,3 +159,37 @@ test("nothing the deploy SHIPS is a file the filter now ignores", () => {
   const inPublic = fs.readdirSync(new URL("../public/", import.meta.url)).filter((f) => f.toLowerCase().endsWith(".md"));
   assert.deepEqual(inPublic, [], `public/ serves ${inPublic.join(", ")} — a docs-only commit would not redeploy it`);
 });
+
+// A DEPLOY WITHOUT THE TWO REAL BUILDS — and the marker that must not be GitHub's.
+//
+// `build smoke` spends two Sonnet calls, a Neon project and ~$0.40 every run.
+// For a change it cannot prove anything about (a mail provider swap, a comment,
+// a workflow edit) that is pure waste, so `[skip smoke]` in the commit message
+// ships the deploy and skips the builds.
+//
+// THE DANGER IS REACHING FOR GITHUB'S OWN MARKER INSTEAD. That one suppresses
+// EVERY workflow for the push — including the deploy — so the change would not
+// ship at all, with a green tick and no failed run to notice. It happened here
+// on 2026-07-29 from a commit message that merely explained the marker.
+test("a deploy can skip the smoke builds, and not by suppressing the deploy", () => {
+  const y = readFileSync(new URL("../.github/workflows/build-smoke.yml", import.meta.url), "utf8");
+
+  const gate = (y.match(/\n\s*if: >-\n([\s\S]*?)\n\s*steps:/) || [])[1];
+  assert.ok(gate, "the smoke job's gate is gone or reshaped");
+  assert.match(gate, /!contains\(github\.event\.workflow_run\.head_commit\.message, '\[skip smoke\]'\)/,
+    "the skip marker is not read off the deploy's own head commit");
+  // The deploy-succeeded half must survive alongside it — a gate that only
+  // checks the marker would smoke-test a FAILED deploy.
+  assert.match(gate, /workflow_run\.conclusion == 'success'/,
+    "the gate stopped requiring a successful deploy");
+  // And a hand-triggered run must not be vetoable by a commit message.
+  assert.match(gate, /workflow_dispatch/, "workflow_dispatch lost its exemption");
+
+  // THE MARKER IS OURS. Every spelling GitHub itself recognises would take the
+  // deploy down with the smoke run, which is the opposite of what this is for.
+  for (const github of ["[skip ci]", "[ci skip]", "[no ci]", "[skip actions]", "[actions skip]"]) {
+    assert.ok(!y.includes(github),
+      `build-smoke.yml names ${github} — GitHub suppresses EVERY workflow for that push, ` +
+      "so the deploy would not ship either");
+  }
+});

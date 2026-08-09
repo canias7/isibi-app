@@ -14834,3 +14834,9 @@ One thing left on our sender besides the login code: the one-off "your domain is
 live" notice when a custom domain's certificate is issued. That goes to you
 about your own account rather than to a site's visitors, so I've left it — say
 if you want it moved too.
+
+**Deploy without the two test builds.** Put `[skip smoke]` in the commit message
+and the change ships without the deploy check building two sites (~$0.40 and a
+couple of Sonnet calls a run). Use it for anything the check can't say anything
+about. It is deliberately not GitHub's own skip marker — that one stops *every*
+workflow including the deploy, so the change wouldn't ship at all.
