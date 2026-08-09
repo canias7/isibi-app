@@ -215,6 +215,16 @@ Every generation is metered in credits (1 credit = $0.008 fal cost). Postgres RP
 - **The last recurring shape is NOT fixed**, and it is not ours in the same way: an object assigned into a row field (`Type '{ stage: string; }' is not assignable to 'string | number | boolean | null | undefined'` — the `Row` index signature, three runs) and invented export names (`activityFeedPlaceholder`, `activityFeedFallback`). Both need thought rather than a field.
 - **The eval is what made this answerable at all.** One sample a run, errors committed per sample under `docs/auth-audit/pages/*/_errors.txt`, so eight runs of history turned "why did my build fail" from a shrug into a ranked list. 1843 tests, 3/3 mutations caught.
 
+## A menu came out in alphabetical order (2026-08-09)
+
+**Seen on the first real site of the evening.** A pizzeria's menu read **Dessert, Pizza, Starters** — the affogato above the margherita — because the page ordered by the category column and `order` sorts by the VALUE. Not a crash, not a compile error, nothing in the pipeline can see it, and it is wrong on every menu, price list and timetable the platform makes.
+
+- **The rule is in the prompt because it can only be there.** A lint would have to guess which columns are categorical, and this file already records that a rule wrong on a third of its hits is worse than one that is merely narrow. The worked example is the MEASURED case (`Dessert, Pizza, Starters`) rather than an abstraction, so the model reads the actual wrong answer.
+- **The leftover clause is what stops the fix creating a worse bug.** A hardcoded section list silently drops any row whose category is not in it, so a dish the owner adds next month is invisible with nothing to explain it. Asserted separately, because the ordering half passes without it.
+- **INSERTING THE RULE SILENTLY DISABLED A GUARD, and that is the lesson worth keeping.** `test/page-gen.test.mjs` sliced `indexOf("14. A TABLE MARKED")` to `indexOf("15. NO EXPLANATORY")`; renumbering moved both to 15 and 16, `indexOf` answered **-1 twice**, `slice(-1, -1)` is the empty string, and the test looped over nothing and PASSED — with the whole suite green. **A number in an anchor is a fact about ordering that a later edit changes without meaning to.** Both windows now anchor on the words and assert they are non-empty before reading, and `saas-setup.test.mjs` had the identical shape one step worse — a NEGATIVE assertion over a window, where "no POST in here" is trivially true of nothing. Proved by simulating the renumbering: the guard goes red now instead of quiet.
+- **The rules are asserted to be numbered 1..N with no gaps or duplicates**, which is cheap, derived, and catches the mistake actually made on the way in: renumbering by hand left TWO rule 15s for a moment.
+- **Two mutation survivors were INERT and reported a gap that was not there** — renumbering a rule no longer moves an anchor that does not name the number. Recorded because that is now the fourth time this session, and chasing one costs a hunt through tests that are fine.
+
 ## One public address per site (2026-08-09, owner's call)
 
 **"Can we have only one instead of two — only the gofarther.app."** `/s/<slug>/` now 301s to `<slug>.gofarther.app`.

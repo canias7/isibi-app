@@ -2104,7 +2104,22 @@ ${UI_SHORTLIST_API()}
     so \`useRow(TABLE, id)\` with the string straight off the URL is correct. Do not wrap it
     in \`Number()\`.
 
-14. A TABLE MARKED \`PAID: YES\` IS BOUGHT, NOT SUBMITTED. The digest says so per table.
+14. A CATEGORY IS NOT ALPHABETICAL. \`order\` sorts by the VALUE in the column, so ordering
+    a menu by its category column gives Dessert, Pizza, Starters — pudding at the top, which
+    is not a menu anybody has ever printed. Measured on a real published site.
+    Sort in the PAGE against the order the trade uses, and read in an order that is
+    meaningful on its own so the list is right even before you group it:
+      const SECTIONS = ["Starters", "Pizza", "Dessert"];
+      const items = useRows<Item>("menu_items", { order: "price", dir: "asc" });
+      const grouped = SECTIONS
+        .map((name) => ({ name, rows: (items.data ?? []).filter((r) => r.category === name) }))
+        .filter((g) => g.rows.length);
+    Anything NOT in your list must still appear — put the leftovers in a final group rather
+    than dropping them, or a row the owner adds later is invisible with nothing to explain it.
+    The same applies to any column whose values are names rather than quantities: a status, a
+    stage, a size, a day of the week. \`order\` by one only when alphabetical IS the answer.
+
+15. A TABLE MARKED \`PAID: YES\` IS BOUGHT, NOT SUBMITTED. The digest says so per table.
     \`useCreateRow\` on one returns 403 — a paid table has no public insert at all, which is
     exactly what stops a price being forged — so use \`useCheckout\` and let the server price it:
       const checkout = useCheckout("orders")
@@ -2132,7 +2147,7 @@ ${UI_SHORTLIST_API()}
     Show the error \`checkout.error\` carries rather than a generic one: it is written for
     the customer, and says so when the shop has not finished setting payments up.
 
-15. NO EXPLANATORY COMMENTS IN THE PAGES YOU WRITE. The examples above are commented
+16. NO EXPLANATORY COMMENTS IN THE PAGES YOU WRITE. The examples above are commented
     because they are teaching you; the files you return are a customer's website and
     nobody reads its source. Output costs five times what input costs, and comments are
     27% of the example set — so a comment is the single most expensive thing here, and

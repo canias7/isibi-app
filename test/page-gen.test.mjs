@@ -1834,7 +1834,18 @@ test("rule 14's example cites components that REALLY EXIST, with the right casin
   // component taking {amount, currency} — so the example the model is told to
   // copy was TS2724, the page refused, the site published as the placeholder.
   // Caught by compiling it, which is the only thing that could have.
-  const example = PAGE_RULES.slice(PAGE_RULES.indexOf("14. A TABLE MARKED"), PAGE_RULES.indexOf("15. NO EXPLANATORY"));
+  // ANCHORED ON THE WORDS, NOT THE RULE NUMBER, and proved non-empty before it
+  // is read. Written `indexOf("14. A TABLE MARKED")`, inserting a rule above it
+  // moved both anchors to 15 and 16, `indexOf` answered -1 twice, `slice(-1,-1)`
+  // returned the empty string, and this test looped over nothing and PASSED —
+  // the vacuous-window failure, caused by my own renumbering, with the whole
+  // suite green. A number in an anchor is a fact about ordering that a later
+  // edit changes without meaning to.
+  const from = PAGE_RULES.indexOf("A TABLE MARKED");
+  const to = PAGE_RULES.indexOf("NO EXPLANATORY COMMENTS");
+  assert.ok(from > 0 && to > from, "the paid-table rule or the one after it moved — window is empty");
+  const example = PAGE_RULES.slice(from, to);
+  assert.ok(example.length > 400, "the window collapsed — it is " + example.length + " chars");
   const kitDir = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
   // `[\s/]` and not `>`, or `useRows<Product>` matches as a JSX tag — it is a
   // generic type parameter, and the guard went looking for product.tsx.
@@ -2172,4 +2183,36 @@ test("the naming law and its exceptions are in the prompt", () => {
   // The exceptions are DERIVED, so a new odd-named component appears here
   // without anybody remembering to add it.
   assert.match(PAGE_RULES, /landmark → PageMain/, "the underivable names are not listed");
+});
+
+test("the rules say a category column is not alphabetical", () => {
+  // Measured on a real published site: a pizzeria's menu came out Dessert,
+  // Pizza, Starters — pudding at the top — because the page ordered by the
+  // category column and `order` sorts by the VALUE. Not a crash, not a compile
+  // error, and nothing in the pipeline can see it; the only guard is the model
+  // knowing.
+  assert.match(PAGE_RULES, /A CATEGORY IS NOT ALPHABETICAL/);
+  // The worked example is the measured case, so the model reads the actual
+  // wrong answer rather than an abstraction.
+  assert.match(PAGE_RULES, /Dessert, Pizza, Starters/);
+  // AND THE LEFTOVER RULE, which is the part that stops the fix creating a
+  // worse bug: a hardcoded section list silently drops any row whose category
+  // is not in it, so a dish the owner adds later is invisible.
+  const from = PAGE_RULES.indexOf("A CATEGORY IS NOT ALPHABETICAL");
+  const to = PAGE_RULES.indexOf("A TABLE MARKED");
+  assert.ok(from > 0 && to > from, "the category rule or the one after it moved — window is empty");
+  const rule = PAGE_RULES.slice(from, to);
+  assert.ok(rule.length > 400, "the window collapsed — it is " + rule.length + " chars");
+  assert.match(rule, /must still appear/, "nothing tells it not to drop uncategorised rows");
+});
+
+test("the rules are numbered 1..N with no gaps and no duplicates", () => {
+  // Cheap, derived, and it catches the mistake actually made while inserting the
+  // category rule: renumbering by hand left TWO rule 15s for a moment, and
+  // nothing would have said so. A duplicate reads to the model as one rule
+  // overwriting another, and a gap reads as a rule that was removed.
+  const nums = [...PAGE_RULES.matchAll(/^(\d+)\. [A-Z]/gm)].map((m) => Number(m[1]));
+  assert.ok(nums.length >= 10, "the rule scan found only " + nums.length + " — it stopped matching");
+  assert.deepEqual(nums, nums.map((_, i) => i + 1),
+    "the rules are numbered " + nums.join(",") + " — expected 1.." + nums.length);
 });

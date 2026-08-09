@@ -74,7 +74,16 @@ test("the route cannot be created out of band, so nothing may suggest it", () =>
     "the script must point at wrangler.jsonc for the route rather than creating one");
   // Bounded at step 4, or it reads the SIGNING KEY's POST as a route write —
   // the slice-to-end-of-file trap.
-  const routeSection = script.slice(script.indexOf("3. Worker route"), script.indexOf("4. Domain Connect signing key"));
+  // PROVED NON-EMPTY FIRST. This is a NEGATIVE assertion over a window, which is
+  // the shape that fails silently: renumber the steps and both anchors answer
+  // -1, `slice(-1, -1)` is the empty string, and "no POST in here" is trivially
+  // true of nothing. That exact thing happened to the rule-14 window in
+  // page-gen.test.mjs, from a renumbering one rule above it.
+  const from = script.indexOf("3. Worker route");
+  const to = script.indexOf("4. Domain Connect signing key");
+  assert.ok(from > 0 && to > from, "the route step or the one after it moved — window is empty");
+  const routeSection = script.slice(from, to);
+  assert.ok(routeSection.length > 200, "the window collapsed — it is " + routeSection.length + " chars");
   assert.ok(!/method:\s*"POST"/.test(routeSection) && !/method:\s*"PUT"/.test(routeSection),
     "the script must only VERIFY the route, never write it");
 });
